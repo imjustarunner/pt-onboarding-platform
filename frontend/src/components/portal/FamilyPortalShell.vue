@@ -38,6 +38,7 @@
       </header>
       <slot name="toolbar" />
       <slot />
+      <slot name="footer" />
     </main>
   </div>
 </template>

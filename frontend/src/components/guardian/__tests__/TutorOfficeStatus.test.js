@@ -14,3 +14,10 @@ it('shows status and opens a private chat only after the visitor chooses to mess
  await w.find('button').trigger('click');await flushPromises();expect(api.post.mock.calls[0][0]).toBe('/tutoring-learning-os/clients/4/office-visit');expect(w.text()).toContain('Only you and Timmy');expect(JSON.parse(sessionStorage.getItem('auricwell-office-visit:sample')).id).toBe(8);
  offices=[];await vi.advanceTimersByTimeAsync(15000);await flushPromises();expect(w.find('.office-messages').exists()).toBe(false);expect(w.text()).not.toContain('Timmy is currently');w.unmount();
 });
+
+it('changes office scope for the same child immediately and rejects a late response from the previous service',async()=>{
+ const {ref}=await import('vue');const care=ref({clientId:2545,agencyId:453,serviceId:1038});let releaseOld;
+ api.get.mockImplementationOnce(()=>new Promise(resolve=>releaseOld=resolve)).mockResolvedValue({data:{offices:[]}});
+ const w=mount(Status,{props:{clientId:2545},global:{provide:{portalCareContext:care}}});await flushPromises();care.value={...care.value,serviceId:1042};await flushPromises();expect(api.get).toHaveBeenCalledTimes(2);
+ releaseOld({data:{offices:[{appointmentId:324,source:'appointment',providerName:'Old tutor',officeSlug:'old',virtual:true}]}});await flushPromises();expect(w.text()).not.toContain('Old tutor');expect(w.find('a').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();w.unmount();
+});

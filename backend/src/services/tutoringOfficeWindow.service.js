@@ -8,6 +8,7 @@ export function officeAppointmentWindow(appointment,now=Date.now()){
  return {available:!!eligible&&now>=opensAt&&now<=closesAt,opensAt:eligible?new Date(opensAt).toISOString():null,closesAt:eligible?new Date(closesAt).toISOString():null};
 }
 export async function tutoringOfficeAppointments({clientId,agencyId,providerId=null},db=pool){
+ if(providerId===0)return [];
  const [rows]=await db.execute(`SELECT DISTINCT a.id,'appointment' AS source,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality
  FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id
  WHERE p.client_id=? AND a.agency_id=? AND (? IS NULL OR a.provider_user_id=?) AND a.business_type IN ('learning','tutoring')
@@ -35,6 +36,7 @@ export async function officeVisitWindowOpen(visitId,db=pool,{messaging=false}={}
  return appointments.some(a=>a.source===binding.appointment_source&&Number(a.id)===Number(binding.appointment_id));
 }
 export async function tutoringOfficeEntryAppointment({clientId,agencyId,providerId=null,source,appointmentId},db=pool){
+ if(providerId===0)return null;
  if(!Number.isSafeInteger(Number(appointmentId))||Number(appointmentId)<1)return null;
  if(source==='appointment'){
   const [[row]]=await db.execute(`SELECT DISTINCT a.id,'appointment' AS source,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.source_timezone AS timeZone,a.modality

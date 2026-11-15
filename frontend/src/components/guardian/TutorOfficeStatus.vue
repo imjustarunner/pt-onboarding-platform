@@ -12,24 +12,24 @@
   </section>
 </template>
 <script setup>
-import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
+import {computed,inject,unref,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 import OfficeWaitingMessages from '../meetings/OfficeWaitingMessages.vue';
 const props=defineProps({clientId:{type:[Number,String],required:true}});
-const api=usePortalCareApi();
+const api=usePortalCareApi(),careContext=inject('portalCareContext',null);
 const offices=ref([]),error=ref(''),busy=ref(false),selectedKey=ref(''),visit=ref(null);
 const key=o=>`${o.source}-${o.appointmentId}`;
 const activeOffice=computed(()=>offices.value.find(o=>key(o)===selectedKey.value));
 const availabilityLabel=value=>({in_session:'In a session',available:'In the office',away:'Away'})[value]||'Away';
 const availabilityText=o=>o.availability==='in_session'?`${o.providerName} is currently in a session. You can leave a message; they can reply when they are free.`:o.availability==='available'?`${o.providerName} is in the office. You can send a message while you wait.`:`${o.providerName} is away. You can leave a message for when they return.`;
-let timer,stopped=false,version=0,fetching=false;
+let timer,stopped=false,version=0,fetchingVersion=null;
 const endpoint=()=>`/tutoring-learning-os/clients/${props.clientId}`;
-async function refresh(){if(fetching)return;fetching=true;const requestVersion=version;try{const {data}=await api.get(`${endpoint()}/office-status`,{skipGlobalLoading:true});if(!stopped&&requestVersion===version){offices.value=data.offices||[];error.value='';if(!activeOffice.value){visit.value=null;selectedKey.value='';}}}catch{if(!stopped&&requestVersion===version){offices.value=[];visit.value=null;error.value='Office status is temporarily unavailable.';}}finally{fetching=false;}}
+async function refresh(){const requestVersion=version;if(fetchingVersion===requestVersion)return;fetchingVersion=requestVersion;try{const {data}=await api.get(`${endpoint()}/office-status`,{skipGlobalLoading:true});if(!stopped&&requestVersion===version){offices.value=data.offices||[];error.value='';if(!activeOffice.value){visit.value=null;selectedKey.value='';}}}catch{if(!stopped&&requestVersion===version){offices.value=[];visit.value=null;error.value='Office status is temporarily unavailable.';}}finally{if(fetchingVersion===requestVersion)fetchingVersion=null;}}
 async function openChat(office){if(busy.value)return;busy.value=true;error.value='';const requestVersion=version;const storageKey=`auricwell-office-visit:${office.officeSlug}`;let previous={};try{previous=JSON.parse(sessionStorage.getItem(storageKey)||'{}');}catch{}
  try{const {data}=await api.post(`${endpoint()}/office-visit`,{appointmentId:office.appointmentId,source:office.source,existingVisitId:previous.id,credential:previous.credential});if(stopped||requestVersion!==version)return;visit.value=data.lobby;selectedKey.value=key(office);try{sessionStorage.setItem(storageKey,JSON.stringify({id:data.lobby.id,credential:data.lobby.credential,displayName:data.lobby.guestDisplayName}));}catch{}}
- catch(e){error.value=e.response?.data?.error?.message||'Could not open the conversation.';}finally{busy.value=false;}}
+ catch(e){if(!stopped&&requestVersion===version)error.value=e.response?.data?.error?.message||'Could not open the conversation.';}finally{busy.value=false;}}
 const messageRequest=async options=>{const url=`/my-room/${encodeURIComponent(activeOffice.value.officeSlug)}/lobby/${visit.value.id}/messages`;const config={headers:{'X-Office-Visit':visit.value.credential},skipGlobalLoading:true};return (options.method==='POST'?await api.post(url,options.body,config):await api.get(url,config)).data;};
-watch(()=>props.clientId,()=>{version++;offices.value=[];visit.value=null;selectedKey.value='';void refresh();});
+watch([()=>props.clientId,()=>unref(careContext)?.agencyId,()=>unref(careContext)?.serviceId],()=>{version++;offices.value=[];visit.value=null;selectedKey.value='';void refresh();});
 onMounted(()=>{void refresh();timer=setInterval(refresh,15000);});onBeforeUnmount(()=>{stopped=true;version++;clearInterval(timer);});
 </script>
 <style scoped>

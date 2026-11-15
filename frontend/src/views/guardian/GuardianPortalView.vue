@@ -57,14 +57,14 @@
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
                 <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Open Tasks & documents to review any pending enrollment, or ask the office about your access.') }}</p>
                 <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
-                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{ft(service.label)}}<small>{{service.provider_name || ft("Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
+                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{ft(service.label)}}<small>{{service.provider_name || ft(service.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
               </article></div>
             </section>
 
             <GuardianSchoolCareBridge v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
             <template v-else-if="activePanel === 'tutoring'">
               <GuardianTutoringDashboard :progress-allowed="selectedGuardianPermissions.canViewProgress!==false" @appointments="navigatePortal('appointments')" embedded
-                :key="`${currentAgencyId}-${selectedChildId}`"
+                :key="`${currentAgencyId}-${selectedChildId}-${selectedServiceId || 0}`"
                 v-if="selectedChildId"
                 :client-id="selectedChildId"
                 :student-name="selectedChild ? childDisplayName(selectedChild) : 'your student'"
@@ -433,7 +433,7 @@
 
             <template v-else-if="['messages','family_messages'].includes(activePanel)">
               <SecureSessionCommentHistory v-if="!isSuperadminPreview" :client-id="activePanel === 'family_messages' ? null : selectedChildId" family />
-              <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
+              <GuardianMessagesPanel :learning="activePanel !== 'family_messages' && learningOnlySelectedProfile" v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 
@@ -595,6 +595,7 @@
         </div>
       </div>
     </div>
+    <template #footer><ServiceUseNotice v-if="!loading" :organization-slug="guardianPathSlug" :service-type="learningOnlyPortalContext ? 'tutoring' : selectedService?.service_kind || ''" /></template>
   </FamilyPortalShell>
 
   </ClinicalWorkspaceFrame>
@@ -621,6 +622,7 @@ import { isClinicalClient } from '../../utils/clinicalWorkspace';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import FamilyPortalShell from '../../components/portal/FamilyPortalShell.vue';
+import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
 import PortalContextPicker from '../../components/portal/PortalContextPicker.vue';
 import FamilyPortalHome from '../../components/portal/FamilyPortalHome.vue';
 import FamilyAccountSettings from '../../components/guardian/FamilyAccountSettings.vue';

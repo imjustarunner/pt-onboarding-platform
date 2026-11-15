@@ -7,7 +7,7 @@ import FamilySharingNotice from '../session-comments/FamilySharingNotice.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import {downloadAttachment} from '../../utils/communicationAttachments';
 
-const props=defineProps({threads:{type:Array,default:()=>[]},clientId:[Number,String],initialThreadId:[Number,String],initialMessageId:[Number,String],loading:Boolean});
+const props=defineProps({threads:{type:Array,default:()=>[]},clientId:[Number,String],initialThreadId:[Number,String],initialMessageId:[Number,String],loading:Boolean,learning:Boolean,unavailable:Boolean});
 const emit=defineEmits(['refresh']);
 const auth=useAuthStore(),careApi=usePortalCareApi();
 const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
@@ -38,6 +38,9 @@ const drafts=new Map();
 const context=computed(()=>contexts.value.find(c=>c.key===contextKey.value)||null);
 const contextThreads=computed(()=>props.threads.filter(t=>context.value&&Number(t.client_id)===Number(context.value.client_id)&&Number(t.agency_id)===Number(context.value.agency_id)&&(!Number(t.service_id)||Number(t.service_id)===Number(context.value.service_id))&&t.thread_id));
 const currentThread=computed(()=>contextThreads.value.find(t=>!t.readOnly&&t.service_label!=='Previous secure conversation')||contextThreads.value.find(t=>!t.readOnly)||(openedThread.value?.contextKey===contextKey.value?openedThread.value:null));
+const learning=computed(()=>context.value?.service_kind ? context.value.service_kind==='tutoring' : props.learning);
+const teamLabel=computed(()=>learning.value?'learning team':'care team');
+const participantRole=p=>p.role==='provider'?(learning.value?'Tutor':'Provider'):p.role==='client'?'Client':p.role==='guardian'?'Guardian':'Participant';
 const topicKey=topic=>topic?`${contextKey.value}:${topic.thread.thread_id}:${topic.id}`:'';
 const canReply=computed(()=>!newSubject.value&&selected.value&&!selected.value.thread.readOnly&&verifiedTopicKey.value===topicKey(selected.value));
 const draftKey=()=>`${auth.user?.id}:${contextKey.value}:${newSubject.value?'new':selected.value?.id||'none'}`;
@@ -47,7 +50,7 @@ function changeContext(event){keepDraft();consumedNotification=`${props.initialT
 const raw=data=>Array.isArray(data)?data:Array.isArray(data?.messages)?data.messages:[];
 const params=thread=>({agencyId:thread.agency_id,serviceId:thread.service_id||undefined});
 const title=message=>message?.subject?.trim()||message?.body?.split('\n')[0]?.slice(0,100)||'Secure message';
-const name=message=>[message?.sender_first_name,message?.sender_last_name].filter(Boolean).join(' ')||'Care team';
+const name=message=>[message?.sender_first_name,message?.sender_last_name].filter(Boolean).join(' ')||(learning.value?'Learning team':'Care team');
 const when=value=>value?new Date(value).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
 const orderedTopics=computed(()=>{
   const groups=new Map();
@@ -93,7 +96,7 @@ async function loadTopics(){
     if(!topic&&wanted&&!requestedMessage&&!requestedThread)topic=topics.value.find(m=>Number(m.id)===Number(wanted.id)&&Number(m.thread.thread_id)===Number(wanted.threadId));
     if(!topic&&wanted&&!requestedMessage&&!requestedThread){const thread=contextThreads.value.find(t=>Number(t.thread_id)===Number(wanted.threadId));if(thread){const {data}=await api.get(`/guardian-portal/messages/${thread.thread_id}`,{params:{...params(thread),messageId:Number(wanted.id)},skipGlobalLoading:true});if(!current()||openIntent!==openingAtLoad)return;const root=raw(data).find(m=>Number(m.id)===Number(wanted.id));if(root){topic={...root,thread};topics.value.push(topic);}}}
     if(topic)await openTopic(topic,{notifiedMessageId:requestedMessage||null,notifiedRootId:locatedRootId||topic.id});
-    else if(requestedThread||requestedMessage)error.value='This secure conversation is not available for the selected profile. Refresh messages or contact your care team.';
+    else if(requestedThread||requestedMessage)error.value='This secure conversation is not available for the selected profile. Refresh messages or use Support.';
     else if(wasComposing)await startSubject();
   }catch{if(intent===loadIntent&&key===contextKey.value)error.value='Secure conversations could not be loaded. Refresh messages to try again.';
   }finally{if(intent===loadIntent)busy.value=false;}
@@ -163,7 +166,7 @@ async function startSubject(){
     const {data}=await api.get(`/guardian-portal/clients/${thread.client_id}/care-access`,{params:params(thread),skipGlobalLoading:true});
     if(intent!==openIntent||key!==contextKey.value)return;
     audience.value=data.participants||[];
-  }catch{if(intent===openIntent){audience.value=[];error.value='A current shared conversation is not available. Contact your care team.';}}
+  }catch{if(intent===openIntent){audience.value=[];error.value='A current shared conversation is not available. Use Support.';}}
   finally{if(intent===openIntent)opening.value=false;}
 }
 async function send(){
@@ -199,22 +202,27 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
 </script>
 
 <template>
-  <section class="secure-conversations" aria-label="Secure conversations by subject">
+  <section v-if="!unavailable" class="secure-conversations" aria-label="Secure conversations by subject">
     <div class="conversation-tools">
-      <label v-if="contexts.length>1">Client and service<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || 'Care team' }}</option></select></label>
+      <label v-if="contexts.length>1">Client and service<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
       <strong v-else-if="context">{{ context.client_label }}</strong>
-      <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(!currentThread&&!context?.provider?.id)" @click="startSubject">+ New secure subject</button>
+      <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(unavailable||context?.unavailable_reason==='provider_unassigned'||(!currentThread&&!context?.provider?.id))" @click="startSubject">+ New secure subject</button>
     </div>
     <p class="conversation-explanation">Each subject keeps its message and replies together. Everyone listed as eligible can receive new messages; earlier messages retain their original audience.</p>
+    <div v-if="context?.participants?.length && !newSubject && !selected" class="current-conversation-audience conversation-audience">
+      <strong>Who can read and reply to new subjects</strong><ul><li v-for="p in context.participants" :key="p.id">{{ p.name }} · {{ participantRole(p) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul>
+      <p>Earlier messages retain their original audience.</p>
+    </div>
+    <p v-if="context?.unavailable_reason==='provider_unassigned'" class="assignment-status" role="status">{{ learning ? 'A tutor must be assigned to this service before secure learning messages are available.' : 'A provider must be assigned to this service before secure messages are available.' }}</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="loading||busy" role="status">Loading secure conversations…</p>
-    <p v-else-if="!contexts.length">No care conversations are available for this profile yet. You can use Support for account questions.</p>
+    <p v-else-if="!contexts.length && !unavailable">No {{ learning ? 'learning' : 'care' }} conversations are available for this profile yet. You can use Support for account questions.</p>
     <div v-else class="conversation-layout" :class="{'is-open':selected||newSubject}">
       <aside class="subjects" aria-label="Message subjects">
         <button v-for="topic in orderedTopics" :key="`${topic.thread.thread_id}:${topic.id}`" type="button" class="subject-row" :class="{active:selected?.id===topic.id}" @click="openTopic(topic)">
           <strong>{{ title(topic) }}</strong><small>Conversation #{{ topic.id }}</small><span v-if="topic.unread_count" class="subject-unread" :aria-label="`${topic.unread_count} unread messages`">Unread · {{ topic.unread_count }}</span><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
         </button>
-        <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">No secure subjects yet. Start a subject to message your care team.</p>
+        <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">No secure subjects yet. <span v-if="context?.unavailable_reason!=='provider_unassigned'">Start a subject to message your {{ teamLabel }}.</span></p>
         <button v-if="Object.keys(rootCursors).length" type="button" :disabled="olderBusy" @click="olderSubjects">{{ olderBusy?'Loading…':'Older subjects' }}</button>
       </aside>
       <div class="conversation-pane">
@@ -233,7 +241,7 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
           <p v-if="selected?.thread.readOnly" class="retained">These messages retain their original recipients. Start a new subject to reach everyone currently eligible.</p>
           <form v-if="newSubject||canReply" class="subject-composer" @submit.prevent="send">
             <label v-if="newSubject">Subject<input v-model="subject" required maxlength="200" autocomplete="off" :disabled="sending" placeholder="What is this message about?" /></label>
-            <div class="conversation-audience"><strong>Who can read and reply</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>Secure messages are shared with the eligible family portal users listed here and the care team. They are not therapy and do not replace a scheduled session.</p></div>
+            <div class="conversation-audience"><strong>Who can read and reply</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }} · {{ participantRole(p) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>Secure messages are shared with the eligible family portal users listed here and the {{ teamLabel }}. {{ learning ? 'They do not replace a scheduled tutoring session.' : 'They are not therapy and do not replace a scheduled session.' }}</p></div>
             <FamilySharingNotice ref="sharing" :agency-id="context?.agency_id" :scope-key="`${auth.user?.id}:${contextKey}:${selected?.id||'new'}`" />
             <label>Message<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
             <button type="submit" :disabled="sending||opening||!draft.trim()||(newSubject&&!subject.trim())||!audience.length||audienceChanged">{{ sending?'Sending…':newSubject?'Send new subject':'Send reply' }}</button>

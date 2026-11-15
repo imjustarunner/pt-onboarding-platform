@@ -25,7 +25,7 @@ export async function getTaxonomy(_req, res) {
 export async function getOverview(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getLearningOverview(clientId,{agencyId,providerId:service?.provider_user_id});
+    const data = await los.getLearningOverview(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null});
     res.json(data);
   } catch (e) {
     next(e);
@@ -36,7 +36,7 @@ export async function listSubjects(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
     const subjects = await los.StudentSubject.listByClient(clientId,{agencyId});
-    res.json({ subjects:service?.provider_user_id?subjects.filter(s=>Number(s.primary_tutor_user_id)===Number(service.provider_user_id)):subjects });
+    res.json({ subjects:service?subjects.filter(s=>Number(service.provider_user_id)>0&&Number(s.primary_tutor_user_id)===Number(service.provider_user_id)):subjects });
   } catch (e) {
     next(e);
   }
@@ -863,7 +863,7 @@ export async function updateAssessmentBlueprint(req, res, next) {
 export async function getGuardianFeed(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getGuardianLearningSnapshot(clientId,{agencyId,providerId:service?.provider_user_id});
+    const data = await los.getGuardianLearningSnapshot(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null});
     res.json(data);
   } catch (e) {
     next(e);
@@ -873,7 +873,7 @@ export async function getGuardianFeed(req, res, next) {
 export async function getGuardianDashboard(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getGuardianTutoringDashboard(clientId,{agencyId,providerId:service?.provider_user_id});
+    const data = await los.getGuardianTutoringDashboard(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null});
     res.json(data);
   } catch (e) {
     next(e);
@@ -1026,7 +1026,7 @@ async function familyOfficeAccess(req,writing=false){
  if(access.permissions?.canViewAppointments===false||(writing&&access.permissions?.canMessage===false))throw Object.assign(new Error('Your account does not have access to this appointment conversation.'),{status:403});
  return access;
 }
-export async function getGuardianOfficeStatus(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req);res.set('Cache-Control','no-store');res.json(await guardianTutoringOfficeStatus({clientId,agencyId,providerId:service?.provider_user_id||null}));}catch(e){next(e);}}
-export async function postGuardianOfficeVisit(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req,req.body?.intent!=='join');res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.json(await startGuardianOfficeVisit({clientId,agencyId,providerId:service?.provider_user_id||null},req.body,req.user.id));}catch(e){next(e);}}
+export async function getGuardianOfficeStatus(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req);res.set('Cache-Control','no-store');res.json(await guardianTutoringOfficeStatus({clientId,agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null}));}catch(e){next(e);}}
+export async function postGuardianOfficeVisit(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req,req.body?.intent!=='join');res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.json(await startGuardianOfficeVisit({clientId,agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null},req.body,req.user.id));}catch(e){next(e);}}
 
-export async function getGuardianOfficeEntry(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req);res.set('Cache-Control','no-store');res.json(await guardianTutoringOfficeEntry({clientId,agencyId,providerId:service?.provider_user_id||null},req.query));}catch(e){next(e);}}
+export async function getGuardianOfficeEntry(req,res,next){try{const {clientId,agencyId,service}=await familyOfficeAccess(req);res.set('Cache-Control','no-store');res.json(await guardianTutoringOfficeEntry({clientId,agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null},req.query));}catch(e){next(e);}}

@@ -25,7 +25,8 @@ async function withClientServiceLock(clientId, db, action) {
 }
 export function serviceMatchesAppointment(service, appointment) {
   if(Number(service.agency_id)!==Number(appointment.agencyId||appointment.agency_id))return false;
-  if(service.provider_user_id&&Number(service.provider_user_id)!==Number(appointment.providerUserId||appointment.provider_user_id))return false;
+  // An explicitly unassigned service is not a wildcard for another team's work.
+  if(!Number(service.provider_user_id)||Number(service.provider_user_id)!==Number(appointment.providerUserId||appointment.provider_user_id))return false;
   return service.service_kind===appointmentServiceKind(appointment);
 }
 export function guardianContextAllowsAppointment(client,appointment){
@@ -175,7 +176,7 @@ export async function updateClientServiceStatus({clientId,agencyId,serviceId,use
    }else{
     const [future]=await conn.execute(`SELECT a.id,a.business_type AS businessType FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id AND p.client_id=?
       WHERE a.agency_id=? AND a.provider_user_id=? AND a.start_at>UTC_TIMESTAMP() AND a.status IN ('scheduled','confirmed','client_confirmed')`,[clientId,agencyId,service.provider_user_id]);
-    if(future.some(a=>serviceMatchesAppointment(service,{...a,agencyId,providerUserId:service.provider_user_id})))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
+    if(future.some(a=>appointmentServiceKind(a)===service.service_kind))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
    }
    const [same]=await conn.execute('SELECT * FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? FOR UPDATE',[clientId,agencyId,service.provider_user_id,service.service_kind]);
    const placeholders=[];
@@ -186,7 +187,9 @@ export async function updateClientServiceStatus({clientId,agencyId,serviceId,use
      if(unassigned.length){
       const [future]=await conn.execute(`SELECT a.id,a.provider_user_id AS providerUserId,a.business_type AS businessType FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id AND p.client_id=?
        WHERE a.agency_id=? AND a.start_at>UTC_TIMESTAMP() AND a.status IN ('scheduled','confirmed','client_confirmed')`,[clientId,agencyId]);
-      if(future.some(appointment=>serviceMatchesAppointment({...service,provider_user_id:0},{...appointment,agencyId})))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
+      // Closing a duplicate program row must protect every remaining appointment
+      // of that service kind; this is staff validation, not guardian visibility.
+      if(future.some(appointment=>appointmentServiceKind(appointment)===service.service_kind))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
       placeholders.push(...unassigned);same.push(...unassigned);
      }
     }

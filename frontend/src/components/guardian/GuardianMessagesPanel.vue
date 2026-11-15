@@ -3,7 +3,7 @@
     <QaRecipientEmailInbox />
     <div class="panel-head">
       <ConversaBrand compact />
-      <div class="panel-subtitle">{{ ft("Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.") }}</div>
+      <div class="panel-subtitle">{{ ft(learning ? "Learning conversations are group messages for the selected student. Authorized guardians and the learning team can read and reply." : "Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.") }}</div>
     </div>
 
     <div class="gmsg-tabs">
@@ -20,7 +20,7 @@
     <div v-if="error" class="error">{{ ft(error) }}</div>
     <p v-if="ticketCreationStatus" class="muted" role="status">{{ ft(ticketCreationStatus) }}</p>
 
-    <GuardianSecureConversations v-if="mode === 'provider'" :threads="threads" :client-id="clientId" :initial-thread-id="initialThreadId" :initial-message-id="initialMessageId" :loading="loading" @refresh="loadThreads" />
+    <GuardianSecureConversations v-if="mode === 'provider'" :threads="threads" :learning="learning" :unavailable="!!error" :client-id="clientId" :initial-thread-id="initialThreadId" :initial-message-id="initialMessageId" :loading="loading" @refresh="loadThreads" />
 
     <template v-else>
       <div v-if="ticketsLoading" class="muted">{{ ft("Loading support tickets…") }}</div>
@@ -49,7 +49,7 @@
 
         <section class="gmsg-chat">
           <template v-if="creatingTicket">
-            <p class="muted pad">{{ ['billing','technology'].includes(newTicket.topic) ? ft("Only you and authorized support staff can view this request.") : ft("This support request is shared with all authorized guardians and the support team.") }} Use secure messages for care conversations.</p>
+            <p class="muted pad">{{ ['billing','technology'].includes(newTicket.topic) ? ft("Only you and authorized support staff can view this request.") : ft("This support request is shared with all authorized guardians and the support team.") }} {{ learning ? 'Use secure messages for learning conversations.' : 'Use secure messages for care conversations.' }}</p>
             <div class="gmsg-chat-head">
               <strong>{{ ft("New support request") }}</strong>
               <span class="muted">{{ ft("Agency staff will reply here") }}</span>
@@ -90,7 +90,7 @@
             </div>
           </template>
           <template v-else-if="selectedTicket">
-            <p class="muted pad">{{ ['billing','technology'].includes(selectedTicket?.topic) ? ft("Only you and authorized support staff can view this request.") : ft("This support request is shared with all authorized guardians and the support team.") }} Use secure messages for care conversations.</p>
+            <p class="muted pad">{{ ['billing','technology'].includes(selectedTicket?.topic) ? ft("Only you and authorized support staff can view this request.") : ft("This support request is shared with all authorized guardians and the support team.") }} {{ learning ? 'Use secure messages for learning conversations.' : 'Use secure messages for care conversations.' }}</p>
             <div class="gmsg-chat-head">
               <strong>#{{ selectedTicket.id }} {{ selectedTicket.subject || ft("Support") }}</strong>
               <span class="muted">{{ selectedTicket.display_status || selectedTicket.status }}</span>
@@ -147,7 +147,7 @@ import baseApi from '../../services/api';
 import {GUARDIAN_TICKET_TOPICS,ticketTopicLabel} from '../../utils/ticketTopics';
 import {useAuthStore} from '../../store/auth';
 const {ft}=useFamilyLocale();
-const props=defineProps({initialThreadId:[Number,String],initialMessageId:[Number,String],clientId:[Number,String]});
+const props=defineProps({initialThreadId:[Number,String],initialMessageId:[Number,String],clientId:[Number,String],learning:Boolean});
 const careApi=usePortalCareApi();
 const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
 const guardianTopics=GUARDIAN_TICKET_TOPICS;
@@ -181,7 +181,7 @@ async function loadThreads() {
     emails.value = Array.isArray(r.data?.emails) ? r.data.emails : [];
   } catch (e) {
     if(intent!==threadLoadIntent||clientId!==props.clientId)return;
-    error.value = 'Messages could not be loaded. Please try again or use Support.';
+    error.value = e?.response?.status === 403 ? 'Your account does not have permission to view messages for this service. Use Support if you believe access is missing.' : 'Messages could not be loaded. Please try again or use Support.';
     threads.value = [];
     emails.value = [];
   } finally {

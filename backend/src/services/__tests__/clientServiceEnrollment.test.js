@@ -23,3 +23,7 @@ it('keeps ended-service appointment history readable without letting it be used 
  await expect(guardianServiceContext({userId:9,clientId:4,agencyId:6,serviceId:11,scope:null})).rejects.toHaveProperty('status',403);
  const result=await guardianServiceContext({userId:9,clientId:4,agencyId:6,serviceId:11,scope:null,allowEndedServices:true});expect(result.service.is_active).toBe(0);expect(requireClinicalScope).not.toHaveBeenCalled();
 });
+
+it.each([0,null,undefined])('an unassigned service (%s) never matches an assigned appointment',provider_user_id=>{
+ expect(serviceMatchesAppointment({...services[1],provider_user_id},{agencyId:6,providerUserId:21,businessType:'learning'})).toBe(false);
+});
