@@ -17,7 +17,6 @@ import { getLatestPaperPacketVisionEval } from './paperPacketVision.service.js';
 import { markPaperPacketSignatureReceived, updateClientOnboardingDocs, acknowledgeRoiStaffOnboarding } from './clientOnboardingChecklist.service.js';
 import { sendHubPortalInvitation } from './messagesHub.service.js';
 import { readClientInsurance, finalizePaperInsurance } from './clientInsurance.service.js';
-import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { isPaperSelfPayType, paperInsuranceCompletionIssues } from '../../../frontend/src/navigation/paperInsuranceCompletion.js';
 import { preparedGuardianLink } from '../utils/guardianPortalLinkState.js';
 
@@ -29,7 +28,7 @@ const dependencies = overrides => ({ contacts:ClientContactAffiliation, clients:
   versions:findSchoolPacketVersionByLabel,staff:ClientSchoolStaffRoiAccess,encryptDraft:encryptDemographicsPayload,decryptDraft:decryptDemographicsPayload,
   vision: getLatestPaperPacketVisionEval, send: sendHubPortalInvitation, markSignatures: markPaperPacketSignatureReceived,
   markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, insurance:readClientInsurance,
-  finalizeInsurance:finalizePaperInsurance,queueInsuranceFollowUp:queueInsuranceVerificationSafely,database: pool, ...overrides });
+  finalizeInsurance:finalizePaperInsurance,queueInsuranceFollowUp:async(...args)=>(await import('./insuranceVerificationTask.service.js')).queueInsuranceVerificationSafely(...args),database: pool, ...overrides });
 
 async function inspectPaperInsurance(client, typeId, deps) {
   const [[type]] = await deps.database.execute('SELECT id,insurance_key,label FROM insurance_types WHERE id=? AND agency_id=? AND is_active=1', [Number(typeId)||0, client.agency_id]);
