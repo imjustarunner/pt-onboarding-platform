@@ -701,7 +701,7 @@
         </div>
       </div>
     </div>
-    <ServiceUseNotice :school-portal="isSchoolCareBridge || isSchoolPortalOrg" />
+    <ServiceUseNotice :school-portal="isSchoolCareBridge || isSchoolPortalOrg" :organization-slug="loginBrandOrganizationSlug" />
     <PoweredByFooter v-if="!isAppLike && !isPlatformLogin" :include-legal="false" />
   </component>
 </template>
@@ -764,6 +764,7 @@ import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
 import { authenticatedLoginOrganization } from '../utils/loginWorkspace';
 import { auricWellAccountDestination, familyCareAgencies, resolveFamilyPortalOrganization, familyPortalDashboardPath } from '../utils/familyPortalContext.js';
+import { legalProfileForContext } from '../content/tenantLegalProfiles.js';
 import {
   getRememberedLogin,
   setRememberedLogin,
@@ -800,7 +801,12 @@ const leavePublicAuthForm = enterPublicAuthForm();
 onUnmounted(leavePublicAuthForm);
 const identifiedFamilySurface = ref('');
 const isConversaLogin = computed(() => route.name === 'ConversaLogin' || String(route.query.redirect || '').startsWith('/conversa/events/'));
-const isAuricWellLogin = computed(() => !isConversaLogin.value && (/^(www\.)?auricwell\.com$/i.test(window.location.hostname) || route.query.workspace === 'auricwell' || !!auricwellLoginDestination(route.query.redirect) || identifiedFamilySurface.value === 'clinical'));
+// A family can have clinical records at another agency. That identification
+// hint does not replace the branding of the portal they chose to sign into.
+const loginBrandOrganizationSlug = computed(() => String(route.params.organizationSlug || route.params.agencySlug || '').trim()
+  || safeLoginDestination(route.query.redirect)?.match(/^\/([^/?#]+)\/(?:guardian|client-dashboard)(?:[/?#]|$)/)?.[1] || '');
+const loginLegalProfile = computed(() => legalProfileForContext({host:window.location.hostname,path:route.path,organizationSlug:loginBrandOrganizationSlug.value}));
+const isAuricWellLogin = computed(() => !isConversaLogin.value && (/^(www\.)?auricwell\.com$/i.test(window.location.hostname) || route.query.workspace === 'auricwell' || !!auricwellLoginDestination(route.query.redirect) || (identifiedFamilySurface.value === 'clinical' && loginLegalProfile.value?.slug !== 'nlu')));
 const isFundThredLogin = computed(() => isFundthredLogin(route));
 useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
@@ -3536,6 +3542,7 @@ html[data-pt-app-preview-mode="ipad"] .login-help {
 .login-logo .logo-image {
   height: 180px;
   max-height: 180px;
+  max-width: 100%;
   width: auto;
   object-fit: contain;
 }
