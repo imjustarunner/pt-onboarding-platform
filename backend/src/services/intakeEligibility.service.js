@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {paperInsuranceIsReviewed} from '../utils/paperInsuranceReviewGate.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
@@ -73,11 +74,12 @@ export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,i
   const config = parse(agency?.feature_flags).intakeEligibilityAutomation;
   const insurance = await readClientInsurance(clientId,agencyId,db);
   if (!insurance?.primary) return null;
+  if(!paperInsuranceIsReviewed(insurance))return {status:'awaiting_paper_review',readySlots:[],missing:[],jobId:null};
   let jobId=null;
   const persistJob = async status => {
     const fingerprint=coverageFingerprint(insurance);
-    const [[existing]]=await db.execute('SELECT id FROM intake_eligibility_jobs WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id LIMIT 1',[agencyId,clientId,fingerprint]);
-    if(existing)return {duplicate:true,id:existing.id};
+    const [[existing]]=await db.execute('SELECT id,status FROM intake_eligibility_jobs WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id DESC LIMIT 1',[agencyId,clientId,fingerprint]);
+    if(existing)return {duplicate:true,id:existing.id,status:existing.status};
     const [[checked]]=await db.execute("SELECT id FROM client_coverage_checks WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? AND status='returned' ORDER BY id DESC LIMIT 1",[agencyId,clientId,fingerprint]);
     if(checked)return {duplicate:true,id:null};
     const [result]=await db.execute('INSERT IGNORE INTO intake_eligibility_jobs (agency_id,client_id,submission_id,insurance_fingerprint,status) VALUES (?,?,?,?,?)',[agencyId,clientId,submissionId||0,fingerprint,status]);
@@ -96,7 +98,7 @@ export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,i
     const inputs = intakeEligibilityInputs(insurance,config,profile,serviceDate);
     automaticEligibility = { status: inputs.readySlots.length ? 'queued' : 'waiting_for_information', ...inputs };
     const job=await persistJob(inputs.readySlots.length?'pending':'review_required');
-    if(job.duplicate && inputs.readySlots.length)automaticEligibility.status='already_queued';
+    if(job.duplicate && inputs.readySlots.length)automaticEligibility.status=['pending','processing'].includes(job.status)?'already_queued':job.status==='completed'?'already_checked':'review_required';
     jobId=job.id;
   }
   // A transaction connection cannot acquire a second connection for task locking.

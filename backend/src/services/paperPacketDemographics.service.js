@@ -90,6 +90,8 @@ async function fillEmptyInsurance(client, parsed) {
     profileId:existing?.profileId || null,
     coverageSources:existing?.coverageSources || null,
     acceptAssignment:existing?.acceptAssignment ?? null,
+    queueEligibility:false,
+    paperReviewRequired:true,
     verifiedForClaims: false
   });
 }

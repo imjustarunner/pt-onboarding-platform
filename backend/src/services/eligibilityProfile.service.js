@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {paperInsuranceIsReviewed} from '../utils/paperInsuranceReviewGate.js';
 import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
 import { coverageFingerprint, summarizeEligibility, eligibilityIdentityMatches } from './coverageVerification.service.js';
@@ -13,11 +14,11 @@ export const otherInsuranceBenefit = (benefit, payerId) =>
 
 /** Preserve every returned field. Unknown fields remain payer evidence, never
  * guessed member IDs, billing routes, or primary/secondary assignments. */
-export function eligibilityProfileRecord(check, evidence) {
+export function eligibilityProfileRecord(check, evidence, fingerprint=null) {
   const entries = list(evidence?.result?.elig || evidence?.result?.result?.elig);
   const summary = evidence?.result ? summarizeEligibility(evidence.result, { payerId: evidence.eligibilityPayerId }) : evidence?.summary;
   return {
-    id: check.id, slot: check.policy_slot, serviceDate: check.service_date,
+    id: check.id, slot: check.policy_slot, serviceDate: check.service_date,isCurrent:fingerprint?check.insurance_fingerprint===fingerprint:null,
     checkedAt: check.completed_at || check.created_at, payerId: evidence?.eligibilityPayerId || '',
     status: summary?.status || check.status, identityMatches: evidence?.summary?.identityMatches ?? null,
     otherCoverageReported: !!(summary?.otherCoverageReported || evidence?.summary?.otherCoverageReported),
@@ -27,9 +28,9 @@ export function eligibilityProfileRecord(check, evidence) {
   };
 }
 
-export async function readEligibilityProfile({ agencyId, clientId }, db = pool) {
-  const [checks] = await db.execute('SELECT id,policy_slot,service_date,status,created_at,completed_at,evidence_encrypted FROM client_coverage_checks WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 100', [agencyId, clientId]);
-  return checks.map(check => eligibilityProfileRecord(check, decryptFamilyBilling(check.evidence_encrypted, `coverage:${agencyId}:${clientId}`)));
+export async function readEligibilityProfile({ agencyId, clientId, fingerprint=null }, db = pool) {
+  const [checks] = await db.execute('SELECT id,policy_slot,service_date,status,created_at,completed_at,insurance_fingerprint,evidence_encrypted FROM client_coverage_checks WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 100', [agencyId, clientId]);
+  return checks.map(check => eligibilityProfileRecord(check, decryptFamilyBilling(check.evidence_encrypted, `coverage:${agencyId}:${clientId}`),fingerprint));
 }
 
 function date(value) {
@@ -91,10 +92,11 @@ export async function applyEligibilityProfileResults({ agencyId, clientId, expec
     const [[client]] = await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [clientId, agencyId]);
     if (!client) { await db.rollback(); return false; }
     const insurance = await (deps.readInsurance || readClientInsurance)(clientId, agencyId, db);
+    if(!paperInsuranceIsReviewed(insurance)){await db.rollback();return false;}
     if (!insurance || coverageFingerprint(insurance) !== expectedFingerprint) { await db.rollback(); return false; }
     const enriched = enrichInsuranceFromEligibility(insurance, results);
     if (coverageFingerprint(enriched) === expectedFingerprint) { await db.rollback(); return false; }
-    const saved=await (deps.writeInsurance || writeClientInsurance)({ ...enriched, agencyId, clientId, verifiedForClaims: false, queueEligibility: false }, db);
+    const saved=await (deps.writeInsurance || writeClientInsurance)({ ...enriched, agencyId, clientId, verifiedForClaims: false, queueEligibility: false, preservePaperReview:true }, db);
     // These fields came from these exact responses. Keep that evidence usable
     // after importing it; do not spend another inquiry merely to verify the import.
     // The original request fingerprint remains in the immutable encrypted evidence.

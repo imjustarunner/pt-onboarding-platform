@@ -1,3 +1,4 @@
+import {assertPaperInsuranceReviewed} from '../utils/paperInsuranceReviewGate.js';
 import pool from '../config/database.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { auditBilling, billingError } from './familyBillingPolicy.service.js';
@@ -66,6 +67,7 @@ export async function reserveCob(input,deps={}) {
     const [[client]]=await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
     if(!client)throw billingError(404,'Client not found in this agency');
     const snapshot=await (deps.snapshotFor || snapshotFor)(input,db);
+    assertPaperInsuranceReviewed(snapshot.insurance);
     validateCobConfirmation(input,snapshot);
     const fingerprint=cobFingerprint({snapshot,slot:input.slot,stediPayerId:input.stediPayerId});
     const [[duplicate]]=await db.execute(`SELECT * FROM stedi_insurance_discoveries WHERE request_kind='cob' AND agency_id=? AND client_id=? AND

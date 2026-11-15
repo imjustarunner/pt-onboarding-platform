@@ -60,13 +60,11 @@
               <label>Does the packet indicate shared custody or healthcare decision-making rights?<select v-model="sharedCustody" required><option value="">Select the answer on paper</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not clear — support follow-up needed</option></select></label>
             </template>
             <template v-else-if="stage === 4">
-              <p>Insurance policy changes are saved with Save and continue or Save insurance information. They are not included in the automatic working draft.</p>
+              <p>Use Save draft to keep insurance edits without sending a payer request. Confirm the transcription before requesting checks or continuing. Insurance edits are not autosaved.</p>
               <label>Insurance / payment category<select v-model="insuranceTypeId" required><option value="">Select the category on paper</option><option v-for="type in insuranceTypes" :key="type.id" :value="String(type.id)">{{ type.label }}</option></select></label>
-              <ClientInsuranceEditor ref="insuranceEditor" v-if="insuranceTypeId && !selfPay" :client-id="clientId" :agency-id="context.client.agency_id" :paper-document-id="documentId" account-support assignment-review start-open paper-entry :show-related-reviews="false" />
-              <button v-if="insuranceTypeId && !selfPay" type="button" class="btn btn-secondary" @click="showVerification=!showVerification">{{ showVerification ? 'Close verification' : 'Verify insurance (optional)' }}</button>
-              <AssignmentCoverageReview v-if="showVerification && !selfPay" :client-id="Number(clientId)" :agency-id="Number(context.client.agency_id)" />
+              <ClientInsuranceEditor ref="insuranceEditor" v-if="insuranceTypeId && !selfPay" :client-id="clientId" :agency-id="context.client.agency_id" :paper-document-id="documentId" account-support assignment-review start-open paper-entry v-model:transcription-confirmed="insuranceReviewed" :show-related-reviews="false" />
               <p v-if="selfPay">Self-pay is recorded for billing follow-up. Do not enter a payment-card number from the paper packet.</p>
-              <label class="paper-check"><input v-model="insuranceReviewed" type="checkbox" required /> I reviewed the coverage on paper and saved the available primary and secondary policy details, or selected self-pay.</label>
+              <label v-if="selfPay" class="paper-check"><input v-model="insuranceReviewed" type="checkbox" required /> I reviewed the self-pay category on this packet.</label>
             </template>
             <template v-else-if="stage === 5">
               <p><strong>{{ context.client.full_name }}</strong> · {{ context.schoolName }}</p>
@@ -121,7 +119,7 @@ import AuricWellBrand from '../auricwell/AuricWellBrand.vue';
 import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import PaperPacketEnglishEntry from './PaperPacketEnglishEntry.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
-import AssignmentCoverageReview from '../billing/AssignmentCoverageReview.vue';
+
 import ClientOnboardingRoiStaffPanel from './ClientOnboardingRoiStaffPanel.vue';
 const props=defineProps({clientId:{type:[Number,String],required:true}});
 const emit=defineEmits(['close','processed']);
@@ -268,7 +266,8 @@ async function next(){
   if(stage.value===1||stage.value===2)data=stage.value===2&&secondNotListed.value?{notListed:true}:stage.value===2&&!secondPortalAccount.value?{contactOnly:true}:{guardianUserId:await connectGuardian(stage.value-1),reactivateConfirmed:guardianForms[stage.value-1].reactivateConfirmed===true};
   if(stage.value===3)data={schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value};
   if(stage.value===4){
-    const insuranceReview=selfPay.value?null:await insuranceEditor.value?.save({paperEntry:true});
+    if(!insuranceReviewed.value)throw new Error('Confirm the transcribed insurance against the uploaded packet before saving this step. Save draft remains available without requesting eligibility.');
+    const insuranceReview=selfPay.value?null:await insuranceEditor.value?.save({paperEntry:true,confirmPaper:insuranceReviewed.value});
     if(!selfPay.value&&!insuranceReview)throw new Error('Review the available insurance details below. If information is missing, confirm this is all you have or know to continue with staff follow-up.');
     data={reviewed:insuranceReviewed.value,insuranceTypeId:Number(insuranceTypeId.value),partialInformationConfirmed:insuranceReview?.partialInformationConfirmed===true};
   }

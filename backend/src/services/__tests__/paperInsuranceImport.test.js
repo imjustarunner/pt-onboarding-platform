@@ -10,6 +10,7 @@ it('adds paper secondary despite existing primary and preserves assignment and p
  const primary={insurerName:'CHAMPVA',memberId:'PRIMARY-TEST',groupNumber:'STAFF-EDIT',relationshipToSubscriber:'self'};
  readClientInsurance.mockResolvedValue({primary,secondary:null,profileId:11,coverageSources:{primary:{profileId:11,slot:'primary'}},acceptAssignment:true,patient:{firstName:'Jordan',lastName:'Example',dateOfBirth:'2023-09-20'}});
  await applyPaperPacketDemographicsFromText({clientId:4,ocrText:'Primary Insurance CHAMPVA Secondary Insurance Colorado Medicaid\nPolicy Holder Taylor Example Secondary Holder Morgan Example\nMember ID PRIMARY-TEST Secondary ID A123456'});
+ expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({queueEligibility:false,paperReviewRequired:true}));
  expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({primary,secondary:expect.objectContaining({memberId:'A123456',paperSubscriberName:'Morgan Example',subscriberFirstName:'Jordan',relationshipToSubscriber:'self'}),profileId:11,coverageSources:{primary:{profileId:11,slot:'primary'}},acceptAssignment:true,verifiedForClaims:false}));
 });
 it('does not reset verified saved coverage when the packet adds no empty coverage position',async()=>{
