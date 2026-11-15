@@ -1,0 +1,92 @@
+NLU DF FOLLOW-UP — NOVEMBER 15, 2026
+Append to the prior NLU mixed-service/tutoring/childcare briefs.
+Retain the original DF and DG results and all earlier open cases.
+Engineering checks and a released patch are not completed live QA.
+
+SCOPE
+Use only the already authorized automation-only QA fixtures: Finley 1496,
+Casey 1771, Riley 1807, Morgan 1759, Rene 1785 and linked parent 1456.
+Use existing vault logins and agency 453 / learning program 454. No application
+superadministrator, human identity, new memberships or permission changes.
+Keep synthetic outbound email physically at testing@itsco.health.
+Recount before any new record; retain the combined client/provider caps.
+Use actual build, actor, object IDs, America/Denver time and evidence per result.
+Use PASS / FAIL / BLOCKED / NOT RUN. Do not close failures without fresh proof.
+
+REPAIRS TO RETEST
+DF14 — Parent sign-in context
+- From a fresh private session sign in as linked parent 1456 on the NLU login.
+  Expect NLU family portal directly, without a peer agency nested under NLU,
+  an AuricWell/ITSCOLLC dashboard detour or an interim Wellness label.
+- Reopen the retained Rowan 2271 tutoring service 1043 and counseling 1044.
+  Sign out and return using the delivered/retained exact-service link. Verify
+  client/service selection, branding and restricted record access are preserved.
+- A login URL must not confer a new agency membership or record permission.
+  Existing school staff and explicit secure-message return links stay scoped.
+
+DF15 — Family balances and private payment methods
+- As Morgan open Balances & payments while Parker's tutoring service 1038 is
+  selected. Expand the family balance and saved-payment sections; expect the
+  authorized agency's records or truthful empty state, without "A selected
+  service requires its family profile." Refresh, change child/service and retry.
+- Repeat as linked parent 1456 for each permitted agency. Family-wide reads
+  aggregate the signed-in person's eligible records without a selected service;
+  individual student billing must still retain its exact agency/client/service.
+- One parent's payment methods, shares and receipts remain private. Do not
+  collect a real card, charge money or weaken a server scope/ownership check.
+
+DF16 — Tutoring access/help language
+- Open Parker's tutoring info as Morgan. Review the authorized shared-message
+  participant list and tutoring-team help. Check desktop and 390px mobile.
+- A failed read must show a truthful error with tutoring wording. Do not call
+  an error a successful participant lookup. Clinical service wording remains
+  appropriate after switching back to counseling.
+
+DF17 — Exact links in the next legitimate schedule notice
+- Existing appointment 324 mail was RECEIVED at testing@ and must NOT be resent.
+  Inbox 1a1df9048e6c1002, 07:15:32 MST Nov 15; transport 1a1df90379b0d441.
+  It remains historical evidence of the old three-appointment digest defect.
+- On the next genuinely needed scoped booking/change, wait for the real quiet
+  window and inspect actual receipt. A multi-appointment digest may group edits,
+  but every listed appointment has its own exact link; the main action opens
+  the latest queued appointment. A single notice links its exact appointment.
+- Confirm NLU host, exact client/appointment/service, sign-in checks, no clinical
+  footer on tutoring mail, current preferences and no duplicate send on retries.
+  A new receipt is not required merely to reproduce this completed action.
+
+DF18 — Childcare clock status
+- Read retained shift 3 as Casey and Finley separately. A completed punch pair
+  shows Clocked out, while an employee with no punches shows Not clocked in.
+  Keep seconds, original punches/correction history and own-pay-only visibility.
+  Do not create or edit a punch just to obtain a different label.
+
+REMAINING ENGINEERING AND LIVE WORK
+- DF11: local SQL verification covers stale review hashes, attendance changes,
+  corrections, review-only denial of peer pay and duplicate protection. The
+  complete stored-paystub integration must run in an isolated test schema.
+  It can now use EVIDENCE_TEST_SOCKET with definition-only local seed tables.
+  Current cloud credentials require interactive reauthentication to obtain
+  current empty table definitions. No staging application data was modified.
+  Earlier paystub proof remains earlier proof, not a new deployed live pass.
+- DF12: engineering may delay a synthetic local HTTP response and navigate to
+  another service. Record that separately from a live throttled-browser case.
+  The ordinary bot does not need DevTools or network-admin access.
+- DG13: no distinct live review-only fixture is assigned. Riley is an agency
+  admin and must not be relabeled review-only. Local SQL/browser review-only
+  negatives are engineering evidence; the live fixture case remains BLOCKED.
+- DF07B: package entitlement 1114's included courtesy is already spent. Keep
+  its zero balance, existing cancellations and audit history. Positive courtesy
+  testing needs a genuinely fresh authorized package/entitlement; never reset
+  1114 or repeat a received cancellation. At/before Nov 15 11:15 AM MST, 324 is
+  still on-time; after that actual deadline, preview its true remaining policy.
+- DF13: full media, clinical/supervision, insurance and original 47-case tutoring
+  journeys still require their own actual workflows. Do not infer readiness
+  from these targeted repairs, local fixtures or a successful page load.
+
+BLANK FOLLOW-UP LEDGER
+case_id,status,build,actor_user_id,agency_id,client_id,service_id,appointment_id,shift_id,action_time_denver,utc_offset,evidence,finding
+DF14,NOT RUN,,,,,,,,,,,
+DF15,NOT RUN,,,,,,,,,,,
+DF16,NOT RUN,,,,,,,,,,,
+DF17,NOT RUN,,,,,,,,,,,
+DF18,NOT RUN,,,,,,,,,,,

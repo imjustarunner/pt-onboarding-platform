@@ -42,7 +42,7 @@ function harness() {
     log:vi.fn(),communication:vi.fn(async()=>({id:10})),updateCommunication:vi.fn(),
     sendEmail:vi.fn(async()=>({id:'email-1'})),sendSms:vi.fn(async()=>({messageId:'sms-1'})),smsSender:async()=>'+15555550101',
     followUp:async()=>({nextAppointment:async()=>null}),offers:vi.fn(async()=>({ensure:vi.fn(),view:async()=>null})),
-    portal:async()=> 'https://portal.example.test/guardian',
+    portal:vi.fn(async()=> 'https://portal.example.test/guardian'),
     cancellationMessage:async(a,f)=>({subject:'Your appointment was canceled',text:`Your appointment was canceled. ${f.clientFacingReason || ''}`,html:'<p>Your appointment was canceled.</p>'})};
   return {service:createAppointmentScheduleNoticeService({...deps,receipts:{issue:vi.fn(async()=>({id:1,url:'https://example.test/receipt'})),sent:vi.fn()}}),deps,notices,deliveries,appointments,advance:n=>{clock=new Date(+clock+n*60000);}};
 }
@@ -324,4 +324,23 @@ it('suppresses already-queued email and text updates when the service ends befor
 it('keeps the saved service-ending confirmation email-only after texts have stopped',async()=>{
  const h=harness();await h.service.queue(1,{eventType:'canceled',facts:{guardianCancellationOperationId:'ending-1',guardianSummary:{endsService:true},cancellationActorRole:'guardian'}});
  await h.service.process(1);expect(h.deps.sendEmail).toHaveBeenCalledTimes(1);expect(h.deps.sendSms).not.toHaveBeenCalled();
+});
+
+it('keeps an exact authenticated appointment link for every visit in a delayed multi-appointment digest',()=>{
+ const entries=[290,295,324].map(id=>({appointment:{id,startAt:'2030-01-02T18:15:00Z',sourceTimezone:'America/Denver'},payload:{eventType:'created',initialBooking:true,facts:{}},portalUrl:`https://portal.example.test/guardian?clientId=2545&serviceId=1038&appointmentId=${id}`}));
+ const message=buildScheduleNoticeMessage(entries,entries.at(-1).portalUrl);
+ for(const id of [290,295,324]){expect(message.text).toContain(`appointmentId=${id}`);expect(message.html).toContain(`appointmentId=${id}`);}
+ expect(message.html).toContain('Review my latest appointment');expect(message.text).not.toContain('clinical');
+ expect(message.html).toContain('serviceId=1038&amp;appointmentId=324');
+});
+
+it('keeps the established digest and recipient protections while linking its main action to the latest queued appointment',async()=>{
+ const h=harness();h.deps.portal.mockImplementation(async(agencyId,clientId,appointmentId,appointment)=>`https://portal.example.test/guardian?clientId=${clientId}&appointmentId=${appointment.id}`);
+ h.appointments.get(1).status='scheduled';h.appointments.set(2,{...h.appointments.get(1),id:2,startAt:'2030-01-03T17:00:00Z'});
+ await h.service.queue(1,{eventType:'created'});await h.service.queue(2,{eventType:'created'});h.advance(16);await h.service.process(1);
+ expect(h.deps.sendEmail).toHaveBeenCalledOnce();const message=h.deps.sendEmail.mock.calls[0][0];
+ expect(message.text).toContain('appointmentId=1');expect(message.text).toContain('appointmentId=2');
+ expect(message.text).toContain('Review your current schedule: https://portal.example.test/guardian?clientId=8&appointmentId=2');
+ expect(h.deps.portal).toHaveBeenCalledWith(2,8,2,expect.objectContaining({id:2}));
+ await h.service.process(2);expect(h.deps.sendEmail).toHaveBeenCalledOnce();
 });
