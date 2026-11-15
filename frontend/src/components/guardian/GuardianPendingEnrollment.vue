@@ -20,12 +20,12 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencyId: Number, clientId: Number });
+const props = defineProps({ agencyId: Number, clientId: Number, learningOnly:Boolean });
 const emit = defineEmits(['state']);
 const drafts = ref([]);
 const invitations = ref([]), error = ref(''), opening = ref(null);
 let generation = 0;
-watch(() => [props.agencyId, props.clientId], async () => {
+watch(() => [props.agencyId, props.clientId, props.learningOnly], async () => {
   const version = ++generation;
   invitations.value = []; drafts.value = []; error.value = ''; opening.value = null;
   emit('state', { loaded: false, pending: false });
@@ -34,7 +34,7 @@ watch(() => [props.agencyId, props.clientId], async () => {
     const { data } = await api.get('/guardian-portal/pending-enrollments', { params: { agencyId: props.agencyId, clientId: props.clientId || undefined } });
     if (version !== generation) return;
     invitations.value = data.invitations || [];
-    drafts.value = data.drafts || [];
+    drafts.value = (data.drafts || []).filter(d=>d.hasAnswers!==false&&(!props.learningOnly||d.channel==='tutoring'));
     emit('state', { loaded: true, pending: invitations.value.length > 0 || drafts.value.length > 0 });
   } catch {
     if (version === generation) error.value = 'We could not check your enrollment forms. Please reload or contact your care team.';

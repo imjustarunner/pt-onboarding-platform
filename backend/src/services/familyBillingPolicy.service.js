@@ -1,3 +1,4 @@
+import {qaAutomationActorFor,qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { encryptFamilyBilling } from './familyBillingEncryption.service.js';
@@ -74,7 +75,10 @@ export async function requireResponsiblePayer(userId, clientId, agencyId, db = p
   return rows[0];
 }
 export async function auditBilling({ agencyId, userId, clientId = null, action, objectId = null }, db = pool) {
-  await db.execute('INSERT INTO family_billing_audit (agency_id, actor_user_id, client_id, action, object_id) VALUES (?, ?, ?, ?, ?)', [agencyId, userId || null, clientId, action, objectId]);
+  const [written]=await db.execute('INSERT INTO family_billing_audit (agency_id, actor_user_id, client_id, action, object_id) VALUES (?, ?, ?, ?, ?)', [agencyId, userId || null, clientId, action, objectId]);
+  // Keep the original billing audit row, and append explicit automation evidence
+  // for reserved fixtures without relabeling historical rows or human activity.
+  if(qaAutomationActorFor(userId))await db.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',[`family_billing_${action}`,userId,agencyId,qaAuditMetadataJson({clientId,objectId,billingAuditId:written?.insertId||null},userId)]);
 }
 export async function recordBillingConsent({ userId, agencyId, clientId = null, cardId = null, submissionId = null, purpose, consent, ip, userAgent }, db = pool) {
   if (consent?.accepted !== true || ![BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS_VERSION].includes(consent?.version) || !String(consent?.signatureName || '').trim()) throw billingError(400, 'Read and sign the current billing authorization');

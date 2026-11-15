@@ -25,7 +25,7 @@
     <PastProvidersPanel v-else-if="!isSuperadminPreview && activePanel==='past_providers' && selectedChildRecordAccess" :key="`past:${currentAgencyId}:${selectedChildId}`" :client-id="Number(selectedChildId)" />
     <EndedServicePortal v-else-if="limitedServicePortal && selectedChildRecordAccess" :key="`ended:${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" :client-id="Number(selectedChildId)" :agency-id="Number(selectedChildAgencyId)" :user-id="authStore.user?.id" :service="selectedService" :access="selectedServiceAccess" :panel="activePanel" :learning="standardsLearningVisible" />
     <div v-else :key="`${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" class="layout guardian-layout">
-      <GuardianPendingEnrollment v-if="!isSuperadminPreview" :key="`pending:${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" @state="pendingEnrollmentState = $event" />
+      <GuardianPendingEnrollment :learning-only="learningOnlyPortalContext" v-if="!isSuperadminPreview" :key="`pending:${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" @state="pendingEnrollmentState = $event" />
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
       <PortalMigrationChecklist :profiles="readableFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
@@ -77,7 +77,7 @@
               <template v-if="selectedInlineEvent"><button class="btn btn-secondary" @click="selectedInlineEvent = null">Back to dashboard</button><GuardianSkillBuildersEventView :event-id-prop="selectedInlineEvent.eventId" :program-event-mode="selectedInlineEvent.programMode" :inline="true" :hide-actions="true" /></template>
               <template v-else>
                 <GuardianSchoolReleaseNotice v-if="!isSuperadminPreview && selectedSchoolRelease" :people="[selectedSchoolRelease]" @open="openSchoolRelease" />
-                <FamilyPortalHome :client-first-name="selectedFirstName" :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="selectedPrograms" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
+                <FamilyPortalHome :documents-available="portalNavigation.some(item=>item.key==='documents')" :client-first-name="selectedFirstName" :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="selectedPrograms" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
               </template>
             </template>
             <template v-else-if="activePanel === 'plan'">
@@ -232,27 +232,7 @@
                       <p v-else class="hint" style="margin: 0;">No recommendations yet.</p>
                     </div>
 
-                    <!-- Book sessions card -->
-                    <div v-if="tutoringProvider" class="learning-progress-card book-sessions-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">Book tutoring sessions</div>
-                      <div class="book-sessions-body">
-                        <div>
-                          <div class="book-sessions-provider">{{ tutoringProvider.providerName }}</div>
-                          <div class="book-sessions-meta muted small">
-                            <span v-if="tutoringProvider.sessionRateCents">
-                              ${{ Math.round(tutoringProvider.sessionRateCents / 100) }} / session ·
-                            </span>
-                            <span v-if="tutoringProvider.minSessionPackage > 1">
-                              Min package: {{ tutoringProvider.minSessionPackage }} sessions ·
-                            </span>
-                            <span>{{ tutoringProvider.paymentPolicy === 'PREPAY' ? 'Prepay required' : 'Pay after session' }}</span>
-                          </div>
-                        </div>
-                        <button class="btn btn-primary btn-sm" @click="bookingDrawerOpen = true">
-                          Request session
-                        </button>
-                      </div>
-                    </div>
+                    <GuardianClinicalBooking learning :client-id="Number(selectedChildId)" :agency-id="selectedChildAgencyId" :service-id="selectedServiceId" @booked="loadSelectedChildLearningProgress" />
 
                     <!-- Upcoming tutoring sessions -->
                     <div class="learning-progress-card upcoming-sessions-card" style="margin-top: 10px;">
@@ -477,9 +457,9 @@
                 </p>
               </div>
               <template v-else>
-                <FamilyLedgerPanel :learning-only="learningOnlySelectedProfile" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
-                <FamilyCostEstimates :agency-id="Number(selectedChildAgencyId)" :client-id="Number(selectedChildId)" />
-                <HistoricalBillingRequest :learning-only="learningOnlySelectedProfile" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
+                <FamilyLedgerPanel :service-id="selectedServiceId" :learning-only="learningOnlySelectedProfile" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
+                <FamilyCostEstimates v-if="!learningOnlySelectedProfile" :agency-id="Number(selectedChildAgencyId)" :client-id="Number(selectedChildId)" />
+                <HistoricalBillingRequest v-if="!learningOnlySelectedProfile" :learning-only="learningOnlySelectedProfile" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
                 <GuardianBillingTab v-if="learningBillingVisible" :agency-id="currentAgencyId" :client-id="selectedChildId" />
               </template>
             </template>
@@ -617,21 +597,6 @@
     </div>
   </FamilyPortalShell>
 
-  <!-- Booking drawer (teleports to body) -->
-  <GuardianSessionBookingDrawer
-    v-if="tutoringProvider"
-    :open="bookingDrawerOpen"
-    :agency-slug="guardianPathSlug"
-    :provider-id="tutoringProvider.providerId"
-    :provider-name="tutoringProvider.providerName"
-    :child-id="selectedChildId ? Number(selectedChildId) : null"
-    :child-name="selectedChild ? (selectedChild.first_name + ' ' + selectedChild.last_name) : ''"
-    :session-rate-cents="tutoringProvider.sessionRateCents"
-    :min-session-package="tutoringProvider.minSessionPackage"
-    :payment-policy="tutoringProvider.paymentPolicy"
-    @close="bookingDrawerOpen = false"
-    @submitted="bookingDrawerOpen = false"
-  />
   </ClinicalWorkspaceFrame>
 </template>
 
@@ -659,6 +624,7 @@ import FamilyPortalShell from '../../components/portal/FamilyPortalShell.vue';
 import PortalContextPicker from '../../components/portal/PortalContextPicker.vue';
 import FamilyPortalHome from '../../components/portal/FamilyPortalHome.vue';
 import FamilyAccountSettings from '../../components/guardian/FamilyAccountSettings.vue';
+import {createPortalCareApi} from '../../composables/usePortalCareApi';
 import { useBrandingStore } from '../../store/branding';
 const brandingStore = useBrandingStore();
 import { useAuthStore } from '../../store/auth';
@@ -694,7 +660,7 @@ import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPayme
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
 import GuardianPlanProgressPanel from '../../components/guardian/GuardianPlanProgressPanel.vue';
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
-import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
+import GuardianClinicalBooking from '../../components/guardian/GuardianClinicalBooking.vue';
 import ClientNotificationHistory from '../../components/conversa/ClientNotificationHistory.vue';
 import SecureSessionCommentHistory from '../../components/session-comments/SecureSessionCommentHistory.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
@@ -704,6 +670,9 @@ import { fetchGuardianLearningFeed } from '../../services/tutoringLearningOs';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+// The verified family context is independent of employee/default membership refreshes.
+const selectedPortalAgency = ref(null);
+const portalAgency = computed(() => selectedPortalAgency.value || agencyStore.currentAgency);
 const guardianStore = useGuardianStore();
 const route = useRoute();
 const router = useRouter();
@@ -712,7 +681,7 @@ const isSuperadminPreview = computed(() => {
     String(route.query?.previewMode || '').trim().toLowerCase() === 'superadmin';
 });
 const previewAgencyId = computed(() => {
-  return Number(route.query?.previewAgencyId || agencyStore.currentAgency?.id || 0) || null;
+  return Number(route.query?.previewAgencyId || portalAgency.value?.id || 0) || null;
 });
 const previewParams = computed(() => {
   if (!isSuperadminPreview.value) return {};
@@ -790,11 +759,11 @@ const allFamilyProfiles = computed(() => {
   return linked;
 });
 const readableFamilyProfiles = computed(() => allFamilyProfiles.value.filter(familyProfileHasRecordAccess));
-const children = computed(() => familyPortalClients(allFamilyProfiles.value, agencyStore.currentAgency));
+const children = computed(() => familyPortalClients(allFamilyProfiles.value, portalAgency.value));
 watch(children, (list) => {
   if (!list.some(c => Number(c.client_id) === Number(selectedChildId.value))) selectedChildId.value = Number(list[0]?.client_id || 0) || null;
 });
-const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
+const currentAgencyId = computed(() => Number(portalAgency.value?.id || 0) || null);
 const dashboardAgencyId = computed(() => previewAgencyId.value || currentAgencyId.value || null);
 const totalEnrolledEventCount = computed(() => sbUpcomingGrouped.value.length + genCurrentEvents.value.length);
 const pendingDocumentCount = computed(() => {
@@ -802,9 +771,9 @@ const pendingDocumentCount = computed(() => {
 });
 const registrationPreviewItems = computed(() => (regCatalogItems.value || []).slice(0, 3));
 const learningBillingVisible = computed(() => {
-  const orgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
+  const orgType = String(portalAgency.value?.organization_type || '').toLowerCase();
   if (orgType !== 'learning') return false;
-  const flags = agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags || {};
+  const flags = portalAgency.value?.feature_flags || portalAgency.value?.featureFlags || {};
   return Boolean(flags?.learningProgramBillingEnabled === true);
 });
 
@@ -825,12 +794,14 @@ const selectedServiceId=ref(Number(route.query.serviceId)||null);
 const selectedServices=computed(()=>children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value))?.services||[]);
 const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||selectedServices.value[0]||null);
 watch(selectedServices,services=>{if(!services.some(s=>Number(s.id)===Number(selectedServiceId.value)))selectedServiceId.value=Number(services[0]?.id)||null;});
-provide('portalCareContext',computed(()=>({clientId:selectedChildId.value,agencyId:currentAgencyId.value,serviceId:selectedService.value?.id})));
+const portalCareContext=computed(()=>({clientId:selectedChildId.value,agencyId:currentAgencyId.value,serviceId:selectedService.value?.id,serviceKind:selectedService.value?.service_kind}));
+provide('portalCareContext',portalCareContext);
+const clientApi=createPortalCareApi(api,portalCareContext);
 const standardsLearningVisible = computed(() => {
   const selected = selectedChild.value;
   if (selected?.client_type) return ['learning','tutoring'].includes(String(selected.client_type).toLowerCase());
-  const orgType = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
-  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags);
+  const orgType = String(portalAgency.value?.organization_type || '').toLowerCase();
+  const flags = parseFeatureFlags(portalAgency.value?.feature_flags || portalAgency.value?.featureFlags);
   return orgType === 'learning' || flags.standardsLearningEnabled === true;
 });
 
@@ -857,7 +828,7 @@ const { ft, locale: familyLocale, setLocale: setFamilyLocale } = provideFamilyLo
 const selectedChildAgencyId = computed(() => {
   const fromChild = Number(selectedChild.value?.agency_id || 0);
   if (fromChild) return fromChild;
-  return Number(agencyStore.currentAgency?.id || 0) || null;
+  return Number(portalAgency.value?.id || 0) || null;
 });
 
 const schoolAffiliations = computed(() => {const profile=allFamilyProfiles.value.find(p=>Number(p.client_id)===Number(selectedChildId.value));if(Number(profile?.agency_id)!==Number(currentAgencyId.value)&&!selectedService.value?.organization_id)return [];return (selectedChild.value?.school_affiliations||[]).filter(s=>!selectedService.value?.organization_id||Number(s.organization_id)===Number(selectedService.value.organization_id));});
@@ -880,7 +851,7 @@ const selectedChildClientType = computed(() => {
   const explicit = String(selectedChild.value?.client_type || '').toLowerCase();
   if (explicit) return explicit;
   const orgType = String(
-    selectedChild.value?.organization_type || agencyStore.currentAgency?.organization_type || ''
+    selectedChild.value?.organization_type || portalAgency.value?.organization_type || ''
   ).toLowerCase();
   if (orgType === 'learning' || orgType === 'clinical') return orgType;
   return '';
@@ -890,7 +861,7 @@ const planProgressVisible = computed(() => {
   if (!selectedChildId.value) return false;
   const t = selectedChildClientType.value;
   const orgType = String(
-    selectedChild.value?.organization_type || agencyStore.currentAgency?.organization_type || ''
+    selectedChild.value?.organization_type || portalAgency.value?.organization_type || ''
   ).toLowerCase();
   return t === 'learning' || t === 'clinical' || orgType === 'learning' || orgType === 'clinical';
 });
@@ -900,15 +871,15 @@ const selectedChildFullName = computed(() => {
   return n || '';
 });
 
-const currentAgencyName = computed(() => String(agencyStore.currentAgency?.name || '').trim() || '');
+const currentAgencyName = computed(() => String(portalAgency.value?.name || '').trim() || '');
 
 const currentProgramRow = computed(() => {
-  const id = Number(agencyStore.currentAgency?.id || 0);
+  const id = Number(portalAgency.value?.id || 0);
   return (programs.value || []).find((p) => Number(p?.id) === id) || null;
 });
 
 const programLogoUrl = computed(() => {
-  const fromStore = String(agencyStore.currentAgency?.logo_url || agencyStore.currentAgency?.logoUrl || '').trim();
+  const fromStore = String(portalAgency.value?.logo_url || portalAgency.value?.logoUrl || '').trim();
   if (fromStore) return fromStore;
   return String(currentProgramRow.value?.logo_url || '').trim() || null;
 });
@@ -934,7 +905,7 @@ const tenantAgencyInitials = computed(() => initialsFromLabel(tenantAgencyName.v
 const programAgencyInitials = computed(() => initialsFromLabel(currentAgencyName.value) || 'P');
 
 const dualBranding = computed(() => {
-  const progId = Number(agencyStore.currentAgency?.id || 0);
+  const progId = Number(portalAgency.value?.id || 0);
   const billId = Number(currentProgramRow.value?.billing_agency_id || 0);
   return Boolean(progId && billId && billId !== progId);
 });
@@ -976,7 +947,7 @@ async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId 
   const aid=agencyId||(contexts.some(c=>Number(c.agency_id)===currentAgencyId.value)?currentAgencyId.value:profile?.agency_id);
   const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(aid));
   if (!profile || !agency?.slug) return;
-  agencyStore.setCurrentAgency(agency); selectedChildId.value = Number(profile.client_id);
+  selectedPortalAgency.value = agency; agencyStore.setCurrentAgency(agency); selectedChildId.value = Number(profile.client_id);
   selectedServiceId.value=Number(serviceId)||null;
   const services=contexts.find(c=>Number(c.agency_id)===Number(aid))?.services||[];
   const service=services.find(s=>Number(s.id)===Number(serviceId))||services[0];selectedServiceId.value=Number(service?.id)||null;
@@ -1131,7 +1102,7 @@ const guardianPathSlug = computed(() => {
   const p = String(route.params.organizationSlug || '').trim();
   if (p) return p;
   const list = programs.value || [];
-  const cur = list.find((x) => Number(x?.id) === Number(agencyStore.currentAgency?.id));
+  const cur = list.find((x) => Number(x?.id) === Number(portalAgency.value?.id));
   const pick = cur || list[0];
   return String(pick?.slug || pick?.portal_url || '').trim() || '';
 });
@@ -1331,7 +1302,7 @@ async function openLearningClassWorkspace(item) {
   }
   const slug =
     String(route.params.organizationSlug || '').trim().toLowerCase() ||
-    String(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || '').trim().toLowerCase();
+    String(portalAgency.value?.slug || portalAgency.value?.portal_url || '').trim().toLowerCase();
   router.push(slug ? `/${slug}/learning/classes/${classId}` : `/learning/classes/${classId}`);
 }
 
@@ -1345,7 +1316,7 @@ const panelTitle = computed(() => {
 });
 
 const currentProgramSummary = computed(() => {
-  const programName = String(agencyStore.currentAgency?.name || '').trim() || 'Selected program';
+  const programName = String(portalAgency.value?.name || '').trim() || 'Selected program';
   return `Open cards below to view active enrolled events for ${programName}.`;
 });
 
@@ -1414,11 +1385,11 @@ const resolveTargetSlug = (program) => {
   return slug || null;
 };
 
-const isActiveProgram = (p) => Number(agencyStore.currentAgency?.id || 0) === Number(p?.id || 0);
+const isActiveProgram = (p) => Number(portalAgency.value?.id || 0) === Number(p?.id || 0);
 
 const selectProgram = async (program) => {
   if (!program?.id) return;
-  agencyStore.setCurrentAgency(program);
+  selectedPortalAgency.value = program; agencyStore.setCurrentAgency(program);
 
   const slug = resolveTargetSlug(program);
   if (!slug) return;
@@ -1442,16 +1413,16 @@ const initProgramContext = async () => {
   const requestedPerson = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(route.query.clientId));
   const target = familyAgencies.value.find(a => String(a.slug).toLowerCase() === slug)
     || (requestedPerson && familyAgencies.value.find(a => Number(a.id) === Number(requestedPerson.agency_id)))
-    || familyAgencies.value.find(a => Number(a.id) === Number(agencyStore.currentAgency?.id)) || familyAgencies.value[0];
+    || familyAgencies.value.find(a => Number(a.id) === Number(portalAgency.value?.id)) || familyAgencies.value[0];
   if (!target) return;
-  agencyStore.setCurrentAgency(target);
+  selectedPortalAgency.value = target; agencyStore.setCurrentAgency(target);
   if (String(route.params.organizationSlug || '').toLowerCase() !== String(target.slug).toLowerCase()) {
     await router.replace({path:`/${encodeURIComponent(target.slug)}/guardian`,query:{...route.query,portal:target.slug,panel:route.query.panel || 'family'}});
   }
 };
 
 const fetchSkillBuilderEvents = async () => {
-  const aid = Number(agencyStore.currentAgency?.id || 0);
+  const aid = Number(portalAgency.value?.id || 0);
   const effectiveAgencyId = Number(dashboardAgencyId.value || 0);
   if (!effectiveAgencyId) {
     sbEvents.value = [];
@@ -1556,7 +1527,7 @@ const closeRegistrationEnroll = () => {
 
 const submitRegistrationEnroll = async () => {
   const target = registrationEnrollTarget.value;
-  const aid = Number(target?.agencyId || agencyStore.currentAgency?.id || 0);
+  const aid = Number(target?.agencyId || portalAgency.value?.id || 0);
   const ids = (registrationEnrollSelected.value || []).map((x) => Number(x)).filter((n) => n > 0);
   if (!aid || !target || !ids.length) return;
   if (registrationPayerChoiceNeeded.value && !registrationEnrollPayerType.value) return;
@@ -1627,7 +1598,7 @@ const refreshAll = async () => {
 };
 
 watch(
-  () => agencyStore.currentAgency?.id,
+  () => portalAgency.value?.id,
   () => {
     if(!limitedServicePortal.value){fetchSkillBuilderEvents();fetchRegistrationCatalog();}
   }
@@ -1667,7 +1638,7 @@ const loadIntakeSignedDocumentsForChild = async () => {
   }
   intakeDocsLoading.value = true;
   try {
-    const { data } = await api.get(`/guardian-portal/clients/${id}/intake-documents`);
+    const { data } = await clientApi.get(`/guardian-portal/clients/${id}/intake-documents`);
     if (request === intakeDocumentsRequest && selectedChildRecordAccess.value) intakeSignedDocs.value = Array.isArray(data?.documents) ? data.documents : [];
   } catch {
     if (request === intakeDocumentsRequest) intakeSignedDocs.value = [];
@@ -1677,17 +1648,18 @@ const loadIntakeSignedDocumentsForChild = async () => {
 };
 
 const openIntakeSignedDoc = async (d) => {
+  const scopeKey=`${currentAgencyId.value}:${selectedServiceId.value}`;
   const cid = Number(selectedChildId.value);
   if (!cid || !d?.id || !selectedChildRecordAccess.value) return;
   intakeDocOpeningId.value = d.id;
   try {
     if (d.kind === 'enrollment_copy') {
-      const {data}=await api.get(`/guardian-portal/clients/${cid}/enrollment-copies/${d.submissionId}/download`,{params:{agencyId:selectedChildAgencyId.value},responseType:'blob'});
-      if(cid!==Number(selectedChildId.value)||!selectedChildRecordAccess.value)return;
+      const {data}=await clientApi.get(`/guardian-portal/clients/${cid}/enrollment-copies/${d.submissionId}/download`,{params:{agencyId:selectedChildAgencyId.value},responseType:'blob'});
+      if(cid!==Number(selectedChildId.value)||!selectedChildRecordAccess.value||scopeKey!==`${currentAgencyId.value}:${selectedServiceId.value}`)return;
       const href=URL.createObjectURL(data),a=document.createElement('a');a.href=href;a.download=`enrollment-${d.submissionId}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(href),30000);return;
     }
-    const { data } = await api.get(`/guardian-portal/clients/${cid}/intake-documents/${d.id}/download-url`);
-    if (cid !== Number(selectedChildId.value) || !selectedChildRecordAccess.value) return;
+    const { data } = await clientApi.get(`/guardian-portal/clients/${cid}/intake-documents/${d.id}/download-url`);
+    if (cid !== Number(selectedChildId.value) || !selectedChildRecordAccess.value || scopeKey!==`${currentAgencyId.value}:${selectedServiceId.value}`) return;
     const url = data?.url;
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   } catch {
@@ -1714,9 +1686,6 @@ const losPublishedReports = ref([]);
 const losPractice = ref([]);
 const losParentUpdates = ref([]);
 
-// Book sessions drawer
-const bookingDrawerOpen = ref(false);
-const tutoringProvider = ref(null); // { providerId, providerName, sessionRateCents, minSessionPackage, paymentPolicy }
 
 const formatLearningScore = (value) => {
   const n = Number(value);
@@ -1753,9 +1722,14 @@ const fmtUpcomingDate = (value) => {
   }
 };
 
+let learningProgressRequest=0;
 const loadSelectedChildLearningProgress = async () => {
+  const request=++learningProgressRequest;
+  const scope={agencyId:currentAgencyId.value,serviceId:selectedServiceId.value};
+  learningDomainRows.value=[];learningGoalRows.value=[];learningRecommendationRows.value=[];tutoringSessions.value=[];upcomingTutoringSessions.value=[];tutoringSummaries.value=[];losPublishedReports.value=[];losPractice.value=[];losParentUpdates.value=[];
   const clientId = Number(selectedChildId.value || 0);
   if (!clientId || limitedServicePortal.value || !standardsLearningVisible.value || !selectedChildRecordAccess.value) {
+    learningProgressLoading.value=false;
     learningDomainRows.value = [];
     learningGoalRows.value = [];
     learningRecommendationRows.value = [];
@@ -1770,62 +1744,45 @@ const loadSelectedChildLearningProgress = async () => {
   learningProgressError.value = '';
   try {
     const [domainsRes, goalsRes, recommendationsRes] = await Promise.all([
-      api.get(`/learning-progress/students/${clientId}/domains`, { params:{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value},skipGlobalLoading: true }),
-      api.get(`/learning-progress/students/${clientId}/goals`, { params:{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value},skipGlobalLoading: true }),
-      api.get(`/learning-recommendations/students/${clientId}`, { params:{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value},skipGlobalLoading: true })
+      api.get(`/learning-progress/students/${clientId}/domains`, { params:scope,skipGlobalLoading: true }),
+      api.get(`/learning-progress/students/${clientId}/goals`, { params:scope,skipGlobalLoading: true }),
+      api.get(`/learning-recommendations/students/${clientId}`, { params:scope,skipGlobalLoading: true })
     ]);
+    if(request!==learningProgressRequest)return;
     learningDomainRows.value = Array.isArray(domainsRes.data?.domains) ? domainsRes.data.domains : [];
     learningGoalRows.value = Array.isArray(goalsRes.data?.goals) ? goalsRes.data.goals : [];
     learningRecommendationRows.value = Array.isArray(recommendationsRes.data?.recommendations)
       ? recommendationsRes.data.recommendations
       : [];
   } catch (err) {
+    if(request!==learningProgressRequest)return;
     learningProgressError.value = err.response?.data?.error?.message || 'Could not load learning progress';
     learningDomainRows.value = [];
     learningGoalRows.value = [];
     learningRecommendationRows.value = [];
   } finally {
-    learningProgressLoading.value = false;
+    if(request===learningProgressRequest)learningProgressLoading.value = false;
   }
 
   // Tutoring sessions load independently so a 404 here cannot wipe the learning panel.
   try {
     const [pastRes, upcomingRes] = await Promise.all([
-      api.get(`/learning-progress/students/${clientId}/tutoring-sessions`, { params:{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value},skipGlobalLoading: true }),
-      api.get(`/learning-progress/students/${clientId}/tutoring-sessions?upcoming=1`, { params:{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value},skipGlobalLoading: true })
+      api.get(`/learning-progress/students/${clientId}/tutoring-sessions`, { params:scope,skipGlobalLoading: true }),
+      api.get(`/learning-progress/students/${clientId}/tutoring-sessions?upcoming=1`, { params:scope,skipGlobalLoading: true })
     ]);
+    if(request!==learningProgressRequest)return;
     tutoringSessions.value = Array.isArray(pastRes.data?.sessions) ? pastRes.data.sessions : [];
     upcomingTutoringSessions.value = Array.isArray(upcomingRes.data?.sessions) ? upcomingRes.data.sessions : [];
 
-    // Derive the linked provider for the "Book sessions" card
-    const linkedProviderId = upcomingTutoringSessions.value[0]?.provider_user_id
-      || tutoringSessions.value[0]?.provider_user_id
-      || null;
-    if (linkedProviderId && guardianPathSlug.value) {
-      try {
-        const pRes = await api.get(
-          `/public/agency-services/${encodeURIComponent(guardianPathSlug.value)}/tutoring-profiles/${linkedProviderId}`,
-          { params:{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value},skipGlobalLoading: true }
-        );
-        const p = pRes.data?.profile;
-        if (p) {
-          tutoringProvider.value = {
-            providerId: linkedProviderId,
-            providerName: upcomingTutoringSessions.value[0]?.provider_name || tutoringSessions.value[0]?.provider_name || 'Your tutor',
-            sessionRateCents: p.sessionRateCents || null,
-            minSessionPackage: p.minSessionPackage || 1,
-            paymentPolicy: p.paymentPolicy || 'POST_SESSION'
-          };
-        }
-      } catch { tutoringProvider.value = null; }
-    }
   } catch {
+    if(request!==learningProgressRequest)return;
     tutoringSessions.value = [];
     upcomingTutoringSessions.value = [];
   }
 
   try {
-    const feed = await fetchGuardianLearningFeed(clientId,{agencyId:currentAgencyId.value,serviceId:selectedServiceId.value});
+    const feed = await fetchGuardianLearningFeed(clientId,scope);
+    if(request!==learningProgressRequest)return;
     const subjects = Array.isArray(feed?.subjects) ? feed.subjects : [];
     const reports = [];
     const practice = [];
@@ -1869,6 +1826,7 @@ const loadSelectedChildLearningProgress = async () => {
     losPractice.value = practice.filter((a) => a.status !== 'cancelled').slice(0, 12);
     losParentUpdates.value = updates.slice(0, 8);
   } catch {
+    if(request!==learningProgressRequest)return;
     losPublishedReports.value = [];
     losPractice.value = [];
     losParentUpdates.value = [];
@@ -1919,21 +1877,24 @@ const formatStandardChip = (s) => {
   return parts.join(' · ');
 };
 
+let dailyNotesRequest=0;
 const loadGuardianDailyNotes = async () => {
+  const request=++dailyNotesRequest;
   const clientId = selectedChildId.value;
   const date = guardianNoteDate.value;
-  if (!clientId || limitedServicePortal.value || !date || !selectedChildRecordAccess.value) {
+  if (!clientId || standardsLearningVisible.value || Number(selectedChild.value?.primary_agency_id||selectedChildAgencyId.value)!==Number(selectedChildAgencyId.value) || limitedServicePortal.value || !date || !selectedChildRecordAccess.value) {
     guardianDailyNotes.value = [];
+    guardianNotesLoading.value = false;
     return;
   }
   guardianNotesLoading.value = true;
   try {
-    const { data } = await api.get(`/clients/${clientId}/daily-notes`, { params: { note_date: date } });
-    guardianDailyNotes.value = data?.notes ?? [];
+    const { data } = await clientApi.get(`/clients/${clientId}/daily-notes`, { params: { note_date: date } });
+    if(request===dailyNotesRequest)guardianDailyNotes.value = data?.notes ?? [];
   } catch {
-    guardianDailyNotes.value = [];
+    if(request===dailyNotesRequest)guardianDailyNotes.value = [];
   } finally {
-    guardianNotesLoading.value = false;
+    if(request===dailyNotesRequest)guardianNotesLoading.value = false;
   }
 };
 const formatNoteTime = (dt) => {
@@ -1942,7 +1903,8 @@ const formatNoteTime = (dt) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-watch([selectedChildId, selectedChildRecordAccess], ([id]) => {
+watch([selectedChildId, selectedChildRecordAccess,currentAgencyId,selectedServiceId], ([id]) => {
+  intakeSignedDocs.value=[];guardianDailyNotes.value=[];
   void loadIntakeSignedDocumentsForChild();
   void loadSelectedChildLearningProgress();
   if (id) {
@@ -2007,7 +1969,7 @@ onMounted(async () => {
 });
 
 watch(
-  () => agencyStore.currentAgency?.id,
+  () => portalAgency.value?.id,
   () => {
     void loadSelectedChildLearningProgress();
   }

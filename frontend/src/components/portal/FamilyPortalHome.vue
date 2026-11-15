@@ -13,10 +13,10 @@
           <p v-if="!events.length" class="home-muted">{{ ft("No shared program sessions to display.") }}</p>
           <button class="home-link" @click="$emit('navigate','registrations')">{{ ft("Explore available registrations →") }}</button>
         </section>
-        <section class="home-card"><div class="home-card-head"><h2>{{ ft("Your tasks") }}</h2><button class="home-link" @click="$emit('navigate','documents')">{{ ft("Documents →") }}</button></div>
+        <section class="home-card"><div class="home-card-head"><h2>{{ ft("Your tasks") }}</h2><button v-if="documentsAvailable" class="home-link" @click="$emit('navigate','documents')">{{ ft("Documents →") }}</button></div>
           <p v-if="loading" role="status">{{ ft("Loading payment tasks…") }}</p><p v-if="error" role="alert">{{ ft(error) }} <button class="home-link" @click="load">{{ ft("Retry") }}</button></p>
           <router-link v-for="task in tasks" :key="task.id" class="home-event" :to="{path:'/billing/complete',query:{task:task.id,agencyId}}"><span class="home-icon"><PortalIcon name="tasks" /></span><span><strong>{{ task.title }}</strong><small>{{ ft("Complete payment verification and authorization") }}</small></span><span class="home-pill">{{ ft("To do") }}</span></router-link>
-          <p v-if="!loading && !error && !tasks.length" class="home-muted">{{ ft("No pending payment setup tasks. Check Documents for forms and signatures.") }}</p>
+          <p v-if="!loading && !error && !tasks.length" class="home-muted">{{ documentsAvailable ? ft("No pending payment setup tasks. Check Documents for forms and signatures.") : ft("No pending payment setup tasks. Documents are not shared with this account for this profile.") }}</p>
         </section>
       </div>
     </div>
@@ -36,7 +36,7 @@ import { ref, watch } from 'vue';
 import api from '../../services/api';
 import PortalIcon from './PortalIcon.vue';
 import GuardianPlanProgressPanel from '../guardian/GuardianPlanProgressPanel.vue';
-const props=defineProps({clientFirstName:String,agencyId:[Number,String],clientId:[Number,String],showPlan:Boolean,learning:Boolean,preview:Boolean,events:{type:Array,default:()=>[]},programs:{type:Array,default:()=>[]}});
+const props=defineProps({clientFirstName:String,agencyId:[Number,String],clientId:[Number,String],showPlan:Boolean,documentsAvailable:{type:Boolean,default:true},learning:Boolean,preview:Boolean,events:{type:Array,default:()=>[]},programs:{type:Array,default:()=>[]}});
 defineEmits(['navigate','event','program']);
 const tasks=ref([]),loading=ref(false),error=ref('');let sequence=0;
 async function load(){const request=++sequence;tasks.value=[];error.value='';loading.value=false;if(!props.agencyId||props.preview)return;loading.value=true;try{const {data}=await api.get('/family-billing/tasks',{params:{agencyId:props.agencyId,clientId:props.clientId||undefined}});if(request===sequence)tasks.value=(data.tasks||[]).filter(t=>t.status==='pending');}catch{if(request===sequence)error.value='Payment tasks could not be loaded.';}finally{if(request===sequence)loading.value=false;}}

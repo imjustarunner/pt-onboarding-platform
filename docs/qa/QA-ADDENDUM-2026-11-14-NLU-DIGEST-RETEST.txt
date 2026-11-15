@@ -1,0 +1,223 @@
+CURRENT RELEASE HANDOFF — NOVEMBER 14, 2026
+This release combines repair02502417c with current main69333a0af and the
+owner-confirmed NLU automation registrations. Publication verification will be
+recorded below after deployment; older STAGED/PUBLISHED statements in the
+historical appendix refer to earlier snapshots, not current readiness.
+The bot does not need a separate DEPLOYMENT-OUTPUT file: use the exact verified
+build and migration evidence inserted in this header before restarting DG00.
+Until that release verification is present, DG00 is BLOCKED.
+
+CURRENT AUTOMATION IDENTITY RULES — SUPERSEDE OLDER LOGIN DIRECTIONS
+Owner explicitly confirmed Finley1496, Casey1771, Riley1807, Morgan1759,
+Rene1785 and linked parent1456 are reserved exclusively for automated synthetic
+QA. Their server-owned registrations identify qa_automation in new audit rows.
+The new registrations grant no roles, memberships, records, credentials, session,
+clinical authority or signature rights. Use normal authentication with each
+reserved automation identity's existing private vault entry; never mint proofs,
+copy another session, reset credentials to bypass authentication, use an
+application superadministrator, impersonate a person or assign a human audit ID.
+Riley1807 is the retained agency-scoped QA reviewer/admin, not a superadmin.
+Finley/Casey/Riley/Morgan/Rene automation scope is453/454. Parent1456's scope is
+450/451/452/453/454 for the retained linked-family tests only. Real NLU6 and all
+unrelated organizations remain excluded. Existing ITSCO automation registrations
+are unchanged. Avery1433/Jordan1434 retain the earlier450/451/452 registration;
+this release does not expand those accounts' automation boundary to NLU.
+If a test needs an identity outside its explicitly registered automation scope,
+record that dependent step BLOCKED; continue the approved independent lanes.
+Never affirm a real clinician's attestation or a real employee's signature.
+Real childcare signoff remains Melissa; employer countersign remains Haley.
+Synthetic QA work review uses the separate authorized automation reviewer; it
+is not payroll approval, a real employment attestation or a real payment.
+
+PRESERVE THE COMPLETED DG REPORT
+The received Nov14 DG results tested2a92202b before this repair release.
+Preserve its7 FAIL and4 BLOCKED findings as historical evidence. The matching
+build check alone did not pass the required repair-release/migration gate.
+Append new results after verifying DG00; do not overwrite those earlier rows.
+For DG07, timely cancellation295 does not exercise late-cancellation courtesy.
+296/297 are already canceled; do not act on them again. Inspect current saved
+package terms, then use a legitimately late NEW QA case only when due.
+The Documents shortcut now follows the same document permission as navigation;
+restricted access has explanatory copy rather than a dead shortcut. Verify the
+permitted and restricted paths without broadening any guardian permissions.
+
+NLU RETEST AND CHILDCARE — COMPLETE BOT BRIEF
+NOVEMBER 14, 2026 · PRIVATE SYNTHETIC QA
+DO NOT UPLOAD THIS INSTRUCTION FILE OR ITS PRIVATE KEYS INTO THE APP.
+
+RELEASE STATUS: STAGED FOR REVIEW, NOT DEPLOYED BY THIS HANDOFF.
+Engineering source branch: codex/nlu-digest-repairs-20261114.
+The exact reviewed commit and deployment prerequisites are in DEPLOYMENT-OUTPUT.txt.
+Do not assume the prior0cfe79aa build contains these repairs. Before dependent
+live testing, the release coordinator must publish the reviewed change, apply
+additive migration1827 and provide the matching ready frontend/backend build.
+This supplement supersedes procedural instructions in the historical appendix.
+The appendix's published-build statements describe an EARLIER release only.
+
+BOT START / FILE INVENTORY
+Read this complete TXT. Inventory exactly these three separate app-upload files:
+math-worksheet.pdf; reading-worksheet.pdf; upload-negative.txt.
+All data-entry copy, original cases, private tutor answers and blank ledgers are
+embedded here. No folder, ZIP, repository or original JSON/CSV is needed.
+Wait for START NLU RETEST or CONTINUE before app writes. A file named here is
+not proof it arrived or can be selected by the browser's upload tool. Request
+only the exact missing upload when needed; continue independent read-only work.
+Never upload this brief, its answer key or an entire packet into the app.
+
+PRIORITY FOR THIS RELEASE
+Verify DG00 first. Then DG01–DG08 (reported portal/booking/availability failures),
+DG09–DG13 (childcare submit/review/correction), actual mail DG14 and remaining
+end-to-end journeys DG15. Preserve original ledgers/results and append new
+build-specific evidence; fresh cases below all start NOT RUN.
+Engineering tests and local browser fixtures are separate from live results.
+No owner readiness goal is fully proven by this packet or the source repairs.
+
+RETAINED PEOPLE, VAULT AND SCOPES
+- Use NLU QA453 nlu-qa-demo and learning454 nlu-qa-learning. Clinical capability
+  anchor462 does not grant claims authority. Live NLU6 remains untouched.
+- Counseling QA450/451/452 remains separately authorized. No new people, clients,
+  cross-agency grants or duplicated applications/enrollments are needed.
+- Finley1496 has tutoring/childcare; Avery1433 has all three services in453.
+  A service picker cannot grant a caseload, clinical credential or another agency.
+- Morgan1759 has Parker2545/enrollment1038 and Quinn2547/enrollment1039.
+  Rene1785 has Parker only. Preserve saved identities, signatures and invitations.
+- Linked parent1456 is already in bot vault4713378 and linked to Rowan2271:
+ 450 counseling1028,453 tutoring1043 and453 counseling1044. First login may
+  follow the retained450 Verify route. Do not reset credentials or add another
+  parent. Never put passwords/raw tokens in evidence or this conversation.
+- Riley1807 is the owner-authorized QA-only administrator exception. Use the
+  existing private vault entry. Administrator1435 stays engineering-only.
+  Avery's old vault797704 site restriction is not an app failure; the approved
+  working entry4415954 is available for the NLU host. Never broaden a role to
+  make a test pass. A missing vault entry is its own named blocker.
+- Real childcare signoff is Melissa; real agreement countersign is Haley Inyart.
+  For synthetic testing use a separate authorized QA reviewer, Riley1807, rather
+  than impersonate a real person's attestation. Work signoff, employer agreement
+  countersign and payroll approval are distinct. Avery has no newly signed453
+  childcare schedule; positive pay checks use Casey1771/Finley1496 schedules66/67.
+
+PRESERVE THIS LATEST LIVE EVIDENCE
+-290/291 and learning sessions2/3 stay retained; don't start/end/cancel them just
+  to reproduce setup. Their dates and old virtual-office grant may expire before
+  a later run; engineering must confirm readiness without aging records.
+-295 (Nov25 3PM MST, Finley) already reserved one package180 session. Verify it
+  read-only.296 and297 were late-canceled:296 returned one courtesy credit,
+ 297 forfeited a credit. Package82 was bought via simulator receipt5 R-453-5;
+  receipt4 R-453-4 also exists. Recount balances/reservations before any new use.
+  No duplicate purchase/cancellation just to regenerate screenshots.
+- Finley's Nov19 4–5PM tutoring opening and Nov25 3–4PM opening already exist.
+  Old Nov18 one-time hours must not silently become weekly. Inspect/reuse.
+- Childcare shift1 has punches563/564/claim844. Shift2 is the new13:15:35–13:15:48
+  Nov14 test (3 children, one worker, approximately$0.10). Preserve both;
+  do not clock them again. Migration1827 holds retained UNAPPROVED childcare
+  claims for separate work review; approved/paid earnings stay unchanged.
+- No resend1597,1604,6347,6349 or6463. Optional email No does not prove receipt
+  or resolve a missing essential setup notice. Reconcile signed choices and
+  actual inbox receipts. All synthetic physical mail stays testing@itsco.health.
+
+ENGINEERING COMPLETES BEFORE ORDINARY BOT ACTIONS
+1. Publish/release reviewed source and migration1827; verify ready build match.
+2. Confirm Riley's retained agency453 admin access/vault entry; no new admin.
+   Production Melissa's scoped work-review assignment is an explicit permission,
+   not implied by a contract clause. Do not change her live roles in this QA run.
+3. Confirm existing signed effective Casey/Finley schedules, permitted work
+   location wage floor, exact approved SMS transport/recipient and virtual-office
+   grant. A missing prerequisite blocks that branch, not unrelated tests.
+4. Payroll/paystub computation uses isolated QA previews/test DB; no live payroll
+   approval/export, bank movement, real card, insurance claim or paid check.
+   QA payment simulator is labeled and uses sixteen zeros only. It is not Stripe.
+
+WHAT CHANGED TO RETEST
+- Selected agency/service survives primary-membership refresh and reload paths;
+  secondary tutoring cannot inherit450 school labels or counseling invoices.
+  Pending/slow document and learning responses are discarded after switching.
+  Signed copies enforce agency and tutoring/counseling source on the server.
+- Both parent booking entry points use the same package-aware booking control.
+  Staff tutoring booking selects a real service and shows the actual format quote.
+  An unrelated clinical roster cannot survive a switch to tutoring.
+- Virtual opening service filters/labels distinguish tutoring, counseling and
+  unclassified hours. Busy bookings remain visible. Recurring openings expose
+  an end date and retain it when edited. Existing one-time rows remain one-time.
+- Courtesy cancellation copy reflects the remaining allowance in the reviewed
+  preview. Actual ledger result and duplicate prevention still need live checks.
+- Pure tutoring hides obsolete clinical/empty saved enrollment prompts without
+  deleting their history. Legitimate clinical drafts still exist in clinical care.
+- Clock-out records time/pay preview. Employees submit actual completed work;
+  a separate authorized reviewer signs off. Actual-time corrections preserve raw
+  punches, need separate review and split pay by actual staffing/count intervals.
+  Changes invalidate stale signoff; pending correction holds unapproved pay.
+  Review-only permission does not expose other employee compensation or scheduling.
+
+KNOWN OPEN / DO NOT CALL READY YET
+Real video/media, truly due reminders, actual inbox receipts and the full
+47-case tutoring/childcare journeys remain live work. Missing1597/1604 mail,
+long mixed-provider/parent menus, clinical branding decisions in NLU counseling,
+short blended enrollment, official insurance/copay expectations and cross-host
+single-session behavior remain open unless freshly verified independently.
+The current company/service switch operates within one signed-in portal; do not
+claim it shares browser cookies between different hosts. Local screens do not
+prove production delivery, storage encryption or payroll posting.
+
+OWNER READINESS GOALS — EACH NEEDS ITS OWN FRESH EVIDENCE
+RD01 Schedule and actually run a new virtual tutoring visit with two-way media,
+     deliberate admission, saved work and one durable completion.
+RD02 Tutor schedules, permitted descriptive profile fields and staff-controlled
+     format rates/pay placement all persist; self-pay/paystub access remains.
+RD03 Finder/profile shows the intended tutor fields and actual availability;
+     missing owner field-map decisions stay explicit.
+RD04 An authorized linked family can schedule counseling in each company without
+     a duplicate person or an invented service/guardian permission.
+RD05 One child's tutoring and counseling keep the correct separate service,
+     provider, availability, workspace and records in the mixed agency.
+RD06 Find-a-tutor enrollment uses tutoring language, optional request-stage
+     contact details, valid email, saved recovery and real setup delivery.
+RD07 A short mixed-service request may defer later clinical questions only if
+     a real supported flow exists; two unrelated forms do not prove this goal.
+RD08 Purchase only in the labeled QA simulator; book from the purchased package,
+     cancel against its exact saved terms and verify one allowed courtesy.
+RD09 An employee's childcare assignment, executed pay schedule, self/manager shift,
+     co-caregivers, actual child count/time, work submission/signoff and isolated
+     paystub reconcile; a ready fixture alone does not prove new-hire onboarding.
+RD10 The same child uses an explicit authorized synthetic insurance/copay scenario
+     for counseling and a self-pay tutoring package. Missing payer/copay scenario
+     remains BLOCKED; no real claim, insurer call or bank/payment is permitted.
+RD11 One signed-in family portal exposes both companies' authorized profiles and
+     services with useful switching and correct data. A second host's cookie
+     login behavior must be tested separately, never inferred from one portal.
+Append new release-specific RD results to the existing goal ledger. None is
+fully proven here. Preserve prior FAIL evidence alongside the new result.
+
+FRESH CASE CSV — BLANK LIVE RESULTS
+case_id,source_case,status,build,actor_user_id,agency_id,client_id,service_id,appointment_id,session_id,shift_id,action_time_denver,utc_offset,audit_row_ids,evidence,finding,expected
+DG00,MX00,NOT RUN,,,453,,,,,,,,,,,Verify deployed frontend/backend ready build matches the publication and migration1827 completed; stop dependent cases on mismatch.
+DG01,MX17/RD11,NOT RUN,,,453,,,,,,,,,,,Parent1456 uses vault4713378 and one linked Rowan2271 identity; ordinary agency/service switch and refresh preserve the selected service.
+DG02,MX18,NOT RUN,,,453,,,,,,,,,,,"Switch450 counseling,453 tutoring1043 and453 counseling1044: branding, appointments, plans, progress, documents and invoices use the selected agency/service. Repeat after sign-out/reload; do not manufacture extra relationships."
+DG03,MX18/TU32,NOT RUN,,,453,,,,,,,,,,,Hold a slow document/progress response while switching services; old content must not repopulate. Direct other-service and other-family document links still require authorization.
+DG04,MX06/MX07,NOT RUN,,,453,,,,,,,,,,,"Staff Book Session: choose Tutoring, assigned learner and actual format. Finley lists Parker/Quinn; Avery lists only legitimately assigned Rowan. Show50 virtual/55 in-person hourly for Finley, prorated only for hourly quotes; no invisible medical code."
+DG05,MX03/MX04/MX05,NOT RUN,,,453,,,,,,,,,,,"Openings: distinguish tutoring/counseling/unclassified; filter openings while keeping busy conflicts. Save bounded weekly end date, reload/reopen without clearing it. Retained one-time hours remain one-time; classify an old untyped row explicitly rather than duplicate it."
+DG06,MX08/TU13,NOT RUN,,,453,,,,,,,,,,,Both Appointments and tutoring dashboard booking offer the same authorized retained package. Reuse current balances; existing295 already reserved a credit. New authorized booking reserves exactly once; no repurchase to reproduce evidence.
+DG07,MX12/TU36,NOT RUN,,,453,,,,,,,,,,,Cancellation preview explains whether a remaining courtesy returns the package credit or a late cancel consumes it. Existing296 used courtesy and297 forfeited; do not cancel them again. Stale preview must require fresh review if terms/balance change.
+DG08,WA/RR,NOT RUN,,,453,,,,,,,,,,,Pure tutoring parent sees only meaningful tutoring saved enrollments; empty opens and obsolete clinical drafts do not demand insurance signatures. Real clinical enrollment drafts remain preserved in clinical context.
+DG09,MX20/MX21/CC,NOT RUN,,,453,,,,,,,,,,,"Riley schedules a NEW short synthetic childcare shift with Finley and Casey as co-caregivers. Only actually clocked-in workers affect ceil(children/active caregivers); preserve planned count. Observe real late arrival/departure and count changes, zero children and missing attendance. Do not replay shifts1/2."
+DG10,CC/RD09,NOT RUN,,,453,,,,,,,,,,,"Clock-out retains work/pay preview but does not submit it to payroll. Each employee reviews and explicitly submits their own completed work. Riley or separate authorized synthetic reviewer reviews actual intervals and count timeline, then signs off or returns it. Self-review and cross-agency review denied."
+DG11,CC/RD09,NOT RUN,,,453,,,,,,,,,,,"Employee requests a reasoned actual-time correction with zoned intervals and starting child count. Separate reviewer approves/rejects. Original punches survive; corrected intervals affect active staffing/pay. Pending corrections hold pay and require work resubmission. Overlap with another event, including an open punch or approved correction, is denied."
+DG12,CC/RD09,NOT RUN,,,453,,,,,,,,,,,"Attendance/staffing/rate changes invalidate old work signoff. Stale snapshot approval fails. Isolated SQL/paystub preview verifies amount and each own band rate, with no live payroll approval/export. Approved/paid history is preserved for a separate correction."
+DG13,CC/MX22,NOT RUN,,,453,,,,,,,,,,,Review-only assignment may review submitted work but cannot schedule others or inspect another employee rate/pay. Scheduling and compensation-management permissions stay separate. Revoked roles and foreign agencies denied; ordinary caregiver can view only own pay/corrections.
+DG14,TE/CC/MX23,NOT RUN,,,453,,,,,,,,,,,Verify actual permitted inbox receipts and due notices with real elapsed time. Preserve missing-mail findings1597/1604 and existing6347/6349/6463. No resends just for evidence. SMS remains BLOCKED unless exact approved transport/recipient readiness exists.
+DG15,TU/TE/CC/WA/MX/RD,NOT RUN,,,453,,,,,,,,,,,"Resume all original47TU,12TE,26CC,20NR,43WA,24MX cases plus readiness goals. Real video, clinical completion, insurance scenario and payroll evidence need their actual workflows. Reconcile each goal; no all-ready claim based on source/build/local fixtures alone."
+
+BLANK ACTION-TO-AUDIT LEDGER
+case_id,actor_user_id,agency_id,client_id,object_type,object_id,action,action_time_denver,expected_audit_action,actual_audit_row_id,target_reference,status,evidence,finding
+
+BLANK EMAIL LEDGER
+case_id,logical_to,physical_to,actual_from,actual_reply_to,template_type,action_id,due_at,sent_at,received_at_denver,utc_offset,transport_id,inbox_id,status,evidence,finding
+
+BLANK CHILDCARE PAY RECONCILIATION
+case_id,agency_id,shift_id,event_id,user_id,punch_ids,correction_id,planned_children,actual_children,interval_start,interval_end,active_caregivers,band,hours,own_rate,amount,schedule_id,snapshot_hash,work_submission,review_actor,review_time,claim_id,claim_status,isolated_paystub_reference,status,evidence,finding
+
+For every result: PASS / FAIL / BLOCKED / NOT RUN; actual deployed build, actor,
+exact IDs, America/Denver timestamp with the event's UTC offset, screenshot,
+expected/actual and audit row. Never backdate work or signature, age reminders,
+replay an action solely for proof or infer receipt from Queued/Sent/acceptance.
+
+Complete upload packet: deliverables/nlu-digest-repairs-2026-11-14/bot-upload/NLU-RETEST-AND-CHILDCARE-BOT-BRIEF.txt

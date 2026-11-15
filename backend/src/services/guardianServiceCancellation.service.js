@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
+import BookingPackage from '../models/BookingPackage.model.js';
 import Appointment from '../models/Appointment.model.js';
 import { authorizedAppointmentClient, requireGuardianCancellation } from './guardianAppointments.service.js';
 import { evaluateCancel } from './bookingCancellationPolicy.service.js';
@@ -17,7 +18,7 @@ const scopeLabel = kind => ({counseling:'counseling',tutoring:'tutoring',coachin
 
 export function createGuardianServiceCancellationService(overrides={}) {
   const d = { db:pool, appointment:id=>Appointment.findById(id), authorize:authorizedAppointmentClient,
-    requireCancellation:requireGuardianCancellation, evaluate:evaluateCancel,
+    requireCancellation:requireGuardianCancellation, evaluate:evaluateCancel, packageEntitlement:id=>BookingPackage.findEntitlementById(id),
     authorizeEnd:async({userId,clientId,agencyId,serviceKind})=>{
       if(serviceKind==='counseling')await(await import('./guardianClinicalAccess.service.js')).requireClinicalScope({userId,clientId,agencyId,scope:'session_frequency'});
     },
@@ -64,7 +65,7 @@ export function createGuardianServiceCancellationService(overrides={}) {
       if(scope==='end_services')selectedSeries.push(enrichedAnchor);
     }
     const candidates=[],fees=[];
-    let plannedComplimentary=0;
+    let plannedComplimentary=0;const packageAllowances=new Map();
     for(const id of ids) {
       const a=await d.appointment(id);
       if(!activeAppointment(a))continue;
@@ -76,10 +77,18 @@ export function createGuardianServiceCancellationService(overrides={}) {
       if(e.usedComplimentary)plannedComplimentary++;
       if(!e.allowed)throw fail(e.blockReason||'The service policy does not allow self-cancellation. Contact your care team.',403);
       if(!Number.isSafeInteger(Number(e.recommendedFeeCents||0))||Number(e.recommendedFeeCents||0)<0)throw fail('The cancellation fee needs care-team review.',409);
+      let packageCourtesyApplies=false,packageCourtesyRemaining=null;
+      if(a.packageEntitlementId && e.isLate && ['forfeit','late_forfeit'].includes(e.recommendedPackageAction)) {
+        const packageId=Number(a.packageEntitlementId);
+        if(!packageAllowances.has(packageId)) {const pkg=await d.packageEntitlement(packageId);packageAllowances.set(packageId,Number(pkg?.freeMissesRemaining||0));}
+        packageCourtesyRemaining=packageAllowances.get(packageId);
+        packageCourtesyApplies=packageCourtesyRemaining>0;
+        if(packageCourtesyApplies)packageAllowances.set(packageId,packageCourtesyRemaining-1);
+      }
       candidates.push(a);
       fees.push({appointmentId:a.id,startAt:a.startAt,timeZone:a.sourceTimezone||'America/Denver',policyId:e.policy?.id||null,
         policyName:e.policy?.name||'Cancellation policy',noticeHours:e.policy?.noticeHours??24,cancelDeadlineAt:e.cancelDeadlineAt||null,
-        feeCents:Number(e.recommendedFeeCents||0),isLate:!!e.isLate,hasPackage:!!a.packageEntitlementId,packageAction:e.recommendedPackageAction||'release'});
+        feeCents:Number(e.recommendedFeeCents||0),isLate:!!e.isLate,hasPackage:!!a.packageEntitlementId,packageAction:e.recommendedPackageAction||'release',packageCourtesyApplies,packageCourtesyRemaining});
     }
     if(!candidates.length&&scope!=='end_services')throw fail('There are no future appointments left in this selection. Refresh your appointments.',409);
     const review={scope,count:candidates.length,serviceKind,serviceLabel:scopeLabel(serviceKind),fees,

@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -17,7 +18,7 @@ const permissions = Object.freeze({learningOnly:true,serviceKinds:['tutoring'],n
   contactSharing:{name:false,email:false,phone:false}});
 const audit = (db,action,userId,agencyId,metadata) => db.execute(
   'INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',
-  [action,userId,agencyId,JSON.stringify(metadata)]);
+  [action,userId,agencyId,qaAuditMetadataJson(metadata,userId)]);
 
 function minor(dob, now=new Date()) {
   const birth=dob instanceof Date?dob.toISOString().slice(0,10):String(dob||'').slice(0,10);

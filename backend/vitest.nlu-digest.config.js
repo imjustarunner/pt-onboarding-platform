@@ -1,0 +1,13 @@
+export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{vitest:new URL('../frontend/node_modules/vitest/dist/index.js',import.meta.url).pathname}},test:{environment:'node',env:{SKIP_DB_CONNECT:'1'},include:[
+'src/services/__tests__/familyBillingServiceScope.test.js',
+'src/controllers/__tests__/bookingOptions.tutoringQuote.test.js',
+'src/services/__tests__/guardianCancellation*.test.js',
+'src/services/__tests__/guardianTutoringDrafts.test.js',
+'src/services/__tests__/enrollmentRoiTicketRepairs.test.js',
+'src/services/__tests__/guardianEnrollment*.test.js',
+'src/services/__tests__/guardianSessionBooking*.test.js',
+'src/services/__tests__/clientServiceEnrollment*.test.js',
+'src/services/__tests__/scheduling.selfPayRates.test.js',
+'src/services/__tests__/tutoringWorkspace*.test.js',
+'src/controllers/__tests__/enrollmentCompletion.ownDocuments.test.js'
+]}};

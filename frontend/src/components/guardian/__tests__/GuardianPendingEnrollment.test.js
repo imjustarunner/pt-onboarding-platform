@@ -27,3 +27,8 @@ it('shows recovered enrollment to-dos and opens the own-draft route',async()=>{
  const w=mount(View,{props:{agencyId:450,clientId:20}});await flushPromises();
  expect(w.text()).toContain('remaining to-dos');expect(w.text()).toContain('Sign the insurance authorization');await w.find('button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/guardian-portal/enrollment-drafts/100/open',{agencyId:450});w.unmount();
 });
+it('hides empty opens and clinical-only to-dos in tutoring while preserving meaningful clinical drafts in clinical context',async()=>{
+ api.get.mockResolvedValue({data:{invitations:[],drafts:[{id:1,organizationName:'Clinical draft retained',channel:'clinical',hasAnswers:true,children:[{name:'Same child'}],tasks:['Sign the insurance authorization']},{id:2,organizationName:'Empty open',channel:'tutoring',hasAnswers:false,children:[],tasks:['Review agreements']},{id:3,organizationName:'Tutoring draft',channel:'tutoring',hasAnswers:true,children:[{name:'Same child'}],tasks:['Complete tutoring choices']}]}});
+ const w=mount(View,{props:{agencyId:453,clientId:2271,learningOnly:true}});await flushPromises();expect(w.text()).toContain('Tutoring draft');expect(w.text()).not.toContain('insurance authorization');expect(w.text()).not.toContain('Empty open');
+ await w.setProps({learningOnly:false});await flushPromises();expect(w.text()).toContain('Clinical draft retained');expect(w.text()).toContain('insurance authorization');expect(w.text()).not.toContain('Empty open');w.unmount();
+});

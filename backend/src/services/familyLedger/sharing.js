@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import {billingServiceFilter} from './views.js';
 import { billingError, requireResponsiblePayer, auditBilling } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { normalizeShares, assertSharesAuthorized, parseJson, transaction } from './policy.js';
@@ -46,11 +47,12 @@ export async function respondToSplit({agencyId,requestId,userId,accept,signature
     await auditBilling({agencyId,clientId:row.client_id,userId,action:'split_response',objectId:requestId},db);return {status:complete?'accepted':'pending'};
   });
 }
-export async function listSplitRequests({agencyId,userId,clientId=null}) {
+export async function listSplitRequests({agencyId,userId,clientId=null,serviceId=null}) {
+  const serviceFilter=await billingServiceFilter({agencyId,userId,clientId,serviceId});
   const [rows]=await pool.execute(`SELECT s.*,r.client_id FROM family_split_requests s JOIN family_receivables r ON r.id=s.receivable_id
-    WHERE s.agency_id=? AND s.status='pending' AND (? IS NULL OR r.client_id=?)
+    WHERE s.agency_id=?${serviceFilter.sql} AND s.status='pending' AND (? IS NULL OR r.client_id=?)
     AND (s.requested_by_user_id=? OR JSON_CONTAINS(s.shares_json,JSON_OBJECT('payerUserId',CAST(? AS UNSIGNED))) OR EXISTS(SELECT 1 FROM family_receivable_allocations a WHERE a.receivable_id=r.id AND a.payer_user_id=?))
-    ORDER BY s.id DESC LIMIT 100`,[agencyId,clientId,clientId,userId,userId,userId]);
+    ORDER BY s.id DESC LIMIT 100`,[agencyId,...serviceFilter.args,clientId,clientId,userId,userId,userId]);
   const result=[];
   for(const row of rows){
     const evidence=decryptFamilyBilling(row.evidence_encrypted,`split:${agencyId}:${row.receivable_id}`);

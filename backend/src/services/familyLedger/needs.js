@@ -1,4 +1,4 @@
-import {listBalances} from './views.js';
+import {listBalances,billingServiceFilter} from './views.js';
 import {listSplitRequests} from './sharing.js';
 import {listPaymentTasks} from './tasks.js';
 import {listCardTasks} from '../insuranceCards/service.js';
@@ -16,7 +16,8 @@ export function summarizeBillingNeeds({balances=[],splits=[],tasks=[],cards=[]},
   };
 }
 export async function guardianBillingNeeds(context) {
-  const [balances,splits,tasks,cards]=await Promise.all([listBalances(context),listSplitRequests(context),listPaymentTasks(context),listCardTasks(context)]);
+  const selected=await billingServiceFilter(context);
+  const [balances,splits,tasks,cards]=await Promise.all([listBalances(context),listSplitRequests(context),listPaymentTasks(context),selected.serviceKind==='tutoring'?[]:listCardTasks(context)]);
   const authorized=[];
   for(const task of tasks){
     try{for(const clientId of task.clientIds)await requireBillingLink(context.userId,clientId,context.agencyId);authorized.push(task);}catch(e){if(e.status!==403)throw e;}

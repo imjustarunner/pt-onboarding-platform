@@ -11,7 +11,7 @@ beforeEach(()=>{vi.clearAllMocks();ClientGuardian.getLink.mockResolvedValue({acc
 it('lists the complete copy without exposing storage paths and downloads only the signer’s child-specific bundle',async()=>{
   const docs=await listEnrollmentCopies(input);expect(docs[0]).toMatchObject({submissionId:30,kind:'enrollment_copy',document_template_name:'Complete signed enrollment copy'});expect(JSON.stringify(docs)).not.toContain('child.pdf');
   expect((await downloadEnrollmentCopy({...input,submissionId:30})).body.toString()).toBe('%PDF-synthetic');
-  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('s.guardian_user_id=?'),[20,10,450,450,450]);
+  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('s.guardian_user_id=?'),[20,10,450,450,450,450,450,450]);
 });
 it('never substitutes the combined sibling bundle or a different submission',async()=>{
   pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT date')?[[{date_of_birth:'2020-01-01'}]]:[[{id:30,bundle_pdf_path:'all.pdf',combined_pdf_path:'all.pdf',child_count:2}]]);
