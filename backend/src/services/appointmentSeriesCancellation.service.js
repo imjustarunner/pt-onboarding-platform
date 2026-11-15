@@ -54,7 +54,7 @@ export function createAppointmentSeriesCancellation(overrides={}) {
     const identity=cancellationSeries(enriched);if(!identity)throw fail('This appointment has no recurring series. Choose this visit only.',400);
     if(!['keep','release'].includes(input.officeReservationDisposition))throw fail('Choose whether to keep or release the office time.',400);
     if(input.useSchoolSupportHour||input.replacementAppointmentId||(input.waiver?.action&&input.waiver.action!=='no')||['private_slots','portal_booking','replacement_booked'].includes(input.followUpAction))throw fail('Use individual appointment changes for waivers, replacement bookings or school support hours.',400);
-    const [rows]=await d.db.execute(`SELECT DISTINCT a.id,a.source,a.business_type AS businessType,p.recurrence_series_id AS recurrenceSeriesId,e.booking_plan_id AS officeBookingPlanId
+    const [rows]=await d.db.execute(`SELECT DISTINCT a.id,a.start_at,a.source,a.business_type AS businessType,p.recurrence_series_id AS recurrenceSeriesId,e.booking_plan_id AS officeBookingPlanId
       FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=?
       LEFT JOIN provider_schedule_events p ON p.id=a.provider_schedule_event_id AND p.agency_id=a.agency_id
       LEFT JOIN office_events e ON e.id=a.office_event_id WHERE a.agency_id=? AND a.provider_user_id=? AND a.start_at>=?
