@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import ClientServiceEnrollments from '../ClientServiceEnrollments.vue';
+import ProviderSearchSelect from '../../clients/ProviderSearchSelect.vue';
 
 const { get, post, remove, patch, actor } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), remove: vi.fn(), patch: vi.fn(), actor: { user: { role: 'support' } } }));
 vi.mock('../../../services/api', () => ({ default: { get, post, delete: remove, patch } }));
@@ -10,47 +11,47 @@ beforeEach(() => {
   actor.user.role = 'support';
   post.mockReset(); remove.mockReset();patch.mockReset();
   vi.stubGlobal('confirm', () => true);
-  get.mockReset().mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [] } : [
-    { supervisee_id: 1433, supervisee_first_name: 'Avery', supervisee_last_name: 'QA' }
-  ] }));
+  get.mockReset().mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [] } : {providers:[
+    { id: 1433, name: 'Avery QA', agencyIds:[450] }
+  ]} }));
 });
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
 
 it('uses the authorized limited provider projection for Support instead of an admin user directory', async () => {
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
-  expect(get).toHaveBeenCalledWith('/users/me/providers-for-support', { params: { agencyId: 450 } });
+  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450' },skipGlobalLoading:true });
   expect(get.mock.calls.some(([url]) => url === '/users')).toBe(false);
-  expect(wrapper.find('option[value="1433"]').text()).toBe('Avery QA');
+  await wrapper.findComponent(ProviderSearchSelect).get('input').trigger('focus');
+  expect(wrapper.get('[role=option]').text()).toContain('Avery QA');
 });
 
 it('preserves the normal authorized admin provider choices', async () => {
   actor.user.role = 'admin';
-  get.mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [] } : [
-    { id: 10, first_name: 'Admin', last_name: 'Provider', role: 'provider' },
-    { id: 11, first_name: 'Guardian', role: 'guardian' }
-  ] }));
+  get.mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [] } : {providers:[
+    { id: 10, name: 'Admin Provider', agencyIds:[450] },
+    { id: 11, name: 'Other Agency Provider', agencyIds:[999] }
+  ]} }));
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
-  expect(get).toHaveBeenCalledWith('/users', { params: { agencyId: 450 } });
-  expect(wrapper.find('option[value="10"]').exists()).toBe(true);
-  expect(wrapper.find('option[value="11"]').exists()).toBe(false);
+  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450' },skipGlobalLoading:true });
+  expect(wrapper.findComponent(ProviderSearchSelect).props('options').map(provider=>provider.id)).toEqual([10]);
+  expect(get.mock.calls.some(([url])=>url==='/users')).toBe(false);
 });
 
 it('ignores a delayed provider response belonging to the prior child and agency', async () => {
   let release;
   get.mockImplementation(async (url, options) => {
     if (url.includes('service-enrollments')) return { data: { services: [] } };
-    if (options.params.agencyId === 450) return new Promise(resolve => { release = resolve; });
-    return { data: [{ supervisee_id: 20, supervisee_first_name: 'Current', supervisee_last_name: 'Provider' }] };
+    if (options.params.agencyIds === '450') return new Promise(resolve => { release = resolve; });
+    return { data: {providers:[{ id: 20, name:'Current Provider', agencyIds:[999] }]} };
   });
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
   await wrapper.setProps({ clientId: 3000, agencyId: 999 }); await flushPromises();
-  release({ data: [{ supervisee_id: 1433, supervisee_first_name: 'Old', supervisee_last_name: 'Provider' }] });
+  release({ data: {providers:[{ id: 1433,name:'Old Provider',agencyIds:[450]}]} });
   await flushPromises();
-  expect(wrapper.find('option[value="20"]').exists()).toBe(true);
-  expect(wrapper.find('option[value="1433"]').exists()).toBe(false);
+  expect(wrapper.findComponent(ProviderSearchSelect).props('options').map(provider=>provider.id)).toEqual([20]);
 });
 
 it('clears the prior draft and ignores its delayed save after changing child', async () => {

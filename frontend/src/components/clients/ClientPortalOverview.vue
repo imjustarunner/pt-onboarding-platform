@@ -1,7 +1,7 @@
 <template>
   <section class="client-portal-overview" aria-label="Client portal overview">
     <header><div><h2>Portal · {{client.full_name||client.initials}}</h2><p>Access, shared records, and activity for this client’s portal accounts.</p></div><button v-if="canViewAs" type="button" :disabled="loading" @click="load">Refresh overview</button></header>
-    <nav class="portal-actions" aria-label="Client portal actions"><button v-if="canAssignDocuments" type="button" @click="assigningDocuments=true">Share documents</button><button type="button" @click="$emit('share-assessments')">Share assessments</button><button type="button" @click="$emit('manage-access')">Manage portal access</button></nav>
+    <nav v-if="showActions" class="portal-actions" aria-label="Client portal actions"><button v-if="canAssignDocuments" type="button" @click="assigningDocuments=true">Share documents</button><button type="button" @click="$emit('share-assessments')">Share assessments</button><button type="button" @click="$emit('manage-access')">Manage portal access</button></nav>
     <section v-if="assigningDocuments" class="inline-assignments" aria-label="Assign portal documents and forms"><button type="button" @click="closeAssignments">Done assigning documents</button><EnrollmentPortalDocuments ref="assignmentWorkspace" :client-id="Number(client.id)" :agency-id="Number(agency.id)" assignment-only /></section>
     <p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Loading portal overview…</p>
     <p v-if="canViewAs && !loading && !error && !accounts.length">No portal accounts are linked. Portal availability alone does not give anyone access.</p>
@@ -34,10 +34,12 @@ const describe=event=>{const route=String(event.route||'');const writing=event.m
  if(route.includes('skill-builders'))return 'Opened skill builder';
  if(event.action==='login')return 'Signed in';
  return toPlainEnglish(event.action)||String(event.action||'Portal activity').replaceAll('_',' ');};
-const props=defineProps({client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
+const props=defineProps({showActions:{type:Boolean,default:true},client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
 defineEmits(['share-documents','share-assessments','manage-access']);
 const assigningDocuments=ref(false),assignmentWorkspace=ref(null);
 const canAssignDocuments=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(props.actor.role));
+function openDocumentAssignments(){if(canAssignDocuments.value)assigningDocuments.value=true;}
+defineExpose({openDocumentAssignments});
 function closeAssignments(){if(assignmentWorkspace.value?.prepareToLeave?.()!==false)assigningDocuments.value=false;}
 const canViewAs=computed(()=>['admin','support','super_admin'].includes(props.actor.role));
 const invitationFailureLabel = kind => ({send_failed:'The invitation could not be sent. Support can review the failed delivery.',bounced:'The recipient’s server rejected the invitation.',undelivered:'The invitation was not delivered.'}[kind] || 'The recorded delivery failed; no detailed reason is available.');

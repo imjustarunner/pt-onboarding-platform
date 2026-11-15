@@ -14,6 +14,7 @@
 
     <ClientEhrBringUpToDatePanel
       v-if="showWorkspaceUpdater"
+      :key="`workspace-${clientId}-${agencyId}`"
       embedded
       open
       :client-id="clientId"
@@ -119,6 +120,7 @@
 
     <NoteAidIntakeImportReview
       v-if="clientId"
+      :key="`intake-${clientId}-${agencyId}`"
       :open="intakeOpen"
       :client-id="clientId"
       :initial-text="intakePaste"
@@ -127,6 +129,7 @@
     />
     <NoteAidTreatmentPlanImportReview
       v-if="clientId && agencyId"
+      :key="`plan-${clientId}-${agencyId}`"
       :open="planOpen"
       :agency-id="agencyId"
       :client-id="clientId"
@@ -139,7 +142,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../../services/api';
 import NoteAidIntakeImportReview from '../../clinical/NoteAidIntakeImportReview.vue';
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
@@ -174,30 +177,24 @@ const updaterOpen = ref(false);
 const intakeOpen = ref(false);
 const planOpen = ref(false);
 let loadSeq = 0;
+let contextGeneration = 0;
+let parseSeq = 0;
 
 const scope = computed(() => String(props.scope || 'all'));
-const schoolClient = computed(() => {
-  if (status.value?.schoolClient) return true;
-  const type = String(props.client?.client_type || '').toLowerCase();
-  const org = String(props.client?.organization_type || '').toLowerCase();
-  return type === 'school' || org === 'school';
-});
 const showSection = (id) => {
   if (!status.value) return false;
-  if (id === 'demographics' && schoolClient.value) return false;
   const missing = {
     demographics: !status.value.demographicsOnFile,
     intake: !status.value.intakeOnFile,
     plan: !status.value.planOnFile
   }[id];
   if (!missing) return false;
-  if (scope.value === 'all' && !schoolClient.value) return false;
+  if (scope.value === 'all') return false;
   return scope.value === 'all' || scope.value === id;
 };
 const showWorkspaceUpdater = computed(() =>
   scope.value === 'all'
   && !!status.value
-  && !schoolClient.value
   && !status.value.setupComplete
 );
 const workspaceStatus = computed(() => ({
@@ -232,12 +229,6 @@ const intro = computed(() => {
   if (showWorkspaceUpdater.value) {
     return 'Paste the records that are still missing. This is the same chart update used in the workspace, and it stays until demographics, intake, and the treatment plan are on the chart.';
   }
-  if (scope.value === 'all' && schoolClient.value && (showSection('intake') || showSection('plan'))) {
-    return 'Intake and the treatment plan still need to be on the chart. Demographics from school registration or a paper packet stay on the file and are not marked as a chart update.';
-  }
-  if (showUpdater.value && schoolClient.value && !showSection('intake') && !showSection('plan')) {
-    return 'Compare the paper packet with the file. School registration answers stay as they are until you switch a field.';
-  }
   return 'Save this section to the chart. The prompt leaves once chart setup is complete.';
 });
 
@@ -251,19 +242,20 @@ function quietConfig() {
 }
 
 async function loadStatus() {
+  const seq = ++loadSeq;
+  const context = contextGeneration;
   const id = Number(props.clientId || 0);
   if (!id) {
     status.value = null;
     return;
   }
-  const seq = ++loadSeq;
   loadError.value = '';
   try {
     const res = await api.get(`/clients/${id}/chart-setup`, quietConfig());
-    if (seq !== loadSeq) return;
+    if (seq !== loadSeq || context !== contextGeneration) return;
     status.value = res.data || null;
   } catch (error) {
-    if (seq !== loadSeq) return;
+    if (seq !== loadSeq || context !== contextGeneration) return;
     status.value = null;
     loadError.value = error.response?.data?.error?.message || 'Chart setup could not be loaded.';
   }
@@ -291,28 +283,38 @@ function applyIncoming(parsed) {
 function usePacketCandidate() {
   const candidate = status.value?.packetCandidate;
   if (!candidate) return;
+  ++parseSeq;
+  parsing.value = false;
   updaterOpen.value = true;
   applyIncoming(candidate);
 }
 
 async function parsePaste() {
+  const clientId = Number(props.clientId || 0);
+  if (!clientId || parsing.value) return;
+  const context = contextGeneration;
+  const seq = ++parseSeq;
+  const isCurrent = () => context === contextGeneration && seq === parseSeq;
   parsing.value = true;
   saveError.value = '';
   try {
     const res = await api.post(
-      `/clients/${props.clientId}/demographics/parse`,
+      `/clients/${clientId}/demographics/parse`,
       { text: demoPaste.value },
       quietConfig()
     );
-    applyIncoming(res?.data?.parsed || {});
+    if (isCurrent()) applyIncoming(res?.data?.parsed || {});
   } catch (error) {
-    saveError.value = error.response?.data?.error?.message || 'The paste could not be read.';
+    if (isCurrent()) saveError.value = error.response?.data?.error?.message || 'The paste could not be read.';
   } finally {
-    parsing.value = false;
+    if (isCurrent()) parsing.value = false;
   }
 }
 
 async function saveMerge() {
+  const clientId = Number(props.clientId || 0);
+  if (!clientId || saving.value || parsing.value) return;
+  const context = contextGeneration;
   const payload = mergedDemographicsPayload(mergeRows.value);
   const hasContent = Object.values(payload).some((value) => String(value || '').trim());
   if (!hasContent) {
@@ -323,19 +325,20 @@ async function saveMerge() {
   saveError.value = '';
   try {
     const res = await api.post(
-      `/clients/${props.clientId}/demographics/import`,
+      `/clients/${clientId}/demographics/import`,
       { demographics: payload },
       quietConfig()
     );
+    if (context !== contextGeneration) return;
     mergeRows.value = [];
     demoPaste.value = '';
     updaterOpen.value = false;
     emit('updated', res?.data?.client || null);
     await loadStatus();
   } catch (error) {
-    saveError.value = error.response?.data?.error?.message || 'Demographics could not be saved.';
+    if (context === contextGeneration) saveError.value = error.response?.data?.error?.message || 'Demographics could not be saved.';
   } finally {
-    saving.value = false;
+    if (context === contextGeneration) saving.value = false;
   }
 }
 
@@ -353,11 +356,30 @@ async function onPlanSaved() {
   await loadStatus();
 }
 
-watch(() => props.clientId, () => {
+watch(() => [Number(props.clientId || 0), Number(props.agencyId || 0)], () => {
+  ++contextGeneration;
+  ++loadSeq;
+  ++parseSeq;
+  status.value = null;
+  loadError.value = '';
+  demoPaste.value = '';
+  intakePaste.value = '';
+  planPaste.value = '';
   mergeRows.value = [];
+  saveError.value = '';
+  parsing.value = false;
+  saving.value = false;
   updaterOpen.value = false;
+  intakeOpen.value = false;
+  planOpen.value = false;
   loadStatus();
-}, { immediate: true });
+}, { immediate: true, flush: 'sync' });
+
+onBeforeUnmount(() => {
+  ++contextGeneration;
+  ++loadSeq;
+  ++parseSeq;
+});
 </script>
 
 <style scoped>

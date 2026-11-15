@@ -37,13 +37,10 @@
         </nav>
 
         <div class="acct-sidebar-block">
-          <div class="acct-sidebar-block-title">Quick Actions</div>
-          <button type="button" class="acct-qa" @click="scrollToSection('account-info')">Edit Profile</button>
-          <button type="button" class="acct-qa" @click="scrollToSection('workspace-security')">Reset Password</button>
-          <button v-if="canEditUser" type="button" class="acct-qa" @click="scrollToSection('workspace-security')">Login Help</button>
-          <button v-if="!isSchoolStaffProfile" type="button" class="acct-qa" @click="ctx.navigate?.('payroll')">Log Time Manually</button>
-          <button type="button" class="acct-qa" @click="ctx.navigate?.('documents')">Upload Document</button>
-          <button type="button" class="acct-qa" @click="ctx.navigate?.('communications')">Send Message</button>
+          <div class="acct-sidebar-block-title">Account quick actions</div>
+          <button type="button" class="acct-qa" @click="openContactDetails"><UserRoundPen :size="17" aria-hidden="true" />{{ canEditUser ? 'Edit contact details' : 'Contact details' }}</button>
+          <button type="button" class="acct-qa" @click="scrollToSection('workspace-security')"><ShieldCheck :size="17" aria-hidden="true" />Workspace &amp; security</button>
+          <button v-if="canEditUser" type="button" class="acct-qa" :disabled="photoUploading" @click="ctx.triggerPhotoUpload?.()"><Camera :size="17" aria-hidden="true" />{{ photoUploading ? 'Uploading photo…' : 'Update profile photo' }}</button>
         </div>
 
         <div v-if="completionPct != null && !isSchoolStaffProfile" class="acct-completion">
@@ -204,7 +201,7 @@
                 >
                   <label>Practice categories</label>
                   <p v-if="practiceCategoryAgencyOptions.length <= 1" class="acct-field-hint acct-field-hint--tight">
-                    For {{ practiceCategoryAgencyName }} — add or remove types for this person (tenant defaults still apply unless revoked).
+                    For {{ practiceCategoryAgencyName }} — add or remove types for this person (agency defaults still apply unless revoked).
                   </p>
                   <div class="acct-practice-cats">
                     <label
@@ -222,7 +219,7 @@
                       <span
                         v-if="practiceCategorySources[opt.code] === 'default'"
                         class="acct-practice-cat-src"
-                        title="From tenant audience default"
+                        title="From agency audience default"
                       >default</span>
                       <span
                         v-else-if="practiceCategorySources[opt.code] === 'grant'"
@@ -536,6 +533,7 @@ import StaffLearningCompensation from '../StaffLearningCompensation.vue';
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import { agencyCardStyle } from '../../../utils/agencyCardScope.js';
 import AgencyAccessPermissionsCard from './AgencyAccessPermissionsCard.vue';
+import { Camera, ShieldCheck, UserRoundPen } from '@lucide/vue';
 import AccountDashboardCard from './AccountDashboardCard.vue';
 import UserPayHcbsClassificationPanel from '../UserPayHcbsClassificationPanel.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../../composables/userAccountContext.js';
@@ -651,8 +649,8 @@ const practiceCategoryAgencyName = computed(() => {
   return row?.name || row?.slug || (id ? `Agency ${id}` : '');
 });
 const practiceCategoriesEmptyHint = computed(() => {
-  const name = practiceCategoryAgencyName.value || 'this tenant';
-  return `No practice categories are enabled for ${name}. Turn on Mental health / Tutoring / Coaching / Consulting under Settings → Booking & service types for that tenant, then save.`;
+  const name = practiceCategoryAgencyName.value || 'this agency';
+  return `No practice categories are enabled for ${name}. Turn on Mental health / Tutoring / Coaching / Consulting under Settings → Booking & service types for that agency, then save.`;
 });
 
 function resolvePracticeCategoryAgencyId() {
@@ -881,7 +879,7 @@ const permissionGroups = computed(() => {
         ...(unwrap(ctx.showCredentialingAccessToggle) ? [{ key: 'hasCredentialingAccess', label: 'Credentialing access', type: 'checkbox' }] : []),
         { key: 'hasHiringAccess', label: 'Hiring process access', type: 'checkbox' },
         { key: 'hasOutreachAccess', label: 'Outreach Hub access', type: 'checkbox' },
-        ...(unwrap(ctx.showPlatformGearAccessToggle) ? [{ key: 'hasPlatformGearAccess', label: 'Platform Gear & Materials (all tenants)', type: 'checkbox' }] : []),
+        ...(unwrap(ctx.showPlatformGearAccessToggle) ? [{ key: 'hasPlatformGearAccess', label: 'Platform Gear & Materials (all agencies)', type: 'checkbox' }] : []),
         { key: 'hasMedicalRecordsReleaseAccess', label: 'Medical records release', type: 'checkbox' },
         ...(unwrap(ctx.canToggleSupervisorPrivileges) ? [
           { key: 'hasSupervisorPrivileges', label: 'Is supervisor', type: 'checkbox' },
@@ -969,6 +967,11 @@ const scrollToSection = (id) => {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
+const openContactDetails = () => {
+  if (canEditUser.value) startEdit('account-info');
+  scrollToSection('account-info');
+};
+
 const loadClinicalFields = async () => {
   const uid = ctx.userId?.value ?? ctx.userId;
   if (!uid || !ctx.api) return;
@@ -1034,11 +1037,11 @@ watch(
 );
 
 // ── Compensation Level ────────────────────────────────────────────────────────
-const COMP_CATEGORIES = {
+const COMP_CATEGORIES = ref({
   1: { label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
   2: { label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
   3: { label: 'Licensed', description: 'Licensed Professionals' }
-};
+});
 
 const compAssignment = ref(null);
 const compAllLevels  = ref([]);
@@ -1051,7 +1054,7 @@ const compDraft      = ref({ category: null, levelKey: 'bypass' });
 
 const compCategoryLabel = (cat) => {
   if (!cat) return '';
-  return compCatLabels.value[cat] || COMP_CATEGORIES[cat]?.label || `Category ${cat}`;
+  return compCatLabels.value[cat] || COMP_CATEGORIES.value[cat]?.label || `Category ${cat}`;
 };
 
 const loadCompLevel = async () => {
@@ -1066,6 +1069,7 @@ const loadCompLevel = async () => {
       ctx.api.get('/payroll/compensation-levels', { params: { agencyId: aid }, skipGlobalLoading: true })
     ]);
     compAssignment.value = assignRes.data?.assignment || null;
+    if (defsRes.data?.categories || assignRes.data?.categories) COMP_CATEGORIES.value = defsRes.data?.categories || assignRes.data.categories;
     compAllLevels.value  = defsRes.data?.levels || [];
     // Build category label map
     const labels = {};
@@ -1239,18 +1243,25 @@ watch([compUserId, compAgencyId, isSchoolStaffProfile], ([uid, aid, schoolStaff]
 .acct-sidebar-block { padding-top: 8px; border-top: 1px solid #eef2f7; }
 .acct-sidebar-block-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--acct-muted); margin-bottom: 8px; }
 .acct-qa {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
   text-align: left;
-  border: none;
-  background: transparent;
-  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 10px;
+  margin-bottom: 7px;
   border-radius: 8px;
-  font-size: 13px;
+  font: inherit;
+  font-size: 14px;
   color: #334155;
   cursor: pointer;
 }
-.acct-qa:hover { background: #f8fafc; }
+.acct-qa svg { flex-shrink: 0; color: var(--acct-green, #2e5d50); }
+.acct-qa:hover { background: #f0fdf9; border-color: #a7cabb; }
+.acct-qa:focus-visible { outline: 2px solid var(--acct-green, #2e5d50); outline-offset: 2px; }
+.acct-qa:disabled { opacity: .6; cursor: wait; }
 
 .acct-completion { margin-top: 14px; padding-top: 12px; border-top: 1px solid #eef2f7; }
 .acct-completion-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--acct-muted); margin-bottom: 6px; }

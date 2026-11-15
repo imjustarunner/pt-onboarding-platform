@@ -124,7 +124,7 @@
     </div>
 
     <aside class="cc-hub__aside">
-      <section class="cc-side-card">
+      <section v-if="showQuickActions" class="cc-side-card">
         <h4>Quick actions</h4>
         <div class="cc-side-actions">
           <button v-if="canEdit" type="button" class="cdp-btn-primary" @click="$emit('edit')">Edit client</button>
@@ -173,6 +173,7 @@ import FamilyWelcomeWorkflowCard from '../../school/FamilyWelcomeWorkflowCard.vu
 import '../../../styles/client-hub.css';
 
 const props = defineProps({
+  showQuickActions: { type: Boolean, default: true },
   clientId: { type: [Number, String], required: true },
   client: { type: Object, default: null },
   canProcessPaper: Boolean,

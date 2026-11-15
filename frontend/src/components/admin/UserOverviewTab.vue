@@ -87,16 +87,20 @@
 
           <!-- Quick Actions -->
           <div class="ov-sidebar-block">
-            <div class="ov-sidebar-block-title">Quick Actions</div>
-            <button class="ov-qa-btn" type="button" @click="$emit('navigate', 'account')">
+            <div class="ov-sidebar-block-title">Popular quick actions</div>
+            <button v-if="canViewAssignments" class="ov-qa-btn ov-qa-btn--primary" type="button" @click="$emit('navigate', 'assignments')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M15 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4"/></svg>
+              Assignments
+            </button>
+            <button v-if="canEditUser" class="ov-qa-btn" type="button" @click="$emit('navigate', 'account')">
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
               Edit Profile
             </button>
-            <button class="ov-qa-btn" type="button" @click="$emit('navigate', 'account')">
+            <button v-if="canEditUser" class="ov-qa-btn" type="button" @click="$emit('navigate', 'account', 'workspace-security')">
               <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/></svg>
               Reset Password
             </button>
-            <button class="ov-qa-btn" type="button" @click="$emit('navigate', 'payroll')">
+            <button v-if="canViewPayroll" class="ov-qa-btn" type="button" @click="$emit('navigate', 'payroll')">
               <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
               Log Time Manually
             </button>
@@ -104,11 +108,11 @@
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
               Send Message
             </button>
-            <button class="ov-qa-btn" type="button" @click="$emit('navigate', 'documents')">
+            <button v-if="canEditUser" class="ov-qa-btn" type="button" @click="$emit('navigate', 'documents')">
               <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
               Upload Document
             </button>
-            <button class="ov-qa-btn" type="button" @click="openNoteComposer">
+            <button v-if="canEditUser" class="ov-qa-btn" type="button" @click="openNoteComposer">
               <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg>
               Add Note
             </button>
@@ -689,6 +693,7 @@ const props = defineProps({
   canViewLifecycleTab: { type: Boolean, default: false },
   canViewCredentialingTab: { type: Boolean, default: false },
   canManageAssignments: { type: Boolean, default: false },
+  canViewAssignments: { type: Boolean, default: false },
   canViewActivityLog: { type: Boolean, default: false },
   canViewPayroll: { type: Boolean, default: false },
   agencyId: { type: [Number, String], default: null },
@@ -1413,18 +1418,22 @@ watch(
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 0;
-  background: none;
-  border: none;
-  font-size: 12.5px;
+  padding: 10px;
+  margin-bottom: 7px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  font: inherit;
+  font-size: 14px;
   color: #374151;
   cursor: pointer;
   text-align: left;
-  border-radius: 4px;
+  border-radius: 8px;
   transition: color 0.1s;
 }
-.ov-qa-btn svg { width: 14px; height: 14px; opacity: 0.6; flex-shrink: 0; }
-.ov-qa-btn:hover { color: var(--primary, #059669); }
+.ov-qa-btn svg { width: 17px; height: 17px; color: var(--primary, #2e5d50); flex-shrink: 0; }
+.ov-qa-btn--primary { background: #edf8f3; border-color: #a7cabb; color: #244a40; font-weight: 650; }
+.ov-qa-btn:hover { color: var(--primary, #2e5d50); background: #f0fdf9; border-color: #a7cabb; }
+.ov-qa-btn:focus-visible { outline: 2px solid var(--primary, #2e5d50); outline-offset: 2px; }
 .ov-qa-btn:hover svg { opacity: 1; }
 
 /* Direct chat */

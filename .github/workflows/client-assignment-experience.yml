@@ -1,0 +1,76 @@
+name: Client assignment and profile regressions
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/controllers/client*.js'
+      - 'backend/src/controllers/officeClientManagement.controller.js'
+      - 'backend/src/models/Client.model.js'
+      - 'backend/src/models/Appointment.model.js'
+      - 'backend/src/services/client*.js'
+      - 'backend/src/services/chartSetupStatus.service.js'
+      - 'backend/src/services/officeClientManagement.service.js'
+      - 'backend/src/utils/clientServiceAssignments.js'
+      - 'backend/src/**/__tests__/*Service*.test.js'
+      - 'backend/src/services/__tests__/client*.test.js'
+      - 'backend/src/services/__tests__/office*.test.js'
+      - 'frontend/src/components/admin/**'
+      - 'frontend/src/components/clients/**'
+      - 'frontend/src/components/profile/**'
+      - 'frontend/src/components/clinicalWorkspace/**'
+      - 'frontend/src/views/admin/OfficeClientsView.vue'
+      - 'frontend/src/views/admin/UserProfileView.vue'
+      - 'frontend/src/utils/clientProfileActions.js'
+      - 'frontend/src/styles/client-chart.css'
+      - '**/vitest.client-assignment*.config.js'
+      - '.github/workflows/client-assignment-experience.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/controllers/client*.js'
+      - 'backend/src/controllers/officeClientManagement.controller.js'
+      - 'backend/src/models/Client.model.js'
+      - 'backend/src/models/Appointment.model.js'
+      - 'backend/src/services/client*.js'
+      - 'backend/src/services/chartSetupStatus.service.js'
+      - 'backend/src/services/officeClientManagement.service.js'
+      - 'backend/src/utils/clientServiceAssignments.js'
+      - 'frontend/src/components/admin/**'
+      - 'frontend/src/components/clients/**'
+      - 'frontend/src/components/profile/**'
+      - 'frontend/src/components/clinicalWorkspace/**'
+      - 'frontend/src/views/admin/OfficeClientsView.vue'
+      - 'frontend/src/views/admin/UserProfileView.vue'
+      - 'frontend/src/utils/clientProfileActions.js'
+      - 'frontend/src/styles/client-chart.css'
+      - '**/vitest.client-assignment*.config.js'
+      - '.github/workflows/client-assignment-experience.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-assignment-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  assignments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - run: npm ci --ignore-scripts --prefix frontend
+      - run: npm ci --prefix backend
+      - name: Backend assignment and service lifecycle checks
+        run: frontend/node_modules/.bin/vitest run --config backend/vitest.client-assignment-clarity.config.js
+      - name: Frontend assignment and profile checks
+        run: frontend/node_modules/.bin/vitest run --config frontend/vitest.client-assignment-experience.config.js
+      - name: Public navigation checks
+        run: node --test scripts/check-school-demo-release.test.mjs

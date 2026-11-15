@@ -2999,12 +2999,6 @@ export const updateClient = async (req, res, next) => {
       req.body.client_type_transitioned_at = new Date();
       req.body.client_type_transitioned_by_user_id = userId;
     }
-    const effectiveTypeAfterUpdate = requestedClientType || currentClientType;
-    if (effectiveTypeAfterUpdate !== 'school') {
-      // School-only fields are cleared for non-school client types.
-      req.body.school_year = null;
-      req.body.skills = false;
-    }
 
     // Client identifier code (6-digit, permanent):
     // Use the existing update endpoint so the UI doesn't depend on a brand-new route.
@@ -4099,6 +4093,8 @@ export const assignProvider = async (req, res, next) => {
       const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
       const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
       if (providerId && providerId !== oldProviderId) {
+        const { assertAssignableProvider } = await import('../services/clientAssignmentScope.service.js');
+        await assertAssignableProvider({ clientId: id, providerUserId: providerId }, connection);
         const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
         await assertNewProviderCoverageAdmission(id, providerId, { db: connection });
       }
@@ -4352,6 +4348,9 @@ export const assignProvider = async (req, res, next) => {
         }
       }
       res.json(updatedClient);
+    } catch (error) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw error;
     } finally {
       connection.release();
     }
@@ -7563,7 +7562,17 @@ export const listClientAgencyAffiliations = async (req, res, next) => {
         );
         rows = r;
       }
-      return res.json(rows || []);
+      return res.json((rows || []).map(row => {
+        if (Number(row.agency_id) !== Number(access.client?.agency_id)) return row;
+        // Older office edits only saved clients.*; show those chart defaults until
+        // the next explicit save synchronizes the membership as well.
+        return {
+          ...row,
+          default_office_location_id: row.default_office_location_id ?? access.client.default_office_location_id ?? null,
+          default_place_of_service: row.default_place_of_service ?? access.client.default_place_of_service ?? null,
+          default_service_location_id: row.default_service_location_id ?? access.client.default_service_location_id ?? null
+        };
+      }));
     } catch (e) {
       const msg = String(e?.message || '');
       const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
@@ -7619,10 +7628,10 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const targetAgency = await Agency.findById(agencyId);
-    if (!targetAgency) return res.status(404).json({ error: { message: 'Tenant not found' } });
+    if (!targetAgency) return res.status(404).json({ error: { message: 'Agency not found' } });
     if (String(targetAgency.organization_type || 'agency').toLowerCase() !== 'agency') {
       return res.status(400).json({
-        error: { message: 'Tenant memberships must be agency organizations (not schools, programs, or clinical orgs)' }
+        error: { message: 'Agency memberships must use agency organizations (not schools, programs, or clinical orgs)' }
       });
     }
 
@@ -7635,7 +7644,7 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
           Number(o?.id) === Number(agencyId) &&
           String(o?.organization_type || 'agency').toLowerCase() === 'agency'
       );
-      if (!has) return res.status(403).json({ error: { message: 'You do not have access to this tenant' } });
+      if (!has) return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
     }
 
     const connection = await pool.getConnection();
@@ -7713,31 +7722,24 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
           [agencyId, userId, clientId]
         );
 
-        // Keep legacy client-level booking defaults in sync with the active chart tenant.
-        if (hasOfficeDefault || hasPosDefault || hasServiceLocDefault) {
-          try {
-            const sets = [];
-            const params = [];
-            if (hasOfficeDefault) {
-              sets.push('default_office_location_id = ?');
-              params.push(defaultOfficeLocationId);
+        // A chart switch must use the selected agency’s defaults, never the old agency’s office.
+        try {
+          const { bookingDefaultsForChartAgency } = await import('../services/clientAssignmentScope.service.js');
+          const defaults = await bookingDefaultsForChartAgency({
+            clientId, agencyId, previousClient: access.client,
+            explicitDefaults: {
+              default_office_location_id: defaultOfficeLocationId,
+              default_place_of_service: defaultPlaceOfService,
+              default_service_location_id: defaultServiceLocationId
             }
-            if (hasPosDefault) {
-              sets.push('default_place_of_service = ?');
-              params.push(defaultPlaceOfService);
-            }
-            if (hasServiceLocDefault) {
-              sets.push('default_service_location_id = ?');
-              params.push(defaultServiceLocationId);
-            }
-            if (sets.length) {
-              params.push(clientId);
-              await connection.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, params);
-            }
-          } catch (colErr) {
-            const m = String(colErr?.message || '');
-            if (!m.includes('Unknown column')) throw colErr;
-          }
+          }, connection);
+          await connection.execute(
+            `UPDATE clients SET default_office_location_id = ?, default_place_of_service = ?, default_service_location_id = ? WHERE id = ?`,
+            [defaults.default_office_location_id, defaults.default_place_of_service, defaults.default_service_location_id, clientId]
+          );
+        } catch (colErr) {
+          const m = String(colErr?.message || '');
+          if (!m.includes('Unknown column')) throw colErr;
         }
       } else if (hasOfficeDefault || hasPosDefault || hasServiceLocDefault) {
         // If this membership is already primary, keep clients.* booking defaults aligned.
@@ -8472,18 +8474,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Client is not affiliated to the selected organization' } });
       }
 
-      // Ensure provider belongs to client's agency (best-effort)
-      const [provAgencyRows] = await connection.execute(
-        `SELECT 1
-         FROM user_agencies ua
-         WHERE ua.user_id = ? AND ua.agency_id = ?
-         LIMIT 1`,
-        [providerUserId, client.agency_id]
-      );
-      if (!provAgencyRows?.[0] && String(role || '').toLowerCase() !== 'super_admin') {
-        await connection.rollback();
-        return res.status(400).json({ error: { message: 'Provider is not part of this agency' } });
-      }
+      const { assertAssignableProvider } = await import('../services/clientAssignmentScope.service.js');
+      await assertAssignableProvider({ clientId, providerUserId }, connection);
 
       const allowOverCapacityReq =
         req.body?.allow_over_capacity === true || req.body?.allow_over_capacity === 1 || req.body?.allow_over_capacity === '1';

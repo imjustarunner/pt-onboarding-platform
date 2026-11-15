@@ -1,0 +1,28 @@
+Client assignments and profile experience — 2026-11-15
+
+Counseling is one active service per client and agency. Program membership and
+provider assignments are details of that service. Existing source IDs and
+historical records are retained; separate agencies and different services remain
+separate. An assigned service no longer displays a false missing-provider step.
+
+Provider searches are client/agency scoped and keyboard accessible. Shared
+physical offices appear in defaults, and chart/agency defaults stay synchronized.
+Client and staff profiles show clearer section navigation, contextual icon
+shortcuts, consistent form typography, and Agency terminology. School charts use
+the same demographics workflow and retain education data during updates.
+
+The release retains existing service-status confirmation, cancellation and audit
+checks, re-enrollment/return workflows, provider-only access restrictions, portal
+document assignment, secure composition, and paper-packet processing. Profile
+compensation choices retain agency-defined categories and saved selections.
+
+Validation on the isolated release branch based on eaf7d30e6:
+- Frontend assignment/profile suite: 70 tests passed in 14 files.
+- Backend assignment/lifecycle/access suite: 64 tests passed in 10 files.
+- Public school demo/homepage navigation: 3 tests passed.
+- Changed backend modules passed node --check.
+- Dedicated CI runs both focused suites for future changes.
+
+No migration or production client-record change is required by this release.
+Application builds and live readiness/version checks use the normal repository
+deployment workflows. Production application accounts are not used by automation.

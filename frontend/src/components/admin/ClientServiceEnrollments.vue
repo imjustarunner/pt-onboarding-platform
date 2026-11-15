@@ -1,65 +1,186 @@
-<template><section class="service-enrollments"><h4>Services &amp; providers</h4><p>Each service keeps its own agency, provider, and schedule. Adding a service keeps existing enrollments in place.</p><p v-if="error" role="alert">{{error}}</p><ul><li v-for="service in services" :key="service.id"><div><strong>{{service.label}}</strong><span>{{service.provider_name||'Provider not assigned'}}<template v-if="service.organization_name"> · {{service.organization_name}}</template></span><small>{{ service.status_label || (Number(service.is_active)===1?'Active services':'Discontinued services') }}</small></div><button type="button" :disabled="busy" @click="editStatus(service)">Change status</button><ClientReenrollment v-if="Number(service.is_active)!==1" :client-id="clientId" :agency-id="agencyId" :service-id="service.id" /><button v-if="Number(service.is_active)!==1" type="button" :disabled="busy" @click="loadReturns(service)">Review return requests</button></li></ul><form v-if="statusEdit" class="status-editor" @submit.prevent="saveStatus"><h5>Service status · {{ statusEdit.label }}</h5><p>This changes this service with {{ statusEdit.provider_name || 'this agency' }}. Cancel or transfer future appointments before ending services. Reactivation does not restore canceled sessions.</p><label>Status<select v-model="statusDraft.status"><option value="active">Active services</option><option value="discontinued">Discontinued services</option><option value="completed">Completed services</option><option value="terminated">Terminated services</option><option value="canceled">Canceled services</option></select></label><label v-if="statusDraft.status!=='active'">Closure category<select v-model="statusDraft.closureReason"><option value="client_choice">Client chose to discontinue</option><option value="care_completed">Services completed</option><option value="discontinued_contact">Discontinued contact / unable to re-engage</option><option value="provider_transition">Services with this provider ended</option><option value="other">Other service closure</option></select></label><p v-if="statusDraft.status!=='active'">Client sees: <strong>{{ statusDraft.status==='terminated' && statusDraft.closureReason==='discontinued_contact'?'Discontinued services':statusDraft.status.charAt(0).toUpperCase()+statusDraft.status.slice(1)+' services' }}</strong>. {{ closureCopy[statusDraft.closureReason] }}</p><label>Reason (staff record)<textarea v-model="statusDraft.reason" maxlength="500" required /></label><label><input v-model="statusDraft.confirmed" type="checkbox" /> I confirm this service status change.</label><button type="submit" :disabled="busy||!statusDraft.confirmed||!statusDraft.reason.trim()">Update service status</button><button type="button" :disabled="busy" @click="statusEdit=null">Cancel</button></form><section v-if="returnService" class="return-reviews"><h5>Requests to be considered again · {{ returnService.label }}</h5><p>Reviewing a request does not reactivate services. Use Change status separately if care is resumed.</p><p v-if="!returnRequests.length">No requests have been received.</p><article v-for="request in returnRequests" :key="request.id"><strong>{{ request.requesterName }} · {{ request.status }}</strong><p>{{ request.note }}</p><template v-if="request.status==='pending'"><label>Message to client (optional)<textarea v-model="returnMessages[request.id]" maxlength="500" /></label><button type="button" :disabled="busy" @click="reviewReturn(request,'reviewed')">Mark reviewed</button><button type="button" :disabled="busy" @click="reviewReturn(request,'declined')">Decline request</button></template><p v-else-if="request.response">{{ request.response }}</p></article></section><form v-if="canAddService" @submit.prevent="save"><label>Service<select v-model="draft.serviceKind"><option value="counseling">Counseling</option><option value="tutoring">Tutoring</option><option value="coaching">Coaching</option><option value="consultation">Consultation</option></select></label><label>Display name<input v-model="draft.label" maxlength="150" placeholder="e.g. Reading tutoring" /></label><label>Assigned provider<select v-model="draft.providerUserId"><option :value="0">Not assigned yet</option><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{provider.first_name}} {{provider.last_name}}</option></select></label><label>School / program<select v-model="draft.organizationId"><option :value="0">Agency service</option><option v-for="org in organizations" :key="org.organization_id" :value="org.organization_id">{{org.organization_name||org.name}}</option></select></label><button :disabled="busy" type="submit">{{busy?'Saving…':'Add service enrollment'}}</button></form></section></template>
+<template>
+  <section class="service-enrollments" aria-label="Services and providers">
+    <header class="services-header">
+      <div><h4>Services &amp; providers</h4><p>Each service brings its providers and school or program together in one place.</p></div>
+      <span class="service-count">{{ activeServices.length }} active {{ activeServices.length === 1 ? 'service' : 'services' }}</span>
+    </header>
+    <p v-if="error" class="service-error" role="alert">{{ error }}</p>
+    <p v-if="loading" role="status">Loading services…</p>
+    <p v-else-if="!activeServices.length" class="services-empty">No active services for this agency. Add a service below to get started.</p>
+    <ul class="services-list">
+      <li v-for="service in activeServices" :key="service.id">
+        <div class="service-summary">
+          <div><strong>{{ service.label }}</strong><span class="service-context">{{ servicePrograms(service) }}</span><span class="service-context">{{ service.status_label || 'Active services' }}</span></div>
+          <div class="service-provider" :class="{ 'needs-provider': !Number(service.provider_user_id) }">
+            <span class="service-status">{{ Number(service.provider_user_id) ? (service.providers?.length > 1 ? 'Assigned providers' : 'Assigned provider') : 'Needs a provider' }}</span>
+            <ul v-if="service.providers?.length > 1" class="service-providers-list">
+              <li v-for="provider in service.providers" :key="provider.provider_user_id"><strong>{{ provider.provider_name || `Provider ${provider.provider_user_id}` }}</strong><button v-if="canAddService" type="button" :disabled="busy || providersLoading" @click="edit(service, provider)">Change</button><button type="button" :disabled="busy" @click="editStatus({ ...service, ...provider, id: provider.service_id })">Change status</button></li>
+            </ul>
+            <strong v-else>{{ service.provider_name || 'Not assigned yet' }}</strong>
+          </div>
+          <div class="service-actions">
+            <button v-if="canAddService && !(service.providers?.length > 1)" type="button" :disabled="busy || providersLoading" @click="edit(service)">{{ Number(service.provider_user_id) ? 'Change provider' : 'Assign provider' }}</button>
+            <button v-if="!(service.providers?.length > 1)" type="button" :disabled="busy" @click="editStatus(service)">Change status</button>
+          </div>
+        </div>
+        <form v-if="Number(editingServiceId) === Number(service.id)" class="service-assignment" @submit.prevent="assign(service)">
+          <div><label :for="`service-provider-${service.id}`">Provider for {{ service.label }}</label>
+            <ProviderSearchSelect v-model="selectedProviderId" :input-id="`service-provider-${service.id}`" :options="providers" :loading="providersLoading" :disabled="busy" label="Provider for this service" />
+          </div>
+          <button type="submit" class="service-save" :disabled="busy || !selectedProviderId || !providers.some(provider => Number(provider.id) === Number(selectedProviderId))">{{ busy ? 'Saving…' : 'Save assignment' }}</button>
+          <button type="button" :disabled="busy" @click="editingServiceId = null">Cancel</button>
+        </form>
+      </li>
+    </ul>
+    <details v-if="formerServices.length" class="former-services"><summary>Former services ({{ formerServices.length }})</summary><ul><li v-for="service in formerServices" :key="service.id"><strong>{{ service.label }}</strong> · {{ service.provider_name || 'No provider' }} · {{ servicePrograms(service) }}<span>{{ service.status_label || 'Discontinued services' }}</span><div class="service-actions"><button type="button" :disabled="busy" @click="editStatus(service)">Change status</button><ClientReenrollment :client-id="clientId" :agency-id="agencyId" :service-id="service.id" /><button type="button" :disabled="busy" @click="loadReturns(service)">Review return requests</button></div></li></ul></details>
+    <form v-if="statusEdit" class="status-editor" @submit.prevent="saveStatus"><h5>Service status · {{ statusEdit.label }}</h5><p>This changes this service with {{ statusEdit.provider_name || 'this agency' }}. Cancel or transfer future appointments before ending services. Reactivation does not restore canceled sessions.</p><label>Status<select v-model="statusDraft.status"><option value="active">Active services</option><option value="discontinued">Discontinued services</option><option value="completed">Completed services</option><option value="terminated">Terminated services</option><option value="canceled">Canceled services</option></select></label><label v-if="statusDraft.status!=='active'">Closure category<select v-model="statusDraft.closureReason"><option value="client_choice">Client chose to discontinue</option><option value="care_completed">Services completed</option><option value="discontinued_contact">Discontinued contact / unable to re-engage</option><option value="provider_transition">Services with this provider ended</option><option value="other">Other service closure</option></select></label><p v-if="statusDraft.status!=='active'">Client sees: <strong>{{ statusDraft.status==='terminated' && statusDraft.closureReason==='discontinued_contact'?'Discontinued services':statusDraft.status.charAt(0).toUpperCase()+statusDraft.status.slice(1)+' services' }}</strong>. {{ closureCopy[statusDraft.closureReason] }}</p><label>Reason (staff record)<textarea v-model="statusDraft.reason" maxlength="500" required /></label><label><input v-model="statusDraft.confirmed" type="checkbox" /> I confirm this service status change.</label><button type="submit" :disabled="busy||!statusDraft.confirmed||!statusDraft.reason.trim()">Update service status</button><button type="button" :disabled="busy" @click="statusEdit=null">Cancel</button></form><section v-if="returnService" class="return-reviews"><h5>Requests to be considered again · {{ returnService.label }}</h5><p>Reviewing a request does not reactivate services. Use Change status separately if care is resumed.</p><p v-if="!returnRequests.length">No requests have been received.</p><article v-for="request in returnRequests" :key="request.id"><strong>{{ request.requesterName }} · {{ request.status }}</strong><p>{{ request.note }}</p><template v-if="request.status==='pending'"><label>Message to client (optional)<textarea v-model="returnMessages[request.id]" maxlength="500" /></label><button type="button" :disabled="busy" @click="reviewReturn(request,'reviewed')">Mark reviewed</button><button type="button" :disabled="busy" @click="reviewReturn(request,'declined')">Decline request</button></template><p v-else-if="request.response">{{ request.response }}</p></article></section>
+    <details v-if="canAddService" class="add-service">
+      <summary>Add another service</summary>
+      <p>Add a different service here. Counseling has one shared assignment per agency; change its provider above.</p>
+      <form class="add-service-form" @submit.prevent="save">
+        <label>Service<select v-model="draft.serviceKind"><option value="counseling" :disabled="hasCounseling">Counseling{{ hasCounseling ? ' (already added)' : '' }}</option><option value="tutoring">Tutoring</option><option value="coaching">Coaching</option><option value="consultation">Consultation</option></select></label>
+        <label v-if="draft.serviceKind !== 'counseling'">Display name<input v-model="draft.label" maxlength="150" placeholder="e.g. Reading tutoring" /></label>
+        <div class="service-provider-field"><label for="new-service-provider">Assigned provider</label><ProviderSearchSelect v-model="draft.providerUserId" input-id="new-service-provider" :options="providers" :loading="providersLoading" :disabled="busy" label="Provider for new service" placeholder="Search providers (optional)…" /></div>
+        <label>School / program<select v-model="draft.organizationId"><option :value="0">Agency service</option><option v-for="org in organizations" :key="org.organization_id" :value="org.organization_id">{{ org.organization_name || org.name }}</option></select></label>
+        <button class="service-save" :disabled="busy || loading" type="submit">{{ busy ? 'Saving…' : 'Add service' }}</button>
+      </form>
+    </details>
+  </section>
+</template>
+
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
+import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
-
 const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] } });
-const auth = useAuthStore();
-const providerActor=computed(()=>['provider','provider_plus','clinician','supervisor'].includes(auth.user?.role));
-const canAddService=computed(()=>['super_admin','admin','support'].includes(auth.user?.role));
+const emit = defineEmits(['updated']);
+const auth=useAuthStore();
+const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
 const returnService=ref(null),returnRequests=ref([]),returnMessages=ref({});
-const closureCopy={client_choice:'Services were discontinued at your request.',care_completed:'This course of services has been completed.',discontinued_contact:'Services were discontinued because we were unable to re-establish contact.',provider_transition:'Services with this provider have ended.',other:'Services with this provider have ended. Contact the team if you have questions.'};
-const services = ref([]), providers = ref([]), error = ref(''), busy = ref(false);
 const statusEdit=ref(null),statusDraft=ref({status:'active',reason:'',closureReason:'other',confirmed:false});
-const draft = ref({ serviceKind: 'counseling', label: '', providerUserId: 0, organizationId: 0 });
-let seq = 0;
-onBeforeUnmount(() => { seq++; });
-
+const closureCopy={client_choice:'Services were discontinued at your request.',care_completed:'This course of services has been completed.',discontinued_contact:'Services were discontinued because we were unable to re-establish contact.',provider_transition:'Services with this provider have ended.',other:'Services with this provider have ended. Contact the team if you have questions.'};
+const services = ref([]), providers = ref([]), error = ref(''), busy = ref(false), loading = ref(false), providersLoading = ref(false);
+const editingServiceId = ref(null), selectedProviderId = ref(''), editingSourceId = ref(null), editingOrganizationId = ref(0);
+const newDraft = (serviceKind = 'counseling') => ({ serviceKind, label: '', providerUserId: 0, organizationId: 0 });
+const draft = ref(newDraft());
+const isActive = service => service.is_active === true || Number(service.is_active) === 1;
+const activeServices = computed(() => services.value.filter(isActive));
+const formerServices = computed(() => services.value.filter(service => !isActive(service)));
+const hasCounseling = computed(() => activeServices.value.some(service => service.service_kind === 'counseling'));
+const servicePrograms = service => service.organizations?.length
+  ? service.organizations.map(program => program.name).filter(Boolean).join(' · ') || 'Agency service'
+  : service.organization_name || 'Agency service';
+let sequence = 0;
 async function load() {
-  const own = ++seq;
-  services.value = []; providers.value = []; error.value = ''; busy.value = false;statusEdit.value=null;returnService.value=null;returnRequests.value=[];returnMessages.value={};
-  draft.value = { serviceKind: 'counseling', label: '', providerUserId: 0, organizationId: 0 };
+  const run = ++sequence;
+  services.value = []; providers.value = []; error.value = ''; busy.value = false; editingServiceId.value = null; editingSourceId.value = null; selectedProviderId.value = ''; draft.value = newDraft();
+  statusEdit.value=null;returnService.value=null;returnRequests.value=[];returnMessages.value={};
+  loading.value = false; providersLoading.value = false;
   if (!props.clientId || !props.agencyId) return;
-  try {
-    const limited = ['support', 'provider_plus'].includes(String(auth.user?.role || '').toLowerCase());
-    const [s, p] = await Promise.all([
-      api.get(`/clients/${props.clientId}/service-enrollments`, { params: { agencyId: props.agencyId } }),
-      providerActor.value?Promise.resolve({data:[]}):api.get(limited ? '/users/me/providers-for-support' : '/users', { params: { agencyId: props.agencyId } })
-    ]);
-    if (own !== seq) return;
-    services.value = s.data.services || [];
-    const rows = Array.isArray(p.data) ? p.data : p.data.users || [];
-    providers.value = limited
-      ? rows.map(provider => ({ id: provider.supervisee_id, first_name: provider.supervisee_first_name, last_name: provider.supervisee_last_name }))
-      : rows.filter(provider => ['provider', 'provider_plus', 'clinician', 'supervisor', 'intern', 'intern_plus', 'clinical_practice_assistant', 'admin', 'super_admin'].includes(provider.role));
-  } catch (e) {
-    if (own === seq) error.value = e.response?.data?.error?.message || 'Services could not be loaded.';
+  loading.value = true; providersLoading.value = true;
+  const [serviceResult, providerResult] = await Promise.allSettled([
+    api.get(`/clients/${props.clientId}/service-enrollments`, { params: { agencyId: props.agencyId } }),
+    canAddService.value ? api.get('/office-clients/providers', { params: { clientId: props.clientId, agencyIds: String(props.agencyId) }, skipGlobalLoading: true }) : Promise.resolve({data:{providers:[]}})
+  ]);
+  if (run !== sequence) return;
+  loading.value = false; providersLoading.value = false;
+  if (serviceResult.status === 'fulfilled') {
+    services.value = serviceResult.value.data.services || [];
+    draft.value = newDraft(hasCounseling.value ? 'tutoring' : 'counseling');
   }
+  else error.value = serviceResult.reason.response?.data?.error?.message || 'Services could not be loaded.';
+  if (providerResult.status === 'fulfilled') {
+    providers.value = (providerResult.value.data.providers || []).filter(provider =>
+      (provider.agencies || []).some(agency => Number(agency.id || agency.agencyId) === Number(props.agencyId))
+      || (provider.agencyIds || []).some(id => Number(id) === Number(props.agencyId))
+    );
+  } else error.value = providerResult.reason.response?.data?.error?.message || 'Providers could not be loaded. Reopen Assignments to retry.';
 }
-async function save() {
-  const own = seq;
+function edit(service, provider = null) {
+  editingServiceId.value = service.id;
+  editingSourceId.value = provider?.service_id || service.id;
+  editingOrganizationId.value = provider ? provider.organization_id || 0 : service.organization_id || 0;
+  selectedProviderId.value = provider?.provider_user_id || service.provider_user_id || '';
+  error.value = '';
+}
+async function persist(input) {
+  if (busy.value || !canAddService.value) return;
+  const run = sequence;
   busy.value = true; error.value = '';
   try {
-    const { data } = await api.post(`/clients/${props.clientId}/service-enrollments`, {
-      ...draft.value, agencyId: Number(props.agencyId),
-      label: draft.value.label || ({ counseling: 'Counseling', tutoring: 'Tutoring', coaching: 'Coaching', consultation: 'Consultation' }[draft.value.serviceKind])
-    });
-    if (own === seq) services.value = data.services;
-  } catch (e) { if (own === seq) error.value = e.response?.data?.error?.message || 'Service could not be saved.'; }
-  finally { if (own === seq) busy.value = false; }
+    const { data } = await api.post(`/clients/${props.clientId}/service-enrollments`, { ...input, agencyId: Number(props.agencyId) });
+    if (run !== sequence) return;
+    services.value = data.services || []; editingServiceId.value = null; editingSourceId.value = null; draft.value = newDraft(hasCounseling.value ? 'tutoring' : 'counseling');
+    emit('updated', { services: services.value });
+  } catch (e) { if (run === sequence) error.value = e.response?.data?.error?.message || 'Service could not be saved.'; }
+  finally { if (run === sequence) busy.value = false; }
+}
+function assign(service) {
+  if (!providers.value.some(provider => Number(provider.id) === Number(selectedProviderId.value))) return;
+  return persist({ serviceId: editingSourceId.value || service.id, serviceKind: service.service_kind, label: service.label, organizationId: editingOrganizationId.value, providerUserId: Number(selectedProviderId.value) });
+}
+function save() {
+  if (draft.value.serviceKind === 'counseling' && hasCounseling.value) {
+    edit(activeServices.value.find(service => service.service_kind === 'counseling'));
+    return;
+  }
+  const labels = { counseling: 'Counseling', tutoring: 'Tutoring', coaching: 'Coaching', consultation: 'Consultation' };
+  return persist({ ...draft.value, label: draft.value.serviceKind === 'counseling' ? 'Counseling' : draft.value.label.trim() || labels[draft.value.serviceKind] });
 }
 function editStatus(service){statusEdit.value=service;statusDraft.value={status:service.service_status||(Number(service.is_active)===1?'active':'discontinued'),reason:'',closureReason:service.closure_reason||({completed:'care_completed',discontinued:'client_choice'}[service.service_status]||'other'),confirmed:false};error.value='';}
 async function saveStatus(){
- const own=seq,service=statusEdit.value;if(!service||!statusDraft.value.confirmed)return;busy.value=true;error.value='';
- try{const {data}=await api.patch(`/clients/${props.clientId}/service-enrollments/${service.id}/status`,{...statusDraft.value,agencyId:Number(props.agencyId),expectedStatus:service.service_status||(Number(service.is_active)===1?'active':'discontinued')});if(own===seq){services.value=data.services;statusEdit.value=null;}}
- catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Service status could not be updated.';}finally{if(own===seq)busy.value=false;}
+ const own=sequence,service=statusEdit.value;if(!service||!statusDraft.value.confirmed)return;busy.value=true;error.value='';
+ try{const {data}=await api.patch(`/clients/${props.clientId}/service-enrollments/${service.id}/status`,{...statusDraft.value,agencyId:Number(props.agencyId),expectedStatus:service.service_status||(Number(service.is_active)===1?'active':'discontinued')});if(own===sequence){services.value=data.services;statusEdit.value=null;emit('updated',{services:services.value});}}
+ catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Service status could not be updated.';}finally{if(own===sequence)busy.value=false;}
 }
 
-async function loadReturns(service){const own=seq;busy.value=true;error.value='';returnService.value=service;returnRequests.value=[];try{const{data}=await api.get(`/clients/${props.clientId}/service-enrollments/${service.id}/return-requests`,{params:{agencyId:props.agencyId}});if(own===seq)returnRequests.value=data.requests||[];}catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Return requests could not load.';}finally{if(own===seq)busy.value=false;}}
-async function reviewReturn(request,decision){const own=seq;busy.value=true;error.value='';try{const{data}=await api.post(`/clients/${props.clientId}/service-enrollments/${returnService.value.id}/return-requests/${request.id}/review`,{agencyId:Number(props.agencyId),decision,message:returnMessages.value[request.id]||''});if(own===seq)returnRequests.value=data.requests||[];}catch(e){if(own===seq)error.value=e.response?.data?.error?.message||'Request could not be reviewed.';}finally{if(own===seq)busy.value=false;}}
+async function loadReturns(service){const own=sequence;busy.value=true;error.value='';returnService.value=service;returnRequests.value=[];try{const{data}=await api.get(`/clients/${props.clientId}/service-enrollments/${service.id}/return-requests`,{params:{agencyId:props.agencyId}});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Return requests could not load.';}finally{if(own===sequence)busy.value=false;}}
+async function reviewReturn(request,decision){const own=sequence;busy.value=true;error.value='';try{const{data}=await api.post(`/clients/${props.clientId}/service-enrollments/${returnService.value.id}/return-requests/${request.id}/review`,{agencyId:Number(props.agencyId),decision,message:returnMessages.value[request.id]||''});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Request could not be reviewed.';}finally{if(own===sequence)busy.value=false;}}
 
 watch(() => [props.clientId, props.agencyId], load, { immediate: true });
+onBeforeUnmount(() => { ++sequence; });
 </script>
-<style scoped>.service-enrollments{padding:20px;background:white;border:1px solid #dbe5ed;border-radius:14px;margin:16px 0}.service-enrollments p{font-size:13px;color:#52657a}.service-enrollments ul{list-style:none;padding:0}.service-enrollments li{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e3eaf1}.service-enrollments li span,.service-enrollments li small{display:block}.service-enrollments form{display:flex;flex-wrap:wrap;gap:14px;align-items:end}.service-enrollments label{display:flex;flex-direction:column;gap:6px;font-size:13px}.service-enrollments select,.service-enrollments input,.service-enrollments button{padding:9px;border:1px solid #c8d6e0;border-radius:8px;background:white;color:#23466b}</style>
+
+<style scoped>
+.service-enrollments { padding:20px; background:var(--bg,#fff); border:1px solid var(--border,#dbe5ed); border-radius:14px; margin:16px 0; font-size:14px; color:var(--text-primary,#203b59); min-width:0; }
+.services-header { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; }
+h4 { margin:0 0 8px; font-size:16px; }
+p { margin:6px 0 14px; color:var(--text-secondary,#52657a); line-height:1.5; }
+.service-count { align-self:start; padding:5px 10px; border-radius:20px; background:var(--bg-alt,#f1f5f9); font-size:13px; white-space:nowrap; }
+.services-list,.former-services ul { list-style:none; padding:0; margin:0; }
+.services-list > li { padding:16px 0; border-bottom:1px solid var(--border,#e3eaf1); }
+.service-summary { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:16px; align-items:center; }
+.service-context,.service-status { display:block; margin-top:5px; color:var(--text-secondary,#52657a); font-size:13px; }
+.service-status { margin:0 0 5px; }
+.service-provider { border-left:3px solid #89b9aa; padding-left:12px; min-width:0; }
+.needs-provider { border-color:#d5b46a; }
+.service-provider strong { overflow-wrap:anywhere; }
+.service-providers-list { list-style:none; padding:0; margin:0; }
+.service-providers-list li { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
+.service-actions,.service-assignment { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.service-assignment { padding:14px; margin-top:14px; border-radius:10px; background:var(--bg-alt,#f8fafc); align-items:end; }
+.service-assignment > div { flex:1 1 240px; min-width:0; }
+.service-enrollments button,.service-enrollments input,.service-enrollments select { box-sizing:border-box; min-height:40px; max-width:100%; padding:9px 12px; border:1px solid var(--border,#c8d6e0); border-radius:9px; background:var(--bg,#fff); color:var(--text-primary,#23466b); font:inherit; }
+.service-enrollments button { cursor:pointer; font-weight:600; }
+.service-enrollments button:disabled { opacity:.5; cursor:default; }
+.service-enrollments button:hover:not(:disabled) { background:var(--bg-alt,#f1f5f9); }
+.service-enrollments .service-save { background:var(--primary,#2464a0); border-color:var(--primary,#2464a0); color:white; }
+.service-enrollments .service-save:hover:not(:disabled) { filter:brightness(1.08); background:var(--primary,#2464a0); }
+.service-enrollments .service-end { color:var(--text-secondary,#52657a); background:transparent; border-color:transparent; }
+.service-error { color:var(--danger,#b91c1c); }
+.add-service,.former-services { margin-top:16px; }
+summary { cursor:pointer; font-weight:600; padding:6px 0; }
+.add-service-form { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-top:12px; }
+.add-service-form > label,.service-provider-field { flex:1 1 180px; min-width:0; }
+label { display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:600; margin-bottom:6px; }
+.former-services li { padding:10px 0; color:var(--text-secondary,#52657a); }
+.status-editor,.return-reviews { margin-top:16px; padding:16px; border:1px solid var(--border,#dbe5ed); border-radius:10px; background:var(--bg-alt,#f8fafc); }
+.status-editor { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+.status-editor h5,.status-editor p { flex-basis:100%; margin:0; font-size:14px; }
+.status-editor label { flex:1 1 200px; }
+.status-editor label:has(input[type="checkbox"]) { flex-direction:row; align-items:center; flex-basis:100%; }
+.former-services li span { display:inline-block; margin-left:10px; font-size:13px; }
+@media(max-width:760px) { .service-summary { grid-template-columns:1fr; gap:12px; } .service-actions { justify-content:start; } .service-enrollments { padding:16px; } }
+</style>

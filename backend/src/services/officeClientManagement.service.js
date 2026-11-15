@@ -15,6 +15,8 @@ import {
 } from './clientLifecycleStatus.service.js';
 import { listPendingOfficeClients } from './clientExchange.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { PROVIDER_ROLE_SQL } from './clientAssignmentScope.service.js';
+import { clientServiceAssignments } from '../utils/clientServiceAssignments.js';
 
 export const OFFICE_CLIENT_TYPES = ['clinical', 'learning', 'basic_nonclinical'];
 
@@ -118,6 +120,10 @@ function deriveNextStep(row) {
       return { key: 'assign_preferred', label: 'Assign preferred provider' };
     }
     return { key: 'assign_provider', label: 'Assign provider' };
+  }
+  const unassignedServices = (row.services || []).filter(service => !service.providerId);
+  if (unassignedServices.length) {
+    return { key: 'review_service_assignment', label: `Review ${unassignedServices[0].label || unassignedServices[0].serviceKind} assignment` };
   }
   if (!row.nextAppointmentAt) {
     return { key: 'schedule', label: 'Schedule first appointment' };
@@ -384,6 +390,44 @@ async function loadAffiliationsByClientIds(clientIds, agencyLookup) {
   return map;
 }
 
+async function loadServicesByClientIds(clientIds) {
+  if (!clientIds.length) return new Map();
+  const map = new Map();
+  try {
+    const [rows] = await pool.execute(
+      `SELECT e.id, e.client_id, e.agency_id, e.service_kind, e.label, e.provider_user_id,
+              e.organization_id, u.first_name, u.last_name, org.name AS organization_name
+       FROM client_service_enrollments e
+       INNER JOIN clients c ON c.id = e.client_id
+       LEFT JOIN users u ON u.id = e.provider_user_id
+       LEFT JOIN agencies org ON org.id = e.organization_id
+       WHERE e.client_id IN (${clientIds.map(() => '?').join(',')}) AND e.is_active = TRUE
+         AND (c.agency_id = e.agency_id OR EXISTS (
+           SELECT 1 FROM client_agency_assignments ca
+           WHERE ca.client_id = e.client_id AND ca.agency_id = e.agency_id AND ca.is_active = TRUE))
+       ORDER BY e.id`,
+      clientIds
+    );
+    for (const row of clientServiceAssignments(rows.map(row => ({ ...row, is_active: 1,
+      provider_name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || null })))) {
+      const services = map.get(Number(row.client_id)) || [];
+      services.push({
+        id: Number(row.id), agencyId: Number(row.agency_id), serviceKind: row.service_kind,
+        label: row.label, providerId: Number(row.provider_user_id) || null,
+        providerName: row.provider_name,
+        organizationId: Number(row.organization_id) || null, organizationName: row.organization_name || null,
+        sourceServiceIds: row.source_service_ids || [Number(row.id)],
+        providers: (row.providers || [row]).filter(provider => Number(provider.provider_user_id) > 0).map(provider => ({ providerId: provider.provider_user_id,
+          name: provider.provider_name, serviceId: provider.service_id || Number(row.id) }))
+      });
+      map.set(Number(row.client_id), services);
+    }
+  } catch (error) {
+    if (!/Unknown column|doesn't exist|ER_NO_SUCH_TABLE/i.test(String(error?.message || ''))) throw error;
+  }
+  return map;
+}
+
 async function loadProvidersByClientIds(clientIds, agencyLookup) {
   const ids = (clientIds || []).map((n) => Number(n)).filter((n) => n > 0);
   const map = new Map();
@@ -584,8 +628,15 @@ export async function listOfficeClients({
         SELECT 1 FROM client_provider_assignments cpa
         WHERE cpa.client_id = c.id AND cpa.is_active = TRUE AND cpa.provider_user_id = ?
       )
+      OR EXISTS (
+        SELECT 1 FROM client_service_enrollments e
+        WHERE e.client_id = c.id AND e.is_active = TRUE AND e.provider_user_id = ?
+          AND (e.agency_id = c.agency_id OR EXISTS (
+            SELECT 1 FROM client_agency_assignments ca
+            WHERE ca.client_id = c.id AND ca.agency_id = e.agency_id AND ca.is_active = TRUE))
+      )
     )`;
-    params.push(Number(providerId), Number(providerId));
+    params.push(Number(providerId), Number(providerId), Number(providerId));
   }
 
   sql += ` ORDER BY c.created_at DESC LIMIT ${Math.min(Math.max(Number(limit) || 200, 1), 500)}`;
@@ -657,7 +708,7 @@ export async function listOfficeClients({
   }
   const agencyLookup = await loadAgenciesByIds([...agencyIdSet]);
 
-  const [guardiansMap, unitsMap, nextApptMap, waitlistNotesMap, providerNameById, affiliationsMap, providersMap] =
+  const [guardiansMap, unitsMap, nextApptMap, waitlistNotesMap, providerNameById, affiliationsMap, providersMap, servicesMap] =
     await Promise.all([
       loadGuardiansByClientIds(ids),
       loadTherapyUnitsByClientIds(ids),
@@ -665,7 +716,8 @@ export async function listOfficeClients({
       loadWaitlistNotesByClientIds(ids),
       loadPreferredProviderNames(baseRows),
       loadAffiliationsByClientIds(ids, agencyLookup),
-      loadProvidersByClientIds(ids, agencyLookup)
+      loadProvidersByClientIds(ids, agencyLookup),
+      loadServicesByClientIds(ids)
     ]);
 
   let clients = baseRows.map((base) => {
@@ -675,11 +727,20 @@ export async function listOfficeClients({
       agencyLookup
     });
 
+    const services = servicesMap.get(base.id) || [];
+    const serviceProviders = services.flatMap(service => (service.providers || []).map(provider => {
+      const agency = allAgencies.find(agency => agency.agencyId === service.agencyId);
+      return {
+        providerId: provider.providerId, name: provider.name, agencyId: service.agencyId,
+        agencyName: agency?.name || null, agencySlug: agency?.slug || null, agencyLogoUrl: agency?.logoUrl || null,
+        serviceKind: service.serviceKind, serviceLabel: service.label, serviceId: provider.serviceId, isPrimary: false, serviceDay: null
+      };
+    }));
     const providers = mergeClientProviders({
       legacyProviderId: base.providerId,
       legacyProviderName: base.providerName,
       primaryAgencyId: base.agencyId,
-      providers: providersMap.get(base.id) || [],
+      providers: [...serviceProviders, ...(providersMap.get(base.id) || [])],
       agencies: allAgencies
     });
 
@@ -688,6 +749,7 @@ export async function listOfficeClients({
         ...base,
         agencies: allAgencies,
         providers,
+        services,
         providerName: providers.map((p) => p.name).filter(Boolean).join(', ') || base.providerName,
         agencyName: allAgencies[0]?.name || base.agencyName,
         agencyLogoUrl: allAgencies[0]?.logoUrl || base.agencyLogoUrl
@@ -725,6 +787,11 @@ export async function listOfficeClients({
   if (preferredProviderId) {
     const pid = Number(preferredProviderId);
     clients = clients.filter((c) => Number(c.preferredProviderUserId) === pid);
+  }
+
+  if (providerId) {
+    clients = clients.filter(c => Number(c.providerId) === Number(providerId)
+      || c.providers.some(provider => Number(provider.providerId) === Number(providerId)));
   }
 
   if (clinicalReview) {
@@ -998,11 +1065,11 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
               GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id) AS agency_ids
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
-       WHERE LOWER(COALESCE(u.role, '')) IN ('provider', 'clinician', 'therapist', 'counselor', 'provider_plus')
-          OR COALESCE(u.has_provider_access, 0) = 1
+       WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
+         AND ${PROVIDER_ROLE_SQL}
        GROUP BY u.id, u.first_name, u.last_name, u.title, u.credential, u.provider_accepting_new_clients
        ORDER BY u.last_name ASC, u.first_name ASC
-       LIMIT 200`,
+       `,
       [...aids, ...aids]
     );
     const agencyLookup = await loadAgenciesByIds(aids);
@@ -1031,9 +1098,9 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
         `SELECT u.id, u.first_name, u.last_name
          FROM users u
          INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-         WHERE LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus')
-         ORDER BY u.last_name ASC
-         LIMIT 100`,
+         WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
+           AND LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus')
+         ORDER BY u.last_name ASC`,
         [aid]
       );
       return (rows || []).map((r) => ({

@@ -262,15 +262,22 @@
             <div v-if="selected.therapyUnit"><dt>Unit</dt><dd>{{ selected.therapyUnit.unitType }} ({{ selected.therapyUnit.memberCount }} members)</dd></div>
           </dl>
 
-          <div v-if="!hasAssigned(selected)" class="ocm-assign">
-            <label>Assign provider</label>
-            <select v-model="assignProviderId" class="ocm-select">
-              <option value="">Select…</option>
-              <option v-for="p in providers" :key="p.id" :value="String(p.id)">
-                {{ p.name }}<template v-if="providerAgencyLabel(p)"> · {{ providerAgencyLabel(p) }}</template>
-              </option>
-            </select>
-            <button type="button" class="ocm-btn ocm-btn--primary" :disabled="!assignProviderId || assigning" @click="assignSelected">
+          <p v-if="ambiguousServiceAssignment" class="ocm-assignment-hint ocm-review-hint">Multiple services need a provider. Open Review assignments to choose the service and agency.</p>
+          <div v-if="canQuickAssign" class="ocm-assign">
+            <label for="office-client-provider">Assign provider<template v-if="assignmentService"> · {{ assignmentService.label }}</template></label>
+            <p v-if="assignmentService" class="ocm-assignment-hint">{{ assignmentService.organizationName || 'Agency service' }} · {{ assignmentAgencyName }}</p>
+            <ProviderSearchSelect
+              :key="selected.id"
+              v-model="assignProviderId"
+              input-id="office-client-provider"
+              :options="clientProviders"
+              :loading="providersLoading"
+              :disabled="assigning"
+              empty-message="No providers are available for this client's agencies."
+            />
+            <p class="ocm-assignment-hint">Providers from {{ assignmentService ? assignmentAgencyName : agencyNames(selected) || 'this client’s agencies' }}.</p>
+            <p v-if="providersError" class="ocm-assignment-error" role="alert">{{ providersError }}</p>
+            <button type="button" class="ocm-btn ocm-btn--primary" :disabled="!validAssignProvider || assigning || providersLoading" @click="assignSelected">
               {{ assigning ? 'Assigning…' : 'Assign' }}
             </button>
           </div>
@@ -296,6 +303,9 @@
             </div>
           </div>
 
+          <a class="ocm-btn ocm-btn--ghost ocm-btn--block" :href="`${clientProfilePath(selected.id)}?tab=assignments`">
+            Review assignments
+          </a>
           <a class="ocm-btn ocm-btn--primary ocm-btn--block" :href="clientProfilePath(selected.id)" target="_blank" rel="noopener">
             Open full client ↗
           </a>
@@ -310,6 +320,7 @@ import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
 import '../../styles/auricwellClients.css';
 import SendCareInvitation from '../../components/admin/SendCareInvitation.vue';
 import ProviderEnrollmentWaitlist from '../../components/provider/ProviderEnrollmentWaitlist.vue';
+import ProviderSearchSelect from '../../components/clients/ProviderSearchSelect.vue';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
@@ -347,6 +358,8 @@ const clients = ref([]);
 const aggregates = ref({});
 const providers = ref([]);
 const officeOptions = ref({}), officeSavingId = ref(null);
+const providersLoading = ref(false);
+const providersError = ref('');
 const selectedId = ref(null);
 const searchQuery = ref('');
 const bucket = ref(String(route.query.bucket || 'all'));
@@ -385,6 +398,17 @@ async function reviewWaitlistClient(request) {
 }
 
 const selected = computed(() => clients.value.find((c) => c.id === selectedId.value) || null);
+const unassignedServices = computed(() => (selected.value?.services || []).filter(service => !Number(service.providerId)));
+const assignmentService = computed(() => unassignedServices.value.length === 1 ? unassignedServices.value[0] : null);
+const ambiguousServiceAssignment = computed(() => unassignedServices.value.length > 1);
+const canQuickAssign = computed(() => !!selected.value && !ambiguousServiceAssignment.value && (!!assignmentService.value || !hasAssigned(selected.value)));
+const assignmentAgencyName = computed(() => agencyChips(selected.value).find(agency => Number(agency.agencyId) === Number(assignmentService.value?.agencyId))?.name || 'this service’s agency');
+const clientProviders = computed(() => {
+  const agencyIds = new Set(assignmentService.value ? [Number(assignmentService.value.agencyId)] : agencyChips(selected.value).map(agency => Number(agency.agencyId)));
+  if (!assignmentService.value && selected.value?.agencyId) agencyIds.add(Number(selected.value.agencyId));
+  return providers.value.filter(provider => (provider.agencyIds || provider.agencies?.map(agency => agency.id || agency.agencyId) || []).some(id => agencyIds.has(Number(id))));
+});
+const validAssignProvider = computed(() => clientProviders.value.some(provider => Number(provider.id) === Number(assignProviderId.value)));
 
 const CLIENT_SIDE_SORTS = new Set(['guardian', 'intake', 'portal', 'status', 'nextStep', 'agency']);
 
@@ -515,13 +539,6 @@ function providerSummary(c) {
   return list.map((p) => p.name).filter(Boolean).join(', ') || '—';
 }
 
-function providerAgencyLabel(p) {
-  if (Array.isArray(p?.agencies) && p.agencies.length) {
-    return p.agencies.map((a) => a.name).filter(Boolean).join(', ');
-  }
-  return '';
-}
-
 function guardianSummary(c) {
   const list = c?.guardians || [];
   if (!list.length) {
@@ -583,13 +600,9 @@ async function load() {
       clinicalReview: clinicalReviewOnly.value ? '1' : undefined,
       needsAction: needsActionOnly.value ? '1' : undefined
     };
-    const [rosterRes, providersRes] = await Promise.all([
-      api.get('/office-clients', { params, skipGlobalLoading:true }),
-      api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam() }, skipGlobalLoading:true })
-    ]);
+    const rosterRes = await api.get('/office-clients', { params, skipGlobalLoading: true });
     clients.value = Array.isArray(rosterRes.data?.clients) ? rosterRes.data.clients : [];
     aggregates.value = rosterRes.data?.aggregates || {};
-    providers.value = Array.isArray(providersRes.data?.providers) ? providersRes.data.providers : [];
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load office clients.';
     clients.value = [];
@@ -599,12 +612,20 @@ async function load() {
 }
 
 async function assignSelected() {
-  if (!selected.value || !assignProviderId.value) return;
+  if (!selected.value || !canQuickAssign.value || !validAssignProvider.value || providersLoading.value) return;
   assigning.value = true;
   try {
-    await api.put(`/clients/${selected.value.id}/provider`, {
-      provider_id: Number(assignProviderId.value)
-    });
+    const service = assignmentService.value;
+    if (service) {
+      await api.post(`/clients/${selected.value.id}/service-enrollments`, {
+        agencyId: Number(service.agencyId), serviceId: service.id, serviceKind: service.serviceKind,
+        providerUserId: Number(assignProviderId.value), organizationId: service.organizationId || 0, label: service.label
+      });
+    } else {
+      await api.put(`/clients/${selected.value.id}/provider`, {
+        provider_id: Number(assignProviderId.value)
+      });
+    }
     assignProviderId.value = '';
     await load();
     await providerWaitlistQueue.value?.reload();
@@ -642,9 +663,25 @@ watch(searchQuery, () => {
   searchTimer = setTimeout(() => load(), 300);
 });
 watch(scopeAgencyIds, () => load(), { deep: true });
-watch(selected, (c) => {
+let providerRequest = 0;
+watch(selected, async (c) => {
+  const request = ++providerRequest;
   waitlistReason.value = c?.waitlistReason || c?.waitlistNote || '';
   assignProviderId.value = '';
+  providers.value = [];
+  providersError.value = '';
+  providersLoading.value = false;
+  if (!c || !canQuickAssign.value) return;
+  providersLoading.value = true;
+  try {
+    const response = await api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam(), clientId: c.id }, skipGlobalLoading: true });
+    if (request !== providerRequest) return;
+    providers.value = Array.isArray(response.data?.providers) ? response.data.providers : [];
+  } catch (e) {
+    if (request === providerRequest) providersError.value = e?.response?.data?.error?.message || 'Unable to load providers. Open the client again to retry.';
+  } finally {
+    if (request === providerRequest) providersLoading.value = false;
+  }
 });
 watch(
   () => route.query,
@@ -665,7 +702,7 @@ watch(scopeAgencyIds,loadOffices);
 </script>
 
 <style scoped>
-.ocm-root { padding: 1.25rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+.ocm-root { box-sizing: border-box; min-width: 0; width: 100%; padding: 1.25rem 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 .ocm-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1.25rem; }
 .ocm-eyebrow { margin: 0; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--app-muted, #5b6b63); }
 .ocm-title { margin: 0.15rem 0; font-size: 1.75rem; color: var(--app-ink, #14352a); }
@@ -698,7 +735,14 @@ watch(scopeAgencyIds,loadOffices);
 .ocm-select { border: 1px solid var(--app-line, #d7e3dc); border-radius: 10px; padding: 0.5rem 0.65rem; background: var(--app-surface, #fff); }
 .ocm-check { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.85rem; color: var(--app-ink, #374151); }
 .ocm-banner { background: var(--app-tint-amber, #fef3c7); color: var(--app-text-red, #92400e); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
-.ocm-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
+.ocm-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 320px); gap: 1rem; align-items: start; }
+.ocm-main, .ocm-rail, .ocm-drawer, .ocm-assign, .ocm-waitlist { min-width: 0; }
+.ocm-rail, .ocm-rail * { box-sizing: border-box; }
+.ocm-drawer { overflow-wrap: anywhere; }
+.ocm-drawer input, .ocm-drawer textarea, .ocm-drawer select, .ocm-drawer .ocm-btn { width: 100%; min-width: 0; max-width: 100%; font: inherit; }
+.ocm-assignment-hint { margin: 0; color: var(--app-muted, #6b7280); font-size: 0.8125rem; line-height: 1.45; }
+.ocm-review-hint { margin: 0.75rem 0; }
+.ocm-assignment-error { margin: 0; color: var(--app-text-red, #b42318); font-size: 0.8125rem; }
 .ocm-table-wrap { overflow: auto; background: var(--app-surface, #fff); border: 1px solid var(--app-line, #d7e3dc); border-radius: 12px; }
 .ocm-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .ocm-table th { text-align: left; padding: 0.65rem 0.75rem; background: var(--app-surface-muted, #f6f9f7); color: var(--app-muted, #4b5563); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -773,4 +817,9 @@ watch(scopeAgencyIds,loadOffices);
 
 .ocm-root{width:100%;max-width:none;min-width:0;margin:0;padding:14px 18px}.ocm-header{gap:12px;margin-bottom:12px}.ocm-title{font-size:24px}.ocm-subtitle{font-size:13px;max-width:none}.ocm-kpis{gap:8px;margin-bottom:10px}.ocm-kpi{padding:10px 12px}.ocm-layout{grid-template-columns:minmax(0,1fr)}.ocm-layout.has-selection{grid-template-columns:minmax(0,1fr) 300px}.ocm-main{min-width:0}.ocm-table{font-size:13px}.ocm-table th,.ocm-table td{padding:8px 10px}.ocm-table th:first-child,.ocm-table td:first-child{position:sticky;left:0;min-width:190px;max-width:250px;background:var(--app-surface,#fff);z-index:1}.ocm-table th:first-child{z-index:2;background:var(--app-surface-muted,#f5f8fc)}.ocm-client-name{font-weight:650;color:#12356b;text-decoration:none}.ocm-client-name:hover{text-decoration:underline}.ocm-office-label select{max-width:190px;min-width:140px;padding:6px;border:1px solid #c5d2e4;border-radius:6px;color:#17345c;background:white}.ocm-row-actions{white-space:nowrap}.ocm-drawer{margin:0;position:sticky;top:10px}.sr-only{position:absolute;width:1px;height:1px;clip:rect(0,0,0,0);overflow:hidden}.ocm-continue-grid{display:none}.ocm-section{display:none}
 @media(max-width:1100px){.ocm-layout.has-selection{grid-template-columns:1fr}.ocm-header{flex-wrap:wrap}.ocm-table td,.ocm-table th{padding:7px}.ocm-rail{order:-1}}
+@media (max-width: 600px) {
+  .ocm-root { padding: 1rem; }
+  .ocm-header { flex-direction: column; }
+  .ocm-toolbar > .ocm-search, .ocm-toolbar > .ocm-select { box-sizing: border-box; min-width: 0; width: 100%; }
+}
 </style>

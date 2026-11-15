@@ -25,7 +25,8 @@
               :class="['tab-button', { active: activeTab === tab.id }]"
               @click="$emit('update:activeTab', tab.id)"
             >
-              {{ tab.label }}
+              <span class="cc-tab-title">{{ tab.label }}<svg v-if="tab.description" viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7 5 5 5-5"/></svg></span>
+              <span v-if="tab.description" class="cc-tab-description">{{ tab.description }}</span>
             </button>
           </div>
         </div>
@@ -33,20 +34,24 @@
         <div
           v-if="subnav.length"
           class="cc-subnav"
-          role="tablist"
-          aria-label="Section within hub"
+          role="navigation"
+          :aria-label="`${tabs.find(tab => tab.id === activeTab)?.label || 'Record'} pages`"
         >
+          <span class="cc-subnav__label">{{ tabs.find(tab => tab.id === activeTab)?.label }} pages</span>
           <button
             v-for="item in subnav"
             :key="item.id"
             type="button"
             class="cc-subnav__btn"
             :class="{ 'cc-subnav__btn--active': activeSub === item.id }"
+            :aria-current="activeSub === item.id ? 'page' : undefined"
             @click="$emit('update:activeSub', item.id)"
           >
             {{ item.label }}
           </button>
         </div>
+
+        <slot name="quick-actions" />
 
         <div
           v-if="alertItems.length"
@@ -100,29 +105,36 @@ defineEmits(['close', 'update:activeTab', 'update:activeSub', 'alert-click', 'wo
 .cc-subnav {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 18px;
-  padding: 10px 16px 0;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border, #e2e8f0);
-  background: var(--bg, #fff);
+  background: var(--bg-alt, #f8fafc);
 }
+.cc-tab-title { display:flex; align-items:center; justify-content:center; gap:7px; }
+.client-chart .tab-button { flex-direction:column; align-items:center; gap:0; }
+.cc-tab-title svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; }
+.cc-tab-description { display:block; margin-top:4px; font-size:12px; line-height:1.35; font-weight:500; opacity:.8; }
+.cc-subnav__label { margin-right:8px; font-size:13px; font-weight:650; color:var(--text-secondary,#64748b); }
 .cc-subnav__btn {
-  border: 0;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary, #64748b);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
-  padding: 8px 2px 10px;
-  border-radius: 0;
+  padding: 8px 12px;
+  border-radius: 9px;
   cursor: pointer;
 }
 .cc-subnav__btn:hover {
   color: var(--text-primary, #0f172a);
 }
 .cc-subnav__btn--active {
-  background: transparent;
-  border-bottom-color: var(--primary, #166534);
+  background: var(--bg,#fff);
+  border-color: color-mix(in srgb, var(--primary,#166534) 30%, var(--border,#e2e8f0));
   color: var(--primary, #166534);
   box-shadow: none;
 }
+.cc-subnav__btn:focus-visible { outline:2px solid var(--primary,#166534); outline-offset:2px; }
+@media(max-width:600px) { .cc-subnav { padding:10px 12px; } .cc-subnav__label { width:100%; } .cc-tab-description { display:none; } }
 </style>
