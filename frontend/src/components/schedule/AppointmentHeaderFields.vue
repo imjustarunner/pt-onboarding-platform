@@ -1392,12 +1392,10 @@ function nudgeEnd(deltaMin) {
 }
 .ahf-agency-strip--book {
   order: -1;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+  position: relative;
+  background: color-mix(in srgb, var(--bg-card, #fff) 74%, transparent);
+  border-color: rgba(135, 157, 176, 0.18);
+  box-shadow: none;
 }
 .ahf-agency-strip--book .ahf-field {
   flex: 1 1 180px;

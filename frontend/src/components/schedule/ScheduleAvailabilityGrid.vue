@@ -17,6 +17,7 @@
     <SupervisionRsvpDialog v-if="personalSupervisionRsvp" :key="personalSupervisionRsvp.session.id"
       :session="personalSupervisionRsvp.session" @close="personalSupervisionRsvp = null"
       @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" @join="joinPersonalSupervision" />
+    <AppointmentAttendanceLetter v-if="attendanceLetter" v-bind="attendanceLetter" @close="attendanceLetter=null" />
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
       @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDaySchool = null; cancelDayDate = date; }" />
@@ -1026,6 +1027,7 @@
           </div>
         </div>
       </div>
+      <ScheduleBookingJobs ref="bookingJobs" :actor-user-id="Number(authStore.user?.id || 0)" @completed="onBackgroundBookingCompleted" />
       <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
         {{ overlayErrorText }}
       </div>
@@ -1042,6 +1044,7 @@
           <div class="sched-agenda__when">
             <strong>{{ agendaDayTitle }}</strong>
             <span class="muted">{{ agendaDaySub }}</span>
+            <ScheduleDayWeather :date="forecastDateForDay(agendaDayName)" :weather="scheduleWeather" />
             <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click="openDayNote(agendaDayName)">Email this day</button>
             <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(agendaDayName)">Cancel day…</button>
           </div>
@@ -1140,6 +1143,7 @@
           >
             <span class="sched-day-timeline__dow">{{ d.slice(0, 3) }}</span>
             <span class="sched-day-timeline__date">{{ dayDateLabel(d) }}</span>
+            <ScheduleDayWeather :date="forecastDateForDay(d)" :weather="scheduleWeather" />
           </button>
         </div>
         <div class="sched-day-timeline__title">
@@ -1301,6 +1305,7 @@
         >
           <div class="sched-head-day">
             <div class="sched-head-dow">{{ d }} {{ dayDateLabel(d) }}</div>
+            <ScheduleDayWeather :date="forecastDateForDay(d)" :weather="scheduleWeather" />
             <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click.stop="openDayNote(d)"
               @keydown.stop :aria-label="`Email clients on ${d} ${dayDateLabel(d)}`">Email this day</button>
             <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click.stop="openDayCancellation(d)"
@@ -3430,7 +3435,7 @@
 
           <!-- Slot details: summary lives in the green header; main pane stays action-focused -->
           <div v-if="requestType === 'slot_details'" class="slot-details-panel">
-            <button v-if="modalContext?.officeEventId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('office',modalContext.officeEventId)">Appointment attendance letter</button>
+            <button v-if="modalContext?.officeEventId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('office',modalContext.officeEventId,editorAppointmentId)">Appointment attendance letter</button>
             <div class="slot-details-lead">
               Use the actions on the left to book, cancel an office reservation, or reassign this selection.
             </div>
@@ -4719,7 +4724,7 @@
             {{ cancelScheduleItemLabel(editingScheduleStackItem) }}
           </button>
           <div class="nr-footer__actions">
-            <button v-if="!isMeetingStackItem(editingScheduleStackItem)&&scheduleEventEditForm.clientId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('provider',editingScheduleStackItem.eventId)">Appointment attendance letter</button>
+            <button v-if="!isMeetingStackItem(editingScheduleStackItem)&&scheduleEventEditForm.clientId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('provider',editingScheduleStackItem.eventId,editorAppointmentId)">Appointment attendance letter</button>
             <button
               v-if="canJoinEditingMeeting"
               class="btn nr-btn-join"
@@ -5923,6 +5928,10 @@ import {
 } from '../../utils/scheduleEventInstants.js';
 import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../../utils/appointmentOfficeSelection.js';
 import { submitOfficeBooking } from '../../utils/ownedOfficeBooking.js';
+import ScheduleDayWeather from './ScheduleDayWeather.vue';
+import ScheduleBookingJobs from './ScheduleBookingJobs.vue';
+import AppointmentAttendanceLetter from './AppointmentAttendanceLetter.vue';
+import { useScheduleWeather } from '../../composables/useScheduleWeather.js';
 import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { useAuthStore } from '../../store/auth';
 import { serviceWorkspace } from '../../utils/nluWorkspace.js';
@@ -6082,10 +6091,9 @@ const emit = defineEmits([
 
 const route = useRoute();
 const router = useRouter();
-const openAttendanceVerification = (eventType,eventId) => {
-  const prefix=route.params.organizationSlug?`/${encodeURIComponent(route.params.organizationSlug)}`:'';
-  const resolved=router.resolve({path:`${prefix}/clinical-forms`,query:{form:'attendance-verification',eventType,eventId:String(eventId)}});
-  window.open(resolved.href,'_blank','noopener,noreferrer');
+const attendanceLetter = ref(null);
+const openAttendanceVerification = (eventType,eventId,appointmentId=0) => {
+  if (['office','provider'].includes(eventType) && Number(eventId)>0) attendanceLetter.value={eventType,eventId:Number(eventId),appointmentId:Number(appointmentId)||0,clientId:Number(editorInfoClientId.value)||0};
 };
 const authStore = useAuthStore();
 const fullscreenRoot = ref(null);
@@ -12874,7 +12882,15 @@ const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
 const officeBookingProgress = ref('');
-const postOfficeBooking = payload => submitOfficeBooking(api, payload, { onProgress: message => { officeBookingProgress.value = message; } });
+const scheduleWeather = useScheduleWeather(() => authStore.user?.id, () => weekStart.value);
+const forecastDateForDay = day => addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
+const bookingJobs = ref(null);
+const onBackgroundBookingCompleted = () => {
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  refreshScheduleSummaryInBackground();
+  if (Number(selectedOfficeLocationId.value) > 0) void loadSelectedOfficeGrid().catch(() => {});
+};
+const postOfficeBooking = (payload, { background = false } = {}) => submitOfficeBooking(api, payload, { background, onProgress: message => { officeBookingProgress.value = message; } });
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
@@ -23040,17 +23056,19 @@ const submitRequest = async () => {
           notes: requestNotes.value || '',
           ...normalizeBookingSelectionPayload(),
           ...requestedProviderPayload()
-        });
+        }, { background: true });
         const bookingReqId = Number(r?.data?.request?.id || 0);
         if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
-        if (r?.data?.kind === 'auto_booked') {
+        if (r?.data?.kind === 'booking_job') {
+          bookingJobs.value?.track(r.data.job, { restore: true });
+          ensureScheduleAgencyVisible(Number(editorAgencyId.value || effectiveAgencyId.value));
+          refreshInBackground = true;
+        } else if (r?.data?.kind === 'auto_booked') {
           ensureScheduleAgencyVisible(Number(r.data.agencyId || editorAgencyId.value || effectiveAgencyId.value));
           const count = r.data.appointmentIds?.length || occurrenceCount || 1;
           showBookingReceipt({ title: `${count} client session${count === 1 ? '' : 's'} scheduled`, when: formatBookingReceiptWhen({ dateYmd: String(t.dateYmd).slice(0,10), startHour: Number(t.hour || h), startMinute, endHour: endH, endMinute }) });
           officeReminderToast.value = `${count} client session${count === 1 ? '' : 's'} scheduled.`;
           setTimeout(() => { officeReminderToast.value = ''; }, 10000);
-          // eslint-disable-next-line no-await-in-loop
-          await loadSelectedOfficeGrid();
           refreshInBackground = true;
           needsOfficeRefresh = true;
         } else if (r?.data?.kind === 'request') {
@@ -33182,4 +33200,22 @@ watch(()=>props.spanMode,value=>{
 .sched-settings-discovery { animation:schedule-settings-pulse 1.6s ease-in-out 4; }
 @keyframes schedule-settings-pulse { 50% { box-shadow:0 0 0 5px #6366f138; background:#e0e7ff; } }
 @media(prefers-reduced-motion:reduce) { .sched-settings-discovery { animation:none; outline:2px solid #818cf8; } }
+</style>
+
+<style scoped>
+/* Keep lower editor actions as light as the calendar header. */
+.modal-backdrop{background:radial-gradient(ellipse at 85% 0%,rgba(129,178,209,.14),rgba(32,48,65,.32));backdrop-filter:blur(7px)}
+.modal{background:color-mix(in srgb,var(--bg-card,#fff) 94%,transparent);border:1px solid rgba(218,230,240,.6);border-radius:22px;box-shadow:0 24px 80px rgba(18,42,64,.18);backdrop-filter:blur(18px)}
+.modal :deep(.btn){border-radius:12px;font-weight:600;letter-spacing:normal;transition:background .15s,border-color .15s,box-shadow .15s}
+.modal :deep(.btn-secondary){color:var(--text-secondary,#38536c);background:color-mix(in srgb,var(--bg-card,#fff) 72%,transparent);border:1px solid rgba(121,148,172,.25);box-shadow:0 1px 3px rgba(25,48,70,.03)}
+.modal :deep(.btn-secondary:hover:not(:disabled)){background:color-mix(in srgb,var(--bg-card,#fff) 88%,#e7f0f5);border-color:rgba(86,126,159,.42);box-shadow:0 3px 9px rgba(25,48,70,.06)}
+.modal :deep(.btn-danger){background:rgba(215,63,63,.07);color:#b32832;border:1px solid rgba(215,63,63,.22);box-shadow:none}
+.modal :deep(.btn-danger:hover:not(:disabled)){background:rgba(215,63,63,.12);border-color:rgba(215,63,63,.4)}
+.modal :deep(.btn-primary){box-shadow:0 3px 10px rgba(23,105,75,.12);border-radius:12px}
+.modal :deep(.ahf-section){background:color-mix(in srgb,var(--bg-card,#fff) 62%,transparent);border:1px solid rgba(138,160,181,.17);border-radius:16px;box-shadow:none}
+.modal :deep(.ahf-section .appointment-reminder-settings){margin:0;padding:0;border:0;background:transparent}
+.modal :deep(.aip-card){border-color:rgba(140,164,188,.12);background:color-mix(in srgb,var(--bg-card,#fff) 60%,#edf3f9)}
+.modal :deep(.aes-foot),.nr-footer{background:color-mix(in srgb,var(--bg-card,#fff) 86%,transparent);border-top:1px solid rgba(139,160,182,.17);backdrop-filter:blur(14px);box-shadow:0 -4px 18px rgba(37,61,83,.025);gap:8px}
+.nr-footer{padding:12px 18px}.nr-footer__actions{gap:8px}.appt-workspace-tabbar{background:transparent}.modal :deep(.reminder-rule){background:color-mix(in srgb,var(--bg-card,#fff) 72%,transparent);border-color:rgba(137,162,187,.2);border-radius:14px}
+@media(prefers-reduced-motion:reduce){.modal :deep(.btn){transition:none}}
 </style>

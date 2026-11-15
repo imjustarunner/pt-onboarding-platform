@@ -5,6 +5,10 @@ export default {
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname } },
   test: { environment: 'jsdom', include: [
     'src/components/schedule/__tests__/AppointmentClinicalPanel.test.js',
+    'src/components/schedule/__tests__/ScheduleDayWeather.test.js',
+    'src/components/schedule/__tests__/AppointmentAttendanceLetter.test.js',
+    'src/components/schedule/__tests__/ScheduleBookingJobs.test.js',
+    'src/utils/__tests__/ownedOfficeBooking.test.js',
     'src/components/schedule/__tests__/AppointmentStaffTools.test.js',
     'src/components/schedule/__tests__/AppointmentOfficeReservation.test.js',
     'src/components/schedule/__tests__/ScheduleAgencyLogo.test.js',

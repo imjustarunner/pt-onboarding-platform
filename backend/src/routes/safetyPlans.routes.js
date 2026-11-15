@@ -2,6 +2,7 @@ import {Router} from 'express';
 import {authenticate} from '../middleware/auth.middleware.js';
 import {requireClinicalStaffSecurity} from '../middleware/clinicalStaffSecurity.middleware.js';
 import * as records from '../services/safetyPlans/records.js';
+import { attendanceLetterDelivery } from '../services/attendanceLetterDelivery.service.js';
 const router=Router();
 router.use(authenticate);
 router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
@@ -15,6 +16,13 @@ router.use(requireClinicalStaffSecurity);
 router.get('/template',handle(req=>records.templateFor(req.user,req.query)));
 router.get('/',handle(req=>records.listPlans(req.user,req.query)));
 router.post('/',handle(req=>records.savePlan(req.user,req.body)));
+router.get('/:id/attendance-delivery',handle(req=>attendanceLetterDelivery.options(req.user,req.params.id)));
+router.post('/:id/attendance-delivery',handle(req=>attendanceLetterDelivery.deliver(req.user,req.params.id,req.body)));
+router.get('/:id/attendance-pdf',async(req,res)=>{
+ try{const plan=await records.readPlan(req.user,req.params.id);if(plan.documentKey!=='attendance-verification'||!plan.signers.some(s=>s.kind==='clinician'&&s.signedAt&&!s.revokedAt))return res.status(400).json({error:{message:'Sign an appointment letter before downloading it.'}});
+  const bytes=await(await import('../services/attendanceLetterPdf.service.js')).attendanceLetterPdf(plan);res.type('application/pdf').set('Content-Disposition','attachment; filename="appointment-letter.pdf"').send(bytes);
+ }catch(error){res.status(error.status||503).json({error:{message:error.status?error.message:'The signed letter could not be downloaded.'}});}
+});
 router.get('/:id',handle(req=>records.readPlan(req.user,req.params.id,req.query.version)));
 router.put('/:id',handle(req=>records.savePlan(req.user,req.body,req.params.id)));
 router.post('/:id/review-update',handle(req=>records.reviewUpdate(req.user,req.params.id,req.body)));

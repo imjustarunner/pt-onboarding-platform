@@ -2,6 +2,8 @@ import axios from 'axios';
 import pool from '../config/database.js';
 import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
 import User from '../models/User.model.js';
+import { normalizeWeatherForecast } from '../services/weatherForecast.js';
+import { resolveWeatherLocation } from '../services/weatherLocation.service.js';
 
 // Small in-process cache to avoid hammering the (free) upstream API.
 // Key: userId -> { atMs, payload }
@@ -29,99 +31,17 @@ function buildHomeAddressString({ street, line2, city, state, postal }) {
 }
 
 async function geocodeHomeAddress({ addressString, postal, city, state }) {
-  // Prefer Google Geocoding for full street addresses (more reliable than city-level geocoders).
-  // This uses the existing GOOGLE_MAPS_API_KEY already required for mileage features.
-  try {
-    // Note: postal/state constraints are applied by the caller via the address string and params.
-    // This function is kept for backward-compat, but the real call is done in getMyWeather().
-    return await geocodeAddressWithGoogle({ addressText: addressString, countryCode: 'US' });
-  } catch {
-    // Fallback: Open-Meteo geocoding (no key). Often returns city-level only.
-    // For Open-Meteo, ZIP/postal searches work well; full street addresses often do not.
-    const url = 'https://geocoding-api.open-meteo.com/v1/search';
-    const zip = String(postal || '').trim();
-    const fallbackName =
-      // Open-Meteo search is picky: many "City ST" queries return no results.
-      // City-only + `country_code=US` works consistently.
-      String(city || '').trim() ||
-      addressString;
-    const resp = await axios.get(url, {
-      params: {
-        name: fallbackName,
-        count: 1,
-        language: 'en',
-        format: 'json',
-        // Open-Meteo expects `country_code` (snake_case). Using `countryCode` yields empty results.
-        country_code: 'US'
-      },
-      timeout: 8000
-    });
-
-    const first = resp?.data?.results?.[0] || null;
-    if (!first) return null;
-
-    const lat = Number(first.latitude);
-    const lng = Number(first.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-    return {
-      latitude: lat,
-      longitude: lng
-    };
-  }
-}
-
-function cmToInches(cm) {
-  const n = Number(cm);
-  if (!Number.isFinite(n)) return 0;
-  return n * 0.3937007874;
-}
-
-function cToF(c) {
-  const n = Number(c);
-  if (!Number.isFinite(n)) return null;
-  return (n * 9) / 5 + 32;
-}
-
-function summarizeSnow({ daily }) {
-  const times = daily?.time || [];
-  const snowfallCm = daily?.snowfall_sum || [];
-  const precipProbMax = daily?.precipitation_probability_max || [];
-
-  const now = new Date();
-  const cutoff = now.getTime() + 72 * 60 * 60 * 1000; // next 72h
-
-  let snowLikelyNext72h = false;
-  let nextSnowDate = null;
-  let maxSnowInchesNext72h = 0;
-  let precipProbAtNextSnow = null;
-
-  for (let i = 0; i < times.length; i++) {
-    const t = String(times[i] || '');
-    const dayStartMs = Date.parse(`${t}T00:00:00`);
-    if (!Number.isFinite(dayStartMs)) continue;
-    if (dayStartMs > cutoff) continue;
-
-    const snowInches = cmToInches(snowfallCm[i] || 0);
-    if (snowInches > 0) {
-      snowLikelyNext72h = true;
-      if (!nextSnowDate) {
-        nextSnowDate = t;
-        const p = Number(precipProbMax[i]);
-        precipProbAtNextSnow = Number.isFinite(p) ? p : null;
-      }
-      if (snowInches > maxSnowInchesNext72h) {
-        maxSnowInchesNext72h = snowInches;
-      }
-    }
-  }
-
-  return {
-    snowLikelyNext72h,
-    nextSnowDate,
-    maxSnowInchesNext72h: Number(maxSnowInchesNext72h.toFixed(2)),
-    precipProbAtNextSnow
-  };
+  // Google has already been tried by the caller. Use the existing public fallback once.
+  const zip = String(postal || '').trim();
+  const name = /^\d{5}(-\d{4})?$/.test(zip) ? zip.slice(0, 5)
+    : [String(city || '').trim(), String(state || '').trim()].filter(Boolean).join(', ') || addressString;
+  const response = await axios.get('https://geocoding-api.open-meteo.com/v1/search', {
+    params: { name, count: 1, language: 'en', format: 'json', countryCode: 'US' }, timeout: 8000
+  });
+  const first = response.data?.results?.find(result => result.country_code === 'US');
+  if (!first) return null;
+  const latitude = Number(first.latitude), longitude = Number(first.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
 }
 
 export const getMyWeather = async (req, res, next) => {
@@ -156,7 +76,9 @@ export const getMyWeather = async (req, res, next) => {
 
     const force = String(req.query?.force || '').trim() === '1';
 
-    const cached = weatherCacheByUserId.get(userId);
+    const scheduleView = req.query?.view === 'schedule';
+    const cacheKey = `${userId}:${scheduleView ? 'schedule' : 'home'}`;
+    const cached = weatherCacheByUserId.get(cacheKey);
     if (!force && cached && (Date.now() - cached.atMs) < WEATHER_CACHE_TTL_MS) {
       return res.json(cached.payload);
     }
@@ -197,7 +119,8 @@ export const getMyWeather = async (req, res, next) => {
       rows = (r2 || []).map((x) => ({ ...x, home_lat: null, home_lng: null, home_geocoded_at: null }));
     }
 
-    const u = rows?.[0] || null;
+    const location = await resolveWeatherLocation(userId, rows?.[0] || null, { officeFallback: scheduleView });
+    const u = location.home;
     const city = u?.home_city || '';
     const state = u?.home_state || '';
     const postal = u?.home_postal_code || '';
@@ -213,7 +136,7 @@ export const getMyWeather = async (req, res, next) => {
           home: { street, line2, city, state, postal }
         };
       }
-      weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+      weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
       return res.json(payload);
     }
 
@@ -233,7 +156,7 @@ export const getMyWeather = async (req, res, next) => {
           hasCityState
         };
       }
-      weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+      weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
       return res.json(payload);
     }
 
@@ -247,16 +170,16 @@ export const getMyWeather = async (req, res, next) => {
           addressString
         };
       }
-      weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+      weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
       return res.json(payload);
     }
 
-    let latitude = Number(u?.home_lat);
-    let longitude = Number(u?.home_lng);
+    let latitude = u?.home_lat == null ? NaN : Number(u.home_lat);
+    let longitude = u?.home_lng == null ? NaN : Number(u.home_lng);
     let geocodeDebug = null;
 
     // If caller requests force, clear persisted coords so we re-geocode immediately.
-    if (force) {
+    if (force && location.source === 'home') {
       latitude = NaN;
       longitude = NaN;
       try {
@@ -298,15 +221,16 @@ export const getMyWeather = async (req, res, next) => {
         if (isDev) {
           payload.debug = { addressString, usedCoords: { latitude, longitude }, geocodeStale, force, geocodeDebug };
         }
-        weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+        weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
         return res.json(payload);
       }
 
       latitude = geo.latitude;
       longitude = geo.longitude;
 
-      // Best-effort store for future requests.
+      // Office coordinates must never overwrite the user's saved home coordinates.
       try {
+        if (location.source === 'home')
         await pool.execute(
           `UPDATE users
            SET home_lat = ?, home_lng = ?, home_geocoded_at = NOW()
@@ -325,7 +249,7 @@ export const getMyWeather = async (req, res, next) => {
           latitude,
           longitude,
           timezone: 'auto',
-          forecast_days: 7,
+          forecast_days: scheduleView ? 16 : 7,
           temperature_unit: 'fahrenheit',
           wind_speed_unit: 'mph',
           precipitation_unit: 'inch',
@@ -346,53 +270,15 @@ export const getMyWeather = async (req, res, next) => {
           error: String(e?.message || '').slice(0, 200)
         };
       }
-      weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+      weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
       return res.json(payload);
     }
 
     const data = forecastResp?.data || {};
-    const current = data.current || {};
-    const currentUnits = data.current_units || {};
-    const daily = data.daily || {};
-
-    const snow = summarizeSnow({ daily });
-
-    const dayTimes = daily?.time || [];
-    const tmax = daily?.temperature_2m_max || [];
-    const tmin = daily?.temperature_2m_min || [];
-    const snowfallDaily = daily?.snowfall_sum || [];
-    const forecastDays = [];
-    for (let i = 0; i < Math.min(7, dayTimes.length); i++) {
-      const tmaxN = Number(tmax[i]);
-      const tminN = Number(tmin[i]);
-      const sfN = Number(snowfallDaily[i]);
-      forecastDays.push({
-        date: String(dayTimes[i] || ''),
-        tempMaxF: Number.isFinite(tmaxN) ? tmaxN : null,
-        tempMinF: Number.isFinite(tminN) ? tminN : null,
-        snowfallInches: Number.isFinite(sfN) ? Number((sfN * 0.3937007874).toFixed(2)) : null
-      });
-    }
-
-    const rawTemp = Number(current.temperature_2m);
-    const unit = String(currentUnits.temperature_2m || '').trim();
-    // Safety: if upstream returned °C (or any non-F unit), convert to Fahrenheit for the UI.
-    const temperatureF = Number.isFinite(rawTemp)
-      ? (unit === '°C' || unit.toLowerCase() === 'c' ? cToF(rawTemp) : rawTemp)
-      : null;
-
-    const payload = {
-      status: 'ok',
-      location: {
-        latitude,
-        longitude
-      },
-      current: {
-        temperatureF: typeof temperatureF === 'number' ? temperatureF : null,
-        weatherCode: Number.isFinite(Number(current.weather_code)) ? Number(current.weather_code) : null
-      },
-      snow,
-      forecastDays
+    const payload = { status: 'ok',
+      location: { latitude, longitude, label: location.label, source: location.source },
+      ...normalizeWeatherForecast(data, scheduleView ? 16 : 7),
+      fetchedAt: new Date().toISOString()
     };
 
     // Helpful debug info in development only.
@@ -406,7 +292,7 @@ export const getMyWeather = async (req, res, next) => {
       };
     }
 
-    weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+    weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
     return res.json(payload);
   } catch (e) {
     // Never break the navbar UI due to upstream weather issues.

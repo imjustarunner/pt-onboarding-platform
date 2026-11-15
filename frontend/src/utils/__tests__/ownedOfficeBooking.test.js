@@ -1,5 +1,9 @@
 import { expect, it, vi } from 'vitest';
 import { submitOfficeBooking } from '../ownedOfficeBooking.js';
+it('returns the accepted durable job immediately for background scheduling without polling',async()=>{
+ const response={data:{kind:'booking_job',job:{id:'job-1',status:'queued',total:26}}};const api={post:vi.fn(async()=>response),get:vi.fn(()=>new Promise(()=>{}))};
+ expect(await submitOfficeBooking(api,{}, {background:true})).toBe(response);expect(api.post).toHaveBeenCalledOnce();expect(api.get).not.toHaveBeenCalled();
+});
 it('queues once, shows real progress, then returns the saved appointment receipt', async () => {
  const job={id:'job-1',status:'queued',phase:'preparing',completed:0,total:26};
  const result={kind:'auto_booked',appointmentIds:[264,265]};

@@ -14,6 +14,14 @@ export async function readOwnedOfficeSessionJob(id, actorUserId) {
   return row ? describe(row) : null;
 }
 
+export async function listOwnedOfficeSessionJobs(actorUserId) {
+  const [rows] = await pool.execute(`SELECT id,status,phase,completed_count,total_count,error_message,result_json
+    FROM owned_office_session_jobs WHERE created_by_user_id=?
+      AND (status IN ('queued','processing') OR (status='failed' AND updated_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 7 DAY)))
+    ORDER BY created_at DESC LIMIT 50`, [actorUserId]);
+  return rows.map(describe);
+}
+
 export async function queueOwnedOfficeSession(input) {
   if (!await findOwnedOfficeSessionReservation(input)) return null;
   const key = ownedOfficeSessionBookingKey(input);

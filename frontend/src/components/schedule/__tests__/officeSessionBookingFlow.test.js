@@ -40,7 +40,8 @@ beforeEach(() => {
 afterEach(async () => { wrapper?.unmount(); await flushPromises(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 it('carries the reserved office, room, biweekly cadence and billing location into the session and keeps them after selecting a client', async () => {
-  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: false, RouterLink: true } } });
+  const track = vi.fn();
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: false, RouterLink: true, ScheduleBookingJobs: {template:'<div/>',setup:(_, {expose})=>{expose({track});return {};}} } } });
   await flushPromises();
   const s = wrapper.vm.$.setupState;
   s.weekStart = '2026-11-23'; s.modalDay = 'Thursday'; s.modalHour = 15; s.modalStartHour = 15; s.modalEndHour = 16;
@@ -68,8 +69,12 @@ it('carries the reserved office, room, biweekly cadence and billing location int
   expect(s.normalizeBookingSelectionPayload()).toMatchObject({ agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51 });
   s.editorNotificationMode = 'customizable';
   s.editorCustomReminders = [{id:'extra',channel:'email',offsetMinutes:60,message:'Arrive early',askConfirmation:true}];
+  const job={id:'job-26',status:'queued',phase:'preparing',total:26,completed:0};
+  mocks.post.mockResolvedValueOnce({data:{kind:'booking_job',job}});
   await s.submitRequest();
   expect(s.modalError).toBe('');
+  expect(s.showRequestModal).toBe(false);expect(track).toHaveBeenCalledWith(job,{restore:true});
+  expect(mocks.get.mock.calls.some(([url])=>url.includes('/booking-jobs/job-26'))).toBe(false);
   expect(mocks.post).toHaveBeenCalledWith('/office-schedule/booking-requests', expect.objectContaining({
     agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51,
     notificationMode:'customizable',customReminders:[expect.objectContaining({id:'extra',offsetMinutes:60,message:'Arrive early'})],

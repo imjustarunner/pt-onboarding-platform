@@ -19,6 +19,7 @@ import Vonage from '../vonage.service.js';
 import { resolveOutboundNumber, resolveClientCaregivers } from '../communicationRouting.service.js';
 import { sendClinicalSms } from '../clinicalSmsSend.service.js';
 import { formatRegisteredSms } from '../../utils/smsCompliancePolicy.js';
+vi.mock('../smsCompliance.service.js',()=>({prepareSmsDelivery:vi.fn(async input=>({from:input.from,to:input.to}))}));
 beforeEach(() => {
  vi.clearAllMocks(); pool.execute.mockResolvedValue([[{ user_id: 10 }]]);
  User.findById.mockImplementation(async id => ({ id, first_name: id === 10 ? 'Michael' : 'Jamie', role: 'provider', is_active: 1 }));
@@ -28,6 +29,11 @@ beforeEach(() => {
  resolveOutboundNumber.mockResolvedValue({ number: { id: 1, agency_id: 2, phone_number: '+17195550200' }, ownerType: 'agency' });
  MessageLog.createOutbound.mockResolvedValue({ id: 50 }); MessageLog.markSent.mockResolvedValue({ id: 50, delivery_status: 'sent' });
  Vonage.sendSms.mockResolvedValue({ sid: 'example', status: 'sent' }); Contact.findByPhone.mockResolvedValue(null);
+});
+it('checks the real clinical SMS route and consent for a preview without sending or creating a message log',async()=>{
+ const result=await sendClinicalSms({userId:10,clientId:4,numberId:1,body:'Your signed appointment letter.',preview:true});
+ expect(result).toMatchObject({eligible:true,numberId:1,from:'+17195550200',to:'+17195550100'});
+ expect(MessageLog.createOutbound).not.toHaveBeenCalled();expect(Vonage.sendSms).not.toHaveBeenCalled();
 });
 it.each([[10, 'Michael'], [11, 'Jamie']])('lets assigned provider %s send with their own name', async (userId, name) => {
  await sendClinicalSms({ userId, clientId: 4, body: 'Sounds good, see you at 3pm.' });

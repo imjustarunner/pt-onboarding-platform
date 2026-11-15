@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.actor,getAgencies:m.agencies}}));
 vi.mock('../../models/OfficeLocation.model.js',()=>({default:{findById:m.office}}));
 vi.mock('../ownedOfficeSession.service.js',()=>({findOwnedOfficeSessionReservation:m.reserve,bookSessionInOwnedOffice:m.book,ownedOfficeSessionBookingKey:()=> 'key'}));
-import {queueOwnedOfficeSession,readOwnedOfficeSessionJob,processOwnedOfficeSessionJobs} from '../ownedOfficeSessionJobs.service.js';
+import {queueOwnedOfficeSession,readOwnedOfficeSessionJob,listOwnedOfficeSessionJobs,processOwnedOfficeSessionJobs} from '../ownedOfficeSessionJobs.service.js';
 let row;
 const input={office:{id:1},agencyId:377,actorUserId:501,providerId:501,occurrenceCount:26};
 beforeEach(()=>{
@@ -25,6 +25,10 @@ it('keeps unowned room requests in the approval workflow',async()=>{
 });
 it('keeps progress and receipt visible only to the booking actor',async()=>{
  expect(await readOwnedOfficeSessionJob('job-1',999)).toBeNull();expect(await readOwnedOfficeSessionJob('job-1',501)).toMatchObject({id:'job-1'});
+});
+it('lists recoverable work only for the authenticated booking actor without returning private booking input',async()=>{
+ m.execute.mockResolvedValue([[row]]);expect(await listOwnedOfficeSessionJobs(501)).toEqual([expect.objectContaining({id:'job-1',status:'queued'})]);
+ expect(m.execute.mock.calls[0][1]).toEqual([501]);expect(m.execute.mock.calls[0][0]).not.toContain('SELECT *');expect((await listOwnedOfficeSessionJobs(501))[0]).not.toHaveProperty('input_json');
 });
 it('claims a durable lease, reports progress, clears private input and saves the appointment receipt',async()=>{
  await processOwnedOfficeSessionJobs();

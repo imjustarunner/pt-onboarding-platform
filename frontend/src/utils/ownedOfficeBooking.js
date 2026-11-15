@@ -6,9 +6,10 @@ export function officeBookingProgressText(job) {
 }
 
 /** The POST queues durable work. Polling observes it; it never resubmits a series. */
-export async function submitOfficeBooking(api, payload, { onProgress = () => {}, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now } = {}) {
+export async function submitOfficeBooking(api, payload, { background = false, onProgress = () => {}, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now } = {}) {
   const response = await api.post('/office-schedule/booking-requests', { ...payload, asyncOwnedSession: true });
   if (response.data?.kind !== 'booking_job') return response;
+  if (background) return response;
   let job = response.data.job;
   const deadline = now() + 20 * 60 * 1000;
   while (true) {

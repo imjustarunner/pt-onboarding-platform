@@ -15,6 +15,11 @@ import {getClinicalTemplate,clinicalFormCatalog} from '../../../../../backend/sr
 const branding={name:'Synthetic Agency',slug:'synthetic',font:'Montserrat',color:'#334455'};
 const record={id:4,agencyId:2,clientId:41,version:1,currentVersion:1,contentHash:'hash-v1',template:safetyPlanTemplate,branding,data:{personLabel:'Synthetic Client',planDate:'2026-10-11',coping:'Synthetic coping'},signers:[],recipients:[],history:[{version:1,created_at:'2026-10-11'}]};
 const button=(w,text)=>w.findAll('button').find(b=>b.text().includes(text));
+it('shows a scheduled appointment confirmation in a shared letter without claiming verified attendance',async()=>{
+ const template=await getClinicalTemplate('attendance-verification',2);
+ const w=mount(Document,{props:{template,branding,modelValue:{personLabel:'Example Client',appointmentDate:'2026-11-29',startTime:'11:00',endTime:'12:00',timezone:'America/Denver',letterType:'Scheduled appointment',attendanceStatus:'Not yet confirmed',location:'Example office'},signers:[{id:1,kind:'clinician',name:'Example Provider',signedAt:'2026-11-14T20:00:00Z'}]}});
+ const text=w.get('.attendance-letter').text();expect(text).toContain('has an appointment scheduled');expect(text).not.toContain('attended an appointment');expect(text).not.toContain('This draft does not verify attendance');w.unmount();
+});
 async function mounted(component,props,stubs={}){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});await router.push('/synthetic/clinical-forms');await router.isReady();return mount(component,{props,global:{plugins:[router],stubs:{NoteAidClientPicker:{template:'<div>Client picker</div>'},...stubs}}});}
 beforeEach(()=>{vi.resetAllMocks();window.confirm=vi.fn().mockReturnValue(true);api.get.mockImplementation(async (url,config)=>({data:url.endsWith('/template')?{template:await getClinicalTemplate(config?.params?.documentKey||'safety-plan',2),branding,catalog:clinicalFormCatalog,client:{id:41,name:'Synthetic Client'}}:url==='/clinical-forms'?{plans:[]}:structuredClone(record)}));});
 describe('clinical document rendering and editing',()=>{

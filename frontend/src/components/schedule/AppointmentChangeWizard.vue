@@ -841,4 +841,10 @@ async function onSign() {
 }
 .acw-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .muted { color: #64748b; font-weight: 400; }
+.acw-overlay{background:rgba(30,48,65,.3);backdrop-filter:blur(7px)}
+.acw{background:color-mix(in srgb,var(--bg-card,#fff) 96%,transparent);border:1px solid rgba(218,230,240,.6);border-radius:22px;box-shadow:0 24px 80px rgba(18,42,64,.18)}
+.acw-footer{background:color-mix(in srgb,var(--bg-card,#fff) 88%,transparent);border-color:rgba(139,160,182,.18);gap:9px}
+.acw-btn{border-radius:12px;background:color-mix(in srgb,var(--bg-card,#fff) 74%,transparent);border-color:rgba(119,148,173,.28);color:var(--text-secondary,#38536c);font-weight:600}
+.acw-btn.primary{background:#1b725e;color:#fff;border-color:transparent;box-shadow:0 3px 10px rgba(27,114,94,.1)}
+.acw-signature{background:rgba(235,244,248,.45);border-color:rgba(135,159,181,.2);border-radius:14px}
 </style>

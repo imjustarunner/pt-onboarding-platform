@@ -59,7 +59,7 @@ export async function sendClinicalSms({
   body,
   numberId = null,
   mediaUrls = null,
-  auditUserId = null, threadKey = null, relayRecipient = null
+  auditUserId = null, threadKey = null, relayRecipient = null, preview = false
 } = {}) {
   const uid = parseIntOrNull(userId);
   const cid = parseIntOrNull(clientId);
@@ -170,6 +170,13 @@ export async function sendClinicalSms({
   const resolvedNumberId = resolved?.number?.id || null;
   const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
   const assignedUserId = resolved?.assignment?.user_id || uid;
+
+  if (preview) {
+    const { prepareSmsDelivery } = await import('./smsCompliance.service.js');
+    const prepared = await prepareSmsDelivery({ purpose: 'care', agencyId: targetAgencyId, clientId: cid,
+      to: targetPhone, from: fromNumber, body: authored.body, senderFirstName: authored.senderFirstName });
+    return { eligible: true, from: prepared.from, to: prepared.to, numberId: resolvedNumberId };
+  }
 
   // Phone- and campaign-scoped consent is enforced by VonageService for every send.
 

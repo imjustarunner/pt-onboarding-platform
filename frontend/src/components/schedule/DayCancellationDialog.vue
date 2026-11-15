@@ -267,4 +267,10 @@ async function apply(retryFailed = false) {
 .day-items li.day-attention{border:1px solid #a12828;border-left:6px solid #a12828;border-radius:8px;background:#fff3f3;padding:12px;margin:10px 0}.day-attention>p{color:#8c2020}@media(max-width:600px){.cancel-day-dialog{width:calc(100vw - 8px);max-height:98dvh}.cancel-day-dialog header,.cancel-day-dialog footer{padding:8px}.cancel-day-body{padding:0 10px 10px;max-height:calc(98dvh - 130px)}}
 .cancel-day-dialog footer{flex-wrap:wrap}.day-action-feedback{flex-basis:100%;display:grid;gap:4px;margin:0;line-height:1.4;font-size:14px}.day-action-feedback.day-error{border-left:4px solid #a12828;padding:8px 12px;background:#fff3f3;border-radius:6px}
 .cancel-day-dialog[open]{display:flex;flex-direction:column}.cancel-day-dialog header,.cancel-day-dialog footer{flex-shrink:0}.cancel-day-dialog .cancel-day-body{min-height:0;flex:1;max-height:none}
+.cancel-day-dialog{border-radius:22px;background:color-mix(in srgb,var(--bg-card,#fff) 96%,transparent);border-color:rgba(139,162,184,.25);box-shadow:0 24px 80px rgba(18,42,64,.18)}
+.cancel-day-dialog::backdrop{background:rgba(30,48,65,.3);backdrop-filter:blur(7px)}
+.cancel-day-dialog button{border-radius:11px;background:color-mix(in srgb,var(--bg-card,#fff) 75%,transparent);border-color:rgba(119,148,173,.25);font-weight:600}
+.cancel-day-dialog .day-danger{background:rgba(215,63,63,.08);border-color:rgba(215,63,63,.25);color:#aa2934}
+.cancel-day-dialog .day-primary{background:#1b725e;border-color:transparent;color:#fff;box-shadow:0 3px 10px rgba(27,114,94,.1)}
+.day-review{background:rgba(227,241,248,.5);border-radius:13px}
 </style>

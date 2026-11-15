@@ -3,6 +3,12 @@ export default {
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: { environment: 'node', include: [
     'src/services/__tests__/manualSessionReminder.test.js',
+    'src/services/__tests__/scheduleWeather.test.js',
+    'src/services/__tests__/attendanceLetterDelivery.test.js',
+    'src/services/__tests__/attendanceLetterPdf.test.js',
+    'src/services/__tests__/safetyPlansAppointment.test.js',
+    'src/controllers/__tests__/weather.schedule.test.js',
+    'src/services/__tests__/scheduling.ownedOfficeSessionJobs.test.js',
     'src/services/__tests__/sessionReminderPolicy.test.js',
     'src/services/__tests__/scheduling.reminderRules.test.js',
     'src/services/__tests__/scheduling.notificationCustomizations.test.js',

@@ -5,7 +5,7 @@ import express from 'express';
 import * as officePolicy from '../controllers/officeSchedulingPolicy.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requirePhysicalOffice } from '../middleware/physicalOffice.middleware.js';
-import { readOwnedOfficeSessionJob } from '../services/ownedOfficeSessionJobs.service.js';
+import { readOwnedOfficeSessionJob, listOwnedOfficeSessionJobs } from '../services/ownedOfficeSessionJobs.service.js';
 import {
   listLocations,
   getLocation,
@@ -61,6 +61,10 @@ router.get('/board/:locationId', publicBoard);
 
 // Authenticated routes
 router.use(authenticate);
+router.get('/booking-jobs', async (req,res,next) => {
+  try { res.json({ jobs: await listOwnedOfficeSessionJobs(req.user.id) }); }
+  catch (error) { next(error); }
+});
 router.get('/booking-jobs/:jobId', async (req,res,next) => {
   try {
     const job = await readOwnedOfficeSessionJob(req.params.jobId, req.user.id);
