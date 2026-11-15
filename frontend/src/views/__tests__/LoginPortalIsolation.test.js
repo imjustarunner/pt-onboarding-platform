@@ -18,7 +18,7 @@ beforeEach(()=>{
  setRememberedSchoolStaffPasswordLogin({username:'jamie@example.com',orgSlug:'auricwell-qa-demo-school',parentOrgSlug:'auricwell-qa-demo'});
 });
 afterEach(()=>wrapper?.unmount());
-async function render(){wrapper=mount(LoginView,{global:{plugins:[createPinia()],stubs:{PoweredByFooter:true,ServiceUseNotice:true,PasskeySignIn:true,HqLoginShell:{template:'<main><slot/></main>'}}}});await flushPromises();}
+async function render({legalNotice=false}={}){wrapper=mount(LoginView,{global:{plugins:[createPinia()],stubs:{PoweredByFooter:true,ServiceUseNotice:!legalNotice,PasskeySignIn:true,HqLoginShell:{template:'<main><slot/></main>'}}}});await flushPromises();}
 it('keeps an explicit agency login on that agency after remembering school staff',async()=>{
  await render();
  expect(replace.mock.calls.some(([target])=>JSON.stringify(target).includes('auricwell-qa-demo-school'))).toBe(false);
@@ -124,4 +124,22 @@ it('keeps a linked family on its chosen tenant instead of nesting a peer primary
  await render();post.mockResolvedValue({data:{matched:true,familyPortalSurface:'clinical',resolvedOrg:{slug:'auricwell-qa-demo',organization_type:'agency'},login:{method:'password'}}});
  wrapper.vm.username='linked.parent@example.test';await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
  expect(wrapper.vm.showPassword).toBe(true);expect(replace).not.toHaveBeenCalled();
+});
+
+it.each(['nlu','nlu-qa-demo','nlu-qa-learning'])('keeps NLU password branding when a linked account has clinical records (%s)',async slug=>{
+ route.params={organizationSlug:slug};route.path=`/${slug}/login`;
+ get.mockImplementation(async url=>({data:url.includes('login-theme')?{agency:{id:453,slug,name:'Next Level Up QA',organization_type:'agency'}}:{}}));
+ await render();post.mockResolvedValue({data:{matched:true,familyPortalSurface:'clinical',resolvedOrg:{slug:'auricwell-qa-demo',organization_type:'agency'},login:{method:'password'}}});
+ wrapper.vm.username='linked.parent@example.test';await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.find('.auricwell-auth-brand').exists()).toBe(false);expect(wrapper.vm.defaultLoginSubtitle).not.toContain('AuricWell');
+ expect(wrapper.vm.isAuricWellLogin).toBe(false);expect(wrapper.vm.loginBrandOrganizationSlug).toBe(slug);expect(replace).not.toHaveBeenCalled();
+});
+it('passes an NLU guardian deep-link brand to the legal notice on a shared login',async()=>{
+ route.params={};route.path='/login';route.query={redirect:'/nlu-qa-demo/guardian?clientId=2271&serviceId=1043'};
+ await render({legalNotice:true});expect(wrapper.vm.loginBrandOrganizationSlug).toBe('nlu-qa-demo');
+ const notice=wrapper.get('.service-use-notice');expect(notice.attributes('aria-label')).toBe('Next Level Up terms and privacy');expect(notice.findAll('a').every(link=>link.attributes('href').startsWith('https://nextleveluplcc.com/nlu/'))).toBe(true);
+});
+it('keeps the explicit AuricWell product entry for clinical families',async()=>{
+ route.params={organizationSlug:'nlu-qa-demo'};route.path='/nlu-qa-demo/login';route.query={workspace:'auricwell'};
+ await render();expect(wrapper.vm.isAuricWellLogin).toBe(true);
 });

@@ -1,11 +1,30 @@
-<template><section class="care-access"><h3>{{ learningOnly ? "Guardians & learning messages" : "Guardians & shared care messages" }}</h3><p>Provider messages are a group conversation for {{clientName}}. These people can read and reply:</p><p v-if="loading">Loading access…</p><p v-if="error" role="status">{{error}}</p><ul><li v-for="p in participants" :key="p.id"><strong>{{p.name}}{{Number(p.id)===Number(userId)?' (you)':''}}</strong><span>{{p.role==='guardian'?'Guardian':p.role==='client'?'Client':p.role==='provider'?'Provider':team}}</span></li></ul><p>Access follows the permissions on this client’s record. Contact the {{team}} if this list needs review.</p><p>Your saved card and billing or technology support requests stay attached to your account. A document shared only with you is not automatically shared with another guardian.</p><button @click="$emit('messages')">{{ learningOnly ? "Open learning conversation" : "Open shared care conversation" }} →</button></section></template>
+<template><section class="care-access"><h3>{{ learningOnly ? "Guardians & learning messages" : "Guardians & shared care messages" }}</h3><p>Provider messages are a group conversation for {{clientName}}. These people can read and reply:</p><p v-if="loading">Loading access…</p><p v-if="error" role="status">{{error}}</p><ul><li v-for="p in participants" :key="p.id"><strong>{{p.name}}{{Number(p.id)===Number(userId)?' (you)':''}}</strong><span>{{p.role==='guardian'?'Guardian':p.role==='client'?'Client':p.role==='provider'?'Provider':team}}</span></li></ul><p>Access follows the permissions on this client’s record. Contact the {{team}} if this list needs review.</p><p>Your saved card and billing or technology support requests stay attached to your account. A document shared only with you is not automatically shared with another guardian.</p><button v-if="error" type="button" :disabled="loading" @click="load">Try again</button><button :disabled="loading || !!error || !participants.length" @click="$emit('messages')">{{ learningOnly ? "Open learning conversation" : "Open shared care conversation" }} →</button></section></template>
 <script setup>
-import {ref,watch,computed,onBeforeUnmount} from 'vue';import {usePortalCareApi} from '../../composables/usePortalCareApi';
-const api=usePortalCareApi();
-const props=defineProps({learningOnly:Boolean,clientId:[Number,String],clientName:String,userId:[Number,String]});defineEmits(['messages']);
-const team= computed(()=>props.learningOnly?'tutoring team':'care team');
-const participants=ref([]),loading=ref(false),failed=ref(false);let seq=0;
-const error=computed(()=>failed.value?`Shared messaging access is not available right now. Contact the ${team.value} to review it.`:'');
-watch(()=>props.clientId,async id=>{const own=++seq;participants.value=[];failed.value=false;loading.value=true;try{const{data}=await api.get(`/guardian-portal/clients/${id}/care-access`,{skipGlobalLoading:true});if(own===seq)participants.value=data.participants||[];}catch{if(own===seq)failed.value=true;}finally{if(own===seq)loading.value=false;}},{immediate:true});onBeforeUnmount(()=>seq++);
+import { ref, watch, computed, onBeforeUnmount } from 'vue';
+import { usePortalCareApi } from '../../composables/usePortalCareApi';
+const api = usePortalCareApi();
+const props = defineProps({ learningOnly: Boolean, clientId: [Number, String], clientName: String, userId: [Number, String] });
+defineEmits(['messages']);
+const team = computed(() => props.learningOnly ? 'tutoring team' : 'care team');
+const participants = ref([]), loading = ref(false), failure = ref('');
+let sequence = 0;
+const error = computed(() => failure.value === 'provider'
+  ? `A ${props.learningOnly ? 'tutor' : 'provider'} must be assigned before shared messaging is available. Contact the ${team.value} to arrange this.`
+  : failure.value ? `Shared messaging access is not available right now. Contact the ${team.value} to review it.` : '');
+async function load() {
+  const own = ++sequence;
+  participants.value = []; failure.value = ''; loading.value = true;
+  try {
+    const { data } = await api.get(`/guardian-portal/clients/${props.clientId}/care-access`, { skipGlobalLoading: true });
+    if (own !== sequence) return;
+    participants.value = data.participants || [];
+    if (!participants.value.length) failure.value = 'unavailable';
+  } catch (caught) {
+    if (own === sequence) failure.value = caught?.response?.status === 409
+      && caught.response.data?.error?.message === 'An active assigned provider is required before secure messaging is available.' ? 'provider' : 'unavailable';
+  } finally { if (own === sequence) loading.value = false; }
+}
+watch(() => props.clientId, load, { immediate: true });
+onBeforeUnmount(() => sequence++);
 </script>
 <style scoped>.care-access{border:1px solid #c9d8e7;border-radius:12px;padding:20px;margin:16px 0;background:#f4f8fc}.care-access ul{list-style:none;padding:0}.care-access li{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #d7e3ef}.care-access p{font-size:14px;line-height:1.6}.care-access span{color:#526784}.care-access button{font:inherit;background:white;color:#16457c;border:1px solid #bbcede;border-radius:8px;padding:10px;cursor:pointer}</style>

@@ -1,0 +1,70 @@
+NLU LOGIN AND SERVICE-ID CORRECTION — NOVEMBER 15, 2026
+Append to the retained DF/DG briefs. Preserve their received results and evidence.
+
+The earlier handoff incorrectly called Parker2545 service1042 counseling.
+Current authorized overview and the Nov14 retained LIVE-SMOKE both show1042 is
+TUTORING, with no assigned provider. It must not be relabeled or converted to
+make that expectation pass. Existing assigned tutoring1038 uses Finley1496;
+Quinn2547 tutoring1039 is unchanged. Rowan2271 already has NLU counseling1044
+and tutoring1043 with Avery1433, plus retained primary-agency450 counseling1028.
+Use that existing counseling path. Do not create a new clinical enrollment,
+grant clinical access or change a guardian permission merely to run this retest.
+
+The received build e4b83a0a contains prior5444223a repair; ancestry was verified
+by engineering. A brief naming an earlier build is not by itself a code rollback.
+Record actual fresh frontend/backend builds and ensure the backend is ready.
+
+RETEST DF14 — BRAND THROUGH THE PASSWORD STEP
+- As linked parent1456 use the existing vault entry through normal NLU sign-in.
+  Inspect the password step after username discovery, not only the destination.
+  Keep the Next Level Up portal name/logo. No automatic AuricWell Beta badge
+  or AuricWell portal subtitle from another agency's clinical account context.
+- Expand Terms & privacy. On NLU login, including a shared login returning to
+  an NLU guardian link, the legal notice/link context must be NLU. Verify actual
+  official destinations. Existing school staff branding and explicitly chosen
+  AuricWell product entry remain separate contexts; branding grants no access.
+- Return to Rowan2271 / tutoring1043 and counseling1044 using retained links.
+  Each must keep NLU branding, its exact service, and existing restrictions.
+  Family-wide information may truthfully list the primary ITSCOLLC agency450;
+  do not rename that saved agency or guardian to hide its legitimate history.
+
+RETEST DF16 — ACTUAL SERVICES AND ACTIONABLE MESSAGING
+- Morgan1759: Parker2545 tutoring1038 must show its actual permitted shared
+  participants and tutoring-team help, with no counseling/intake wording.
+- Morgan1759: service1042 is an UNASSIGNED TUTORING negative. Expect an
+  actionable message that a tutor must be assigned before shared messaging.
+  Opening the unavailable conversation is disabled. Try again rechecks current
+  access through the app; it does not assign a provider or grant permission.
+  Do not send a message or assign someone merely to make this case pass.
+- Parent1456: use Rowan2271 counseling1044 for the counseling variant. Labels
+  and help are counseling/care, not tutoring. Existing clinical access checks
+  still apply. A denied read remains denied and must not be reported as a
+  successful clinical-content or shared-conversation test. Do not broaden rights.
+- Test successful lookup, failed lookup, ordinary retry and a late response
+  after switching child/service. A previous audience must not reappear under
+  another service. Other-parent names marked private stay private.
+- Check desktop and actual390px viewport. If a bot browser enforces500px,
+  record390px NOT RUN; do not substitute500px or claim that check passed.
+
+PRESERVE THE OTHER RESULTS
+DF15 balances and DF18 Clocked out pass in the received run. DF07B passed the
+zero-courtesy late preview; positive courtesy requires a genuinely fresh fixture.
+DF17 still awaits the next genuinely needed booking/change and actual receipt.
+Never resend received appointment324 email, reset entitlement1114, cancel a
+retained appointment or change shift3 punches/correction just to collect evidence.
+DF11 isolated payroll/paystub engineering checks passed; that is not live payroll
+approval. DF12 engineering delayed-response proof stays separate from a bot's
+live throttling result. Full sessions/insurance and live review-only fixture
+cases remain open until actually verified. Riley1807 remains an admin.
+
+Use only owner-reserved automation fixtures, existing vault and QA agencies.
+No application superadministrator, human impersonation, forged tokens, credential
+resets, clinical attestation substitution or direct data repair is needed.
+
+BLANK FOLLOW-UP LEDGER
+case_id,status,build,actor_user_id,agency_id,client_id,service_id,action_time_denver,utc_offset,evidence,finding
+DF14,NOT RUN,,,,,,,,,
+DF16-1038,NOT RUN,,,,,,,,,
+DF16-1042,NOT RUN,,,,,,,,,
+DF16-1044,NOT RUN,,,,,,,,,
+DF16-390,NOT RUN,,,,,,,,,
