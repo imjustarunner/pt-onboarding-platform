@@ -30,6 +30,12 @@ describe('unified billing work stages',()=>{
   expect(normalizeBillingWorkItem({scheduled_start_at:'2026-11-04 01:00:00',source_timezone:'America/Denver'}).date_of_service).toBe('2026-11-03');
   expect(normalizeBillingWorkItem({date_of_service:'2026-11-02',scheduled_start_at:'2026-11-04 01:00:00'}).date_of_service).toBe('2026-11-02');
  });
+ it('exposes recorded minutes and location from the signed snapshot without inferring or changing them',()=>{
+  const context={durationMinutes:60,serviceLocationId:121,serviceCode:'H0004',billingPrimaryUnits:4,placeOfService:'02'};
+  expect(normalizeBillingWorkItem({clinical_note_id:132,encounter_context_json:context})).toMatchObject({duration_minutes:60,service_location_id:121,units:4,place_of_service:'02'});
+  expect(context).toEqual({durationMinutes:60,serviceLocationId:121,serviceCode:'H0004',billingPrimaryUnits:4,placeOfService:'02'});
+  expect(normalizeBillingWorkItem({clinical_note_id:133})).toMatchObject({duration_minutes:null,service_location_id:null});
+ });
 });
 
 describe('all claims filtering and sorting',()=>{
@@ -44,6 +50,15 @@ describe('all claims filtering and sorting',()=>{
   expect(filterBillingWorkItems(rows,{clientId:2})).toEqual([rows[0]]);
   expect(()=>filterBillingWorkItems(rows,{sortBy:'DROP TABLE'})).toThrow('sort');
   expect(()=>filterBillingWorkItems(rows,{clientId:'x'})).toThrow('client');
+ });
+ it('finds retained test notes by their displayed record IDs only when test records are included',()=>{
+  const note={key:'note:132',agency_id:450,client_id:2304,clinical_note_id:132,clinical_session_id:314,stage:'ready_to_submit',is_demo_client:true};
+  const draft={key:'draft:335',agency_id:450,client_id:2304,draft_id:335,appointment_id:262,stage:'draft'};
+  expect(filterBillingWorkItems([note],{search:'132'})).toEqual([]);
+  for(const search of ['132','note:132','314'])expect(filterBillingWorkItems([note,draft],{search,includeDemo:true})).toEqual([note]);
+  for(const search of ['335','draft:335','262'])expect(filterBillingWorkItems([note,draft],{search,includeDemo:true})).toEqual([draft]);
+  expect(filterBillingWorkItems([note],{search:'132',includeDemo:true,clientId:999})).toEqual([]);
+  expect(filterBillingWorkItems([note],{search:'132',includeDemo:true,status:'draft'})).toEqual([]);
  });
 });
 

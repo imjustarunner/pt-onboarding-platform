@@ -8,6 +8,17 @@ const row=(id=22)=>({agencyId:450,clientId:id,clientName:`DEMO QA Client ${id}`,
 const payload=(rows=[row()])=>({data:{items:rows,total:rows.length}});
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue(payload());});
 afterEach(()=>{document.body.innerHTML='';});
+it('shows the returned client, organization and review identities in the row and dialog',async()=>{
+ api.get.mockResolvedValue(payload([{...row(2437),clientName:'Sorrel QA',ready:true,reviewId:123}]));
+ const w=mount(InsuranceVerificationQueue,{props:{agencyId:450},attachTo:document.body});await flushPromises();
+ expect(w.get('[data-testid="coverage-client-2437"]').text()).toBe('Client #2437 · Organization #450');
+ expect(w.get('tbody').text()).toContain('Review #123');
+ await w.findAll('button').find(b=>b.text()==='Review coverage').trigger('click');await flushPromises();
+ expect(document.querySelector('[data-testid="coverage-dialog-identity"]').textContent).toBe('Client #2437 · Organization #450 · Review #123');
+ api.get.mockResolvedValue(payload([{...row(2437),clientName:'Sorrel QA',ready:true,reviewId:124}]));
+ await w.get('header form').trigger('submit');await flushPromises();
+ expect(document.querySelector('[data-testid="coverage-dialog-identity"]').textContent).toBe('Client #2437 · Organization #450 · Review #124');w.unmount();
+});
 it('opens only the exact authorized task-linked client and does not reopen it after close',async()=>{
  const w=mount(InsuranceVerificationQueue,{props:{agencyId:450,clientId:22},attachTo:document.body});await flushPromises();
  expect(api.get).toHaveBeenCalledWith('/medical-billing/workspace/insurance-verification',expect.objectContaining({params:expect.objectContaining({agencyId:450,clientId:22})}));
