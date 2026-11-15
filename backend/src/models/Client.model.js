@@ -1,3 +1,4 @@
+import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 import pool from '../config/database.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
@@ -356,13 +357,15 @@ class Client {
     `;
 
     if (agency_id) {
-      query += ' AND c.agency_id = ?';
-      values.push(agency_id);
+      query += ` AND (c.agency_id = ? OR EXISTS (SELECT 1 FROM client_agency_assignments listed_agency
+        WHERE listed_agency.client_id=c.id AND listed_agency.agency_id=? AND listed_agency.is_active=1))`;
+      values.push(agency_id, agency_id);
     }
 
     if (provider_id) {
-      query += ' AND c.provider_id = ?';
-      values.push(provider_id);
+      const assignment = clientServiceAssignmentSql({ providerId: provider_id, agencyId: agency_id, serviceKind: 'counseling' });
+      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : ''}) OR ${assignment.sql})`;
+      values.push(provider_id, ...(agency_id ? [agency_id] : []), ...assignment.params);
     }
 
     if (status) {

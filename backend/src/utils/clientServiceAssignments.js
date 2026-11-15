@@ -29,7 +29,7 @@ export function clientServiceAssignments(rows = []) {
       });
       const organizationId = Number(row.organization_id);
       if (organizationId > 0 && !organizations.has(organizationId)) organizations.set(organizationId, {
-        id: organizationId, name: row.organization_name || null
+        id: organizationId, name: row.organization_name || null, ...(row.organization_type ? {organization_type:row.organization_type} : {})
       });
     }
     const program = organizations.values().next().value;

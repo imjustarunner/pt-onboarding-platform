@@ -1,3 +1,4 @@
+import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 import {qaAutomationActorFor} from '../utils/qaAutomationAttribution.js';
 import { projectScheduleGoogleOverlay } from '../services/scheduleGoogleOverlay.service.js';
 import { acceptedCompanyEventCalendar, companyEventScheduleVisibility } from '../services/companyEventPersonalAgenda.service.js';
@@ -7871,6 +7872,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
     const includeGuardians = String(req.query?.includeGuardians || '').trim().toLowerCase() === 'true';
     const listAllAgencyClients = canListAllAgencyClientsForSchedule(actorRole);
 
+    const serviceAssignment = clientServiceAssignmentSql({providerId:userId,agencyId,serviceKind:'counseling'});
     let clientRows = [];
     try {
       if (listAllAgencyClients) {
@@ -7886,9 +7888,9 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
            FROM clients c
            LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
            WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND c.agency_id = ?
+             AND (c.agency_id = ? OR EXISTS (SELECT 1 FROM client_agency_assignments picked_agency WHERE picked_agency.client_id=c.id AND picked_agency.agency_id=? AND picked_agency.is_active=1))
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [agencyId]
+          [agencyId,agencyId]
         );
         clientRows = rows || [];
       } else {
@@ -7906,8 +7908,10 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
            FROM clients c
            LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
            WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+             AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments picked_agency WHERE picked_agency.client_id=c.id AND picked_agency.agency_id=? AND picked_agency.is_active=1))
              AND (
-               c.provider_id = ?
+               (c.provider_id = ? AND c.agency_id=?)
+               OR ${serviceAssignment.sql}
                OR EXISTS (
                  SELECT 1
                  FROM client_provider_assignments cpa
@@ -7917,7 +7921,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
                )
              )
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [userId, userId]
+          [agencyId,agencyId,userId,agencyId,...serviceAssignment.params,userId]
         );
         clientRows = rows || [];
       }
@@ -7940,7 +7944,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
              NULL AS client_status_label
            FROM clients c
            WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND c.agency_id = ?
+             AND (c.agency_id = ? OR EXISTS (SELECT 1 FROM client_agency_assignments picked_agency WHERE picked_agency.client_id=c.id AND picked_agency.agency_id=? AND picked_agency.is_active=1))
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
           [agencyId]
         );

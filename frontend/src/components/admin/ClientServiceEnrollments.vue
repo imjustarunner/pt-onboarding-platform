@@ -1,7 +1,7 @@
 <template>
   <section class="service-enrollments" aria-label="Services and providers">
     <header class="services-header">
-      <div><h4>Services &amp; providers</h4><p>Each service brings its providers and school or program together in one place.</p></div>
+      <div><h4>Services &amp; providers</h4><p>Assign providers to each service. A school or program enrollment is optional.</p></div>
       <span class="service-count">{{ activeServices.length }} active {{ activeServices.length === 1 ? 'service' : 'services' }}</span>
     </header>
     <p v-if="error" class="service-error" role="alert">{{ error }}</p>
@@ -10,7 +10,7 @@
     <ul class="services-list">
       <li v-for="service in activeServices" :key="service.id">
         <div class="service-summary">
-          <div><strong>{{ service.label }}</strong><span class="service-context">{{ servicePrograms(service) }}</span><span class="service-context">{{ service.status_label || 'Active services' }}</span></div>
+          <div><strong>{{ service.label }}</strong><span v-if="servicePrograms(service)" class="service-context">{{ servicePrograms(service) }}</span><span class="service-context">{{ service.status_label || 'Active services' }}</span></div>
           <div class="service-provider" :class="{ 'needs-provider': !Number(service.provider_user_id) }">
             <span class="service-status">{{ Number(service.provider_user_id) ? (service.providers?.length > 1 ? 'Assigned providers' : 'Assigned provider') : 'Needs a provider' }}</span>
             <ul v-if="service.providers?.length > 1" class="service-providers-list">
@@ -41,7 +41,7 @@
         <label>Service<select v-model="draft.serviceKind"><option value="counseling" :disabled="hasCounseling">Counseling{{ hasCounseling ? ' (already added)' : '' }}</option><option value="tutoring">Tutoring</option><option value="coaching">Coaching</option><option value="consultation">Consultation</option></select></label>
         <label v-if="draft.serviceKind !== 'counseling'">Display name<input v-model="draft.label" maxlength="150" placeholder="e.g. Reading tutoring" /></label>
         <div class="service-provider-field"><label for="new-service-provider">Assigned provider</label><ProviderSearchSelect v-model="draft.providerUserId" input-id="new-service-provider" :options="providers" :loading="providersLoading" :disabled="busy" label="Provider for new service" placeholder="Search providers (optional)…" /></div>
-        <label>School / program<select v-model="draft.organizationId"><option :value="0">Agency service</option><option v-for="org in organizations" :key="org.organization_id" :value="org.organization_id">{{ org.organization_name || org.name }}</option></select></label>
+        <label>School / program (optional)<select v-model="draft.organizationId"><option :value="0">No school or program</option><option v-for="org in organizations" :key="org.organization_id" :value="org.organization_id">{{ org.organization_name || org.name }}</option></select></label>
         <button class="service-save" :disabled="busy || loading" type="submit">{{ busy ? 'Saving…' : 'Add service' }}</button>
       </form>
     </details>
@@ -54,6 +54,7 @@ import api from '../../services/api';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
+import { meaningfulProgram } from '../../utils/clientRosterContext.js';
 const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] } });
 const emit = defineEmits(['updated']);
 const auth=useAuthStore();
@@ -69,9 +70,11 @@ const isActive = service => service.is_active === true || Number(service.is_acti
 const activeServices = computed(() => services.value.filter(isActive));
 const formerServices = computed(() => services.value.filter(service => !isActive(service)));
 const hasCounseling = computed(() => activeServices.value.some(service => service.service_kind === 'counseling'));
-const servicePrograms = service => service.organizations?.length
-  ? service.organizations.map(program => program.name).filter(Boolean).join(' · ') || 'Agency service'
-  : service.organization_name || 'Agency service';
+const servicePrograms = service => {
+  const organizations = service.organizations?.length ? service.organizations
+    : [{name:service.organization_name,organization_type:service.organization_type}];
+  return organizations.filter(program => meaningfulProgram(program.name,program.organization_type)).map(program => program.name).join(' · ');
+};
 let sequence = 0;
 async function load() {
   const run = ++sequence;

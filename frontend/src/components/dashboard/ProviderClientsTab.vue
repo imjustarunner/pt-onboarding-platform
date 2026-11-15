@@ -167,7 +167,7 @@
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('setting') }}</span>
                 </th>
                 <th
-                  v-if="allColumnPrefs.school"
+                  v-if="allColumnPrefs.school && hasProgramColumn"
                   class="pct-sortable"
                   :aria-sort="allAriaSortFor('school')"
                   @click="toggleAllColumnSort('school')"
@@ -262,7 +262,7 @@
                   </div>
                 </td>
                 <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
-                <td v-if="allColumnPrefs.school">{{ rosterOrganizationLabel(c) }}</td>
+                <td v-if="allColumnPrefs.school && hasProgramColumn">{{ rosterOrganizationLabel(c) }}</td>
                 <td v-if="allColumnPrefs.type">{{ rosterServiceLabel(c) }}</td>
                 <td v-if="allColumnPrefs.insurance">{{ formatInsuranceTypeLabel(c) }}</td>
                 <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
@@ -890,6 +890,8 @@ const combinedClientsList = computed(() => {
   for (const c of byId.values()) rows.push(c);
   return rows;
 });
+
+const hasProgramColumn = computed(() => combinedClientsList.value.some(client => rosterOrganizationLabel(client) !== '—'));
 
 const ALL_CLIENT_OPTIONAL_COLUMNS = [
   { key: 'setting', label: 'Setting' },
