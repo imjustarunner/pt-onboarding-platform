@@ -1,3 +1,4 @@
+import {verifiedQaAutomationAttribution} from '../utils/qaAutomationAttribution.js';
 const idKeys = ['clientId', 'noteId', 'clinicalNoteId', 'clinicalSessionId', 'appointmentId', 'officeEventId', 'documentId', 'treatmentPlanId', 'intakeNoteId', 'amendmentId', 'addendumId', 'ticketId', 'messageId', 'taskId', 'targetUserId', 'goalId', 'progressEventId'];
 export const positiveAuditId = (value) => /^\d+$/.test(String(value || '')) && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 
@@ -34,7 +35,8 @@ export const clinicalAuditTarget = (row) => {
 
 export const projectAuditRowForSupport = (row) => {
   const target = clinicalAuditTarget(row);
-  const metadata = auditMetadataIds(row.metadata);
+  const automationActor=verifiedQaAutomationAttribution(row.metadata,row.user_id ?? row.actor_user_id);
+  const metadata = {...auditMetadataIds(row.metadata),...(automationActor?{automationActor}:{})};
   const clinicalTarget = target || (row.log_type === 'phi_document' ? { label: 'Clinical document' } : null);
   return {
     id: row.id, log_type: row.log_type, source_label: row.source_label,

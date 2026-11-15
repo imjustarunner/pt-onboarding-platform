@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import pool from '../config/database.js';
 
 class TaskAuditLog {
@@ -19,7 +20,7 @@ class TaskAuditLog {
         actionType,
         actorUserId,
         targetUserId,
-        metadata ? JSON.stringify(metadata) : null
+        qaAuditMetadataJson(metadata,actorUserId)
       ]
     );
 

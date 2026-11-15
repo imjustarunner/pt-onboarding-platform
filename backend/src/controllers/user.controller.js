@@ -1,3 +1,4 @@
+import {qaAutomationActorFor} from '../utils/qaAutomationAttribution.js';
 import { projectScheduleGoogleOverlay } from '../services/scheduleGoogleOverlay.service.js';
 import { acceptedCompanyEventCalendar, companyEventScheduleVisibility } from '../services/companyEventPersonalAgenda.service.js';
 import { meetingDialInEnabled, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
@@ -357,6 +358,7 @@ export const getCurrentUser = async (req, res, next) => {
         }
       } : {}),
       id: user.id,
+      automationActor: qaAutomationActorFor(user.id),
       authMethod: req.authClaims?.authMethod || req.authClaims?.loginMethod || null,
       rememberGoogle: req.authClaims?.rememberGoogle !== false,
       email: user.email,

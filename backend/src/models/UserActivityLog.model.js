@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import { appendAuditSearch, auditIdSearchExpressions } from '../services/auditReviewAccess.service.js';
 import pool from '../config/database.js';
 
@@ -36,7 +37,7 @@ class UserActivityLog {
         userAgent || null,
         sessionId || null,
         agencyId || null,
-        metadata ? JSON.stringify(metadata) : null,
+        qaAuditMetadataJson(metadata,userId),
         durationSeconds || null,
         moduleId || null
       ]
@@ -93,6 +94,7 @@ class UserActivityLog {
         LEFT JOIN users u ON ual.user_id = u.id
         LEFT JOIN agencies a ON ual.agency_id = a.id
         LEFT JOIN modules m ON ual.module_id = m.id
+        LEFT JOIN clients c ON c.id = JSON_UNQUOTE(JSON_EXTRACT(ual.metadata, '$.clientId')) AND c.agency_id = ual.agency_id
         WHERE 1=1
       `;
       const params = [];

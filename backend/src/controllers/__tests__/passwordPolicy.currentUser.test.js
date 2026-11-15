@@ -39,3 +39,10 @@ describe('current-user password policy', () => {
     expect(await response()).toMatchObject({ authMethod: null, requiresPasswordChange: true, passwordExpired: true });
   });
 });
+
+it('current user exposes only the authenticated QA automation classification without changing role',async()=>{
+ mocks.byId.mockResolvedValue({id:1433,role:'provider',email:'qa@example.com',password_changed_at:'2026-11-14',sso_password_override:1});req.user={id:1433};req.query={userId:501,automationActor:'human'};const user=await response();expect(user.role).toBe('provider');expect(user.automationActor).toMatchObject({kind:'qa_automation',actorUserId:1433});
+});
+it('a normal human current user receives no automation classification',async()=>{
+ expect((await response()).automationActor).toBeNull();
+});
