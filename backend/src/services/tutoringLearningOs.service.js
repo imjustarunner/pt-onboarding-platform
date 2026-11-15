@@ -758,7 +758,7 @@ export async function matchTutorsForRequest({
  * Learning overview for chart hub.
  */
 export async function getLearningOverview(clientId,{agencyId=null,providerId=null}={}) {
-  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>!providerId||Number(s.primary_tutor_user_id)===Number(providerId));
+  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>providerId==null||(Number(providerId)>0&&Number(s.primary_tutor_user_id)===Number(providerId)));
   const overview = [];
   for (const s of subjects) {
     const plan = await StudentLearningPlan.findActiveBySubject(s.id);
@@ -1602,7 +1602,7 @@ export async function buildAssessmentBlueprint(payload, actorUserId) {
  * Guardian-facing Learning OS snapshot: published reports, practice, subject progress.
  */
 export async function getGuardianLearningSnapshot(clientId,{agencyId=null,providerId=null}={}) {
-  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>!providerId||Number(s.primary_tutor_user_id)===Number(providerId));
+  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>providerId==null||(Number(providerId)>0&&Number(s.primary_tutor_user_id)===Number(providerId)));
   const out = [];
   for (const s of subjects) {
     const workspaceLite = {
@@ -1654,6 +1654,8 @@ export async function getGuardianLearningSnapshot(clientId,{agencyId=null,provid
 /**
  * Aggregated guardian tutoring dashboard payload.
  */
+// null intentionally aggregates authorized agency work. Zero represents an
+// explicitly selected service awaiting assignment and must never become null.
 export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null}={}) {
   const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId});
   let upcomingSessions = [];
@@ -1671,7 +1673,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
          AND (s.status IS NULL OR s.status IN ('scheduled','live'))
        ORDER BY s.starts_at ASC
        LIMIT 8`,
-      [clientId,agencyId,agencyId,providerId||null,providerId||null]
+      [clientId,agencyId,agencyId,providerId??null,providerId??null]
     );
     upcomingSessions = upcoming || [];
   } catch {
@@ -1689,7 +1691,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
          AND s.starts_at < NOW()
        ORDER BY COALESCE(s.ends_at, s.starts_at) DESC
        LIMIT 5`,
-      [clientId,agencyId,agencyId,providerId||null,providerId||null]
+      [clientId,agencyId,agencyId,providerId??null,providerId??null]
     );
     recentSessions = past || [];
   } catch {
@@ -1704,7 +1706,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
     JOIN clients c ON c.id=ap.client_id
     LEFT JOIN users u ON u.id=a.provider_user_id
     WHERE ap.client_id=? AND (? IS NULL OR a.agency_id=?) AND (? IS NULL OR a.provider_user_id=?) AND a.business_type IN ('learning','tutoring') AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR)
-      AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId,agencyId,agencyId,providerId||null,providerId||null]);
+      AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId,agencyId,agencyId,providerId??null,providerId??null]);
   const now = Date.now();
   const canonical = await Promise.all(appointments.map(async a => ({...a, source:'appointment', title:'Tutoring appointment', delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,modality:a.modality,status:a.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning'},pool)})));
   upcomingSessions=upcomingSessions.filter(r=>!canonical.some(a=>+new Date(a.starts_at)===+new Date(r.starts_at)&&a.provider_name===r.provider_name&&!['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)));
@@ -1715,8 +1717,8 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
   };
   upcomingSessions = merge(upcomingSessions, canonical.filter(a => +new Date(a.starts_at)>=now && ['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)),1,8);
   recentSessions = merge(recentSessions, canonical.filter(a => +new Date(a.starts_at)<now),-1,5);
-  let [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM client_service_enrollments s JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.is_active=1 AND s.service_kind='tutoring' AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId||null,providerId||null]);
-  if(!assigned)[[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM student_subjects s JOIN users u ON u.id=s.primary_tutor_user_id WHERE s.client_id=? AND s.status NOT IN ('completed','discharged') AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId||null,providerId||null]);
+  let [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM client_service_enrollments s JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.is_active=1 AND s.service_kind='tutoring' AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId??null,providerId??null]);
+  if(!assigned)[[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM student_subjects s JOIN users u ON u.id=s.primary_tutor_user_id WHERE s.client_id=? AND s.status NOT IN ('completed','discharged') AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId??null,providerId??null]);
 
   const allPractice = (feed.subjects || []).flatMap((s) =>
     (s.practice || []).map((a) => ({

@@ -138,6 +138,11 @@ export const listGuardianMessageThreads = async (req, res, next) => {
           agency_id: c.agency_id,
           organization_id: c.organization_id,
           provider: null,
+          service_id: c.service?.id || null,
+          service_kind: c.service?.service_kind || null,
+          service_label: c.service?.label || null,
+          participants: [],
+          unavailable_reason: 'provider_unassigned',
           thread_id: null,
           available: false
         });
@@ -146,16 +151,13 @@ export const listGuardianMessageThreads = async (req, res, next) => {
       }
       let threadId = null;
       let participants = [];
-      try {
-        const shared = await ensureSharedChildThread({ clientId: c.client_id, agencyId: c.agency_id,serviceId:c.service?.id, userId: req.user.id });
-        threadId = shared.threadId;
-        participants = shared.participants;
-      } catch {
-        threadId = null;
-      }
+      // Denied audiences and failed lookups propagate as errors, not empty inboxes.
+      const shared = await ensureSharedChildThread({ clientId: c.client_id, agencyId: c.agency_id,serviceId:c.service?.id, userId: req.user.id });
+      threadId = shared.threadId;
+      participants = shared.participants;
       const [[activity]] = threadId ? await pool.execute(`SELECT MAX(m.created_at) AS last_message_at FROM chat_messages m WHERE m.thread_id=? AND ${familyMessageVisibilitySql(req.user.id)} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[threadId,req.user.id]) : [[null]];
       threads.push({
-        service_id:c.service?.id||null,service_label:c.legacy_conversation?'Previous shared conversation':c.service?.label||null,agency_name:c.agency_name||null,
+        service_id:c.service?.id||null,service_kind:c.service?.service_kind||null,service_label:c.legacy_conversation?'Previous shared conversation':c.service?.label||null,agency_name:c.agency_name||null,
         last_message_at: activity?.last_message_at || null,
         client_id: c.client_id,
         client_label: c.full_name || c.initials || `Child #${c.client_id}`,

@@ -25,7 +25,8 @@ async function withClientServiceLock(clientId, db, action) {
 }
 export function serviceMatchesAppointment(service, appointment) {
   if(Number(service.agency_id)!==Number(appointment.agencyId||appointment.agency_id))return false;
-  if(service.provider_user_id&&Number(service.provider_user_id)!==Number(appointment.providerUserId||appointment.provider_user_id))return false;
+  // An explicitly unassigned service is not a wildcard for another team's work.
+  if(!Number(service.provider_user_id)||Number(service.provider_user_id)!==Number(appointment.providerUserId||appointment.provider_user_id))return false;
   return service.service_kind===appointmentServiceKind(appointment);
 }
 export function guardianContextAllowsAppointment(client,appointment){

@@ -2110,7 +2110,7 @@
         v-if="isAuthenticated && !isFamilyPortalAccount && !sessionLockStore.isLocked && !isImmersiveJoinRoute && !route.meta?.familyCommandCenter"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
-      <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !route.meta?.fundthred" />
+      <PoweredByFooter v-if="isAuthenticated && !['GuardianPortal', 'OrganizationGuardianPortal'].includes(route.name) && !isImmersiveJoinRoute && !isPublicIntakeRoute && !route.meta?.fundthred" />
       <Teleport to="body">
         <div
           v-if="showLoginNotificationsModal && !isOnNotificationsRoute"

@@ -1,0 +1,104 @@
+NLU PORTAL SERVICE BOUNDARIES — NOVEMBER 15, 2026
+Follow-up to brand-results-aa2a9a54-2026-11-15.md
+
+This is a fresh retest assignment. Engineering checks and packet generation are
+not completed live cases. Preserve all earlier failures and retained records.
+Use ordinary existing automation-only QA accounts and the established vault.
+Never assume a human or superadministrator identity, forge a session, reset an
+account or grant permissions to make a case pass. No new fixture is required.
+
+CONFIRMED FIXTURE INVENTORY
+NLU QA agency 453 / nlu-qa-demo; learning program 454 / nlu-qa-learning.
+Morgan 1759: Parker 2545 has assigned tutoring 1038 (Finley 1496) AND separate
+unassigned tutoring 1042 (provider 0). 1042 IS NOT A COUNSELING SERVICE.
+Quinn 2547 has tutoring 1039. Rene 1785 is an independently authorized guardian;
+respect the saved private-name preference. Do not reveal a private name to Morgan.
+Linked parent 1456: Rowan 2271 has NLU tutoring 1043 and counseling 1044, Avery
+1433. Rowan also retains legitimate ITSCOLLC 450 counseling history. Do not move,
+merge or erase that history. Parent 1456's progress/document restrictions remain.
+
+A normal authorized QA read on November 15 confirmed that parent 1456 receives
+HTTP 403 for Rowan's counseling-1044 Messages request because clinical messaging
+is not authorized for that relationship. The repair must explain the denial,
+not grant clinical access. Tutoring-1043 Messages is permitted. A denied read can
+pass its access-boundary case; it cannot count as a successful clinical-message
+lookup or as proof that the counseling communication workflow is ready.
+
+START CONDITIONS AND EVIDENCE
+Use https://app.nextleveluplcc.com/nlu-qa-demo/login and normal menu navigation.
+Verify frontend/backend build and readiness before login. Record actual build,
+actor, client/agency/service/appointment/thread IDs, America/Denver time with UTC
+offset, actual path and screenshot. Results: PASS / FAIL / BLOCKED / NOT RUN.
+This report found the actual panel=messages and panel=overview paths. Testing
+only panel=child (information / care-access card) does not close these findings.
+Inventory prior received email; do not resend booking 324 or reenroll students.
+No new payment, attendance, signature, role or authorization change is required.
+
+FRESH CASES — ALL START NOT RUN
+PB00 Record matching deployed frontend/backend build and ready status.
+PB01 Normal Morgan/1456 logins retain NLU branding through password entry. A
+     signed-out exact-service Messages link returns to that same service.
+PB02 Morgan/Parker/1038: open actual Messages. Learning wording appears inside
+     the panel, with current authorized roster and roles before composition.
+     Finley is Tutor; Morgan and eligible additional guardian are Guardians.
+     Preserve 'Guardian (name private)' where saved. Opening never auto-sends.
+PB03 Morgan/Parker/1042: actual Messages explicitly requires assignment of a
+     tutor to THIS service; composing is disabled; Refresh does not assign,
+     create another audience or display Finley's1038 participant list.
+PB04 From1038 Dashboard switch to1042 using Service & team. URL and selection
+     agree. No Finley appointment, office/chat link, learning feed or tutor name
+     is inherited from1038. Not scheduled / Not assigned is appropriate.
+     Recheck direct1042 sign-in and reload; a pending older1038 response cannot
+     restore the earlier dashboard after the switch.
+PB05 Switch1042 back to1038. The legitimate assigned tutoring sessions and tutor
+     return. Switching again keeps each service separate. Do not cancel them.
+PB06 Parent1456/Rowan/1043: the portal legal notice uses NLU tutoring/privacy
+     context, including the actual Messages panel. Progress, private documents
+     and unshared materials remain denied. Do not relax saved restrictions.
+PB07 Parent1456/Rowan/1044: actual Messages explains the clinical permission
+     denial, gives Support as a next step and offers no composer or misleading
+     successful empty inbox. Care terminology and applicable legal notice remain
+     visible. Refresh stays denied; switching back1043 restores tutoring copy.
+PB08 Test a successful counseling message lookup ONLY with an existing legitimately
+     authorized QA recipient and exact service. If absent, mark BLOCKED; PB07's
+     expected denial does not prove this positive case.
+PB09 Family-wide messages retain their own authorized agency450 history without
+     importing its audience/content into an unrelated NLU service.
+PB10 Expand the in-portal Terms & privacy on tutoring and counseling, including
+     immersive clinical layout. Verify actual applicable destinations open.
+     Tutoring has no inherited AuricWell/clinical notice or duplicated global
+     footer. Counseling retains its appropriate clinical/platform notices.
+PB11 Repeat meaningful paths at desktop and exactly390px. Record actual width,
+     keyboard navigation, readable roster, accessible denial and footer links.
+     A500px result is not a390px pass.
+PB12 Switch Parker to Quinn1039 and back. No Parker session, participants, notes,
+     materials or pending-response state appears under Quinn's selected scope.
+
+BLANK CASE LEDGER
+case_id,status,build,actor_id,agency_id,client_id,service_id,object_ids,time_denver,utc_offset,path,screenshot,expected,actual,finding
+PB00,NOT RUN,,,,,,,,,,,,,
+PB01,NOT RUN,,,,,,,,,,,,,
+PB02,NOT RUN,,,,,,,,,,,,,
+PB03,NOT RUN,,,,,,,,,,,,,
+PB04,NOT RUN,,,,,,,,,,,,,
+PB05,NOT RUN,,,,,,,,,,,,,
+PB06,NOT RUN,,,,,,,,,,,,,
+PB07,NOT RUN,,,,,,,,,,,,,
+PB08,NOT RUN,,,,,,,,,,,,,
+PB09,NOT RUN,,,,,,,,,,,,,
+PB10,NOT RUN,,,,,,,,,,,,,
+PB11,NOT RUN,,,,,,,,,,,,,
+PB12,NOT RUN,,,,,,,,,,,,,
+
+BLANK ACTION / AUDIT LEDGER
+case_id,actor_id,agency_id,client_id,service_id,action,object_ids,time_denver,expected_audit,actual_audit_id,evidence,status,finding
+
+RETAINED OPEN WORK
+Carry forward the original47 tutoring cases and childcare tests, all unverified
+results, DF17/DF08 new-email receipt, DF12/13 live payroll review and DG13's
+review-only-fixture blocker. DF11 isolated engineering paystub checks are not a
+live employee paystub pass. Never call the complete rollout ready from these
+portal checks alone. Existing PASS evidence stays tied to its original build.
+No app-upload attachment is required for PB00–PB12. Actual worksheets remain
+separate upload files when later tutoring cases need them; never upload this
+brief, answer keys or result ledgers into a student's documents.

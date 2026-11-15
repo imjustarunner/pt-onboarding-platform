@@ -22,3 +22,9 @@ it('rechecks revoked guardians and cancelled/rescheduled appointments on a bound
  expect(await officeVisitWindowOpen(9)).toBe(false);
 });
 it('preserves ordinary permanent-office messaging without a scheduled appointment',async()=>{execute.mockResolvedValueOnce([[]]);expect(await officeVisitWindowOpen(9)).toBe(true);});
+
+it('never opens another assigned tutor’s office from an explicitly unassigned service',async()=>{
+ const {tutoringOfficeEntryAppointment}=await import('../tutoringOfficeWindow.service.js');
+ expect(await tutoringOfficeAppointments({clientId:2545,agencyId:453,providerId:0})).toEqual([]);
+ expect(await tutoringOfficeEntryAppointment({clientId:2545,agencyId:453,providerId:0,source:'appointment',appointmentId:324})).toBeNull();expect(execute).not.toHaveBeenCalled();
+});

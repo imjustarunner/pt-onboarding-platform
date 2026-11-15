@@ -45,3 +45,9 @@ it('keeps an open checkout when a same-service portal-context refresh replaces i
 });
 
 it('keeps authorized booking/packages available without requesting progress that is explicitly unshared',async()=>{const w=mount(Dashboard,{props:{clientId:2271,progressAllowed:false},global:{provide:{portalCareContext:care},stubs:{GuardianClinicalBooking:true,TutorOfficeStatus:true,PackagePriceChoice:true}}});await flushPromises();expect(los.fetchGuardianTutoringDashboard).not.toHaveBeenCalled();expect(packages.listGuardianEntitlements).toHaveBeenCalled();expect(w.text()).toContain('Learning progress and materials are not shared');expect(w.find('.gtd-progress').exists()).toBe(false);expect(w.findComponent({name:'GuardianClinicalBooking'}).exists()).toBe(true);await w.setProps({progressAllowed:true});await flushPromises();expect(los.fetchGuardianTutoringDashboard).toHaveBeenCalled();w.unmount();});
+
+it('clears the prior service dashboard immediately and ignores its delayed response after selecting an unassigned service',async()=>{
+ let releaseOld;los.fetchGuardianTutoringDashboard.mockImplementationOnce(()=>new Promise(resolve=>releaseOld=resolve)).mockResolvedValue({nextSession:null,assignedTutor:null});
+ const w=mount(Dashboard,{props:{clientId:2545,embedded:true},global:{provide:{portalCareContext:care},stubs:{GuardianClinicalBooking:true,TutorOfficeStatus:true,PackagePriceChoice:true}}});await flushPromises();
+ care.value={agencyId:453,serviceId:1042};await flushPromises();releaseOld({assignedTutor:'Old tutor',nextSession:{starts_at:'2099-11-16T18:15:00Z',provider_name:'Old tutor'}});await flushPromises();expect(w.text()).not.toContain('Old tutor');expect(los.fetchGuardianTutoringDashboard).toHaveBeenLastCalledWith(2545,{agencyId:453,serviceId:1042});w.unmount();
+});
