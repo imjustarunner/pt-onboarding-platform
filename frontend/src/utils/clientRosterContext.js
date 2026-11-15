@@ -14,11 +14,22 @@ export function rosterServiceContexts(client = {}) {
 const serviceNames = { counseling: 'Counseling', tutoring: 'Tutoring', consultation: 'Consultation', coaching: 'Coaching' };
 export function rosterServiceLabel(client = {}) {
   const contexts = rosterServiceContexts(client);
-  if (contexts.length) return contexts.map(row => `${serviceNames[row.service_kind] || row.label || row.service_kind}${row.agency_name ? ` · ${row.agency_name}` : ''}`).join('; ');
+  if (contexts.length) return [...new Set(contexts.map(row => `${serviceNames[row.service_kind] || row.label || row.service_kind}${row.agency_name ? ` · ${row.agency_name}` : ''}`))].join('; ');
   return ({ clinical: 'Counseling', school: 'Counseling', learning: 'Tutoring', tutoring: 'Tutoring' })[client.client_type] || 'Service not specified';
 }
+// These old clinical buckets are names for Counseling, not separate programs.
+const genericCounselingProgram = name => /^(?:counseling(?:\s+and|\s*&)?\s+(?:psycho)?therapy|counseling)$/i.test(String(name || '').trim());
+export function meaningfulProgram(name, type) {
+  const kind = String(type || '').toLowerCase();
+  if (!name || ['clinical','agency','tenant','consultant','life_coach'].includes(kind)) return false;
+  if (kind === 'school' || kind === 'program') return true;
+  return !genericCounselingProgram(name);
+}
 export function rosterOrganizationLabel(client = {}) {
-  return [...new Set([client.organization_name, ...rosterServiceContexts(client).map(row => row.organization_name)].filter(Boolean))].join(' · ') || '—';
+  const names = [];
+  if (meaningfulProgram(client.organization_name, client.organization_type || client.organizationType)) names.push(client.organization_name);
+  for (const row of rosterServiceContexts(client)) if (meaningfulProgram(row.organization_name, row.organization_type)) names.push(row.organization_name);
+  return [...new Set(names)].join(' · ') || '—';
 }
 
 /** School-year follow-up never becomes an office service status. Stored records remain unchanged. */

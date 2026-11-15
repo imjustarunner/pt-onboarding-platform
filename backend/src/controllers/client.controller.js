@@ -543,7 +543,7 @@ export const getClients = async (req, res, next) => {
       includeSensitive: true, // Agency view includes all fields
       status,
       organization_id: organization_id ? parseInt(organization_id) : undefined,
-      provider_id: provider_id ? parseInt(provider_id) : undefined,
+      provider_id: provider_id ? (String(userRole).toLowerCase() === 'provider' ? userId : parseInt(provider_id)) : undefined,
       search,
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : undefined,
       paperwork_status_id: paperwork_status_id ? parseInt(paperwork_status_id, 10) : undefined,
@@ -599,8 +599,7 @@ export const getClients = async (req, res, next) => {
       console.warn('[getClients] agency_name enrichment failed', e?.message || e);
     }
 
-    // When filtering by provider_id (e.g. profile Clients tab), include CPA assignments for staff viewers.
-    // uniqueClients may already be limited by legacy clients.provider_id, so CPA-only clients must be FETCHed and merged.
+    // The model includes primary and active service assignments. Merge legacy school assignments too.
     let providerScopedClients = uniqueClients;
     const filterProviderId = provider_id ? parseInt(provider_id, 10) : null;
     const roleNorm = String(userRole || '').toLowerCase();
@@ -609,7 +608,6 @@ export const getClients = async (req, res, next) => {
       const byId = new Map((uniqueClients || []).map((c) => [parseInt(c.id, 10), c]));
       const visibleClientIds = new Set(
         (uniqueClients || [])
-          .filter((c) => parseInt(c?.provider_id, 10) === parseInt(scopedProviderUserId, 10))
           .map((c) => parseInt(c.id, 10))
       );
 
@@ -836,7 +834,7 @@ export const getClients = async (req, res, next) => {
     }
 
     if (String(req.query.includeServiceContext || '') === '1') {
-      out = await attachRosterServiceContexts(out, { agencyIds, providerId: ['provider', 'intern', 'intern_plus', 'supervisor'].includes(roleNorm) ? userId : filterProviderId });
+      out = await attachRosterServiceContexts(out, { agencyIds, providerId: options.provider_id || null });
     }
 
     if (!shouldPaginate) {

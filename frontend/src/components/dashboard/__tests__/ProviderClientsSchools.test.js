@@ -74,3 +74,14 @@ it('does not use an assignment link to request a school outside the provider’s
   expect(wrapper.get('[role=alert]').text()).toContain('not available for this provider');
   expect(api.get.mock.calls.some(([url])=>url.includes('/9999/'))).toBe(false);
 });
+
+it('shows office counseling once and hides an empty school/program column',async()=>{
+ api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'clinical',organization_name:'Counseling and Psychotherapy',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Counseling and Psychotherapy',organization_type:'clinical'}]}]:[]}));
+ await render('tab=clients&clients=all');
+ expect(wrapper.findAll('th').some(th=>th.text().includes('School / program'))).toBe(false);
+ expect(wrapper.text()).toContain('Counseling · Practice A');expect(wrapper.text()).not.toContain('Counseling and Psychotherapy');
+});
+it('keeps the school/program column when a client actually has a named program',async()=>{
+ api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'program',organization_name:'Student Support',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Student Support',organization_type:'program'}]}]:[]}));
+ await render('tab=clients&clients=all');expect(wrapper.findAll('th').some(th=>th.text().includes('School / program'))).toBe(true);expect(wrapper.text()).toContain('Student Support');
+});

@@ -200,7 +200,7 @@
             :can-view-medical-record="canViewMedicalRecord"
             :glance-items="overviewGlanceItems"
             :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
-            :program-label="clientTypeLabel"
+            :program-label="overviewProgramLabel"
             :care-team-label="primaryProviderLabel"
             :care-team-meta="careTeamGlanceMeta"
             :session-count-label="sessionCountLabel"
@@ -2159,11 +2159,11 @@
                   <div class="casg-tenant-section">
                     <h5 class="casg-tenant-section__title"><span>3</span> Programs</h5>
                     <p class="casg-card-hint" style="margin-bottom: 8px;">
-                      Includes Counseling and Psychotherapy and other in-office / clinical programs for this agency.
+                      Optional enrollments, such as a Tutoring + Therapy program. Counseling services do not require a program.
                     </p>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
-                      <div v-if="affiliationsForTenant(a.agency_id, 'program').length === 0" class="hint">No programs linked for this agency.</div>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'program').length === 0" class="hint">No program enrollments. This client can receive agency services without a program.</div>
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'program')" :key="`prog-${row.organization_id}`">
                           <div>
@@ -2870,6 +2870,7 @@ import ClientOperationalStatus from '../clients/ClientOperationalStatus.vue';
 import ClientPortalOverview from '../clients/ClientPortalOverview.vue';
 import DependentPortalSharing from './DependentPortalSharing.vue';
 import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
+import { meaningfulProgram } from '../../utils/clientRosterContext.js';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide, defineAsyncComponent } from 'vue';
@@ -3495,7 +3496,7 @@ const programAffiliationPills = computed(() => {
   const push = (id, name, typeRaw) => {
     const nid = Number(id || 0);
     const label = String(name || '').trim();
-    if (!label) return;
+    if (!label || !meaningfulProgram(label, typeRaw)) return;
     const key = nid || label.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
@@ -3521,6 +3522,8 @@ const programAffiliationPills = computed(() => {
   );
   return out;
 });
+
+const overviewProgramLabel = computed(() => programAffiliationPills.value.filter(program => program.typeLabel === 'Program').map(program => program.name).join(' · '));
 
 const hasAgencyAccess = computed(() => {
   if (isSuperAdmin.value) return true;
@@ -3759,13 +3762,13 @@ function orgTypeBucket(t) {
   const n = String(t || '').toLowerCase();
   if (n === 'school') return 'school';
   if (n === 'learning') return 'learning';
-  if (n === 'program' || n === 'clinical') return 'program';
+  if (n === 'program') return 'program';
   return n || 'other';
 }
 
 function affiliationDisplayType(row) {
   const t = String(row?.organization_type || '').toLowerCase();
-  if (t === 'clinical') return 'program';
+  if (t === 'clinical') return 'clinical organization';
   return t || '—';
 }
 
@@ -3779,7 +3782,7 @@ function affiliationsForTenant(agencyId, bucket) {
   return (affiliations.value || []).filter((row) => {
     const oid = Number(row?.organization_id);
     if (!oid || !ids.has(oid)) return false;
-    return orgTypeBucket(row?.organization_type) === bucket;
+    return orgTypeBucket(row?.organization_type) === bucket && (bucket !== 'program' || meaningfulProgram(row.organization_name || row.name, row.organization_type));
   });
 }
 
@@ -3800,7 +3803,7 @@ function availableOrgsForTenant(agencyId, bucket) {
   return list.filter((o) => {
     const id = Number(o?.id);
     if (!id || existing.has(id)) return false;
-    return orgTypeBucket(o?.organization_type) === bucket;
+    return orgTypeBucket(o?.organization_type) === bucket && (bucket !== 'program' || meaningfulProgram(o.name, o.organization_type));
   });
 }
 

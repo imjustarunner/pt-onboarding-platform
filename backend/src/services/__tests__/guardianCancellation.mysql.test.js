@@ -27,7 +27,7 @@ beforeAll(async()=>{
   'CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOL)',
   'CREATE TABLE client_provider_assignments (client_id INT,organization_id INT,provider_user_id INT,is_active BOOL,created_at DATETIME)',
   'CREATE TABLE organization_affiliations (organization_id INT,agency_id INT)',
-  'CREATE TABLE agencies (id INT PRIMARY KEY,name VARCHAR(80))',
+  "CREATE TABLE agencies (id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(30) DEFAULT 'agency')",
   'CREATE TABLE client_agency_assignments (client_id INT,agency_id INT,is_active BOOL)',
   'CREATE TABLE client_statuses (id INT PRIMARY KEY,status_key VARCHAR(30))',
   'CREATE TABLE intake_links (id INT PRIMARY KEY,public_key VARCHAR(64))',
@@ -51,7 +51,7 @@ beforeAll(async()=>{
  await db.query("INSERT INTO clients VALUES (8,2,'clinical','CURRENT',1),(99,2,'clinical','CURRENT',1)");
  await db.query("INSERT INTO users (id,first_name,last_name) VALUES (7,'Provider','One'),(99,'Provider','Two')");
  await db.query('INSERT INTO user_agencies VALUES (7,2,1),(99,2,1)');
- await db.query("INSERT INTO agencies VALUES (2,'Agency One'),(3,'Agency Two')");
+ await db.query("INSERT INTO agencies(id,name) VALUES (2,'Agency One'),(3,'Agency Two')");
  await db.query("INSERT INTO client_statuses VALUES (1,'current')");await db.query('INSERT INTO client_agency_assignments VALUES (8,3,1)');
  for(let id=1;id<=26;id++){
   await db.execute("INSERT INTO appointments VALUES (?,2,7,'mental_health','reserved_office_session:abc',?,?,'scheduled',NULL,?,0)",[id,`2030-01-${String(id+1).padStart(2,'0')} 16:00:00`,`2030-01-${String(id+1).padStart(2,'0')} 17:00:00`,id+100]);

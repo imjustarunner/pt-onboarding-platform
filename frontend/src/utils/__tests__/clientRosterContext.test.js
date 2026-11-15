@@ -1,11 +1,11 @@
 import { it, expect } from 'vitest';
 import { hasSchoolRosterContext, rosterServiceLabel, rosterOrganizationLabel, rosterStatusLabel } from '../clientRosterContext.js';
-const office={id:1,client_type:'clinical',organization_type:'program',organization_name:'Counseling and Therapy',client_status_key:'current',status:'ACTIVE'};
+const office={id:1,client_type:'clinical',organization_type:'clinical',organization_name:'Counseling and Therapy',client_status_key:'current',status:'ACTIVE'};
 it('does not turn an office program or tutoring identifier into a school placement or fall prompt',()=>{
  expect(hasSchoolRosterContext(office)).toBe(false);
  expect(hasSchoolRosterContext({client_type:'learning',organization_type:'learning'})).toBe(false);
  expect(rosterStatusLabel(office)).toBe('Active services');
- expect(rosterOrganizationLabel(office)).toBe('Counseling and Therapy');
+ expect(rosterOrganizationLabel(office)).toBe('—');
 });
 it('retains fall status for actual school care',()=>{
  const school={...office,client_type:'school',organization_type:'school'};
@@ -28,3 +28,15 @@ it('does not imply ended services are active',()=>{
 });
 
 it('preserves a terminated chart status even when an old enrollment is active',()=>{expect(rosterStatusLabel({...office,client_status_key:'terminated',client_status_label:'Terminated',service_contexts:[{service_kind:'counseling',is_active:1}]})).toBe('Terminated');});
+
+it.each(['Counseling and Therapy','Counseling and Psychotherapy'])('shows %s only once as Counseling, not as a separate program',name=>{
+ const client={...office,organization_name:name,service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:name},{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Counseling and Therapy'}]};
+ expect(rosterServiceLabel(client)).toBe('Counseling · Practice A');expect(rosterOrganizationLabel(client)).toBe('—');
+});
+it('preserves a named program that offers both counseling and tutoring',()=>{
+ const client={...office,organization_name:'Student Support',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Student Support',organization_type:'program'},{agency_id:2,agency_name:'Practice A',service_kind:'tutoring',is_active:1,organization_name:'Student Support',organization_type:'program'}]};
+ expect(rosterOrganizationLabel(client)).toBe('Student Support');expect(rosterServiceLabel(client)).toBe('Counseling · Practice A; Tutoring · Practice A');
+});
+it('does not put a clinical practice name in School / program',()=>{expect(rosterOrganizationLabel({...office,organization_name:'Fictional Practice',organization_type:'clinical'})).toBe('—');});
+
+it('preserves an explicit Counseling and Psychotherapy program instead of treating it as an agency bucket',()=>{expect(rosterOrganizationLabel({...office,organization_type:'program',organization_name:'Counseling and Psychotherapy'})).toBe('Counseling and Psychotherapy');});

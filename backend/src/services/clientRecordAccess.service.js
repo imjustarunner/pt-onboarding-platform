@@ -1,3 +1,4 @@
+import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 /**
  * Shared client record access — used by getClientById, demographics, notes,
  * and middleware. Assigned clinicians must be able to open clients on their
@@ -42,6 +43,14 @@ export async function providerHasAssignedClientAccess({ userId, clientId, client
   }
 
   if (parseInt(client?.provider_id || 0, 10) === uid) return true;
+
+  // Counseling assigned in this chart's agency is clinical caseload access.
+  // A tutoring/consultation assignment alone cannot open the clinical chart.
+  if (Number(client?.agency_id) > 0) {
+    const service = clientServiceAssignmentSql({providerId:uid,agencyId:Number(client.agency_id),serviceKind:'counseling'});
+    const [rows] = await pool.execute(`SELECT c.id FROM clients c WHERE c.id=? AND ${service.sql} LIMIT 1`, [cid,...service.params]);
+    if (rows?.length) return true;
+  }
   if (client?.agency_id) return canAccessHubClient({userId:uid,clientId:cid,agencyId:client.agency_id});
   return false;
 }

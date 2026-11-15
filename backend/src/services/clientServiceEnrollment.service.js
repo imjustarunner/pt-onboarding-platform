@@ -39,7 +39,7 @@ export async function clientAgencyMembership(clientId,agencyId,db=pool){
  return !!row;
 }
 export async function listClientServices(clientId,agencyId=null,db=pool){
- const [rows]=await db.execute(`SELECT e.*,CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name,o.name AS organization_name
+ const [rows]=await db.execute(`SELECT e.*,CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name,o.name AS organization_name,o.organization_type
  FROM client_service_enrollments e JOIN clients c ON c.id=e.client_id
  LEFT JOIN users u ON u.id=e.provider_user_id LEFT JOIN agencies o ON o.id=e.organization_id
  WHERE e.client_id=? ${agencyId?'AND e.agency_id=?':''}

@@ -33,7 +33,7 @@
         <button type="button" class="cc-tile" disabled>
           <div class="cc-tile__k">Current status</div>
           <div class="cc-tile__v">{{ statusLabel }}</div>
-          <div class="cc-tile__m">{{ programLabel }}</div>
+          <div v-if="programLabel" class="cc-tile__m">{{ programLabel }}</div>
         </button>
         <button type="button" class="cc-tile" @click="$emit('navigate', 'phi')">
           <div class="cc-tile__k">Documents</div>
@@ -117,7 +117,7 @@
           <article class="cdp-contact-card">
             <div class="cdp-contact-card__role">Organization</div>
             <div class="cdp-contact-card__name">{{ organizationName || '—' }}</div>
-            <div class="cdp-glance-meta">{{ programLabel }}</div>
+            <div v-if="programLabel" class="cdp-glance-meta">{{ programLabel }}</div>
           </article>
         </div>
       </section>
