@@ -35,3 +35,11 @@ it('uses learning-only presentation only when every authorized service context i
  expect(familyProfilesLearningOnly([{client_type:'clinical'},{client_type:'learning'}])).toBe(false);
  expect(familyProfilesLearningOnly([{}])).toBe(false);expect(familyProfilesLearningOnly([])).toBe(false);
 });
+
+it('selects the family service agency from authorized care contexts without granting a staff membership',async()=>{
+ const {familyCareAgencies}=await import('../familyPortalContext');
+ const profiles=[{client_id:2271,agency_id:450,care_contexts:[{agency_id:450,agency_slug:'auricwell-qa-demo'},{agency_id:453,agency_slug:'nlu-qa-demo',services:[{id:1043,service_kind:'tutoring'}]}]}];
+ const agencies=familyCareAgencies(profiles),chosen=resolveFamilyPortalOrganization(agencies,'nlu-qa-demo');
+ expect(chosen.id).toBe(453);expect(familyPortalDashboardPath(chosen)).toBe('/nlu-qa-demo/guardian?portal=nlu-qa-demo');
+ expect(resolveFamilyPortalOrganization(agencies,'unrelated')).toBeNull();
+});

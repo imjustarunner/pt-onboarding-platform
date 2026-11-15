@@ -1,5 +1,9 @@
 <template><section><p>{{ ft("Balances and payment methods for your linked agencies. Your card stays private to your account. Each agency processes its own payments.") }}</p><div class="payment-agencies"><article v-for="agency in agencies" :key="agency.id"><h2>{{ agency.name }}</h2><details><summary>{{ ft("Balances, payments & receipts") }}</summary><FamilyLedgerPanel :agency-id="agency.id" :learning-only="agencyLearning(agency.id)" /></details><details><summary>{{ ft("Saved cards & payment authorization") }}</summary><GuardianPaymentInsuranceTab :agency-id="agency.id" :guardian-user-id="guardianUserId" section="payment" :learning-only="agencyLearning(agency.id)" /></details></article></div></section></template>
 <script setup>
+import { provide } from 'vue';
+// This panel aggregates the signed-in person's authorized agencies. A selected
+// child's service must not leak into its ledger or saved-payment requests.
+provide('portalCareContext', null);
 import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import FamilyLedgerPanel from '../billing/FamilyLedgerPanel.vue';import GuardianPaymentInsuranceTab from './GuardianPaymentInsuranceTab.vue';
