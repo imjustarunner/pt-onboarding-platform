@@ -65,3 +65,20 @@ it('ignores an old dashboard response after the server marks the linked profile 
  expect(w.text()).not.toContain('Old private appointment');expect(w.find('.family-summary-grid').exists()).toBe(false);
  expect(w.text()).toContain('restricted record access');w.unmount();
 });
+
+it('keeps each family-wide payment request on its own agency without inheriting the selected student service',async()=>{
+ const {default:Payments}=await import('../FamilyPayments.vue');
+ api.get.mockImplementation(async url=>({data:url.endsWith('/overview')?{children:[],clients:[],cards:[]}:{balances:[],receipts:[],paymentMethods:[],clients:[],tasks:[],requests:[],payers:[]}}));
+ const w=mount(Payments,{props:{agencies:[{id:450,name:'Counseling'},{id:453,name:'NLU'}],profiles,guardianUserId:9},global:{provide:{portalCareContext:{clientId:8,agencyId:453,serviceId:1043}}}});
+ await flushPromises();
+ const calls=api.get.mock.calls.filter(([url])=>url.startsWith('/family-billing/'));
+ expect(calls.length).toBeGreaterThan(1);
+ expect(new Set(calls.map(([,options])=>Number(options.params.agencyId)))).toEqual(new Set([450,453]));
+ expect(calls.every(([,options])=>!options.params.serviceId)).toBe(true);w.unmount();
+});
+it('uses tutoring wording for access help and recovery, including a changed service on the same child',async()=>{
+ const {default:Access}=await import('../GuardianCareAccess.vue');api.get.mockRejectedValue(new Error('offline'));
+ const w=mount(Access,{props:{clientId:8,clientName:'Parker',learningOnly:true}});await flushPromises();
+ expect(w.text()).toContain('Contact the tutoring team to review it.');expect(w.text()).toContain('Contact the tutoring team if this list needs review.');expect(w.text()).not.toContain('care team');
+ await w.setProps({learningOnly:false});expect(w.text()).toContain('Contact the care team to review it.');w.unmount();
+});

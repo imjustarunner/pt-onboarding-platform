@@ -936,7 +936,7 @@ const servicePickerGroups = computed(() => [
  {label:ft('Current services & providers'),past:false},{label:ft('Past providers'),past:true}
 ].map(group=>({label:group.label,options:selectedServices.value.filter(service=>(Number(service.is_active)===0)===group.past).map(service=>({value:service.id,label:ft(service.label),description:`${service.provider_name||ft('Provider being assigned')} · ${ft(service.status_label||(Number(service.is_active)===0?'Discontinued services':'Active services'))}`}))})).filter(group=>group.options.length));
 function profileAgencyLogo(profile) { return profile?.agency_logo_url || tenantLegalProfiles[profile?.agency_slug]?.logo || ''; }
-const portalAccountLabel = computed(() => allFamilyProfiles.value.some(p => p.relationship_type !== 'self') ? 'Family portal' : 'Wellness portal');
+const portalAccountLabel = computed(() => !allFamilyProfiles.value.length || allFamilyProfiles.value.some(p => p.relationship_type !== 'self') ? 'Family portal' : familyProfilesLearningOnly(allFamilyProfiles.value) ? 'Learning portal' : 'Wellness portal');
 const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family portal' ? 'My family / dashboard' : 'My dashboard');
 const selectedFirstName = computed(() => String(selectedChild.value?.full_name || '').split(' — ')[0].trim().split(/\s+/)[0] || 'Client');
 const selectedPrograms = computed(() => programs.value.filter(p => [Number(selectedChild.value?.agency_id),Number(selectedChild.value?.organization_id)].includes(Number(p.id))));

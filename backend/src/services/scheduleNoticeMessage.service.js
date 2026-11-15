@@ -14,7 +14,8 @@ export function scheduleNoticeDeadline({ now, startAt, firstQueuedAt = now, buff
 
 export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId = null } = {}) {
   const linkedReplacements = new Set(entries.map(e => Number(e.cancellation?.replacementAppointmentId)).filter(Boolean));
-  const sections = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id))).map(({ appointment: a, payload, cancellation }) => {
+  const visibleEntries = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id)));
+  const sections = visibleEntries.map(({ appointment: a, payload, cancellation }) => {
     if (cancellation?.replacementAppointmentId) return cancellation;
     if (cancellation) {
       if(payload.facts?.guardianSummary && payload.facts?.guardianCancellationOperationId) {
@@ -56,11 +57,18 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
     }
     return { text, html: `<p>${escapeNoticeHtml(text)}</p>`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : 'Your appointment is scheduled' };
   });
-  const footer = entries.every(e => e.payload.facts?.absenceSource) ? '' : 'Please reply to this email to reach our support team. Use the secure portal for clinical details.';
+  const linkedSections = sections.map((section, index) => {
+    if (sections.length < 2) return section;
+    const entry = visibleEntries[index], url = entry.portalUrl || portalUrl;
+    const label = `Review appointment on ${appointmentTimeLabel(entry.appointment.startAt, entry.appointment.sourceTimezone || 'America/Denver')}`;
+    return { ...section, text: `${section.text}\n${label}: ${url}`,
+      html: `${section.html}<p><a href="${escapeNoticeHtml(url)}">${escapeNoticeHtml(label)}</a></p>` };
+  });
+  const footer = entries.every(e => e.payload.facts?.absenceSource) ? '' : 'Please reply to this email to reach our support team. Use the secure portal for appointment details.';
   return {
     subject: sections.length === 1 ? sections[0].subject : 'Your appointment schedule has been updated',
-    text: `${sections.map(s => s.text).join('\n\n')}\n\nReview your current schedule: ${portalUrl}\n\n${footer}`,
-    html: `${sections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalUrl)}">Review my appointments</a></p>${footer ? `<p>${footer}</p>` : ''}`,
+    text: `${linkedSections.map(s => s.text).join('\n\n')}\n\nReview your current schedule: ${portalUrl}\n\n${footer}`,
+    html: `${linkedSections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalUrl)}">${sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment'}</a></p>${footer ? `<p>${footer}</p>` : ''}`,
     sms: sections.every(section => section.sms) ? sections.map(section => section.sms).join('\n') : `Your appointment schedule has been updated. Please review the latest details in your secure portal: ${portalUrl}`
   };
 }

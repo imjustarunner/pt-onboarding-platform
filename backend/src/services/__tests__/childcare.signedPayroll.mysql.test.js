@@ -69,9 +69,10 @@ async function issueReviewedFixture(userId,bands,{initialAgreement=false}={}){
 
 describe.runIf(process.env.CHILDCARE_SIGNED_MYSQL_TESTS==='1')('signed childcare compensation through isolated MySQL payroll and paystub snapshots',()=>{
  beforeAll(async()=>{
-  if(process.env.DB_HOST!=='127.0.0.1'||process.env.DB_NAME!==SOURCE_SCHEMA)throw new Error('Use the reviewed localhost proxy for definition-only source reads.');
+  const socket=process.env.EVIDENCE_TEST_SOCKET;
+  if(!socket&&(process.env.DB_HOST!=='127.0.0.1'||process.env.DB_NAME!==SOURCE_SCHEMA))throw new Error('Use the reviewed localhost proxy for definition-only source reads.');
   const mysql=await import('mysql2/promise');
-  state.connection=await mysql.createConnection({host:'127.0.0.1',port:Number(process.env.DB_PORT||3307),user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:SOURCE_SCHEMA,timezone:'Z',dateStrings:true,charset:'utf8mb4_unicode_ci'});
+  state.connection=await mysql.createConnection({...socket?{socketPath:socket,user:'root'}:{host:'127.0.0.1',port:Number(process.env.DB_PORT||3307),user:process.env.DB_USER,password:process.env.DB_PASSWORD},database:SOURCE_SCHEMA,timezone:'Z',dateStrings:true,charset:'utf8mb4_unicode_ci'});
   const schema=`nlu_childcare_signed_test_${Date.now()}_${process.pid}`;
   if(!/^nlu_childcare_signed_test_\d+_\d+$/.test(schema))throw new Error('Invalid owned test schema name.');
   await state.connection.query(`CREATE DATABASE ${schema}`);state.schema=schema;await state.connection.changeUser({database:schema});

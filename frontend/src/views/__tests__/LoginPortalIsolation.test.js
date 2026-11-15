@@ -117,3 +117,11 @@ it('submits a browser bulk password fill labeled insertText exactly once',async(
  await new Promise(resolve=>setTimeout(resolve,250));await flushPromises();
  expect(post.mock.calls.filter(([url])=>url==='/auth/login')).toHaveLength(1);
 });
+
+it('keeps a linked family on its chosen tenant instead of nesting a peer primary agency login',async()=>{
+ route.params={organizationSlug:'nlu-qa-demo'};route.path='/nlu-qa-demo/login';
+ get.mockImplementation(async url=>({data:url.includes('login-theme')?{agency:{id:453,slug:'nlu-qa-demo',name:'Next Level Up',organization_type:'agency'}}:{}}));
+ await render();post.mockResolvedValue({data:{matched:true,familyPortalSurface:'clinical',resolvedOrg:{slug:'auricwell-qa-demo',organization_type:'agency'},login:{method:'password'}}});
+ wrapper.vm.username='linked.parent@example.test';await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.vm.showPassword).toBe(true);expect(replace).not.toHaveBeenCalled();
+});

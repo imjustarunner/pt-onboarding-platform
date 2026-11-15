@@ -43,10 +43,15 @@ const defaults = {
   followUp: async () => (await import('./cancellationFollowUp.service.js')).cancellationFollowUp,
   offers: async () => (await import('./appointmentReplacementOffer.service.js')).replacementOffers,
   cancellationMessage: async (...args) => (await import('./appointmentCancellationNotification.service.js')).buildCancellationNotification(...args),
-  portal: async (agencyId, clientId, appointmentId) => {
+  portal: async (agencyId, clientId, appointmentId, appointment) => {
     const agency = await (await import('../models/Agency.model.js')).default.findById(agencyId);
+    const { listClientServices, serviceMatchesAppointment } = await import('./clientServiceEnrollment.service.js');
+    const matches = appointment ? (await listClientServices(clientId, agencyId)).filter(service => serviceMatchesAppointment(service, appointment)) : [];
+    // An ambiguous service must be selected in the authenticated portal. Do not
+    // silently open the first (possibly clinical) service for a tutoring visit.
+    const serviceQuery = matches.length === 1 ? `&serviceId=${matches[0].id}` : '';
     return (await import('../utils/publicPortalUrl.js')).buildPublicAppUrl(agency,
-      `guardian?panel=appointments&clientId=${clientId}&appointmentId=${appointmentId}`);
+      `guardian?panel=appointments&clientId=${clientId}&appointmentId=${appointmentId}${serviceQuery}`);
   }
 };
 
@@ -197,7 +202,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           await db.execute("UPDATE appointment_schedule_notices SET status='suppressed' WHERE id=?",[row.id]);
           await audit(row,'suppressed','This service has ended. Email and text notifications are disabled.');continue;
         }
-        const portalUrl = await d.portal(a.agencyId,row.client_id,a.id);
+        const portalUrl = await d.portal(a.agencyId,row.client_id,a.id,a);
         let cancellation;
         if (canceled(a)) {
           if (!['canceled','rescheduled','no_show'].includes(payload.eventType)
@@ -217,10 +222,12 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           cancellation = await d.cancellationMessage(a,payload.facts,{nextAppointment,offer:offer ? {...offer,expires_at:offer.expiresAt} : null,portalUrl,replacement});
         }
         if (payload.facts?.replacementForAppointmentId && active(a)) a.attendanceDetails = await d.attendance(a);
-        entries.push({row,appointment:a,payload,cancellation});
+        entries.push({row,appointment:a,payload,cancellation,portalUrl});
       }
       if (!entries.length) return;
-      const portalUrl = await d.portal(seed.agency_id,seed.client_id,entries[0].appointment.id);
+      // Keep the quiet-window digest, but focus its main action on the latest
+      // queued appointment and retain an exact link for every listed visit.
+      const portalUrl = entries.at(-1).portalUrl;
       const message = buildScheduleNoticeMessage(entries,portalUrl);
       const channels = [...new Set(entries.flatMap(e => typeof e.row.channels_json === 'string' ? JSON.parse(e.row.channels_json) : e.row.channels_json || []))];
       const batchId = entries[0].row.id;

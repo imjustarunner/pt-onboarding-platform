@@ -763,7 +763,7 @@ import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
 import { authenticatedLoginOrganization } from '../utils/loginWorkspace';
-import { auricWellAccountDestination } from '../utils/familyPortalContext.js';
+import { auricWellAccountDestination, familyCareAgencies, resolveFamilyPortalOrganization, familyPortalDashboardPath } from '../utils/familyPortalContext.js';
 import {
   getRememberedLogin,
   setRememberedLogin,
@@ -2127,7 +2127,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     // Summit-family logins stay on the tenant login the user chose.
     // This prevents /sstc from snapping over to unrelated org portals like /itsco or /rudy.
-    if (isSummitLogin) {
+    if (isSummitLogin || identifiedFamilySurface.value) {
       // Skip redirect; fall through to show password (or Google)
     } else if (resolvedSlug) {
       const hostImplied = resolveHostImpliedPortalSlug(brandingStore) || null;
@@ -2416,6 +2416,23 @@ const handleLogin = async (passkeyResult = null) => {
         await router.replace(redirectPath);
         loading.value = false;
         return;
+      }
+
+      // A guardian's authorized service agency can differ from the primary
+      // agency on their account. Resolve from the authenticated family overview,
+      // never from a public login slug or a provisional staff membership.
+      if (['client_guardian', 'client'].includes(roleNorm) && currentOrgSlug) {
+        try {
+          const { data } = await api.get('/guardian-portal/overview', { skipGlobalLoading: true });
+          const profiles = [...(Array.isArray(data?.children) ? data.children : []), ...(data?.me ? [data.me] : [])];
+          const familyOrganization = resolveFamilyPortalOrganization(familyCareAgencies(profiles), currentOrgSlug);
+          if (familyOrganization) {
+            agencyStore.setCurrentAgency(familyOrganization);
+            organizationStore.setCurrentOrganization(familyOrganization);
+            await router.replace(familyPortalDashboardPath(familyOrganization));
+            loading.value = false; return;
+          }
+        } catch { /* Ordinary authorized default remains available after a failed overview. */ }
       }
 
       const summitDestination = summitPostLoginDestination(currentOrgSlug, authStore.user?.role);
