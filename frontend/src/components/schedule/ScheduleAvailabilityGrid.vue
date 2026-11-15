@@ -18,6 +18,7 @@
       :session="personalSupervisionRsvp.session" @close="personalSupervisionRsvp = null"
       @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" @join="joinPersonalSupervision" />
     <AppointmentAttendanceLetter v-if="attendanceLetter" v-bind="attendanceLetter" @close="attendanceLetter=null" />
+    <OfficeBookingSelectionDialog v-if="officeSelectionChoice" :selected-range="officeSelectionChoice.selectedRange" :block-range="officeSelectionChoice.blockRange" :office-label="officeSelectionChoice.officeLabel" :date-label="officeSelectionChoice.dateLabel" :hour-count="officeSelectionChoice.rows.length" @choose="chooseOfficeSelection" @close="closeOfficeSelectionChoice" />
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
       @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDaySchool = null; cancelDayDate = date; }" />
@@ -1029,6 +1030,10 @@
         </div>
       </div>
       <ScheduleBookingJobs ref="bookingJobs" :actor-user-id="Number(authStore.user?.id || 0)" @completed="onBackgroundBookingCompleted" />
+      <div v-for="job in appointmentChange.seriesJobs.value" :key="job.id" class="schedule-cancellation-progress" role="status">
+        <div><strong>{{ job.status==='completed' ? 'Recurring visits canceled' : job.status==='failed' ? 'Cancellations need review' : 'Canceling recurring visits' }}</strong><span>{{ job.completed }} / {{ job.count }} completed · {{ job.officeReservationDisposition==='keep' ? 'Keep office reservations' : 'Release associated office time' }}</span><progress v-if="['queued','processing'].includes(job.status)" :value="job.completed" :max="job.count" aria-label="Appointment cancellation progress"></progress></div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="appointmentChange.openWizard({appointmentId:job.appointmentId})">View progress</button>
+      </div>
       <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
         {{ overlayErrorText }}
       </div>
@@ -5936,6 +5941,7 @@ import { submitOfficeBooking } from '../../utils/ownedOfficeBooking.js';
 import ScheduleDayWeather from './ScheduleDayWeather.vue';
 import ScheduleBookingJobs from './ScheduleBookingJobs.vue';
 import AppointmentAttendanceLetter from './AppointmentAttendanceLetter.vue';
+import OfficeBookingSelectionDialog from './OfficeBookingSelectionDialog.vue';
 import { useScheduleWeather } from '../../composables/useScheduleWeather.js';
 import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { useAuthStore } from '../../store/auth';
@@ -6123,7 +6129,7 @@ const scheduleOrgTo = (path) => (scheduleOrgSlug.value ? `/${scheduleOrgSlug.val
 const staffSchedulesCompareTo = computed(() => scheduleOrgTo('/schedule/staff'));
 
 const showUnifiedBookingPanel = ref(false);
-const appointmentChange = useAppointmentChange();
+const appointmentChange = useAppointmentChange({identity:()=>authStore.user?.id});
 const unifiedBookingStartAt = ref('');
 const unifiedBookingEndAt = ref('');
 const unifiedBookingDayLabel = ref('');
@@ -8761,8 +8767,23 @@ const collectContiguousOfficeBookingRows = (focusItem) => {
 
 /**
  * If the clicked hour is part of a longer office booking/assignment, ask whether to select the full span.
- * Yes → all contiguous hours; No → keep the single hour. Cancel behavior is unchanged.
+ * The in-app choice can open one hour, the whole block, or return to the calendar.
  */
+const officeSelectionChoice = ref(null);
+const officeSelectionContext = () => [Number(props.userId || 0), Number(authStore.user?.id || 0), weekStart.value, viewMode.value, String(selectedOfficeLocationId.value)];
+const closeOfficeSelectionChoice = () => {
+  if (!officeSelectionChoice.value) return;
+  officeSelectionChoice.value = null;
+  selectedActionSlots.value = [];
+  lastSelectedActionKey.value = '';
+};
+const chooseOfficeSelection = (choice) => {
+  const pending = officeSelectionChoice.value;
+  if (!pending || !['hour','block'].includes(choice) || !canBookFromGrid.value) return closeOfficeSelectionChoice();
+  if (pending.context.some((value,index) => value !== officeSelectionContext()[index])) return closeOfficeSelectionChoice();
+  officeSelectionChoice.value = null;
+  openOfficeOccupiedSelectionModal(pending.focus, choice === 'block' ? pending.rows : [pending.focus]);
+};
 const maybeExpandOfficeBookingSelection = (focusItem) => {
   const focus = {
     ...focusItem,
@@ -8781,21 +8802,16 @@ const maybeExpandOfficeBookingSelection = (focusItem) => {
   const clickedEnd = hourLabel(Number(focus.hour) + 1);
   const blockStart = hourLabel(minH);
   const blockEnd = hourLabel(maxH + 1);
-  const st = String(focus.slot?.state || focus.slot?.slotState || '').trim().toUpperCase();
-  const kind = st === 'ASSIGNED_BOOKED' ? 'booked' : 'assigned';
-  const ok = window.confirm(
-    `You selected ${clickedStart}–${clickedEnd}. This office block is ${kind} from ${blockStart}–${blockEnd}.\n\n`
-    + 'Select all hours in this block?\n\n'
-    + 'OK = select all hours\nCancel = keep only this hour'
-  );
-  const chosen = ok ? rows : [focus];
-  selectedActionSlots.value = chosen;
-  lastSelectedActionKey.value = String(focus?.key || chosen[0]?.key || '');
-  return { focus, rows: chosen, expanded: ok };
+  officeSelectionChoice.value = { focus, rows, selectedRange: `${clickedStart}–${clickedEnd}`, blockRange: `${blockStart}–${blockEnd}`,
+    officeLabel: [focus.slot?.buildingName, focus.slot?.roomLabel || (focus.slot?.roomNumber ? `Office #${focus.slot.roomNumber}` : '')].filter(Boolean).join(' · '),
+    dateLabel: new Date(`${focus.dateYmd}T12:00:00`).toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}), context: officeSelectionContext() };
+  return null;
 };
 
 const openOfficeOccupiedHourAction = (focusItem) => {
-  const { focus, rows } = maybeExpandOfficeBookingSelection(focusItem);
+  const selection = maybeExpandOfficeBookingSelection(focusItem);
+  if (!selection) return;
+  const { focus, rows } = selection;
   openSlotActionModal({
     dayName: focus.dayName,
     hour: focus.hour,
@@ -16372,6 +16388,7 @@ function onAppointmentChangeCompleted(result) {
   editorClinicalNoteId.value = Number(result?.noteId || 0);
   editorStatus.value = result?.appointment?.status || editorStatus.value;
   window.dispatchEvent(new Event('pt-schedule-refresh'));
+  if(result?.seriesOperation){flashScheduleToast(`${result.seriesOperation.count} visits canceled. Signed notes are retained. ${result.seriesOperation.officeReservationDisposition==='keep'?'Your office reservations were kept.':'The associated office time was released.'}`,7000);return;}
   flashScheduleToast(result?.preview?.waiverRequested
     ? 'The signed session note is saved and the waiver request is in the review queue. No insurance claim was created.'
     : 'Appointment change saved. The signed, nonbillable note is attached to this session. No insurance claim was created.', 7000);
@@ -20091,6 +20108,9 @@ const cancelBookingError = ref('');
 const OFFICE_SCOPE_OFF = 0;
 const OFFICE_SCOPE_ALL = -1;
 const selectedOfficeLocationId = ref(OFFICE_SCOPE_ALL);
+watch(officeSelectionContext, context => {
+  if (officeSelectionChoice.value?.context.some((value,index) => value !== context[index])) closeOfficeSelectionChoice();
+});
 const isOfficeScopeSpecific = computed(() => Number(selectedOfficeLocationId.value) > 0);
 const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL);
 const officeGridLoading = ref(false);
@@ -33245,4 +33265,8 @@ watch(()=>props.spanMode,value=>{
 .modal :deep(.aes-foot),.nr-footer{background:color-mix(in srgb,var(--bg-card,#fff) 86%,transparent);border-top:1px solid rgba(139,160,182,.17);backdrop-filter:blur(14px);box-shadow:0 -4px 18px rgba(37,61,83,.025);gap:8px}
 .nr-footer{padding:12px 18px}.nr-footer__actions{gap:8px}.appt-workspace-tabbar{background:transparent}.modal :deep(.reminder-rule){background:color-mix(in srgb,var(--bg-card,#fff) 72%,transparent);border-color:rgba(137,162,187,.2);border-radius:14px}
 @media(prefers-reduced-motion:reduce){.modal :deep(.btn){transition:none}}
+</style>
+
+<style scoped>
+.schedule-cancellation-progress{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 16px;margin:10px 0;border:1px solid rgba(116,162,180,.3);border-radius:14px;background:color-mix(in srgb,var(--bg-card,#fff) 80%,#e3f2f6);color:var(--text-primary,#264455)}.schedule-cancellation-progress>div{display:grid;gap:5px;flex:1}.schedule-cancellation-progress span{font-size:12px;color:var(--text-secondary,#60788a)}.schedule-cancellation-progress progress{width:100%;max-width:450px;height:6px;accent-color:#287b6b}.schedule-cancellation-progress button{flex-shrink:0}
 </style>

@@ -39,6 +39,7 @@ import {
 } from '../controllers/sessionNotification.controller.js';
 
 import * as guardianAppointments from '../controllers/guardianAppointments.controller.js';
+import { appointmentCancellationOptions, listAppointmentSeriesCancellations, appointmentSeriesCancellationStatus, retryAppointmentSeriesCancellation } from '../controllers/appointmentSeriesCancellation.controller.js';
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
@@ -48,6 +49,7 @@ router.get('/booking-rollout', getClientSessionBookingRollout);
 router.put('/booking-rollout', putClientSessionBookingRollout);
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
 router.get('/staff-alerts', listAppointmentStaffAlerts);
+router.get('/cancellation-operations', listAppointmentSeriesCancellations);
 router.post('/replacement-slots/:slotId/release', releaseReplacementSlot);
 router.get('/replacement-slots/:slotId', replacementSlotDetails);
 
@@ -90,6 +92,9 @@ router.post('/:id/settle', settleAppointmentHandler);
 router.post('/:id/change/waiver-decision', decideAppointmentWaiverHandler);
 router.get('/:id/change', getAppointmentChangeHandler);
 router.get('/:id/change/replacement-options', replacementOptions);
+router.get('/:id/change/cancellation-options', appointmentCancellationOptions);
+router.get('/:id/change/cancellations/:operationId', appointmentSeriesCancellationStatus);
+router.post('/:id/change/cancellations/:operationId/retry', retryAppointmentSeriesCancellation);
 router.get('/:id/replacement-history', replacementHistory);
 router.post('/:id/change/replacement-options/check', customReplacementSlot);
 router.post('/:id/change/replacement-options/range', replacementOpeningWindow);

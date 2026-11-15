@@ -2868,7 +2868,10 @@ if (shouldStartServerBackgroundJobs()) {
     guardianCancellationRunning=true;
     try {
       const {canRunSchedulingMaintenance}=await import('./services/schedulingWorkerGate.js');
-      if(await canRunSchedulingMaintenance())await(await import('./services/guardianServiceCancellation.service.js')).guardianServiceCancellations.processPending();
+      if(await canRunSchedulingMaintenance()){
+        await(await import('./services/guardianServiceCancellation.service.js')).guardianServiceCancellations.processPending();
+        await(await import('./services/appointmentSeriesCancellation.service.js')).appointmentSeriesCancellations.processPending();
+      }
     }catch(error){console.warn('[Guardian cancellation] Retry pending',error.code||'error');}
     finally{guardianCancellationRunning=false;}
   };

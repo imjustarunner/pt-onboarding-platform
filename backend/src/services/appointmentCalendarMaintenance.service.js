@@ -23,10 +23,11 @@ export async function refreshAppointmentCalendar(appointment, actorUserId) {
   await scheduleSessionNotifications(appointment.id, { replace: true });
 }
 
-export async function releaseAppointmentCalendar(appointment, actorUserId,{preserveProviderReservation=false}={}) {
+export async function releaseAppointmentCalendar(appointment, actorUserId,{preserveProviderReservation=false,officeDisposition=null}={}) {
   // Use SQL for the calendar facet to avoid calling its appointment-cancellation hook recursively.
   if (appointment.providerScheduleEventId) await pool.execute("UPDATE provider_schedule_events SET status = 'CANCELLED', updated_by_user_id = ? WHERE id = ?",
     [actorUserId, appointment.providerScheduleEventId]);
+  if (officeDisposition) return (await import('./appointmentOfficeDisposition.service.js')).appointmentOfficeDisposition.apply(appointment,actorUserId,officeDisposition);
   if (!appointment.officeEventId) return;
   const event = await OfficeEvent.findById(appointment.officeEventId);
   if (!event) return;

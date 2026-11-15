@@ -600,17 +600,19 @@ export function assembleAppointmentChangeNarrative({
   return sentences.filter(Boolean).join(' ');
 }
 
-export async function previewAppointmentChange(appointmentId, facts = {}, { actorUserId = null, actorRole = 'staff' } = {}) {
+export async function previewAppointmentChange(appointmentId, facts = {}, { actorUserId = null, actorRole = 'staff', cancellationAt = null } = {}) {
   const bundle = await getAppointmentBundle(appointmentId, { includeTimeline: false });
   if (!bundle) throw Object.assign(new Error('Appointment not found'), { status: 404 });
 
-  if (!futureAppointment(bundle) && facts.eventType !== 'no_show') facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '' };
+  const decisionTime=parseUtcDate(cancellationAt)||new Date();
+  if (!futureAppointment(bundle,decisionTime) && facts.eventType !== 'no_show') facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '' };
   const participants = await Appointment.listParticipants(appointmentId);
   const clientId = safeInt(facts.clientId) || (await resolveBillingClientId(appointmentId));
   if (!clientId || !participants.some((p) => Number(p.clientId) === clientId)) {
     throw Object.assign(new Error('Select a client attached to this appointment'), { status: 400 });
   }
   const eventType = String(facts.eventType || '').toLowerCase();
+  if(eventType==='canceled'&&facts.officeReservationDisposition&&futureAppointment(bundle))await(await import('./appointmentOfficeDisposition.service.js')).appointmentOfficeDisposition.check(bundle,facts.officeReservationDisposition);
   if (!['canceled', 'no_show', 'rescheduled', 'void'].includes(eventType)) {
     throw Object.assign(new Error('eventType is required'), { status: 400 });
   }
@@ -620,6 +622,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
         appointment: bundle,
         actorRole,
         clientId,
+        now: decisionTime,
         waive: false
       })
     : {
@@ -867,7 +870,7 @@ async function applyAppointmentChange(
     });
   }
   await cancelPendingReminders(appointmentId);
-  await releaseAppointmentCalendar(appointment, actorUserId);
+  const officeReservation = await releaseAppointmentCalendar(appointment, actorUserId, {officeDisposition:facts.officeReservationDisposition || null});
 
   if (preview.consequence.model === 'medicaid_strike' && clientId && preview.isMissed) {
     const existing = await ClientMedicaidAttendanceStrike.findByAppointmentId(appointmentId);
@@ -953,7 +956,7 @@ async function applyAppointmentChange(
     strike: strikeRecord,
     dischargeReview,
     strikeNotify,
-    billingArtifacts,
+    billingArtifacts, officeReservation,
     insuranceClaim: preview.insuranceClaim || DEFAULT_INSURANCE_CLAIM_POLICY,
     preview,
     narrative: `Scheduled ${preview.appointment.title || 'session'}: ${preview.appointment.displayWhen}${preview.appointment.providerName ? ` with ${preview.appointment.providerName}` : ''}. ${narrative} No service was rendered. This note is nonbillable.`,
@@ -961,15 +964,7 @@ async function applyAppointmentChange(
   };
 }
 
-export async function completeAppointmentChange(appointmentId, facts = {}, actor = {}) {
-  const original = await Appointment.findById(appointmentId);
-  // A newly signed no-show is an attendance outcome, not a historical schedule correction.
-  // This server-only marker is persisted with the new signed decision; old suppressed
-  // decisions keep their original facts on retry and are never retroactively released.
-  const newNoShow = facts.eventType === 'no_show' && ['draft','scheduled','confirmed','client_confirmed','checked_in'].includes(original?.status);
-  facts = { ...facts, reviewedAttendanceOutcome: newNoShow };
-  if (newNoShow) facts = { ...facts, clientFacingReason: 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.', followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
-  if (original && !futureAppointment(original) && facts.eventType !== 'no_show') facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
+export function validateAppointmentChangeFacts(facts, actor = {}) {
   if (!['canceled', 'rescheduled', 'no_show', 'void'].includes(facts.eventType)) {
     throw Object.assign(new Error('Choose an appointment change event'), { status: 400 });
   }
@@ -998,6 +993,19 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
   if (facts.waiver?.action && !String(facts.waiver.reason || '').trim()) {
     throw Object.assign(new Error('A waiver reason is required'), { status: 400 });
   }
+}
+
+export async function completeAppointmentChange(appointmentId, facts = {}, actor = {}) {
+  if(facts.eventType!=='canceled')facts={...facts,officeReservationDisposition:null};
+  const original = await Appointment.findById(appointmentId);
+  // A newly signed no-show is an attendance outcome, not a historical schedule correction.
+  // This server-only marker is persisted with the new signed decision; old suppressed
+  // decisions keep their original facts on retry and are never retroactively released.
+  const newNoShow = facts.eventType === 'no_show' && ['draft','scheduled','confirmed','client_confirmed','checked_in'].includes(original?.status);
+  facts = { ...facts, reviewedAttendanceOutcome: newNoShow };
+  if (newNoShow) facts = { ...facts, clientFacingReason: 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.', followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
+  if (original && !futureAppointment(original,parseUtcDate(actor.cancellationAt)||new Date()) && facts.eventType !== 'no_show') facts = { ...facts, officeReservationDisposition:null,notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
+  validateAppointmentChangeFacts(facts, actor);
   return runSignedAppointmentChange(appointmentId, facts, actor, {
     previewChange: async (...args) => {
       const preview = await previewAppointmentChange(...args);

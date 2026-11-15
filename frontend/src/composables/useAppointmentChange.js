@@ -1,8 +1,8 @@
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, getCurrentInstance, onMounted, onBeforeUnmount, watch } from 'vue';
 import api from '../services/api.js';
 import { assembleLocalNarrative } from '../utils/appointmentChangeNarrative.js';
 
-export function useAppointmentChange() {
+export function useAppointmentChange({identity}={}) {
   const open = ref(false);
   const step = ref(1);
   const loading = ref(false);
@@ -19,6 +19,7 @@ export function useAppointmentChange() {
     payerLabel: ''
   });
   const facts = reactive({
+    cancellationScope: 'occurrence', officeReservationDisposition: 'keep',
     eventType: '',
     initiator: '',
     reasons: [],
@@ -47,6 +48,52 @@ export function useAppointmentChange() {
   const workflow = ref(null);
   const signatureConfirmed = ref(false);
   const draftLoaded = ref(false);
+  const cancellationOptions=ref(null),cancellationOptionsError=ref(''),cancellationOptionsLoading=ref(false),seriesOperation=ref(null),seriesJobs=ref([]);
+  let cancellationRequestId='',seriesTimer=null,seriesPollBusy=false,disposed=false,seriesGeneration=0,lastSeriesPreviewKey='',lastSeriesPreviewAt=0;
+  const expiryTimers=new Set();
+  function trackSeriesOperation(operation,id=appointmentId.value) {
+    if(!operation?.id||!['queued','processing','completed','failed'].includes(operation.status))return;
+    const item={...operation,appointmentId:Number(id)};
+    const previous=seriesJobs.value.find(job=>job.id===item.id);
+    seriesJobs.value=[...seriesJobs.value.filter(job=>job.id!==item.id),item];
+    if(open.value&&Number(appointmentId.value)===item.appointmentId)seriesOperation.value=item;
+    if(!seriesTimer)seriesTimer=setInterval(pollSeriesOperations,2500);
+    if(item.status==='completed'&&previous?.status!=='completed'){
+      const timer=setTimeout(()=>{seriesJobs.value=seriesJobs.value.filter(job=>job.id!==item.id);expiryTimers.delete(timer);},10_000);expiryTimers.add(timer);
+    }
+  }
+  async function pollSeriesOperations() {
+    if(seriesPollBusy||disposed)return;seriesPollBusy=true;const generation=seriesGeneration;
+    try{for(const job of [...seriesJobs.value].filter(job=>['queued','processing'].includes(job.status))){
+      try{
+        const {data}=await api.get(`/appointments/${job.appointmentId}/change/cancellations/${job.id}`,{skipGlobalLoading:true});
+        if(disposed||generation!==seriesGeneration)return;
+        trackSeriesOperation(data,job.appointmentId);
+        if(data.completed!==job.completed||data.status==='completed')window.dispatchEvent(new Event('pt-schedule-refresh'));
+      }catch{/* The durable job continues; keep its last confirmed progress. */}
+    }}finally{seriesPollBusy=false;}
+    if(!seriesJobs.value.some(job=>['queued','processing'].includes(job.status))){clearInterval(seriesTimer);seriesTimer=null;}
+  }
+  async function loadCancellationOptions() {
+    const id=appointmentId.value;cancellationOptionsError.value='';cancellationOptionsLoading.value=true;
+    try{const{data}=await api.get(`/appointments/${id}/change/cancellation-options`,{skipGlobalLoading:true});if(id!==appointmentId.value||!open.value)return;cancellationOptions.value=data;
+      if(data?.operation)trackSeriesOperation(data.operation,id);
+    }catch{if(id===appointmentId.value)cancellationOptionsError.value='Could not check the recurring visits and office reservation. Retry before canceling.';}finally{if(id===appointmentId.value)cancellationOptionsLoading.value=false;}
+  }
+  async function retrySeriesOperation() {
+    const job=seriesOperation.value;if(!job)return;
+    saving.value=true;error.value='';
+    try{const{data}=await api.post(`/appointments/${job.appointmentId}/change/cancellations/${job.id}/retry`,{},{skipGlobalLoading:true});trackSeriesOperation(data,job.appointmentId);}
+    catch(e){error.value=e.response?.data?.error?.message||'Could not resume the remaining cancellations.';}finally{saving.value=false;}
+  }
+  function reviewRemainingSeries() {
+    const id=seriesOperation.value?.remainingAppointmentId;if(id)void openWizard({appointmentId:id,context:{...context}});
+  }
+  if(getCurrentInstance()){
+    onMounted(async()=>{const generation=seriesGeneration;try{const{data}=await api.get('/appointments/cancellation-operations',{skipGlobalLoading:true});if(!disposed&&generation===seriesGeneration)for(const operation of data?.operations||[])trackSeriesOperation(operation,operation.appointmentId);}catch{/* Optional progress recovery. */}});
+    onBeforeUnmount(()=>{disposed=true;clearInterval(seriesTimer);expiryTimers.forEach(clearTimeout);});
+  }
+  if(identity)watch(identity,()=>{seriesGeneration++;clearInterval(seriesTimer);seriesTimer=null;expiryTimers.forEach(clearTimeout);expiryTimers.clear();seriesJobs.value=[];closeWizard();});
   const replacements = ref([]);
   const replacementOptions = ref(null);
   const replacementBase = ref(null);
@@ -74,6 +121,7 @@ export function useAppointmentChange() {
   });
 
   function resetFacts() {
+    facts.cancellationScope='occurrence';facts.officeReservationDisposition='keep';cancellationOptions.value=null;cancellationOptionsError.value='';seriesOperation.value=null;cancellationRequestId=globalThis.crypto?.randomUUID?.()||'';
     facts.eventType = '';
     facts.initiator = '';
     facts.reasons = [];
@@ -126,6 +174,7 @@ export function useAppointmentChange() {
         Object.assign(facts, workflow.value.facts);
         if (!facts.waiver) facts.waiver = { action: 'no', reason: '', comment: '' };
         if (workflow.value.facts?.clientId) context.clientId = workflow.value.facts.clientId;
+        if(workflow.value.facts?.cancellationRequestId)cancellationRequestId=workflow.value.facts.cancellationRequestId;
         preview.value = workflow.value.preview;
         step.value = workflow.value.status === 'draft' ? 1 : 4;
         await refreshSchoolSupport();
@@ -133,6 +182,7 @@ export function useAppointmentChange() {
     } catch (e) {
       error.value = e.response?.data?.error?.message || 'Could not load the saved appointment change. Reopen to try again.';
     } finally { loading.value = false; }
+    await loadCancellationOptions();
   }
 
   function closeWizard() {
@@ -169,6 +219,9 @@ export function useAppointmentChange() {
           }
         : null;
     return {
+      cancellationScope:facts.eventType==='canceled'?facts.cancellationScope:'occurrence',
+      officeReservationDisposition:facts.eventType==='canceled'&&(facts.cancellationScope==='future'||cancellationOptions.value?.officeReservationAvailable)?facts.officeReservationDisposition:undefined,
+      cancellationRequestId,cancellationReviewToken:preview.value?.seriesChange?.reviewToken,
       eventType: facts.eventType,
       initiator: facts.initiator || null,
       reasons: [...facts.reasons],
@@ -224,15 +277,19 @@ export function useAppointmentChange() {
 
   async function refreshPreview() {
     if (!appointmentId.value || !facts.eventType) return null;
+    const payload=buildPayload();delete payload.cancellationReviewToken;
+    const previewKey=JSON.stringify(payload);
+    if(facts.cancellationScope==='future'&&preview.value?.seriesChange&&previewKey===lastSeriesPreviewKey&&Date.now()-lastSeriesPreviewAt<60_000)return preview.value;
     loading.value = true;
     error.value = '';
     try {
       const r = await api.post(
         `/appointments/${appointmentId.value}/change/preview`,
-        buildPayload(),
+        payload,
         { skipGlobalLoading: true }
       );
       preview.value = r.data?.preview || null;
+      if(preview.value?.seriesChange){lastSeriesPreviewKey=previewKey;lastSeriesPreviewAt=Date.now();}
       if (preview.value?.appointment) {
         if (!context.whenLabel && preview.value.appointment.displayWhen) {
           context.whenLabel = preview.value.appointment.displayWhen;
@@ -259,6 +316,7 @@ export function useAppointmentChange() {
 
   function canContinueFromStep(n) {
     if (!draftLoaded.value) return false;
+    if(facts.eventType==='canceled'&&(cancellationOptionsError.value||cancellationOptionsLoading.value||!cancellationOptions.value))return false;
     if (n === 1) return !!facts.eventType;
     if (n === 2) {
       if (inlineReplacement.busy || inlineReplacement.partial || inlineReplacement.uncertain) return false;
@@ -324,6 +382,7 @@ export function useAppointmentChange() {
         { ...buildPayload(), signatureConfirmed: signatureConfirmed.value },
         { skipGlobalLoading: true }
       );
+      if(r.data?.seriesOperation){trackSeriesOperation(r.data.seriesOperation);return r.data;}
       await refreshSchoolSupport();
       return r.data;
     } catch (e) {
@@ -523,6 +582,7 @@ export function useAppointmentChange() {
   }
 
   return {
+    cancellationOptions,cancellationOptionsError,cancellationOptionsLoading,loadCancellationOptions,seriesOperation,seriesJobs,trackSeriesOperation,retrySeriesOperation,reviewRemainingSeries,
     open,
     schoolSupport, schoolSupportLoading, schoolSupportError, refreshSchoolSupport,
     workflow,

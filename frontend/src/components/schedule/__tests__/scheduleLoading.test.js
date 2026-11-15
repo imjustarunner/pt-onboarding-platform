@@ -716,3 +716,21 @@ it('returns to Calendars when the viewed account has no Google connection', asyn
  expect(state.activeSettingsSection).toBe('calendars');
  expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(false);
 });
+
+async function openBookedOfficeChoice() {
+ const state=await mount();state.viewMode='office_layout';state.selectedOfficeLocationId=8;await flushPromises();
+ const slots=Array.from({length:6},(_,i)=>({id:40+i,eventId:40+i,date:'2026-10-18',hour:8+i,roomId:10,buildingId:8,state:'assigned_booked',bookedProviderId:7,assignedProviderId:7,roomNumber:10,roomLabel:'Office #10',buildingName:'Example office'}));
+ state.officeGrid={location:{id:8},rooms:[{id:10,room_number:10}],slots};
+ state.openOfficeOccupiedHourAction({key:'2026-10-18|11|10',dateYmd:'2026-10-18',dayName:'Sunday',hour:11,roomId:10,buildingId:8,slot:slots[3]});await flushPromises();return state;
+}
+it.each([['hour',[11]],['block',[8,9,10,11,12,13]]])('opens a booked office using the in-app %s choice',async(choice,hours)=>{
+ const native=vi.spyOn(window,'confirm').mockImplementation(()=>{throw new Error('A browser dialog must not be used.');});
+ try{const state=await openBookedOfficeChoice();expect(state.officeSelectionChoice.rows).toHaveLength(6);expect(state.showRequestModal).toBe(false);
+ state.chooseOfficeSelection(choice);await flushPromises();expect(state.selectedActionSlots.map(row=>row.hour)).toEqual(hours);expect(state.showRequestModal).toBe(true);expect(native).not.toHaveBeenCalled();}finally{native.mockRestore();}
+});
+it('backs out of the booked-office choice without opening an editor or sending a request',async()=>{
+ const state=await openBookedOfficeChoice();state.closeOfficeSelectionChoice();await flushPromises();expect(state.officeSelectionChoice).toBeNull();expect(state.selectedActionSlots).toEqual([]);expect(state.showRequestModal).toBe(false);expect(m.post).not.toHaveBeenCalled();
+});
+it('dismisses a pending office choice when its calendar context changes',async()=>{
+ const state=await openBookedOfficeChoice();state.weekStart='2026-10-19';await flushPromises();expect(state.officeSelectionChoice).toBeNull();expect(state.showRequestModal).toBe(false);
+});

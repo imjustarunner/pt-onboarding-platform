@@ -180,3 +180,28 @@ it('reviews a new no-show notification separately from historical cancellation s
  api.put.mockResolvedValue({data:{ok:true}});change.facts.notificationMode='send';await change.saveDraft();expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({notificationMode:'send',followUpAction:'none',offeredSlots:[]}),expect.anything());
  change.facts.eventType='canceled';expect(change.retrospective.value).toBe(true);
 });
+
+it('submits reviewed forward cancellations with the office choice and tracks work after returning to the calendar',async()=>{
+ vi.useFakeTimers();
+ try{
+  const operation={id:'11111111-1111-4111-8111-111111111111',status:'queued',count:3,completed:0,officeReservationDisposition:'keep'};
+  api.get.mockImplementation(async url=>({data:url.endsWith('/cancellation-options')?{seriesAvailable:true,officeReservationAvailable:true,singleClient:true}:url.includes('/change/cancellations/')?{...operation,status:'completed',completed:3,appointmentStatus:'canceled_by_provider'}:{workflow:null}}));
+  const change=useAppointmentChange();await change.openWizard({appointmentId:4,context:{clientId:8}});
+  Object.assign(change.facts,{eventType:'canceled',cancellationScope:'future',initiator:'provider',reasons:['illness'],clientFacingReason:'The provider is unavailable.'});
+  api.post.mockResolvedValueOnce({data:{preview:{narrative:'Reviewed notes.',seriesChange:{count:3,reviewToken:'reviewed-selection'}}}});
+  await change.refreshPreview();change.signatureConfirmed.value=true;api.post.mockResolvedValueOnce({data:{queued:true,seriesOperation:operation}});
+  await change.complete();expect(api.post).toHaveBeenLastCalledWith('/appointments/4/change/complete',expect.objectContaining({cancellationScope:'future',officeReservationDisposition:'keep',cancellationReviewToken:'reviewed-selection',signatureConfirmed:true}),expect.anything());
+  change.closeWizard();expect(change.seriesJobs.value).toHaveLength(1);await vi.advanceTimersByTimeAsync(2500);expect(change.seriesJobs.value[0].status).toBe('completed');await vi.advanceTimersByTimeAsync(10_000);expect(change.seriesJobs.value).toEqual([]);
+ }finally{vi.useRealTimers();}
+});
+it('keeps cancellation disabled if office and recurrence options cannot be checked, then recovers on retry',async()=>{
+ api.get.mockImplementation(async url=>{if(url.endsWith('/cancellation-options'))throw new Error('offline');return{data:{workflow:null}};});
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.facts.eventType='canceled';expect(change.canContinueFromStep(1)).toBe(false);
+ api.get.mockResolvedValue({data:{seriesAvailable:true,officeReservationAvailable:true}});await change.loadCancellationOptions();expect(change.canContinueFromStep(1)).toBe(true);expect(change.facts.officeReservationDisposition).toBe('keep');
+});
+it('reuses an unchanged series preview while advancing review steps, with the server token retained for signing',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/cancellation-options')?{seriesAvailable:true,officeReservationAvailable:true}:{workflow:null}}));
+ const change=useAppointmentChange();await change.openWizard({appointmentId:4,context:{clientId:8}});Object.assign(change.facts,{eventType:'canceled',cancellationScope:'future',initiator:'provider',reasons:['illness'],clientFacingReason:'Unavailable.'});
+ api.post.mockReset().mockResolvedValue({data:{preview:{seriesChange:{reviewToken:'current'}}}});await change.refreshPreview();await change.refreshPreview();expect(api.post).toHaveBeenCalledTimes(1);
+ change.facts.officeReservationDisposition='release';await change.refreshPreview();expect(api.post).toHaveBeenCalledTimes(2);
+});

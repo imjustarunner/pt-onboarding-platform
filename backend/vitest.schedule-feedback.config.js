@@ -2,6 +2,9 @@ export default {
   root: new URL('.', import.meta.url).pathname,
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: { environment: 'node', include: [
+    'src/services/__tests__/appointmentOfficeDisposition.test.js',
+    'src/services/__tests__/appointmentSeriesCancellation.test.js',
+    'src/services/__tests__/guardianCancellationOperations.test.js',
     'src/services/__tests__/manualSessionReminder.test.js',
     'src/services/__tests__/scheduleWeather.test.js',
     'src/services/__tests__/weatherForecastCache.test.js',

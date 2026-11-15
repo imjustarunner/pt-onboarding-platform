@@ -53,7 +53,16 @@
 
         <div class="acw-body">
           <!-- Step 1 -->
-          <section v-if="change.step.value === 1" class="acw-panel">
+          <section v-if="change.seriesOperation?.value" class="acw-panel" aria-live="polite">
+            <h3 class="acw-h">{{ change.seriesOperation.value.status === 'completed' ? 'Recurring visits canceled' : change.seriesOperation.value.status === 'failed' ? 'Some cancellations need review' : 'Canceling recurring visits' }}</h3>
+            <p>{{ change.seriesOperation.value.completed }} of {{ change.seriesOperation.value.count }} appointments completed.</p>
+            <progress v-if="['queued','processing'].includes(change.seriesOperation.value.status)" :value="change.seriesOperation.value.completed" :max="change.seriesOperation.value.count" aria-label="Recurring appointment cancellations"></progress>
+            <p>{{ change.seriesOperation.value.officeReservationDisposition === 'keep' ? 'Your office reservations are being kept for reuse.' : 'The corresponding office time is being released for other bookings.' }} Other client series and other office bookings stay unchanged.</p>
+            <p>Each canceled visit keeps its own signed, nonbillable note and history. No insurance claim is created. You can return to the calendar while this finishes.</p>
+            <p v-if="change.seriesOperation.value.error" role="alert">{{ change.seriesOperation.value.error }}</p>
+            <div v-if="change.seriesOperation.value.status === 'failed'" class="acw-chips"><button type="button" class="acw-btn" :disabled="change.saving.value" @click="change.retrySeriesOperation()">Resume the saved request</button><button type="button" class="acw-btn" @click="change.reviewRemainingSeries()">Review remaining visits</button></div>
+          </section>
+          <section v-else-if="change.step.value === 1" class="acw-panel">
             <h3 class="acw-h">What happened to this appointment?</h3>
             <div class="acw-event-grid">
               <button
@@ -80,6 +89,15 @@
           <section v-else-if="change.step.value === 2" class="acw-panel acw-panel--split">
             <div>
               <h3 class="acw-h">Step 2 of 4: Appointment details</h3>
+              <fieldset v-if="change.facts.eventType === 'canceled' && change.cancellationOptions?.value && !change.retrospective?.value" class="acw-client-notice" data-cancellation-scope>
+                <legend>Visits and office time</legend>
+                <label class="acw-field"><span>Which visits?</span><select v-model="change.facts.cancellationScope" class="acw-input" @change="onCancellationScopeChange"><option value="occurrence">{{ change.cancellationOptions.value.singleClient===false ? 'This shared visit — all participants' : 'This visit only' }}</option><option v-if="change.cancellationOptions.value.seriesAvailable" value="future">This and future visits in this client’s series</option></select></label>
+                <p v-if="change.cancellationOptions.value.singleClient===false" class="muted">This cancellation affects every participant in the shared visit. To remove just one participant, use Edit instead.</p>
+                <p v-if="change.facts.cancellationScope==='future'" class="muted">Stops this recurring client series from the selected visit forward. Earlier visits, other series, and the client’s active services remain unchanged. Review every affected date before signing.</p>
+                <label v-if="change.cancellationOptions.value.officeReservationAvailable" class="acw-field"><span>Office reservation</span><select v-model="change.facts.officeReservationDisposition" class="acw-input" @change="onCancellationOptionsChange"><option value="keep">Keep my office reserved — remove the client visit</option><option value="release">Release the office time for other bookings</option></select></label>
+                <p v-if="change.cancellationOptions.value.officeReservationAvailable" class="muted">{{ change.facts.officeReservationDisposition==='keep' ? 'The canceled client visit stays in history. Your reserved office time remains yours and can be used for another client.' : 'The canceled client visit stays in history. Its office time becomes available through the normal office-booking flow.' }}</p>
+              </fieldset>
+              <p v-if="change.cancellationOptionsError?.value" role="alert">{{ change.cancellationOptionsError.value }} <button type="button" class="acw-btn" @click="change.loadCancellationOptions()">Retry options</button></p>
 
               <template v-if="change.facts.eventType === 'void'">
                 <p class="muted">Document why this appointment is being voided (required).</p>
@@ -143,7 +161,7 @@
                 </div>
               </template>
 
-              <label v-if="['canceled', 'rescheduled'].includes(change.facts.eventType)" class="acw-field">
+              <label v-if="['canceled', 'rescheduled'].includes(change.facts.eventType) && change.facts.cancellationScope!=='future'" class="acw-field">
                 <span>Replacement appointment {{ change.facts.eventType === 'rescheduled' ? '(required)' : '(optional)' }}</span>
                 <select v-model="change.facts.replacementAppointmentId" class="acw-input">
                   <option :value="null">Select a booked appointment</option>
@@ -182,7 +200,7 @@
                   <span>{{ change.facts.eventType === 'no_show' ? 'Message to share with the client' : 'Reason to share with the client (required)' }}</span>
                   <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500" placeholder="Your provider is unavailable due to illness." />
                 </label>
-                <label v-if="change.facts.eventType !== 'no_show'" class="acw-field">
+                <label v-if="change.facts.eventType !== 'no_show' && change.facts.cancellationScope!=='future'" class="acw-field">
                   <span>Next step</span>
                   <select v-model="change.facts.followUpAction" class="acw-input">
                     <option value="keep_next_or_support">Keep the next appointment; contact support only if none is scheduled</option>
@@ -298,7 +316,7 @@
 
               </div>
 
-              <SchoolSupportCancellationBenefit
+              <SchoolSupportCancellationBenefit v-if="change.facts.cancellationScope!=='future'"
                 v-model="change.facts.useSchoolSupportHour"
                 v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
@@ -402,7 +420,7 @@
           <!-- Step 4 -->
           <section v-else class="acw-panel acw-panel--split">
             <div>
-              <SchoolSupportCancellationBenefit
+              <SchoolSupportCancellationBenefit v-if="change.facts.cancellationScope!=='future'"
                 v-model="change.facts.useSchoolSupportHour"
                 v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
@@ -414,12 +432,18 @@
               </div>
               <p class="muted">This note is attached to the session and is nonbillable. Signing does not create an insurance claim.</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
-              <label v-if="change.workflow.value?.status !== 'completed'" class="acw-signature"><input v-model="change.signatureConfirmed.value" type="checkbox" :disabled="change.saving.value" /><span>I reviewed this note and confirm my signature.</span></label>
+              <div v-if="change.preview.value?.seriesChange" class="acw-client-notice" data-series-cancellation-review>
+                <h4 class="acw-h4">{{ change.preview.value.seriesChange.count }} visits in this series</h4>
+                <p>{{ change.facts.officeReservationDisposition==='keep' ? 'Keep the office reservations.' : 'Release the associated office time for other bookings.' }} Review the cancellation note for each date below.</p>
+                <p v-if="change.preview.value.seriesChange.totalFeeCents != null">Total reviewed cancellation fees: {{ money(change.preview.value.seriesChange.totalFeeCents) }}.</p>
+                <details v-for="visit in change.preview.value.seriesChange.appointments" :key="visit.id" class="acw-series-note"><summary>{{ visit.when }} · {{ cancellationClassification(visit.classification) }}<template v-if="visit.feeCents != null"> · {{ money(visit.feeCents) }}</template></summary><p>{{ visit.narrative }}</p></details>
+              </div>
+              <label v-if="change.workflow.value?.status !== 'completed'" class="acw-signature"><input v-model="change.signatureConfirmed.value" type="checkbox" :disabled="change.saving.value" /><span>{{ change.preview.value?.seriesChange ? 'I reviewed the affected dates and every cancellation note, and confirm my signature.' : 'I reviewed this note and confirm my signature.' }}</span></label>
               <div v-if="['canceled', 'rescheduled'].includes(change.facts.eventType) && change.facts.clientFacingReason" class="acw-client-notice">
                 <h4 class="acw-h4">{{ change.facts.notificationMode === 'none' ? 'Cancellation recorded — no email or text will be sent' : 'Client message to review' }}</h4>
                 <p v-if="change.facts.eventType === 'rescheduled'">Your appointment has moved. The message will include its verified new date and time.</p><p v-else>Your appointment scheduled for {{ change.context.whenLabel || change.preview.value?.appointment?.displayWhen }} has been canceled.</p>
                 <p><strong>Reason:</strong> {{ change.facts.clientFacingReason }}</p>
-                <p>{{ followUpLabel }}</p>
+                <p>{{ change.facts.cancellationScope==='future' ? 'This and future visits in this recurring series are canceled. Contact support if you would like to arrange a new time.' : followUpLabel }}</p>
                 <p v-if="change.facts.followUpMessage">{{ change.facts.followUpMessage }}</p>
                 <p class="muted">Replies go to support. Internal note comments are kept in the session record.</p>
               </div>
@@ -464,9 +488,11 @@
         <p v-if="change.error.value" class="acw-error">{{ change.error.value }}</p>
 
         <footer class="acw-footer">
-          <button v-if="!change.workflow.value || change.workflow.value.status === 'draft'" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
-          <span v-else class="muted">{{ change.workflow.value.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
+          <button v-if="!change.seriesOperation?.value && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
+          <span v-else class="muted">{{ change.seriesOperation?.value ? 'Signed series request saved.' : change.workflow.value?.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
           <div class="acw-footer-right">
+            <button v-if="change.seriesOperation?.value" type="button" class="acw-btn primary" @click="onClose">Back to calendar</button>
+            <template v-else>
             <button v-if="change.step.value > 1 && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn" :disabled="change.saving.value" @click="change.goBack()">Back</button>
             <button
               v-if="change.step.value < 4"
@@ -485,6 +511,7 @@
             >{{ change.saving.value ? 'Signing…' : change.facts.waiver?.action === 'recommend' ? 'Sign & Send for Review →' : 'Sign & Complete →' }}</button>
             </template>
             <button v-else type="button" class="acw-btn primary" @click="onClose">Back to appointment</button>
+            </template>
           </div>
         </footer>
       </div>
@@ -493,6 +520,7 @@
 </template>
 
 <script setup>
+const cancellationClassification = value => ({advance_cancel:'Advance cancellation',late_cancel:'Late cancellation',canceled:'Canceled',late_cancel_reschedule:'Late cancellation / reschedule'})[value] || 'Cancellation';
 const money = cents => cents == null ? 'Not set' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(Number(cents) / 100);
 import { computed, watch } from 'vue';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
@@ -571,12 +599,24 @@ const nextAppointmentMessage = computed(() => {
 function onNotificationModeChange() {
   if (props.change.facts.notificationMode === 'none' && ['private_slots', 'portal_booking'].includes(props.change.facts.followUpAction)) props.change.facts.followUpAction = 'keep_next_or_support';
 }
+function onCancellationScopeChange() {
+  if(props.change.facts.cancellationScope==='future'){
+    props.change.facts.followUpAction='client_contact_support';props.change.facts.replacementAppointmentId=null;props.change.facts.offeredSlots=[];props.change.facts.useSchoolSupportHour=false;
+    props.change.facts.waiver={action:'no',reason:'',comment:''};
+  }
+  onCancellationOptionsChange();
+}
+function onCancellationOptionsChange(){if(props.change.canContinueFromStep(2))props.change.refreshPreview();else props.change.preview.value=null;}
+watch(()=>props.change.seriesOperation?.value?.status,status=>{
+  if(status==='completed')emit('completed',{ok:true,seriesOperation:props.change.seriesOperation.value,appointment:{status:props.change.seriesOperation.value.appointmentStatus}});
+});
 const deliveryNeedsAttention = computed(() => {
   const result = props.change.workflow.value?.result?.notificationDelivery;
   return result && (result.failed || result.held || result.skipped);
 });
 
 const showWaiverUi = computed(() => {
+  if(props.change.facts.cancellationScope==='future')return false;
   const w = props.change.preview.value?.waiverOptions;
   if (!w) return false;
   return !!(w.showFeeActions || w.showPackageActions || w.canRecommendWaiveTermination);
@@ -585,6 +625,7 @@ const showWaiverUi = computed(() => {
 watch(
   () => props.change.facts.eventType,
   async (v) => {
+    if(v!=='canceled'&&props.change.facts.cancellationScope)props.change.facts.cancellationScope='occurrence';
     if (v === 'no_show') {
       props.change.facts.initiator = 'client';
       props.change.facts.followUpAction = 'none'; props.change.facts.offeredSlots = [];
@@ -847,4 +888,8 @@ async function onSign() {
 .acw-btn{border-radius:12px;background:color-mix(in srgb,var(--bg-card,#fff) 74%,transparent);border-color:rgba(119,148,173,.28);color:var(--text-secondary,#38536c);font-weight:600}
 .acw-btn.primary{background:#1b725e;color:#fff;border-color:transparent;box-shadow:0 3px 10px rgba(27,114,94,.1)}
 .acw-signature{background:rgba(235,244,248,.45);border-color:rgba(135,159,181,.2);border-radius:14px}
+</style>
+
+<style scoped>
+.acw-series-note{padding:11px 0;border-top:1px solid rgba(130,157,178,.18);font-size:12px;line-height:1.6}.acw-series-note summary{cursor:pointer;font-weight:600}.acw-series-note p{white-space:pre-wrap}.acw-panel>progress{width:min(500px,100%);height:8px;accent-color:#287b6b}
 </style>

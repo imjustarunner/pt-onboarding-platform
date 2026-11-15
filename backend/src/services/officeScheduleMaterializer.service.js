@@ -6,6 +6,7 @@ import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailabil
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
+import { reservationContextAfterClientCancellation, isDetachedOfficeReservation } from '../utils/officeClientCancellation.js';
 import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
 import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
@@ -358,6 +359,8 @@ export class OfficeScheduleMaterializer {
           })) continue;
           const slotKey = `${Number(a.room_id || 0)}|${startAt}|${endAt}`;
           const existingRows = existingBySlot.get(slotKey) || [];
+          // Explicit cancellation choices must not silently reattach the client or rebook a released hour.
+          if (existingRows.some(isDetachedOfficeReservation)) continue;
           // Patient bookings are changed by explicit booking/cancellation actions.
           // A plan refresh must never cancel clinical history or bypass package policy.
           if (existingRows.some((ev) => ev.client_id && String(ev.status).toUpperCase() === 'BOOKED')) continue;
@@ -375,12 +378,14 @@ export class OfficeScheduleMaterializer {
           // Automatic reservations stop at cutover. Client appointment series remain intact.
           const plan = appointmentsOnly && !officePlanHasClient(storedPlan) ? null : storedPlan;
           const bookedFromPlan = !!(plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date));
-          const slotState = bookedFromPlan ? 'ASSIGNED_BOOKED' : baseSlotState;
-          const desiredBookedProviderId = slotState === 'ASSIGNED_BOOKED' ? Number(a.provider_id || 0) : 0;
-          const desiredPlanId = bookedFromPlan ? Number(plan?.id || 0) : 0;
+          let slotState = bookedFromPlan ? 'ASSIGNED_BOOKED' : baseSlotState;
+          let desiredBookedProviderId = slotState === 'ASSIGNED_BOOKED' ? Number(a.provider_id || 0) : 0;
+          let desiredPlanId = bookedFromPlan ? Number(plan?.id || 0) : 0;
           let sessionContext = null;
           if (desiredPlanId && plan?.session_context_json) {
             sessionContext = typeof plan.session_context_json === 'string' ? JSON.parse(plan.session_context_json) : plan.session_context_json;
+            sessionContext = reservationContextAfterClientCancellation(sessionContext,date);
+            if (sessionContext?.officeCancellationDisposition==='release') {slotState='ASSIGNED_AVAILABLE';desiredBookedProviderId=0;desiredPlanId=0;}
           }
           if (!sessionContext?.agencyId && a.booking_agency_id) sessionContext = { ...sessionContext, agencyId: Number(a.booking_agency_id) };
           if (!desiredPlanId || !officePlanHasClient(plan)) sessionContext = { ...sessionContext, bookingSource: appointmentsOnly ? 'office_assignment' : 'automatic_office_reservation' };

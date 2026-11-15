@@ -374,7 +374,7 @@ export const saveAppointmentChangeDraftHandler = async (req, res, next) => {
     // Only workflow facts are stored; discard client-supplied results, amounts and signatures.
     const keys = ['eventType', 'initiator', 'reasons', 'reasonOther', 'outreach', 'reasonKnown', 'clientId',
       'replacementAppointmentId', 'waiver', 'additionalComments', 'clientFacingReason', 'followUpAction', 'followUpMessage',
-      'notificationMode', 'suppressionReason', 'offeredSlots', 'offerDays', 'pendingOfficeRequests', 'useSchoolSupportHour'];
+      'notificationMode', 'suppressionReason', 'offeredSlots', 'offerDays', 'pendingOfficeRequests', 'useSchoolSupportHour', 'cancellationScope', 'officeReservationDisposition', 'cancellationRequestId'];
     const facts = Object.fromEntries(keys.filter((k) => req.body?.[k] !== undefined).map((k) => [k, req.body[k]]));
     res.json(await schedulingResponseForUser(req.user, appointment.agencyId,
       { ok: true, workflow: await saveAppointmentChangeDraft(appointment.id, facts, req.user.id) }));
@@ -390,7 +390,9 @@ export const previewAppointmentChangeHandler = async (req, res, next) => {
     const {
       previewAppointmentChange
     } = await import('../services/appointmentChange.service.js');
-    const preview = await previewAppointmentChange(id, req.body || {}, {
+    const preview = req.body?.cancellationScope==='future'
+      ? await(await import('../services/appointmentSeriesCancellation.service.js')).appointmentSeriesCancellations.preview(req.user,id,req.body)
+      : await previewAppointmentChange(id, req.body || {}, {
       actorUserId: req.user?.id || null,
       actorRole: req.user?.role || 'staff'
     });
@@ -410,7 +412,12 @@ export const completeAppointmentChangeHandler = async (req, res, next) => {
     const {
       completeAppointmentChange
     } = await import('../services/appointmentChange.service.js');
-    const result = await completeAppointmentChange(id, req.body || {}, {
+    if(req.body?.cancellationScope==='future') {
+      const operation=await(await import('../services/appointmentSeriesCancellation.service.js')).appointmentSeriesCancellations.submit(req.user,id,req.body);
+      return res.json({queued:true,seriesOperation:operation});
+    }
+    const facts={...req.body};delete facts.staffSeriesOperationId;delete facts.followUpExcludedAppointmentIds;
+    const result = await completeAppointmentChange(id, facts, {
       actorUserId: req.user?.id || null,
       actorRole: req.user?.role || 'staff'
     });

@@ -4,6 +4,8 @@ export default {
   plugins: [vue()],
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname } },
   test: { environment: 'jsdom', include: [
+    'src/components/schedule/__tests__/OfficeBookingSelectionDialog.test.js',
+    'src/composables/__tests__/useAppointmentChange.test.js',
     'src/components/__tests__/WeatherChip.test.js',
     'src/composables/__tests__/useScheduleWeather.test.js',
     'src/components/schedule/__tests__/AppointmentClinicalPanel.test.js',

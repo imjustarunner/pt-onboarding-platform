@@ -75,3 +75,10 @@ describe('appointment change wizard controls', () => {
     expect(wrapper.text()).not.toContain('Sign & Complete'); wrapper.unmount();
   });
 });
+
+it('shows separate future-visit and office-retention controls, then every date before signature',async()=>{
+ const {wrapper,change}=await setup();change.step.value=2;change.facts.eventType='canceled';change.cancellationOptions.value={seriesAvailable:true,officeReservationAvailable:true,singleClient:true};await flushPromises();
+ const fields=wrapper.find('[data-cancellation-scope]');expect(fields.text()).toContain('This and future visits');expect(fields.text()).toContain('Keep my office reserved');expect(fields.text()).toContain('Release the office time');
+ change.facts.cancellationScope='future';change.step.value=4;change.preview.value={seriesChange:{count:2,totalFeeCents:0,appointments:[{id:4,when:'Sunday, Nov 29 at 11 AM',classification:'advance_cancel',feeCents:0,narrative:'First signed note preview.'},{id:5,when:'Sunday, Dec 27 at 11 AM',classification:'advance_cancel',feeCents:0,narrative:'Second signed note preview.'}]}};await flushPromises();
+ expect(wrapper.find('[data-series-cancellation-review]').text()).toContain('2 visits');expect(wrapper.findAll('.acw-series-note')).toHaveLength(2);expect(wrapper.text()).toContain('Second signed note preview.');expect(wrapper.find('.acw-signature').text()).toContain('every cancellation note');wrapper.unmount();
+});

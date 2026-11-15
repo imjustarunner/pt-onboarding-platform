@@ -128,7 +128,7 @@ export function createGuardianServiceCancellationService(overrides={}) {
       const [pending]=await d.db.execute(`SELECT id,review_json FROM guardian_service_cancellations
         WHERE client_id=? AND agency_id=? AND provider_user_id=? AND status IN ('queued','processing')`,[input.clientId,p.anchor.agencyId,p.anchor.providerUserId]);
       const selected=new Set(p.candidates.map(a=>Number(a.id)));
-      if(pending.some(row=>(parse(row.review_json)?.fees||[]).some(fee=>selected.has(Number(fee.appointmentId))))) {
+      if(pending.some(row=>[...(parse(row.review_json)?.fees||[]),...(parse(row.review_json)?.items||[])].some(item=>selected.has(Number(item.appointmentId||item.id))))) {
         throw fail('A cancellation for these appointments is already processing. Refresh its status before submitting another.',409);
       }
       const row={id:input.requestId,agency_id:p.anchor.agencyId};
@@ -224,7 +224,8 @@ export function createGuardianServiceCancellationService(overrides={}) {
       const token=randomUUID();
       const [claimed]=await d.db.execute(`UPDATE guardian_service_cancellations SET status='processing',attempts=attempts+1,
         lease_token=?,lease_until=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE)
-        WHERE (status='queued' AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND lease_until<UTC_TIMESTAMP()) ORDER BY created_at LIMIT 1`,[token]);
+        WHERE COALESCE(JSON_UNQUOTE(JSON_EXTRACT(review_json,'$.staffAppointmentChange')),'false')<>'true'
+        AND ((status='queued' AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND lease_until<UTC_TIMESTAMP())) ORDER BY created_at LIMIT 1`,[token]);
       if(!claimed.affectedRows)return;
       const [[row]]=await d.db.execute('SELECT * FROM guardian_service_cancellations WHERE lease_token=?',[token]);
       try { await d.clientLock([row.client_id],()=>processOne(row,token)); }
