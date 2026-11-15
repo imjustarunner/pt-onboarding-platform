@@ -28,3 +28,7 @@ it('does not present an enabled relationship as completed password setup',async(
  const w=mount(Overview,{props,global});await flushPromises();expect(w.text()).toContain('Relationship access enabled');expect(w.text()).toContain('Password setup required');expect(w.text()).toContain('Temporary password expired');
  expect(w.findAll('button').find(b=>b.text()==='View as Parent One').attributes('disabled')).toBeUndefined();w.unmount();
 });
+it('opens the inline document assignment workspace from the shared quick action strip',async()=>{
+ const w=mount(Overview,{props:{...props,showActions:false},global});await flushPromises();expect(w.find('.portal-actions').exists()).toBe(false);
+ w.vm.openDocumentAssignments();await flushPromises();expect(w.find('.inline-document-assignment').exists()).toBe(true);w.unmount();
+});

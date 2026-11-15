@@ -521,12 +521,16 @@ class Client {
     if (Number(clientData.provider_id) > 0) {
       const [[assignmentClient]] = await executor.execute('SELECT id,agency_id,client_type,provider_id FROM clients WHERE id=?', [id]);
       if (assignmentClient && Number(assignmentClient.provider_id) !== Number(clientData.provider_id)) {
+        const { assertAssignableProvider } = await import('../services/clientAssignmentScope.service.js');
+        await assertAssignableProvider({ clientId: id, providerUserId: clientData.provider_id }, executor);
         const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
         await assertNewProviderCoverageAdmission(id, clientData.provider_id, { db: executor });
       }
     }
     const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined || String(clientData.status || '').toUpperCase() === 'ARCHIVED';
-    if (schedulingStatusChange && executor === pool) {
+    const bookingDefaultsChange = ['default_office_location_id', 'default_place_of_service', 'default_service_location_id']
+      .some(field => clientData[field] !== undefined);
+    if ((schedulingStatusChange || bookingDefaultsChange) && executor === pool) {
       const db = await pool.getConnection();
       let saved;
       try {
@@ -674,6 +678,8 @@ class Client {
     if (!result.affectedRows && agencyId !== null) return null;
 
     if (result.affectedRows) {
+      const { syncPrimaryClientBookingDefaults } = await import('../services/clientAssignmentScope.service.js');
+      await syncPrimaryClientBookingDefaults(id, clientData, executor);
       try {
         const { eligibilityDemographicFields, syncInsuranceDemographicsForEligibility } = await import('../services/insuranceDemographicsAutomation.service.js');
         if (eligibilityDemographicFields.some(field => clientData[field] !== undefined)) await syncInsuranceDemographicsForEligibility(id, executor);

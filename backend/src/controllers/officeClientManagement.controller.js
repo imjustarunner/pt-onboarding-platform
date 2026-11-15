@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import * as OfficeClients from '../services/officeClientManagement.service.js';
+import { clientAgencyIds } from '../services/clientAssignmentScope.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -127,15 +128,24 @@ export async function listOfficeTherapyUnits(req, res, next) {
   }
 }
 
-/** GET /api/office-clients/providers?agencyId=&agencyIds= */
+/** GET /api/office-clients/providers?agencyId=&agencyIds=&clientId= */
 export async function listOfficeHubProviders(req, res, next) {
   try {
     const agencyIds = parseAgencyIds(req.query);
     const gate = await assertOfficeStaff(req, agencyIds);
     if (!gate.ok) return res.status(gate.status).json({ error: { message: gate.message } });
-    const providers = await OfficeClients.listHubProviders({ agencyIds: gate.agencyIds });
+    let scopedAgencyIds = gate.agencyIds;
+    const clientId = safeInt(req.query.clientId);
+    if (req.query.clientId && !clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    if (clientId) {
+      const affiliatedAgencyIds = await clientAgencyIds(clientId);
+      scopedAgencyIds = gate.agencyIds.filter(id => affiliatedAgencyIds.includes(id));
+      if (!scopedAgencyIds.length) return res.status(403).json({ error: { message: 'Client is not affiliated with the selected agencies' } });
+    }
+    const providers = await OfficeClients.listHubProviders({ agencyIds: scopedAgencyIds });
     res.json({ providers });
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 }

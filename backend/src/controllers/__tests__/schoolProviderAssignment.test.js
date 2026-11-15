@@ -1,5 +1,6 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn()}));
+const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn(),scope:vi.fn()}));
+vi.mock('../../services/clientAssignmentScope.service.js',()=>({assertAssignableProvider:h.scope}));
 vi.mock('../../services/clientCoverageAdmission.service.js',()=>({assertNewProviderCoverageAdmission:h.coverage}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]]),getConnection:vi.fn(async()=>h)},onTableWrite:vi.fn()}));
 vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecordAccess:h.access}));
@@ -14,7 +15,7 @@ import {upsertClientProviderAssignment} from '../client.controller.js';
 let rows,req,res,next;
 beforeEach(()=>{
  vi.clearAllMocks();rows=[{id:2588,is_active:0,is_primary:0,service_day:'Tuesday'}];
- h.coverage.mockResolvedValue({ready:true});
+ h.coverage.mockResolvedValue({ready:true});h.scope.mockResolvedValue(undefined);
  req={params:{id:'2152'},body:{organization_id:237,provider_user_id:494,service_day:'Tuesday',is_primary:true},user:{id:501,role:'super_admin'}};
  res={status:vi.fn().mockReturnThis(),json:vi.fn()};next=vi.fn();
  h.access.mockResolvedValue({ok:true,client:{id:2152,agency_id:2,client_status_key:'being_seen'}});h.adjust.mockResolvedValue({ok:true});
@@ -31,6 +32,13 @@ it('rejects a new school assignment before consuming a slot or altering its prev
  await upsertClientProviderAssignment(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({code:'INSURANCE_VERIFICATION_REQUIRED'}));
  expect(h.adjust).not.toHaveBeenCalled();expect(h.commit).not.toHaveBeenCalled();expect(h.rollback).toHaveBeenCalledOnce();
  expect(h.execute.mock.calls.some(([sql])=>/\b(INSERT|UPDATE)\b/.test(sql)&&!sql.includes('FOR UPDATE'))).toBe(false);
+});
+it('rejects an unrelated provider before changing assignments even for an administrator',async()=>{
+ h.scope.mockRejectedValueOnce(Object.assign(Error('Choose an active provider from one of this client’s agencies.'),{status:400}));
+ await upsertClientProviderAssignment(req,res,next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:400}));
+ expect(h.adjust).not.toHaveBeenCalled();expect(h.coverage).not.toHaveBeenCalled();
+ expect(h.commit).not.toHaveBeenCalled();expect(h.rollback).toHaveBeenCalledOnce();
 });
 it('reactivates the historical row without a duplicate insert and consumes one slot',async()=>{
  await upsertClientProviderAssignment(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);

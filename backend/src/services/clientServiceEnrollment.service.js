@@ -5,8 +5,24 @@ import {guardianServiceRestrictions,guardianServiceAllowed} from '../utils/guard
 import {decorateService,servicePortalAccess,serviceStatus,SERVICE_STATUSES,SERVICE_CLOSURE_REASONS,terminalProfile} from '../utils/clientServiceLifecycle.js';
 import {withClientSchedulingLock} from './clientSchedulingGuard.service.js';
 import {appointmentServiceKind} from '../utils/guardianCancellationScope.js';
+import { assertAssignableProvider } from './clientAssignmentScope.service.js';
+import { clientServiceAssignments } from '../utils/clientServiceAssignments.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 export const SERVICE_KINDS=['counseling','tutoring','coaching','consultation'];
+
+async function withClientServiceLock(clientId, db, action) {
+ const ownConnection=db===pool&&typeof db.getConnection==='function';
+ const connection=ownConnection?await db.getConnection():db;
+ try {
+  if(ownConnection)await connection.beginTransaction();
+  // The client row serializes first enrollment creation as well as later edits.
+  await connection.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);
+  const result=await action(connection);
+  if(ownConnection)await connection.commit();
+  return result;
+ }catch(error){if(ownConnection)await connection.rollback();throw error;}
+ finally{if(ownConnection)connection.release();}
+}
 export function serviceMatchesAppointment(service, appointment) {
   if(Number(service.agency_id)!==Number(appointment.agencyId||appointment.agency_id))return false;
   if(service.provider_user_id&&Number(service.provider_user_id)!==Number(appointment.providerUserId||appointment.provider_user_id))return false;
@@ -58,35 +74,72 @@ export async function guardianServiceContext({userId,clientId,agencyId,serviceId
  if(clinical&&scope)await requireClinicalScope({userId,clientId,agencyId:aid,scope});
  return {...client,agency_id:aid,portal_access:portalAccess,services,client_type:service?.service_kind==='tutoring'||(restriction&&restriction.kinds.every(kind=>kind==='tutoring'))?'learning':service?.service_kind==='counseling'?'clinical':client.client_type,service,...(restriction?{authorizedServices:services.filter(service=>service.is_active||allowEndedServices)}:{})};
 }
-export async function saveClientService({clientId,agencyId,input,userId},db=pool){
+export async function saveClientService(context,db=pool){
+ if(context.input.serviceKind==='counseling')return withClientServiceLock(context.clientId,db,connection=>saveClientServiceRow(context,connection));
+ return saveClientServiceRow(context,db);
+}
+async function saveClientServiceRow({clientId,agencyId,input,userId},db){
  if(!await clientAgencyMembership(clientId,agencyId,db))throw fail(400,'Link this client to the agency before adding its service.');
  const serviceKind=String(input.serviceKind||'');
  if(!SERVICE_KINDS.includes(serviceKind))throw fail(400,'Choose a service.');
- const providerId=Number(input.providerUserId)||0,organizationId=Number(input.organizationId)||0;
+ const providerId=input.providerUserId==null||input.providerUserId===''?0:Number(input.providerUserId),organizationId=input.organizationId==null||input.organizationId===''?0:Number(input.organizationId);
  if(!Number.isSafeInteger(providerId)||providerId<0||!Number.isSafeInteger(organizationId)||organizationId<0)throw fail(400,'Choose a valid provider and program.');
- if(providerId){const [[provider]]=await db.execute(`SELECT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
- WHERE u.id=? AND COALESCE(u.is_active,1)=1 AND COALESCE(ua.is_active,1)=1 AND u.role IN ('provider','provider_plus','clinician','supervisor','intern','intern_plus','clinical_practice_assistant','admin','super_admin')`,[agencyId,providerId]);if(!provider)throw fail(400,'Choose an active provider from this agency.');}
+ if(providerId)await assertAssignableProvider({clientId,providerUserId:providerId,agencyId},db);
  if(organizationId&&organizationId!==Number(agencyId)){const [[org]]=await db.execute(`SELECT 1 FROM client_organization_assignments co JOIN organization_affiliations oa ON oa.organization_id=co.organization_id WHERE co.client_id=? AND co.organization_id=? AND co.is_active=1 AND oa.agency_id=? AND oa.is_active=1`,[clientId,organizationId,agencyId]);if(!org)throw fail(400,'Choose a linked school or program for this agency.');}
- const label=String(input.label||serviceKind).trim().slice(0,150);if(!label)throw fail(400,'Enter a service name.');
- const [ended]=await db.execute('SELECT id AS ended_service_id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? AND is_active=0 LIMIT 1',[clientId,agencyId,providerId,serviceKind]);
- if(ended?.[0]?.ended_service_id)throw fail(409,'This service was ended. Use Change status to explicitly reactivate it before adding another enrollment with this provider.');
- await db.execute(`INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,organization_id,label,created_by_user_id,updated_by_user_id)
- VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),updated_by_user_id=VALUES(updated_by_user_id)`,[clientId,agencyId,serviceKind,providerId,organizationId,label,userId,userId]);
+ const label=serviceKind==='counseling'?'Counseling':String(input.label||serviceKind).trim().slice(0,150);if(!label)throw fail(400,'Enter a service name.');
+ const serviceId=input.serviceId == null ? null : Number(input.serviceId);
+ if(serviceId!==null&&(!Number.isSafeInteger(serviceId)||serviceId<1))throw fail(400,'Choose a valid service enrollment.');
+ if(serviceId){
+  const [[existing]]=await db.execute('SELECT id FROM client_service_enrollments WHERE id=? AND client_id=? AND agency_id=? AND is_active=1',[serviceId,clientId,agencyId]);
+  if(!existing)throw fail(404,'Service enrollment not found for this client and agency.');
+  try {
+   await db.execute(`UPDATE client_service_enrollments SET service_kind=?,provider_user_id=?,organization_id=?,label=?,updated_by_user_id=? WHERE id=? AND client_id=? AND agency_id=?`,[serviceKind,providerId,organizationId,label,userId,serviceId,clientId,agencyId]);
+  }catch(error){if(error?.code==='ER_DUP_ENTRY')throw fail(409,'This provider already has a matching service enrollment. Review the existing assignments before changing this service.');throw error;}
+ }else{
+  if(serviceKind==='counseling'){
+   const [existing]=await db.execute("SELECT id,provider_user_id,organization_id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind='counseling' AND is_active=1 ORDER BY id",[clientId,agencyId]);
+   if(existing.length){
+    // Retried creates are idempotent; all other changes go through the one existing service.
+    if(existing.some(row=>Number(row.provider_user_id)===providerId&&Number(row.organization_id)===organizationId))return listClientServices(clientId,agencyId,db);
+    throw fail(409,'Counseling already exists for this agency. Update its provider assignment instead.');
+   }
+  }
+  const [ended]=await db.execute('SELECT id AS ended_service_id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? AND is_active=0 LIMIT 1',[clientId,agencyId,providerId,serviceKind]);
+  if(ended?.[0]?.ended_service_id)throw fail(409,'This service was ended. Use Change status to explicitly reactivate it before adding another enrollment with this provider.');
+  await db.execute(`INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,organization_id,label,created_by_user_id,updated_by_user_id)
+  VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),updated_by_user_id=VALUES(updated_by_user_id)`,[clientId,agencyId,serviceKind,providerId,organizationId,label,userId,userId]);
+ }
  return listClientServices(clientId,agencyId,db);
 }
 
 // A real scheduled service or tutoring subject may discover an additional
 // enrollment. Never replace another agency/provider or silently reopen an ended
 // enrollment; that requires an explicit staff action.
-export async function ensureClientService({clientId,agencyId,providerUserId=0,serviceKind},db=pool){
+export async function ensureClientService({clientId,agencyId,providerUserId=0,serviceKind,userId=null},db=pool){
  if(!SERVICE_KINDS.includes(serviceKind)||!await clientAgencyMembership(clientId,agencyId,db))return;
+ if(serviceKind==='counseling')return withClientServiceLock(clientId,db,async connection=>{
+  const [services]=await connection.execute("SELECT id,provider_user_id,organization_id,is_active FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind='counseling' ORDER BY organization_id DESC,id",[clientId,agencyId]);
+  // An ended enrollment remains ended until staff explicitly add the service again.
+  if(services.some(row=>Number(row.provider_user_id)===Number(providerUserId)))return;
+  const active=services.filter(row=>Number(row.is_active)===1);
+  if(services.length&&!active.length)return;
+  if(!providerUserId&&active.length)return;
+  const placeholder=active.find(row=>!Number(row.provider_user_id));
+  if(placeholder&&providerUserId){
+   await connection.execute('UPDATE client_service_enrollments SET provider_user_id=?,updated_by_user_id=? WHERE id=? AND client_id=? AND agency_id=? AND is_active=1 AND provider_user_id=0',[providerUserId,userId,placeholder.id,clientId,agencyId]);
+   return;
+  }
+  await connection.execute("INSERT IGNORE INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,label,created_by_user_id,updated_by_user_id) VALUES (?,?,'counseling',?,'Counseling',?,?)",[clientId,agencyId,providerUserId||0,userId,userId]);
+ });
  const [[existing]]=await db.execute('SELECT id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind=? AND provider_user_id=? LIMIT 1',[clientId,agencyId,serviceKind,providerUserId||0]);
  if(existing)return;
  await db.execute('INSERT IGNORE INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,label) VALUES (?,?,?,?,?)',[clientId,agencyId,serviceKind,providerUserId||0,serviceKind[0].toUpperCase()+serviceKind.slice(1)]);
 }
 export async function endProviderCounselingService({clientId,agencyId,providerUserId,terminationReason},db=pool){
  const [services]=await db.execute('SELECT * FROM client_service_enrollments WHERE client_id=? AND is_active=1 FOR UPDATE',[clientId]);
- const ended=services.filter(s=>Number(s.agency_id)===Number(agencyId)&&Number(s.provider_user_id)===Number(providerUserId)&&s.service_kind==='counseling');
+ const otherCounselor=services.some(s=>Number(s.agency_id)===Number(agencyId)&&s.service_kind==='counseling'&&Number(s.provider_user_id)>0&&Number(s.provider_user_id)!==Number(providerUserId));
+ const ended=services.filter(s=>Number(s.agency_id)===Number(agencyId)&&s.service_kind==='counseling'
+  &&(Number(s.provider_user_id)===Number(providerUserId)||(!otherCounselor&&!Number(s.provider_user_id))));
  const closureReason=({lost_contact:'discontinued_contact',goals_achieved:'care_completed',client_choice:'client_choice',transfer:'provider_transition'})[terminationReason]||'other';
  const status=terminationReason==='goals_achieved'?'completed':terminationReason==='lost_contact'?'terminated':'discontinued';
  for(const service of ended)await db.execute("UPDATE client_service_enrollments SET is_active=0,service_status=?,ended_at=UTC_TIMESTAMP(),updated_by_user_id=?,closure_reason=?,client_end_reason=? WHERE id=?",[status,providerUserId,closureReason,SERVICE_CLOSURE_REASONS[closureReason],service.id]);
@@ -98,7 +151,7 @@ export async function endProviderCounselingService({clientId,agencyId,providerUs
   }
   await db.execute("INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note) VALUES (?,?,'service_enrollment','active','ended',?)",[clientId,providerUserId,'Counseling service ended; other active services remain.']);
  }
- return {remainingActive:remaining.length};
+ return {remainingActive:clientServiceAssignments(remaining).length};
 }
 
 export async function updateClientServiceStatus({clientId,agencyId,serviceId,userId,input},db=pool,{lock=withClientSchedulingLock}={}){
@@ -125,11 +178,26 @@ export async function updateClientServiceStatus({clientId,agencyId,serviceId,use
     if(future.some(a=>serviceMatchesAppointment(service,{...a,agencyId,providerUserId:service.provider_user_id})))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
    }
    const [same]=await conn.execute('SELECT * FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? FOR UPDATE',[clientId,agencyId,service.provider_user_id,service.service_kind]);
+   const placeholders=[];
+   if(status!=='active'&&service.service_kind==='counseling'&&Number(service.provider_user_id)>0){
+    const [otherCounselors]=await conn.execute("SELECT id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind='counseling' AND is_active=1 AND provider_user_id NOT IN (0,?)",[clientId,agencyId,service.provider_user_id]);
+    if(!otherCounselors.length){
+     const [unassigned]=await conn.execute("SELECT * FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind='counseling' AND provider_user_id=0 AND is_active=1 FOR UPDATE",[clientId,agencyId]);
+     if(unassigned.length){
+      const [future]=await conn.execute(`SELECT a.id,a.provider_user_id AS providerUserId,a.business_type AS businessType FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id AND p.client_id=?
+       WHERE a.agency_id=? AND a.start_at>UTC_TIMESTAMP() AND a.status IN ('scheduled','confirmed','client_confirmed')`,[clientId,agencyId]);
+      if(future.some(appointment=>serviceMatchesAppointment({...service,provider_user_id:0},{...appointment,agencyId})))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
+      placeholders.push(...unassigned);same.push(...unassigned);
+     }
+    }
+   }
    if(status==='active')await conn.execute(`INSERT IGNORE INTO client_service_provider_history (service_enrollment_id,client_id,agency_id,provider_user_id,label,service_status,closure_reason,client_end_reason,recorded_at,ended_at)
     SELECT id,client_id,agency_id,provider_user_id,label,service_status,closure_reason,client_end_reason,created_at,COALESCE(ended_at,updated_at)
     FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? AND is_active=0`,[clientId,agencyId,service.provider_user_id,service.service_kind]);
    await conn.execute(`UPDATE client_service_enrollments SET service_status=?,is_active=?,ended_at=${status==='active'?'NULL':'COALESCE(ended_at,UTC_TIMESTAMP())'},updated_by_user_id=?,closure_reason=?,client_end_reason=?
     WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=?`,[status,status==='active'?1:0,userId,closure,closure?SERVICE_CLOSURE_REASONS[closure]:null,clientId,agencyId,service.provider_user_id,service.service_kind]);
+   for(const placeholder of placeholders)await conn.execute(`UPDATE client_service_enrollments SET service_status=?,is_active=0,ended_at=COALESCE(ended_at,UTC_TIMESTAMP()),updated_by_user_id=?,closure_reason=?,client_end_reason=?
+    WHERE id=? AND client_id=? AND agency_id=? AND provider_user_id=0 AND is_active=1`,[status,userId,closure,SERVICE_CLOSURE_REASONS[closure],placeholder.id,clientId,agencyId]);
    if(status==='active')await conn.execute(`UPDATE client_service_return_requests r JOIN client_service_enrollments e ON e.id=r.service_enrollment_id
     SET r.status='reviewed',r.pending_key=NULL,r.reviewed_by_user_id=?,r.reviewed_at=UTC_TIMESTAMP()
     WHERE e.client_id=? AND e.agency_id=? AND e.provider_user_id=? AND e.service_kind=? AND r.status='pending'`,[userId,clientId,agencyId,service.provider_user_id,service.service_kind]);

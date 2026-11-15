@@ -1,5 +1,5 @@
 <template>
-  <div class="container" ref="profileSearchRoot">
+  <div class="container user-profile-view" ref="profileSearchRoot">
     <div class="page-header">
       <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">{{ backLinkLabel }}</router-link>
 
@@ -158,7 +158,7 @@
         <div v-if="canEditUser || emailSignaturePreview" style="margin-top: 14px;" data-tour="user-email-signature">
           <div style="font-weight:600;margin-bottom:6px;">Email Signature</div>
           <p class="hint" style="margin:0 0 8px;max-width:36rem;">
-            Tenant-branded HTML signature for Hub email (providers, admins, CPAs). Uses name, credentials, job title (not role), work email, extension, and profile photo from this record.
+            Agency-branded HTML signature for Hub email (providers, admins, CPAs). Uses name, credentials, job title (not role), work email, extension, and profile photo from this record.
           </p>
           <label v-if="canEditUser && emailSignaturePreview?.eligible" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
             <input
@@ -189,19 +189,27 @@
     <div v-if="loading" class="loading">Loading user profile...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="profile-content">
-      <div class="profile-tabs" data-tour="user-profile-tabs">
+      <nav class="profile-tabs" aria-label="User profile pages" data-tour="user-profile-tabs">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
           @click="selectTab(tab.id)"
           :class="['profile-tab', { 'profile-tab--active': activeTab === tab.id }]"
-          :aria-selected="activeTab === tab.id ? 'true' : 'false'"
+          :aria-current="activeTab === tab.id ? 'page' : undefined"
+          :aria-label="profileTabHints[tab.id] ? `${tab.label}: ${profileTabHints[tab.id]}` : tab.label"
           data-tour="user-profile-tab"
         >
-          {{ tab.label }}
+          <span class="profile-tab__label">{{ tab.label }}<ChevronDown v-if="profileTabHints[tab.id]" :size="14" aria-hidden="true" /></span>
+          <span v-if="profileTabHints[tab.id]" class="profile-tab__hint">{{ profileTabHints[tab.id] }}</span>
         </button>
-      </div>
+      </nav>
+
+      <ProfileSectionNavigation
+        :root="profileSearchRoot"
+        :tab-id="activeTab"
+        :label="tabs.find(tab => tab.id === activeTab)?.label || 'Profile'"
+      />
 
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
       <div
@@ -220,6 +228,7 @@
           :canViewLifecycleTab="canViewLifecycleTab"
           :canViewCredentialingTab="canViewCredentialingTab"
           :canManageAssignments="canManageAssignments"
+          :canViewAssignments="canViewSchoolAffiliation"
           :canViewActivityLog="canViewActivityLog"
           :canViewPayroll="canViewPayroll"
           :agencyId="profileOverviewAgencyId"
@@ -475,7 +484,7 @@
               <div v-if="!isViewingGuardian && canManageFeatureAccess && perUserFeatureAccessRows.length > 0" class="feature-access-section">
                 <p class="feature-access-help">
                   Per-user entitlements driven by the platform feature catalog. Toggling here writes a
-                  billing event for the user's primary tenant; charges are pro-rated to the day.
+                  billing event for the user's primary agency; charges are pro-rated to the day.
                 </p>
                 <div v-if="featureAccessError" class="error">{{ featureAccessError }}</div>
                 <div class="feature-access-grid">
@@ -1397,7 +1406,7 @@
 <AccountDashboardCard
                             section-id="agency-assignments"
                             title="Agency Assignments"
-                            subtitle="Tenant membership, position, role, licensing, and classification. Edit fields directly — changes save when you leave a field or pick a new option."
+                            subtitle="Agency membership, position, role, licensing, and classification. Edit fields directly — changes save when you leave a field or pick a new option."
                             :can-edit="canEditUser"
                             :editing="editingAgencyAssignments"
                             edit-label="Manage membership"
@@ -2785,6 +2794,8 @@ import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
 import UserLifecycleTab from '../../components/admin/UserLifecycleTab.vue';
 import UserBenefitsTab from '../../components/admin/UserBenefitsTab.vue';
 import ProfileContentSearch from '../../components/profile/ProfileContentSearch.vue';
+import ProfileSectionNavigation from '../../components/profile/ProfileSectionNavigation.vue';
+import { ChevronDown } from '@lucide/vue';
 import { adminSearchTargets, recordSearchTargets } from '../../navigation/profileContentSearch.js';
 import { useProfileContentSearch, revealProfileSearchTarget } from '../../composables/useProfileContentSearch.js';
 import StaffBusinessCardsButton from '../../components/admin/StaffBusinessCardsButton.vue';
@@ -3946,6 +3957,13 @@ const isProviderLikeUser = computed(() => {
 
 const canOpenSelfPayRates = computed(() => canManageSelfPayRates.value || (Number(userId.value)===Number(authStore.user?.id) && userAgencies.value.some(a=>['life_coach','consultant'].includes(a.organization_type||a.organizationType))));
 const canManageSelfPayRates = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
+const profileTabHints = computed(() => ({
+  overview: 'Summary · Quick actions',
+  account: 'Profile · Security',
+  assignments: isViewingGuardian.value ? 'Clients · Portal access' : 'Agencies · Offices',
+  provider_info: 'Clinical categories',
+  lifecycle: 'Onboarding · Offboarding'
+}));
 const tabs = computed(() => {
   // Guardian accounts are portal-only (non-employee): show only basic account info.
   if (isViewingGuardian.value) {
@@ -6630,7 +6648,7 @@ const removeAgency = async (agencyId) => {
     : [];
   const childNames = childOrgs.map((o) => o.name).filter(Boolean);
   let msg = isParentTenant
-    ? 'Remove this tenant assignment?\n\nThis also unassigns school memberships, days/slots, and clients at schools that belong only to this tenant.'
+    ? 'Remove this agency assignment?\n\nThis also unassigns school memberships, days/slots, and clients at schools that belong only to this agency.'
     : 'Remove this school/program assignment?\n\nThis also unassigns days/slots and clients at this organization.';
   if (childNames.length) {
     const shown = childNames.slice(0, 12);
@@ -8373,6 +8391,10 @@ onUnmounted(() => {
   line-height: 1.2;
 }
 
+.profile-tab__label { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.profile-tab__hint { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; color: #64748b; }
+.profile-tab:focus-visible { outline: 2px solid var(--primary, #2e5d50); outline-offset: -2px; }
+
 .tab-button:hover,
 .profile-tab:hover {
   color: #334155;
@@ -9049,14 +9071,14 @@ onUnmounted(() => {
 
 .form-grid .form-group label {
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .form-grid .form-group input,
 .form-grid .form-group select,
 .form-grid .form-group textarea {
   padding: 7px 9px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 @media (min-width: 1200px) {
@@ -10706,4 +10728,33 @@ onUnmounted(() => {
     grid-row: auto;
   }
 }
+/* Shared profile text scale keeps the overview, account, and assignments readable. */
+.user-profile-view { font-size: 14px; line-height: 1.5; }
+.profile-content, .tab-content, .tab-panel { min-width: 0; }
+.user-profile-view :deep(button),
+.user-profile-view :deep(input),
+.user-profile-view :deep(select),
+.user-profile-view :deep(textarea) { font-family: inherit; }
+.user-profile-view :deep(.acct-field-label),
+.user-profile-view :deep(.acct-field--edit label),
+.user-profile-view :deep(.ov-fl),
+.user-profile-view :deep(.info-item label),
+.user-profile-view :deep(.aa-field),
+.user-profile-view :deep(.acct-summary-dl dt) { font-size: 13px; line-height: 1.45; }
+.user-profile-view :deep(.acct-field-value),
+.user-profile-view :deep(.ov-fv),
+.user-profile-view :deep(.info-item span),
+.user-profile-view :deep(.acct-summary-dl dd) { font-size: 14px; line-height: 1.5; }
+.user-profile-view :deep(.acct-card-title),
+.user-profile-view :deep(.ov-card-title) { font-size: 16px; line-height: 1.4; font-weight: 650; }
+.user-profile-view :deep(.acct-sidebar-block-title),
+.user-profile-view :deep(.ov-sidebar-block-title),
+.user-profile-view :deep(.aa-hint),
+.user-profile-view :deep(.aa-badge),
+.user-profile-view :deep(.aa-class-detail) { font-size: 12px; line-height: 1.45; }
+.user-profile-view :deep(.aa-section__title) { font-size: 14px; }
+.user-profile-view :deep(.aa-field .agency-select) { min-height: 38px; font-size: 14px; }
+.user-profile-view :deep(.form-group input:not([type="checkbox"]):not([type="radio"])),
+.user-profile-view :deep(.form-group select),
+.user-profile-view :deep(.form-group textarea) { box-sizing: border-box; max-width: 100%; font-size: 14px; }
 </style>

@@ -522,7 +522,7 @@ class Appointment {
       for(const clientId of new Set(participants.map(p=>Number(p.clientId || p.client_id || 0)).filter(Boolean))) {
         await resolveClientProviderHolds(executor,{clientId,userId:scheduled[0].created_by_user_id,reason:'PLACED_ON_SCHEDULE'});
         const a=scheduled[0],serviceKind=['learning','tutoring'].includes(a.business_type)?'tutoring':['mental_health','healthcare'].includes(a.business_type)?'counseling':a.business_type;
-        if(a.agency_id)await ensureClientService({clientId,agencyId:a.agency_id,providerUserId:a.provider_user_id,serviceKind},executor);
+        if(a.agency_id)await ensureClientService({clientId,agencyId:a.agency_id,providerUserId:a.provider_user_id,serviceKind,userId:a.created_by_user_id},executor);
       }
     }
     return this.listParticipants(aid, { executor });

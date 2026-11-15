@@ -1,0 +1,52 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+const mocks=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),delete:vi.fn()}));
+vi.mock('../../../services/api',()=>({default:mocks}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{role:'support'}})}));
+import Services from '../ClientServiceEnrollments.vue';
+const service={id:11,service_kind:'counseling',label:'Counseling',organization_id:8,organization_name:'Therapy program',provider_user_id:0,is_active:1};
+const provider={id:20,name:'Sam Provider',agencies:[{id:2,name:'Client agency'}]};
+let wrapper;
+beforeEach(()=>{
+ vi.clearAllMocks();mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider,{id:99,name:'Unrelated',agencies:[{id:4,name:'Other agency'}]}]}}:{data:{services:[service]}});
+ mocks.post.mockResolvedValue({data:{services:[{...service,provider_user_id:20,provider_name:'Sam Provider'}]}});
+});
+afterEach(()=>wrapper?.unmount());
+async function render(){wrapper=mount(Services,{props:{clientId:7,agencyId:2,organizations:[]}});await flushPromises();return wrapper;}
+it('uses only scoped provider options and updates the existing service by id',async()=>{
+ await render();expect(mocks.get).toHaveBeenCalledWith('/office-clients/providers',expect.objectContaining({params:{clientId:7,agencyIds:'2'}}));
+ expect(wrapper.text()).toContain('Needs a provider');
+ await wrapper.findAll('button').find(b=>b.text()==='Assign provider').trigger('click');
+ const input=wrapper.get('#service-provider-11');await input.trigger('focus');
+ expect(wrapper.findAll('[role="option"]')).toHaveLength(1);expect(wrapper.text()).not.toContain('Unrelated');
+ await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',{agencyId:2,serviceId:11,serviceKind:'counseling',label:'Counseling',organizationId:8,providerUserId:20});
+ expect(wrapper.text()).toContain('Assigned provider');expect(wrapper.emitted('updated')).toHaveLength(1);
+});
+it('shows a single counseling service with its existing provider and program',async()=>{
+ const unified={...service,id:12,provider_user_id:21,provider_name:'Other Provider',source_service_ids:[11,12],providers:[{service_id:12,provider_user_id:21,provider_name:'Other Provider',organization_id:0}],organizations:[{id:8,name:'Therapy program'}]};
+ mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[unified]}});
+ await render();expect(wrapper.findAll('.services-list > li')).toHaveLength(1);expect(wrapper.text()).toContain('1 active service');expect(wrapper.text()).toContain('Therapy program');expect(wrapper.text()).toContain('Other Provider');expect(wrapper.text()).not.toContain('Needs a provider');expect(wrapper.find('option[value="counseling"]').attributes()).toHaveProperty('disabled');expect(mocks.delete).not.toHaveBeenCalled();
+});
+it('changes one provider inside a shared counseling service without replacing the other',async()=>{
+ const unified={...service,id:11,provider_user_id:20,provider_name:'Sam Provider',source_service_ids:[11,12],providers:[{service_id:11,provider_user_id:20,provider_name:'Sam Provider',organization_id:8},{service_id:12,provider_user_id:21,provider_name:'Other Provider',organization_id:0}]};
+ mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[unified]}});
+ await render();expect(wrapper.findAll('.services-list > li')).toHaveLength(1);expect(wrapper.findAll('.service-providers-list > li')).toHaveLength(2);
+ await wrapper.findAll('.service-providers-list button').filter(button=>button.text()==='Change')[1].trigger('click');const input=wrapper.get('#service-provider-11');await input.trigger('focus');await wrapper.get('[role="option"]').trigger('click');await wrapper.get('.service-assignment').trigger('submit');await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/clients/7/service-enrollments',expect.objectContaining({serviceId:12,providerUserId:20,organizationId:0}));
+});
+it('routes an attempted duplicate counseling creation to the existing provider editor',async()=>{
+ await render();wrapper.vm.draft.serviceKind='counseling';await wrapper.vm.save();await flushPromises();expect(mocks.post).not.toHaveBeenCalled();expect(wrapper.find('.service-assignment').exists()).toBe(true);
+});
+it('keeps end-service history separate and does not reopen ended services while assigning',async()=>{
+ mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[service,{...service,id:12,is_active:0}]}});
+ await render();expect(wrapper.findAll('.services-list > li')).toHaveLength(1);expect(wrapper.get('.former-services summary').text()).toContain('1');
+});
+it('ignores an earlier service response after switching clients',async()=>{
+ let finish;const slow=new Promise(resolve=>{finish=resolve;});mocks.get.mockImplementation(url=>url==='/office-clients/providers'?Promise.resolve({data:{providers:[provider]}}):url.includes('/7/')?slow:Promise.resolve({data:{services:[{...service,id:80,label:'New client service'}]}}));
+ wrapper=mount(Services,{props:{clientId:7,agencyId:2}});await wrapper.setProps({clientId:8});await flushPromises();finish({data:{services:[{...service,label:'Old client service'}]}});await flushPromises();expect(wrapper.text()).toContain('New client service');expect(wrapper.text()).not.toContain('Old client service');
+});
+it('keeps services visible and explains a provider catalog failure',async()=>{
+ mocks.get.mockImplementation(async url=>{if(url==='/office-clients/providers')throw new Error('Unavailable');return {data:{services:[service]}};});
+ await render();expect(wrapper.text()).toContain('Therapy program');expect(wrapper.get('[role="alert"]').text()).toContain('Providers could not be loaded');
+});

@@ -31,7 +31,7 @@ import '../../styles/clinicalWorkspace.css';
 const props = defineProps({
   enabled: { type: Boolean, default: true }, mode: { type: String, default: 'clinical' },
   hideHeader: Boolean, switchable: Boolean, immersive: Boolean, compact: Boolean,
-  overviewLabel: { type: String, default: 'Tenant view' }, clinicalLabel: { type: String, default: 'AuricWell EHR' },
+  overviewLabel: { type: String, default: 'Agency view' }, clinicalLabel: { type: String, default: 'AuricWell EHR' },
   tenantId: { type: [Number, String], default: null }, tenantName: { type: String, default: '' }, tenantLogo: { type: String, default: '' },
   contextLabel: { type: String, default: 'Client record' }, returnLabel: { type: String, default: '' },
   showBack: { type: Boolean, default: true }, backDisabled: Boolean,

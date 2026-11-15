@@ -15,6 +15,9 @@
     @update:active-sub="onHubSubChange"
     @alert-click="onOverviewAlertClick"
   >
+    <template #quick-actions>
+      <ClientQuickActions :actions="profileQuickActions" @action="onProfileQuickAction" />
+    </template>
     <template #header>
       <div class="modal-header cdp-header">
         <div class="cdp-header-main">
@@ -59,9 +62,9 @@
                   v-for="t in tenantMembershipPills"
                   :key="`tenant-${t.id}`"
                   class="cdp-pill cdp-pill--tenant"
-                  :title="t.activeChart ? 'Tenant membership (active chart context)' : 'Tenant membership'"
+                  :title="t.activeChart ? 'Agency membership (active chart context)' : 'Agency membership'"
                 >
-                  Tenant · {{ t.name }}
+                  Agency · {{ t.name }}
                   <template v-if="t.activeChart"> · chart</template>
                 </span>
                 <span
@@ -70,7 +73,7 @@
                   class="cdp-pill cdp-pill--affil"
                   :title="'Program / organization affiliation'"
                 >
-                  {{ p.typeLabel }} · {{ p.name }}
+                  <template v-if="p.typeLabel">{{ p.typeLabel }} · </template>{{ p.name }}
                 </span>
               </div>
               <div class="cdp-meta-row">
@@ -81,7 +84,7 @@
                 >
                   {{ isClientArchived ? 'Archived' : displayStatusLabel }}
                 </span>
-                <span class="cdp-pill cdp-pill--type" :class="{ 'is-editable': canEditClientType }">
+                <span v-if="effectiveClientType !== 'clinical'" class="cdp-pill cdp-pill--type" :class="{ 'is-editable': canEditClientType }">
                   <span class="cdp-pill__dot"></span>
                   {{ clientTypeLabel }}
                   <button
@@ -94,9 +97,6 @@
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                   </button>
-                </span>
-                <span v-if="client.organization_name" class="cdp-pill cdp-pill--org">
-                  {{ client.organization_name }}
                 </span>
                 <span v-if="primaryInsuranceLabel" class="cdp-pill cdp-pill--success">
                   {{ primaryInsuranceLabel }}
@@ -126,7 +126,7 @@
               </div>
               <div v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)" class="cdp-inline-controls cdp-inline-controls--muted">
                 <template v-if="switchableAgencies.length > 1">
-                  <span class="cdp-inline-controls__label">Chart tenant</span>
+                  <span class="cdp-inline-controls__label">Chart agency</span>
                   <select
                     v-model="selectedAgencyId"
                     class="inline-select cdp-inline-select"
@@ -190,7 +190,7 @@
             :agency-id="client.agency_id"
             @updated="onChartSetupUpdated"
           />
-          <ClientOverviewHub :key="`overview-${client.id}`"
+          <ClientOverviewHub :show-quick-actions="false" :key="`overview-${client.id}`"
             :client-id="client.id"
             :client="client"
             :can-edit="canEditAccount"
@@ -1087,39 +1087,7 @@
           </div>
             </div>
 
-            <aside class="cdp-overview-aside">
-              <section class="cdp-aside-card">
-                <h4>Quick actions</h4>
-                <div class="cdp-aside-actions">
-                  <button
-                    v-if="canEditAccount && !editingOverview"
-                    type="button"
-                    class="cdp-btn-primary"
-                    @click="startEditOverview(true)"
-                  >
-                    Edit client
-                  </button>
-                  <button v-if="canOpenClientSecureMessage" type="button" class="cdp-btn-soft" @click="openClientSecureMessage">
-                    Send secure message
-                  </button>
-                  <button
-                    v-if="canEditAccount"
-                    type="button"
-                    class="cdp-btn-soft"
-                    @click="clientRenewalModalOpen = true"
-                  >
-                    Client Renewal
-                  </button>
-                  <button type="button" class="cdp-btn-soft" @click="openDocumentUpload">
-                    {{ authStore.user?.role === 'support' ? 'Upload / process paper packet' : 'Upload document' }}
-                  </button>
-                  <button v-if="canEditPaperwork" type="button" class="cdp-btn-soft" @click="openClientActions()">
-                    Client actions / process paper packet
-                  </button>
-                  <button v-if="canEditAccount && ['super_admin','admin','support'].includes(authStore.user?.role)" type="button" class="cdp-btn-soft" @click="clientUpdateModalOpen = true">Request selected updates</button>
-                </div>
-              </section>
-            </aside>
+
           </div>
         </div>
 
@@ -1640,7 +1608,7 @@
           />
         </div>
 
-        <ClientPortalOverview v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" />
+        <ClientPortalOverview ref="portalOverviewRef" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" />
 
         <!-- Guardians Tab -->
         <div v-if="showPanel('guardians')" class="detail-section">
@@ -1950,11 +1918,11 @@
             <div>
               <h3 class="casg-title">Assignments</h3>
               <p class="casg-subtitle">
-                Tenant membership, school/program links, care team, default office &amp; place of service for scheduling and claims.
+                Agency memberships, school/program links, care team, default office &amp; place of service for scheduling and claims.
               </p>
             </div>
             <div class="casg-stats">
-              <span class="casg-stat"><strong>{{ (tenantMemberships || []).length }}</strong> Tenant{{ (tenantMemberships || []).length === 1 ? '' : 's' }}</span>
+              <span class="casg-stat"><strong>{{ (tenantMemberships || []).length }}</strong> Agenc{{ (tenantMemberships || []).length === 1 ? 'y' : 'ies' }}</span>
               <span class="casg-stat"><strong>{{ schoolAffiliationCount }}</strong> School{{ schoolAffiliationCount === 1 ? '' : 's' }}</span>
               <span class="casg-stat"><strong>{{ programAffiliationCount }}</strong> Program{{ programAffiliationCount === 1 ? '' : 's' }}</span>
               <span class="casg-stat"><strong>{{ learningAffiliationCount }}</strong> Learning</span>
@@ -1962,22 +1930,22 @@
             </div>
           </div>
 
-          <ClientServiceEnrollments :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliations" />
+          <ClientServiceEnrollments v-if="canManageServiceEnrollments" :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliationsForActiveAgency" @updated="onServiceEnrollmentUpdated" />
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
           <div class="casg-grid">
             <section class="casg-card casg-tenant-hub">
               <header class="casg-card-head">
                 <div>
-                  <h4>Tenant memberships</h4>
+                  <h4>Agency memberships</h4>
                   <p class="casg-card-hint">
-                    Each tenant gets its own schools, programs, learning orgs, and default office / place of service — like provider Agency Assignments.
+                    Manage each agency’s schools, programs, providers, and scheduling defaults here.
                   </p>
                 </div>
               </header>
               <div v-if="clientAgenciesNote" class="muted" style="margin-bottom: 10px;">{{ clientAgenciesNote }}</div>
 
-              <div v-if="(tenantMemberships || []).length === 0" class="hint">No tenant memberships found.</div>
+              <div v-if="(tenantMemberships || []).length === 0" class="hint">No agency memberships found.</div>
               <div v-else class="casg-tenant-cards">
                 <article
                   v-for="a in tenantMemberships"
@@ -2013,7 +1981,7 @@
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="switchingAgency"
-                        :title="'Archive this tenant membership'"
+                        :title="'Archive this agency membership'"
                         @click="archiveAgencyAffiliation(a.agency_id)"
                       >
                         Archive
@@ -2023,7 +1991,7 @@
                         type="button"
                         class="btn btn-danger btn-sm"
                         :disabled="switchingAgency"
-                        title="Permanently remove tenant membership (super admin)"
+                        title="Permanently remove agency membership (super admin)"
                         @click="removeAgencyAffiliationHard(a.agency_id)"
                       >
                         Remove
@@ -2034,7 +2002,7 @@
                   <div class="casg-tenant-section">
                     <h5 class="casg-tenant-section__title"><span>1</span> Default office &amp; place of service</h5>
                     <p class="casg-card-hint" style="margin-bottom: 10px;">
-                      Prefills scheduled sessions and billing claims for this tenant.
+                      Prefills scheduled sessions and billing claims for this agency.
                     </p>
                     <div v-if="tenantBookingDraftError(a.agency_id)" class="error" style="text-align:left; margin-bottom: 8px;">
                       {{ tenantBookingDraftError(a.agency_id) }}
@@ -2119,7 +2087,7 @@
                     <h5 class="casg-tenant-section__title"><span>2</span> Schools</h5>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
-                      <div v-if="affiliationsForTenant(a.agency_id, 'school').length === 0" class="hint">No schools linked for this tenant.</div>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'school').length === 0" class="hint">No schools linked for this agency.</div>
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'school')" :key="`sch-${row.organization_id}`">
                           <div>
@@ -2189,11 +2157,11 @@
                   <div class="casg-tenant-section">
                     <h5 class="casg-tenant-section__title"><span>3</span> Programs</h5>
                     <p class="casg-card-hint" style="margin-bottom: 8px;">
-                      Includes Counseling and Psychotherapy and other in-office / clinical programs for this tenant.
+                      Includes Counseling and Psychotherapy and other in-office / clinical programs for this agency.
                     </p>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
-                      <div v-if="affiliationsForTenant(a.agency_id, 'program').length === 0" class="hint">No programs linked for this tenant.</div>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'program').length === 0" class="hint">No programs linked for this agency.</div>
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'program')" :key="`prog-${row.organization_id}`">
                           <div>
@@ -2265,7 +2233,7 @@
                     <h5 class="casg-tenant-section__title"><span>4</span> Learning</h5>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
-                      <div v-if="affiliationsForTenant(a.agency_id, 'learning').length === 0" class="hint">No learning orgs linked for this tenant.</div>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'learning').length === 0" class="hint">No learning orgs linked for this agency.</div>
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'learning')" :key="`lrn-${row.organization_id}`">
                           <div>
@@ -2337,9 +2305,9 @@
               <details v-if="pastAffiliations.length" class="casg-past-affiliations"><summary>Completed programs and past affiliations ({{ pastAffiliations.length }})</summary><ul><li v-for="row in pastAffiliations" :key="row.organization_id">{{ row.organization_name }} · Completed</li></ul></details>
               <div class="casg-add-row" style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                 <div style="min-width: 280px; flex: 1;">
-                  <label class="filters-label">Add tenant membership</label>
+                  <label class="filters-label">Add agency membership</label>
                   <select v-model="addAgencyAffiliationId" class="filters-select">
-                    <option value="">Select tenant…</option>
+                    <option value="">Select agency…</option>
                     <option v-for="opt in addableAgencyOptions" :key="opt.id" :value="String(opt.id)">{{ opt.name }}</option>
                   </select>
                 </div>
@@ -2353,14 +2321,14 @@
                   :disabled="switchingAgency || !addAgencyAffiliationId"
                   @click="addAgencyAffiliation"
                 >
-                  Add tenant
+                  Add agency
                 </button>
               </div>
 
               <div v-if="orphanAffiliations.length" class="casg-tenant-section" style="margin-top: 16px;">
                 <h5 class="casg-tenant-section__title">Other affiliations</h5>
                 <p class="casg-card-hint" style="margin-bottom: 8px;">
-                  Linked orgs that are not currently affiliated under a tenant membership above.
+                  Linked orgs that are not currently affiliated under an agency membership above.
                 </p>
                 <ul class="casg-affil-list">
                   <li v-for="row in orphanAffiliations" :key="`orphan-${row.organization_id}`">
@@ -2397,8 +2365,8 @@
             <section class="casg-card">
               <header class="casg-card-head">
                 <div>
-                  <h4>Provider assignments</h4>
-                  <p class="casg-card-hint">Scoped to an affiliation. Primary provider informs default office suggestions.</p>
+                  <h4>School &amp; program roster</h4>
+                  <p class="casg-card-hint">Manage the provider and day for each school or program roster here. Service providers are shown above.</p>
                 </div>
               </header>
               <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items:end; margin-bottom: 12px;">
@@ -2431,12 +2399,7 @@
                     <tr v-for="pa in providerAssignments" :key="pa.id">
                       <td>
                         <template v-if="Number(editingProviderAssignmentId) === Number(pa.id)">
-                          <select v-model="editProviderUserId" class="inline-select" style="min-width: 220px;">
-                            <option value="">Select…</option>
-                            <option v-for="p in providerOptions" :key="p.id" :value="String(p.id)">
-                              {{ providerOptionLabel(p) }}
-                            </option>
-                          </select>
+                          <ProviderSearchSelect v-model="editProviderUserId" :options="searchableProviderOptions" label="Provider for this affiliation" :disabled="savingProviderAssignment" />
                         </template>
                         <template v-else>
                           {{ pa.provider_last_name }}, {{ pa.provider_first_name }}
@@ -2510,12 +2473,7 @@
                 <div class="filters-row" style="flex-wrap: wrap;">
                   <div class="filters-group" style="min-width: 260px; flex: 1;">
                     <label class="filters-label">Provider</label>
-                    <select v-model="addProviderUserId" class="filters-select">
-                      <option value="">Select…</option>
-                      <option v-for="p in providerOptions" :key="p.id" :value="String(p.id)">
-                        {{ providerOptionLabel(p) }}
-                      </option>
-                    </select>
+                    <ProviderSearchSelect v-model="addProviderUserId" :options="searchableProviderOptions" label="Assign a provider for this affiliation" :disabled="savingProviderAssignment" />
                     <div v-if="selectedAddProviderFacets?.summaryTags?.length" class="hint" style="margin-top: 6px;">
                       Clinical fit: {{ selectedAddProviderFacets.summaryTags.join(' · ') }}
                     </div>
@@ -2940,6 +2898,9 @@ import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
 import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
+import ClientQuickActions from './clientChart/ClientQuickActions.vue';
+import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
+import { clientProfileActions } from '../../utils/clientProfileActions.js';
 import ClientChartSetupPanel from './clientChart/ClientChartSetupPanel.vue';
 import { formatAuditTimestamp, formatDate as formatCalendarDate } from '../../utils/formatDate';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
@@ -3074,6 +3035,7 @@ const activeTab = ref('overview');
 const hubSub = ref('');
 const pendingChartViewKey = ref('');
 const documentsTabRef = ref(null);
+const portalOverviewRef = ref(null);
 const clinicalNotesFeedRef = ref(null);
 const chartHub = computed(() => resolveChartTab(activeTab.value).hub);
 const chartSubnav = computed(() => {
@@ -3363,7 +3325,6 @@ const practitionerPackagesEnabledForClient = computed(() => {
 // Overview tab state
 const editingStatus = ref(false);
 const statusValue = ref(null);
-const availableProviders = ref([]); // used by other tabs (e.g., assignments) and legacy helpers
 const skillsValue = ref(false);
 const editingOverview = ref(false);
 const clientRenewalModalOpen = ref(false);
@@ -3543,7 +3504,7 @@ const programAffiliationPills = computed(() => {
         : t === 'program'
           ? 'Program'
           : t === 'clinical'
-            ? 'Clinical program'
+            ? ''
             : 'Program';
     out.push({ id: nid || key, name: label, typeLabel });
   };
@@ -3635,6 +3596,7 @@ function closeLifecycleHistoryModal() {
 }
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const canManageServiceEnrollments = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 const canFinishChartSetup = computed(() => [
   'super_admin',
   'admin',
@@ -3738,13 +3700,13 @@ const clientAgenciesNote = computed(() => {
   const clientAgencyIds = rows.map((r) => Number(r?.agency_id)).filter(Boolean);
   const mineCount = clientAgencyIds.filter((id) => mine.has(id)).length;
   if (mineCount > 0) {
-    if (rows.length > mineCount) return 'Note: client also has membership in another tenant.';
+    if (rows.length > mineCount) return 'Note: client also has membership in another agency.';
     return '';
   }
   // User has no agency overlap; show which agency owns the client.
   const names = rows.map((r) => String(r?.agency_name || '').trim()).filter(Boolean);
-  if (names.length) return `Note: client has tenant membership elsewhere (${names.join(', ')}).`;
-  return 'Note: client has tenant membership elsewhere.';
+  if (names.length) return `Note: client has agency membership elsewhere (${names.join(', ')}).`;
+  return 'Note: client has agency membership elsewhere.';
 });
 
 const openFullClientRecord = () => {
@@ -3899,6 +3861,12 @@ function tenantBookingDraftHint(agencyId) {
 function tenantBookingDraftError(agencyId) {
   return ensureTenantBookingDraft(agencyId).error || '';
 }
+function officesForAgency(offices, agencyId) {
+  return (Array.isArray(offices) ? offices : []).filter(office =>
+    (office.agencyIds || []).some(id => Number(id) === Number(agencyId))
+    || Number(office.agency_id) === Number(agencyId)
+  );
+}
 function officeOptionsForTenant(agencyId) {
   return tenantOfficeOptionsByAgency.value[String(agencyId)] || [];
 }
@@ -3912,7 +3880,7 @@ async function loadTenantCatalog(agencyId) {
   try {
     const [orgsRes, officesRes, locsRes] = await Promise.all([
       api.get(`/agencies/${aid}/affiliated-organizations`, { skipGlobalLoading: true }),
-      api.get('/payroll/office-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null),
+      api.get('/offices', { skipGlobalLoading: true }).catch(() => null),
       canAccessMedicalBilling(authStore.user, aid)
         ? api.get('/medical-billing/service-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null)
         : Promise.resolve(null)
@@ -3924,7 +3892,7 @@ async function loadTenantCatalog(agencyId) {
     const offices = Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []);
     tenantOfficeOptionsByAgency.value = {
       ...tenantOfficeOptionsByAgency.value,
-      [String(aid)]: Array.isArray(offices) ? offices : []
+      [String(aid)]: officesForAgency(offices, aid)
     };
     const locs = locsRes?.data?.items || locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
     tenantServiceLocationOptionsByAgency.value = {
@@ -3966,13 +3934,13 @@ const addAgencyAffiliation = async () => {
 const archiveAgencyAffiliation = async (agencyId) => {
   const id = Number(agencyId);
   if (!id) return;
-  if (!window.confirm('Archive this tenant membership? You can re-add it later.')) return;
+  if (!window.confirm('Archive this agency membership? You can re-add it later.')) return;
   try {
     switchingAgency.value = true;
     await api.delete(`/clients/${props.client.id}/agency-affiliations/${id}`);
     await fetchClientAgencyAffiliations();
   } catch (e) {
-    alert(e.response?.data?.error?.message || e.message || 'Failed to archive tenant membership');
+    alert(e.response?.data?.error?.message || e.message || 'Failed to archive agency membership');
   } finally {
     switchingAgency.value = false;
   }
@@ -3981,13 +3949,13 @@ const archiveAgencyAffiliation = async (agencyId) => {
 const removeAgencyAffiliationHard = async (agencyId) => {
   const id = Number(agencyId);
   if (!id) return;
-  if (!window.confirm('Permanently remove this tenant membership? This cannot be undone from archive.')) return;
+  if (!window.confirm('Permanently remove this agency membership? This cannot be undone from archive.')) return;
   try {
     switchingAgency.value = true;
     await api.delete(`/clients/${props.client.id}/agency-affiliations/${id}`, { params: { hard: 1 } });
     await fetchClientAgencyAffiliations();
   } catch (e) {
-    alert(e.response?.data?.error?.message || e.message || 'Failed to remove tenant membership');
+    alert(e.response?.data?.error?.message || e.message || 'Failed to remove agency membership');
   } finally {
     switchingAgency.value = false;
   }
@@ -4105,7 +4073,7 @@ const showLearningChartSurfaces = computed(() =>
   hasLearningProgramEnrollment.value && activeTenantSponsorsClientLearning.value
 );
 
-const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);
+const showSchoolSpecificOverviewFields = computed(() => isClinicalLikeClientType.value);
 const displayStatusLabel = computed(() => {
   if (isClientArchived.value) return 'Archived';
   return displaySchoolClientStatusLabel(props.client);
@@ -4377,12 +4345,12 @@ const overviewAlertItems = computed(() => {
 });
 
 const tabs = computed(() => ([
-  { id: 'overview', label: 'Overview' },
-  { id: 'account', label: 'Account' },
-  ...(canViewGuardians.value ? [{id:'portal',label:'Portal'}] : []),
-  { id: 'lifecycle', label: 'Lifecycle' },
-  { id: 'records', label: 'Records' },
-  { id: 'messages', label: 'Messages' }
+  { id: 'overview', label: 'Overview', description: 'Summary · Quick actions' },
+  { id: 'account', label: 'Account', description: canEditAccount.value ? 'Profile · Assignments' : 'Profile · Relationships' },
+  ...(canViewGuardians.value ? [{id:'portal',label:'Portal',description:'Access · Sharing · Activity'}] : []),
+  { id: 'lifecycle', label: 'Lifecycle', description: 'Timeline · History' },
+  { id: 'records', label: 'Records', description: 'Documents · Care records' },
+  { id: 'messages', label: 'Messages', description: 'Communications · Contacts' }
 ]));
 
 const affiliationsLoading = ref(false);
@@ -4457,6 +4425,38 @@ const providerOptionLabel = (p) => {
   return `${base} — ${tags.slice(0, 4).join(', ')}`;
 };
 
+const searchableProviderOptions = computed(() => providerOptions.value.map(provider => ({ ...provider, name: providerOptionLabel(provider) })));
+const affiliationsForActiveAgency = computed(() => {
+  const agencyId = selectedAgencyId.value || props.client?.agency_id;
+  return ['school', 'program', 'learning'].flatMap(kind => affiliationsForTenant(agencyId, kind));
+});
+const profileQuickActions = computed(() => clientProfileActions({
+  hub: chartHub.value, sub: effectiveHubSub.value, canEdit: canEditAccount.value,
+  canPortal: canViewGuardians.value, canInvite: canManageGuardians.value,
+  canClinical: canViewMedicalRecord.value, canBilling: canViewClientBillingImport.value,
+  canDocuments: roleNorm.value !== 'support',
+  canPortalDocuments: ['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(roleNorm.value),
+  canRequestUpdates: canEditAccount.value && ['super_admin', 'admin', 'support'].includes(roleNorm.value),
+  canSecureMessage: canOpenClientSecureMessage.value,
+  canUpload: canEditPaperwork.value && (paperProcessingAvailable.value || roleNorm.value !== 'support'),
+  canProcessPaper: paperProcessingAvailable.value
+}));
+function onProfileQuickAction(action) {
+  if (action.id === 'secure-message') return openClientSecureMessage();
+  if (action.id === 'upload') return openDocumentUpload();
+  if (action.id === 'process-paper') return openClientActions('process');
+  if (action.id === 'documents' && chartHub.value === 'portal') return portalOverviewRef.value?.openDocumentAssignments?.();
+  if (action.id === 'edit') return startEditOverview(true);
+  if (action.id === 'invite') { showPortalInvites.value = true; return; }
+  if (action.id === 'updates') { clientUpdateModalOpen.value = true; return; }
+  if (action.id === 'renewal') { clientRenewalModalOpen.value = true; return; }
+  goChartSub(action.target);
+}
+async function onServiceEnrollmentUpdated() {
+  await refreshOverviewProviders();
+  emit('updated', { keepOpen: true });
+}
+
 const selectedAddProviderFacets = computed(() => {
   const id = addProviderUserId.value ? String(addProviderUserId.value) : '';
   return id ? (providerClinicalFacets.value?.[id] || null) : null;
@@ -4472,6 +4472,7 @@ const eventAssignmentsPast = computed(() =>
 // Overview: show all (primary + secondary) providers across affiliations.
 const overviewProviders = ref([]);
 const overviewProvidersLoading = ref(false);
+let overviewProviderRequest = 0;
 
 function providersFromClientSnapshot(client) {
   if (!client) return [];
@@ -4546,7 +4547,10 @@ const careTeamGlanceMeta = computed(() => {
 });
 
 const refreshOverviewProviders = async () => {
+  const request = ++overviewProviderRequest;
   const clientId = Number(props.client?.id);
+  const agencyId = Number(selectedAgencyId.value || props.client?.agency_id);
+  const isCurrent = () => request === overviewProviderRequest && clientId === Number(props.client?.id) && agencyId === Number(selectedAgencyId.value || props.client?.agency_id);
   if (!clientId) {
     overviewProviders.value = [];
     overviewProvidersLoading.value = false;
@@ -4562,8 +4566,25 @@ const refreshOverviewProviders = async () => {
     const params = {};
     const orgId = Number(props.schoolOrganizationId || props.client?.organization_id || 0);
     if (orgId > 0) params.organizationId = orgId;
-    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params, skipGlobalLoading: true });
-    const rows = Array.isArray(r.data) ? r.data : [];
+    const [r, serviceResponse] = await Promise.all([
+      api.get(`/clients/${clientId}/provider-assignments`, { params, skipGlobalLoading: true }),
+      canManageServiceEnrollments.value
+        ? api.get(`/clients/${clientId}/service-enrollments`, { params: { agencyId }, skipGlobalLoading: true }).catch(() => null)
+        : Promise.resolve(null)
+    ]);
+    // A late response from the prior client must not change this client's care team.
+    if (!isCurrent()) return;
+    const rows = Array.isArray(r.data) ? [...r.data] : [];
+    for (const service of serviceResponse?.data?.services || []) {
+      if (!Number(service.is_active)) continue;
+      for (const provider of service.providers || [service]) {
+        if (!Number(provider.provider_user_id) || rows.some(row => Number(row.provider_user_id) === Number(provider.provider_user_id))) continue;
+        const [firstName, ...lastName] = String(provider.provider_name || '').split(' ');
+        rows.push({ id: `service-${provider.service_id || service.id}`, provider_user_id: provider.provider_user_id,
+          provider_first_name: firstName, provider_last_name: lastName.join(' '),
+          organization_name: service.organization_name, is_primary: false });
+      }
+    }
     overviewProviders.value = rows.length
       ? rows.sort((a, b) => {
           const org = String(a?.organization_name || '').localeCompare(String(b?.organization_name || ''));
@@ -4579,9 +4600,10 @@ const refreshOverviewProviders = async () => {
         })
       : providersFromClientSnapshot(props.client);
   } catch {
+    if (!isCurrent()) return;
     overviewProviders.value = providersFromClientSnapshot(props.client);
   } finally {
-    overviewProvidersLoading.value = false;
+    if (isCurrent()) overviewProvidersLoading.value = false;
   }
 };
 
@@ -4939,22 +4961,11 @@ async function saveTenantBookingDefaults(agencyId) {
       default_service_location_id: draft.serviceLocationId ? Number(draft.serviceLocationId) : null
     };
     await api.post(`/clients/${props.client.id}/agency-affiliations`, payload);
-    draft.hint = 'Saved.';
-    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
     await fetchClientAgencyAffiliations();
-    // Mirror onto clients.* when this is the active chart tenant so legacy readers stay in sync.
-    if (Number(selectedAgencyId.value || props.client?.agency_id) === aid) {
-      try {
-        await api.put(`/clients/${props.client.id}`, {
-          default_office_location_id: payload.default_office_location_id,
-          default_place_of_service: payload.default_place_of_service,
-          default_service_location_id: payload.default_service_location_id
-        });
-        emit('updated', { keepOpen: true });
-      } catch {
-        // membership row already saved
-      }
-    }
+    const savedDraft = ensureTenantBookingDraft(aid);
+    savedDraft.hint = 'Saved.';
+    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...savedDraft } };
+    emit('updated', { keepOpen: true });
   } catch (e) {
     draft.error = e.response?.data?.error?.message || e.message || 'Failed to save booking defaults';
     tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
@@ -5423,7 +5434,7 @@ const onProfileDetailsToggle = (e) => {
 };
 
 const startEditOverview = async (scrollToFields = false) => {
-  if (chartHub.value !== 'account') {
+  if (chartHub.value !== 'account' || effectiveHubSub.value !== 'profile') {
     setChartNav('account', 'profile');
   }
   editingOverview.value = true;
@@ -5492,11 +5503,11 @@ const saveOverview = async () => {
       submission_date: overviewForm.value.submission_date ? String(overviewForm.value.submission_date) : null,
       insurance_type_id: overviewForm.value.insurance_type_id ? Number(overviewForm.value.insurance_type_id) : null,
       doc_date: overviewForm.value.doc_date ? String(overviewForm.value.doc_date) : null,
-      school_year: isSchoolClientType.value ? (String(overviewForm.value.school_year || '').trim() || null) : null,
+      school_year: String(overviewForm.value.school_year || '').trim() || null,
       grade: normalizeGradeForSave(overviewForm.value.grade),
       primary_client_language: String(overviewForm.value.primary_client_language || '').trim() || null,
       primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null,
-      skills: isSchoolClientType.value ? !!overviewForm.value.skills : false,
+      skills: !!overviewForm.value.skills,
       referral_date: overviewForm.value.referral_date ? String(overviewForm.value.referral_date) : null,
       source: String(overviewForm.value.source || '').trim() || null,
       date_of_birth: overviewForm.value.date_of_birth ? String(overviewForm.value.date_of_birth) : null,
@@ -5819,18 +5830,23 @@ watch([hasAgencyAccess, activeTab], async ([has, tab]) => {
 const fetchClientAffiliations = async () => {
   // Load for chart context (learning surfaces) even when the viewer cannot edit assignments.
   if (!props.client?.id) return;
+  const clientId = Number(props.client.id);
   try {
     affiliationsLoading.value = true;
     if (canEditAccount.value) assignmentsError.value = '';
-    const r = await api.get(`/clients/${props.client.id}/affiliations`, { params:{includeHistory:true}, skipGlobalLoading: true });
-    affiliations.value = (r.data || []).filter(row => Number(row.is_active) === 1);
-    pastAffiliations.value = (r.data || []).filter(row => Number(row.is_active) === 0);
+    const r = await api.get(`/clients/${clientId}/affiliations`, { params: { includeHistory: true }, skipGlobalLoading: true });
+    if (clientId !== Number(props.client?.id)) return;
+    const rows = Array.isArray(r.data) ? r.data : [];
+    affiliations.value = rows.filter(row => Number(row.is_active) === 1);
+    pastAffiliations.value = rows.filter(row => Number(row.is_active) === 0);
+    if (!affiliations.value.some(row => Number(row.organization_id) === Number(selectedAssignmentOrgId.value))) selectedAssignmentOrgId.value = '';
     if (canEditAccount.value && !selectedAssignmentOrgId.value) {
       const primary = (affiliations.value || []).find((a) => a?.is_primary) || affiliations.value?.[0] || null;
       if (primary?.organization_id) selectedAssignmentOrgId.value = String(primary.organization_id);
     }
     if (canEditAccount.value) await refreshOverviewProviders();
   } catch (e) {
+    if (clientId !== Number(props.client?.id)) return;
     if (canEditAccount.value) {
       assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
     }
@@ -5838,7 +5854,7 @@ const fetchClientAffiliations = async () => {
     pastAffiliations.value = [];
     if (canEditAccount.value) overviewProviders.value = [];
   } finally {
-    affiliationsLoading.value = false;
+    if (clientId === Number(props.client?.id)) affiliationsLoading.value = false;
   }
 };
 
@@ -5911,11 +5927,20 @@ const removeAffiliation = async (orgId) => {
 };
 
 const providerScheduleForSelectedOrg = ref([]);
+let providerOptionRequest = 0;
+let providerAssignmentRequest = 0;
 
 const fetchProviderOptions = async () => {
+  const request = ++providerOptionRequest;
   if (!canEditAccount.value) return;
-  const agencyId = Number(props.client?.agency_id);
+  const clientId = Number(props.client?.id);
   const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
+  const activeAgencyId = Number(selectedAgencyId.value || props.client?.agency_id);
+  const agencyId = orgIdsForAgency(activeAgencyId).has(orgId) ? activeAgencyId
+    : Number((tenantMemberships.value || []).find(row => orgIdsForAgency(row.agency_id).has(orgId))?.agency_id || activeAgencyId);
+  const isCurrent = () => request === providerOptionRequest && clientId === Number(props.client?.id) && orgId === Number(selectedAssignmentOrgId.value);
+  providerOptions.value = [];
+  providerClinicalFacets.value = {};
   if (!agencyId || !orgId) {
     providerScheduleForSelectedOrg.value = [];
     providerOptions.value = [];
@@ -5924,11 +5949,14 @@ const fetchProviderOptions = async () => {
   try {
     // Pull provider_school_assignments for this org (day/time rows) AND
     // also allow providers affiliated with the org but not scheduled yet (rare; supports day='Unknown').
-    const [sched, aff] = await Promise.all([
+    const [sched, aff, eligibleResponse] = await Promise.all([
       api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId } }),
-      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId } })
+      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId } }),
+      api.get('/office-clients/providers', { params: { clientId, agencyIds: String(agencyId) }, skipGlobalLoading: true })
     ]);
-    const rows = Array.isArray(sched.data) ? sched.data : [];
+    if (!isCurrent()) return;
+    const eligibleIds = new Set((eligibleResponse.data?.providers || []).map(provider => Number(provider.id)));
+    const rows = (Array.isArray(sched.data) ? sched.data : []).filter(row => eligibleIds.has(Number(row.provider_user_id)));
     providerScheduleForSelectedOrg.value = rows;
 
     const byProvider = new Map();
@@ -5947,7 +5975,7 @@ const fetchProviderOptions = async () => {
     const affRows = Array.isArray(aff.data) ? aff.data : [];
     for (const p of affRows) {
       const pid = Number(p?.id);
-      if (!pid) continue;
+      if (!pid || !eligibleIds.has(pid)) continue;
       if (!byProvider.has(pid)) {
         byProvider.set(pid, {
           id: pid,
@@ -5967,14 +5995,15 @@ const fetchProviderOptions = async () => {
         const facetRes = await api.get('/provider-search/clinical-facets', {
           params: { agencyId, userIds: userIds.join(',') }
         });
-        providerClinicalFacets.value = facetRes.data?.facetsByUserId || {};
+        if (isCurrent()) providerClinicalFacets.value = facetRes.data?.facetsByUserId || {};
       } catch {
-        providerClinicalFacets.value = {};
+        if (isCurrent()) providerClinicalFacets.value = {};
       }
     } else {
       providerClinicalFacets.value = {};
     }
   } catch {
+    if (!isCurrent()) return;
     providerScheduleForSelectedOrg.value = [];
     providerOptions.value = [];
     providerClinicalFacets.value = {};
@@ -6106,12 +6135,12 @@ async function loadClientBookingDefaultsOptions() {
   }
   try {
     const [officesRes, locsRes] = await Promise.all([
-      api.get('/payroll/office-locations', { params: { agencyId }, skipGlobalLoading: true }),
+      api.get('/offices', { skipGlobalLoading: true }),
       canAccessMedicalBilling(authStore.user, agencyId)
         ? api.get('/medical-billing/service-locations', { params: { agencyId }, skipGlobalLoading: true }).catch(() => null)
         : Promise.resolve(null)
     ]);
-    clientOfficeOptions.value = Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []);
+    clientOfficeOptions.value = officesForAgency(Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []), agencyId);
     if (!Array.isArray(clientOfficeOptions.value)) clientOfficeOptions.value = [];
     const locs = locsRes?.data?.items || locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
     clientServiceLocationOptions.value = Array.isArray(locs) ? locs : [];
@@ -6134,6 +6163,7 @@ async function saveClientBookingDefaults() {
         ? Number(clientDefaultServiceLocationId.value)
         : null
     });
+    await fetchClientAgencyAffiliations();
     clientBookingDefaultsSavedHint.value = 'Saved.';
     emit('updated', { keepOpen: true });
   } catch (e) {
@@ -6191,24 +6221,29 @@ async function suggestDefaultsFromPrimaryProvider() {
 }
 
 const reloadProviderAssignments = async () => {
+  const request = ++providerAssignmentRequest;
   if (!canEditAccount.value) return;
+  const clientId = Number(props.client?.id);
   const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
   if (!orgId) {
     providerAssignments.value = [];
     return;
   }
+  const isCurrent = () => request === providerAssignmentRequest && clientId === Number(props.client?.id) && orgId === Number(selectedAssignmentOrgId.value);
   try {
     providerAssignmentsLoading.value = true;
     assignmentsError.value = '';
-    const r = await api.get(`/clients/${props.client.id}/provider-assignments`, { params: { organizationId: orgId } });
-    providerAssignments.value = r.data || [];
+    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params: { organizationId: orgId } });
+    if (!isCurrent()) return;
+    providerAssignments.value = Array.isArray(r.data) ? r.data : [];
     // Keep the Overview provider list in sync (across affiliations).
     await refreshOverviewProviders();
   } catch (e) {
+    if (!isCurrent()) return;
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to load provider assignments';
     providerAssignments.value = [];
   } finally {
-    providerAssignmentsLoading.value = false;
+    if (isCurrent()) providerAssignmentsLoading.value = false;
   }
 };
 
@@ -6444,16 +6479,6 @@ const makePrimaryProvider = async (pa) => {
   }
 };
 
-const fetchProviders = async () => {
-  try {
-    const agencyId = Number(props.client?.agency_id || selectedAgencyId.value || 0);
-    if (!agencyId) { availableProviders.value = []; return; }
-    const response = await api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true });
-    availableProviders.value = Array.isArray(response.data) ? response.data : [];
-  } catch (err) {
-    console.error('Failed to fetch providers:', err);
-  }
-};
 
 const handleClose = () => {
   emit('close');
@@ -6552,6 +6577,21 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
   if (!id) return;
   if (id !== prev) {
     clientActionsOpen.value = false;
+    overviewProviderRequest++;
+    providerOptionRequest++;
+    providerAssignmentRequest++;
+    overviewProviders.value = [];
+    providerAssignments.value = [];
+    providerOptions.value = [];
+    providerScheduleForSelectedOrg.value = [];
+    providerClinicalFacets.value = {};
+    selectedAssignmentOrgId.value = '';
+    affiliations.value = [];
+    clientAgencyAffiliations.value = [];
+    selectedAgencyId.value = props.client?.agency_id ? String(props.client.agency_id) : '';
+    addProviderUserId.value = '';
+    addProviderDay.value = '';
+    editingProviderAssignmentId.value = null;
     editingStatus.value = false;
     editingOverview.value = false;
     clientCodeDraft.value = '';
@@ -6581,6 +6621,8 @@ watch(() => props.client, () => {
 });
 
 watch(activeChartAgencyId, () => {
+  overviewProviders.value = [];
+  refreshOverviewProviders();
   fetchChartAgencyAffiliatedOrgs();
 });
 
@@ -7023,9 +7065,6 @@ onMounted(async () => {
   if (isSchoolPortalContext.value) {
     profileDetailsPulseHint.value = false;
   }
-  if (isBackofficeRole.value) {
-    fetchProviders().catch(() => {});
-  }
   // Log that this profile was viewed (best-effort)
   if (props.client?.id) {
     api.post(`/clients/${props.client.id}/log-view`, {}, { skipGlobalLoading: true }).catch(() => {});
@@ -7140,6 +7179,8 @@ watch(
     addProviderUserId.value = '';
     addProviderDay.value = '';
     addProviderMakePrimary.value = true;
+    editingProviderAssignmentId.value = null;
+    providerAssignments.value = [];
     await reloadProviderAssignments();
     await fetchProviderOptions();
   }
@@ -7732,7 +7773,7 @@ watch(
 
 .cdp-overview-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 268px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }

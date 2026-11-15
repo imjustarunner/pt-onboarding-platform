@@ -52,9 +52,7 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
   const clientId = Number(client?.id || 0);
   const agencyId = Number(client?.agency_id || 0);
   const schoolClient = isSchoolRegistrationClient(client);
-  // School registration and paper-packet reads fill the chart fields directly.
-  // That is not the workspace chart-update import, so it must not count as updated.
-  const demographicsOnFile = schoolClient ? false : clientHasDemographicsOnFile(client);
+  const demographicsOnFile = clientHasDemographicsOnFile(client);
   const [intakeDone, planDone] = await Promise.all([
     intakeOnFile(clientId),
     planOnFile(agencyId, clientId)
@@ -83,7 +81,7 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
     demographicsOnFile,
     intakeOnFile: intakeDone,
     planOnFile: planDone,
-    setupComplete: schoolClient ? intakeDone && planDone : demographicsOnFile && intakeDone && planDone,
+    setupComplete: demographicsOnFile && intakeDone && planDone,
     schoolClient,
     paperPacket,
     packetReadPending,
