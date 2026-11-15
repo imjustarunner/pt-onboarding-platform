@@ -35,3 +35,11 @@ it('separates internal scheduling logs from messages without claiming the family
  await w.get('input[type=checkbox]').setValue(true);expect(w.findAll('li')).toHaveLength(2);
  expect(w.findAll('li')[0].text()).toContain('Internal record only');w.unmount();
 });
+
+it('keeps older message history reachable when a page contains only internal records', async () => {
+ api.get.mockResolvedValue({data:{notifications:[],hasMore:true,nextOffset:50}});
+ const w=mount(History,{props:{clientId:5,guardian:true}});await flushPromises();
+ expect(w.text()).toContain('No messages on this page');expect(w.text()).toContain('Load older communications');
+ await w.findAll('button').find(b=>b.text()==='Load older communications').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenLastCalledWith('/guardian-portal/clients/5/notification-history',expect.objectContaining({params:{offset:50}}));w.unmount();
+});
