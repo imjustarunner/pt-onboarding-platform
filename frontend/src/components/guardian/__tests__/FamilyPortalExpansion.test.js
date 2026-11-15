@@ -82,3 +82,23 @@ it('uses tutoring wording for access help and recovery, including a changed serv
  expect(w.text()).toContain('Contact the tutoring team to review it.');expect(w.text()).toContain('Contact the tutoring team if this list needs review.');expect(w.text()).not.toContain('care team');
  await w.setProps({learningOnly:false});expect(w.text()).toContain('Contact the care team to review it.');w.unmount();
 });
+
+it.each([true,false])('explains missing provider assignment without opening an unavailable conversation (learning=%s)',async learningOnly=>{
+ const {default:Access}=await import('../GuardianCareAccess.vue');
+ api.get.mockRejectedValue({response:{status:409,data:{error:{message:'An active assigned provider is required before secure messaging is available.'}}}});
+ const w=mount(Access,{props:{clientId:8,clientName:'Parker',learningOnly}});await flushPromises();
+ expect(w.text()).toContain(`A ${learningOnly?'tutor':'provider'} must be assigned`);
+ expect(w.text()).toContain(`Contact the ${learningOnly?'tutoring team':'care team'} to arrange this.`);
+ const open=w.findAll('button').find(b=>b.text().includes('conversation'));expect(open.element.disabled).toBe(true);expect(w.emitted('messages')).toBeUndefined();
+ api.get.mockResolvedValue({data:{participants:[{id:9,name:'Synthetic Parent',role:'guardian'},{id:11,name:'Assigned provider',role:'provider'}]}});
+ await w.findAll('button').find(b=>b.text()==='Try again').trigger('click');await flushPromises();
+ expect(w.text()).not.toContain('must be assigned');expect(open.element.disabled).toBe(false);await open.trigger('click');expect(w.emitted('messages')).toHaveLength(1);w.unmount();
+});
+it('does not restore an old messaging audience after switching the selected child',async()=>{
+ const {default:Access}=await import('../GuardianCareAccess.vue');let finishOld;
+ api.get.mockImplementation(url=>url.includes('/8/')?new Promise(resolve=>{finishOld=resolve}):Promise.resolve({data:{participants:[{id:12,name:'Current permitted guardian',role:'guardian'}]}}));
+ const w=mount(Access,{props:{clientId:8,clientName:'First child',learningOnly:true}});await flushPromises();
+ await w.setProps({clientId:9,clientName:'Second child'});await flushPromises();
+ finishOld({data:{participants:[{id:13,name:'Old private participant',role:'guardian'}]}});await flushPromises();
+ expect(w.text()).toContain('Current permitted guardian');expect(w.text()).not.toContain('Old private participant');w.unmount();
+});
