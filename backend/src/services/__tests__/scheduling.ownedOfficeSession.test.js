@@ -70,3 +70,8 @@ it('keeps the reserved wall time across daylight saving changes',()=>{
  const dates=ownedOfficeSessionOccurrences({...input,startAt:'2027-03-04 22:00:00',endAt:'2027-03-04 23:00:00',timeZone:'America/Denver'});
  expect(dates.map(row=>row.startAt)).toEqual(['2027-03-04 22:00:00','2027-03-18 21:00:00']);
 });
+it('carries one stable next-session confirmation policy after the full recurring selection is linked',async()=>{
+ await bookSessionInOwnedOffice(input);expect(m.schedule).toHaveBeenCalledTimes(2);expect(m.notice).toHaveBeenCalledTimes(2);
+ for(const [,options] of m.notice.mock.calls)expect(options).toMatchObject({eventType:'created',facts:{recurringBooking:{nextAppointmentId:100,occurrenceCount:2}}});
+ expect(m.notice.mock.calls[0][1].facts.recurringBooking.id).toBe(m.notice.mock.calls[1][1].facts.recurringBooking.id);
+});

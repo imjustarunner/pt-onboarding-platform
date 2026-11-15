@@ -344,3 +344,39 @@ it('keeps the established digest and recipient protections while linking its mai
  expect(h.deps.portal).toHaveBeenCalledWith(2,8,2,expect.objectContaining({id:2}));
  await h.service.process(2);expect(h.deps.sendEmail).toHaveBeenCalledOnce();
 });
+
+it('sends one next-session booking confirmation for a 26-session recurring selection, even when queued in reverse order', async () => {
+ const h=harness(); const appointments=Array.from({length:26},(_,i)=>({id:i+1,agencyId:2,providerUserId:5,status:'scheduled',startAt:new Date(Date.UTC(2030,0,2+i*7,17)).toISOString(),endAt:new Date(Date.UTC(2030,0,2+i*7,18)).toISOString(),sourceTimezone:'America/Denver'}));
+ for(const a of appointments)h.appointments.set(a.id,a);
+ const {recurringBookingNoticeFacts}=await import('../../utils/recurringBookingNotice.js');
+ const facts=recurringBookingNoticeFacts('synthetic-series',appointments,new Date('2030-01-01T10:00:00Z'));
+ for(const a of [...appointments].reverse())await h.service.queue(a.id,{eventType:'created',facts});
+ expect(h.notices.filter(n=>n.status==='pending').map(n=>n.appointment_id)).toEqual([1]);
+ expect(h.notices.filter(n=>n.status==='superseded')).toHaveLength(25);
+ h.advance(16);for(const n of h.notices)await h.service.process(n.id);
+ expect(h.deps.sendEmail).toHaveBeenCalledOnce();expect(h.deps.sendSms).toHaveBeenCalledOnce();
+ const email=h.deps.sendEmail.mock.calls[0][0];expect(email.subject).toBe('Your next recurring appointment is scheduled');expect(email.text).toContain('January 2, 2030');expect(email.text).not.toContain('January 9, 2030');
+ expect(h.deps.sendSms.mock.calls[0][0].body).toContain('next recurring appointment is scheduled');expect(h.deps.sendSms.mock.calls[0][0].body).not.toContain('updated');
+ expect(h.deps.communication.mock.calls).toHaveLength(2);expect(h.deps.communication.mock.calls[0][0].metadata).toMatchObject({appointmentIds:[1],scheduleNoticeType:'appointment_scheduled'});
+ for(const a of appointments)await h.service.queue(a.id,{eventType:'created',facts});
+ h.advance(16);for(const n of h.notices)await h.service.process(n.id);expect(h.deps.sendEmail).toHaveBeenCalledOnce();
+});
+
+it('labels a new booking as scheduled in email, SMS, and history metadata, and keeps actual later moves distinct', async () => {
+ const h=harness(),a=h.appointments.get(1);a.status='scheduled';await h.service.queue(1,{eventType:'created'});h.advance(16);await h.service.process(1);
+ expect(h.deps.sendEmail.mock.calls[0][0].subject).toBe('Your appointment is scheduled');expect(h.deps.sendSms.mock.calls[0][0].body).not.toContain('updated');
+ expect(h.deps.communication.mock.calls[0][0].metadata.scheduleNoticeType).toBe('appointment_scheduled');
+ const before={...a};a.startAt='2030-01-05T17:00:00Z';await h.service.queue(1,{eventType:'moved',before});h.advance(16);await h.service.process(2);
+ expect(h.deps.sendEmail.mock.calls[1][0].subject).toBe('Your appointment has moved');expect(h.deps.communication.mock.calls[2][0].metadata.scheduleNoticeType).toBe('appointment_rescheduled');
+});
+
+it('preserves independent bookings and identifies a multi-booking confirmation without calling it a change', () => {
+ const entries=[1,2].map(id=>({appointment:{id,startAt:'2030-01-02T17:00:00Z'},payload:{eventType:'created',initialBooking:true,facts:{}}}));
+ const message=buildScheduleNoticeMessage(entries,'https://portal.example.test/guardian');expect(message.subject).toBe('Your appointments are scheduled');expect(message.sms).not.toContain('updated');
+ const updated=buildScheduleNoticeMessage([{...entries[0],payload:{eventType:'updated',initialBooking:false,facts:{}}}],'https://portal.example.test/guardian');expect(updated.subject).toBe('Your appointment details have been updated');
+});
+
+it('does not send an outdated booking confirmation if delivery resumes after the appointment has started',async()=>{
+ const h=harness();h.appointments.get(1).status='scheduled';await h.service.queue(1,{eventType:'created'});h.advance(60*48);await h.service.process(1);
+ expect(h.notices[0].status).toBe('skipped');expect(h.deps.sendEmail).not.toHaveBeenCalled();expect(h.deps.sendSms).not.toHaveBeenCalled();
+});

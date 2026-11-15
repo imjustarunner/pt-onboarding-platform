@@ -1,3 +1,5 @@
+import { appointmentNoticeKind, batchAppointmentNoticeKind } from '../utils/appointmentNoticeKind.js';
+import { isLaterRecurringBooking } from '../utils/recurringBookingNotice.js';
 import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -75,7 +77,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
   async function audit(row, status, message, extra = {}) {
     await d.log({ appointmentId: row.appointment_id, agencyId: row.agency_id, channel: extra.channel || 'in_app', kind: 'other',
       bodyPreview: message, createdByUserId: row.created_by_user_id,
-      metadata: { scheduleNotice: true, scheduleNoticeId: row.id, clientId: row.client_id, deliveryStatus: status, body: message, ...extra } });
+      metadata: { scheduleNotice: true, eventType: row.event_type || null, scheduleNoticeType: appointmentNoticeKind(row.event_type), scheduleNoticeId: row.id, clientId: row.client_id, deliveryStatus: status, body: message, ...extra } });
   }
   async function summary(appointmentId) {
     const [rows] = await db.execute('SELECT id,status,fire_at,payload_json FROM appointment_schedule_notices WHERE appointment_id=? ORDER BY id', [appointmentId]);
@@ -133,7 +135,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const [previous] = await db.execute("SELECT * FROM appointment_schedule_notices WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending' ORDER BY id", [a.agencyId, providerId, clientId]);
         const prior = previous.filter(r => Number(r.appointment_id) === Number(a.id)).at(-1);
         const priorPayload = prior ? decode(prior.payload_json) : null;
-        const payload = { eventType, facts, originalStartAt: priorPayload?.originalStartAt || before?.startAt || a.startAt,
+        const payload = { eventType, facts: { ...(priorPayload?.initialBooking && priorPayload.facts?.recurringBooking ? { recurringBooking: priorPayload.facts.recurringBooking } : {}), ...facts }, originalStartAt: priorPayload?.originalStartAt || before?.startAt || a.startAt,
           initialBooking: eventType === 'created' || priorPayload?.initialBooking === true,
           ...(individualCancellationReview?{individualCancellationReview}:{}) };
         if (!clientSuppressed && ['private_slots','portal_booking'].includes(facts.followUpAction)) {
@@ -158,21 +160,24 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           const p = decode(row.payload_json);
           due = new Date(Math.min(+due, +scheduleNoticeDeadline({ now: d.now(), firstQueuedAt, startAt: p.originalStartAt })));
         }
-        const state = clientSuppressed ? 'suppressed' : 'pending';
+        const laterOccurrence = eventType === 'created' && isLaterRecurringBooking(a.id, facts);
+        const state = clientSuppressed ? 'suppressed' : laterOccurrence ? 'superseded' : 'pending';
         const [insert] = await db.execute(`INSERT INTO appointment_schedule_notices
           (appointment_id,agency_id,provider_id,client_id,event_type,status,payload_json,channels_json,fire_at,created_by_user_id)
           VALUES (?,?,?,?,?,?,?,?,?,?)`, [a.id,a.agencyId,providerId,clientId,eventType,state,d.encrypt(JSON.stringify(payload)),JSON.stringify(allowedChannels.filter(ch => !selectedContacts || selectedContacts.channels.includes(ch))),sqlDate(due),actorUserId]);
-        if (!clientSuppressed) await db.execute("UPDATE appointment_schedule_notices SET fire_at=? WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending'", [sqlDate(due),a.agencyId,providerId,clientId]);
-        const row = { ...group, id: insert.insertId, appointment_id: a.id, created_by_user_id: actorUserId };
-        const explanation = serviceStopped ? 'This service has ended. Email and text notifications are disabled.'
+        if (state === 'pending') await db.execute("UPDATE appointment_schedule_notices SET fire_at=? WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending'", [sqlDate(due),a.agencyId,providerId,clientId]);
+        const row = { ...group, id: insert.insertId, appointment_id: a.id, event_type: eventType, created_by_user_id: actorUserId };
+        const explanation = laterOccurrence && !clientSuppressed ? 'Recurring appointment saved. Its booking confirmation is included with the next upcoming session; no separate message was queued for this future occurrence.'
+          : serviceStopped ? 'This service has ended. Email and text notifications are disabled.'
           : serviceEnding ? 'One service-ending summary queued, including the complete future cancellation selection.'
           : retrospect && !attendanceOutcome ? 'Past appointment: record updated only. No cancellation notice, replacement offer, or rescheduling follow-up was sent.'
           : clientSuppressed ? 'Provider chose no email or text. See the signed cancellation record.'
+            : eventType === 'created' ? 'Booking confirmation queued for the next upcoming appointment. Current appointment details are checked before sending.'
             : 'Schedule update queued. Related edits for this client and provider will be combined; the final appointment details are checked before sending.';
-        await audit(row, state, explanation, { scheduledFor: clientSuppressed ? null : due.toISOString() });
+        await audit(row, state, explanation, { scheduledFor: state === 'pending' ? due.toISOString() : null });
         if (payload.offerUnavailableReason) await audit(row, 'review', payload.offerUnavailableReason);
-        if (clientSuppressed) await d.communication({ agencyId:a.agencyId,clientId,templateType:'session_change',channel:'in_app',
-          subject:'Schedule record updated without notification',body:explanation,deliveryStatus:'skipped',generatedByUserId:actorUserId,metadata:{appointmentId:a.id,scheduleNoticeId:row.id} });
+        if (clientSuppressed && !laterOccurrence) await d.communication({ agencyId:a.agencyId,clientId,templateType:'session_change',channel:'in_app',
+          subject:'Schedule record updated without notification',body:explanation,deliveryStatus:'skipped',generatedByUserId:actorUserId,metadata:{appointmentId:a.id,scheduleNoticeId:row.id,scheduleNoticeType:appointmentNoticeKind(eventType)} });
       });
     }
     // Old confirmation and provider-push queues must not race this single schedule update.
@@ -197,6 +202,10 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         if (!linked || (!active(a) && !canceled(a))) {
           await db.execute("UPDATE appointment_schedule_notices SET status='skipped' WHERE id=?", [row.id]);
           await audit(row,'skipped','Appointment or recipient is no longer eligible for this update.'); continue;
+        }
+        if ((payload.eventType === 'created' || payload.initialBooking) && active(a) && !futureAppointment(a,d.now())) {
+          await db.execute("UPDATE appointment_schedule_notices SET status='skipped' WHERE id=?",[row.id]);
+          await audit(row,'skipped','This booking is no longer upcoming. No booking confirmation was sent.');continue;
         }
         if(await d.serviceBlocked({appointment:a,clientId:row.client_id,facts:payload.facts})){
           await db.execute("UPDATE appointment_schedule_notices SET status='suppressed' WHERE id=?",[row.id]);
@@ -229,6 +238,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       // queued appointment and retain an exact link for every listed visit.
       const portalUrl = entries.at(-1).portalUrl;
       const message = buildScheduleNoticeMessage(entries,portalUrl);
+      const noticeType = batchAppointmentNoticeKind(entries);
       const channels = [...new Set(entries.flatMap(e => typeof e.row.channels_json === 'string' ? JSON.parse(e.row.channels_json) : e.row.channels_json || []))];
       const batchId = entries[0].row.id;
       for (const e of entries) {
@@ -264,7 +274,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           }
           communication = await d.communication({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,
             templateType:individualEmail?'session_cancellation':'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,
-            metadata:{appointmentIds:entries.map(e=>e.appointment.id),scheduleNoticeBatchId:batchId},deliveryStatus:'pending'});
+            metadata:{appointmentIds:entries.map(e=>e.appointment.id),scheduleNoticeBatchId:batchId,scheduleNoticeType:noticeType},deliveryStatus:'pending'});
           const portalGuardianAuthorized = !target?.userId || !family.hasRelationships || family.recipients.some(r => r.userId === Number(target.userId));
           const facts=entries[0].payload.facts || {};
           const review={reviewedCancellationToken:facts.reviewedCancellationToken,reviewedCancellationItemKey:facts.reviewedCancellationItemKey,actorUserId:seed.created_by_user_id};
@@ -329,7 +339,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           [status,recipient,communication?.id || null,externalId,reason,sentAt,delivery.insertId]);
         if (communication?.id) await d.updateCommunication(communication.id,['review','held'].includes(status)?'flagged':status,externalId,null,reason);
         for (const e of entries) await audit(e.row,status,body,{channel,subject:recipientMessage.subject,recipient,reason,sentAt,
-          scheduleNoticeDeliveryId:delivery.insertId,communicationId:communication?.id || null,externalMessageId:externalId});
+          scheduleNoticeType:noticeType,scheduleNoticeDeliveryId:delivery.insertId,communicationId:communication?.id || null,externalMessageId:externalId});
       }
       for (const e of entries) await db.execute("UPDATE appointment_schedule_notices SET status='processed' WHERE id=?",[e.row.id]);
     });

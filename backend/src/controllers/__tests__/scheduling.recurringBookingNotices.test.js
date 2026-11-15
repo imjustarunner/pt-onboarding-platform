@@ -1,0 +1,31 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({create:vi.fn(),bundle:vi.fn(),link:vi.fn(),queue:vi.fn(),reminders:vi.fn(),event:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(async()=>[{id:2}]),findById:vi.fn(async()=>({id:5}))}}));
+vi.mock('../../models/Appointment.model.js',()=>({default:{}}));
+vi.mock('../../models/BookingPackage.model.js',()=>({default:{}}));
+vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{create:m.event}}));
+vi.mock('../../services/googleCalendar.service.js',()=>({default:{upsertProviderPrimaryCalendarEvent:vi.fn(async()=>({skipped:true}))}}));
+vi.mock('../../services/sameDayServiceWarning.service.js',()=>({confirmSameDayServiceWarnings:vi.fn(async()=>true)}));
+vi.mock('../../services/schedulingBillingAccess.service.js',()=>({hasSchedulingBillingAccess:vi.fn(async()=>false),schedulingResponseForUser:vi.fn(async(u,a,v)=>v)}));
+vi.mock('../../services/appointmentClinicalLink.service.js',()=>({ensureAppointmentClinicalLink:vi.fn()}));
+vi.mock('../../services/appointment.service.js',()=>({createAppointment:m.create,getAppointmentBundle:m.bundle,linkProviderScheduleEvent:m.link,updateAppointment:vi.fn(),cancelAppointment:vi.fn(),settleAppointment:vi.fn()}));
+vi.mock('../../services/appointmentScheduleNotice.service.js',()=>({appointmentScheduleNotices:{queue:m.queue}}));
+vi.mock('../../services/sessionNotification.service.js',()=>({scheduleSessionNotifications:m.reminders}));
+import {createAppointmentHandler} from '../appointment.controller.js';
+let saved;
+beforeEach(()=>{vi.clearAllMocks();vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2029-12-01T00:00:00Z'));saved=[];
+ m.create.mockImplementation(async data=>{const row={...data,id:saved.length+1,status:'scheduled'};saved.push(row);return row;});m.bundle.mockImplementation(async id=>saved.find(a=>a.id===id));m.event.mockImplementation(async()=>({id:saved.length+100}));});
+afterEach(()=>vi.useRealTimers());
+const request=()=>({user:{id:5,role:'provider'},body:{agencyId:2,providerUserId:5,startAt:'2030-01-02T17:00:00Z',endAt:'2030-01-02T18:00:00Z',timeZone:'UTC',recurrence:'WEEKLY',occurrenceCount:3,participants:[{clientId:8,role:'client'}]}});
+const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
+it('finishes and links the full series before releasing the one next-session confirmation policy',async()=>{
+ const res=response(),next=vi.fn();await createAppointmentHandler(request(),res,next);expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
+ expect(m.create).toHaveBeenCalledTimes(3);expect(m.create.mock.calls.every(([args])=>args.deferScheduleNotice===true)).toBe(true);
+ expect(m.reminders).toHaveBeenCalledTimes(3);expect(m.queue).toHaveBeenCalledTimes(3);expect(m.link.mock.invocationCallOrder.at(-1)).toBeLessThan(m.queue.mock.invocationCallOrder[0]);
+ for(const [,options] of m.queue.mock.calls)expect(options.facts.recurringBooking).toMatchObject({nextAppointmentId:1,occurrenceCount:3});
+});
+it('keeps partial recurring bookings quiet when a later calendar link fails',async()=>{
+ m.event.mockRejectedValueOnce(Error('Calendar facet unavailable'));const res=response();await createAppointmentHandler(request(),res,vi.fn());
+ expect(res.status).toHaveBeenCalledWith(500);expect(m.queue).not.toHaveBeenCalled();expect(m.create.mock.calls[0][0].deferScheduleNotice).toBe(true);
+});

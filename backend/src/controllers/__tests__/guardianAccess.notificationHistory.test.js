@@ -114,3 +114,11 @@ it('keeps internal series audit records out of family communications and labels 
   expect(JSON.stringify(staff.json.mock.calls)).not.toContain('private audit detail');
   expect(mocks.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT '))).toBe(true);
 });
+
+it('labels booking and move deliveries from explicit stored metadata without changing delivery evidence',async()=>{
+ mocks.execute.mockResolvedValue([[
+  {id:'email-22',channel:'email',notification_type:'session_change',recipient_address:'synthetic@example.test',delivery_status:'sent',appointment_metadata:JSON.stringify({scheduleNoticeType:'appointment_scheduled',privateBody:'private'})},
+  {id:'session-23',channel:'sms',notification_type:'other',appointment_metadata:JSON.stringify({scheduleNotice:true,eventType:'moved',recipient:'+15555550111',deliveryStatus:'sent'})}
+ ]]);const res=response();await listClientNotificationHistory(request(),res,vi.fn());
+ expect(res.json.mock.calls[0][0].notifications.map(r=>r.type)).toEqual(['appointment_scheduled','appointment_rescheduled']);expect(res.json.mock.calls[0][0].notifications.every(r=>r.status==='sent')).toBe(true);expect(JSON.stringify(res.json.mock.calls)).not.toContain('privateBody');
+});
