@@ -4,6 +4,8 @@ import {resolveClientRecordAccess} from '../clientRecordAccess.service.js';
 import {requireStaffCareEligibility} from '../staffCareEligibility.service.js';
 import {supervisorCanAccessClientInOrg} from '../../utils/supervisorSchoolAccess.js';
 import {requireClinicalScope} from '../guardianClinicalAccess.service.js';
+import {guardianCanReadIntakeDocuments} from '../../utils/guardianDocumentAccess.js';
+import {isDobAdultLocked} from '../../utils/guardianWaivers.utils.js';
 import {positiveId,fail} from './template.js';
 export const staffRoles=['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'];
 export function staffRole(user){if(!user?.id)fail(401,'Sign in to continue.');if(user.demoMode||user.switchedFromUserId||!staffRoles.includes(user.role))fail(403,'Use your own clinical staff account.');}
@@ -30,9 +32,15 @@ export async function planAccess(user,row,{write=false}={}){
 }
 export async function recipientAccess(row,userId,kind){
  if(!row.client_id)fail(400,'Link the plan to a client record before sharing it to a portal.');
- const [[link]]=await pool.execute('SELECT cg.relationship_type,u.first_name,u.last_name FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=? AND cg.guardian_user_id=? AND cg.access_enabled=1',[row.client_id,positiveId(userId)]);
+ const [[link]]=await pool.execute('SELECT cg.relationship_type,cg.access_enabled,cg.permissions_json,c.date_of_birth,u.first_name,u.last_name FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=? AND cg.guardian_user_id=? AND cg.access_enabled=1',[row.client_id,positiveId(userId)]);
  if(!link||(kind==='client')!==(link.relationship_type==='self'))fail(403,'Select the appropriate linked client or guardian account.');
- await requireClinicalScope({agencyId:row.agency_id,clientId:row.client_id,userId:Number(userId),scope:!row.document_key||row.document_key==='safety-plan'?'safety_plan':'clinical_documents'});
+ // Explicit enrollment assignments grant access to that form, not the chart.
+ // Keep the intake-document restrictions and adult-client consent boundary.
+ if(row.document_key==='enrollment-document') {
+  if(!guardianCanReadIntakeDocuments(link))fail(403,'Document access is disabled for this portal relationship.');
+  if(link.relationship_type!=='self'&&isDobAdultLocked(link.date_of_birth))
+   await requireClinicalScope({agencyId:row.agency_id,clientId:row.client_id,userId:Number(userId),scope:'clinical_documents'});
+ } else await requireClinicalScope({agencyId:row.agency_id,clientId:row.client_id,userId:Number(userId),scope:!row.document_key||row.document_key==='safety-plan'?'safety_plan':'clinical_documents'});
  return `${link.first_name||''} ${link.last_name||''}`.trim();
 }
 export async function recipientOptions(user,row){

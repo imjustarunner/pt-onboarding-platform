@@ -57,6 +57,11 @@ jobs:
       - name: Prepare native password dependency for guardian service imports
         working-directory: backend
         run: npm rebuild bcrypt --no-fund --no-audit
+      - name: Portal assignment, disclosure boundaries, and multi-form completion
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.safety-plans.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.clinical-forms.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.auricwell-portal-fixes.config.js frontend/src/components/clients/__tests__/ClientPortalOverview.test.js
       - name: Configure exact backend guardian regression suite
         run: |
           node --input-type=module <<'NODE'

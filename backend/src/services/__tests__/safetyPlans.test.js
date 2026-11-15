@@ -18,6 +18,7 @@ import {requireClinicalScope} from '../guardianClinicalAccess.service.js';
 import {maybeDecryptNotePayload} from '../clinicalNoteCrypto.service.js';
 import {normalizeSafetyPlan,signatureEvidence} from '../safetyPlans/template.js';
 import * as records from '../safetyPlans/records.js';
+import {assignPortalDocuments} from '../portalDocumentAssignments.service.js';
 import {queueClinicalFormNotification} from '../safetyPlans/notificationQueue.js';
 const staff={id:7,role:'provider',first_name:'Synthetic',last_name:'Clinician'};
 const guardian={id:20,role:'client_guardian'},clientUser={id:21,role:'client'};
@@ -28,6 +29,10 @@ const signature=()=>({name:'Synthetic Signer',consent:true,signature:'data:image
 let state,backup,failSnapshot;
 function rows(value){return [value];}
 async function execute(sql,p=[]){
+ if(sql.startsWith('INSERT INTO clinical_form_assignment_batches')){if(!state.batches.some(b=>JSON.stringify(b.key)===JSON.stringify(p.slice(0,4))))state.batches.push({key:p.slice(0,4),request_hash:p[4],result_json:null});return [{affectedRows:1}];}
+ if(sql.startsWith('SELECT request_hash,result_json'))return rows(state.batches.filter(b=>JSON.stringify(b.key)===JSON.stringify(p)));
+ if(sql.startsWith('UPDATE clinical_form_assignment_batches')){state.batches.find(b=>JSON.stringify(b.key)===JSON.stringify(p.slice(1))).result_json=p[0];return [{affectedRows:1}];}
+
  if(sql.startsWith('SELECT * FROM clinical_form_records WHERE id'))return rows(state.plans.filter(r=>r.id===Number(p[0])));
  if(sql.includes('AND created_by_user_id=? AND client_id IS NULL'))return rows(state.plans.filter(r=>r.agency_id===Number(p[0])&&r.created_by_user_id===p[1]&&!r.client_id));
  if(sql.startsWith('SELECT * FROM clinical_form_records WHERE agency'))return rows(state.plans.filter(r=>r.agency_id===Number(p[0])&&(sql.includes('AND client_id=?')?r.client_id===Number(p[1]):r.created_by_user_id===p[1]||(!r.client_id&&p[2]===1))));
@@ -47,13 +52,13 @@ async function execute(sql,p=[]){
  throw Error('Unhandled SQL: '+sql);
 }
 beforeEach(()=>{
- vi.clearAllMocks();vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,3).toString('base64'));state={plans:[],versions:[],events:[],signers:[]};failSnapshot=false;
+ vi.clearAllMocks();vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,3).toString('base64'));state={plans:[],versions:[],events:[],signers:[],batches:[]};failSnapshot=false;
  db.execute.mockImplementation(execute);db.getConnection.mockResolvedValue({execute,beginTransaction:async()=>{backup=structuredClone(state);},commit:async()=>{},rollback:async()=>{state=backup;},release:()=>{}});
  User.getAgencies.mockResolvedValue([{id:2}]);requireStaffCareEligibility.mockResolvedValue({});requireClinicalScope.mockResolvedValue({});resolveClientRecordAccess.mockResolvedValue({ok:true,isAssignedClinician:true,client});
  main.execute.mockImplementation(async(sql,p)=>{
   if(sql.includes('FROM agencies'))return [[{id:2,name:'ITSCO',slug:'itsco',logo_path:'logos/itsco.png',color_palette:'{"primary":"#175b48"}'}]];
   if(sql.includes('SELECT guardian_user_id'))return [[{id:20,relationship_type:'parent'},{id:21,relationship_type:'self'}]];
-  if(sql.includes('cg.relationship_type'))return [[{relationship_type:p[1]===21?'self':'parent',first_name:'Synthetic',last_name:p[1]===21?'Client':'Guardian'}]];
+  if(sql.includes('cg.relationship_type'))return [[{relationship_type:p[1]===21?'self':'parent',access_enabled:1,date_of_birth:'2010-01-01',permissions_json:{},first_name:'Synthetic',last_name:p[1]===21?'Client':'Guardian'}]];
   throw Error('Unexpected main SQL');
  });
 });
@@ -206,4 +211,46 @@ it('attributes portal preview to staff and constrains the selected practice and 
  expect(state.events).toHaveLength(before);
  await records.portalRead(guardian,1,{agencyId:input().agencyId,clientId:input().clientId,auditActor:staff});
  expect(state.events.at(-1)[2]).toBe(staff.id);expect(state.events.at(-1)[3]).toBe('portal_previewed');
+});
+
+
+describe('portal assignment batches',()=>{
+ const batch=(documents,extra={})=>({agencyId:2,requestKey:'10000000-0000-4000-a000-000000000001',recipient:{id:20,kind:'guardian'},authorityConfirmed:true,action:'complete',context:{channel:'school',audience:'guardian',service:'counseling',locale:'en'},planDate:'2026-11-14',documents,...extra});
+ it('assigns new enrollment forms and saved documents together with one notification',async()=>{
+  const saved=await records.savePlan(staff,input());
+  const result=await assignPortalDocuments(staff,41,batch([{recordId:saved.id,version:1},{foundationKey:'privacy'}]));
+  expect(result).toMatchObject({assignedCount:2,alreadyAssignedCount:0,recipientId:20});expect(state.signers).toHaveLength(2);
+  expect(queueClinicalFormNotification).toHaveBeenCalledTimes(1);expect(state.batches[0].key[2]).toBe(staff.id);
+  expect(state.events.every(e=>e[2]===staff.id)).toBe(true);
+ });
+ it('reuses an atomic result on retry and rejects reuse for a different selection',async()=>{
+  const request=batch([{foundationKey:'privacy'}]);const first=await assignPortalDocuments(staff,41,request);
+  expect(await assignPortalDocuments(staff,41,request)).toEqual(first);expect(state.plans).toHaveLength(1);expect(state.signers).toHaveLength(1);expect(queueClinicalFormNotification).toHaveBeenCalledTimes(1);
+  await expect(assignPortalDocuments(staff,41,{...request,action:'sign'})).rejects.toMatchObject({status:409});expect(state.plans).toHaveLength(1);
+ });
+ it('rolls back earlier form creation and sharing if a later item belongs to another client',async()=>{
+  const saved=await records.savePlan(staff,input());state.plans[0].client_id=99;
+  await expect(assignPortalDocuments(staff,41,batch([{foundationKey:'privacy'},{recordId:saved.id,version:1}]))).rejects.toMatchObject({status:403});
+  expect(state.plans).toHaveLength(1);expect(state.signers).toHaveLength(0);expect(state.batches).toHaveLength(0);expect(queueClinicalFormNotification).not.toHaveBeenCalled();
+ });
+ it('rejects stale versions and missing authority before leaving any assignment',async()=>{
+  const saved=await records.savePlan(staff,input());
+  await expect(assignPortalDocuments(staff,41,batch([{recordId:saved.id,version:2}]))).rejects.toMatchObject({status:409});
+  await expect(assignPortalDocuments(staff,41,batch([{foundationKey:'privacy'}],{authorityConfirmed:false}))).rejects.toMatchObject({status:400});expect(state.signers).toHaveLength(0);
+ });
+ it('keeps already assigned items without creating duplicate requests or notifications',async()=>{
+  const saved=await records.savePlan(staff,input());await records.addSigner(staff,saved.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true});queueClinicalFormNotification.mockClear();
+  expect(await assignPortalDocuments(staff,41,batch([{recordId:saved.id,version:1}]))).toMatchObject({assignedCount:0,alreadyAssignedCount:1});expect(state.signers).toHaveLength(1);expect(queueClinicalFormNotification).not.toHaveBeenCalled();
+ });
+ it('allows explicitly assigned enrollment forms without granting access to clinical records',async()=>{
+  requireClinicalScope.mockRejectedValue(Object.assign(Error('No chart disclosure'),{status:403}));
+  expect(await assignPortalDocuments(staff,41,batch([{foundationKey:'privacy'}]))).toMatchObject({assignedCount:1});
+  expect((await records.portalList(guardian,41)).shares).toHaveLength(1);
+  const clinical=await records.savePlan(staff,input());await expect(records.addSigner(staff,clinical.id,{version:1,kind:'guardian',userId:20,authorityConfirmed:true,allowCompletion:true})).rejects.toMatchObject({status:403});
+ });
+ it.each([{permissions_json:{canViewDocs:false}},{permissions_json:{noView:true}},{permissions_json:{noViewOtherGuardian:true}},{date_of_birth:'1990-01-01'}])('preserves relationship restrictions for enrollment sharing: %j',async patch=>{
+  const original=main.execute.getMockImplementation();main.execute.mockImplementation((sql,p)=>sql.includes('cg.relationship_type')?Promise.resolve([[{relationship_type:'parent',access_enabled:1,date_of_birth:'2010-01-01',permissions_json:{},first_name:'Synthetic',last_name:'Guardian',...patch}]]):original(sql,p));
+  requireClinicalScope.mockRejectedValue(Object.assign(Error('Disclosure denied'),{status:403}));
+  await expect(assignPortalDocuments(staff,41,batch([{foundationKey:'privacy'}]))).rejects.toMatchObject({status:403});expect(state.plans).toHaveLength(0);expect(state.signers).toHaveLength(0);
+ });
 });

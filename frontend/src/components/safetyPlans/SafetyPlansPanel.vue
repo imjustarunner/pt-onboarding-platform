@@ -54,6 +54,7 @@
     </template>
    </div>
   </div>
+  <PortalDocumentAssignmentDialog v-if="portalAssignmentOpen&&record" :client-id="record.clientId" :agency-id="record.agencyId" :documents="[{recordId:record.id,version:record.version,title:record.data.documentName||record.template.title}]" :recipients="record.recipients" :initial-action="['enrollment-document','client-information-update'].includes(record.template.key)?'complete':'sign'" @close="portalAssignmentOpen=false" @assigned="assignmentSaved" />
  </section>
 </template>
 <script setup>
@@ -66,12 +67,14 @@ import NoteAidClientPicker from '../clinical/NoteAidClientPicker.vue';
 import SafetyPlanDocument from './SafetyPlanDocument.vue';
 import ClinicalDocumentCopy from './ClinicalDocumentCopy.vue';
 import SafetyPlanSigning from './SafetyPlanSigning.vue';
+import PortalDocumentAssignmentDialog from '../enrollment/PortalDocumentAssignmentDialog.vue';
 const props=defineProps({agencyId:[Number,String],initialRecordId:[Number,String],clientId:[Number,String],initialDocumentKey:{type:String,default:'safety-plan'},eventType:String,eventId:[Number,String],mine:Boolean,recordOnly:Boolean});
 const route=useRoute();
 const documentKey=ref(props.initialDocumentKey);
 const crisisPath=computed(()=>`${route.params.organizationSlug?'/'+encodeURIComponent(route.params.organizationSlug):catalog.value?.branding?.slug?'/'+encodeURIComponent(catalog.value.branding.slug):''}/library?companyDocument=crisis-response-guide#crisis-response-guide-safety-planning`);
-const portalAction=ref('sign'),sharingSection=ref(null);
-function focusSharing(){sharingSection.value?.focus();sharingSection.value?.scrollIntoView({block:'start'});}
+const portalAction=ref('sign'),sharingSection=ref(null),portalAssignmentOpen=ref(false);
+function focusSharing(){portalAssignmentOpen.value=true;}
+async function assignmentSaved(result){portalAssignmentOpen.value=false;await open(record.value.id);notice.value=result.assignedCount?'Document assigned to the portal. Notifications are grouped.':'This document is already assigned to this portal.';}
 const readDocument=ref(null),formHeading=ref(null),formTypes=ref([]);
 const formDescriptions={
  'cssrs-screener':'Record screening responses and follow-up.',
@@ -87,9 +90,9 @@ const savedSearch=ref('');
 const filteredPlans=computed(()=>plans.value.filter(p=>(p.documentKey||'safety-plan')===documentKey.value&&`${p.name||''} ${p.title||''}`.toLowerCase().includes(savedSearch.value.trim().toLowerCase())));
 const date=v=>new Date(v).toLocaleDateString();
 const message=e=>e.response?.data?.error?.message||'Clinical documents could not be loaded. Please try again.';
-function discard(){return !dirty.value||window.confirm('Leave without saving your document changes?');}
+function discard(){if(portalAssignmentOpen.value)return false;return !dirty.value||window.confirm('Leave without saving your document changes?');}
 defineExpose({confirmDiscard:discard});
-function reset(){catalog.value=null;plans.value=[];record.value=null;editing.value=false;dirty.value=false;form.value={};signing.value=null;allowUnlinked.value=false;selectedClientId.value=null;linkClientId.value=null;confirmIdentity.value=false;overrideReason.value='';error.value='';notice.value='';}
+function reset(){portalAssignmentOpen.value=false;catalog.value=null;plans.value=[];record.value=null;editing.value=false;dirty.value=false;form.value={};signing.value=null;allowUnlinked.value=false;selectedClientId.value=null;linkClientId.value=null;confirmIdentity.value=false;overrideReason.value='';error.value='';notice.value='';}
 async function load({startNew=false}={}){const g=++generation;reset();loading.value=true;busy.value=false;if(props.recordOnly&&props.initialRecordId){await open(props.initialRecordId);if(record.value)catalog.value={template:record.value.template,branding:record.value.branding};loading.value=false;return;}try{const params={...(props.clientId?{clientId:props.clientId}:{agencyId:props.agencyId}),documentKey:documentKey.value,...(props.mine?{mine:'1'}:{}),...(props.eventId?{eventId:props.eventId,eventType:props.eventType}:{})};const c=await api.get('/clinical-forms/template',{params});if(g!==generation)return;const p=await api.get('/clinical-forms',{params:c.data.client?.id?{clientId:c.data.client.id,documentKey:documentKey.value}:params});if(g!==generation)return;catalog.value=c.data;formTypes.value=c.data.catalog||[];plans.value=p.data.plans;if(startNew||(props.eventId&&!props.initialRecordId))start();}catch(e){if(g===generation)error.value=message(e);}finally{if(g===generation)loading.value=false;}if(g===generation&&catalog.value&&props.initialRecordId&&!startNew)await open(props.initialRecordId);}
 function start(){record.value=null;form.value={documentName:catalog.value.template.title,personLabel:catalog.value.client?.name||'',planDate:new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),reviewDate:'',supports:[{name:'',phone:'',role:''}],professionals:[{name:'988 Suicide & Crisis Lifeline',phone:'988',details:'Call or text for crisis support.'}],...(catalog.value.prefill||{})};selectedClientId.value=props.clientId||catalog.value.client?.id||null;allowUnlinked.value=false;overrideReason.value='';editing.value=true;dirty.value=true;signing.value=null;notice.value='';nextTick(()=>formHeading.value?.focus());}
 async function open(id,version){if(!discard())return;const g=++generation;busy.value=true;error.value='';signing.value=null;try{const {data}=await api.get(`/clinical-forms/${id}`,{params:version?{version}:{}});if(g!==generation)return;if((props.agencyId&&Number(data.agencyId)!==Number(props.agencyId))||(props.clientId&&Number(data.clientId)!==Number(props.clientId)))throw new Error('Record context mismatch');record.value=data;portalAction.value=['client-information-update','enrollment-document'].includes(data.template.key)?'complete':'sign';documentKey.value=data.documentKey||data.template.key;editing.value=false;dirty.value=false;signerUserId.value='';signerName.value='';}catch(e){if(g===generation){record.value=null;error.value=message(e);}}finally{if(g===generation)busy.value=false;}}

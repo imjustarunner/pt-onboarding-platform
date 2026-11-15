@@ -5,11 +5,11 @@ import api from '../../../services/api';
 import Overview from '../ClientPortalOverview.vue';
 const props={client:{id:7,full_name:'Fictional Client'},agency:{id:2,name:'Practice'},actor:{id:1,role:'super_admin'}};
 const accounts=[{id:10,name:'Parent One',relationship:'Parent',available:true,lastLogin:'2026-11-04T10:00:00Z'},{id:11,name:'Parent Two',relationship:'Parent',available:true}];
-const global={stubs:{PortalAccountPreview:{props:['account'],template:'<aside class="preview">{{account.name}}</aside>'}}};
+const global={stubs:{EnrollmentPortalDocuments:{props:{clientId:Number,agencyId:Number,assignmentOnly:Boolean},template:'<aside class="inline-document-assignment">Select documents and forms</aside>'},PortalAccountPreview:{props:['account'],template:'<aside class="preview">{{account.name}}</aside>'}}};
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{accounts}});});
 it('starts with an overview and sharing actions, then supports either parent or both',async()=>{
  const w=mount(Overview,{props,global});await flushPromises();expect(w.findAll('.preview')).toHaveLength(0);expect(w.text()).toContain('Linked portal accounts');expect(w.text()).toContain('Parent One');
- await w.findAll('button').find(b=>b.text()==='Share documents').trigger('click');expect(w.emitted('share-documents')).toHaveLength(1);
+ await w.findAll('button').find(b=>b.text()==='Share documents').trigger('click');expect(w.emitted('share-documents')).toBeUndefined();expect(w.find('.inline-document-assignment').exists()).toBe(true);expect(w.getComponent({ref:'assignmentWorkspace'}).props('assignmentOnly')).toBe(true);
  await w.findAll('button').find(b=>b.text()==='View as Parent Two').trigger('click');expect(w.findAll('.preview')).toHaveLength(1);expect(w.get('.preview').text()).toBe('Parent Two');
  await w.findAll('button').find(b=>b.text()==='Show all linked portal views').trigger('click');expect(w.findAll('.preview')).toHaveLength(2);w.unmount();
 });
