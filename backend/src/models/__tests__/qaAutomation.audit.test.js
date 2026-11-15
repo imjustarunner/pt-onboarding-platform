@@ -6,8 +6,10 @@ import TaskAuditLog from '../TaskAuditLog.model.js';
 import AdminAuditLog from '../AdminAuditLog.model.js';
 import PhiDocumentAuditLog from '../PhiDocumentAuditLog.model.js';
 import {appendSecurityEvidence} from '../../services/securityEvidence.service.js';
+import {projectAuditRowForSupport} from '../../services/auditReviewAccess.service.js';
+import {qaAutomationActorFor} from '../../utils/qaAutomationAttribution.js';
 import {recordSecureMessageEvent} from '../../services/secureMessageBoundary.service.js';
-beforeEach(()=>{execute.mockReset().mockImplementation(async sql=>sql.startsWith('SELECT')?[[{id:91,metadata:null}]]:[{insertId:91}]);});
+beforeEach(()=>{execute.mockReset().mockImplementation(async sql=>sql.trim().startsWith('SELECT')?[[{id:91,metadata:null}]]:[{insertId:91}]);});
 it.each([
  ['activity',data=>UserActivityLog.logActivity({actionType:'view',userId:1433,...data}),6],
  ['task',data=>TaskAuditLog.logAction({taskId:2488,actionType:'view',actorUserId:1434,...data}),4],
@@ -26,4 +28,14 @@ it('append-only security evidence identifies automation and retains its facts',a
 });
 it('secure events retain their existing actor and add an explicit automation source label',async()=>{
  await recordSecureMessageEvent({agencyId:450,threadId:379,userId:1790,eventType:'subject_list_viewed',req:{headers:{'user-agent':'HeadlessChrome'}},executor:{execute}});const args=execute.mock.calls[0][1];expect(args[4]).toBe(1790);expect(args[7]).toMatch(/^qa-automation\/1790;/);expect(args[7]).toContain('HeadlessChrome');
+});
+
+it('support can see new verified automation attribution without private metadata',()=>{
+ const row=projectAuditRowForSupport({id:91,user_id:1433,metadata:{clientId:2560,privateBody:'Never disclose',automationActor:qaAutomationActorFor(1433)}});expect(row.metadata.automationActor.actorUserId).toBe(1433);expect(JSON.stringify(row)).not.toContain('Never disclose');expect(row.user_link).toBeNull();
+});
+it('support does not retroactively classify history or accept attribution for another actor',()=>{
+ expect(projectAuditRowForSupport({user_id:1433,metadata:{clientId:2560}}).metadata).toEqual({clientId:2560});expect(projectAuditRowForSupport({user_id:501,metadata:{automationActor:qaAutomationActorFor(1433)}}).metadata).toEqual({});
+});
+it('own activity reads join client labels within the event agency',async()=>{
+ await UserActivityLog.getActivityLog({userId:1433});const [sql,args]=execute.mock.calls[0];expect(sql).toContain('LEFT JOIN clients c');expect(sql).toContain('c.agency_id = ual.agency_id');expect(args).toEqual([1433]);
 });

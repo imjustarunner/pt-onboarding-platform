@@ -29,3 +29,8 @@ export function qaAuditMetadataJson(metadata,userId) {
  const value=withQaAutomationAttribution(metadata,userId);
  return value ? JSON.stringify(value) : null;
 }
+
+export function verifiedQaAutomationAttribution(metadata,userId) {
+ const expected=qaAutomationActorFor(userId),stored=metadata?.automationActor;
+ return expected&&stored?.kind===expected.kind&&stored.actorUserId===expected.actorUserId&&stored.authorizationRef===expected.authorizationRef?expected:null;
+}
