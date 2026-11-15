@@ -18,6 +18,7 @@ vi.mock('../../services/clinicalNoteSigningToken.service.js', () => ({ withClini
 vi.mock('../../services/schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: () => false, schedulingResponseForUser: x => x }));
 vi.mock('../../models/AdminAuditLog.model.js', () => ({ default: { logAction: m.audit } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: async () => [] } }));
+vi.mock('../../models/ClinicalNoteDraft.model.js', () => ({ default: { findByIdForUser: vi.fn(async () => null) } }));
 vi.mock('../../services/clientAccessLog.service.js', () => ({ logClientAccess: vi.fn() }));
 vi.mock('../../models/ClinicalRecordRef.model.js', () => ({ default: { upsert: m.ref } }));
 vi.mock('../../models/clinical/ClinicalSession.model.js', () => ({ default: { findById: m.session } }));
@@ -42,6 +43,7 @@ vi.mock('../../models/clinical/ClinicalTreatmentObjectiveRating.model.js', () =>
 // Keep the real ClinicalNote model: the test must prove writes use the locked
 // encounter's transaction, rather than only checking controller mock arguments.
 import { createSessionNote } from '../clinicalData.controller.js';
+import ClinicalNoteDraft from '../../models/ClinicalNoteDraft.model.js';
 
 const originalSession = { id: 20, agency_id: 2, client_id: 10, provider_user_id: 7,
   office_event_id: 30, service_code: '90837', metadata_json: '{}' };
@@ -54,6 +56,7 @@ const invoke = async (req = request()) => { const res = response(), next = vi.fn
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ClinicalNoteDraft.findByIdForUser.mockResolvedValue(null);
   currentSession = { ...originalSession }; storedNote = null; attachedDraft = null; timeline = [];
   m.session.mockImplementation(async () => ({ ...originalSession }));
   m.alerts.mockResolvedValue(undefined);
@@ -78,6 +81,13 @@ beforeEach(() => {
 });
 
 describe('encounter-locked session note attachment', () => {
+  it('rejects a saved Therapy Notes generator note before entering clinical signing', async () => {
+    ClinicalNoteDraft.findByIdForUser.mockResolvedValue({ id: 55, agency_id: 2, output_json: '{"_enc":true,"_quickCopy":true}' });
+    const { next } = await invoke();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 }));
+    expect(m.begin).not.toHaveBeenCalled();
+    expect(m.ref).not.toHaveBeenCalled();
+  });
   it('rejects a pending service change that appears after the initial session check', async () => {
     m.alerts.mockImplementation(async () => { currentSession.metadata_json = JSON.stringify({ serviceCodeChangePending: { targetCode: 'H2011' } }); });
     const { next } = await invoke();

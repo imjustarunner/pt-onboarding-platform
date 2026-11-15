@@ -166,6 +166,7 @@ const SESSION_RECORDING_ROUTE_ROLES = NOTE_AID_EMPLOYEE_ROLES;
 const TOOLS_AIDS_ROUTE_SEGMENTS = [
   '/tools-aids',
   '/note-aid',
+  '/therapy-notes-generator',
   '/admin/tools-aids',
   '/admin/note-aid',
   '/admin/clinical-note-generator',
@@ -1978,6 +1979,12 @@ const routes = [
       requiresRole: NOTE_AID_EMPLOYEE_ROLES,
       organizationSlug: true
     }
+  },
+  {
+    path: '/:organizationSlug/therapy-notes-generator',
+    name: 'OrganizationTherapyNotesGenerator',
+    component: () => import('../views/TherapyNotesGeneratorView.vue'),
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/note-aid',
@@ -3994,6 +4001,12 @@ const routes = [
     name: 'NoteAid',
     // Note Workspace now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
+  },
+  {
+    path: '/therapy-notes-generator',
+    name: 'TherapyNotesGenerator',
+    component: () => import('../views/TherapyNotesGeneratorView.vue'),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
@@ -6193,6 +6206,7 @@ router.beforeEach(async (to, from, next) => {
     // Tools & Aids hub (My Dashboard → AI Tools) must stay reachable; Note Workspace was already allowlisted.
     const isAllowedExternalRoute =
       path.includes('/note-aid') ||
+      path.includes('/therapy-notes-generator') ||
       path.includes('/admin/note-aid') ||
       path.includes('/tools-aids') ||
       path.includes('/admin/tools-aids');
@@ -6635,7 +6649,7 @@ router.afterEach((to) => {
     ? `?${new URLSearchParams(queryKeys.sort().map((k) => [k, String(query[k])])).toString()}`
     : '';
   const fullPath = `${path}${queryString}`;
-  const workspacePage = /\/(dashboard|my-schedule|my-meetings|messages|tasks|note-aid|my-learning|tools-aids|notifications)$/.exec(path)?.[1];
+  const workspacePage = /\/(dashboard|my-schedule|my-meetings|messages|tasks|note-aid|therapy-notes-generator|my-learning|tools-aids|notifications)$/.exec(path)?.[1];
   const page = workspacePage === 'dashboard' ? `dashboard/${query.tab || 'overview'}` : workspacePage || extractAdminPageFromPath(path);
 
   let clockedIn = false;

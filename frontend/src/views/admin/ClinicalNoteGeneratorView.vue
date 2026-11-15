@@ -194,6 +194,7 @@
           v-if="showStartPage"
           :heading="demoPresentation?.heading || ''"
           :description="demoPresentation?.description || ''"
+          :therapy-notes-generator-path="!demoPresentation && therapyNotesQuickGeneratorEnabled(agencyStore.currentAgency, agencyNoteAidCatalog.settings) ? therapyNotesQuickGeneratorPath(route.params.organizationSlug) : ''"
           :session-linked-only="demoLinkedWorkspace"
           :has-next-in-progress="!!nextInProgressRow"
           :has-next-in-queue="!!nextInQueueItem"
@@ -1545,6 +1546,7 @@
 </template>
 
 <script setup>
+import { therapyNotesQuickGeneratorEnabled, therapyNotesQuickGeneratorPath } from '../../config/therapyNotesQuickGenerator.js';
 import ClinicalNoteSupervisorReview from '../../components/clinical/ClinicalNoteSupervisorReview.vue';
 import ClientAlertDialog from '../../components/clients/ClientAlertDialog.vue';
 import ClinicalNoteReviewRequests from '../../components/clinical/ClinicalNoteReviewRequests.vue';
@@ -8771,6 +8773,7 @@ const persistSessionObjectiveRatings = async () => {
 
 const startNewNote = () => {
   closeSupervisorReview();
+  pendingDurationChange.value = null;
   draftId.value = null;
   viewingChartNote.value = null;
   clearSignedNoteViewer();
@@ -9574,6 +9577,11 @@ watch(afterHoursScheduleEligible,()=>{if(!isWorkspaceHydrating() && !chartNoteRe
 
 watch(sessionDurationMinutes, (mins, previousMinutes) => {
   if (isWorkspaceHydrating() || chartNoteReadOnly.value || durationDecisionInProgress) return;
+  // Clearing timing during a note/tool transition is not a zero-minute edit.
+  if (mins == null || mins === '') {
+    pendingDurationChange.value = null;
+    return;
+  }
   const current = String(actualServiceCode.value || '').toUpperCase();
   if (['90832', '90834', '90837'].includes(current)) {
     const proposedCode = suggestPsychotherapyCodeForDuration(mins);
@@ -9620,9 +9628,15 @@ watch(
 );
 
 watch(actualServiceCode, (code, prev) => {
-  if (!code || code === prev) return;
-  if (isWorkspaceHydrating()) return;
-  const upper = String(code).toUpperCase();
+  if (code === prev) return;
+  const upper = String(code || '').toUpperCase();
+  // A duration decision belongs to the service code that created it. Do not
+  // carry a psychotherapy prompt into H0004 or another newly selected tool.
+  if (pendingDurationChange.value
+    && normalizePsychotherapyServiceCode(String(pendingDurationChange.value.currentCode || '').replace(/\s/g, '')) !== upper) {
+    pendingDurationChange.value = null;
+  }
+  if (!code || isWorkspaceHydrating()) return;
   const prevUpper = String(prev || '').toUpperCase();
   // Only reset participants when entering / switching family codes — not on every duration-driven 9083x change.
   if (['90846', '90847'].includes(upper) && upper !== prevUpper) {

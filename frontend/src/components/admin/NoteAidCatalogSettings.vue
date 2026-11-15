@@ -13,6 +13,16 @@
     <p v-if="loadError" class="na-catalog-err">{{ loadError }}</p>
     <p v-if="saveMessage" class="na-catalog-ok">{{ saveMessage }}</p>
 
+    <section v-if="agencyId && supportsTherapyNotesQuickGenerator(agencyStore.currentAgency)" class="na-catalog-section">
+      <h3>Temporary quick-copy generator</h3>
+      <label class="na-catalog-enable">
+        <input type="checkbox" :checked="therapyNotesQuickGeneratorEnabled(agencyStore.currentAgency, settings)" :disabled="saving"
+          @change="upsertSetting(THERAPY_NOTES_QUICK_COPY_ID, { enabled: $event.target.checked, attachableToSession: false, attachableToClaim: false })" />
+        <span>{{ THERAPY_NOTES_QUICK_COPY_TITLE }}</span>
+      </label>
+      <p class="hint">Available to everyone with Note Workspace access in this organization. Turn this off after rollout to remove only the temporary generator.</p>
+    </section>
+
     <section v-if="agencyId" class="na-catalog-section">
       <h3>Built-in aids</h3>
       <div v-for="aid in builtInAids" :key="aid.id" class="na-catalog-row">
@@ -175,6 +185,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { listBuiltInNoteAids } from '../../config/noteAidWorkspace.js';
+import { THERAPY_NOTES_QUICK_COPY_ID, THERAPY_NOTES_QUICK_COPY_TITLE, supportsTherapyNotesQuickGenerator, therapyNotesQuickGeneratorEnabled } from '../../config/therapyNotesQuickGenerator.js';
 import { useAgencyStore } from '../../store/agency';
 
 const agencyStore = useAgencyStore();
