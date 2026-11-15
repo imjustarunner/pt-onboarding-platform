@@ -8,6 +8,9 @@ vi.mock('../familyBillingPolicy.service.js',()=>({auditBilling:vi.fn(),billingEr
 import {discoveryPatient,discoveryFingerprint,validateDiscoveryConfirmation,stediDiscoveryPayload,discoveryCandidate,discoveryMonth} from '../stediDiscoveryPolicy.js';
 import {reserveDiscovery,startDiscovery,callStediDiscovery,refreshDiscovery,reviewDiscovery,stediDiscoveryConfigured,reconcileUncertainDiscovery} from '../stediDiscovery.service.js';
 import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncryption.service.js';
+it('refuses an unreviewed paper packet before reserving an insurance search',async()=>{
+ const db=fakeDb();const deps={...depsFor(db),readInsurance:async()=>({primary:{},paperReviewRequired:true})};await expect(reserveDiscovery(input(),deps)).rejects.toMatchObject({code:'PAPER_INSURANCE_REVIEW_REQUIRED'});expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO stedi_insurance'))).toBe(false);expect(db.rollback).toHaveBeenCalled();
+});
 const patient={firstName:'Synthetic',lastName:'Person',dateOfBirth:'2000-01-02',addressLine1:'123 Test St',addressLine2:'',city:'Testville',state:'CO',postalCode:'80000'};
 const input=()=>({agencyId:2,clientId:9,actorUserId:1,requestKey:'synthetic-request-123',fingerprint:discoveryFingerprint(patient),serviceDate:'2026-11-10',nameConfirmed:true,birthdateConfirmed:true,addressConfirmed:true,costConfirmed:true,reason:'unknown_insurance',billingOfficeId:7,otherCoverageChecked:true});
 const row=()=>({id:1,agency_id:2,client_id:9,status:'sending',request_encrypted:encryptFamilyBilling({patient},'stedi-discovery:2:9')});

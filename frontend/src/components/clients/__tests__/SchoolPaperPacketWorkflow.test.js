@@ -19,10 +19,13 @@ beforeEach(()=>{
 afterEach(()=>{w?.unmount();vi.useRealTimers();vi.unstubAllGlobals();});
 async function render({realRoi=false}={}){w=mount(SchoolPaperPacketWorkflow,{props:{clientId:4},global:{stubs:{
  PDFPreview:{props:['pdfUrl'],emits:['loaded'],mounted(){this.$emit('loaded',{totalPages:6})},template:'<div data-test="packet">{{pdfUrl}}</div>'},
- ClientInsuranceEditor:{template:'<form><input value="Unsaved policy edit" /></form>',methods:{save:saveInsurance}},
+ ClientInsuranceEditor:{props:['transcriptionConfirmed'],emits:['update:transcriptionConfirmed'],template:`<form><input value="Unsaved policy edit" /><label><input type="checkbox" :checked="transcriptionConfirmed" @change="$emit('update:transcriptionConfirmed',$event.target.checked)" /> I reviewed the coverage on paper</label></form>`,methods:{save:saveInsurance}},
  AssignmentCoverageReview:true,ClientOnboardingRoiStaffPanel:realRoi?false:{template:'<div data-test="roi"/>',methods:{saveAllDirty:saveRoi,getPendingChanges:pendingRoi,reload:reloadRoi}}
 }}});await flushPromises();}
 const next=()=>w.findAll('.paper-actions button').at(-1).trigger('click');
+it('keeps a single insurance editor and requires explicit transcription confirmation before continue can request checks',async()=>{
+ context.state={documentId:9,completedSteps:steps.slice(0,4)};await render();await w.findAll('nav button')[4].trigger('click');expect(w.text()).not.toContain('Verify insurance (optional)');await next();await flushPromises();expect(saveInsurance).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('Confirm the transcribed insurance');await w.get('input[type="checkbox"]').setValue(true);await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledWith({paperEntry:true,confirmPaper:true});
+});
 it('keeps the PDF visible beside one step and resumes saved progress with separate guardian accounts',async()=>{
  await render();expect(w.get('[data-test="packet"]').text()).toContain('synthetic-private-packet.pdf');expect(w.findAll('fieldset')).toHaveLength(1);
  await next();await flushPromises();expect(w.get('.paper-entry h4').text()).toContain('Parent 1');await next();await flushPromises();expect(context.state.guardian1Id).toBe(20);
@@ -105,7 +108,7 @@ it('restores a specific missing-email and unclear-custody working entry without 
  await render();const pending=w.get('[aria-label="Pending packet entry"]');expect(pending.text()).not.toContain('Parent 1 email is not recorded');expect(pending.text()).toContain('Parent 2 email is not recorded');expect(pending.text()).toContain('rights are unclear');expect(context.state.completedSteps).toEqual([]);expect(api.post).not.toHaveBeenCalled();
 });
 it('requires the insurance editor completion guard before advancing and skips it for explicit Self-Pay',async()=>{
- context.state={documentId:9,completedSteps:['demographics','guardian1','guardian2','school']};await render();await w.findAll('nav button')[4].trigger('click');saveInsurance.mockResolvedValueOnce(false);await w.findAll('input[type="checkbox"]').at(-1).setValue(true);await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledWith({paperEntry:true});expect(api.put).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Insurance');expect(w.text()).toContain('Review the available insurance details');
+ context.state={documentId:9,completedSteps:['demographics','guardian1','guardian2','school']};await render();await w.findAll('nav button')[4].trigger('click');saveInsurance.mockResolvedValueOnce(false);await w.findAll('input[type="checkbox"]').at(-1).setValue(true);await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledWith({paperEntry:true,confirmPaper:true});expect(api.put).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Insurance');expect(w.text()).toContain('Review the available insurance details');
  w.unmount();api.get.mockImplementation(async(path)=>path.includes('/view')?{data:{text:async()=>JSON.stringify({url:'/synthetic.pdf'})},headers:{'content-type':'application/json'}}:{data:path.endsWith('/paper-packet-processing')?structuredClone(context):path==='/client-settings/insurance-types'?[{id:7,label:'Self-Pay',insurance_key:'self_pay',is_active:1}]:[]});saveInsurance.mockClear();await render();await w.findAll('nav button')[4].trigger('click');await w.findAll('input[type="checkbox"]').at(-1).setValue(true);await next();await flushPromises();expect(saveInsurance).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Paper consents');
 });
 it('passes only the explicit partial-information confirmation to the server and displays saved lookup needs without blocking Finish',async()=>{

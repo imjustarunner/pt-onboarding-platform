@@ -112,9 +112,8 @@ it.each([
  expect(w.find('[role="status"]').text()).toContain(message);w.unmount();
 });
 
-it('prefills the paper secondary independently while retaining existing primary staff edits',async()=>{
- api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'Saved staff coverage',memberId:'SAVED'}},demographics:demographic,payers:[],paperCoverage:{primary:{insurerName:'Packet primary',memberId:'PACKET-PRIMARY',paperSubscriberName:'Taylor Example'},secondary:{insurerName:'Colorado Medicaid',memberId:'A123456',paperSubscriberName:'Morgan Example',relationshipToSubscriber:'self'}}}});
- const w=await setup({paperEntry:true});expect(w.get('[aria-label="Insurance read from paper packet"]').text()).toContain('Taylor Example');expect(w.text()).toContain('Reconcile the two positions');
- await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({primary:{insurerName:'Saved staff coverage',memberId:'SAVED'},secondary:{insurerName:'Colorado Medicaid',memberId:'A123456'}});
- await w.findAll('.paper-coverage button')[0].trigger('click');await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[1][1].primary).toMatchObject({insurerName:'Packet primary',memberId:'PACKET-PRIMARY'});w.unmount();
+it('keeps saved staff corrections authoritative and leaves the reader output collapsed',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'Saved staff coverage',memberId:'CORRECTED'},paperDraftSaved:true},demographics:demographic,payers:[],paperCoverage:{primary:{insurerName:'Packet primary',memberId:'OCR-ERROR',paperSubscriberName:'Taylor Example'},secondary:{insurerName:'Colorado Medicaid',memberId:'A123456',paperSubscriberName:'Morgan Example',relationshipToSubscriber:'self'}}}});
+ const w=await setup({paperEntry:true,paperDocumentId:9});const original=w.get('[aria-label="Original insurance reader output"]');expect(original.attributes('open')).toBeUndefined();expect(original.text()).toContain('OCR-ERROR');expect(w.get('[aria-label="Current paper insurance details"]').text()).toContain('CORRECTED');expect(w.text()).not.toContain('Reconcile the two positions');
+ await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({paperReviewConfirmed:false,primary:{memberId:'CORRECTED'},secondary:{memberId:'',paperReportedMemberId:'A123456'}});expect(w.findAll('.paper-coverage button')).toHaveLength(0);w.unmount();
 });

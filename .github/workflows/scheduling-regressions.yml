@@ -453,6 +453,10 @@ jobs:
           node --test backend/src/utils/__tests__/paperPacketDemographics.test.js backend/src/utils/__tests__/paperInsuranceTable.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-insurance.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.paper-insurance.config.js
+      - name: Paper transcription confirmation before payer inquiries
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-save-review.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.paper-save-review.config.js
       - name: Spanish paper entry and client Medicaid identity lookups
         run: |
           node --test backend/src/utils/__tests__/spanishPaperPacket.test.js

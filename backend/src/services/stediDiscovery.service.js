@@ -1,3 +1,4 @@
+import {assertPaperInsuranceReviewed} from '../utils/paperInsuranceReviewGate.js';
 import pool from '../config/database.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { auditBilling, billingError } from './familyBillingPolicy.service.js';
@@ -45,6 +46,7 @@ export async function reserveDiscovery(input, deps = {}) {
     await db.execute('SELECT reserved_count FROM stedi_discovery_budget WHERE month_key=? FOR UPDATE',[month]);
     const [[client]] = await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
     if (!client) throw billingError(404,'Client not found in this agency');
+    assertPaperInsuranceReviewed(await (deps.readInsurance || readClientInsurance)(input.clientId,input.agencyId,db));
     const patient = await (deps.patientFor || patientFor)(input,db);
     validateDiscoveryConfirmation(input,patient);
     const [[duplicate]] = await db.execute(`SELECT * FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND agency_id=? AND client_id=? AND

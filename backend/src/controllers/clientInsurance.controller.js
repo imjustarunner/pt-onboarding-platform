@@ -1,4 +1,8 @@
 import pool from '../config/database.js';
+import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import {coverageInsuranceFingerprint as coverageFingerprint} from '../utils/paperInsuranceReviewGate.js';
+import {paperInsuranceIsReviewed} from '../utils/paperInsuranceReviewGate.js';
+import {paperInsuranceStatus} from '../services/paperInsuranceStatus.service.js';
 import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { readClientInsurance, writeClientInsurance, claimInsuranceIssues, insuranceDemographics } from '../services/clientInsurance.service.js';
@@ -36,8 +40,10 @@ async function getInsurance(req,res,next,support=false) {
     }
     const [submitted]=await pool.execute(`SELECT DISTINCT p.*, u.first_name, u.last_name FROM guardian_insurance_profiles p JOIN users u ON u.id=p.guardian_user_id LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.agency_id=? AND (p.client_id=? OR gic.client_id=?) ORDER BY p.collected_at DESC`,[c.agencyId,c.clientId,c.clientId]);
     const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url,cardEvidence:Object.fromEntries(['primary_front','primary_back','secondary_front','secondary_back'].map(slot=>[slot,!!value[`${slot.replace('_','_card_')}_url`]]))};});
+    const findings=!support || insurance?.paperReviewRequired ? await readEligibilityProfile({...c,fingerprint:coverageFingerprint(insurance)}) : [];
+    const eligibilityStatus=await paperInsuranceStatus({...c,insurance,findings},pool);
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
-    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:await readEligibilityProfile(c)})});
+    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,eligibilityStatus,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:findings})});
   } catch(e){next(e);}
 }
 async function saveInsurance(req,res,next,support=false) {
@@ -47,7 +53,14 @@ async function saveInsurance(req,res,next,support=false) {
       throw Object.assign(new Error('Claim verification and payment assignment require billing access'), {status:403});
     }
     const transitionImport = req.body.importContext === 'ehr_transition';
-    const previous = support || transitionImport ? await readClientInsurance(c.clientId,c.agencyId) : null;
+    const previous = await readClientInsurance(c.clientId,c.agencyId);
+    const paperDocumentId=Number(req.body.paperDocumentId || previous?.paperSourceDocumentId)||null;
+    if(req.body.paperReviewConfirmed===true && !paperDocumentId)throw Object.assign(new Error('Choose the uploaded paper packet before confirming its insurance transcription.'),{status:400});
+    if(req.body.paperDocumentId || req.body.paperReviewConfirmed===true) {
+      const source=await ClientPhiDocument.findSchoolPaperPacket(c.clientId,paperDocumentId);
+      if(!source || Number(source.client_id)!==c.clientId || Number(source.agency_id)!==c.agencyId || source.removed_at || req.body.paperReviewConfirmed===true && source.scan_status!=='clean')throw Object.assign(new Error('Review the current uploaded packet after its file check is complete.'),{status:409});
+      if(previous?.paperSourceDocumentId && Number(previous.paperSourceDocumentId)!==paperDocumentId)throw Object.assign(new Error('The packet source changed. Reload the current packet before confirming its insurance.'),{status:409});
+    }
     let profileId = req.body.profileId ? positiveId(req.body.profileId) : null;
     if(profileId){const [matches]=await pool.execute('SELECT p.id FROM guardian_insurance_profiles p LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.id=? AND p.agency_id=? AND (p.client_id=? OR gic.client_id=?)',[profileId,c.agencyId,c.clientId,c.clientId]);if(!matches.length)throw Object.assign(new Error('Policy is not assigned to this client'),{status:403});}
     const coverageSources = {};
@@ -64,15 +77,16 @@ async function saveInsurance(req,res,next,support=false) {
     if (coverageSources.primary) profileId = coverageSources.primary.profileId;
     const payers = [req.body.primary,req.body.secondary].some(policy=>policy?.payerCatalogId) ? await clientInsurancePayers(c.agencyId,pool) : [];
     const primary=resolveConfiguredPolicy(req.body.primary,payers),secondary=resolveConfiguredPolicy(req.body.secondary,payers);
-    const insurance = await writeClientInsurance({...c,primary,secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null,...(transitionImport?{queueEligibility:false}:{})});
+    const insurance = await writeClientInsurance({...c,primary,secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,paperSourceDocumentId:paperDocumentId,paperReviewActorId:req.body.paperReviewConfirmed===true?req.user.id:null,queueEligibility:!transitionImport && (!(paperDocumentId || previous?.paperReviewRequired) || req.body.paperReviewConfirmed===true),verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
     await auditBilling({...c,userId:req.user.id,action:'staff_update_insurance'});
-    const eligibilityQueueWarning=insurance.eligibilityQueueWarning||null,automaticEligibility=insurance.automaticEligibility||null;
+    if(req.body.paperReviewConfirmed===true)await auditBilling({...c,userId:req.user.id,action:'staff_confirm_paper_insurance_transcription',objectId:paperDocumentId});
+    const eligibilityQueueWarning=insurance.eligibilityQueueWarning||null,automaticEligibility=insurance.automaticEligibility||(insurance.paperReviewRequired&&!paperInsuranceIsReviewed(insurance)?{status:'awaiting_paper_review'}:null);
     res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,eligibilityQueueWarning,automaticEligibility,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance.primary)})});
   } catch(e){next(e);}
 }
 
 function supportInsurance(value) {
-  return value ? Object.fromEntries(['primary','secondary','patient','profileId','coverageSources'].map(key=>[key,value[key]])) : null;
+  return value ? Object.fromEntries(['primary','secondary','patient','profileId','coverageSources','paperReviewRequired','paperSourceDocumentId','paperReview','paperDraftSaved'].map(key=>[key,value[key]])) : null;
 }
 export const getClientInsurance = (req,res,next) => getInsurance(req,res,next);
 export const saveClientInsurance = (req,res,next) => saveInsurance(req,res,next);

@@ -7,6 +7,9 @@ vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghous
 vi.mock('../familyBillingPolicy.service.js',()=>({auditBilling:vi.fn(),billingError:(status,message)=>Object.assign(new Error(message),{status})}));
 import {cobFingerprint,validateCobConfirmation,stediCobPayload,cobFindings} from '../stediCobPolicy.js';
 import {reserveCob,startCob,callStediCob,getCobPayer,cobPayers,reviewCob,stediCobConfigured,decodeCob} from '../stediCob.service.js';
+it('refuses an unreviewed paper packet before reserving a COB check',async()=>{
+ const db=fakeDb();const deps={...depsFor(db),snapshotFor:async()=>({...snapshot,insurance:{...insurance,paperReviewRequired:true}})};await expect(reserveCob(input(),deps)).rejects.toMatchObject({code:'PAPER_INSURANCE_REVIEW_REQUIRED'});expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO stedi_insurance'))).toBe(false);expect(db.rollback).toHaveBeenCalled();
+});
 import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncryption.service.js';
 const patient={firstName:'Synthetic',lastName:'Person',dateOfBirth:'2000-01-02',addressLine1:'123 Test St',city:'Testville',state:'CO',postalCode:'80000'};
 const insurance={verifiedForClaims:true,patient,primary:{insurerName:'Synthetic Payer',memberId:'ABC-0001',payerId:'CLAIMMD',relationshipToSubscriber:'self',subscriberFirstName:patient.firstName,subscriberLastName:patient.lastName,subscriberDob:patient.dateOfBirth}};

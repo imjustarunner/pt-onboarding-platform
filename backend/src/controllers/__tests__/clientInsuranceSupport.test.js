@@ -1,12 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/GuardianInsuranceProfile.model.js',()=>({decodeInsuranceProfile:row=>row}));
+vi.mock('../../models/ClientPhiDocument.model.js',()=>({default:{findSchoolPaperPacket:vi.fn()}}));
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:vi.fn()}}));
 vi.mock('../../services/clientAccountSupportAccess.service.js',()=>({requireClientAccountSupport:vi.fn()}));
 vi.mock('../../services/clientInsurance.service.js',()=>({readClientInsurance:vi.fn(),writeClientInsurance:vi.fn(),claimInsuranceIssues:vi.fn(()=>[]),insuranceDemographics:vi.fn(async()=>({firstName:'Test'}))}));
 vi.mock('../../services/familyBillingPolicy.service.js',()=>({positiveId:Number,auditBilling:vi.fn()}));
 vi.mock('../../services/eligibilityProfile.service.js',()=>({readEligibilityProfile:vi.fn(async()=>[])}));
 import pool from '../../config/database.js';
+import ClientPhiDocument from '../../models/ClientPhiDocument.model.js';
 import { requireClientAccountSupport } from '../../services/clientAccountSupportAccess.service.js';
 import { readClientInsurance, writeClientInsurance } from '../../services/clientInsurance.service.js';
 import { getSupportClientInsurance, saveSupportClientInsurance } from '../clientInsurance.controller.js';
@@ -22,6 +24,15 @@ it('reads insurance without disclosing claim verification metadata or requesting
   expect(next).not.toHaveBeenCalled();expect(requireClientAccountSupport).toHaveBeenCalledWith(expect.objectContaining({role:'support'}),20);
   expect(response.json.mock.calls[0][0]).toMatchObject({insurance:{primary:{insurerName:'Previous'}},demographics:{firstName:'Test'}});
   expect(JSON.stringify(response.json.mock.calls[0][0])).not.toMatch(/verifiedForClaims|acceptAssignment|confirmedBy|missingClaimFields|eligibilityFindings/);
+});
+it('treats paper draft saves as unconfirmed and records confirmation only for the signed-in reviewer and current clean source',async()=>{
+ readClientInsurance.mockResolvedValue({primary:{},paperReviewRequired:true,paperSourceDocumentId:9});ClientPhiDocument.findSchoolPaperPacket.mockResolvedValue({id:9,client_id:20,agency_id:2,scan_status:'clean'});
+ const request=req();request.body.paperDocumentId=9;request.body.paperReviewActorId=999;request.body.paperReview={approvalId:'forged'};
+ let next=vi.fn();await saveSupportClientInsurance(request,res(),next);expect(next).not.toHaveBeenCalled();expect(writeClientInsurance.mock.calls.at(-1)[0]).toMatchObject({queueEligibility:false,paperReviewActorId:null,paperSourceDocumentId:9});expect(writeClientInsurance.mock.calls.at(-1)[0]).not.toHaveProperty('paperReview');
+ request.body.paperReviewConfirmed=true;next=vi.fn();await saveSupportClientInsurance(request,res(),next);expect(next).not.toHaveBeenCalled();expect(writeClientInsurance.mock.calls.at(-1)[0]).toMatchObject({queueEligibility:true,paperReviewActorId:10});
+});
+it.each([{client_id:21,agency_id:2,scan_status:'clean'},{client_id:20,agency_id:3,scan_status:'clean'},{client_id:20,agency_id:2,scan_status:'pending'}])('rejects confirmation against another client/agency or an unchecked source: %j',async source=>{
+ readClientInsurance.mockResolvedValue({primary:{},paperReviewRequired:true,paperSourceDocumentId:9});ClientPhiDocument.findSchoolPaperPacket.mockResolvedValue({id:9,...source});const request=req();Object.assign(request.body,{paperDocumentId:9,paperReviewConfirmed:true});const next=vi.fn();await saveSupportClientInsurance(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(writeClientInsurance).not.toHaveBeenCalled();
 });
 it('saves partial insurance, resets verification, and preserves the billing assignment decision',async()=>{
   const response=res(),next=vi.fn();await saveSupportClientInsurance(req(),response,next);

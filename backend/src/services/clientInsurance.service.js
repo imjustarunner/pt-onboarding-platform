@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {insuranceIdentityFingerprint,paperInsuranceIsReviewed} from '../utils/paperInsuranceReviewGate.js';
 import pool from '../config/database.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
@@ -48,7 +49,7 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
   if (clientCount > 1 && secondary?.isMedicaid && !(medicaid && info.medicaidPlanPosition === 'secondary') && !assignment?.secondary?.memberId) return null;
   return { primary, secondary, primaryCardFrontUrl: assignment?.primary ? (assignment.primary_front_url || null) : (info.primary_front_url || null), primaryCardBackUrl: assignment?.primary ? (assignment.primary_back_url || null) : (info.primary_back_url || null), secondaryCardFrontUrl: assignment?.primary ? (assignment.secondary_front_url || null) : (info.secondary_front_url || null), secondaryCardBackUrl: assignment?.primary ? (assignment.secondary_back_url || null) : (info.secondary_back_url || null), coverageScope: !assignment?.primary && info.coverageScope === 'account_holder' ? 'account_holder' : 'client', confirmed: !!assignment || clientCount === 1 || !!medicaid };
 }
-export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true }, db = pool) {
+export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true, paperSourceDocumentId=null, paperReviewActorId=null, preservePaperReview=false, paperReviewRequired=false }, db = pool) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
   const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : { ...(previous?.patient || {}) };
@@ -57,6 +58,19 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
     Object.assign(patientValue,mergePatientDefaults(patientValue,demographics));
   }
   const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, coverageSources, confirmedBy, updatedAt: new Date().toISOString() };
+  if(previous?.paperReviewRequired || paperReviewRequired || paperSourceDocumentId) {
+    value.paperReviewRequired=true;
+    value.paperSourceDocumentId=Number(paperSourceDocumentId || previous?.paperSourceDocumentId)||null;
+    value.paperDraftSaved=!!(paperSourceDocumentId || previous?.paperDraftSaved);
+    const fingerprint=insuranceIdentityFingerprint(value),previousReviewed=paperInsuranceIsReviewed(previous);
+    const unchangedReview=previousReviewed && previous?.paperReview && previous.paperReview.fingerprint===fingerprint && Number(previous.paperReview.documentId)===value.paperSourceDocumentId;
+    if(paperReviewActorId && value.paperSourceDocumentId)value.paperReview=unchangedReview?previous.paperReview:{approvalId:crypto.randomUUID(),fingerprint,transcriptionFingerprint:fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(paperReviewActorId),documentId:value.paperSourceDocumentId};
+    else if(previousReviewed && previous?.paperReview && (previous.paperReview.fingerprint===fingerprint || preservePaperReview))value.paperReview={...previous.paperReview,fingerprint,...(preservePaperReview?{eligibilityUpdatedAt:new Date().toISOString()}: {})};
+    else value.verifiedForClaims=false;
+    const history=[...(previous?.paperReviewHistory || [])];
+    if(previous?.paperReview && previous.paperReview.approvalId!==value.paperReview?.approvalId)history.push(previous.paperReview);
+    if(history.length)value.paperReviewHistory=history;
+  }
   const subscriberIssues=[value.primary,value.secondary].filter(Boolean).flatMap(policy=>insuranceSubscriberIssues(policy,patientValue));
   if (value.verifiedForClaims && subscriberIssues.length) throw billingError(409,subscriberIssues.join(' '));
   const encrypted = encryptFamilyBilling(value, `client-insurance:${agencyId}:${clientId}`);
@@ -65,7 +79,8 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   // The durable job shares the caller's transaction, including family/paper intake.
   // Worker-owned payer/member corrections opt out to avoid duplicate paid lookups.
   let automaticEligibility=null,eligibilityQueueWarning=null;
-  if(queueEligibility) {
+  if(queueEligibility && !paperInsuranceIsReviewed(value))automaticEligibility={status:'awaiting_paper_review',readySlots:[],missing:[]};
+  else if(queueEligibility) {
     try {const {enqueueIntakeEligibility}=await import('./intakeEligibility.service.js');automaticEligibility=await enqueueIntakeEligibility({agencyId,clientId,submissionId:0},db);}
     catch(error){eligibilityQueueWarning='Insurance was saved. Automatic eligibility could not be queued; use Verify coverage to complete billing review.';console.warn('[insurance] eligibility queue failed',{agencyId,clientId,code:error.code||'queue_failed'});}
   }
@@ -73,16 +88,28 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   Object.defineProperties(value,{automaticEligibility:{value:automaticEligibility},eligibilityQueueWarning:{value:eligibilityQueueWarning}});
   return value;
 }
-export async function readClientInsurance(clientId, agencyId, db = pool) {
-  let rows;
-  try { [rows] = await db.execute('SELECT billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]); }
-  catch(error) {
-    if(error.code!=='ER_BAD_FIELD_ERROR'||!String(error.sqlMessage||error.message).includes('paper_packet_demo_candidate_enc'))throw error;
-    // Older installs can read their existing insurance before the optional paper
-    // candidate migration. There is no packet-holder evidence to bind there.
-    [rows]=await db.execute('SELECT billing_insurance_payload FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]);
+async function insuranceRows(clientId,agencyId,db,{lock=false,includeId=false}={}) {
+  const columns=['billing_insurance_payload','paper_packet_demo_candidate_enc','source'];
+  for(let attempt=0;attempt<3;attempt++) {
+    try {return (await db.execute(`SELECT ${includeId?'id,':''}${columns.join(',')} FROM clients WHERE id = ? AND agency_id = ?${lock?' FOR UPDATE':''}`,[clientId,agencyId]))[0];}
+    catch(error) {
+      const missing=columns.find(column=>column!=='billing_insurance_payload'&&String(error.sqlMessage||error.message).includes(column));
+      if(error.code!=='ER_BAD_FIELD_ERROR'||!missing)throw error;
+      columns.splice(columns.indexOf(missing),1);
+    }
   }
-  return rows[0] ? withPaperPolicyHolders(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),paperReadingCandidate(rows[0])) : null;
+}
+function insuranceWithPaperSource(value,row) {
+  const candidate=paperReadingCandidate(row);
+  let insurance=withPaperPolicyHolders(value,candidate);
+  if(candidate || row.source==='SCHOOL_UPLOAD' || insurance?.paperReviewRequired) {
+    insurance={...(insurance || {primary:{},secondary:null,patient:{}}),paperReviewRequired:true,paperSourceDocumentId:Number(candidate?.documentId || insurance?.paperSourceDocumentId)||null};
+  }
+  return insurance;
+}
+export async function readClientInsurance(clientId, agencyId, db = pool) {
+  const rows=await insuranceRows(clientId,agencyId,db);
+  return rows[0] ? insuranceWithPaperSource(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),rows[0]) : null;
 }
 
 /** Keep a second payer's submission available for review without replacing the
@@ -128,17 +155,12 @@ export function selfSubscriberPolicy(policy, patient) {
 
 /** Versioned, agency-scoped read for clinical products sharing this coverage. */
 export async function readClientInsuranceSnapshot(clientId, agencyId, db = pool, { lock = false } = {}) {
-  let rows;
-  try { [rows] = await db.execute(`SELECT id,billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]); }
-  catch(error) {
-    if(error.code!=='ER_BAD_FIELD_ERROR'||!String(error.sqlMessage||error.message).includes('paper_packet_demo_candidate_enc'))throw error;
-    [rows]=await db.execute(`SELECT id,billing_insurance_payload FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]);
-  }
+  const rows=await insuranceRows(clientId,agencyId,db,{lock,includeId:true});
   if (!rows.length) throw billingError(404, 'Client not found in agency');
   const raw = rows[0].billing_insurance_payload;
   const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
   return {
-    data: withPaperPolicyHolders(decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),paperReadingCandidate(rows[0])),
+    data: insuranceWithPaperSource(decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),rows[0]),
     fingerprint: crypto.createHash('sha256').update(JSON.stringify({ agencyId: Number(agencyId), clientId: Number(clientId), payload })).digest('hex')
   };
 }
