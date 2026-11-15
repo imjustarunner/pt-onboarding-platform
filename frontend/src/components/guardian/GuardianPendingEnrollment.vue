@@ -6,13 +6,13 @@
       <strong>{{ draft.organizationName }} · {{ draft.children.map(child => child.name).join(' · ') }}</strong>
       <p>Your saved enrollment: remaining to-dos</p>
       <ul><li v-for="task in draft.tasks" :key="task">{{ task }}</li></ul>
-      <p v-if="draft.expired">Contact your care team for a renewed link. Your saved answers have not been marked complete.</p>
+      <p v-if="draft.expired">Contact your {{ learningOnly ? 'tutoring' : 'care' }} team for a renewed link. Your saved answers have not been marked complete.</p>
       <button v-else type="button" :disabled="opening !== null" @click="open(draft, true)">{{ opening === `draft:${draft.id}` ? 'Opening…' : 'Continue saved enrollment' }}</button>
     </article>
     <article v-for="invite in invitations" :key="invite.id">
       <strong>{{ invite.children.map(child => child.name).join(' · ') }}</strong>
       <p>Complete your own answers and signatures for the children listed here.</p>
-      <p v-if="invite.expired">This invitation has expired. Ask your care team for a new invitation.</p>
+      <p v-if="invite.expired">This invitation has expired. Ask your {{ learningOnly ? 'tutoring' : 'care' }} team for a new invitation.</p>
       <button v-else type="button" :disabled="opening !== null" @click="open(invite)">{{ opening === invite.id ? 'Opening…' : 'Complete your enrollment' }}</button>
     </article>
   </section>
@@ -36,8 +36,10 @@ watch(() => [props.agencyId, props.clientId, props.learningOnly], async () => {
     invitations.value = data.invitations || [];
     drafts.value = (data.drafts || []).filter(d=>d.hasAnswers!==false&&(!props.learningOnly||d.channel==='tutoring'));
     emit('state', { loaded: true, pending: invitations.value.length > 0 || drafts.value.length > 0 });
-  } catch {
-    if (version === generation) error.value = 'We could not check your enrollment forms. Please reload or contact your care team.';
+  } catch (e) {
+    if (version === generation) error.value = e.response?.status===403
+      ? `Enrollment forms are not shared with this account. Contact your ${props.learningOnly?'tutoring':'care'} team to review access.`
+      : `We could not check your enrollment forms. Please reload or contact your ${props.learningOnly?'tutoring':'care'} team.`;
   }
 }, { immediate: true });
 async function open(invite, draft = false) {
@@ -47,7 +49,7 @@ async function open(invite, draft = false) {
     const { data } = await api.post(`/guardian-portal/${draft ? 'enrollment-drafts' : 'pending-enrollments'}/${invite.id}/open`, { agencyId: props.agencyId });
     if (version === generation && data.url) window.location.assign(data.url);
   } catch (e) {
-    if (version === generation) error.value = e?.response?.data?.error?.message || 'Your invitation could not be opened. Please contact your care team.';
+    if (version === generation) error.value = e?.response?.data?.error?.message || `Your invitation could not be opened. Please contact your ${props.learningOnly?'tutoring':'care'} team.`;
   } finally { if (version === generation) opening.value = null; }
 }
 onBeforeUnmount(() => { generation++; });

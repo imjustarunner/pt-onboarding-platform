@@ -27,3 +27,5 @@ it('uses the tutoring tenant identity and learning wording without clinical prod
  expect(w.text()).toContain('Next Level Up');expect(w.text()).toContain('learning plans');
  expect(w.text()).not.toMatch(/AuricWell|care record|Beta/);expect(w.find('#learning-portal-guide').exists()).toBe(true);w.unmount();
 });
+
+it('uses NLU counseling help without AuricWell or Beta wording',async()=>{const w=mount(Guide,{props:{agencyId:453,clientId:8,brandName:'Next Level Up',learning:false},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();expect(w.text()).toContain('Your counseling and family portal');expect(w.text()).not.toMatch(/AuricWell|Beta/);w.unmount();});

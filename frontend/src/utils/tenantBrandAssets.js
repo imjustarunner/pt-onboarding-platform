@@ -13,6 +13,8 @@ export const TENANT_BRAND_ALIASES = {
   ptco: 'plottwistco',
   itsco: 'itsco',
   nlu: 'nlu',
+  'nlu-qa-demo': 'nlu',
+  'nlu-qa-learning': 'nlu',
   nextlevelup: 'nlu',
   nextleveluplcc: 'nlu',
   'next-level-up': 'nlu',

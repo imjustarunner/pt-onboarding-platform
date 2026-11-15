@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {virtualPublicationRanges,virtualAvailabilityCellSlice,virtualAvailabilityCellSlices} from '../virtualAvailabilityGrid';
+import {virtualPublicationRanges,virtualAvailabilityCellSlice,virtualAvailabilityCellSlices,savedOpeningServiceType} from '../virtualAvailabilityGrid';
 import source from '../../components/schedule/ScheduleAvailabilityGrid.vue?raw';
 const edited={dayName:'Monday',startHour:15,startMinute:30,endHour:17,endMinute:30};
 describe('virtual availability minute precision',()=>{
@@ -45,3 +45,5 @@ describe('virtual availability minute precision',()=>{
   expect(office).toContain("if (startMinute || endMinute) throw new Error('Office reservations must start and end on the hour.");
  });
 });
+
+it('keeps legacy saved openings unclassified and normalizes an explicit stored service for both editor and calendar',()=>{expect(savedOpeningServiceType({serviceType:null})).toBe('');expect(savedOpeningServiceType({})).toBe('');expect(savedOpeningServiceType({service_type:'TUTORING'})).toBe('tutoring');expect(savedOpeningServiceType({serviceType:'counseling'})).toBe('counseling');expect(savedOpeningServiceType({serviceType:'childcare'})).toBe('');});

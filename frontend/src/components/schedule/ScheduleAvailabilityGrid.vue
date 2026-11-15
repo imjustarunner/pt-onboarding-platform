@@ -5903,7 +5903,7 @@ import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
-import { virtualPublicationRanges, virtualAvailabilityCellSlices } from '../../utils/virtualAvailabilityGrid';
+import { virtualPublicationRanges, virtualAvailabilityCellSlices, savedOpeningServiceType } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 import { createBookingCatalogCache } from '../../utils/bookingCatalogCache.js';
@@ -11746,7 +11746,7 @@ const portalIntakeInCell = (dayName, hour, minute = 0) => {
     return (Number(m[1]) * 60) + Number(m[2]);
   };
   return rows.filter((row) => {
-    if(openingServiceFilter.value!=='all'&&(row.serviceType||'unclassified')!==openingServiceFilter.value)return false;
+    if(openingServiceFilter.value!=='all'&&(savedOpeningServiceType(row)||'unclassified')!==openingServiceFilter.value)return false;
     if (String(row?.dayOfWeek || '') !== String(dayName || '')) return false;
     if (!availabilityOccursOn(row, addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)))) return false;
     const sessionType = String(row?.sessionType || '').toUpperCase();
@@ -12119,9 +12119,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     slices.forEach((slice,sliceIndex)=>blocks.push({
       key: `portal-${vwhId || agencyId || 'x'}-${st}-${sliceIndex}`,
       kind: 'portal',
-      shortLabel: `${row.serviceType==='tutoring'?'Tutoring':row.serviceType==='counseling'?'Counseling':'Unclassified opening'} · Virtual · ${clockRangeLabel(startAt, endAt, true)}`,
+      shortLabel: `${savedOpeningServiceType(row)==='tutoring'?'Tutoring':savedOpeningServiceType(row)==='counseling'?'Counseling':'Unclassified opening'} · Virtual · ${clockRangeLabel(startAt, endAt, true)}`,
       virtualSlice: slice,
-      title: `${row.serviceType==='tutoring'?'Tutoring':row.serviceType==='counseling'?'Counseling':'Unclassified opening — choose a service'} · Saved virtual availability${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public directory can show openings while online booking is off. Publishing a new-client opening switches Virtual from Waitlist to Open. Appointments, school assignments, and app schedule blocks exclude occupied times. A room reservation alone does not block virtual booking.`,
+      title: `${savedOpeningServiceType(row)==='tutoring'?'Tutoring':savedOpeningServiceType(row)==='counseling'?'Counseling':'Unclassified opening — choose a service'} · Saved virtual availability${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public directory can show openings while online booking is off. Publishing a new-client opening switches Virtual from Waitlist to Open. Appointments, school assignments, and app schedule blocks exclude occupied times. A room reservation alone does not block virtual booking.`,
       agencyId,
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
@@ -19841,7 +19841,7 @@ const openSlotActionModal = async ({
     const end=String(sourceOpenSlot.endTime || '').split(':').map(Number);
     if(start.length>=2){modalHour.value=start[0];modalStartHour.value=start[0];modalStartMinute.value=start[1];}
     if(end.length>=2){modalEndHour.value=end[0];modalEndMinute.value=end[1];}
-    editorOpeningServiceType.value=sourceOpenSlot.serviceType || sourceOpenSlot.service_type || (tutoringWorkspaceOnly.value?'tutoring':mixedSessionServices.value?'':'counseling');
+    editorOpeningServiceType.value=savedOpeningServiceType(sourceOpenSlot);
   editorCareTypes.value=sourceOpenSlot.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
     editorOpenPurpose.value=sourceOpenSlot.purpose==='MEETING'?'MEETING':'INTAKE';
     scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';

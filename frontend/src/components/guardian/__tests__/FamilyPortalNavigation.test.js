@@ -53,7 +53,7 @@ it('keeps one child while switching between agencies and two services in one age
  const selector=w.findAll('.context-picker').find(s=>s.text().includes('Service & team'));
  await selector.find('.picker-trigger').trigger('click');
  await selector.findAll('[role=option]').find(o=>o.text().includes('Counseling')).trigger('click');await flushPromises();
- expect(router.currentRoute.value.query.serviceId).toBe('13');expect(useGuardianStore().selectedChildId).toBe(3);expect(w.findComponent({name:'GuardianTutoringDashboard'}).exists()).toBe(false);expect(w.findComponent(Shell).props('brandName')).toBe('AuricWell');
+ expect(router.currentRoute.value.query.serviceId).toBe('13');expect(useGuardianStore().selectedChildId).toBe(3);expect(w.findComponent({name:'GuardianTutoringDashboard'}).exists()).toBe(false);expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');expect(w.findComponent(Shell).props('brandSubtitle')).not.toContain('Beta');
  w.findComponent(Shell).vm.$emit('navigate','messages');await flushPromises();expect(router.currentRoute.value.query.serviceId).toBe('13');w.unmount();
 });
 
@@ -177,3 +177,5 @@ it('restores a deep-linked tutoring service after loading a different saved acti
  expect(api.get.mock.calls.filter(([url])=>url==='/guardian-portal/clients/3/intake-documents').at(-1)[1].params).toMatchObject({agencyId:6,serviceId:12});
  await router.replace({query:{...router.currentRoute.value.query,serviceId:'13'}});await flushPromises();expect(w.findComponent(Shell).props('learning')).toBe(false);w.unmount();
 });
+
+it('respects an explicitly restricted learning plan while keeping the tenant context',async()=>{const restricted={...person(2,6,'Restricted student','learning'),permissions_json:{canViewProgress:false,canViewDocs:false}};api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[restricted],programs:agencies}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));const {w}=await setup('/nlu/guardian?clientId=2&panel=plan');expect(w.findComponent({name:'GuardianPlanProgressPanel'}).exists()).toBe(false);expect(w.text()).toContain('Learning-plan access is not shared with this account');expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');w.unmount();});

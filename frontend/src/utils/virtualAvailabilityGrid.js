@@ -1,3 +1,9 @@
+/** Saved openings retain their actual classification, including legacy blanks. */
+export function savedOpeningServiceType(row) {
+  const value=String(row?.serviceType||row?.service_type||'').trim().toLowerCase();
+  return ['tutoring','counseling'].includes(value)?value:'';
+}
+
 /** Preserve the editor's minutes when one continuous grid selection is published. */
 export function virtualPublicationRanges(selected, edited) {
   const slots = [...(selected || [])].sort((a,b)=>Number(a.hour)-Number(b.hour));

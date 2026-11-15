@@ -52,3 +52,14 @@ it('lets a childcare-only reviewer inspect work and sign off without viewing ano
  await w.find('textarea').setValue('Reviewed the recorded work and child-count timeline.');await w.get('.work-review input[type=checkbox]').setValue(true);await approve.trigger('click');await flushPromises();
  expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/review-work',expect.objectContaining({agencyId:453,targetUserId:1496,decision:'approved',snapshotHash:'current-hash',confirmed:true}));w.unmount();
 });
+
+it('offers a review-only queue without loading peer pay or scheduling controls',async()=>{
+ const review={...shift,status:'completed',workReviews:[{user_id:1496,status:'submitted',snapshot_hash:'h',intervals:[]}],timeCorrections:[{id:1,user_id:1771,status:'pending'}]};
+ const http={get:vi.fn(async path=>({data:path.endsWith('/context')?{enabled:true,canApprove:true,canWork:false}:path.endsWith('/shifts')?{shifts:[review]}:{shift:review}}))};
+ const w=mount(View,{props:{agencyId:453,userId:1807,http}});await flushPromises();expect(w.find('.work-review-queue').text()).toContain('2 items awaiting review');await w.find('.work-review-queue button').trigger('click');await flushPromises();expect(w.find('.shift-detail').text()).toContain('Recorded work and childcare sign-off');expect(http.get.mock.calls.some(([url])=>url.includes('pay-preview'))).toBe(false);expect(w.text()).not.toContain('Schedule childcare');w.unmount();
+});
+it('retains seconds in the correction form and makes a deferred pay hold visible',async()=>{
+ const own={...shift,status:'completed',workReviews:[{user_id:1496,status:'draft',intervals:[{startedAt:'2026-11-19T23:00:12Z',endedAt:'2026-11-20T00:00:48Z'}]}]};
+ const http={get:vi.fn(async path=>({data:path.endsWith('/context')?{enabled:true,canWork:true}:path.endsWith('/shifts')?{shifts:[own]}:path.endsWith('/pay-preview')?{totalAmount:22,claimStatus:'deferred',segments:[]}:{shift:own}}))};
+ const w=mount(View,{props:{agencyId:453,userId:1496,http,shiftId:7}});await flushPromises();const inputs=w.findAll('input[step="1"][type="datetime-local"]');expect(inputs).toHaveLength(2);expect(inputs[0].element.value).toMatch(/^2026-11-19T16:00:12(?:\.000)?$/);expect(inputs[1].element.value).toMatch(/^2026-11-19T17:00:48(?:\.000)?$/);expect(w.text()).toContain('Pay held for review');w.unmount();
+});

@@ -6,7 +6,11 @@ export default defineConfig({plugins:[vue()],resolve:{alias:{'@':new URL('./src'
 'src/components/guardian/__tests__/FamilyPortalNavigation.test.js',
 'src/components/guardian/__tests__/GuardianPendingEnrollment.test.js',
 'src/components/guardian/__tests__/GuardianCancellationDialog.test.js',
+'src/components/guardian/__tests__/AuricWellPortalGuide.test.js',
 'src/components/billing/__tests__/FamilyLedgerPanel.test.js',
 'src/views/__tests__/ChildcareShiftsView.test.js',
-'src/utils/__tests__/childcarePresentation.test.js'
+'src/utils/__tests__/childcarePresentation.test.js',
+'src/utils/__tests__/virtualAvailabilityGrid.test.js',
+'src/components/guardian/__tests__/GuardianTutoringPayment.test.js',
+'src/utils/__tests__/tenantBrandAssets.test.js'
 ]}});

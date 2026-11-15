@@ -107,3 +107,10 @@ it('previews only one remaining courtesy across multiple late cancellations from
  service=createGuardianServiceCancellationService({db:{execute:m.execute,getConnection:async()=>m},appointment:async id=>appointments.get(Number(id)),authorize:m.authorize,requireCancellation:m.requireCancellation,authorizeEnd:m.authorizeEnd,evaluate:async()=>({allowed:true,isLate:true,policy:{id:3,noticeHours:24},recommendedFeeCents:0,recommendedPackageAction:'forfeit'}),packageEntitlement:pkg,now:()=>new Date('2026-11-13T16:00:00Z')});
  const result=await service.preview(input);expect(result.fees.filter(f=>f.packageCourtesyApplies)).toHaveLength(1);expect(result.fees[0]).toMatchObject({packageAction:'forfeit',packageCourtesyRemaining:1});expect(pkg).toHaveBeenCalledTimes(1);
 });
+
+it('reports remaining package courtesy for timely cancellations without spending it',async()=>{
+ for(const a of appointments.values())a.packageEntitlementId=82;
+ const pkg=vi.fn(async()=>({id:82,freeMissesRemaining:2}));
+ service=createGuardianServiceCancellationService({db:{execute:m.execute,getConnection:async()=>m},appointment:async id=>appointments.get(Number(id)),authorize:m.authorize,requireCancellation:m.requireCancellation,authorizeEnd:m.authorizeEnd,evaluate:m.evaluate,packageEntitlement:pkg,now:()=>new Date('2026-11-13T16:00:00Z')});
+ const result=await service.preview(input);expect(result.fees.every(f=>f.packageCourtesyRemaining===2&&!f.packageCourtesyApplies)).toBe(true);expect(pkg).toHaveBeenCalledTimes(1);expect(m.cancel).not.toHaveBeenCalled();
+});
