@@ -60,6 +60,23 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     return { wrapper, state, router };
   }
 
+  it('routes the temporary central generator entry away from the clinical editor and honors its disable switch', async () => {
+    const { wrapper, state } = await workspace('');
+    try {
+      expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).props('therapyNotesGeneratorPath')).toBe('/therapy-notes-generator');
+      expect(wrapper.findComponent({ name: 'TherapyNotesQuickGenerator' }).exists()).toBe(false);
+      state.agencyNoteAidCatalog = { settings: [{ catalog_aid_id: 'temporary_therapy_notes_quick_copy', enabled: 0 }], assignments: [], customAids: [] };
+      await nextTick();
+      expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).props('therapyNotesGeneratorPath')).toBe('');
+    } finally { wrapper.unmount(); }
+  });
+
+  it('keeps the temporary generator entry out of the demonstration workspace', async () => {
+    const { wrapper } = await workspace('', { demoPresentation: { heading: 'Example workspace' } });
+    try { expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).props('therapyNotesGeneratorPath')).toBe(''); }
+    finally { wrapper.unmount(); }
+  });
+
   it('reopens the saved plan version after a draft save instead of following the old launch ID', async () => {
     const {wrapper,state,router}=await workspace();
     await router.replace({path:'/note-aid',query:{noteAid:'psychotherapy_plan',planId:'54',clientId:'22',agencyId:'7'}});
@@ -708,6 +725,47 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await flushPromises();
       expect(state.workQueueItems).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'demo_work', draftId: 990131, status: 'started' })]));
       expect(api.put).not.toHaveBeenCalled();
+    } finally { wrapper.unmount(); }
+  });
+
+  it('does not turn cleared psychotherapy timing into a zero-minute code warning', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      state.selectedServiceCode = '90837';
+      state.sessionDurationMinutes = 60;
+      await nextTick();
+      state.sessionDurationMinutes = null;
+      await nextTick();
+      expect(state.pendingDurationChange).toBeNull();
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+      state.sessionDurationMinutes = 60;
+      await nextTick();
+      state.sessionDurationMinutes = '';
+      await nextTick();
+      expect(state.pendingDurationChange).toBeNull();
+    } finally { wrapper.unmount(); }
+  });
+
+  it('clears a previous psychotherapy duration decision when switching to the H0004 writer', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      state.selectedServiceCode = '90837';
+      state.sessionDurationMinutes = 60;
+      await nextTick();
+      state.sessionDurationMinutes = 45;
+      await nextTick();
+      expect(state.pendingDurationChange).toMatchObject({ currentCode: '90837', minutes: 45 });
+      state.onLibrarySelect({ aid: { id: 'h0004_note', serviceCode: 'H0004' }, categoryId: 'universal' });
+      await flushPromises();
+      expect(state.actualServiceCode).toBe('H0004');
+      expect(state.pendingDurationChange).toBeNull();
+      expect(state.durationCodeMismatch).toBeNull();
+      expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+      state.startNewNote();
+      state.onLibrarySelect({ aid: { id: 'h0004_note', serviceCode: 'H0004' }, categoryId: 'universal' });
+      await flushPromises();
+      expect(state.actualServiceCode).toBe('H0004');
+      expect(state.pendingDurationChange).toBeNull();
     } finally { wrapper.unmount(); }
   });
 

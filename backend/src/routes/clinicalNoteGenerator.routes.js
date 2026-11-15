@@ -8,6 +8,10 @@ import { body, param, query } from 'express-validator';
 
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
+import {
+  getTherapyNotesQuickCopyCatalog, listTherapyNotesQuickCopyNotes, getTherapyNotesQuickCopyNote,
+  updateTherapyNotesQuickCopyNote, transcribeTherapyNotesQuickCopy, generateTherapyNotesQuickCopy
+} from '../controllers/therapyNotesQuickGenerator.controller.js';
 
 import {
   getClinicalNotesContext,
@@ -57,6 +61,15 @@ const transcribeUpload = multer({
 router.get('/contact-documentation', apiLimiter, contactDocumentation.list);
 router.get('/contact-documentation/:type/:id', apiLimiter, contactDocumentation.detail);
 router.post('/contact-documentation/:type/:id', apiLimiter, contactDocumentation.save);
+
+// Personal text-generation notes do not expose any client chart or session.
+// Each handler separately checks staff role, organization membership and rollout.
+router.get('/quick-copy/catalog', apiLimiter, getTherapyNotesQuickCopyCatalog);
+router.get('/quick-copy/recent', apiLimiter, listTherapyNotesQuickCopyNotes);
+router.get('/quick-copy/notes/:id', apiLimiter, getTherapyNotesQuickCopyNote);
+router.patch('/quick-copy/notes/:id', apiLimiter, updateTherapyNotesQuickCopyNote);
+router.post('/quick-copy/generate', apiLimiter, generateTherapyNotesQuickCopy);
+router.post('/quick-copy/transcribe', apiLimiter, transcribeUpload.single('audio'), transcribeTherapyNotesQuickCopy);
 
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
@@ -211,6 +224,7 @@ router.post(
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').optional().isString().isLength({ min: 1, max: 32 }),
     body('autoSelectCode').optional().isBoolean(),
+    body('quickCopyOnly').optional().isBoolean(),
     body('transcriptSource').optional().isString().isLength({ min: 1, max: 32 }),
     body('programId').optional().isInt({ min: 1 }),
     body('programLabel').optional().isString().isLength({ min: 1, max: 120 }),

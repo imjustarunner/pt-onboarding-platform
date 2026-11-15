@@ -25,3 +25,23 @@ it('never overwrites authored content when opening an existing draft for the sam
   expect(pool.execute).toHaveBeenCalledTimes(1);
   expect(pool.execute.mock.calls[0][0].trim().startsWith('SELECT')).toBe(true);
 });
+
+it('keeps encrypted quick-copy notes out of the ordinary library before applying the result limit', async () => {
+  pool.execute.mockResolvedValue([[]]);
+  await ClinicalNoteDraft.listRecentForUser({ userId: 501, agencyId: 6, limit: 100 });
+  const [sql, values] = pool.execute.mock.calls[0];
+  expect(values).toEqual([501, 7, 6]);
+  expect(sql).toContain('JSON_VALID(d.output_json)');
+  expect(sql).toContain("'$._quickCopy'");
+  expect(sql.indexOf("<> 'true'")).toBeLessThan(sql.indexOf('LIMIT 100'));
+});
+
+it('retrieves saved generator notes only for the exact author and organization with no chart or session links', async () => {
+  pool.execute.mockResolvedValue([[]]);
+  await ClinicalNoteDraft.listQuickCopyForUser({ userId: 501, agencyId: 6 });
+  const [sql, values] = pool.execute.mock.calls[0];
+  expect(values).toEqual([501, 6]);
+  expect(sql).toContain('d.user_id = ? AND d.agency_id = ?');
+  expect(sql).toContain('d.client_id IS NULL AND d.clinical_session_id IS NULL AND d.office_event_id IS NULL');
+  expect(sql).toContain("= 'true'");
+});

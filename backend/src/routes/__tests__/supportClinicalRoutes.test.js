@@ -8,10 +8,14 @@ vi.mock('../../controllers/contactDocumentation.controller.js',()=>({
   list:(req,res)=>res.json({contactNotes:true}),detail:(req,res)=>res.json({contactNotes:true}),save:(req,res)=>res.json({saved:true})
 }));
 vi.mock('../../controllers/clinicalNoteGenerator.controller.js',()=>Object.fromEntries([
-  'getClinicalNotesContext','listClinicalNotePrograms','createConsentTask','createClinicalNoteDraft','patchClinicalNoteDraft',
+  'getClinicalNotesContext','listClinicalNotePrograms','createConsentTask','createClinicalNoteDraft','patchClinicalNoteDraft','repairClinicalDraftAppointment',
   'listRecentClinicalNoteDrafts','archiveClinicalNoteDraft','deleteClinicalNoteDrafts','transcribeClinicalNoteAudio',
   'generateClinicalNote','generateInteractiveComplexitySentence','getTerminationOutcomeStats','recordNoteAidAudit'
 ].map(name=>[name,(req,res)=>res.json({clinicalContent:true})])));
+vi.mock('../../controllers/therapyNotesQuickGenerator.controller.js',()=>Object.fromEntries([
+  'getTherapyNotesQuickCopyCatalog','listTherapyNotesQuickCopyNotes','getTherapyNotesQuickCopyNote','updateTherapyNotesQuickCopyNote',
+  'transcribeTherapyNotesQuickCopy','generateTherapyNotesQuickCopy'
+].map(name=>[name,(req,res)=>res.json({personalGenerator:true})])));
 vi.mock('../../controllers/noteAidWorkQueue.controller.js',()=>Object.fromEntries([
   'listNoteAidWorkQueue','syncNoteAidWorkQueue','appendNoteAidWorkQueue','patchNoteAidWorkQueueItem','deleteNoteAidWorkQueueItem','clearNoteAidWorkQueue'
 ].map(name=>[name,(req,res)=>res.json({clinicalContent:true})])));
@@ -32,6 +36,9 @@ it.each([['GET','/contact-documentation'],['GET','/contact-documentation/email/7
 });
 it('provider clinical context still reaches the existing authorization handler',async()=>{
   expect(await request('GET','/context','provider')).toMatchObject({status:200,body:{clinicalContent:true}});
+});
+it.each([['GET','/quick-copy/catalog'],['GET','/quick-copy/recent'],['GET','/quick-copy/notes/7'],['POST','/quick-copy/generate']])('personal generator %s %s reaches its own staff-and-owner-scoped handler',async(method,path)=>{
+  expect(await request(method,path)).toMatchObject({status:200,body:{personalGenerator:true}});
 });
 it.each([['GET','/'],['GET','/7/download'],['GET','/7/guardian-clients'],['POST','/7/assign']])('support cannot read or reassign uploaded medical documents through %s %s',async(method,path)=>{
   const result=await request(method,path,'support',uploadedDocumentsRouter);

@@ -51,6 +51,8 @@ import { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey } from '../se
 import { buildUnattachedQuestionnaireContext } from '../services/noteAidQuestionnaireContext.service.js';
 import { CRISIS_90839_SERVICE_DESCRIPTION } from '../utils/noteAidBillingAddons.js';
 import NoteAidAgencyCatalog from '../models/NoteAidAgencyCatalog.model.js';
+import { isQuickCopyDraft } from '../utils/therapyNotesQuickGenerator.js';
+import { generateTherapyNotesQuickCopy } from './therapyNotesQuickGenerator.controller.js';
 import { loadTerminationHistory, validateTermination, TERMINATION_REASONS } from '../services/noteAidTermination.service.js';
 
 async function collectClientPhiNames(client) {
@@ -864,6 +866,7 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
 
     const existing = await ClinicalNoteDraft.findByIdForUser({ draftId, userId: req.user.id });
     if (!existing) return res.status(404).json({ error: { message: 'Draft not found' } });
+    if (isQuickCopyDraft(existing)) return res.status(409).json({ error: { message: 'Open this note in the Therapy Notes generator. Generator notes cannot be attached to a clinical session.' } });
 
     const unlinkClient = ['1', 'true', true, 1].includes(req.body?.unlinkClient)
       || ['1', 'true', true, 1].includes(req.body?.unlink_client);
@@ -985,6 +988,7 @@ export async function repairClinicalDraftAppointment(req,res,next){
     if(!requireNotSchoolStaff(req,res))return;
     const draft=await ClinicalNoteDraft.findByIdForUser({draftId:Number(req.params.draftId),userId:req.user.id});
     if(!draft)return res.status(404).json({error:{message:'Draft not found'}});
+    if(isQuickCopyDraft(draft))return res.status(409).json({error:{message:'Therapy Notes generator notes stay separate from clinical appointments.'}});
     if(!(await requireUserHasAgencyAccess(req,res,draft.agency_id)))return;
     if(!(await requireClinicalNoteGeneratorEnabled(req,res,draft.agency_id)))return;
     if(req.method==='GET')return res.json(await draftAppointmentOptions(draft));
@@ -1024,7 +1028,7 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
 
     const days = req.query?.days ? Number(req.query.days) : 2555;
     const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
-    const drafts = await ClinicalNoteDraft.listRecentForUser({
+    const fetchedDrafts = await ClinicalNoteDraft.listRecentForUser({
       userId: req.user.id,
       agencyId: allAccessible && isSuperAdmin ? null : (allAccessible ? null : agencyId),
       agencyIds: allAccessible && isSuperAdmin ? null : (allAccessible ? agencyIds : null),
@@ -1032,6 +1036,7 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
       limit: allAccessible ? 400 : 100,
       archiveStatus
     });
+    const drafts = fetchedDrafts.filter(draft => !isQuickCopyDraft(draft));
     const extraClientIds = String(req.query?.clientIds || req.query?.client_ids || '')
       .split(/[,\s]+/)
       .map((x) => safeInt(x))
@@ -1165,6 +1170,7 @@ export const transcribeClinicalNoteAudio = async (req, res) => res.status(410).j
 
 export const generateClinicalNote = async (req, res, next) => {
   try {
+    if (parseBool(req.body?.quickCopyOnly)) return generateTherapyNotesQuickCopy(req, res, next);
     if(req.file)throw Object.assign(new Error('Record audio from the actual session after recording consent is complete. Note Workspace accepts Session Narrative text.'),{status:410,code:'SESSION_RECORDING_REQUIRED'});
     if (!requireNotSchoolStaff(req, res)) return;
     const errors = validationResult(req);
@@ -1237,6 +1243,7 @@ export const generateClinicalNote = async (req, res, next) => {
       : '';
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
     const savedGenerationDraft=draftId?await ClinicalNoteDraft.findByIdForUser({draftId,userId:req.user.id}):null;
+    if(isQuickCopyDraft(savedGenerationDraft))throw Object.assign(new Error('Open this saved note in the Therapy Notes generator.'),{status:409});
     if(narrivaWorkflow && draftId && (!savedGenerationDraft || Number(savedGenerationDraft.agency_id)!==Number(agencyId)))throw Object.assign(new Error('The saved draft is unavailable in this workspace.'),{status:404});
     let savedGenerationMeta={};
     if(savedGenerationDraft?.output_json){try{savedGenerationMeta=JSON.parse(maybeDecryptText(savedGenerationDraft.output_json) || '{}').meta || {};}catch{throw Object.assign(new Error('The saved draft context could not be read. Your draft has not been replaced.'),{status:409});}}

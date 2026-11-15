@@ -1,5 +1,8 @@
 import pool from '../config/database.js';
 
+// Public marker only; all clinical content and the client label remain encrypted.
+const quickCopyMarkerSql = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(d.output_json) THEN d.output_json ELSE '{}' END, '$._quickCopy')), 'false')";
+
 function safeInt(v) {
   const n = Number(v);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -322,10 +325,24 @@ class ClinicalNoteDraft {
        LEFT JOIN clients c ON c.id = d.client_id
        LEFT JOIN agencies a ON a.id = d.agency_id
        LEFT JOIN agencies ca ON ca.id = c.agency_id
-       WHERE ${whereSql}
+       WHERE ${whereSql} AND ${quickCopyMarkerSql} <> 'true'
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT ${lim}`,
       params
+    );
+    return rows || [];
+  }
+
+  static async listQuickCopyForUser({ userId, agencyId, limit = 500 }) {
+    const uid = safeInt(userId), aid = safeInt(agencyId);
+    if (!uid || !aid) return [];
+    const lim = Math.max(1, Math.min(500, Number(limit) || 500));
+    const [rows] = await pool.execute(
+      `SELECT d.* FROM clinical_note_drafts d
+       WHERE d.user_id = ? AND d.agency_id = ?
+         AND d.client_id IS NULL AND d.clinical_session_id IS NULL AND d.office_event_id IS NULL
+         AND ${quickCopyMarkerSql} = 'true'
+       ORDER BY d.updated_at DESC, d.id DESC LIMIT ${lim}`, [uid, aid]
     );
     return rows || [];
   }

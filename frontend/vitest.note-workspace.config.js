@@ -12,6 +12,8 @@ export default defineConfig({ plugins: [vue()], resolve: { alias: { '@': new URL
   'src/services/__tests__/api.*.test.js',
   'src/components/clinical/__tests__/ClinicalNote*.test.js',
   'src/components/clinical/__tests__/NoteAidTreatmentSummaryPanel.test.js',
+  'src/components/clinical/__tests__/TherapyNotesQuickGenerator.test.js',
+  'src/components/clinical/__tests__/NoteAidStartPage.test.js',
   'src/views/admin/__tests__/ClinicalNoteGeneratorView.smoke.test.js',
   'src/views/__tests__/NotesWorkspaceQueueLaunch.test.js',
   'src/components/dashboard/__tests__/DashboardWork.test.js',

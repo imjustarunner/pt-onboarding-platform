@@ -1,4 +1,6 @@
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
+import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
+import { isQuickCopyDraft } from '../utils/therapyNotesQuickGenerator.js';
 import { withClinicalSigningToken } from '../services/clinicalNoteSigningToken.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { validationResult } from 'express-validator';
@@ -332,6 +334,9 @@ export const createSessionNote = async (req, res, next) => {
     }
 
     const draftIdMeta = parseIntValue(metadata.draftId);
+    if (metadata.quickCopyOnly === true || (draftIdMeta && isQuickCopyDraft(await ClinicalNoteDraft.findByIdForUser({ draftId: draftIdMeta, userId: req.user.id })))) {
+      throw Object.assign(new Error('Therapy Notes generator notes stay separate from clinical signing. Review and copy their sections into your documentation system.'), { status: 409 });
+    }
     // Service changes lock this same encounter row. Keep the current context,
     // draft lookup and note write together so a pending saga cannot slip in.
     attachDb = await clinicalDatabase.getConnection();
