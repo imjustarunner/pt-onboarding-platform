@@ -10,7 +10,7 @@ import { authenticate, requireActiveStatus } from '../middleware/auth.middleware
 import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getTherapyNotesQuickCopyCatalog, listTherapyNotesQuickCopyNotes, getTherapyNotesQuickCopyNote,
-  updateTherapyNotesQuickCopyNote, transcribeTherapyNotesQuickCopy, generateTherapyNotesQuickCopy
+  updateTherapyNotesQuickCopyNote, transcribeTherapyNotesQuickCopy, generateTherapyNotesQuickCopy, getTherapyNotesQuickCopyServiceReference
 } from '../controllers/therapyNotesQuickGenerator.controller.js';
 
 import {
@@ -65,6 +65,7 @@ router.post('/contact-documentation/:type/:id', apiLimiter, contactDocumentation
 // Personal text-generation notes do not expose any client chart or session.
 // Each handler separately checks staff role, organization membership and rollout.
 router.get('/quick-copy/catalog', apiLimiter, getTherapyNotesQuickCopyCatalog);
+router.get('/quick-copy/service-reference/:serviceCode', apiLimiter, getTherapyNotesQuickCopyServiceReference);
 router.get('/quick-copy/recent', apiLimiter, listTherapyNotesQuickCopyNotes);
 router.get('/quick-copy/notes/:id', apiLimiter, getTherapyNotesQuickCopyNote);
 router.patch('/quick-copy/notes/:id', apiLimiter, updateTherapyNotesQuickCopyNote);

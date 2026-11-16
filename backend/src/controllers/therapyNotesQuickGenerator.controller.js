@@ -11,6 +11,7 @@ import { parseNoteSections, intakeOutputError } from '../services/clinicalNoteSe
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+import { getClinicalServiceReference } from '../services/clinicalServiceReference.service.js';
 import { assertQuickCopyHasNoChartContext, assertQuickCopyStaff, encryptQuickCopyOutput, quickCopyTools, readQuickCopyNote, therapyNotesQuickGeneratorEnabled } from '../utils/therapyNotesQuickGenerator.js';
 
 const positive = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
@@ -65,6 +66,14 @@ function subject(body) {
 export const getTherapyNotesQuickCopyCatalog = handler(async (req, res) => {
   await authorize(req);
   return res.json({ enabled: true, tools: quickCopyTools() });
+});
+
+// The supplied reference is documentation help, with no client/chart access.
+export const getTherapyNotesQuickCopyServiceReference = handler(async (req, res) => {
+  await authorize(req);
+  const serviceInfo = getClinicalServiceReference(req.params.serviceCode);
+  if (!serviceInfo) throw fail(404, 'No supplied service reference is available for this code.');
+  return res.json({ serviceInfo });
 });
 
 export const listTherapyNotesQuickCopyNotes = handler(async (req, res) => {

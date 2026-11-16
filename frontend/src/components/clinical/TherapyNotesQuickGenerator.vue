@@ -10,20 +10,28 @@
         <strong>{{ note.clientName || 'Unlinked note' }}</strong><span>{{ note.dateOfService || 'No date' }}</span><small>{{ note.toolName || toolName(note.toolId) }}</small>
       </button>
     </aside>
-    <main class="tng-main">
+    <main ref="mainEl" class="tng-main">
       <p v-if="loading" role="status">Loading generators…</p>
       <p v-if="error" class="tng-error" role="alert">{{ error }}</p>
       <template v-if="!loading && choosing">
-        <header class="tng-heading"><span>STEP 1</span><h2>Choose your note / generator type</h2><p>All generator types are available here, including H0004. Choose one to start an unlinked note.</p></header>
+        <header class="tng-heading"><span>YOUR NOTE STARTS HERE</span><h2>Choose a generator</h2><p>Pick your note type, add your notes, and copy the sections you need.</p></header>
         <label class="tng-sr" for="tng-tools-search">Find a generator</label>
-        <input id="tng-tools-search" v-model="toolSearch" placeholder="Find a code or generator, e.g. H0004…" />
-        <div class="tng-tools">
-          <button v-for="tool in filteredTools" :key="tool.id" type="button" :data-tool-id="tool.id" @click="chooseTool(tool)"><span v-if="tool.serviceCodes?.length" class="tng-code">{{ tool.serviceCodes.join(' / ') }}</span><strong>{{ tool.name }}</strong><small>{{ tool.description }}</small><b>Use this generator →</b></button>
-        </div>
-        <p v-if="!filteredTools.length" class="tng-muted">No generators match that search.</p>
+        <div class="tng-catalog-toolbar"><input id="tng-tools-search" ref="searchEl" v-model="toolSearch" placeholder="Search a code or generator…" /><span>{{ visibleToolCount }} generators</span></div>
+        <nav class="tng-categories" aria-label="Generator categories"><button type="button" :aria-pressed="categoryId==='all'" @click="categoryId='all'">All</button><button v-for="category in availableCategories" :key="category.id" type="button" :aria-pressed="categoryId===category.id" @click="categoryId=category.id">{{ category.label }}</button></nav>
+        <section v-for="category in visibleCategories" :key="category.id" class="tng-family" :aria-label="category.label">
+          <header><h3>{{ category.label }}</h3><span>{{ category.tools.length }}</span></header>
+          <div class="tng-tools">
+            <article v-for="tool in category.tools" :key="tool.id" class="tng-tool-card">
+              <div class="tng-tool-codes"><div v-for="code in tool.serviceCodes" :key="code" class="tng-code-pair"><span class="tng-code">{{ code }}</span><ServiceInformation presentation="button" :service-code="code" :agency-id="agency.id" :api-client="api" reference-base-path="/clinical-notes/quick-copy/service-reference" /></div><span v-if="!tool.serviceCodes?.length" class="tng-code tng-code--plain">{{ tool.name.toLowerCase().includes('plan') ? 'Treatment plan' : 'Note generator' }}</span></div>
+              <button type="button" class="tng-tool-select" :data-tool-id="tool.id" @click="chooseTool(tool)"><strong>{{ tool.name }}</strong><span aria-hidden="true">↗</span></button>
+              <details v-if="!tool.serviceCodes?.length" class="tng-tool-about"><summary :aria-label="`Information about ${tool.name}`">ⓘ About this generator</summary><p>{{ tool.description }}</p></details>
+            </article>
+          </div>
+        </section>
+        <p v-if="!visibleCategories.length" class="tng-muted">No generators match that search.</p>
       </template>
       <template v-else-if="!loading && selectedTool">
-        <header class="tng-editor-head"><div><span class="tng-code">{{ selectedTool.serviceCodes?.join(' / ') || 'Note generator' }}</span><h2>{{ selectedTool.name }}</h2></div><button type="button" :disabled="busy" @click="changeGenerator">Change generator</button></header>
+        <header class="tng-editor-head"><div><span class="tng-code">{{ selectedTool.serviceCodes?.join(' / ') || 'Note generator' }}</span><h2>{{ selectedTool.name }}</h2></div><div class="tng-editor-tools"><ServiceInformation v-if="serviceCode" presentation="button" :service-code="serviceCode" :agency-id="agency.id" :api-client="api" reference-base-path="/clinical-notes/quick-copy/service-reference" /><button type="button" :disabled="busy" @click="changeGenerator">Change generator</button></div></header>
         <form @submit.prevent="generate">
           <fieldset :disabled="busy">
             <div class="tng-fields">
@@ -37,11 +45,13 @@
             <div class="tng-actions"><button type="submit" class="tng-primary" :disabled="!canGenerate">{{ generating ? 'Generating…' : 'Generate note' }}</button><span class="tng-muted">Saved by client name and date for future copying.</span></div>
           </fieldset>
         </form>
+        <div v-if="generating" class="tng-generating" role="status"><span class="tng-spinner" aria-hidden="true" /><div><strong>Creating your note…</strong><p>We’re organizing your notes into {{ selectedTool.name }} sections. This can take a little while.</p></div></div>
         <section v-if="panels.length" class="tng-output" aria-label="Quick copy generated note">
           <header class="tng-output-head"><div><h2>Review and quick copy</h2><p>{{ clientName }} · {{ dateOfService }}</p></div><div><button type="button" :disabled="!dirty || busy" @click="saveEdits">{{ saving ? 'Saving…' : 'Save changes' }}</button><button type="button" @click="copyAll">{{ copied==='__all' ? 'Copied' : 'Copy all sections' }}</button></div></header>
           <p class="tng-save-status" role="status">{{ dirty ? 'Changes awaiting save…' : 'Saved. Reopen this note from Saved generator notes whenever you need to copy it.' }}</p>
           <article v-for="panel in panels" :key="panel.id" class="tng-section"><div><h3>{{ panel.title }}</h3><button type="button" :disabled="!sectionText[panel.id]?.trim()" @click="copySection(panel)">{{ copied===panel.id ? 'Copied' : 'Copy' }}</button></div><textarea v-model="sectionText[panel.id]" :aria-label="panel.title" rows="5" :disabled="generating" @input="copied=''" /></article>
           <p class="tng-copy-status" role="status">{{ copyStatus }}</p>
+          <footer class="tng-output-footer"><div><strong>Ready for the next note?</strong><p>This note is saved in your list for future copying.</p></div><button type="button" class="tng-primary" :disabled="busy || recording" data-testid="new-note-bottom" @click="newNote">+ New note</button></footer>
         </section>
       </template>
     </main>
@@ -53,18 +63,24 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildDisplaySections, extractSections, todayIsoDate } from '../../utils/noteAidUiHelpers.js';
+import ServiceInformation from '../notes/ServiceInformation.vue';
+import { categorizeTherapyGenerators, THERAPY_GENERATOR_CATEGORIES } from '../../config/therapyNotesGeneratorCatalog.js';
 
 const props = defineProps({ agency: { type: Object, required: true } });
 const enabled=ref(true), loading=ref(true), loadingHistory=ref(false), opening=ref(false), generating=ref(false), saving=ref(false), recording=ref(false), transcribing=ref(false);
 const tools=ref([]), notes=ref([]), toolSearch=ref(''), historySearch=ref(''), choosing=ref(true), selectedTool=ref(null), serviceCode=ref('');
 const clientName=ref(''), dateOfService=ref(todayIsoDate()), inputText=ref(''), noteId=ref(null), panels=ref([]), sectionText=ref({});
 const error=ref(''), dirty=ref(false), copied=ref(''), copyStatus=ref('');
+const mainEl=ref(null), searchEl=ref(null), categoryId=ref('all');
 const controller=new AbortController();
 let hydrating=false, saveTimer=null, recorder=null, stream=null, disposed=false, editVersion=0, pendingSave=null;
 const busy=computed(()=>opening.value||generating.value||saving.value||transcribing.value);
 const dictationSupported=typeof navigator!=='undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder!=='undefined';
 const canGenerate=computed(()=>!busy.value&&!recording.value&&!!selectedTool.value&&!!clientName.value.trim()&&!!dateOfService.value&&!!inputText.value.trim());
 const filteredTools=computed(()=>{const query=toolSearch.value.trim().toLowerCase();return tools.value.filter(tool=>[tool.name,tool.description,...(tool.serviceCodes||[])].join(' ').toLowerCase().includes(query));});
+const availableCategories=computed(()=>THERAPY_GENERATOR_CATEGORIES.filter(category=>tools.value.some(tool=>tool.categoryId===category.id)));
+const visibleCategories=computed(()=>availableCategories.value.filter(category=>categoryId.value==='all'||categoryId.value===category.id).map(category=>({...category,tools:filteredTools.value.filter(tool=>tool.categoryId===category.id)})).filter(category=>category.tools.length));
+const visibleToolCount=computed(()=>visibleCategories.value.reduce((total,category)=>total+category.tools.length,0));
 const filteredNotes=computed(()=>{const query=historySearch.value.trim().toLowerCase();return notes.value.filter(note=>`${note.clientName} ${note.dateOfService}`.toLowerCase().includes(query));});
 const toolName=id=>tools.value.find(tool=>tool.id===id)?.name||'Note generator';
 const requestOptions=()=>({skipGlobalLoading:true,signal:controller.signal});
@@ -75,7 +91,7 @@ onMounted(async()=>{
   try {
     const {data}=await api.get('/clinical-notes/quick-copy/catalog',{...requestOptions(),params:{agencyId:props.agency.id}});
     enabled.value=data?.enabled===true;
-    tools.value=data?.tools||[];
+    tools.value=categorizeTherapyGenerators(data?.tools||[]);
     if(enabled.value)await loadHistory();
   }catch(failure){if(!disposed)error.value=message(failure);}
   finally{loading.value=false;}
@@ -129,7 +145,9 @@ async function openNote(note){
 async function newNote(){
   if(recording.value||busy.value||!await saveEdits())return;
   hydrating=true;noteId.value=null;clientName.value='';dateOfService.value=todayIsoDate();inputText.value='';panels.value=[];sectionText.value={};selectedTool.value=null;serviceCode.value='';choosing.value=true;dirty.value=false;error.value='';copied.value='';copyStatus.value='';
+  categoryId.value='all';toolSearch.value='';
   await nextTick();hydrating=false;
+  mainEl.value?.scrollIntoView?.({behavior:'smooth',block:'start'});searchEl.value?.focus({preventScroll:true});
 }
 async function chooseTool(tool){if(selectedTool.value&&selectedTool.value.id!==tool.id){noteId.value=null;panels.value=[];sectionText.value={};}selectedTool.value=tool;serviceCode.value=tool.serviceCodes?.[0]||'';choosing.value=false;await nextTick();document.querySelector('[name="quick-copy-client-name"]')?.focus();}
 async function changeGenerator(){if(recording.value||!await saveEdits())return;choosing.value=true;}
@@ -179,6 +197,25 @@ onBeforeUnmount(()=>{disposed=true;window.removeEventListener('beforeunload',pro
 </script>
 
 <style scoped>
-.tng{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;max-width:1400px;margin:auto;color:#203d56}.tng-history,.tng-main{background:white;border:1px solid #d6e0e9;border-radius:14px;padding:22px;min-width:0}.tng-history{align-self:start;max-height:80vh;overflow:auto}.tng-history__head,.tng-editor-head,.tng-output-head,.tng-section>div{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.tng h2{font-size:1.1rem;line-height:1.4;margin:0 0 10px}.tng-history h2{font-size:1rem}.tng p{line-height:1.6}.tng button{font:inherit;font-size:.85rem;background:white;color:#245c8b;border:1px solid #b9cedf;border-radius:8px;padding:10px 14px;cursor:pointer}.tng button:disabled{opacity:.55;cursor:not-allowed}.tng input,.tng select,.tng textarea{box-sizing:border-box;display:block;width:100%;padding:12px;margin:8px 0 18px;border:1px solid #b6c8d6;border-radius:8px;background:white;color:#203d56;font:inherit;line-height:1.5}.tng textarea{resize:vertical}.tng label{font-size:.9rem;font-weight:600;line-height:1.5}.tng-history__note{display:flex;flex-direction:column;gap:6px;text-align:left;width:100%;margin-top:10px}.tng-history__note.active{background:#edf5ff;border-color:#2367a4}.tng-history__note span{font-size:.8rem}.tng-history__note small{font-size:.75rem;color:#657c90}.tng-heading>span,.tng-code{font-size:.75rem;font-weight:700;color:#8b641c}.tng-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.tng-tools button{display:flex;flex-direction:column;gap:10px;text-align:left;padding:18px}.tng-tools button:hover{background:#f4f8ff;border-color:#2367a4}.tng-tools strong{font-size:.95rem;line-height:1.5}.tng-tools small{font-size:.8rem;color:#61758b;line-height:1.55}.tng-tools b{font-size:.8rem;margin-top:auto}.tng-fields{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:20px}.tng fieldset{border:0;padding:0;margin:0;min-width:0}.tng-dictation,.tng-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:12px 0 22px}.tng .tng-primary{background:#2367a4;border-color:#2367a4;color:white;font-weight:700;padding:13px 24px}.tng .tng-recording{color:#ad2525;border-color:#ad2525}.tng-muted,.tng-save-status{color:#64798d;font-size:.82rem;line-height:1.6}.tng-error{color:#a92d28;padding:12px;background:#fff4f2;border-radius:8px}.tng-output{border-top:1px solid #d6e0e9;margin-top:20px;padding-top:22px}.tng-output-head>div:last-child{display:flex;gap:8px;flex-wrap:wrap}.tng-section{padding:16px;margin-top:16px;border:1px solid #d6e0e9;border-radius:10px;background:#fafcfe}.tng-section h3{font-size:.95rem;margin:0}.tng-section textarea{margin-bottom:0}.tng-copy-status{min-height:1.5em;font-size:.85rem}.tng-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.tng-unavailable{padding:24px;background:white;border-radius:12px}
-@media(max-width:1000px){.tng{grid-template-columns:220px minmax(0,1fr);gap:16px}.tng-tools{grid-template-columns:1fr}.tng-history,.tng-main{padding:16px}}@media(max-width:700px){.tng{display:flex;flex-direction:column-reverse}.tng-history{width:100%;box-sizing:border-box;max-height:360px}.tng-fields{grid-template-columns:1fr}.tng-main{padding:16px}}
+.tng{display:grid;grid-template-columns:244px minmax(0,1fr);gap:20px;width:100%;color:#213d56;--tng-navy:#193f64;--tng-gold:#a77d2d}
+.tng-history,.tng-main{min-width:0;border:1px solid #dae4ed;border-radius:14px;background:#fff}
+.tng-main{padding:24px}.tng-history{align-self:start;position:sticky;top:100px;padding:18px;max-height:calc(100vh - 124px);overflow:auto}
+.tng-history__head,.tng-editor-head,.tng-output-head,.tng-section>div,.tng-output-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.tng h2{font-size:1.18rem;line-height:1.4;margin:0 0 8px;color:var(--tng-navy)}.tng-history h2{font-size:.88rem;margin:0}.tng p{line-height:1.6}
+.tng button{font:inherit;font-size:.8rem;background:#fff;color:#285a83;border:1px solid #c9d8e4;border-radius:8px;padding:9px 13px;cursor:pointer;transition:background .15s,border-color .15s}
+.tng button:hover:not(:disabled){border-color:#6e94b7;background:#f2f7fc}.tng button:disabled{opacity:.55;cursor:not-allowed}.tng button:focus-visible,.tng input:focus-visible,.tng textarea:focus-visible,.tng select:focus-visible{outline:3px solid #b6cfe4;outline-offset:2px}
+.tng input,.tng select,.tng textarea{box-sizing:border-box;display:block;width:100%;padding:10px 12px;margin:7px 0 16px;border:1px solid #c4d3df;border-radius:8px;background:#fff;color:#213d56;font:inherit;font-size:.9rem;line-height:1.55}.tng textarea{resize:vertical}.tng label{font-size:.82rem;font-weight:650;line-height:1.5}
+.tng-history__head button{padding:7px 9px;font-size:.75rem}.tng-history input{font-size:.8rem;margin-top:16px}.tng .tng-history__note{display:flex;flex-direction:column;gap:5px;text-align:left;width:100%;margin-top:9px;padding:12px;border-color:#e0e8ef;background:#fbfcfe}.tng-history__note.active{background:#edf5fc;border-left:3px solid var(--tng-gold)}.tng-history__note strong{font-size:.82rem}.tng-history__note span,.tng-history__note small{font-size:.72rem;color:#65798c}
+.tng-heading>span{font-size:.67rem;letter-spacing:.1em;font-weight:750;color:var(--tng-gold)}.tng-heading h2{margin-top:7px}.tng-heading p{margin:0;color:#6b7d8e;font-size:.87rem}
+.tng-catalog-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:20px 0 14px}.tng-catalog-toolbar input{max-width:420px;margin:0;background:#f8fafc}.tng-catalog-toolbar>span{font-size:.75rem;color:#718397;white-space:nowrap}
+.tng-categories{display:flex;flex-wrap:wrap;gap:7px;padding-bottom:18px;border-bottom:1px solid #e6edf3}.tng-categories button{border-color:transparent;background:#f3f6f9;padding:7px 12px;font-size:.76rem}.tng-categories button[aria-pressed=true]{background:var(--tng-navy);border-color:var(--tng-navy);color:#fff}
+.tng-family{margin-top:22px}.tng-family>header{display:flex;align-items:center;gap:9px;margin-bottom:11px}.tng-family h3{margin:0;font-size:.86rem;color:#284d6c}.tng-family>header>span{font-size:.68rem;min-width:18px;text-align:center;padding:2px 5px;border-radius:5px;background:#edf2f6;color:#738394}
+.tng-tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:10px}.tng-tool-card{border:1px solid #dbe5ed;border-radius:10px;padding:11px 13px 7px;background:#fff;transition:border-color .15s,box-shadow .15s}.tng-tool-card:hover{border-color:#9bb6cc;box-shadow:0 3px 12px #143a5b09}.tng-tool-codes{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:28px}.tng-code-pair{display:inline-flex;align-items:center;gap:3px}.tng-code{font-size:.7rem;font-weight:750;color:#8b661f;line-height:1.4}.tng-code--plain{color:#8292a1;font-weight:500}
+.tng :deep(.service-information__trigger){width:28px;height:28px;padding:0;font-size:18px!important;border-color:#d4e1ec;background:#f7fafc}
+.tng .tng-tool-select{display:flex;align-items:center;justify-content:space-between;gap:10px;border:0;border-radius:5px;padding:8px 0;width:100%;text-align:left;background:transparent;color:#254a69}.tng-tool-select strong{font-size:.84rem;line-height:1.5;font-weight:650}.tng-tool-select>span{flex:none;font-size:1rem;color:#91a7ba}.tng-tool-about{font-size:.71rem;color:#718396;margin-bottom:5px}.tng-tool-about summary{cursor:pointer;line-height:1.5}.tng-tool-about p{margin:8px 0;color:#587086;font-size:.8rem}
+.tng-editor-head{padding-bottom:16px;border-bottom:1px solid #e4ebf1}.tng-editor-head h2{margin:5px 0 0}.tng-editor-tools{display:flex;align-items:center;gap:10px}.tng-fields{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:20px}.tng fieldset{border:0;padding:0;margin:0;min-width:0}.tng-dictation,.tng-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 18px}
+.tng .tng-primary{background:var(--tng-navy);border-color:var(--tng-navy);color:#fff;font-weight:650;padding:12px 22px}.tng .tng-primary:hover:not(:disabled){background:#285b87;border-color:#285b87}.tng .tng-recording{color:#ad2525;border-color:#ad2525}.tng-muted,.tng-save-status{color:#6b8093;font-size:.78rem;line-height:1.6}.tng-error{color:#a92d28;padding:12px;background:#fff4f2;border-radius:8px}
+.tng-generating{display:flex;align-items:center;gap:16px;padding:18px 20px;border:1px solid #d9e5ef;border-radius:10px;background:#f2f7fc;margin:16px 0;font-size:.88rem}.tng-generating p{margin:4px 0 0;font-size:.8rem;color:#657d92}.tng-spinner{width:23px;height:23px;flex:none;border:2px solid #c7d7e5;border-top-color:var(--tng-gold);border-radius:50%;animation:tng-spin 1s linear infinite}@keyframes tng-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.tng-spinner{animation:none;border-top-color:var(--tng-navy)}}
+.tng-output{border-top:1px solid #dce5ed;margin-top:24px;padding-top:22px}.tng-output-head>div:last-child{display:flex;gap:8px;flex-wrap:wrap}.tng-output-head p{margin:4px 0 0;font-size:.85rem;color:#5a7388}.tng-section{padding:14px 16px;margin-top:12px;border:1px solid #dce6ee;border-radius:10px;background:#fbfcfe}.tng-section h3{font-size:.88rem;margin:0}.tng-section textarea{margin-bottom:0;min-height:110px}.tng-copy-status{min-height:1.5em;font-size:.8rem}.tng-output-footer{margin-top:20px;padding:22px;background:#f3f7fb;border:1px solid #dce7f0;border-radius:10px}.tng-output-footer strong{font-size:.9rem}.tng-output-footer p{font-size:.78rem;color:#6c8194;margin:5px 0 0}.tng-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.tng-unavailable{padding:24px;background:#fff;border-radius:12px}
+@media(max-width:1000px){.tng{grid-template-columns:212px minmax(0,1fr);gap:14px}.tng-main{padding:18px}.tng-history{padding:14px}}@media(max-width:700px){.tng{display:flex;flex-direction:column-reverse;gap:16px}.tng-history{position:static;width:100%;box-sizing:border-box;max-height:360px}.tng-fields{grid-template-columns:1fr}.tng-catalog-toolbar{align-items:flex-start;flex-direction:column}.tng-catalog-toolbar input{max-width:none}.tng-main{padding:16px}.tng-output-footer{align-items:flex-start;flex-direction:column}}
 </style>
