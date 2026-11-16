@@ -224,6 +224,7 @@
           <option value="">All needs</option>
           <option value="any">Needs attention</option>
           <option value="up_to_date">Up to date</option>
+          <option value="client_setup">Client setup / records import</option>
           <option value="expired_roi">Expired ROI</option>
           <option value="school_transfer">School transfer</option>
           <option value="staff_roi_gap">Staff ROI gap</option>

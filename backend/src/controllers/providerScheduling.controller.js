@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
+import { PROVIDER_ROLE_SQL } from '../services/clientAssignmentScope.service.js';
 
 const parseAgencyId = (req) => {
   const raw = req.query.agencyId || req.body.agencyId || req.user?.agencyId;
@@ -19,12 +20,14 @@ export const listProvidersForScheduling = async (req, res, next) => {
     const agencyId = parseAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const activeProvidersOnly = ['true', '1'].includes(String(req.query.activeProvidersOnly || '').toLowerCase());
+    const clientAssignmentsOnly = ['true','1'].includes(String(req.query.clientAssignmentsOnly||'').toLowerCase());
+    const providerRoles = clientAssignmentsOnly ? PROVIDER_ROLE_SQL : `(LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','employee','admin','super_admin') OR u.has_provider_access = TRUE)`;
     const providerFilter = activeProvidersOnly ? `
       AND COALESCE(ua.is_active, 1) = 1
       AND COALESCE(u.is_demo, 0) = 0
       AND COALESCE(u.sees_clients, 1) = 1
       AND UPPER(COALESCE(u.status, '')) NOT IN ('INACTIVE','TERMINATED','SUSPENDED','DISABLED','DELETED')
-      AND (LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','facilitator') OR u.has_provider_access = TRUE)
+      AND ${clientAssignmentsOnly ? PROVIDER_ROLE_SQL : `(LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','facilitator') OR u.has_provider_access = TRUE)`}
     ` : '';
 
     // Backward compatible: some user fields may not exist yet (provider_accepting_new_clients, is_archived, etc).
@@ -46,14 +49,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
-           AND (
-             LOWER(COALESCE(u.role, '')) IN (
-               'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
-               'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
-               'employee', 'admin', 'super_admin'
-             )
-             OR (u.has_provider_access = TRUE)
-           )
+           AND ${providerRoles}
          ${providerFilter}
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
@@ -70,14 +66,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
-           AND (
-             LOWER(COALESCE(u.role, '')) IN (
-               'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
-               'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
-               'employee', 'admin', 'super_admin'
-             )
-             OR (u.has_provider_access = TRUE)
-           )
+           AND ${providerRoles}
          ${providerFilter}
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]

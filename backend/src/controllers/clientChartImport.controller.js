@@ -2,6 +2,7 @@ import { requireClientChartImportAccess } from '../services/clientChartImportAcc
 import { chartSections, readChartRecord, saveChartRecord, importSupplementaryChartSection } from '../services/clientChartImport.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import {beginClientChartImport,completeClientChartImport} from '../services/clientChartImportProgress.service.js';
 
 function sectionOf(req) {
   const section = req.params.section;
@@ -19,6 +20,19 @@ const canManageAccount = req => ['super_admin','admin','support'].includes(req.u
 function requireSectionAccess(req, section) {
   if (accountSections.has(section) && !canManageAccount(req)) throw Object.assign(new Error('Client account support access required for billing information'), { status: 403 });
 }
+
+export async function startChartRecordsImport(req,res,next){try{
+ const scope=await scopeOf(req),sections=req.body?.sections;
+ if(Array.isArray(sections))for(const section of sections)requireSectionAccess(req,section);
+ const progress=await beginClientChartImport(scope,sections,Number(req.user.id));
+ await logAuditEvent(req,{actionType:'client_records_import_started',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId});
+ res.set('Cache-Control','no-store').json({progress});
+}catch(error){next(error);}}
+export async function finishChartRecordsImport(req,res,next){try{
+ const scope=await scopeOf(req),progress=await completeClientChartImport(scope,Number(req.user.id),{allowedSections:chartSections.filter(key=>canManageAccount(req)||!accountSections.has(key)),ifPending:req.body?.ifPending===true});
+ await logAuditEvent(req,{actionType:'client_records_import_completed',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId});
+ res.set('Cache-Control','no-store').json({progress});
+}catch(error){next(error);}}
 
 export async function getChartImportDrafts(req, res, next) {
   try {

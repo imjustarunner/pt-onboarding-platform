@@ -93,7 +93,7 @@ async function addAffiliation(type){if(busy.value||!additions[type])return;const
  await api.post(`/clients/${cid}/affiliations`,{agency_id:Number(aid),organization_id:Number(additions[type]),is_primary:makePrimary[type]},request());if(own!==generation)return;const response=await api.get(`/clients/${cid}/affiliations`,request());if(own!==generation)return;affiliations.value=rows(response);additions[type]='';makePrimary[type]=false;emit('updated');
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Affiliation could not be saved.';}finally{if(own===generation)saving.value=false;}}
 function prepareLeave(){if(busy.value||!loaded.value||error.value||servicesError.value)return false;if(servicesPanel.value?.prepareLeave?.()===false)return false;if(dirty.value){error.value='Save or reset scheduling defaults before moving to another client.';section.value?.scrollIntoView?.({block:'center'});return false;}return true;}
-defineExpose({prepareLeave});
+defineExpose({prepareLeave,reload:load});
 watch(()=>[props.clientId,props.agencyId],load,{immediate:true});
 onBeforeUnmount(()=>{generation++;providerRequest++;emit('busy',false);});
 </script>

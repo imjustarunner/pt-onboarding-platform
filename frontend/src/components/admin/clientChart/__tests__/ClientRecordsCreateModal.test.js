@@ -1,13 +1,35 @@
 import { beforeEach,expect,it,vi } from 'vitest';
-import { defineComponent } from 'vue';
+import { defineComponent,onMounted } from 'vue';
+import {createPinia} from 'pinia';
 import { mount,flushPromises } from '@vue/test-utils';
+// Render real Teleports inline. VTU recreates its Teleport stub on every parent
+// render, which otherwise remounts a child reporting busy during initialization.
+vi.mock('vue',async importOriginal=>{const vue=await importOriginal();return {...vue,Teleport:{...vue.Teleport,process(previous,next,...args){next.props={...next.props,disabled:true};return vue.Teleport.process(previous,next,...args);}}};});
 const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),put:vi.fn(),routeLeave:vi.fn()}));
 vi.mock('../../../../services/api',()=>({default:m}));vi.mock('../../../../store/auth',()=>({useAuthStore:()=>({user:{id:10,role:'support'}})}));vi.mock('vue-router',()=>({onBeforeRouteLeave:m.routeLeave}));
 import Modal from '../ClientRecordsCreateModal.vue';
 const Panel=defineComponent({name:'ClientEhrBringUpToDatePanel',props:['clientId','initialTexts','autoImport','initialContactOwner'],emits:['imported'],setup(_props,{expose}){expose({prepareLeave:()=>true});},template:'<div data-import-panel><button data-finish @click="$emit(\'imported\')">Finish client import</button></div>'});
-const mountModal=()=>mount(Modal,{props:{agencies:[{id:2,name:'Agency'}],initialAgencyId:2},global:{stubs:{Teleport:true,ClientEhrBringUpToDatePanel:Panel}}});
+const AssignmentStub=defineComponent({setup(_, {emit,expose}){onMounted(()=>emit('ready',true));expose({prepareLeave:()=>true});},template:'<div />'});
+const mountModal=(realPanel=false)=>mount(Modal,{props:{agencies:[{id:2,name:'Agency'}],initialAgencyId:2},global:{plugins:[createPinia()],stubs:{Teleport:false,ClientEhrBringUpToDatePanel:realPanel?false:Panel,ClientUpdateAssignments:AssignmentStub,ClientPayerLinkage:true,ClientTransitionInvitation:true,ClientMedicalHistory:true}}});
 let assigned=false;
 beforeEach(()=>{vi.resetAllMocks();localStorage.clear();assigned=false;m.get.mockImplementation(async url=>({data:url==='/clients/creation-draft'?{revision:0,value:null}:url.includes('affiliated-organizations')?[{id:4,name:'Office',organization_type:'clinical'},{id:5,name:'School',organization_type:'school'}]:url.includes('provider-scheduling')?[{id:9,first_name:'Pat',last_name:'Provider'}]:{id:12,provider_id:assigned?9:null}}));m.put.mockImplementation(async url=>{if(url.endsWith('/provider'))assigned=true;return{data:{revision:1}};});m.post.mockImplementation(async url=>({data:url.includes('preview')?{parsed:{fullName:'Ekko Loisel',dateOfBirth:'2010-02-03',addressStreet:'123 Test Street',addressCity:'Denver',addressState:'CO',addressZip:'80202',email:'synthetic@example.test',contactPhone:'303-555-0101',administrativeSex:'Male',preferredLanguage:'Spanish'}}:{id:12,agency_id:2,organization_id:4}}));});
+
+it('imports the supplied records even when initial provider assignment fails and offers an explicit recovery',async()=>{
+ const originalGet=m.get.getMockImplementation();m.get.mockImplementation(async url=>url.endsWith('/chart-import/drafts')?{data:{drafts:{}}}:originalGet(url));
+ const originalPost=m.post.getMockImplementation();m.post.mockImplementation(async(url,...args)=>url.endsWith('/demographics/parse')?{data:{parsed:{fullName:'Synthetic Full Name',dateOfBirth:'2010-02-03',addressStreet:'123 Test Street',administrativeSex:'Male'}}}:originalPost(url,...args));
+ const originalPut=m.put.getMockImplementation();m.put.mockImplementation(async(url,...args)=>{if(url.endsWith('/provider'))throw{response:{status:400,data:{error:{message:'Choose an active provider from one of this client’s agencies.'}}}};return originalPut(url,...args);});
+ const w=mountModal(true);await flushPromises();await w.findAll('select').find(s=>s.findAll('option').some(o=>o.text()==='Pat Provider')).setValue('9');
+ await w.get('textarea[data-section=demographics]').setValue('Legal Name\nSynthetic Full Name');await w.get('textarea[data-section=comments]').setValue('Patient Comments\nSynthetic administrative note');await w.findAll('button').find(b=>b.text()==='Read demographics').trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text().includes('Create chart and')).trigger('click');await flushPromises();
+ expect(m.post.mock.calls.filter(([url])=>url==='/clients')).toHaveLength(1);expect(m.post).toHaveBeenCalledWith('/clients/12/demographics/import',expect.objectContaining({demographics:expect.objectContaining({addressStreet:'123 Test Street'})}),expect.anything());expect(m.post).toHaveBeenCalledWith('/clients/12/chart-import/sections/comments',expect.objectContaining({text:expect.stringContaining('Synthetic administrative note')}),expect.anything());
+ expect(w.text()).toContain('Chart #12 is saved');expect(w.text()).toContain('Resolve the provider assignment');expect(w.get('[aria-label="Provider assignment needs attention"] select').exists()).toBe(true);
+ await w.get('[aria-label="Provider assignment needs attention"] select').setValue('');await w.findAll('button').find(b=>b.text()==='Continue unassigned').trigger('click');await flushPromises();
+ const finish=w.findAll('button').find(b=>b.text()==='Finish client import');expect(finish.attributes('disabled')).toBeUndefined();await finish.trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{},expect.anything());expect(w.text()).toContain('Client saved');expect(m.post.mock.calls.filter(([url])=>url==='/clients')).toHaveLength(1);w.unmount();
+});
+
+it('restores the saved chart and pastes after a failed assignment without attempting to create it again',async()=>{
+ const original=m.get.getMockImplementation();m.get.mockImplementation(async url=>url==='/clients/creation-draft'?{data:{revision:3,value:{form:{records:{comments:'Saved administrative note'},demographics:'Saved demographics',fullName:'Saved Client',providerId:999},created:{id:2579,agency_id:2},completed:false}}}:original(url));
+ const w=mountModal();await flushPromises();expect(w.text()).toContain('Chart #2579 is saved');expect(w.text()).toContain('The saved provider is no longer assignable');expect(w.findComponent(Panel).props()).toMatchObject({clientId:2579,autoImport:false,initialTexts:{comments:'Saved administrative note',demographics:'Saved demographics'}});expect(m.post.mock.calls.some(([url])=>url==='/clients')).toBe(false);expect(w.text()).toContain('Resume saved import');w.unmount();
+});
 it('fills pasted demographics and generates spaced initials without asking for identity re-entry',async()=>{
  const w=mountModal();await flushPromises();expect(w.find('input[placeholder="YYYY-YYYY"]').exists()).toBe(false);const affiliation=w.findAll('select')[2];expect(affiliation.findAll('option').some(o=>o.text()==='School')).toBe(false);await w.get('textarea[data-section=demographics]').setValue('Legal Name\nEkko Loisel\nDate of Birth\n2/3/2010');await w.findAll('button').find(b=>b.text()==='Read demographics').trigger('click');await flushPromises();
  expect(w.get('.cr-identity').text()).toContain('Ekk Loi');expect(w.get('.cr-identity').text()).toContain('2010-02-03');expect(w.get('[aria-label="Demographics preview"]').text()).toContain('123 Test Street');expect(w.get('[aria-label="Demographics preview"]').text()).toContain('synthetic@example.test');

@@ -181,3 +181,14 @@ it('keeps assignments and the portal invitation inside the creation flow before 
  expect(wrapper.html().indexOf('data-create-assignments')).toBeLessThan(wrapper.html().indexOf('client-transition-invitation-stub'));expect(wrapper.html().indexOf('client-transition-invitation-stub')).toBeLessThan(wrapper.html().indexOf('Finish client import'));
  wrapper.findComponent(AssignmentStub).vm.$emit('ready',true);await flushPromises();expect(finish().attributes('disabled')).toBeUndefined();wrapper.unmount();
 });
+
+it('explains the remaining steps and distinguishes a saved paste from a successful import',async()=>{
+ mocks.post.mockResolvedValue({data:{}});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,autoImport:false,pendingProviderAssignment:true,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
+ expect(wrapper.text()).toContain('Demographics · Ready to import');expect(wrapper.get('[aria-label="Remaining import steps"]').text()).toContain('Import demographics.');expect(wrapper.text()).toContain('Resolve the provider assignment');expect(wrapper.findAll('button').find(button=>button.text()==='Finish client import').attributes('disabled')).toBeDefined();wrapper.unmount();
+});
+it('keeps the import open when server completion fails after sections have saved',async()=>{
+ mocks.post.mockImplementation(async url=>{if(url.endsWith('/chart-import/complete'))throw{response:{status:409,data:{error:{message:'Review a remaining section'}}}};return{data:{parsed:{fullName:'Synthetic Client'}}};});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
+ await wrapper.findAll('button').find(button=>button.text()==='Finish client import').trigger('click');await flushPromises();expect(wrapper.text()).toContain('Review a remaining section');expect(wrapper.emitted('imported')).toBeUndefined();expect(wrapper.get('textarea[data-section=demographics]').element.value).toContain('Synthetic Client');wrapper.unmount();
+});

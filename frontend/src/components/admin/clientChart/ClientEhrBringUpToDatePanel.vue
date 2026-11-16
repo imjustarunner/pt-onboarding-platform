@@ -20,7 +20,7 @@
       <p v-if="drafts.state.loading" class="ehr-muted" role="status">Loading saved drafts…</p>
       <p v-if="drafts.state.loadError" class="ehr-error" role="alert">{{ drafts.state.loadError }} <button type="button" class="ehr-link" @click="retryDraftLoad">Retry loading drafts</button></p>
       <div class="ehr-status-row" aria-label="Setup status">
-        <span v-for="section in visibleSections" :key="section.key" class="ehr-chip" :class="statusClass(status[section.key])">{{ section.label }} · {{ status[section.key] }}</span>
+        <span v-for="section in visibleSections" :key="section.key" class="ehr-chip" :class="statusClass(status[section.key])">{{ section.label }} · {{ sectionStatusLabel(section.key) }}</span>
       </div>
       <section v-for="section in visibleSections" :key="section.key" class="ehr-section" :aria-label="section.label">
         <label v-if="section.key === 'insurance'" class="ehr-label">Coverage<select v-model="payerPosition" :disabled="busy"><option value="primary">Primary insurance</option><option value="secondary">Secondary insurance</option></select></label>
@@ -93,7 +93,7 @@
         <p v-if="!recordsReadyForInvitation" class="ehr-muted">Import the filled sections, finish pending reviews and save assignment changes before sending the portal invitation.</p>
         <fieldset class="ehr-invitation" :disabled="busy || !recordsReadyForInvitation"><ClientTransitionInvitation :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></fieldset>
       </template>
-      <button v-if="creationFlow && requireVerifiedPayers" type="button" class="ehr-btn-primary ehr-finish" :disabled="busy || !creationRecordsReady || (showAssignments && !assignmentsReady) || (hasCoveragePaste && !payerReady)" @click="completeCreation">Finish client import</button>
+      <div v-if="creationFlow && requireVerifiedPayers" class="ehr-finish"><p v-if="creationPendingReasons.length">Before finishing this client:</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy || creationPendingReasons.length > 0" @click="completeCreation">Finish client import</button></div>
     </div>
   </div>
 
@@ -141,6 +141,7 @@ const props = defineProps({
   creationFlow: { type: Boolean, default: false },
   initialContactOwner: { type:String, default:'guardian', validator:value=>['guardian','client'].includes(value) },
   autoImport: { type: Boolean, default: true },
+  pendingProviderAssignment: {type:Boolean,default:false},
   requireVerifiedPayers: { type: Boolean, default: false },
   embedded: { type: Boolean, default: false },
   historicalImport: { type: Boolean, default: false },
@@ -168,6 +169,7 @@ const visibleSections = computed(() => sections.filter(section => props.historic
 const drafts = useChartImportDrafts();
 const historyBusy=ref(false),historyPanel=ref(null);
 const assignmentsBusy=ref(false),assignmentsReady=ref(false),assignmentsPanel=ref(null);
+const progressBusy=ref(false);let progressSectionsKey=null;
 const showAssignments=computed(()=>!props.historicalImport&&canPrepareAccounts.value&&(!props.creationFlow||props.requireVerifiedPayers));
 const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
 const transitionRefreshKey = ref(0), invitationBusy = ref(false);
@@ -198,7 +200,15 @@ const todayIso = computed(() => new Date().toISOString().slice(0, 10));
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && Object.values(coverageDrafts).some(draft => draft.text.trim()))
 );
-const busy = computed(() => importing.value || markingDone.value || showPlanReview.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || drafts.state.loading);
+const busy = computed(() => importing.value || markingDone.value || showPlanReview.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || progressBusy.value || drafts.state.loading);
+const filledSections=()=>visibleSections.value.filter(section=>sectionTexts[section.key].trim()||(section.key==='insurance'&&hasCoveragePaste.value)).map(section=>section.key);
+const creationPendingReasons=computed(()=>[
+ ...(props.pendingProviderAssignment?['Resolve the provider assignment above or choose Continue unassigned.']:[]),
+ ...filledSections().filter(key=>key==='insurance'?!allCoverageImported.value:status[key]!=='imported').map(key=>`${status[key]==='failed'?'Retry':'Import'} ${sections.find(section=>section.key===key).label.toLowerCase()}.`),
+ ...['intake','plan'].filter(key=>reviewPending[key]).map(key=>`Finish the ${key==='plan'?'treatment plan':key} review.`),
+ ...(showAssignments.value&&!assignmentsReady.value?['Review assignments and save any changes.']:[]),
+ ...(hasCoveragePaste.value&&!payerReady.value?['Confirm the electronic payer links below.']:[])
+]);
 watch(busy, value => emit('busy', value), { flush: 'sync' });
 let scopeGeneration = 0;
 let importScopeGeneration = 0;
@@ -215,6 +225,13 @@ function statusClass(s) {
   if (s === 'failed') return 'is-bad';
   if (s === 'needs review') return 'is-warn';
   return 'is-miss';
+}
+function sectionStatusLabel(key){return status[key]==='missing'?(sectionTexts[key].trim()?'Ready to import':'No paste added'):status[key];}
+async function beginImportProgress(){
+ if(!props.creationFlow||!props.requireVerifiedPayers)return;
+ const sections=filledSections(),key=JSON.stringify(sections);if(key===progressSectionsKey)return;
+ const own=scopeGeneration;progressBusy.value=true;
+ try{await api.post(`/clients/${props.clientId}/chart-import/start`,{sections},{skipGlobalLoading:true,headers:agencyHeaders()});if(own===scopeGeneration)progressSectionsKey=key;}finally{if(own===scopeGeneration)progressBusy.value=false;}
 }
 
 function agencyHeaders() {
@@ -288,6 +305,8 @@ watch(
     hydratingDrafts = false;
     void loadImportedContacts(generation);
     for (const section of visibleSections.value) if (sectionTexts[section.key]) drafts.schedule(section.key, draftValue(section.key));
+    progressSectionsKey=null;
+    if(props.creationFlow&&props.requireVerifiedPayers){try{await beginImportProgress();if(generation!==scopeGeneration)return;}catch(e){error.value=e.response?.data?.error?.message||'The saved import could not be resumed. Retry Import all filled sections.';return;}}
     if (props.creationFlow && props.autoImport && !props.historicalImport) importAll();
   },
   { immediate: true, flush: 'sync' }
@@ -410,7 +429,8 @@ async function importDemographics() {
         textMessagesOk: p.textMessagesOk === true,
         email: p.email || '',
         appointmentReminderType: p.appointmentReminderType || '',
-        administrativeSex: p.administrativeSex || ''
+        administrativeSex: p.administrativeSex || '',
+        grade: p.grade || ''
       }
     },
     { skipGlobalLoading: true, headers: agencyHeaders() }
@@ -664,9 +684,10 @@ async function finishImportPipeline() {
 }
 
 async function completeCreation() {
-  if (!creationRecordsReady.value || (hasCoveragePaste.value && !payerReady.value)) return;
+  if (creationPendingReasons.value.length || busy.value) return;
   if (await prepareLeave() === false) return;
-  emit('imported', { ...status });
+  const own=scopeGeneration;progressBusy.value=true;
+  try{await api.post(`/clients/${props.clientId}/chart-import/complete`,{},{skipGlobalLoading:true,headers:agencyHeaders()});if(own===scopeGeneration)emit('imported', { ...status });}catch(e){if(own===scopeGeneration)error.value=e.response?.data?.error?.message||'The client import could not finish. Your saved chart and imports remain here.';}finally{if(own===scopeGeneration)progressBusy.value=false;}
 }
 
 async function prepareLeave() {
@@ -679,7 +700,8 @@ async function prepareLeave() {
   if (showAssignments.value && assignmentsPanel.value?.prepareLeave?.() === false) return false;
   return true;
 }
-defineExpose({ prepareLeave });
+async function reloadAssignments(){if(assignmentsPanel.value?.prepareLeave?.()===false)return false;await assignmentsPanel.value?.reload?.();return true;}
+defineExpose({ prepareLeave,importAll,reloadAssignments });
 
 async function importSupplementary(key) {
   const result = await api.post(`/clients/${props.clientId}/chart-import/sections/${key}`, { text: sectionTexts[key], ...(['insurance','payer'].includes(key) ? { position: payerPosition.value } : {}),
@@ -730,6 +752,8 @@ async function importAll(onlySection = null) {
   try {
     await drafts.flush();
     assertScope();
+    await beginImportProgress();
+    assertScope();
     if (props.historicalImport) {
       if (pipelineSections.includes('intake')) historicalSource(intakeSourceDate.value, intakeSourceAuthor.value, intakeText.value);
       if (pipelineSections.includes('plan')) historicalSource(planSourceDate.value, planSourceAuthor.value, planText.value);
@@ -761,6 +785,7 @@ async function markDoneOnly() {
   markingDone.value = true;
   error.value = '';
   try {
+    await api.post(`/clients/${props.clientId}/chart-import/complete`,{ifPending:true},{skipGlobalLoading:true,headers:agencyHeaders()});
     await promoteSetupComplete();
     successMessage.value = 'Marked done.';
     emit('done', { marked: true });

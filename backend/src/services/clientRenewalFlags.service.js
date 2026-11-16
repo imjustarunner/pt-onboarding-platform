@@ -2,6 +2,7 @@
  * Computed Client Renewal need flags for roster / Compliance Corner.
  */
 import pool from '../config/database.js';
+import {clientChartSetupNeeds} from './clientChartSetupNeeds.service.js';
 import { isRoiExpired } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import {
   computeCurrentSchoolYearLabel,
@@ -80,6 +81,7 @@ function emptyFlags() {
     reactivatedNeedsPacket: false,
     paperPacketRoiSetup: false,
     paperPacketVisionReview: false,
+    recordsImportPending: false,
     any: false,
     needsClientRenewal: false,
     recommended: {
@@ -111,10 +113,11 @@ function finalizeFlags(partial) {
     staffRoiGap: !!partial.staffRoiGap,
     reactivatedNeedsPacket: !!partial.reactivatedNeedsPacket,
     paperPacketRoiSetup: !!partial.paperPacketRoiSetup,
-    paperPacketVisionReview: !!partial.paperPacketVisionReview
+    paperPacketVisionReview: !!partial.paperPacketVisionReview,
+    recordsImportPending: !!partial.recordsImportPending
   };
   flags.any = flags.expiredRoi || flags.schoolTransfer || flags.staffRoiGap
-    || flags.reactivatedNeedsPacket || flags.paperPacketRoiSetup || flags.paperPacketVisionReview;
+    || flags.reactivatedNeedsPacket || flags.paperPacketRoiSetup || flags.paperPacketVisionReview || flags.recordsImportPending;
   flags.needsClientRenewal = flags.expiredRoi || flags.schoolTransfer
     || flags.staffRoiGap || flags.reactivatedNeedsPacket;
   flags.recommended = buildRecommended(flags);
@@ -126,6 +129,7 @@ function matchesRenewalFlagFilter(flags, filterRaw) {
   if (!filter || filter === 'all' || filter === 'none') return true;
   if (filter === 'any') return !!flags?.any;
   if (filter === 'up_to_date') return !!flags && !flags.any;
+  if (filter === 'records_import' || filter === 'client_setup') return !!flags?.recordsImportPending;
   if (filter === 'expired_roi' || filter === 'expired') return !!flags?.expiredRoi;
   if (filter === 'school_transfer' || filter === 'transfer') return !!flags?.schoolTransfer;
   if (filter === 'staff_roi_gap' || filter === 'staff_gap') return !!flags?.staffRoiGap;
@@ -178,6 +182,10 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
     });
   }
   if (!ids.length) return result;
+
+  try{
+    for(const[id,pending]of await clientChartSetupNeeds(ids)){const flags=result.get(id);if(flags)flags.recordsImportPending=pending;}
+  }catch(error){if(!/Unknown column|doesn't exist|ER_NO_SUCH_TABLE/i.test(String(error?.message||'')))throw error;}
 
   // Latest Vision eval per client (needs_review / failed → staff action, not Renew)
   try {

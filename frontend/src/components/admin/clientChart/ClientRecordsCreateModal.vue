@@ -31,8 +31,10 @@
      </template>
      <template v-else-if="!completed">
       <p class="cr-saved">Chart #{{ created.id }} is saved. Review the imported sections, complete assignments and payer links, then preview the portal invitation below.</p>
+      <section v-if="assignmentError" class="cr-assignment-retry" aria-label="Provider assignment needs attention"><p class="cr-error" role="alert">{{ assignmentError }} Your chart and pasted records are saved; the other sections can still import.</p><label>Provider<select v-model="form.providerId" :disabled="busy || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label><button type="button" class="cr-button" :disabled="busy" @click="retryProvider">{{ form.providerId ? 'Retry provider assignment' : 'Continue unassigned' }}</button></section>
+      <p v-if="!startImport && !initializing">The saved pastes have not been imported automatically. Continue this same chart below.</p><button v-if="!startImport && !initializing" type="button" class="cr-button cr-primary" :disabled="busy" @click="resumeImport">Resume saved import</button>
       <p v-if="initializing" role="status">Preparing the shared records workflow…</p>
-      <ClientEhrBringUpToDatePanel v-else ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner" @busy="panelBusy=$event" @imported="finish" />
+      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner" @busy="panelBusy=$event" @imported="finish" />
      </template>
      <section v-else class="cr-complete"><h3>Client saved{{ form.providerId ? ' and assigned' : '' }}</h3><p>{{ form.fullName }} · {{ providerName || 'Unassigned' }} · Chart #{{ created.id }}</p><button type="button" class="cr-button cr-primary" :disabled="busy" @click="nextClient">Add next client{{ providerName ? ` for ${providerName}` : '' }}</button><button type="button" class="cr-button" @click="leave">Close</button></section>
     </div>
@@ -59,6 +61,7 @@ const emit=defineEmits(['close','created']);const auth=useAuthStore();
 const isBackoffice=computed(()=>['super_admin','admin','support'].includes(auth.user?.role));
 const dialog=ref(null),panel=ref(null),agencyId=ref(''),organizations=ref([]),providers=ref([]),created=ref(null),completed=ref(false),working=ref(false),panelBusy=ref(false),parsing=ref(false),error=ref('');
 const initializing=ref(false),startImport=ref(false);
+const assignmentError=ref('');
 const defaults=()=>({records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'guardian',kind:'clinical',organizationId:'',providerId:isBackoffice.value?null:auth.user?.id,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
 const form=reactive(defaults()),drafts=useClientCreationDrafts(),grades=STANDARD_GRADE_SELECT_OPTIONS.filter(g=>g.value);
 let generation=0,hydrating=false,parseTimer,parseVersion=0;
@@ -89,13 +92,15 @@ async function changeAgency(value){
  const version=++generation;parseVersion++;clearTimeout(parseTimer);hydrating=true;agencyId.value=String(value||'');Object.assign(form,defaults());created.value=null;completed.value=false;error.value='';organizations.value=[];providers.value=[];
  if(!agencyId.value){hydrating=false;return;}
  try{
-  const[saved,orgs,providerResponse]=await Promise.all([drafts.load(agencyId.value),api.get(`/agencies/${agencyId.value}/affiliated-organizations`,{skipGlobalLoading:true}),api.get('/provider-scheduling/providers',{params:{agencyId:Number(agencyId.value),activeProvidersOnly:true},skipGlobalLoading:true})]);
+  const[saved,orgs,providerResponse]=await Promise.all([drafts.load(agencyId.value),api.get(`/agencies/${agencyId.value}/affiliated-organizations`,{skipGlobalLoading:true}),api.get('/provider-scheduling/providers',{params:{agencyId:Number(agencyId.value),activeProvidersOnly:true,clientAssignmentsOnly:true},skipGlobalLoading:true})]);
   if(version!==generation)return;
   organizations.value=(Array.isArray(orgs.data)?orgs.data:[]).filter(row=>row.is_active!==false&&row.is_active!==0);
   const agency=props.agencies.find(row=>Number(row.id)===Number(agencyId.value));if(agency&&!organizations.value.some(row=>Number(row.id)===Number(agency.id)))organizations.value.push({...agency,organization_type:agency.organization_type||'agency'});
   providers.value=Array.isArray(providerResponse.data)?providerResponse.data:providerResponse.data?.providers||[];
   if(saved?.form){for(const key of Object.keys(form))if(Object.hasOwn(saved.form,key))form[key]=saved.form[key];form.records={...defaults().records,...(saved.form.records||{})};created.value=saved.created||null;completed.value=saved.completed===true;}
   else {try{const previous=JSON.parse(localStorage.getItem(`client-entry-context:${auth.user.id}:${agencyId.value}`)||'{}');if(providers.value.some(row=>Number(row.id)===Number(previous.providerId)))form.providerId=previous.providerId;}catch{}}
+  assignmentError.value='';startImport.value=false;
+  if(form.providerId&&!providers.value.some(row=>Number(row.id)===Number(form.providerId))){form.providerId=null;if(created.value)assignmentError.value='The saved provider is no longer assignable in this agency. Choose an active provider or continue unassigned.';}
   if(!form.organizationId&&form.kind==='clinical'&&filteredOrganizations.value.some(row=>Number(row.id)===Number(agencyId.value)))form.organizationId=Number(agencyId.value);
   if(!form.organizationId&&filteredOrganizations.value.length===1)form.organizationId=filteredOrganizations.value[0].id;
   if(created.value){await api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});}
@@ -109,17 +114,20 @@ async function create(){
   if(!form.manual){const read=await readDemographics();if(!read||!form.fullName)throw Error('Read and review the demographics before creating a chart.');}
   save();if(!(await drafts.flush()))return;
   const payload={agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,provider_id:isBackoffice.value?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
-  const{data}=await api.post('/clients',payload,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(!data?.id)throw Error('The client could not be saved.');created.value=data;form.organizationId=data.organization_id||form.organizationId;save();await drafts.flush();
-  if(form.providerId)await finishClientCreation({api,clientId:data.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school'});
-  startImport.value=true;emit('created',data);
+  const{data}=await api.post('/clients',payload,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(!data?.id)throw Error('The client could not be saved.');created.value=data;form.organizationId=data.organization_id||form.organizationId;save();await drafts.flush();emit('created',data);
+  if(form.providerId){try{await assignSelectedProvider();}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Select an active provider and retry.';}}
+  startImport.value=true;
  }catch(e){error.value=e.response?.data?.error?.message||e.message||'The client could not be created.';}finally{working.value=false;initializing.value=false;}
 }
+async function assignSelectedProvider(){return finishClientCreation({api,clientId:created.value.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school'});}
+async function retryProvider(){working.value=true;try{if(form.providerId)await assignSelectedProvider();assignmentError.value='';await panel.value?.reloadAssignments?.();}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Retry or continue unassigned.';}finally{working.value=false;}}
+async function resumeImport(){startImport.value=true;await panel.value?.importAll?.();}
 async function finish(){
  working.value=true;error.value='';
  try{const[record,enrollments]=await Promise.all([api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${created.value.id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);const data=record.data;form.providerId=primaryAssignmentProvider(data,enrollments.data?.services||[])||null;form.fullName=data.full_name||form.fullName;completed.value=true;save();await drafts.flush();try{localStorage.setItem(`client-entry-context:${auth.user.id}:${agencyId.value}`,JSON.stringify({providerId:form.providerId}));}catch{}emit('created',created.value);}
  catch(e){error.value=e.response?.data?.error?.message||e.message||'The chart is saved. Provider assignment needs attention; retry for this same client.';}finally{working.value=false;}
 }
-async function nextClient(){const context={kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
+async function nextClient(){const context={kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;assignmentError.value='';hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
 async function prepareLeave(){if(busy.value)return false;clearTimeout(parseTimer);if(await panel.value?.prepareLeave()===false)return false;save();return drafts.flush();}
 async function leave(){if(await prepareLeave())emit('close');}
 useModalFocus(dialog,leave);

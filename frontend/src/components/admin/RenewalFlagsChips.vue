@@ -1,5 +1,6 @@
 <template>
   <div v-if="flags?.any" class="renewal-flags" :class="{ 'renewal-flags--compact': compact }">
+    <span v-if="flags.recordsImportPending" class="renewal-flag renewal-flag--setup" title="The records import is unfinished or clinical demographics still need to be added.">Complete client setup</span>
     <span
       v-if="flags.expiredRoi"
       class="renewal-flag renewal-flag--expired"

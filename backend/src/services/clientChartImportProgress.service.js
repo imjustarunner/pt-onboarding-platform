@@ -1,0 +1,35 @@
+import pool from '../config/database.js';
+import {chartSections,readChartRecord} from './clientChartImport.service.js';
+const fail=(status,message)=>Object.assign(Error(message),{status});
+const object=value=>typeof value==='string'?JSON.parse(value):value||{};
+async function current(scope,db){
+ const[[row]]=await db.execute("SELECT JSON_EXTRACT(onboarding_docs_json,'$.recordsImport') AS import_state FROM clients WHERE id=? AND agency_id=?",[scope.clientId,scope.agencyId]);
+ if(!row)throw fail(404,'Client not found in this agency.');
+ return object(row.import_state);
+}
+async function write(scope,state,db,expectedRevision){
+ const[result]=await db.execute("UPDATE clients SET onboarding_docs_json=JSON_SET(COALESCE(onboarding_docs_json,JSON_OBJECT()),'$.recordsImport',CAST(? AS JSON)) WHERE id=? AND agency_id=? AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(onboarding_docs_json,'$.recordsImport.revision')) AS UNSIGNED),0)=?",[JSON.stringify(state),scope.clientId,scope.agencyId,expectedRevision]);
+ if(Number(result.affectedRows)!==1)throw fail(409,'This records import changed in another window. Reload its saved progress before finishing.');
+ return state;
+}
+export async function beginClientChartImport(scope,sections,actorId,{db=pool}={}){
+ if(!Array.isArray(sections)||sections.length>chartSections.length||sections.some(key=>!chartSections.includes(key)))throw fail(400,'Choose valid record sections to import.');
+ const previous=await current(scope,db);
+ const revision=Number(previous.revision||0);
+ return write(scope,{status:'pending',revision:revision+1,sections:[...new Set(sections)],startedAt:previous.startedAt||new Date().toISOString(),startedByUserId:previous.startedByUserId||actorId,updatedByUserId:actorId},db,revision);
+}
+export async function completeClientChartImport(scope,actorId,{db=pool,readRecord=readChartRecord,allowedSections=chartSections,ifPending=false}={}){
+ const state=await current(scope,db);
+ if(!state.status&&ifPending)return null;
+ if(state.status==='complete')return state;
+ if(state.status!=='pending'||!Array.isArray(state.sections))throw fail(409,'Resume this chart’s saved import before finishing.');
+ for(const key of state.sections){
+  if(!allowedSections.includes(key))throw fail(403,'Account support access is required to finish these record sections.');
+  const {value}=await readRecord(scope,key,actorId);
+  const coverage=key==='insurance'&&value?.coverageDrafts?Object.values(value.coverageDrafts).filter(item=>item.text?.trim()):null;
+  const imported=coverage?.length?coverage.every(item=>item.imported===true):value?.imported===true;
+  if(!imported||value?.needsReview===true)throw fail(409,'Import and review every filled section before finishing this client.');
+ }
+ const revision=Number(state.revision||0);
+ return write(scope,{...state,status:'complete',revision:revision+1,completedAt:new Date().toISOString(),completedByUserId:actorId},db,revision);
+}

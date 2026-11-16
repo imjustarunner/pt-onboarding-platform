@@ -5,6 +5,7 @@ export default defineConfig({
   test: { environment:'jsdom', include:[
     'src/components/admin/clientChart/__tests__/ClientEhrBringUpToDatePanel.test.js',
     'src/components/admin/clientChart/__tests__/ClientChartUpdateModal.test.js',
+    'src/components/admin/clientChart/__tests__/ClientRecordsCreateModal.test.js',
     'src/components/admin/clientChart/__tests__/ClientSupplementaryRecords.test.js',
     'src/components/admin/clientChart/__tests__/ClientPayerLinkage.test.js',
     'src/components/admin/clientChart/__tests__/ClientSchoolChartSetup.test.js',
