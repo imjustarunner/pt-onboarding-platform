@@ -7,6 +7,7 @@ export default {
     'src/services/__tests__/smsPhoneEnrollment.test.js',
     'src/controllers/__tests__/transitionWeekAccess.test.js',
     'src/services/__tests__/scheduling.clientSessionBookingRollout.test.js',
+    'src/services/__tests__/scheduling.transitionWeekCohort.test.js',
     'src/services/__tests__/messaging.smsEnrollment.test.js',
     'src/services/__tests__/messaging.compliance.test.js',
     'src/services/__tests__/contactReminderSmsConsent.test.js'
