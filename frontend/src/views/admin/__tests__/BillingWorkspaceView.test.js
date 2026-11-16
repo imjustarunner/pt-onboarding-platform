@@ -250,7 +250,7 @@ it('follows a task deep link without remounting the billing workspace',async()=>
 
 it.each([
  ['draft',null,1,null,true],['ready',null,1,null,true],['closed',null,1,null,true],
- ['paid',null,1,'2026-11-01',true],['ready',null,1,'2026-11-01',false],
+ ['paid',null,1,'2026-11-01',true],['submitted',null,1,'2026-11-01',true],['accepted',null,1,'2026-11-01',true],['processing',null,1,'2026-11-01',true],['submitted',null,1,null,false],['ready',null,1,'2026-11-01',false],
  ['draft',8,2,null,false],['void',null,1,null,false]
 ])('offers manual secondary review only for an eligible primary (%s, parent %s, sequence %s, submitted %s)',async(claim_lifecycle,parent_claim_id,payer_sequence,claimmd_submitted_at,visible)=>{
  const payload=data();payload.claims=[{...payload.claims[0],claim_lifecycle,parent_claim_id,payer_sequence,claimmd_submitted_at}];api.get.mockResolvedValue({data:payload});
