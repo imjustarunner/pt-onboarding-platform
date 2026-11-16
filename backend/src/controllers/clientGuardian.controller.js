@@ -109,7 +109,7 @@ export const upsertClientGuardian = async (req, res, next) => {
         lastName,
         personalEmail: email,
         role: relationshipType === 'self' ? 'client' : 'client_guardian',
-        phoneNumber: relationshipType === 'self' ? client.phone || null : null,
+        phoneNumber: relationshipType === 'self' ? client.phone || null : String(req.body.phone || req.body.phoneNumber || '').trim() || null,
         status: 'PENDING_SETUP'
       });
       created = true;
