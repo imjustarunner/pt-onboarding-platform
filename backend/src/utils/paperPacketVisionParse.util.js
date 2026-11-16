@@ -13,6 +13,7 @@ export function normalizeVersionLabel(raw) {
 
 export function normalizeName(s) {
   return String(s || '')
+    .normalize('NFD').replace(/\p{M}/gu,'')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -21,9 +22,9 @@ export function normalizeName(s) {
 
 /** Detect version label from OCR text (footer / acknowledgement wording). */
 export function extractVersionLabelFromText(text) {
-  const body = String(text || '');
+  const body = String(text || '').normalize('NFD').replace(/\p{M}/gu,'');
   const patterns = [
-    /(?:(?:packet|paquete)\s+)?versi[oó]n\s*[:=]?\s*(v\.?\s*)?(\d+\.\d+)\b/gi,
+    /(?:(?:packet|paquete)\s+)?versi[oó]n(?:\s+del\s+paquete)?\s*[:=]?\s*(v\.?\s*)?(\d+\.\d+)\b/gi,
     /\bversi[oó]n\s+(\d+\.\d+)\b/gi,
     /\bv\.?\s*(\d+\.\d+)\b/gi
   ];
@@ -107,7 +108,7 @@ export function extractPaperPacketReviewHints(text, pages = []) {
 
 /** Find staff with DENY checked next to their printed name. */
 export function detectDenyStaffFromText(text, staffList = []) {
-  const lines = String(text || '')
+  const lines = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/denegar|denegado/gi,'Deny')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);

@@ -9,7 +9,7 @@ export function paperPacketLocale(text, requested = 'auto') {
 
 export function englishPaperValue(key, value) {
   const text=String(value || '').trim(),fold=foldPaperText(text);
-  if(key==='administrativeSex')return ({masculino:'Male',hombre:'Male',varon:'Male',nino:'Male',femenino:'Female',mujer:'Female',nina:'Female',otro:'Other',otra:'Other','prefiero no decir':'Prefer not to say','prefiere no decir':'Prefer not to say'})[fold] || text;
+  if(key==='administrativeSex')return ({desconocido:'Unknown',desconocida:'Unknown',masculino:'Male',hombre:'Male',varon:'Male',nino:'Male',femenino:'Female',mujer:'Female',nina:'Female',otro:'Other',otra:'Other','prefiero no decir':'Prefer not to say','prefiere no decir':'Prefer not to say'})[fold] || text;
   if(['preferredLanguage','guardianPreferredLanguage'].includes(key))return ({espanol:'Spanish',ingles:'English','lenguaje de senas':'Sign language','lengua de senas':'Sign language'})[fold] || text;
   if(key==='guardianRelationship')return ({madre:'Mother',padre:'Father',tutor:'Guardian',tutora:'Guardian',abuela:'Grandmother',abuelo:'Grandfather',otro:'Other',otra:'Other'})[fold] || text;
   if(key==='grade'){

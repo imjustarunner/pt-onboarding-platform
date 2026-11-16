@@ -79,7 +79,7 @@ const YES_NO_RULES = [
   ['custodyDocumentation', /^are you willing to provide documentation\b/i]
 ];
 
-const STOP_LINE = /^(historial de|consentimiento para divulgar|firme aqu[ií]|reconocimiento y consentimiento|history of|please list any necessary|please select|consent to release|sign here|authorized school|acknowledgement|how long has this)/i;
+const STOP_LINE = /^(por favor (?:explique|enumere|seleccione)|autorizacion|historial de|consentimiento para divulgar|firme aqu[ií]|reconocimiento y consentimiento|history of|please list any necessary|please select|consent to release|sign here|authorized school|acknowledgement|how long has this)/i;
 
 function emptyParsed() {
   return {
@@ -164,8 +164,7 @@ function cleanSex(value) {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (!s || s.length > 40) return null;
   if (/^(yes|no|n\/a|dependent'?s?)$/i.test(s)) return null;
-  const normalized = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  return ({ masculino: 'Male', hombre: 'Male', varon: 'Male', femenino: 'Female', mujer: 'Female', desconocido: 'Unknown' })[normalized] || s;
+  return s;
 }
 
 function cleanGrade(value) {
@@ -357,6 +356,7 @@ export function paperPacketDemographicFill(client, parsed) {
   if (blank(client?.address_zip) && p.addressZip) patch.address_zip = p.addressZip;
   // 'Your phone/email' belongs to the parent filling the packet, not the child.
   if (blank(client?.preferred_language) && p.preferredLanguage) patch.preferred_language = p.preferredLanguage;
+  if (blank(client?.primary_parent_language) && p.guardianPreferredLanguage) patch.primary_parent_language = p.guardianPreferredLanguage;
   if (blank(client?.gender) && p.administrativeSex) patch.gender = p.administrativeSex;
   if (blank(client?.grade) && p.grade) patch.grade = p.grade;
   return patch;
