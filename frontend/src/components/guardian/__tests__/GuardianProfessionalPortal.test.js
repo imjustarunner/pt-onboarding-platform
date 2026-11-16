@@ -1,6 +1,8 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import {ref} from 'vue';
+import {createRouter,createMemoryHistory} from 'vue-router';
+import ServiceUseNotice from '../../legal/ServiceUseNotice.vue';
 import api from '../../../services/api';
 import Contact from '../GuardianContactCard.vue';
 import Records from '../GuardianRecordsPanel.vue';
@@ -25,3 +27,5 @@ it('shows completed balance data while an independent messages request is still 
 it('opens the enabled records workflow for exactly the selected linked child',async()=>{api.get.mockResolvedValue({data:{...contact,records:{onlineRequestsEnabled:true}}});recordsApi.mockResolvedValue([{id:2560,data:{name:'Pip'}},{id:2561,data:{name:'Other family profile'}}]);const w=mount(Records,{props:{agencyId:450,clientId:2560},global:{stubs:{RecordsRequests:true}}});await flushPromises();expect(recordsApi).toHaveBeenCalledWith('/practices/450/patients');expect(w.findComponent({name:'RecordsRequests'}).props()).toMatchObject({base:'/practices/450',patients:[{id:2560,data:{name:'Pip'}}]});expect(api.post).not.toHaveBeenCalled();w.unmount();});
 
 it('keeps the family portal identity on secure activity details without changing the sharing notice',()=>{const w=mount(MessageBanner,{props:{showProductBrand:false,shared:true}});expect(w.text()).not.toContain('Conversa');expect(w.text()).toContain('Shared with all guardians who have access');expect(w.text()).toContain('Email and text notifications contain no message content');w.unmount();});
+
+it('translates the shared legal footer control in the family language without changing its legal links',async()=>{const locale=ref('es'),router=createRouter({history:createMemoryHistory(),routes:[{path:'/guardian',component:{template:'<div />'}}]});await router.push('/guardian');await router.isReady();const w=mount(ServiceUseNotice,{props:{organizationSlug:'itsco'},global:{plugins:[router],provide:{[familyLocaleKey]:{locale,ft:familyTranslator(locale)}}}});expect(w.get('summary').text()).toBe('Términos y privacidad');expect(w.findAll('a').some(a=>a.attributes('href').includes('auricwell'))).toBe(true);locale.value='en';await flushPromises();expect(w.get('summary').text()).toBe('Terms & privacy');w.unmount();});

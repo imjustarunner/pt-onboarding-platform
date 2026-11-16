@@ -1,6 +1,6 @@
 <template>
   <details class="service-use-notice" :aria-label="`${context.name} terms and privacy`">
-    <summary>Terms &amp; privacy</summary>
+    <summary>{{ ft('Terms & privacy') }}</summary>
     <p>{{ context.notice }}</p>
     <nav aria-label="Applicable terms and privacy"><a v-for="link in context.links" :key="link.href" :href="link.href" target="_blank" rel="noopener noreferrer">{{ link.label }}</a></nav>
     <p class="scope">Reading these notices does not enroll you in texts, authorize recording or release records. Organization agreements are signed separately by authorized representatives.</p>
@@ -10,6 +10,8 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { serviceLegalContext } from '../../utils/serviceLegalContext.js';
+import { useFamilyLocale } from '../../composables/useFamilyLocale';
+const { ft } = useFamilyLocale();
 const props = defineProps({ schoolPortal: Boolean, organizationSlug: { type: String, default: '' }, role: { type: String, default: '' }, serviceType: { type: String, default: '' } });
 const route = useRoute();
 const context = computed(() => serviceLegalContext({ host: typeof window === 'undefined' ? '' : window.location.hostname,
