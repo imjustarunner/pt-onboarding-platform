@@ -142,6 +142,15 @@ function bookingSelectionFromBody(body = {}) {
   };
 }
 
+// A room request retains the selected service's own scheduling eligibility.
+// Clinical services still require their reviewed clinical transition; academic
+// tutoring checks the active tutoring assignment in this exact agency instead.
+function requireOfficeSessionBooking(agencyId, providerId, serviceCode) {
+  return String(serviceCode || '').trim().toUpperCase() === 'TUTORING'
+    ? requireClientSessionBooking(agencyId, providerId, undefined, {businessType:'tutoring'})
+    : requireClientSessionBooking(agencyId, providerId);
+}
+
 async function resolvePolicyAgencyForProvider({ providerId, fallbackActorUserId = null }) {
   const agencies = await User.getAgencies(providerId);
   const primary = Number(agencies?.[0]?.id || 0) || null;
@@ -2676,11 +2685,12 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       const actorAgencies = await User.getAgencies(req.user.id);
       if (!actorAgencies.some(row => Number(row.id) === policyAgencyId)) return res.status(403).json({ error: { message: 'Scheduling access to the selected agency is required.' } });
     }
-    if (clientId) await requireClientSessionBooking(policyAgencyId, requestedProviderId);
+    if (clientId) await requireOfficeSessionBooking(policyAgencyId, requestedProviderId, rawSelection.serviceCode);
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
       if (!await confirmSameDayServiceWarnings(req,res,{ agencyId: Number(req.body?.agencyId || policyAgencyId),
+        tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
         participants:[{role:'client',clientId}],occurrences,timeZone:loc.timezone || 'America/Denver' })) return;
     }
     const validatedSelection = {
@@ -2728,7 +2738,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
-      roomType: req.body?.roomType || 'counseling',
+      roomType: req.body?.roomType || (validatedSelection.serviceCode === 'TUTORING' ? 'tutoring' : 'counseling'),
       officeLocationId: loc.id,
       roomId: room?.id || null,
       requestedProviderId,
@@ -3132,7 +3142,7 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
     const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProvider.id, officeLocationId: loc.id, agencyId: parseJsonSafely(reqRow.session_context_json)?.agencyId || reqRow.agency_id });
-    if (reqRow.client_id) await requireClientSessionBooking(policyAgencyId, requestedProvider.id);
+    if (reqRow.client_id) await requireOfficeSessionBooking(policyAgencyId, requestedProvider.id, reqRow.service_code);
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,

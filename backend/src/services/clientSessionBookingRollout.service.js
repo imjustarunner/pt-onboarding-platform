@@ -39,8 +39,8 @@ export async function clientSessionBookingAccess(agencyId, providerUserId, db = 
   const care = await readStaffCareEligibility(providerUserId, agencyId, db);
   return care.canProvideCare ? review : { ...review, enabled: false, reason: care.reason };
 }
-export async function requireClientSessionBooking(agencyId, providerUserId, db = pool) {
-  const review = await clientSessionBookingAccess(agencyId, providerUserId, db);
+export async function requireClientSessionBooking(agencyId, providerUserId, db = pool, options = {}) {
+  const review = await clientSessionBookingAccess(agencyId, providerUserId, db, options);
   if (!review.enabled) throw fail(403, review.reason);
   return review;
 }

@@ -295,9 +295,12 @@ export async function validateSchedulingSelection({
   scheduledEndAt = null
 }) {
   const normalizedAppointmentTypeCode = normalizeCode(appointmentTypeCode);
-  if (enforceSessionRollout && DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) await requireClientSessionBooking(agencyId, providerId);
   const normalizedAppointmentSubtypeCode = normalizeCode(appointmentSubtypeCode);
   const normalizedServiceCode = normalizeCode(serviceCode);
+  if (enforceSessionRollout && DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) {
+    if (normalizedServiceCode === 'TUTORING') await requireClientSessionBooking(agencyId, providerId, undefined, {businessType:'tutoring'});
+    else await requireClientSessionBooking(agencyId, providerId);
+  }
   await requireTestingEligibility({agencyId,userId:providerId,serviceCodes:[normalizedServiceCode],serviceDate:scheduledStartAt});
   if (DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) await requireClientServiceKind({ agencyId, providerId, clientIds,
     serviceKind: normalizedServiceCode === 'TUTORING' ? 'tutoring' : 'counseling' });

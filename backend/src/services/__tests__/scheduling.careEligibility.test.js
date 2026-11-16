@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), read: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), read: vi.fn(), rollout: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../staffCareEligibility.service.js', () => ({ readStaffCareEligibility: mocks.read }));
+vi.mock('../clientSessionBookingRollout.service.js', () => ({ requireClientSessionBooking: mocks.rollout }));
 vi.mock('../billingPolicy.service.js', () => ({ isServiceCodeEnabledForAgency: async () => true, resolvePolicyRuleForServiceCode: async () => null }));
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../schedulingTaxonomy.service.js';
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.rollout.mockResolvedValue({enabled:true});
   mocks.read.mockResolvedValue({ canProvideCare: false, credentialTier: 'bachelors' });
   mocks.execute.mockImplementation(async sql => {
     if (sql.includes('FROM appointment_types')) return [[{ code: 'SESSION' }, { code: 'MEETING' }]];
@@ -28,5 +30,21 @@ describe('scheduling requires a care assignment as well as credentials', () => {
   it('allows the shared credential policy after an explicit care assignment', async () => {
     mocks.read.mockResolvedValue({ canProvideCare: true, credentialTier: 'bachelors' });
     await expect(validateSchedulingSelection({ agencyId: 6, providerId: 8, appointmentTypeCode: 'SESSION', serviceCode: 'H0004' })).resolves.toMatchObject({ serviceCode: 'H0004' });
+  });
+  it('validates an in-person tutoring selection without opening the clinical transition',async()=>{
+    mocks.read.mockResolvedValue({canProvideCare:true,credentialTier:'bachelors'});
+    mocks.execute.mockImplementation(async sql=>sql.includes('FROM appointment_types')?[[{code:'SESSION'}]]:
+      sql.includes('FROM appointment_subtypes')?[[]]:sql.includes('FROM provider_service_code_grants')?
+        [[{service_code:'TUTORING'}]]:[[{code:'TUTORING',label:'Tutoring'}]]);
+    mocks.rollout.mockImplementation(async(_agency,_provider,_db,options)=>{
+      if(options?.businessType!=='tutoring')throw Object.assign(new Error('Clinical transition not enabled'),{status:403});
+      return {enabled:true};
+    });
+    await expect(validateSchedulingSelection({agencyId:453,providerId:1496,enforceSessionRollout:true,
+      appointmentTypeCode:'SESSION',serviceCode:'TUTORING',modality:'IN_PERSON'}))
+      .resolves.toMatchObject({serviceCode:'TUTORING',modality:'IN_PERSON'});
+    await expect(validateSchedulingSelection({agencyId:453,providerId:1496,enforceSessionRollout:true,
+      appointmentTypeCode:'SESSION',serviceCode:'90837',modality:'IN_PERSON'}))
+      .rejects.toMatchObject({status:403});
   });
 });
