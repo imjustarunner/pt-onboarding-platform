@@ -312,19 +312,21 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally {wrapper.unmount();}
   });
 
-  it('opens the actual-session chooser from both the landing action and the library New note action', async () => {
+  it('opens the actual-session chooser from the landing action without a library New note action', async () => {
     const { wrapper, state } = await workspace('');
     try {
+      const library = wrapper.findComponent({ name: 'ClinicalNoteLibrarySidebar' });
+      expect(library.props('allowCreate')).toBe(false);
       state.beginCreateNote();
       await nextTick();
       expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).props('sessionOnly')).toBe(true);
       expect(wrapper.findComponent({ name: 'NoteAidLibraryPanel' }).exists()).toBe(false);
       state.cancelActualSessionPicker();
       await nextTick();
-      wrapper.findComponent({ name: 'ClinicalNoteLibrarySidebar' }).vm.$emit('new');
+      library.vm.$emit('new');
       await nextTick();
-      expect(state.showActualSessionPicker).toBe(true);
-      expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).exists()).toBe(true);
+      expect(state.showActualSessionPicker).toBe(false);
+      expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).exists()).toBe(false);
     } finally { wrapper.unmount(); }
   });
 

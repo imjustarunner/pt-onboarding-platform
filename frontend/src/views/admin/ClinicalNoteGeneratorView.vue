@@ -87,7 +87,7 @@
         v-if="!isEmbedded"
         :data-analytics-area="demoPresentation ? 'note-library' : undefined"
         title="Note Library"
-        :allow-create="!demoLinkedWorkspace"
+        :allow-create="false"
         :drafts="recentDrafts"
         :work-queue-items="workQueueItems"
         :signed-sessions="signedNoteSessions"
@@ -104,7 +104,6 @@
         v-model:collapsed="libraryCollapsed"
         v-model:expanded="libraryExpanded"
         :type-label="draftNoteTypeLabel"
-        @new="beginCreateNote"
         @select="onLibrarySidebarSelect"
         @delete="onLibrarySidebarDelete"
       />
