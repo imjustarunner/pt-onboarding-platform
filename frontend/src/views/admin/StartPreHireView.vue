@@ -702,7 +702,7 @@ function reportPreviewError(message) {
 }
 async function previewContract() {
   if(!probationChosen.value){reportPreviewError('Select Yes or No for new-hire probation and complete any required individual terms.');return;}
-  if (!compensationChosen.value) { reportPreviewError(contract.compensationCategory?'Choose a pay level before previewing.':'Choose a pay category before previewing.'); return; }
+  if (!compensationChosen.value) { reportPreviewError(contractTenant.value==='nlu' ? (contract.compensationCategory?'Choose a pay level before previewing.':'Choose a pay category before previewing.') : 'Choose a pay category and level before previewing.'); return; }
   if (!contractConfigId.value) { reportPreviewError('The employment agreement terms are not configured. Refresh contract settings.'); return; }
   if (!officeLocationId.value || !offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) { reportPreviewError('Select the assigned office before previewing.'); return; }
   if (!contractOverrides.COMPANY_ADDRESS) { reportPreviewError('Set the agency’s place-of-business address in agency settings, then refresh contract settings.'); return; }
