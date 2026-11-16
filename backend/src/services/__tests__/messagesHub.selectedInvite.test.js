@@ -23,6 +23,7 @@ beforeEach(()=>{
   './clientPortalContext.service.js':{resolveClientPortalContext:async()=>({tenant:{id:4,name:'Synthetic agency'},portal:{id:4},learning:false}),clientPortalInviteUrl:()=> 'https://synthetic.test/guardian'},
   './portalInvitationAccess.service.js':{preparePortalInvitationAccess:m.prepare},
   './clientPortalEmail.service.js':{clientEmailContext:async()=>({}),sendClientPortalEmail:m.email},
+  './familyPortalLocale.service.js':{familyEnrollmentContext:async()=>({locale:'en'}),portalUrlWithLocale:url=>url},
   './clientPortalEmailContent.js':{buildClientEnrollmentEmail:m.build}
  };
  const pool={execute:async sql=>sql.includes('SELECT role')?[[{role:'support'}]]:[[child(5),child(6),child(7)]]};

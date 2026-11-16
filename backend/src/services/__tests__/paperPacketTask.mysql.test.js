@@ -59,7 +59,7 @@ describe.skipIf(!recoveryMysqlEnabled)('paper task source joins on isolated MySQ
    [id,`Synthetic packet task ${id}`,status,status==='completed'?'2026-11-10 22:15:00':null,source,agency,isPrivate]);
   }
  });
- const state=documentId=>({processedAt:'2026-11-10T22:30:00Z',documentId,guardian1Id:61,guardian2Id:62,
+ const state=documentId=>({processedAt:'2026-11-10T22:30:00Z',documentId,signatureSourceDocumentId:documentId,guardian1Id:61,guardian2Id:62,
   invitations:{61:{status:'sent'},62:{status:'redirected'}}});
  const states=async()=>new Map((await db.execute('SELECT id,status,completed_at,updated_at FROM tasks ORDER BY id'))[0].map(row=>[row.id,row]));
  it('reproduces the uncollated SELECT and UPDATE-plan errors instead of accidentally testing a homogeneous schema',async()=>{
@@ -91,8 +91,11 @@ describe.skipIf(!recoveryMysqlEnabled)('paper task source joins on isolated MySQ
   await completePaperPacketTask({clientId:55,state:state(30)},db);
   expect((await states()).get(1)).toMatchObject({completed_at:new Date('2026-11-10T22:16:00Z'),updated_at:new Date('2026-11-10T22:16:00Z')});
  });
- it('leaves delivery-unknown, removed, cross-child and wrong-source tasks pending',async()=>{
-  expect(await completePaperPacketTask({clientId:55,state:{...state(30),invitations:{61:{status:'sent'},62:{status:'unknown'}}}},db)).toBe(false);
+ it('finishes a reviewed packet independently of its optional invitation delivery',async()=>{
+  expect(await completePaperPacketTask({clientId:55,state:{...state(30),invitations:{61:{status:'sent'},62:{status:'unknown'}}}},db)).toBe(true);
+  expect((await states()).get(1).status).toBe('completed');
+ });
+ it('leaves removed, cross-child and wrong-source tasks pending',async()=>{
   for(const documentId of [34,35,999])await completePaperPacketTask({clientId:55,state:state(documentId)},db);
   const rows=await states();for(const id of [1,2,3,4,5,6,7,10,11,12])expect(rows.get(id).status,`task ${id}`).toBe('pending');
  });

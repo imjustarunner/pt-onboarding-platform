@@ -4,6 +4,7 @@ vi.mock('../familyLedger/views.js',()=>({listBalances:vi.fn()}));
 vi.mock('../familyLedger/senders.js',()=>({requireReadySender:vi.fn()}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:vi.fn(async()=>({url:path=>'https://auricwell.com/tenant/'+path})),sendClientPortalEmail:vi.fn()}));
+vi.mock('../familyPortalLocale.service.js',()=>({familyEnrollmentContext:vi.fn(async()=>({locale:'en'})),portalUrlWithLocale:url=>url}));
 vi.mock('../guardianTestAccess.service.js',()=>({isGuardianTestAccountId:vi.fn()}));
 import pool from '../../config/database.js';
 import {listBalances} from '../familyLedger/views.js';
@@ -18,7 +19,7 @@ beforeEach(()=>{
  db={release:vi.fn(),execute:vi.fn(async sql=>{
   if(sql.includes('FROM client_portal_independence'))return [[]];
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
-  if(sql.includes('SELECT id,receivable_id'))return [[{id:11,receivable_id:22}]];
+  if(sql.includes('SELECT n.id,n.receivable_id'))return [[{id:11,receivable_id:22,party_kind:'account',responsible_user_id:3}]];
   if(sql.includes('SELECT email'))return [[{email:'parent@example.test'}]];
   if(sql.includes('SELECT name,slug'))return [[{name:'Tenant',slug:'tenant'}]];
   return [{affectedRows:1}];

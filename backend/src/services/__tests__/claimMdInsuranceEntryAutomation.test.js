@@ -41,10 +41,10 @@ it('lets a later intake policy replace an empty Medicaid-search placeholder',asy
  expect(mocks.enqueue).toHaveBeenCalledTimes(1);
 });
 
-it('permits saving an unverified Medicaid holder mismatch but prevents marking it verified for claims',async()=>{
+it('normalizes Medicaid subscribers to the patient before saving or verifying coverage',async()=>{
  const value={...input(),primary:{insurerName:'Colorado Medicaid',payerId:'COCHA',eligibilityPayerId:'SKCO0',isMedicaid:true,memberId:'A123456',relationshipToSubscriber:'child',subscriberFirstName:'Parent',subscriberLastName:'Person'}};
- const db=database();expect((await writeClientInsurance(value,db)).verifiedForClaims).toBe(false);
- db.execute.mockClear();await expect(writeClientInsurance({...value,verifiedForClaims:true},db)).rejects.toMatchObject({status:409});expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+ const db=database();const saved=await writeClientInsurance(value,db);expect(saved.verifiedForClaims).toBe(false);expect(saved.primary).toMatchObject({relationshipToSubscriber:'self',subscriberFirstName:'Test',subscriberLastName:'Person',subscriberDob:'2000-01-01'});
+ const verified=await writeClientInsurance({...value,verifiedForClaims:true},db);expect(verified.primary.relationshipToSubscriber).toBe('self');expect(verified.verifiedForClaims).toBe(true);
 });
 
 it('rejects a forged confirmation/finalization before submission, including when the payload carries an old approval',async()=>{
