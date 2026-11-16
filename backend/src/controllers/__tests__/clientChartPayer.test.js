@@ -70,3 +70,9 @@ it('prioritizes the configured agency route and aliases when Kaiser bills throug
 it('keeps agency routes visible if the live directory is temporarily unavailable without claiming a fresh verification',async()=>{
  m.list.mockResolvedValue([{id:7,payer_name:'Agency payer',claimmd_payer_id:'43324',directory_status:'id_match'}]);m.connection.mockRejectedValue(Error('offline'));const request=req();request.body={position:'primary'};const response=res(),next=vi.fn();await searchClientPayers(request,response,next);expect(next).not.toHaveBeenCalled();expect(response.json.mock.calls[0][0].payers[0].source).toBe('agency');expect(response.json.mock.calls[0][0].directoryWarning).toContain('fresh directory check');expect(m.write).not.toHaveBeenCalled();
 });
+
+it('keeps a freshly verified directory choice selectable when a saved agency alias still needs review',async()=>{
+ m.list.mockResolvedValue([{id:7,payer_name:'Agency alias needing review',claimmd_payer_id:'00050',directory_status:'alias_review'}]);
+ const request=req();request.body={position:'primary'};const response=res();await searchClientPayers(request,response,vi.fn());const rows=response.json.mock.calls[0][0].payers;
+ expect(rows.find(p=>p.source==='agency')).toMatchObject({payerId:'00050',verified:false});expect(rows.find(p=>p.source==='directory')).toMatchObject({payerId:'00050',verified:true});
+});

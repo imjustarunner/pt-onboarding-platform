@@ -68,7 +68,7 @@ export async function searchClientPayers(req, res, next) {
       if(query && /^[0-9]{2,32}$/.test(query))payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerId:query})).payer));
       if((query||name).length>=2)payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerName:query||name})).payer));
     } catch { directoryWarning='The live clearinghouse directory is unavailable. Agency payers are still shown; linking requires a fresh directory check.'; }
-    const configuredIds=new Set(configured.filter(row=>row.payerId).map(row=>row.payerId));
+    const configuredIds=new Set(configured.filter(row=>row.payerId && row.verified).map(row=>row.payerId));
     const directory=[...new Map(payers.map(payer=>[String(payer.payerid),payer])).values()].filter(payer=>!configuredIds.has(String(payer.payerid))).slice(0,100).map(payer=>({...publicPayer(payer),source:'directory',verified:true}));
     res.set('Cache-Control','no-store').json({payers:[...configured,...directory],directoryWarning});
   } catch (error) { next(error); }
