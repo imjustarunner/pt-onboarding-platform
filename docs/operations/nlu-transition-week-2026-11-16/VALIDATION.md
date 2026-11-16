@@ -27,7 +27,8 @@ in `7cb1d1e85`. Documentation-only follow-up retains the same application behavi
 | Validation | Result |
 |---|---|
 | Focused backend suite after integrating current main | 139 passed |
-| Frontend components and existing workflow tests | 16 passed |
+| Frontend components and video tracking | 16 passed |
+| Existing EHR transition and navigation regressions | 75 passed |
 | Existing SMS carrier regression suite | 678 passed; 8 existing skipped cases |
 | Native MySQL, isolated synthetic schema | 6 passed |
 | Production compilation of the new panels | Passed |

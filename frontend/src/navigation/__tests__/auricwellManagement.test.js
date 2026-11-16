@@ -37,7 +37,8 @@ describe('AuricWell management operations', () => {
   it('keeps tenant identity on existing workflows and the transition plan', () => {
     const items = operations();
     const transition = items.find(item => item.id === 'transition');
-    expect(transition.status).toBe('Transition workspace');
+    expect(transition.status).toBe('Full rollout plan');
+    for (const practice of ['NLU','ITSCO','Inner Strength']) expect(transition.description).toContain(practice);
     expect(transition.href).toBe('/practice-a/admin/settings?agencyId=12&category=auricwell&item=auricwell-transition');
     expect(items.find(item => item.id === 'providers').href).toBe('/practice-a/admin/providers?agencyId=12');
     expect(items.find(item => item.id === 'records-requests').href).toBe('/records-manager?agencyId=12');
