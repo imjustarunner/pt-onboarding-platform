@@ -1,6 +1,7 @@
 # Implementation and validation
 
-Software status: prepared on `codex/nlu-transition-week-20261116`; not deployed.
+Software status: updated for all three practices and video production on
+`codex/nlu-transition-week-20261116`; deployment remains a separate release step.
 Application implementation: `21495f65f`; integrated with main through `5ce7dfbd4`
 in `7cb1d1e85`. Documentation-only follow-up retains the same application behavior.
 
@@ -8,7 +9,7 @@ in `7cb1d1e85`. Documentation-only follow-up retains the same application behavi
 
 - Per-practice encrypted weekly evidence, append-only revisions, current administrator
   membership checks, no-store responses and optimistic concurrency.
-- Thirty-eight ordered tasks, owners/backups, prerequisite checks, unknown denominators,
+- Practice-specific ordered tasks (39 NLU, 36 ITSCO, 31 Inner Strength), owners/backups, prerequisite checks, unknown denominators,
   exceptions and cancellation-readiness reconciliation.
 - Complete-roster ITSCO ranking by four-week completed sessions, upcoming sessions and
   stable ID; frozen groups of five; ordered Google/clinical/observation gates; existing
@@ -25,8 +26,8 @@ in `7cb1d1e85`. Documentation-only follow-up retains the same application behavi
 
 | Validation | Result |
 |---|---|
-| Focused backend suite after integrating current main | 132 passed |
-| Frontend components and existing workflow tests | 14 passed |
+| Focused backend suite after integrating current main | 139 passed |
+| Frontend components and existing workflow tests | 16 passed |
 | Existing SMS carrier regression suite | 678 passed; 8 existing skipped cases |
 | Native MySQL, isolated synthetic schema | 6 passed |
 | Production compilation of the new panels | Passed |
@@ -61,5 +62,19 @@ TherapyNotes exports, account suspensions, ERA receiver changes or subscription 
 are represented as complete. The packet contains concrete materials for their authorized
 operators, with every live acceptance case initially unverified.
 
-Deployment order and rollback are in RUNBOOK.md. Apply migration 1828 before exposing the
+Deployment order and rollback are in RUNBOOK.md. Apply migration 1830 before exposing the
 board or enabling first-time START capture. Preserve the existing encryption key and history.
+
+## November 16 follow-up
+
+All workstreams are visible by default. The full plan has clear three-practice navigation
+and appropriate practice-specific gates. Nineteen recommended video topics now track creator,
+due date, production state, independent review, permanent watch link and server-recorded
+completion. Actual clips and verified named ITSCO batches remain unfinished, explicitly
+marked in the UI and packet. Source counts must be verified before the real groups are frozen.
+
+Migration was renumbered to 1830 before release to avoid main’s unrelated migration 1828;
+the additive SQL/table definitions are unchanged from the previous six native checks.
+The current focused suites pass 139 backend and 16 frontend tests, and the updated fictional
+browser rehearsal verifies all-workstream visibility and saved video creator/status fields.
+Earlier carrier/native results above remain historical supporting evidence.

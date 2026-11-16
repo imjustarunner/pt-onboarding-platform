@@ -15,7 +15,7 @@
           <router-link v-for="item in switcherLinks" :key="item.key" class="hub-switcher-btn" :to="item.to"><AuricWellHubIcon :name="item.icon" :size="13" />{{ item.label }}</router-link>
           <span class="hub-switcher-btn is-active" aria-current="page"><img :src="AURICWELL_MARK_URL" alt="" />AuricWell</span>
         </nav>
-        <router-link class="hub-calendar-btn aw-transition-link" :to="transitionHref">Open EHR Transition <span aria-hidden="true">→</span></router-link>
+        <router-link class="hub-calendar-btn aw-transition-link" :to="transitionHref">Open full rollout plan <span aria-hidden="true">→</span></router-link>
       </div>
     </header>
     <p v-if="!canManage" class="aw-context-message" role="status">Select an organization you administer to open its AuricWell operations.</p>

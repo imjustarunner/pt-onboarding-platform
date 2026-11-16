@@ -1,4 +1,4 @@
-# NLU transition week — operator and release runbook
+# Full transition rollout — NLU, ITSCO and Inner Strength
 
 Week: November 16–20, 2026. All operating times are America/Denver.
 
@@ -9,10 +9,17 @@ Open `index.html`. It links the Monday brief, provider-update draft, family guid
 90-minute training, 44 acceptance cases, ordered task register, source/archive
 manifest, provider/family readiness sheets, ERA routes, scorecard and calendar drafts.
 The generator never accesses live records, sends messages or changes accounts.
+The packet includes TASKS.csv for all three practices, separate NLU/ITSCO/Inner Strength
+checklists, and VIDEO-PLAN.html plus VIDEO-PRODUCTION.csv for the 19 recommended video topics.
 Keep filled CSVs in the approved restricted workspace, outside source control.
 
-Use Management → AuricWell → EHR Transition for the durable practice board.
-NLU (6), Inner Strength (377) and ITSCO (2) have independent boards. Assign owners
+Use Management → AuricWell → Open full rollout plan (the EHR Transition settings item)
+for the durable practice boards. The header switches between Next Level Up, ITSCO and
+Inner Strength. Every workstream is visible by default; filtering is optional.
+NLU (6), Inner Strength (377) and ITSCO (2) have independent boards with appropriate
+scope. ITSCO has named cohort/ranking stages and a retain-access task, not an account
+cancellation gate. Inner Strength has its own records/billing/closure gate and is not
+required to retire provider Google accounts in this project. Assign owners
 and backups on Monday; no staff names, roster counts or completion evidence are seeded.
 Unknown denominators stay unknown. Failed/deferred items require an owner and next action.
 Passed items require an owner, evidence and passed prerequisites. Closure also requires
@@ -25,7 +32,9 @@ Do not mark `era_monitor` passed merely because an enrollment request was accept
 ## Release order
 
 1. Retain a recoverable database backup and the paired previous frontend/backend release.
-2. Apply only `1828_practice_transition_week.sql` with the existing specific-migration runner.
+2. Apply only `1830_practice_transition_week.sql` with the existing specific-migration runner
+   (`node database/run-migrations.js --migration 1830`). The earlier 1828 prefix was
+   changed before release because main now has a different 1828 migration.
    It adds evidence tables; it does not activate users, campaigns, appointments or claims.
 3. Deploy the paired frontend/backend change through normal workflows. Preserve current
    Secret Manager references and encryption material. No new secret is introduced.
@@ -48,7 +57,28 @@ Verify one recipient’s entire phone/desktop experience, then use the intended 
 Wednesday noon is the completion target. Signature, SMS activation, schedule approval,
 clinical acceptance and migration readiness are separate states.
 
+## Video production and completion
+
+Each recommended video has a target workflow, suggested accountable role, creator, due date,
+production status, independent reviewer, watch link, review evidence and next action.
+Statuses are not started, recording, editing, in review, published and blocked. Publication
+requires an owner, working permanent HTTPS/authenticated app link, independent reviewer and
+evidence. The server records the actual saving actor and completion timestamp; clients
+cannot supply a fake completion date or actor. Reopening production clears the current
+completion marker while the append-only board history retains the prior publication.
+
+One reviewed clip can be reused across practices. Each practice still confirms that its
+workflow is accurately covered. Do not mark videos_ready passed until all applicable
+clips are published. Actual learner completion remains in the existing assigned-learning
+workflow. Videos have not been recorded or published by this task.
+
 ## ITSCO ranking and activation
+
+Actual named groups are not yet populated. The available historical provider roster lacks
+verified weekly session counts. The ITSCO board shows this explicitly and cannot pass
+cohort_ranking before a real ranking is frozen. Do not substitute a fictional preview or
+alphabetical groups for the requested lowest-session ordering.
+
 
 Use the verified source roster/report for October 19–November 15, with upcoming sessions
 for November 16–22. Exclude canceled/no-show sessions from completed counts; reconcile

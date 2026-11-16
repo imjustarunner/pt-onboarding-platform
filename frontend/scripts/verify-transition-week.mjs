@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 import { build } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { chromium } from 'playwright';
-import { TRANSITION_TASKS, TRANSITION_ROLES, emptyTransitionState } from '../../backend/src/content/transitionWeek.js';
+import { TRANSITION_ROLES, TRANSITION_PRACTICES, transitionTaskCatalog, transitionVideoCatalog, emptyTransitionState } from '../../backend/src/content/transitionWeek.js';
 const { values } = parseArgs({ options: { out: { type: 'string' } } });
 if (!values.out) throw Error('Specify --out for screenshots and verification evidence.');
 const destination = path.resolve(values.out), root = fileURLToPath(new URL('..', import.meta.url));
@@ -20,7 +20,7 @@ try {
   await fs.mkdir(destination, { recursive: true });
   const providers = Array.from({ length: 6 }, (_, i) => ({ id: i + 1, name: `Example provider ${i + 1}` }));
   const fixture = `import {freezeTransitionRanking,validateTransitionState,updateTransitionCohort} from ${JSON.stringify(fileURLToPath(new URL('../../backend/src/utils/transitionWeekPolicy.js', import.meta.url)))};
-    let board=${JSON.stringify({ revision: 0, week: '2026-11-16', catalog: TRANSITION_TASKS, roles: TRANSITION_ROLES, state: emptyTransitionState() })};
+    let board=${JSON.stringify({ revision: 0, week: '2026-11-16', catalog: transitionTaskCatalog(2), videoCatalog: transitionVideoCatalog(2), practice: TRANSITION_PRACTICES.find(p=>p.id===2), roles: TRANSITION_ROLES, state: emptyTransitionState() })};
     const providers=${JSON.stringify(providers)};
     const event={id:1,phoneLastFour:'0101',numberId:7,status:'pending',receivedAt:Date.now(),eligibleForReview:true};
     export default {
@@ -29,7 +29,7 @@ try {
         if(url.endsWith('/evidence'))return {data:{agencyId:2,phone:'+13035550101',numberId:7,messageId:'fictional-start',receivedAt:event.receivedAt,disclosure:{version:'FICTIONAL-1',disclosure:'Fictional test disclosure; no carrier approval is asserted.',purposes:['reminders'],approvalReference:'FICTIONAL'}}};
         return {data:{items:[event],nextBeforeId:null}};},
       async put(url,input){if(input.revision!==board.revision)throw Error('Stale revision');
-        if(input.action==='save')board.state=validateTransitionState(input.state,board.state);
+        if(input.action==='save')board.state=validateTransitionState(input.state,board.state,2,999);
         if(input.action==='freeze_ranking')board.state.ranking=freezeTransitionRanking(input.rows,providers,input.sourceReference);
         if(input.action==='cohort')board.state=updateTransitionCohort(board.state,input.cohort,input,999);
         board.revision++;return {data:JSON.parse(JSON.stringify(board))};},
@@ -72,6 +72,12 @@ try {
   await page.locator('.transition-task input').first().fill('Fictional transition lead');
   await page.getByRole('button',{name:'Save evidence',exact:true}).first().click();
   await page.getByText('Saved revision 1',{exact:false}).waitFor();
+  assert.equal(await page.getByLabel('Show workstream').inputValue(),'');
+  await page.locator('.video-section summary').click();
+  await page.locator('.transition-video input').first().fill('Fictional video creator');
+  await page.locator('.transition-video select').first().selectOption('recording');
+  await page.getByRole('button',{name:'Save evidence',exact:true}).first().click();
+  await page.getByText('Saved revision 2',{exact:false}).waitFor();
   await page.getByLabel('Verified source reference').fill('Fictional verified source for training');
   await page.getByLabel('Session counts CSV').fill('providerId,completedFourWeeks,upcomingWeek\n'+providers.map(p=>`${p.id},${p.id*4},${p.id}`).join('\n'));
   await page.getByRole('button',{name:'Freeze ranking and create groups'}).click();
@@ -93,7 +99,7 @@ try {
   await page.locator('.phone-enrollments form').scrollIntoViewIfNeeded();
   await page.screenshot({path:path.join(destination,'enrollment-review-mobile.png')});
   assert.deepEqual(errors,[]);assert.deepEqual(blockedRequests,[]);assert.equal(servedRequests.some(url=>url.startsWith('/api')),false);
-  await fs.writeFile(path.join(destination,'browser-verification.json'),JSON.stringify({productionComponentsCompiled:true,fictionalDataOnly:true,realApiRequests:0,checks:['revisioned save','groups of five with final remainder','next-cohort hold','masked queue','explicit evidence review','identity-review gate','390px no overflow'],pageErrors:errors},null,2)+'\n');
+  await fs.writeFile(path.join(destination,'browser-verification.json'),JSON.stringify({productionComponentsCompiled:true,fictionalDataOnly:true,realApiRequests:0,checks:['revisioned save','all workstreams visible','video creator/due/status saved','groups of five with final remainder','next-cohort hold','masked queue','explicit evidence review','identity-review gate','390px no overflow'],pageErrors:errors},null,2)+'\n');
   console.log('Production component bundles and fictional desktop/mobile rehearsal passed; zero real API requests.');
 } finally {
   if(browser)await browser.close();

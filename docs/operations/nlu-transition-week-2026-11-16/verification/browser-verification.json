@@ -4,6 +4,8 @@
   "realApiRequests": 0,
   "checks": [
     "revisioned save",
+    "all workstreams visible",
+    "video creator/due/status saved",
     "groups of five with final remainder",
     "next-cohort hold",
     "masked queue",

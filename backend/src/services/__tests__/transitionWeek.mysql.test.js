@@ -22,7 +22,7 @@ describe.skipIf(!port)('native MySQL transition and phone evidence transactions'
     admin = await mysql.createConnection({ host: '127.0.0.1', port, user: 'root', multipleStatements: true });
     await admin.query(`CREATE DATABASE \`${database}\``);
     m.pool = mysql.createPool({ host: '127.0.0.1', port, user: 'root', database, connectionLimit: 6, multipleStatements: true });
-    migration = await fs.readFile(new URL('../../../../database/migrations/1828_practice_transition_week.sql', import.meta.url), 'utf8');
+    migration = await fs.readFile(new URL('../../../../database/migrations/1830_practice_transition_week.sql', import.meta.url), 'utf8');
     await m.pool.query(migration);
     await m.pool.query(`CREATE TABLE agencies (id INT PRIMARY KEY,feature_flags JSON);
       INSERT INTO agencies VALUES (2,JSON_OBJECT());

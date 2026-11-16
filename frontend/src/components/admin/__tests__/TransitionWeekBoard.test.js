@@ -35,3 +35,20 @@ it('keeps missing CSV counts as null instead of silently ranking them as zero', 
   await w.findAll('button').find(b => b.text() === 'Freeze ranking and create groups').trigger('click'); await flushPromises();
   expect(m.put.mock.calls[0][1].rows).toEqual([{ providerId: 4, completedFourWeeks: null, upcomingWeek: 2 }]); w.unmount();
 });
+it('shows all workstreams by default and clearly identifies the selected practice', async () => {
+  const data=result(); data.catalog.push({id:'training',day:'17',role:'Training',category:'Training videos',title:'Publish training videos',requires:[]}); data.state.tasks.training={...data.state.tasks.one};
+  m.get.mockResolvedValue({data});
+  const w=mount(Board,{props:{agencyId:377}});await flushPromises();
+  expect(w.get('#transition-week-title').text()).toContain('Inner Strength');
+  expect(w.get('select').element.value).toBe('');
+  expect(w.text()).toContain('Verify archives');expect(w.text()).toContain('Publish training videos');w.unmount();
+});
+it('tracks a video creator, due date, production status, reviewer and watch link', async () => {
+  const data=result();data.videoCatalog=[{id:'sample',title:'Record scheduling walkthrough',role:'Clinical',minutes:6,outcome:'Show one occurrence change'}];
+  data.state.videos={sample:{status:'not_started',owner:'',reviewer:'',dueDate:'2026-11-17',url:'',evidence:'',nextAction:'',completedAt:null}};
+  m.get.mockResolvedValue({data});const w=mount(Board,{props:{agencyId:6}});await flushPromises();
+  await w.get('.transition-video input').setValue('Assigned trainer');
+  await w.get('.transition-video select').setValue('recording');
+  await w.findAll('button').find(b=>b.text()==='Save evidence').trigger('click');await flushPromises();
+  expect(m.put.mock.calls[0][1].state.videos.sample).toMatchObject({owner:'Assigned trainer',status:'recording',dueDate:'2026-11-17'});w.unmount();
+});

@@ -1,27 +1,52 @@
-import { TRANSITION_TASKS, TRANSITION_STATUSES, TRANSITION_METRICS } from '../content/transitionWeek.js';
+import { TRANSITION_STATUSES, TRANSITION_METRICS, TRANSITION_VIDEO_STATUSES, transitionTaskCatalog, transitionVideoCatalog, emptyTransitionVideo } from '../content/transitionWeek.js';
 const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
 const text = (value, limit) => typeof value === 'string' && value.length <= limit ? value.trim() : fail('A transition field is missing or too long.');
-export function validateTransitionState(input, previous) {
+export function validateTransitionState(input, previous, agencyId = null, actorUserId = null) {
   if (!input || typeof input !== 'object') fail('Transition state is required.');
-  const state = { tasks: {}, metrics: {}, ranking: previous.ranking, cohorts: previous.cohorts };
-  for (const definition of TRANSITION_TASKS) {
+  const catalog = transitionTaskCatalog(agencyId);
+  const state = { tasks: { ...previous.tasks }, metrics: {}, videos: { ...previous.videos }, ranking: previous.ranking, cohorts: previous.cohorts };
+  for (const definition of catalog) {
     const row = input.tasks?.[definition.id];
     if (!row || !TRANSITION_STATUSES.includes(row.status)) fail('Choose a valid status for every task.');
     state.tasks[definition.id] = { status: row.status, owner: text(row.owner, 120), backup: text(row.backup, 120), evidence: text(row.evidence, 1500), nextAction: text(row.nextAction, 800) };
     if (row.status === 'passed' && (!row.owner.trim() || !row.evidence.trim())) fail('Passed tasks require an owner and evidence.');
     if (['failed', 'deferred'].includes(row.status) && (!row.owner.trim() || !row.nextAction.trim())) fail('Failed or deferred tasks require an owner and next action.');
   }
-  for (const task of TRANSITION_TASKS) {
+  for (const task of catalog) {
     if (state.tasks[task.id].status === 'passed' && task.requires.some(id => state.tasks[id].status !== 'passed')) fail(`Complete prerequisites before passing: ${task.title}`);
   }
-  if (state.tasks.owners.status === 'passed' && Object.values(state.tasks).some(row => !row.owner || !row.backup)) fail('Assign every task an owner and backup before completing workstream assignments.');
+  if (state.tasks.owners.status === 'passed' && catalog.some(task => !state.tasks[task.id].owner || !state.tasks[task.id].backup)) fail('Assign every task an owner and backup before completing workstream assignments.');
+  for (const definition of transitionVideoCatalog(agencyId)) {
+    const old = previous.videos?.[definition.id] || { ...emptyTransitionVideo(), dueDate: definition.dueDate };
+    const row = input.videos?.[definition.id] || old;
+    if (!TRANSITION_VIDEO_STATUSES.includes(row.status)) fail('Choose a valid video production status.');
+    const result = { status: row.status, owner: text(row.owner,120), reviewer: text(row.reviewer,120), dueDate: text(row.dueDate,10), url: text(row.url,2000), evidence: text(row.evidence,1500), nextAction: text(row.nextAction,800), completedAt: old.completedAt, completedByUserId: old.completedByUserId };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(result.dueDate) || !Number.isFinite(Date.parse(result.dueDate)) || new Date(result.dueDate).toISOString().slice(0,10) !== result.dueDate) fail('Every video needs a valid due date.');
+    if (result.status !== 'not_started' && !result.owner) fail('Assign the video creator before starting production.');
+    if (result.status === 'blocked' && !result.nextAction) fail('Blocked videos require a next action.');
+    if (result.url) {
+      try { const url = new URL(result.url,'https://app.example.invalid'); if ((!result.url.startsWith('/') && url.protocol !== 'https:') || result.url.startsWith('//') || url.username || url.password || /[\r\n]/.test(result.url)) throw Error(); }
+      catch { fail('Use a permanent HTTPS or authenticated app link for the video.'); }
+    }
+    if (result.status === 'published') {
+      if (!result.url || !result.evidence || !result.reviewer || result.reviewer.toLowerCase() === result.owner.toLowerCase()) fail('Published videos require a watch link, independent reviewer and review evidence.');
+      const changed = old.status !== 'published' || ['url','owner','reviewer','evidence'].some(key => old[key] !== result[key]);
+      if (changed) { result.completedAt = new Date().toISOString(); result.completedByUserId = actorUserId; }
+    } else { result.completedAt = null; result.completedByUserId = null; }
+    state.videos[definition.id] = result;
+  }
+  if (catalog.some(t => t.id === 'videos_ready') && state.tasks.videos_ready.status === 'passed' && transitionVideoCatalog(agencyId).some(v => state.videos[v.id].status !== 'published')) fail('Publish and review every required video before marking training videos ready.');
+  if (Number(agencyId) === 2 && state.tasks.cohort_ranking.status === 'passed' && !state.ranking) fail('The named ITSCO batches still need verified session counts and a frozen ranking.');
+  for (const [taskId,stage] of [['cohort_google','google_retired'],['cohort_ehr','ehr_retired'],['cohort_observation','observed']]) {
+    if (Number(agencyId) === 2 && state.tasks[taskId].status === 'passed' && !state.cohorts[1]?.[stage]) fail('Record actual first-cohort acceptance before checking off that stage.');
+  }
   for (const id of TRANSITION_METRICS) {
     const row = input.metrics?.[id];
     if (!row || (row.total !== null && (!Number.isSafeInteger(row.total) || row.total < 0)) || !Number.isSafeInteger(row.completed) || row.completed < 0 || !Number.isSafeInteger(row.blocked) || row.blocked < 0) fail('Counts must be nonnegative whole numbers; unknown totals stay blank.');
     if ((row.total === null && row.completed + row.blocked > 0) || (row.total !== null && row.completed + row.blocked > row.total)) fail('Reconcile completed and blocked counts with the total.');
     state.metrics[id] = { total: row.total, completed: row.completed, blocked: row.blocked };
   }
-  if (state.tasks.closure.status === 'passed' && TRANSITION_METRICS.some(id => state.metrics[id].total === null || state.metrics[id].completed !== state.metrics[id].total || state.metrics[id].blocked)) fail('Closure requires every denominator reconciled without blocked items.');
+  if (catalog.some(t => t.id === 'closure') && state.tasks.closure.status === 'passed' && TRANSITION_METRICS.some(id => state.metrics[id].total === null || state.metrics[id].completed !== state.metrics[id].total || state.metrics[id].blocked)) fail('Closure requires every denominator reconciled without blocked items.');
   return state;
 }
 
