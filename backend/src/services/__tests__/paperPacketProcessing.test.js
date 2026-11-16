@@ -245,5 +245,5 @@ it('accepts a second parent as a saved contact without a portal account',async()
  ready();deps.contacts={findById:vi.fn(async()=>({id:30,client_id:4,agency_id:2,is_active:1}))};
  await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian2',data:{contactOnly:true,affiliationId:30}},deps);
  expect(paperProcessingState(client)).toMatchObject({guardian2Id:null,guardian2ContactId:30});
- const state=await completePaperProcessing({...input,sendInvitations:false},deps);expect(state.processedAt).toBeTruthy();expect(deps.send).not.toHaveBeenCalled();
+ const state=await completePaperProcessing({...input,sendInvitations:false},deps);expect(state.processedAt).toBeTruthy();expect(state.invitations[20]).toMatchObject({status:'not_sent'});expect(deps.send).not.toHaveBeenCalled();
 });

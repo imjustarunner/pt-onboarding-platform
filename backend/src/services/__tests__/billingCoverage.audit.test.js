@@ -81,6 +81,7 @@ for (const automatic of [false, true]) test(`Medicaid blocks ${automatic ? 'auto
     if (sql==='SELECT id FROM clients WHERE id=? FOR UPDATE') return [[{id:10}]];
     if (sql.includes('client_guardians')) return [[{ access_enabled: 1, relationship_type: 'guardian' }]];
     if (sql.includes('client_billing_payers')) return [[{ guardian_user_id: 2 }]];
+    if (sql.startsWith('SELECT full_name, date_of_birth, gender,')) return [[{full_name:'Synthetic Client',date_of_birth:'2017-01-01',gender:'Male'}]];
     if (sql.includes('billing_insurance_payload')) return [[{ billing_insurance_payload: encryptFamilyBilling({ secondary: { isMedicaid: true } }, 'client-insurance:1:10') }]];
     throw new Error('Card or payment write must not be reached');
   } };

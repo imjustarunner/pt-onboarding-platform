@@ -286,7 +286,7 @@ function assertPacketMatch(client, state, vision) {
   }
 }
 
-function publicState(state){const {workingDraftEnc,...visible}=state;if(visible.processedAt){visible.invitations={...(visible.invitations||{})};for(const id of [visible.guardian1Id,visible.guardian2Id].filter(Boolean)){if(!visible.invitations[id])visible.invitations[id]={status:'blocked',reason:'Portal finalization is pending. Review the contact and retry.'};}}return {...visible,...(visible.previousPackets?{previousPackets:visible.previousPackets.map(({workingDraftEnc,...item})=>item)}:{})};}
+function publicState(state){const {workingDraftEnc,...visible}=state;if(visible.processedAt){visible.invitations={...(visible.invitations||{})};for(const id of [visible.guardian1Id,visible.guardian2Id].filter(Boolean)){if(!visible.invitations[id])visible.invitations[id]=visible.guardianAccessFinalizedAt?{status:'not_sent',reason:'Packet processed. Review the portal invitation before sending.'}:{status:'blocked',reason:'Portal finalization is pending. Review the contact and retry.'};}}return {...visible,...(visible.previousPackets?{previousPackets:visible.previousPackets.map(({workingDraftEnc,...item})=>item)}:{})};}
 function readWorkingDraft(client,deps){
  const envelope=paperProcessingState(client).workingDraftEnc;if(!envelope)return null;
  try{const draft=deps.decryptDraft(envelope);return Number(draft.clientId)===Number(client.id)&&Number(draft.agencyId)===Number(client.agency_id)&&Number(draft.schoolId)===Number(client.organization_id)&&Number(draft.documentId)===Number(object(client.onboarding_docs_json).paperPacketSource?.documentId||paperProcessingState(client).documentId)?draft:null;}catch{return null;}
