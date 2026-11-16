@@ -37,3 +37,13 @@ describe('company event RSVP controls',()=>{
  });
  it('does not add company RSVP actions to a program or school record',()=>{render({isInvitedCompanyEvent:false});expect(wrapper.findAll('button')).toHaveLength(0);expect(api.post).not.toHaveBeenCalled();});
 });
+
+it('keeps the signed-in details link local and prompts for food only after a successful Yes',async()=>{
+ api.post.mockResolvedValue({data:{response:'yes'}});
+ render({myRsvp:null,potluckEnabled:true,staffPageUrl:'https://auricwell.com/conversa/events/itsco/potluck-8'});
+ expect(wrapper.get('.rsvp-details').attributes('href')).toBe('/conversa/events/itsco/potluck-8');
+ expect(wrapper.text()).not.toContain('Choose what to bring');
+ await choice('Yes').trigger('click');await flushPromises();
+ expect(wrapper.findAll('a').find(a=>a.text().includes('Choose what to bring')).attributes('href')).toBe('/conversa/events/itsco/potluck-8#event-potluck');
+ expect(api.post).toHaveBeenCalledTimes(1);
+});

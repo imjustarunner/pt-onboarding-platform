@@ -5583,7 +5583,7 @@ router.beforeEach(async (to, from, next) => {
   // Custom domain / subdomain portals: never keep /{portalSlug}/… in the path (host is already the bucket).
   // Use resolveHostPortalSlug so app.itsco.health ≡ itsco even when /agencies/resolve returns null.
   // Resolve cookie/SSO identity before workspace, branding, and role guards run.
-  if (to.meta.requiresAuth) await tryBootstrapAuthFromCookie();
+  if (to.meta.requiresAuth || ['ConversaEvent', 'CompanyEventStaff', 'ConversaLogin'].includes(to.name)) await tryBootstrapAuthFromCookie();
   // Assistants have a separate, closed navigation surface. This runs before
   // tenant routing and avoids hydrating staff organizations or employee widgets.
   if (String(authStore.user?.role || '').toLowerCase() === 'assistant') {

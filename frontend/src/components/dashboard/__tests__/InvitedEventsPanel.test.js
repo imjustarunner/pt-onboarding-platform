@@ -18,3 +18,12 @@ describe('My Dashboard invited events',()=>{
  it('keeps a confirmed No through stale refreshes, then accepts later authoritative server updates',async()=>{const w=await render();await w.findAll('.invited-event')[0].findAll('.rsvp-controls button')[2].trigger('click');await flushPromises();await w.setProps({events:events.map(e=>({...e}))});expect(w.findAll('.invited-event-name').map(e=>e.text())).not.toContain('Anniversary');await w.setProps({events:events.map(e=>e.id===1?{...e,myRsvp:'no'}:{...e})});expect(w.findAll('.invited-event-name').map(e=>e.text())).not.toContain('Anniversary');await w.setProps({events:events.map(e=>e.id===1?{...e,myRsvp:'yes'}:{...e})});expect(w.findAll('.invited-event-name').map(e=>e.text())).toContain('Anniversary');});
  it('preserves the previous response when a save fails and applies updates from another event view',async()=>{const w=await render();api.post.mockRejectedValueOnce({response:{data:{error:{message:'Invitation is unavailable'}}}});await w.findAll('.invited-event')[0].findAll('.rsvp-controls button')[2].trigger('click');await flushPromises();expect(w.find('[role=alert]').text()).toBe('Invitation is unavailable');expect(w.findAll('.invited-event-name').map(e=>e.text())).toContain('Anniversary');notifyCompanyEventRsvpChanged({eventId:1,agencyId:2,response:'no'});await flushPromises();expect(w.findAll('.invited-event-name').map(e=>e.text())).not.toContain('Anniversary');expect(api.post.mock.calls.map(([url,body])=>[url,body])).toEqual([['/me/company-events/1/respond',{response:'no',agencyId:2}]]);});
 });
+
+it('opens details and food signup on the current portal after a Yes RSVP',async()=>{
+ const w=await render();await w.setProps({events:[event(8,'Potluck',null,{potluckEnabled:true,staffPageUrl:'https://auricwell.com/conversa/events/itsco/potluck-8'})]});
+ expect(w.get('.invited-open').attributes('href')).toBe('/conversa/events/itsco/potluck-8');
+ expect(w.text()).not.toContain('Choose what to bring');
+ await button(w,'Yes').trigger('click');await flushPromises();
+ expect(w.findAll('a').find(a=>a.text().includes('Choose what to bring')).attributes('href')).toBe('/conversa/events/itsco/potluck-8#event-potluck');
+ expect(api.post).toHaveBeenCalledTimes(1);
+});

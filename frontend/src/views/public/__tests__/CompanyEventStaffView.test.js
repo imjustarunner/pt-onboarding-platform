@@ -179,3 +179,14 @@ describe('staff event participation', () => {
   });
 
 });
+
+it('takes an accepted potluck RSVP to food signup without claiming anything automatically',async()=>{
+ const focus=vi.spyOn(HTMLElement.prototype,'focus');
+ api.get.mockResolvedValue({data:{event:{id:8,title:'Team potluck',potluckEnabled:true,isWorkEvent:false},needList:[{id:4,name:'Fruit',claimed:false}],branding:{agencyName:'ITSCO'}}});
+ const wrapper=await render();
+ await button(wrapper,'Attending').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/company-events/staff/8/share-token/respond',{response:'yes'});
+ expect(api.post).toHaveBeenCalledTimes(1);
+ expect(focus).toHaveBeenCalledWith({preventScroll:true});
+ expect(wrapper.get('#event-potluck select').element.value).toBe('');
+});

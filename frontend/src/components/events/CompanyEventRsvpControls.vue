@@ -6,16 +6,20 @@
       <button v-for="choice in choices" :key="choice.value" type="button" :class="{ selected: response === choice.value }" :aria-pressed="response === choice.value" :disabled="saving || event.canRsvp !== true" @click="save(choice.value)">{{ saving === choice.value ? 'Saving…' : choice.label }}</button>
     </div>
     <p v-if="notice" class="rsvp-notice" role="status">{{ notice }}</p><p v-if="error" class="rsvp-error" role="alert">{{ error }}</p>
-    <a v-if="event.staffPageUrl" class="rsvp-details" :href="event.staffPageUrl">Details, votes &amp; potluck →</a>
+    <p v-if="notice && response === 'yes' && event.potluckEnabled && event.staffPageUrl" class="rsvp-notice">You’re attending! <a :href="contributionUrl">Choose what to bring →</a></p>
+    <a v-if="event.staffPageUrl" class="rsvp-details" :href="detailsUrl">Details, votes &amp; potluck →</a>
   </section>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { companyEventPageHref } from '../../utils/companyEventInvitationHost';
 import api from '../../services/api';
 import { notifyCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents.js';
 
 const props = defineProps({ event: { type: Object, required: true } });
+const detailsUrl = computed(() => companyEventPageHref(props.event.staffPageUrl));
+const contributionUrl = computed(() => `${String(detailsUrl.value || '').split('#')[0]}#event-potluck`);
 const emit = defineEmits(['changed']);
 const choices = [{ value: 'yes', label: 'Yes' }, { value: 'maybe', label: 'Maybe' }, { value: 'no', label: 'No' }];
 const normalize = value => ({ yes:'yes', y:'yes', '1':'yes', no:'no', n:'no', '2':'no', maybe:'maybe', m:'maybe', '3':'maybe' })[String(value || '').toLowerCase()] || '';

@@ -37,7 +37,7 @@
             </template>
             <p v-else class="poll-hint">{{ poll.shareResults === false ? 'The organizer has kept totals private. Your own vote is always visible here.' : 'The organizer will share totals after voting closes.' }}</p>
           </section>
-          <div v-if="poll.linkedEvent && variant !== 'event'" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="poll.linkedEvent.staffPageUrl || `/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
+          <div v-if="poll.linkedEvent && variant !== 'event'" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="companyEventPageHref(poll.linkedEvent.staffPageUrl) || `/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
           <div v-if="!isClosed(poll) && poll.shareResults !== false" class="poll-text-preference"><label><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /><span>Text me the final results</span></label><p class="poll-hint">Optional · Requires poll-text opt-in. Reply NOPOLLS to stop poll texts only.</p></div>
           <section v-if="poll.canManage" class="poll-owner-controls" aria-label="Poll owner controls">
             <span class="poll-eyebrow">Owner controls</span>
@@ -56,6 +56,7 @@ import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPo
 
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 import { ref, watch, computed, onMounted, onBeforeUnmount, getCurrentInstance, nextTick } from 'vue';
+import { companyEventPageHref } from '../../utils/companyEventInvitationHost';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: [Number, String], default: null }, pollId: { type: [Number, String], default: null }, linkedEventId: { type: [Number, String], default: null }, variant: { type: String, default: 'dashboard' } });
 const panelId = `staff-polls-${getCurrentInstance().uid}`;

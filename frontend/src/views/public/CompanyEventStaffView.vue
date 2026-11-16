@@ -21,7 +21,7 @@
         </div>
         <EventConversation :key="eventId" :endpoint="`${staffEndpoint()}/conversation`" :title="event.title" :me-id="authStore.user?.id || 0" />
         <section class="ee-card event-polls" aria-labelledby="event-polls-title"><header class="ee-section-header"><div class="ee-section-title"><span class="ee-icon-tile"><ChartNoAxesColumnIncreasing :size="23" aria-hidden="true" /></span><div><h2 id="event-polls-title">Help shape the event</h2><p>Vote on dates, preferences, and other details to make the event a success.</p></div></div></header><StaffPollsPanel :linked-event-id="eventId" :agency-id="event.agencyId" variant="event" /></section>
-        <section v-if="event.potluckEnabled" class="ee-card event-potluck"><header class="ee-section-title"><span class="ee-icon-tile green"><Utensils :size="23" aria-hidden="true" /></span><div><h2>What’s on the table</h2><p>Choose a requested item or tell us what you’d like to bring.</p></div></header><p v-if="event.organizerProviding?.length" class="ee-muted">The organizers are bringing: {{ event.organizerProviding.join(', ') }}.</p><div v-if="needList.length" class="potluck-items"><article v-for="item in needList" :key="item.id" :class="{mine:item.mine}"><span>{{ item.name }}</span><small>{{ item.mine ? 'You’re bringing this' : item.claimed ? 'Already covered' : 'Available' }}</small></article></div><form @submit.prevent="savePotluck"><label>My contribution<select v-model="contributionId"><option value="">I’m not bringing an item</option><option value="__custom">I’ll bring something else</option><option v-for="item in needList.filter(i => !i.claimed || i.mine)" :key="item.id" :value="String(item.id)">{{ item.name }}</option></select></label><label v-if="contributionId === '__custom' || needList.find(i => String(i.id) === contributionId)?.openRequest">What will you bring?<input v-model.trim="contributionName" maxlength="255" required /></label><button class="ee-button ee-button-primary" type="submit" :disabled="busy">Save my contribution</button></form></section>
+        <section v-if="event.potluckEnabled" id="event-potluck" ref="potluckSection" tabindex="-1" class="ee-card event-potluck"><header class="ee-section-title"><span class="ee-icon-tile green"><Utensils :size="23" aria-hidden="true" /></span><div><h2>What’s on the table</h2><p>Choose a requested item or tell us what you’d like to bring.</p></div></header><p v-if="event.organizerProviding?.length" class="ee-muted">The organizers are bringing: {{ event.organizerProviding.join(', ') }}.</p><div v-if="needList.length" class="potluck-items"><article v-for="item in needList" :key="item.id" :class="{mine:item.mine}"><span>{{ item.name }}</span><small>{{ item.mine ? 'You’re bringing this' : item.claimed ? 'Already covered' : 'Available' }}</small></article></div><form @submit.prevent="savePotluck"><label>My contribution<select v-model="contributionId"><option value="">I’m not bringing an item</option><option value="__custom">I’ll bring something else</option><option v-for="item in needList.filter(i => !i.claimed || i.mine)" :key="item.id" :value="String(item.id)">{{ item.name }}</option></select></label><label v-if="contributionId === '__custom' || needList.find(i => String(i.id) === contributionId)?.openRequest">What will you bring?<input v-model.trim="contributionName" maxlength="255" required /></label><button class="ee-button ee-button-primary" type="submit" :disabled="busy">Save my contribution</button></form></section>
         <div class="ee-bottom-grid">
           <section class="ee-card event-schedule"><header class="ee-section-title"><span class="ee-icon-tile purple"><CalendarDays :size="23" aria-hidden="true" /></span><div><h2>Schedule</h2><p>A look at when we’ll get together.</p></div></header><ol v-if="schedule.length" class="event-timeline"><li v-for="item in schedule" :key="item.label"><time>{{ item.time }}</time><strong>{{ item.label }}</strong></li></ol><p v-else class="ee-muted event-empty-note">We’re choosing the date together. Check the votes above and come back here for the plan.</p></section>
           <section class="ee-card event-attendees"><header class="ee-section-header"><div class="ee-section-title"><span class="ee-icon-tile green"><Users :size="23" aria-hidden="true" /></span><div><h2>Attendees</h2><p>See who’s going and get familiar with the group.</p></div></div><button v-if="attendees.length" class="event-attendee-toggle ee-pill" type="button" :aria-expanded="showAttendees" @click="showAttendees = !showAttendees">{{ showAttendees ? 'Show less' : `View all ${attendees.length}` }}<ArrowRight :size="14" aria-hidden="true" /></button></header><div v-if="attendees.length" class="event-avatar-row"><span v-for="(person,index) in attendees.slice(0,5)" :key="person.id" class="event-avatar" :class="`tone-${index % 5}`" :title="person.name" :aria-label="person.name">{{ initials(person.name) }}</span><span v-if="attendees.length > 5" class="event-avatar event-avatar-more">+{{ attendees.length - 5 }}</span></div><p v-else class="ee-muted event-empty-note">Attending invitees will appear here as they RSVP.</p><div v-if="showAttendees" class="event-attendee-list"><label>Find an attendee<input v-model.trim="attendeeSearch" type="search" placeholder="Search names…" /></label><ul><li v-for="person in filteredAttendees" :key="person.id"><span class="event-avatar tone-0">{{ initials(person.name) }}</span>{{ person.name }}<Check :size="15" aria-label="Attending" /></li></ul><p v-if="!filteredAttendees.length" class="ee-muted">No attendees match that name.</p></div><p v-if="event.attendance?.maybe" class="event-attendees-maybe">{{ event.attendance.maybe }} {{ event.attendance.maybe === 1 ? 'person is' : 'people are' }} considering it</p></section>
@@ -132,6 +132,13 @@ const localInputTime = (value) => {
 };
 const checkoutMinimum = computed(() => participation.value?.lastPunch?.at ? localInputTime(participation.value.lastPunch.at) : '');
 const response = ref('');
+const potluckSection = ref(null);
+async function showPotluck(scope = pageGeneration) {
+  await nextTick();
+  if (scope !== pageGeneration) return;
+  potluckSection.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  potluckSection.value?.focus?.({ preventScroll: true });
+}
 const needList = ref([]), contributionId = ref(''), contributionName = ref('');
 const formatDate = value => value ? new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:event.value?.timezone || 'America/Denver'}).format(new Date(value)) : '';
 let pageGeneration = 0;
@@ -154,6 +161,7 @@ async function respond(value) {
     if(scope !== pageGeneration)return;
     response.value=value;notifyCompanyEventRsvpChanged({eventId:id,agencyId,response:value});notice.value='Thank you! Your RSVP was saved.';
     if(event.value?.isWorkEvent)await loadParticipation(scope);
+    if(value === 'yes' && event.value?.potluckEnabled)await showPotluck(scope);
   } catch(e){if(scope === pageGeneration)error.value=e?.response?.data?.error?.message || 'Could not save your response.';}
   finally{if(scope === pageGeneration)busy.value=false;}
 }
@@ -216,6 +224,7 @@ async function loadPage() {
     if(event.value?.isWorkEvent)await loadParticipation(scope);
     await nextTick();
     if(scope === pageGeneration && route.hash === '#event-check-in')document.getElementById('event-check-in')?.scrollIntoView?.();
+    if(route.hash === '#event-potluck')await showPotluck(scope);
   } catch(e){if(scope === pageGeneration)error.value=e?.response?.data?.error?.message || 'This event link is unavailable.';}
   finally{if(scope === pageGeneration)loading.value=false;}
 }
