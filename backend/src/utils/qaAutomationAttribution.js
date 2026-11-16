@@ -11,11 +11,16 @@ const NLU_FIXTURES = Object.freeze({1456:'Linked parent',1496:'Finley',1759:'Mor
 // 2026-11-15. Keep its authorization distinct from the earlier fixture grants.
 const SCHOOL_AUTHORIZATION_REF = 'owner-reserved-sora-school-qa-2026-11-15-v1';
 const SCHOOL_FIXTURES = Object.freeze({1782:'Sora'});
+// Owner assigned the retained support fixture to NLU test-office approvals on
+// 2026-11-16. Label future automation evidence across those QA memberships;
+// actual memberships, support permissions and office scope still authorize work.
+const NLU_OFFICE_SUPPORT_AUTHORIZATION_REF = 'owner-reserved-nlu-office-support-qa-2026-11-16-v1';
 export function qaAutomationActorFor(userId) {
  const raw=String(userId ?? '');
  if(!/^[1-9]\d*$/.test(raw))return null;
  const id=Number(raw);
  if(!Number.isSafeInteger(id))return null;
+ if(id===1434)return {kind:'qa_automation',actorUserId:id,fixture:FIXTURES[id],authorizationRef:NLU_OFFICE_SUPPORT_AUTHORIZATION_REF,qaAgencyBoundary:[450,451,452,453,454]};
  if(Object.hasOwn(NLU_FIXTURES,id))return {kind:'qa_automation',actorUserId:id,fixture:NLU_FIXTURES[id],authorizationRef:NLU_AUTHORIZATION_REF,qaAgencyBoundary:id===1456?[450,451,452,453,454]:[453,454]};
  if(Object.hasOwn(SCHOOL_FIXTURES,id))return {kind:'qa_automation',actorUserId:id,fixture:SCHOOL_FIXTURES[id],authorizationRef:SCHOOL_AUTHORIZATION_REF,qaAgencyBoundary:[450,451]};
  if(!Object.hasOwn(FIXTURES,id))return null;
@@ -43,5 +48,9 @@ export function qaAuditMetadataJson(metadata,userId) {
 
 export function verifiedQaAutomationAttribution(metadata,userId) {
  const expected=qaAutomationActorFor(userId),stored=metadata?.automationActor;
+ // Preserve the original scope/version when verifying Jordan's earlier events;
+ // today's added NLU test duty must not relabel historical evidence.
+ if(expected?.actorUserId===1434&&stored?.kind==='qa_automation'&&stored.actorUserId===1434&&stored.authorizationRef===AUTHORIZATION_REF)
+  return {...expected,authorizationRef:AUTHORIZATION_REF,qaAgencyBoundary:[450,451,452]};
  return expected&&stored?.kind===expected.kind&&stored.actorUserId===expected.actorUserId&&stored.authorizationRef===expected.authorizationRef?expected:null;
 }
