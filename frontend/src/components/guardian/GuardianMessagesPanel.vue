@@ -2,7 +2,7 @@
   <div class="gmsg conversa-surface">
     <QaRecipientEmailInbox />
     <div class="panel-head">
-      <ConversaBrand compact />
+      <h2>{{ ft("Secure messages") }}</h2>
       <div class="panel-subtitle">{{ ft(familyWide ? "Messages across your authorized family profiles. Choose the client and service below; each conversation keeps its own recipients." : learning ? "Learning conversations are group messages for the selected student. Authorized guardians and the learning team can read and reply." : "Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.") }}</div>
     </div>
 
@@ -13,7 +13,7 @@
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'support' }" @click="switchToSupport">
         {{ ft("Support") }}
       </button>
-      <button type="button" class="gmsg-tab" :disabled="loading" @click="loadThreads">Refresh messages</button>
+      <button type="button" class="gmsg-tab" :disabled="loading" @click="loadThreads">{{ ft("Refresh messages") }}</button>
 
     </div>
 
@@ -56,7 +56,7 @@
               <span class="muted">{{ ft("Agency staff will reply here") }}</span>
             </div>
             <div class="gmsg-composer pad">
-              <p v-if="pendingTicketCreate && !submittingCurrentTicket" class="muted" role="status">Another request is being submitted. This draft has not been sent.</p>
+              <p v-if="pendingTicketCreate && !submittingCurrentTicket" class="muted" role="status">{{ ft("Another request is being submitted. This draft has not been sent.") }}</p>
               <label class="gmsg-field">
                 <span>{{ ft("Child") }}</span>
                 <select v-model="newTicket.clientId">
@@ -141,7 +141,6 @@
 import {useFamilyLocale} from '../../composables/useFamilyLocale';
 import QaRecipientEmailInbox from '../messages/QaRecipientEmailInbox.vue';
 import GuardianSecureConversations from './GuardianSecureConversations.vue';
-import ConversaBrand from '../conversa/ConversaBrand.vue';
 import {computed,nextTick,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 import baseApi from '../../services/api';

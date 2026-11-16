@@ -1,4 +1,6 @@
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import {computed,nextTick,onBeforeUnmount,ref,watch} from 'vue';
 import {useAuthStore} from '../../store/auth';
 import baseApi from '../../services/api';
@@ -205,49 +207,49 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
 <template>
   <section v-if="!unavailable" class="secure-conversations" aria-label="Secure conversations by subject">
     <div class="conversation-tools">
-      <label v-if="contexts.length>1 || familyWide">Client and service<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
+      <label v-if="contexts.length>1 || familyWide">{{ ft("Client and service") }}<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
       <strong v-else-if="context">{{ context.client_label }}</strong>
-      <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(unavailable||context?.unavailable_reason==='provider_unassigned'||(!currentThread&&!context?.provider?.id))" @click="startSubject">+ New secure subject</button>
+      <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(unavailable||context?.unavailable_reason==='provider_unassigned'||(!currentThread&&!context?.provider?.id))" @click="startSubject">{{ ft("+ New secure subject") }}</button>
     </div>
-    <p class="conversation-explanation">Each subject keeps its message and replies together. Everyone listed as eligible can receive new messages; earlier messages retain their original audience.</p>
+    <p class="conversation-explanation">{{ ft("Each subject keeps its message and replies together. Everyone listed as eligible can receive new messages; earlier messages retain their original audience.") }}</p>
     <div v-if="context?.participants?.length && !newSubject && !selected" class="current-conversation-audience conversation-audience" role="region" aria-label="Current conversation participants" tabindex="0" aria-live="polite">
-      <strong>Who can read and reply to new subjects</strong><ul><li v-for="p in context.participants" :key="p.id">{{ p.name }} · {{ participantRole(p) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul>
-      <p>Earlier messages retain their original audience.</p>
+      <strong>{{ ft("Who can read and reply to new subjects") }}</strong><ul><li v-for="p in context.participants" :key="p.id">{{ p.name }} · {{ ft(participantRole(p)) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul>
+      <p>{{ ft("Earlier messages retain their original audience.") }}</p>
     </div>
     <p v-if="context?.unavailable_reason==='provider_unassigned'" class="assignment-status" role="status">{{ learning ? 'A tutor must be assigned to this service before secure learning messages are available.' : 'A provider must be assigned to this service before secure messages are available.' }}</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="loading||busy" role="status">Loading secure conversations…</p>
-    <p v-else-if="!contexts.length && !unavailable">No {{ learning ? 'learning' : 'care' }} conversations are available for this profile yet. You can use Support for account questions.</p>
+    <p v-if="loading||busy" role="status">{{ ft("Loading secure conversations…") }}</p>
+    <p v-else-if="!contexts.length && !unavailable">{{ ft(learning ? "No learning conversations are available for this profile yet. You can use Support for account questions." : "No care conversations are available for this profile yet. You can use Support for account questions.") }}</p>
     <div v-else class="conversation-layout" :class="{'is-open':selected||newSubject}">
       <aside class="subjects" aria-label="Message subjects">
         <button v-for="topic in orderedTopics" :key="`${topic.thread.thread_id}:${topic.id}`" type="button" class="subject-row" :class="{active:selected?.id===topic.id}" @click="openTopic(topic)">
-          <strong>{{ title(topic) }}</strong><small>Conversation #{{ topic.id }}</small><span v-if="topic.unread_count" class="subject-unread" :aria-label="`${topic.unread_count} unread messages`">Unread · {{ topic.unread_count }}</span><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
+          <strong>{{ title(topic) }}</strong><small>{{ ft("Conversation #") }}{{ topic.id }}</small><span v-if="topic.unread_count" class="subject-unread" :aria-label="`${topic.unread_count} unread messages`">{{ ft("Unread ·") }} {{ topic.unread_count }}</span><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
         </button>
-        <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">No secure subjects yet. <span v-if="context?.unavailable_reason!=='provider_unassigned'">Start a subject to message your {{ teamLabel }}.</span></p>
-        <button v-if="Object.keys(rootCursors).length" type="button" :disabled="olderBusy" @click="olderSubjects">{{ olderBusy?'Loading…':'Older subjects' }}</button>
+        <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">{{ ft("No secure subjects yet.") }} <span v-if="context?.unavailable_reason!=='provider_unassigned'">{{ ft("Start a subject to message your") }} {{ ft(teamLabel) }}.</span></p>
+        <button v-if="Object.keys(rootCursors).length" type="button" :disabled="olderBusy" @click="olderSubjects">{{ ft(olderBusy?'Loading…':'Older subjects') }}</button>
       </aside>
       <div class="conversation-pane">
-        <p v-if="!selected&&!newSubject" class="empty-subjects">Choose a subject to read its messages and replies.</p>
+        <p v-if="!selected&&!newSubject" class="empty-subjects">{{ ft("Choose a subject to read its messages and replies.") }}</p>
         <template v-else>
-          <button class="back-subjects" type="button" @click="keepDraft();selected=null;newSubject=false">← All subjects</button>
-          <h3>{{ newSubject?'New secure subject':title(selected) }}</h3>
-          <p v-if="opening" role="status">Opening secure conversation…</p>
+          <button class="back-subjects" type="button" @click="keepDraft();selected=null;newSubject=false">{{ ft("← All subjects") }}</button>
+          <h3>{{ newSubject?ft('New secure subject'):title(selected) }}</h3>
+          <p v-if="opening" role="status">{{ ft("Opening secure conversation…") }}</p>
           <div v-else ref="threadEl" class="subject-messages">
-            <button v-if="Object.keys(replyCursors).length" type="button" :disabled="opening" @click="earlierReplies">Earlier replies</button>
+            <button v-if="Object.keys(replyCursors).length" type="button" :disabled="opening" @click="earlierReplies">{{ ft("Earlier replies") }}</button>
             <article v-for="m in messages" :key="m.id" :data-message-id="m.id" class="gmsg-bubble" :class="{mine:Number(m.sender_user_id)===Number(auth.user?.id),'is-notified':Number(m.id)===Number(highlightedMessageId)}">
               <p class="message-meta">{{ name(m) }} · {{ when(m.created_at) }}</p><div class="gmsg-message-text">{{ m.body }}</div>
               <button v-for="a in m.attachments||[]" :key="a.id" type="button" @click="downloadAttachment(a.downloadPath||`/chat/attachments/${a.id}`,a.original_filename)">{{ a.original_filename||'Secure attachment' }}</button>
             </article>
           </div>
-          <p v-if="selected?.thread.readOnly" class="retained">These messages retain their original recipients. Start a new subject to reach everyone currently eligible.</p>
+          <p v-if="selected?.thread.readOnly" class="retained">{{ ft("These messages retain their original recipients. Start a new subject to reach everyone currently eligible.") }}</p>
           <form v-if="newSubject||canReply" class="subject-composer" @submit.prevent="send">
-            <label v-if="newSubject">Subject<input v-model="subject" required maxlength="200" autocomplete="off" :disabled="sending" placeholder="What is this message about?" /></label>
-            <div class="conversation-audience"><strong>Who can read and reply</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }} · {{ participantRole(p) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>Secure messages are shared with the eligible family portal users listed here and the {{ teamLabel }}. {{ learning ? 'They do not replace a scheduled tutoring session.' : 'They are not therapy and do not replace a scheduled session.' }}</p></div>
+            <label v-if="newSubject">{{ ft("Subject") }}<input v-model="subject" required maxlength="200" autocomplete="off" :disabled="sending" :placeholder="ft('What is this message about?')" /></label>
+            <div class="conversation-audience"><strong>{{ ft("Who can read and reply") }}</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }} · {{ ft(participantRole(p)) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>{{ ft("Secure messages are shared with the eligible family portal users listed here and the") }} {{ ft(teamLabel) }}. {{ learning ? 'They do not replace a scheduled tutoring session.' : 'They are not therapy and do not replace a scheduled session.' }}</p></div>
             <FamilySharingNotice ref="sharing" :agency-id="context?.agency_id" :scope-key="`${auth.user?.id}:${contextKey}:${selected?.id||'new'}`" />
-            <label>Message<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
+            <label>{{ ft("Message") }}<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
             <button type="submit" :disabled="sending||opening||!draft.trim()||(newSubject&&!subject.trim())||!audience.length||audienceChanged">{{ sending?'Sending…':newSubject?'Send new subject':'Send reply' }}</button>
           </form>
-          <details v-if="selected"><summary>Message security & activity</summary><SecureMessageBanner :thread-id="selected.thread.thread_id" /></details>
+          <details v-if="selected"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :show-product-brand="false" :thread-id="selected.thread.thread_id" /></details>
         </template>
       </div>
     </div>

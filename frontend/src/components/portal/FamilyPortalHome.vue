@@ -20,7 +20,7 @@
         </section>
       </div>
     </div>
-    <GuardianAppointmentsPanel v-if="clientId" :client-id="clientId" :preview="preview" />
+    <GuardianAppointmentsPanel @help="$emit('navigate','help')" v-if="clientId" :client-id="clientId" :preview="preview" />
     <div class="home-bottom">
       <section class="home-card"><div class="home-card-head"><h2>{{ ft("Secure messages") }}</h2><PortalIcon name="messages" /></div><p class="home-muted">{{ familyLocale === 'es' ? `Lea y responda al equipo de atención de ${clientFirstName || 'este perfil'}.` : `Read and reply to the care team for ${clientFirstName || 'this profile'}.` }}</p><button class="home-link" @click="$emit('navigate','messages')">{{ ft("Open your conversations →") }}</button></section>
       <section class="home-card"><div class="home-card-head"><h2>{{ clientFirstName ? (familyLocale === 'es' ? `Servicios de ${clientFirstName}` : `${clientFirstName}’s services`) : ft("Services") }}</h2><PortalIcon name="child" /></div><button v-for="program in programs" :key="program.id" class="home-program" @click="$emit('program',program)">{{ program.name }} <span aria-hidden="true">→</span></button><p v-if="!programs.length" class="home-muted">{{ ft("Your linked programs will appear here.") }}</p></section>
