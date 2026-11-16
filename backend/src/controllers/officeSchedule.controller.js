@@ -151,6 +151,18 @@ function requireOfficeSessionBooking(agencyId, providerId, serviceCode) {
     : requireClientSessionBooking(agencyId, providerId);
 }
 
+async function resolveOfficeClientSelection(selection, agencyId, tenantServiceId, clientId) {
+  if (!clientId || !tenantServiceId) return selection;
+  const service = await TenantService.findById(tenantServiceId, agencyId);
+  if (!service || service.isActive === false) throw Object.assign(new Error('Choose an active service in this organization.'), {status:400});
+  if (service.businessType !== 'tutoring') return selection;
+  if (service.serviceCode !== 'TUTORING' || (selection.serviceCode && String(selection.serviceCode).trim().toUpperCase() !== 'TUTORING'))
+    throw Object.assign(new Error('The selected tutoring service does not match this office request.'), {status:400});
+  // The academic form sends its configured service ID instead of clinical-only
+  // taxonomy fields. A client-linked tutoring request is a session, not an opening.
+  return {...selection,appointmentTypeCode:'SESSION',serviceCode:'TUTORING'};
+}
+
 async function resolvePolicyAgencyForProvider({ providerId, fallbackActorUserId = null }) {
   const agencies = await User.getAgencies(providerId);
   const primary = Number(agencies?.[0]?.id || 0) || null;
@@ -2629,7 +2641,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     const recurrence = String(req.body?.recurrence || 'ONCE').trim().toUpperCase();
     const openToAlternativeRoom = req.body?.openToAlternativeRoom === true || req.body?.open_to_alternative_room === true;
     const notes = String(req.body?.notes || req.body?.requesterNotes || '').trim().slice(0, 2000) || null;
-    const rawSelection = bookingSelectionFromBody(req.body);
+    let rawSelection = bookingSelectionFromBody(req.body);
 
     const allowedRecurrence = new Set([...ALL_RECURRENCE_FREQUENCIES]);
     const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
@@ -2681,6 +2693,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProviderId, officeLocationId: loc.id, agencyId: req.body?.agencyId });
+    rawSelection = await resolveOfficeClientSelection(rawSelection, policyAgencyId, Number(req.body?.tenantServiceId || 0), clientId);
     if (clientId && !['super_admin', 'superadmin'].includes(req.user.role)) {
       const actorAgencies = await User.getAgencies(req.user.id);
       if (!actorAgencies.some(row => Number(row.id) === policyAgencyId)) return res.status(403).json({ error: { message: 'Scheduling access to the selected agency is required.' } });
@@ -2739,7 +2752,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
-      roomType: req.body?.roomType || (validatedSelection.serviceCode === 'TUTORING' ? 'tutoring' : 'counseling'),
+      roomType: validatedSelection.serviceCode === 'TUTORING' ? 'tutoring' : (req.body?.roomType || 'counseling'),
       officeLocationId: loc.id,
       roomId: room?.id || null,
       requestedProviderId,
@@ -3143,7 +3156,10 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
     const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProvider.id, officeLocationId: loc.id, agencyId: parseJsonSafely(reqRow.session_context_json)?.agencyId || reqRow.agency_id });
-    if (reqRow.client_id) await requireOfficeSessionBooking(policyAgencyId, requestedProvider.id, reqRow.service_code);
+    const officeSelection = await resolveOfficeClientSelection({appointmentTypeCode:reqRow.appointment_type_code,
+      appointmentSubtypeCode:reqRow.appointment_subtype_code,serviceCode:reqRow.service_code,modality:reqRow.modality},
+      policyAgencyId, Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0), reqRow.client_id);
+    if (reqRow.client_id) await requireOfficeSessionBooking(policyAgencyId, requestedProvider.id, officeSelection.serviceCode);
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,
@@ -3151,9 +3167,9 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,
         providerId: requestedProvider.id,
-        appointmentTypeCode: reqRow.appointment_type_code,
-        appointmentSubtypeCode: reqRow.appointment_subtype_code,
-        serviceCode: reqRow.service_code,
+        appointmentTypeCode: officeSelection.appointmentTypeCode,
+        appointmentSubtypeCode: officeSelection.appointmentSubtypeCode,
+        serviceCode: officeSelection.serviceCode,
         tenantServiceId: Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0) || null,
         modality: reqRow.modality,
         scheduledStartAt: reqRow.start_at,
