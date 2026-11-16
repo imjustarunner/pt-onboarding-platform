@@ -37,13 +37,13 @@ it('releases the task lock after a failed insert so recovery can retry', async (
   expect(conn.release).toHaveBeenCalledOnce();
   expect(await ensurePaperPacketTask({ draft }, { db, tasks })).toBe(90);
 });
-it.each(['queued', 'unknown', 'failed', 'blocked', undefined])('keeps the task pending while one guardian delivery is %s', async status => {
-  const state = { processedAt: '2026-11-09', documentId: 30, guardian1Id: 61, guardian2Id: 62, invitations: { 61: { status: 'sent' }, 62: { status } } };
-  expect(await completePaperPacketTask({ clientId: 55, state }, db)).toBe(false);
-  expect(db.execute).not.toHaveBeenCalled();
+it.each(['queued', 'unknown', 'failed', 'blocked', undefined])('completes a reviewed packet independently of optional guardian delivery %s', async status => {
+  const state = { processedAt: '2026-11-09', documentId: 30, signatureSourceDocumentId:30, guardian1Id: 61, guardian2Id: 62, invitations: { 61: { status: 'sent' }, 62: { status } } };
+  expect(await completePaperPacketTask({ clientId: 55, state }, db)).toBe(true);
+  expect(db.execute).toHaveBeenCalledWith(expect.any(String),[55,30]);
 });
-it('completes only the matching client and packet after processing and both deliveries', async () => {
-  const state = { processedAt: '2026-11-09', documentId: 30, guardian1Id: 61, guardian2Id: 62, invitations: { 61: { status: 'sent' }, 62: { status: 'redirected' } } };
+it('completes only the matching client and packet after source-bound processing', async () => {
+  const state = { processedAt: '2026-11-09', documentId: 30, signatureSourceDocumentId:30, guardian1Id: 61, guardian2Id: 62, invitations: { 61: { status: 'sent' }, 62: { status: 'redirected' } } };
   expect(await completePaperPacketTask({ clientId: 55, state }, db)).toBe(true);
   expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('t.completed_at=NOW()'), [55, 30]);
   expect(db.execute.mock.calls[0][0]).toContain('t.assigned_to_agency_id=d.agency_id');
@@ -76,4 +76,9 @@ it('finds an existing draft task through the saved child even when its old metad
  expect(await listPaperPacketTasks({clientId:2483,agencyId:450},db)).toEqual([expect.objectContaining({id:2457,document_id:4312})]);
  const [sql,params]=db.execute.mock.calls[0];expect(params).toEqual([2483,450]);expect(sql).toContain('t.assigned_to_agency_id=d.agency_id');expect(sql).toContain("d.status='submitted'");expect(sql).toContain('COALESCE(t.is_private,0)=0');
  expect(sql).not.toContain("JSON_EXTRACT(t.metadata, '$.clientId')");
+});
+
+it.each([undefined,0,31])('keeps the task pending without a matching reviewed signature source: %s',async signatureSourceDocumentId=>{
+ expect(await completePaperPacketTask({clientId:55,state:{processedAt:'2026-11-09',documentId:30,signatureSourceDocumentId}},db)).toBe(false);
+ expect(db.execute).not.toHaveBeenCalled();
 });
