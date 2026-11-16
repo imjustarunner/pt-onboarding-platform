@@ -248,7 +248,7 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
             <label>{{ ft("Message") }}<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
             <button type="submit" :disabled="sending||opening||!draft.trim()||(newSubject&&!subject.trim())||!audience.length||audienceChanged">{{ sending?'Sending…':newSubject?'Send new subject':'Send reply' }}</button>
           </form>
-          <details v-if="selected"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :thread-id="selected.thread.thread_id" /></details>
+          <details v-if="selected"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :show-product-brand="false" :thread-id="selected.thread.thread_id" /></details>
         </template>
       </div>
     </div>
