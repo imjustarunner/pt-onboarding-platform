@@ -159,6 +159,19 @@ it('retains an ended service in the picker and limits its portal without closing
 it('keeps a direct enrollment panel link on enrollment after the family context loads',async()=>{
  const{w}=await setup('/nlu/guardian?panel=enroll');expect(w.findComponent(Shell).props('active')).toBe('enroll');w.unmount();
 });
+it('keeps a direct records request on the selected family after context loading',async()=>{
+ const{w,router}=await setup('/itsco/guardian?clientId=1&panel=records');
+ expect(w.findComponent(Shell).props('active')).toBe('records');
+ expect(w.findComponent({name:'GuardianRecordsPanel'}).props()).toMatchObject({clientId:1,agencyId:2});
+ expect(router.currentRoute.value.query.clientId).toBe('1');w.unmount();
+});
+it('opens the past providers panel directly for the retained ended service',async()=>{
+ const profile={...people[0],care_contexts:[{agency_id:2,agency_name:'ITSCO',agency_slug:'itsco',services:[{id:11,label:'Counseling',provider_name:'Michael',provider_user_id:20,service_kind:'counseling',is_active:0,service_status:'discontinued',portal_limited:true}]}]};
+ api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[profile],programs:agencies}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const{w}=await setup('/itsco/guardian?clientId=1&serviceId=11&panel=past_providers');
+ expect(w.findComponent(Shell).props('active')).toBe('past_providers');
+ expect(w.findComponent({name:'PastProvidersPanel'}).props('clientId')).toBe(1);w.unmount();
+});
 it('keeps the verified tutoring context when a membership refresh restores the original agency',async()=>{
  const linked={...people[0],care_contexts:[{agency_id:2,agency_name:'ITSCO',agency_slug:'itsco',services:[{id:10,service_kind:'counseling',label:'Counseling'}]},{agency_id:6,agency_name:'Next Level Up',agency_slug:'nlu',agency_logo_url:'/nlu.svg',services:[{id:21,service_kind:'tutoring',label:'Tutoring'},{id:22,service_kind:'counseling',label:'Counseling'}]}]};
  api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[linked],programs:[]}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
