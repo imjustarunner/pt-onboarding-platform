@@ -7,7 +7,7 @@ vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:m
 vi.mock('../clientSessionBookingRollout.service.js',()=>({sessionBookingProviders:m.providers,requireClientSessionBooking:m.rollout}));
 vi.mock('../../models/TenantService.model.js',()=>({default:{listForAgency:m.services}}));
 vi.mock('../../models/StaffServiceAssignment.model.js',()=>({default:{listServiceIdsForUser:m.assigned}}));
-vi.mock('../providerAvailability.service.js',()=>({default:{computeWeekAvailability:m.availability}}));
+vi.mock('../providerAvailability.service.js',()=>({default:{computeWeekAvailability:m.availability,resolveAgencyTimeZone:async()=>'America/Denver'}}));
 vi.mock('../bookingCancellationPolicy.service.js',()=>({resolvePolicyForAppointmentContext:m.policy}));
 vi.mock('../selfPayRates.service.js',()=>({resolveSelfPayQuote:m.quote,getAgencySelfPayOnly:m.selfPay}));
 vi.mock('../appointment.service.js',()=>({createAppointment:m.create,linkProviderScheduleEvent:m.link}));
@@ -90,4 +90,18 @@ it.each([{activatedAt:'2020-01-01',pricingSnapshot:{mode:'provider-discount',pro
  tutoringFixture();const [pkg]=await m.packages();m.packages.mockResolvedValue([{...pkg,...patch}]);
  expect((await guardianBookingOptions(input)).choices[0].packages).toEqual([]);
  await expect(bookGuardianSession({...input,packageEntitlementId:4})).rejects.toMatchObject({status:409});expect(m.create).not.toHaveBeenCalled();
+});
+
+
+it.each([
+ ['2026-11-23T02:00:00.000Z','2026-11-22','2026-11-15T18:00:00Z'],
+ ['2026-11-02T01:00:00.000Z','2026-11-01','2026-10-25T18:00:00Z']
+])('rechecks Sunday %s in its local week, including the MST transition',async(startAt,localDay,now)=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(now));
+ try {
+  const endAt=new Date(+new Date(startAt)+3600000).toISOString();
+  m.availability.mockImplementation(async({weekStartYmd})=>({timeZone:'America/Denver',virtualSlots:weekStartYmd===localDay?[{startAt,endAt}]:[],inPersonSlots:[]}));
+  await expect(bookGuardianSession({...input,startAt,endAt:endAt.replace('.000Z','Z')})).resolves.toMatchObject({appointmentId:51});
+  expect(m.availability).toHaveBeenCalledWith(expect.objectContaining({weekStartYmd:localDay}));expect(m.create).toHaveBeenCalledOnce();
+ }finally{vi.useRealTimers();}
 });

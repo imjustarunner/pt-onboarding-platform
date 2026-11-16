@@ -15,8 +15,8 @@ describe('service-specific terms across tenant hosts',()=>{
   expect(serviceLegalContext(input).name).toBe('SchoolCareBridge');
  });
  it('retains practice terms alongside AuricWell platform terms for clinical staff',()=>{
-  const context=serviceLegalContext({host:'app.nextleveluplcc.com',role:'provider'});
-  expect(context.name).toBe('AuricWell');
+  const context=serviceLegalContext({host:'app.nextleveluplcc.com',role:'provider',serviceType:'counseling'});
+  expect(context.name).toBe('Next Level Up');
   expect(context.links.map(x=>x.href)).toContain('https://auricwell.com/auricwell/terms');
   expect(context.links.map(x=>x.href)).toContain('https://nextleveluplcc.com/nlu/terms');
  });
@@ -42,3 +42,15 @@ describe('service-specific terms across tenant hosts',()=>{
 });
 
 it.each(['/login','/nlu-qa-demo/login','/nlu-qa-demo/find-tutor','/nlu-qa-demo/join/tutoring'])('keeps public NLU legal links scoped on %s',path=>{const result=serviceLegalContext({host:'app.nextleveluplcc.com',path});expect(result.nonclinical).toBe(true);expect(result.links.every(x=>x.href.startsWith('https://nextleveluplcc.com/nlu/'))).toBe(true);});
+
+
+it('credits the platform only within the explicit NLU counseling notice without duplicating links',()=>{
+ const context=serviceLegalContext({host:'app.nextleveluplcc.com',path:'/nlu-qa-demo/guardian',organizationSlug:'nlu-qa-demo',serviceType:'counseling'});
+ expect(context.name).toBe('Next Level Up');expect(context.notice).toContain('AuricWell provides the software platform');expect(context.notice).toContain('counseling services and clinical records');expect(new Set(context.links.map(l=>l.href)).size).toBe(context.links.length);expect(context.links.filter(l=>l.label.startsWith('AuricWell platform'))).toHaveLength(3);
+});
+
+
+it('does not infer clinical platform branding from the shared Provider role on an NLU schedule',()=>{
+ const context=serviceLegalContext({host:'app.nextleveluplcc.com',path:'/nlu-qa-demo/dashboard',role:'provider'});
+ expect(context.name).toBe('Next Level Up');expect(context.notice).not.toContain('AuricWell');expect(context.links.every(link=>link.href.startsWith('https://nextleveluplcc.com/nlu/'))).toBe(true);
+});

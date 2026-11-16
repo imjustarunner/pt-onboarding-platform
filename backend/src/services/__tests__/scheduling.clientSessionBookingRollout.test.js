@@ -73,3 +73,10 @@ it('keeps tutoring capability independent of the clinical transition and checks 
  expect((await clientSessionBookingAccess(453,1496,undefined,{businessType:'tutoring'})).enabled).toBe(false);
  await expect(requireClientSessionBooking(453,1496)).rejects.toMatchObject({status:403});
 });
+
+
+it('opens the shared scheduling entry for tutoring without enabling clinical booking',async()=>{
+ m.offered.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true}]});
+ const access=await clientSessionBookingAccess(2,13,undefined,{businessType:'any'});expect(access).toMatchObject({enabled:true,availableBusinessTypes:['tutoring']});
+ await expect(requireClientSessionBooking(2,13)).rejects.toMatchObject({code:'CLIENT_SESSION_BOOKING_NOT_ENABLED'});
+});

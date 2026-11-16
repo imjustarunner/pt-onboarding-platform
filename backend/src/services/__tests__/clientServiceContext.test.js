@@ -61,3 +61,9 @@ describe('client agency and service context', () => {
   expect(db.execute.mock.calls[0][0]).toContain('ca.is_active=1');
  });
 });
+
+
+it('labels the configured tutoring product with this student’s assigned Math/Reading enrollment, excluding another tutor',async()=>{
+ const db=database([row('tutoring',8,{id:1038,label:'Tutoring — Math'}),row('tutoring',9,{id:1039,label:'Other tutor Reading'})]);
+ const services=await filterBookingServicesForClient([tutoring],input,db);expect(services).toEqual([{...tutoring,enrollmentLabel:'Tutoring — Math'}]);expect(services[0].serviceCode).toBe('TUTORING');expect(services[0].id).toBe(tutoring.id);
+});

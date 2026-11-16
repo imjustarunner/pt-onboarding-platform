@@ -1,3 +1,4 @@
+import {calendarVirtualOpening} from '../utils/calendarVirtualOpening.js';
 import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 import {qaAutomationActorFor} from '../utils/qaAutomationAttribution.js';
 import { projectScheduleGoogleOverlay } from '../services/scheduleGoogleOverlay.service.js';
@@ -5846,29 +5847,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
       const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyIds: agencyIdsForVwh, providerId });
       for (const r of rows || []) {
         const aid = Number(r.agencyId);
-        const sessionType = String(r?.sessionType || 'REGULAR').toUpperCase();
-        const forIntake = r?.availableForIntake === true
-          || r?.availableForIntake === 1
-          || ['INTAKE', 'BOTH'].includes(sessionType);
-        // Grid "Open" marker is for intake-capable availability (never labeled "for intake").
-        if (!forIntake) continue;
+        const opening=calendarVirtualOpening(r);
+        if(!opening)continue;
         const key = `${aid}|${r.id}`;
         if (seenVwh.has(key)) continue;
         seenVwh.add(key);
-        virtualWorkingHours.push({
-          id: Number(r?.id || 0) || null,
-          agencyId: aid,
-          dayOfWeek: r.dayOfWeek,
-          startTime: r.startTime,
-          endTime: r.endTime,
-          sessionType,
-          availableForIntake: !!forIntake,
-          availableForSession: !!(r?.availableForSession === true
-            || r?.availableForSession === 1
-            || ['REGULAR', 'BOTH'].includes(sessionType)),
-          startDate:r.startDate,endDate:r.endDate,purpose:r.purpose,excludedDates:r.excludedDates,careTypes:r.careTypes,
-          frequency: String(r?.frequency || 'WEEKLY').toUpperCase()
-        });
+        virtualWorkingHours.push(opening);
       }
     } catch {
       virtualWorkingHours = [];

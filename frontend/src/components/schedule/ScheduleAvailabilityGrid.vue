@@ -142,7 +142,7 @@
               v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
               class="sched-command__book"
               type="button"
-              :title="clientSessionBookingEnabled ? 'Book a session with a client' : 'Coming soon — your practice will enable session booking when your transition is ready'"
+              :title="clientSessionBookingEnabled ? 'Book a session with a client' : 'No assigned service is currently available for scheduling in this organization'"
               :disabled="loading || !effectiveAgencyId || !clientSessionBookingEnabled"
               @click="openUnifiedBookingPanel()"
             >
@@ -9364,7 +9364,7 @@ const refreshClientSessionBookingAccess = async () => {
   const providerUserId = scheduleActorUserId.value;
   if (!agencyId || !providerUserId) { clientSessionBookingEnabled.value = false; return false; }
   try {
-    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId,...(tutoringWorkspaceOnly.value?{businessType:'tutoring'}:{})},skipGlobalLoading:true});
+    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId,businessType:tutoringWorkspaceOnly.value?'tutoring':'any',...(['admin','super_admin'].includes(authStore.user?.role)&&Number(providerUserId)===Number(authStore.user?.id)?{scope:'agency'}:{})},skipGlobalLoading:true});
     if (generation !== bookingAccessGeneration) return false;
     clientSessionBookingEnabled.value = result.data?.enabled === true;
     return clientSessionBookingEnabled.value;
@@ -13507,7 +13507,7 @@ const availableQuickActions = computed(() => {
       description: tutoringWorkspaceOnly.value ? 'Schedule tutoring with one of your assigned students' : hasOffice
         ? 'Schedule a client session — add more than one client to make it a group session'
         : 'Schedule a session (office optional). Add more than one client to make it a group session.',
-      disabledReason: clientSessionBookingEnabled.value ? '' : (tutoringWorkspaceOnly.value ? 'Your organization must enable an active tutoring assignment before booking.' : 'Your practice will enable session booking after your TherapyNotes transition.'),
+      disabledReason: clientSessionBookingEnabled.value ? '' : (tutoringWorkspaceOnly.value ? 'Your organization must enable an active tutoring assignment before booking.' : 'No assigned service is currently available for scheduling in this organization.'),
       visible: !supervisionOnlyMode,
       tone: 'violet',
       chooserPriority: 10
@@ -14397,6 +14397,9 @@ const editorOpenPurpose = ref('INTAKE');
 const editorCareTypes=ref(['INDIVIDUAL','COUPLES','FAMILY']);
 const editorAvailableForIntake = ref(true);
 const editorAvailableForSession = ref(false);
+watch(editorOpeningServiceType,(type,previous)=>{
+  if(type==='tutoring'&&!previous&&!editingOpenSlot.value){editorAvailableForIntake.value=true;editorAvailableForSession.value=true;}
+});
 const editorAcceptingNewClientsHint = computed(() => {
   if (!editorIsOpenSlot.value && String(requestType.value || '') !== 'attach_open_for_booking') return '';
   if (!editorAvailableForIntake.value) return '';
@@ -14917,7 +14920,7 @@ const editorHeaderServiceOptions = computed(() => {
     .map((s) => {
       const code = String(s.serviceCode || s.service_code || '').trim();
       const mins = Number(s.defaultDurationMinutes || s.default_duration_minutes || 0);
-      const name = String(s.name || '').trim() || `Service #${s.id}`;
+      const name = String(s.enrollmentLabel || s.name || '').trim() || `Service #${s.id}`;
       const label = code
         ? `${code} — ${name}${mins ? ` (${mins}m)` : ''}`
         : `${name}${mins ? ` (${mins}m)` : ''}`;
@@ -16456,7 +16459,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorOpenPurpose.value=defaults.purpose==='MEETING'?'MEETING':'INTAKE';
   editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
   editorAvailableForIntake.value = defaults.availableForIntake !== false;
-  editorAvailableForSession.value = defaults.availableForSession === true;
+  editorAvailableForSession.value = defaults.availableForSession == null ? editorOpeningServiceType.value === 'tutoring' : defaults.availableForSession === true;
   editorOpenVirtual.value = defaults.virtualEnabled !== false;
   editorOpenInPerson.value = defaults.inPersonEnabled === true;
   // Keep legacy openSlotEnabled in sync with at least one flag.
@@ -21703,7 +21706,7 @@ const onQuickActionSelect = (act) => {
         attachOfficeRequest: attachOffice,
         openSlotEnabled: id === 'portal_intake' || id === 'attach_open_for_booking',
         availableForIntake: true,
-        availableForSession: false,
+        availableForSession: tutoringWorkspaceOnly.value,
         inPersonEnabled: id === 'attach_open_for_booking',
         recurrence: officeSession ? normalizeRecurrenceFrequency(bookingStripFrequency.value)
           : (id === 'portal_intake' || id === 'attach_open_for_booking') ? 'WEEKLY' : undefined
