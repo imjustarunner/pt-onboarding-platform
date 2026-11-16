@@ -103,7 +103,12 @@ async function changeAgency(value){
   if(form.providerId&&!providers.value.some(row=>Number(row.id)===Number(form.providerId))){form.providerId=null;if(created.value)assignmentError.value='The saved provider is no longer assignable in this agency. Choose an active provider or continue unassigned.';}
   if(!form.organizationId&&form.kind==='clinical'&&filteredOrganizations.value.some(row=>Number(row.id)===Number(agencyId.value)))form.organizationId=Number(agencyId.value);
   if(!form.organizationId&&filteredOrganizations.value.length===1)form.organizationId=filteredOrganizations.value[0].id;
-  if(created.value){await api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});}
+  if(created.value){
+   const[record,enrollments]=await Promise.all([api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${created.value.id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);if(version!==generation)return;
+   const actualProvider=primaryAssignmentProvider(record.data?.client||record.data,enrollments.data?.services||[]);
+   if(actualProvider){form.providerId=actualProvider;assignmentError.value='';}
+   else if(form.providerId&&!completed.value)assignmentError.value='The saved provider selection has not been applied to this chart. Retry the assignment or continue unassigned.';
+  }
  }catch(e){if(version===generation)error.value=e.response?.data?.error?.message||'Agency setup or the saved chart could not be loaded.';}
  finally{if(version===generation)hydrating=false;}
 }
