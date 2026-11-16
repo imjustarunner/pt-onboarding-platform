@@ -17,6 +17,7 @@ vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { pr
 vi.mock('../../../components/admin/MedicalBillingReportsPanel.vue', () => ({ default: { template: '<div>Company reports</div>' } }));
 vi.mock('../MedicalBillingView.vue', () => ({ default: { template: '<div>Company settings</div>' } }));
 vi.mock('../../../components/billing/RemittanceWorkspace.vue', () => ({default:{props:['agencyId','agencyName'],template:'<div data-testid="remittances">Payments for {{ agencyName }}</div>'}}));
+vi.mock('../../../components/admin/SecondaryClaimPanel.vue',()=>({default:{name:'SecondaryClaimPanel',props:['agencyId','claimId'],template:'<section data-testid="secondary-review">Secondary insurance</section>'}}));
 vi.mock('../../../components/admin/CallBillingQueue.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/admin/PlannedBillingServices.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/billing/ClientPendingTasks.vue',()=>({default:{template:'<div />'}}));
@@ -245,3 +246,14 @@ describe('unified clinical and claim workflow', () => {
 });
 
 it('follows a task deep link without remounting the billing workspace',async()=>{mockRoute.query=reactive({});const w=mount(BillingWorkspaceView);await flushPromises();Object.assign(mockRoute.query,{billingSection:'insurance',agencyId:'3',clientId:'22'});await flushPromises();expect(w.find('h1').text()).toBe('Insurance verification');expect(w.find('[data-testid=insurance-verification]').text()).toContain('for 3 client 22');expect(api.get.mock.calls.filter(([path])=>path==='/medical-billing/workspace').at(-1)[1].params).toEqual(expect.objectContaining({agencyId:'3',clientId:'22'}));w.unmount();});
+
+
+it.each([
+ ['draft',null,1,null,true],['ready',null,1,null,true],['closed',null,1,null,true],
+ ['paid',null,1,'2026-11-01',true],['ready',null,1,'2026-11-01',false],
+ ['draft',8,2,null,false],['void',null,1,null,false]
+])('offers manual secondary review only for an eligible primary (%s, parent %s, sequence %s, submitted %s)',async(claim_lifecycle,parent_claim_id,payer_sequence,claimmd_submitted_at,visible)=>{
+ const payload=data();payload.claims=[{...payload.claims[0],claim_lifecycle,parent_claim_id,payer_sequence,claimmd_submitted_at}];api.get.mockResolvedValue({data:payload});
+ const w=mount(BillingWorkspaceView);await flushPromises();await w.vm.$.setupState.openClaim(payload.claims[0]);await flushPromises();
+ expect(w.find('[data-testid="secondary-review"]').exists()).toBe(visible);w.unmount();
+});
