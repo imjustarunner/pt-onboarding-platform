@@ -43,6 +43,7 @@
         <div class="service-provider-field"><label for="new-service-provider">Assigned provider</label><ProviderSearchSelect v-model="draft.providerUserId" input-id="new-service-provider" :options="providers" :loading="providersLoading" :disabled="busy" label="Provider for new service" placeholder="Search providers (optional)…" /></div>
         <label>School / program (optional)<select v-model="draft.organizationId"><option :value="0">No school or program</option><option v-for="org in organizations" :key="org.organization_id" :value="org.organization_id">{{ org.organization_name || org.name }}</option></select></label>
         <button class="service-save" :disabled="busy || loading" type="submit">{{ busy ? 'Saving…' : 'Add service' }}</button>
+        <button v-if="hasServiceDraft" type="button" :disabled="busy" @click="cancelServiceDraft">Cancel new service</button>
       </form>
     </details>
   </section>
@@ -70,6 +71,8 @@ const isActive = service => service.is_active === true || Number(service.is_acti
 const activeServices = computed(() => services.value.filter(isActive));
 const formerServices = computed(() => services.value.filter(service => !isActive(service)));
 const hasCounseling = computed(() => activeServices.value.some(service => service.service_kind === 'counseling'));
+const hasServiceDraft = computed(() => !!Number(draft.value.providerUserId) || !!draft.value.label.trim() || !!Number(draft.value.organizationId) || draft.value.serviceKind !== (hasCounseling.value ? 'tutoring' : 'counseling'));
+function cancelServiceDraft() { draft.value = newDraft(hasCounseling.value ? 'tutoring' : 'counseling'); error.value = ''; }
 const servicePrograms = service => {
   const organizations = service.organizations?.length ? service.organizations
     : [{name:service.organization_name,organization_type:service.organization_type}];
@@ -143,8 +146,8 @@ async function saveStatus(){
 async function loadReturns(service){const own=sequence;busy.value=true;error.value='';returnService.value=service;returnRequests.value=[];try{const{data}=await api.get(`/clients/${props.clientId}/service-enrollments/${service.id}/return-requests`,{params:{agencyId:props.agencyId}});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Return requests could not load.';}finally{if(own===sequence)busy.value=false;}}
 async function reviewReturn(request,decision){const own=sequence;busy.value=true;error.value='';try{const{data}=await api.post(`/clients/${props.clientId}/service-enrollments/${returnService.value.id}/return-requests/${request.id}/review`,{agencyId:Number(props.agencyId),decision,message:returnMessages.value[request.id]||''});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Request could not be reviewed.';}finally{if(own===sequence)busy.value=false;}}
 
-watch(()=>busy.value||loading.value||providersLoading.value||editingServiceId.value!==null||!!statusEdit.value||!!Number(draft.value.providerUserId)||!!draft.value.label.trim(),value=>emit('busy',value),{flush:'sync'});
-function prepareLeave(){if(busy.value||loading.value||providersLoading.value)return false;if(editingServiceId.value!==null||statusEdit.value||Number(draft.value.providerUserId)||draft.value.label.trim()){error.value='Save or cancel the assignment change before moving to another client.';return false;}return true;}
+watch(()=>busy.value||loading.value||providersLoading.value||editingServiceId.value!==null||!!statusEdit.value||hasServiceDraft.value,value=>emit('busy',value),{flush:'sync'});
+function prepareLeave(){if(busy.value||loading.value||providersLoading.value)return false;if(editingServiceId.value!==null||statusEdit.value||hasServiceDraft.value){error.value='Save or cancel the assignment change before moving to another client.';return false;}return true;}
 defineExpose({prepareLeave});
 watch(() => [props.clientId, props.agencyId], load, { immediate: true });
 onBeforeUnmount(() => { ++sequence;emit('busy',false); });
