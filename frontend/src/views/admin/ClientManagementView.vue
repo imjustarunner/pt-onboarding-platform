@@ -1315,7 +1315,7 @@ const ReferralUpload = defineAsyncComponent(() => import('../../components/schoo
 import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
 import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
 import '../../styles/auricwellClients.css';
-import { ref, reactive, computed, onMounted, watch, defineAsyncComponent } from 'vue';
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
