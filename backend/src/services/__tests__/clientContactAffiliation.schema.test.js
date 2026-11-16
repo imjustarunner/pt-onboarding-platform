@@ -83,6 +83,13 @@ describe('additional contact save against the client identity schema', () => {
     expect(db.prepare('SELECT COUNT(*) n FROM agency_contacts').get().n).toBe(1);
     expect(db.prepare('SELECT COUNT(*) n FROM client_contact_affiliations').get().n).toBe(1);
   });
+  it('keeps different household members separate when importing a shared phone number', async () => {
+    const first = await upsertClientAffiliatedContact({ ...input, fullName:'Alex Example', importOnly:true });
+    const second = await upsertClientAffiliatedContact({ ...input, fullName:'Pat Example', importOnly:true });
+    expect(second.affiliation.agencyContactId).not.toBe(first.affiliation.agencyContactId);
+    expect(db.prepare('SELECT full_name FROM agency_contacts WHERE id=?').get(first.affiliation.agencyContactId).full_name).toBe('Alex Example');
+    expect(db.prepare('SELECT COUNT(*) n FROM client_contact_affiliations').get().n).toBe(2);
+  });
   it('supports editing and removing the saved affiliation through the same hydrate path', async () => {
     const { affiliation } = await upsertClientAffiliatedContact(input);
     const updated = await updateClientAffiliatedContact({ affiliationId: affiliation.id, clientId: 8, userId: 15, patch: { relationshipType: 'case_manager' } });

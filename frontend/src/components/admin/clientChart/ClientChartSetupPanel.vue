@@ -55,7 +55,7 @@
       />
     </article>
 
-    <article v-if="showUpdater && !showSection('demographics')" class="chart-setup__block">
+    <article v-if="showUpdater && !showWorkspaceUpdater && !showSection('demographics')" class="chart-setup__block">
       <h4>Update demographics</h4>
       <p>
         Paste the demographic page, or use the packet read.

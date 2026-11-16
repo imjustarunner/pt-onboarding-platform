@@ -27,6 +27,8 @@
 
       <slot name="clinical-summary" />
 
+      <ClientSupplementaryRecords v-if="canViewPrivateChart && client?.agency_id" :client-id="clientId" :agency-id="client.agency_id" :refresh-key="client" />
+
       <FamilyWelcomeWorkflowCard :agency-id="client?.agency_id" :client-id="clientId" />
 
       <div class="cc-tile-row">
@@ -169,6 +171,7 @@ import api from '../../../services/api';
 import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import ClientCareTimeline from './ClientCareTimeline.vue';
+import ClientSupplementaryRecords from './ClientSupplementaryRecords.vue';
 import FamilyWelcomeWorkflowCard from '../../school/FamilyWelcomeWorkflowCard.vue';
 import '../../../styles/client-hub.css';
 
@@ -180,6 +183,7 @@ const props = defineProps({
   canSendSecureMessage:{type:Boolean,default:false},
   canEdit: { type: Boolean, default: false },
   canViewMedicalRecord: { type: Boolean, default: false },
+  canViewPrivateChart: { type: Boolean, default: false },
   glanceItems: { type: Array, default: () => [] },
   statusLabel: { type: String, default: '' },
   programLabel: { type: String, default: '' },
