@@ -1,3 +1,4 @@
+import {guardianHelpContext} from '../services/guardianHelpContext.service.js';
 import { listGuardianEnrollmentDrafts, enrollmentDraftSummary, openGuardianEnrollmentDraft } from '../services/guardianEnrollmentDrafts.service.js';
 import { downloadEnrollmentCopy } from '../services/guardianEnrollmentCopies.service.js';
 import { enrollmentOptions, startGuardianEnrollment } from '../services/guardianEnrollmentStart.service.js';
@@ -254,6 +255,7 @@ router.get('/clients/:clientId/intake-documents/:documentId/download-url', getMy
 router.get('/invitations', guardianInvitations.list);
 router.post('/invitations/:inviteId/resend', guardianInvitations.resend);
 router.get('/overview', getGuardianPortalOverview);
+router.get('/help-context',async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Sign in to your family account to contact its practice.'}});res.set('Cache-Control','no-store').json(await guardianHelpContext({userId:req.user.id,clientId:req.query.clientId,agencyId:req.query.agencyId}));}catch(error){next(error);}});
 router.get('/skill-builders/events', listGuardianSkillBuilderEvents);
 router.get('/skill-builders/events/:eventId/detail', getGuardianSkillBuilderEventDetail);
 router.get('/skill-builders/events/:eventId/sessions/:sessionId/curriculum', getGuardianSkillBuilderSessionCurriculum);

@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import ConversaIcon from './ConversaIcon.vue';
 import api from '../../services/api';
-const props = defineProps({ threadId: { type: [Number, String], default: null }, opening: Boolean, shared: { type: Boolean, default: true } });
+const props = defineProps({ threadId: { type: [Number, String], default: null }, opening: Boolean, shared: { type: Boolean, default: true }, showProductBrand: { type: Boolean, default: true } });
 const events = ref([]);
 const showingActivity = ref(false);
 const loading = ref(false);
@@ -26,7 +26,7 @@ async function showActivity() {
   <section class="secure-message-banner" aria-label="Secure message">
     <div class="secure-message-banner__identity">
       <span class="secure-message-banner__seal"><ConversaIcon type="secure" :size="24" /></span>
-      <div><strong>Secure message</strong><span class="secure-message-banner__byline">Messages by Conversa</span></div>
+      <div><strong>Secure message</strong><span v-if="showProductBrand" class="secure-message-banner__byline">Messages by Conversa</span></div>
       <span class="secure-message-banner__private">{{ shared ? 'Shared care conversation' : 'Protected conversation' }}</span>
     </div>
     <p>{{ opening ? 'Sign in to open your message. Only authorized participants can read and reply.' : 'Message content stays here. Opening messages is recorded in the activity log.' }}</p>

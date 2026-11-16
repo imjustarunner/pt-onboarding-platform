@@ -1,14 +1,16 @@
 <template>
   <section v-if="waiting.length" class="release-banner" role="status" aria-label="School release waiting">
     <div>
-      <strong>A school release is waiting in your documents.</strong>
+      <strong>{{ ft("A school release is waiting in your documents.") }}</strong>
       <p v-for="item in waiting" :key="item.clientId">{{ item.childName }} · {{ item.schoolName || 'Current school' }}</p>
     </div>
-    <button v-for="item in waiting" :key="`open-${item.clientId}`" type="button" @click="$emit('open', item.clientId)">Open documents</button>
+    <button v-for="item in waiting" :key="`open-${item.clientId}`" type="button" @click="$emit('open', item.clientId)">{{ ft("Open documents") }}</button>
   </section>
 </template>
 
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 

@@ -1,10 +1,11 @@
 import pool from '../config/database.js';
+import {loadGuardianRoiConsentForClients} from './schoolRoiGuardianConsent.service.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import { portalProfilePath } from './familyIntroduction.logic.js';
 
 // Display context only: an affiliation never grants school staff or guardian access.
 // Call with the already-authorized, guardian-safe overview rows, never request IDs.
-export async function attachGuardianSchoolAffiliations(clients = [], { guardianUserId, providerClientIds = [], documentClientIds = [] } = {}) {
+export async function attachGuardianSchoolAffiliations(clients = [], { guardianUserId, providerClientIds = [], documentClientIds = [], loadConsent = loadGuardianRoiConsentForClients } = {}) {
   const visible = clients.filter(c => !c.no_view && (!c.guardian_portal_locked || c.relationship_type === 'self'));
   const ids = visible.map(c => Number(c.client_id)).filter(id => id > 0);
   if (!ids.length) return clients.map(c => ({ ...c, school_affiliations: [] }));
@@ -97,6 +98,14 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
                       WHERE own_submission.id = r.latest_intake_submission_id AND own_submission.guardian_user_id = ?)))
                   ORDER BY (r.recipient_guardian_user_id > 0) DESC, r.id DESC`, [Number(guardianUserId) || 0, ...schoolIds, Number(guardianUserId) || 0, Number(guardianUserId) || 0])
   ]);
+  // A release signed in enrollment need not have a later standalone signing link.
+  // Read the same signed evidence used by Tasks; never issue or change a release.
+  const ownConsent = new Map();
+  for (const sid of new Set(schoolClients.flatMap(c=>c.school_affiliations.map(s=>s.organization_id)))) {
+    const missing = schoolClients.filter(c=>c.school_affiliations.some(s=>s.organization_id===sid)
+      && !rois.some(r=>Number(r.client_id)===Number(c.client_id)&&Number(r.school_organization_id)===sid));
+    if(missing.length)ownConsent.set(sid,await loadConsent({clientIds:missing.map(c=>Number(c.client_id)),schoolOrganizationId:sid,db:pool}));
+  }
   for (const client of schoolClients) for (const school of client.school_affiliations) {
     const sameSchool = row => Number(row.client_id) === Number(client.client_id) && Number(row.organization_id || row.school_organization_id) === school.organization_id;
     school.providers = providerClientIds.includes(Number(client.client_id)) ? providers.filter(sameSchool).map(p => ({
@@ -114,6 +123,14 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
     const canRead = documentClientIds.includes(Number(client.client_id)) && guardianCanReadIntakeDocuments({access_enabled:1,permissions_json:client.permissions_json});
     school.roi = roi ? { status: roi.status, signed_at: roi.signed_at || null, expires_at: roi.expires_at || null,
       document_id: canRead ? Number(roi.document_id) || null : null } : {status:'not_on_file'};
+    if(!roi) {
+      const own=(ownConsent.get(school.organization_id)?.get(Number(client.client_id))||[])
+        .flatMap(item=>item.decisions||[]).filter(decision=>Number(decision.guardianUserId)===Number(guardianUserId));
+      if(own.length){
+        const latest=[...own].sort((a,b)=>new Date(b.signedAt)-new Date(a.signedAt))[0];
+        school.roi={status:own.some(decision=>!decision.expired)?'completed':'expired',signed_at:latest.signedAt,expires_at:null,document_id:null,source:'signed_enrollment'};
+      }
+    }
   }
   return result;
 }

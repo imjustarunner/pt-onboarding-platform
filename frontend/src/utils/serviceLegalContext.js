@@ -15,6 +15,19 @@ export function serviceLegalContext({ host = '', path = '', organizationSlug = '
       href: (tenant.legalOrigin || tenant.origin) + link.path
     }))
   };
+  if (!school && tenant?.slug === 'nlu' && (['counseling','mental_health'].includes(serviceType)||/\/(?:counseling|clinical-note-generator|clinical-records|medical-records|note-aid)(?:\/|$)/.test(path))) {
+    const platform=tenantLegalProfiles.auricwell;
+    return {name:tenant.name,nonclinical:false,
+      notice:'Next Level Up remains responsible for its counseling services and clinical records. AuricWell provides the software platform operated by Plot Twist Co. NLU notices and agreements apply to its services; the platform terms apply to use of the software.',
+      links:[...tenantLegalLinks(tenant).filter(link=>link.type!=='platformhipaa').map(link=>({label:`${tenant.name} ${link.type==='terms'?'Terms of Use':link.label}`,href:(tenant.legalOrigin||tenant.origin)+link.path})),
+        ...tenantLegalLinks(platform).filter(link=>link.type!=='platformhipaa').map(link=>({label:`AuricWell platform ${link.type==='terms'?'Terms of Use':link.label}`,href:(platform.legalOrigin||platform.origin)+link.path}))]
+    };
+  }
+  if(!school&&tenant?.slug==='nlu')return {
+    name:tenant.name,
+    notice:'Use Next Level Up only for the services and records your account is authorized to access. Your organization’s notices and agreements apply to its services. Reading these notices does not change your service permissions.',
+    links:tenantLegalLinks(tenant).filter(link=>link.type!=='platformhipaa').map(link=>({label:`${tenant.name} ${link.type==='terms'?'Terms of Use':link.label}`,href:(tenant.legalOrigin||tenant.origin)+link.path}))
+  };
   const service = school ? tenantLegalProfiles.schoolcarebridge : tenantLegalProfiles.auricwell;
   const profiles = [service, ...(school ? [tenantLegalProfiles.auricwell] : []), ...(tenant && tenant.slug !== service.slug ? [tenant] : [])];
   return {

@@ -1,0 +1,10 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+import {guardianHelpContext} from '../guardianHelpContext.service.js';
+const execute=vi.fn(),links=vi.fn(),careContexts=vi.fn();
+beforeEach(()=>{vi.clearAllMocks();links.mockResolvedValue([{client_id:10,agency_id:450}]);careContexts.mockResolvedValue([]);execute.mockResolvedValue([[{id:450,name:'ITSCO',slug:'itsco',phone_number:'719-657-7444',support_team_email:'support@itsco.health',records_enabled:0,private_staff_field:'never return'}]]);});
+const read=(extra={})=>guardianHelpContext({userId:4,clientId:10,agencyId:450,db:{execute},links,careContexts,...extra});
+it('returns only configured public contact fields and real records availability',async()=>{expect(await read()).toEqual({contact:{agencyId:450,name:'ITSCO',slug:'itsco',phone:'719-657-7444',extension:null,email:'support@itsco.health'},records:{onlineRequestsEnabled:false}});expect(execute.mock.calls[0][0]).not.toMatch(/password|secret|theme_settings/);});
+it('denies foreign profiles and companies before reading contact configuration',async()=>{await expect(read({clientId:11})).rejects.toMatchObject({status:403});await expect(read({agencyId:6})).rejects.toMatchObject({status:403});expect(execute).not.toHaveBeenCalled();});
+it('uses an independently authorized service company, without changing its records setting',async()=>{careContexts.mockResolvedValue([{agency_id:453}]);expect((await read({agencyId:453})).contact.agencyId).toBe(453);expect(careContexts).toHaveBeenCalledWith({client_id:10,agency_id:450},4);});
+it('rejects missing identifiers rather than selecting another family',async()=>{await expect(read({clientId:null})).rejects.toMatchObject({status:400});expect(links).not.toHaveBeenCalled();});

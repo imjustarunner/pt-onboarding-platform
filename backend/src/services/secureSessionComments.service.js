@@ -24,7 +24,8 @@ const json = value => { if (!value) return {}; if (typeof value === 'object') re
 const instant = value => value instanceof Date ? value : new Date(utcMysqlToIso(value) || value);
 const iso = value => value ? instant(value).toISOString() : null;
 const active = user => user && Number(user.is_active) === 1 && !Number(user.is_archived || 0)
-  && !user.terminated_at && (!user.status_expires_at || instant(user.status_expires_at) > new Date()) && ACTIVE.has(String(user.status || '').toLowerCase());
+  && !user.terminated_at && (!user.status_expires_at || instant(user.status_expires_at) > new Date()) && (ACTIVE.has(String(user.status || '').toLowerCase())
+    || (FAMILIES.has(user.role) && String(user.status).toLowerCase() === 'pending_setup' && Number(user.has_password) === 1));
 const tz = value => isValidTimeZone(value) ? value : 'America/Denver';
 const day = (date, zone) => utcDateToZonedYmd(date, zone);
 const denied = () => sessionCommentError(403, 'Secure session comments are not available for this appointment and relationship.');
@@ -52,7 +53,7 @@ export function createSecureSessionComments(overrides = {}) {
 
   async function actor(user, db = d.db) {
     const uid = id(user?.id);
-    const [[current]] = await db.execute('SELECT id,role,first_name,last_name,email,personal_email,work_email,is_active,is_archived,status,status_expires_at,terminated_at,timezone FROM users WHERE id=?', [uid]);
+    const [[current]] = await db.execute(`SELECT id,role,first_name,last_name,email,personal_email,work_email,is_active,is_archived,status,status_expires_at,terminated_at,timezone,(password_hash IS NOT NULL AND password_hash <> '') AS has_password FROM users WHERE id=?`, [uid]);
     if (!active(current) || (!PROVIDERS.has(current.role) && !FAMILIES.has(current.role))) throw denied();
     return { ...current, sessionCommentAgencyId: user?.sessionCommentAgencyId ? id(user.sessionCommentAgencyId) : null,
       sessionCommentClientId: user?.sessionCommentClientId ? id(user.sessionCommentClientId) : null };
@@ -119,7 +120,7 @@ export function createSecureSessionComments(overrides = {}) {
       if (!await hasCurrentRights(provider, a, db)) return [];
       out.push({ id:Number(provider.id), name:name(provider), relationshipType:'provider', required:true });
     }
-    const [linked] = await db.execute(`SELECT u.id,u.role,u.first_name,u.last_name,u.is_active,u.is_archived,u.status,u.status_expires_at,u.terminated_at,cg.relationship_type
+    const [linked] = await db.execute(`SELECT u.id,u.role,u.first_name,u.last_name,u.is_active,u.is_archived,u.status,u.status_expires_at,u.terminated_at,(u.password_hash IS NOT NULL AND u.password_hash <> '') AS has_password,cg.relationship_type
       FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=? AND cg.access_enabled=1`, [a.client_id]);
     for (const u of linked) if (Number(u.id) !== Number(current.id) && FAMILIES.has(u.role) && await hasCurrentRights(u, a, db)) {
       const contact = contacts.find(c => Number(c.id) === Number(u.id));

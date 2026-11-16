@@ -8,6 +8,7 @@
           <img v-if="logoUrl && !logoFailed" :src="logoUrl" :alt="logoIsSymbol ? '' : `${brandName} logo`" @error="logoFailed = true" />
           <div><strong>{{ brandName || ft('Your portal') }}</strong><small v-if="brandSubtitle">{{ brandSubtitle }}</small></div>
         </div>
+        <span v-if="testEnvironment" class="portal-test-badge" role="status">{{ ft("QA test environment") }}</span>
         <div v-if="agencyName" class="portal-agency-mark"><img v-if="agencyLogo" :src="agencyLogo" alt=""/><span>{{ agencyName }}</span></div>
       </div>
     </header>
@@ -18,10 +19,11 @@
       <button v-if="isPhone" class="portal-drawer-close" type="button" @click="menuOpen=false">{{ ft('Close menu') }}</button>
       <div id="family-portal-nav" class="portal-nav-wrap" :class="{ expanded: menuOpen }" @keydown.esc="menuOpen = false">
         <nav :aria-label="ft('Your portal')">
-          <template v-for="(item,index) in navigation" :key="item.key"><h2 v-if="item.group && item.group !== navigation[index-1]?.group" class="portal-nav-group">{{ item.group }}</h2>
+          <template v-for="(item,index) in primaryNavigation" :key="item.key"><h2 v-if="item.group && item.group !== primaryNavigation[index-1]?.group" class="portal-nav-group">{{ item.group }}</h2>
           <button type="button" :class="{ selected: active === item.key }" :aria-current="active === item.key ? 'page' : undefined" @click="navigate(item.key)">
             <PortalIcon :name="item.icon || item.key" /><span>{{ item.label }}</span><span v-if="item.count > 0" class="portal-count">{{ item.count }}</span>
           </button></template>
+          <details v-if="secondaryNavigation.length" class="portal-more-navigation"><summary>{{ ft('More options') }}</summary><button v-for="item in secondaryNavigation" :key="item.key" type="button" @click="navigate(item.key)"><PortalIcon :name="item.icon || item.key"/><span>{{ item.label }}</span></button></details>
         </nav>
         <div class="portal-support">
           <div class="portal-support-art" aria-hidden="true"><PortalIcon name="support" /></div>
@@ -48,24 +50,26 @@ const { ft, locale: familyLocale } = useFamilyLocale();
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import PortalIcon from './PortalIcon.vue';
 import { portalTheme } from '../../utils/familyPortalTheme';
-const props = defineProps({ agencyName: String, agencyLogo: String, brandName: String, brandSubtitle: String, logoUrl: String, logoIsSymbol: Boolean, learning: Boolean, primaryColor: String, title: String, subtitle: String, eyebrow: String, userName: String, navigation: { type: Array, default: () => [] }, active: String, supportKey: { type: String, default: 'messages' }, accountKey: { type: String, default: 'account' } });
+const props = defineProps({ agencyName: String, agencyLogo: String, brandName: String, brandSubtitle: String, logoUrl: String, logoIsSymbol: Boolean, learning: Boolean, testEnvironment: Boolean, primaryColor: String, title: String, subtitle: String, eyebrow: String, userName: String, navigation: { type: Array, default: () => [] }, active: String, supportKey: { type: String, default: 'messages' }, accountKey: { type: String, default: 'account' } });
 const emit = defineEmits(['navigate']);
 const menuOpen = ref(false), logoFailed = ref(false),isPhone=ref(typeof window!=='undefined' && window.innerWidth<=760),menuTrigger=ref(null),menuPanel=ref(null);
 let previousOverflow=null;
 function resizePortal(){isPhone.value=window.innerWidth<=760;if(!isPhone.value)menuOpen.value=false;}
 function unlockBody(){if(previousOverflow!==null){document.body.style.overflow=previousOverflow;previousOverflow=null;}}
-function menuKey(event){if(!isPhone.value)return;if(event.key==='Escape'){event.preventDefault();menuOpen.value=false;return;}if(event.key!=='Tab')return;const nodes=[...menuPanel.value.querySelectorAll('button:not([disabled]),a[href],input,select,[tabindex="0"]')];const first=nodes[0],last=nodes.at(-1);if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}}
-watch([menuOpen,isPhone],async([open,phone])=>{if(open&&phone){if(previousOverflow===null)previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';await nextTick();menuPanel.value?.querySelector('button')?.focus();}else{unlockBody();await nextTick();menuTrigger.value?.focus({preventScroll:true});}});
+function menuKey(event){if(!isPhone.value)return;if(event.key==='Escape'){event.preventDefault();menuOpen.value=false;return;}if(event.key!=='Tab')return;const nodes=[...menuPanel.value.querySelectorAll('button:not([disabled]),a[href],input,select,summary,[tabindex="0"]')].filter(node=>{const closed=node.closest('details:not([open])');if(closed&&node!==closed.querySelector('summary'))return false;for(let parent=node;parent&&parent!==menuPanel.value;parent=parent.parentElement){if(parent.hidden||getComputedStyle(parent).display==='none')return false;}return true;});const first=nodes[0],last=nodes.at(-1);if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}}
+watch([menuOpen,isPhone],async([open,phone],[wasOpen,wasPhone])=>{if(open&&phone){if(previousOverflow===null)previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';await nextTick();menuPanel.value?.querySelector('button')?.focus();}else{unlockBody();if(wasOpen&&wasPhone){await nextTick();menuTrigger.value?.focus({preventScroll:true});}}});
 onMounted(()=>window.addEventListener('resize',resizePortal));onBeforeUnmount(()=>{window.removeEventListener('resize',resizePortal);unlockBody();});
 const headerHeight=ref(150),stickyHeader=ref(null);let headerObserver;
 const theme = computed(() => ({...portalTheme(props.primaryColor),'--family-header-height':`${headerHeight.value}px`}));
 onMounted(()=>{if(typeof ResizeObserver==='undefined')return;headerObserver=new ResizeObserver(()=>{headerHeight.value=stickyHeader.value?.offsetHeight||150});if(stickyHeader.value)headerObserver.observe(stickyHeader.value);});onBeforeUnmount(()=>headerObserver?.disconnect());
 const initials = name => name.trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
+const primaryNavigation=computed(()=>props.navigation.filter(item=>!item.secondary||item.key===props.active));
+const secondaryNavigation=computed(()=>props.navigation.filter(item=>item.secondary&&item.key!==props.active));
 function navigate(key) { menuOpen.value = false; emit('navigate', key); }
 watch(() => props.logoUrl, () => { logoFailed.value = false; });
 </script>
 <style scoped>
-.portal-menu-backdrop{display:none}.portal-nav-group{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5c6f85;margin:20px 12px 4px;line-height:1.5}@media(max-width:760px){.portal-menu-backdrop{display:block;position:fixed;inset:var(--family-header-height) 0 0;border:0;background:#142e4c50;z-index:109;width:100%;height:auto;cursor:pointer}}
+.portal-more-navigation{margin:8px 0}.portal-more-navigation summary{padding:12px 14px;cursor:pointer;color:#2e4261;font-weight:600}.portal-test-badge{margin-left:auto;padding:5px 9px;border:1px solid #bfd1e3;border-radius:6px;background:#f2f7fc;color:#35516c;font-size:12px}.portal-menu-backdrop{display:none}.portal-nav-group{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5c6f85;margin:20px 12px 4px;line-height:1.5}@media(max-width:760px){.portal-menu-backdrop{display:block;position:fixed;inset:var(--family-header-height) 0 0;border:0;background:#142e4c50;z-index:109;width:100%;height:auto;cursor:pointer}}
 
 .portal-sticky-header{grid-column:1/-1;position:sticky;top:0;z-index:110;background:white;border-bottom:1px solid #dce5ef;padding:12px 22px;box-shadow:0 3px 15px #18345208}.portal-brand-row{display:flex;align-items:center;gap:16px;min-width:0}.portal-brand-row .portal-brand{display:flex;align-items:center;gap:10px;min-width:0;padding:0}.portal-brand-row .portal-brand img{width:38px;height:38px;object-fit:contain;margin:0}.portal-brand-row .portal-brand strong{display:block;font-size:19px;line-height:1.2;color:#173451}.portal-brand small{display:block;color:#526784;font-size:12px}.portal-agency-mark{margin-left:auto;display:flex;align-items:center;gap:8px;color:#29415d;font-size:13px;font-weight:600}.portal-agency-mark img{width:42px;height:38px;object-fit:contain}
 
@@ -81,4 +85,8 @@ watch(() => props.logoUrl, () => { logoFailed.value = false; });
 <style scoped>
 .portal-context{grid-column:1/-1;padding:10px 22px 14px;min-width:0;max-width:100%;box-sizing:border-box;border-bottom:1px solid #e3eaf3;background:white}
 @media(max-width:760px){.family-portal{width:100%;max-width:100%;box-sizing:border-box}.portal-sticky-header{box-sizing:border-box;width:100%}.portal-context{padding:8px 14px 12px}.portal-sidebar{inset:0 auto 0 0!important;height:100dvh;max-height:100dvh;width:min(340px,92vw);box-sizing:border-box;z-index:3001;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(20px + env(safe-area-inset-bottom,0px));overscroll-behavior:contain}.portal-menu-backdrop{inset:0!important;z-index:3000;height:100dvh}.portal-drawer-close{display:block;margin:0 0 16px auto;padding:10px 14px;border:1px solid #c7d6e6;border-radius:9px;background:#fff;color:#173451;font:600 16px system-ui;min-height:44px}.portal-main{box-sizing:border-box}.portal-brand{flex:1;min-width:0}.portal-brand small{font-size:11px}.portal-topbar h1{overflow-wrap:anywhere}}
+</style>
+
+<style scoped>
+.portal-support{margin-top:16px;padding:10px}.portal-support-art,.portal-support h2,.portal-support p{display:none}.portal-support button{padding:10px 12px}.portal-nav-wrap nav button{padding-top:10px;padding-bottom:10px}
 </style>

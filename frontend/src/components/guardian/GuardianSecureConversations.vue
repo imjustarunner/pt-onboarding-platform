@@ -1,4 +1,6 @@
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import {computed,nextTick,onBeforeUnmount,ref,watch} from 'vue';
 import {useAuthStore} from '../../store/auth';
 import baseApi from '../../services/api';
@@ -7,8 +9,8 @@ import FamilySharingNotice from '../session-comments/FamilySharingNotice.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import {downloadAttachment} from '../../utils/communicationAttachments';
 
-const props=defineProps({threads:{type:Array,default:()=>[]},clientId:[Number,String],initialThreadId:[Number,String],initialMessageId:[Number,String],loading:Boolean,learning:Boolean,unavailable:Boolean});
-const emit=defineEmits(['refresh']);
+const props=defineProps({threads:{type:Array,default:()=>[]},clientId:[Number,String],initialThreadId:[Number,String],initialMessageId:[Number,String],loading:Boolean,learning:Boolean,unavailable:Boolean,familyWide:Boolean});
+const emit=defineEmits(['refresh','context-change']);
 const auth=useAuthStore(),careApi=usePortalCareApi();
 const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
 const contexts=computed(()=>{
@@ -36,6 +38,7 @@ let loadIntent=0,openIntent=0,sendIntent=0;
 let consumedNotification='';
 const drafts=new Map();
 const context=computed(()=>contexts.value.find(c=>c.key===contextKey.value)||null);
+watch(context,current=>emit('context-change',current?{clientId:current.client_id,agencyId:current.agency_id,serviceId:current.service_id,serviceKind:current.service_kind}:null),{immediate:true});
 const contextThreads=computed(()=>props.threads.filter(t=>context.value&&Number(t.client_id)===Number(context.value.client_id)&&Number(t.agency_id)===Number(context.value.agency_id)&&(!Number(t.service_id)||Number(t.service_id)===Number(context.value.service_id))&&t.thread_id));
 const currentThread=computed(()=>contextThreads.value.find(t=>!t.readOnly&&t.service_label!=='Previous secure conversation')||contextThreads.value.find(t=>!t.readOnly)||(openedThread.value?.contextKey===contextKey.value?openedThread.value:null));
 const learning=computed(()=>context.value?.service_kind ? context.value.service_kind==='tutoring' : props.learning);
@@ -204,49 +207,49 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
 <template>
   <section v-if="!unavailable" class="secure-conversations" aria-label="Secure conversations by subject">
     <div class="conversation-tools">
-      <label v-if="contexts.length>1">Client and service<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
+      <label v-if="contexts.length>1 || familyWide">{{ ft("Client and service") }}<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
       <strong v-else-if="context">{{ context.client_label }}</strong>
-      <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(unavailable||context?.unavailable_reason==='provider_unassigned'||(!currentThread&&!context?.provider?.id))" @click="startSubject">+ New secure subject</button>
+      <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(unavailable||context?.unavailable_reason==='provider_unassigned'||(!currentThread&&!context?.provider?.id))" @click="startSubject">{{ ft("+ New secure subject") }}</button>
     </div>
-    <p class="conversation-explanation">Each subject keeps its message and replies together. Everyone listed as eligible can receive new messages; earlier messages retain their original audience.</p>
-    <div v-if="context?.participants?.length && !newSubject && !selected" class="current-conversation-audience conversation-audience">
-      <strong>Who can read and reply to new subjects</strong><ul><li v-for="p in context.participants" :key="p.id">{{ p.name }} · {{ participantRole(p) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul>
-      <p>Earlier messages retain their original audience.</p>
+    <p class="conversation-explanation">{{ ft("Each subject keeps its message and replies together. Everyone listed as eligible can receive new messages; earlier messages retain their original audience.") }}</p>
+    <div v-if="context?.participants?.length && !newSubject && !selected" class="current-conversation-audience conversation-audience" role="region" aria-label="Current conversation participants" tabindex="0" aria-live="polite">
+      <strong>{{ ft("Who can read and reply to new subjects") }}</strong><ul><li v-for="p in context.participants" :key="p.id">{{ p.name }} · {{ ft(participantRole(p)) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul>
+      <p>{{ ft("Earlier messages retain their original audience.") }}</p>
     </div>
     <p v-if="context?.unavailable_reason==='provider_unassigned'" class="assignment-status" role="status">{{ learning ? 'A tutor must be assigned to this service before secure learning messages are available.' : 'A provider must be assigned to this service before secure messages are available.' }}</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="loading||busy" role="status">Loading secure conversations…</p>
-    <p v-else-if="!contexts.length && !unavailable">No {{ learning ? 'learning' : 'care' }} conversations are available for this profile yet. You can use Support for account questions.</p>
+    <p v-if="loading||busy" role="status">{{ ft("Loading secure conversations…") }}</p>
+    <p v-else-if="!contexts.length && !unavailable">{{ ft(learning ? "No learning conversations are available for this profile yet. You can use Support for account questions." : "No care conversations are available for this profile yet. You can use Support for account questions.") }}</p>
     <div v-else class="conversation-layout" :class="{'is-open':selected||newSubject}">
       <aside class="subjects" aria-label="Message subjects">
         <button v-for="topic in orderedTopics" :key="`${topic.thread.thread_id}:${topic.id}`" type="button" class="subject-row" :class="{active:selected?.id===topic.id}" @click="openTopic(topic)">
-          <strong>{{ title(topic) }}</strong><small>Conversation #{{ topic.id }}</small><span v-if="topic.unread_count" class="subject-unread" :aria-label="`${topic.unread_count} unread messages`">Unread · {{ topic.unread_count }}</span><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
+          <strong>{{ title(topic) }}</strong><small>{{ ft("Conversation #") }}{{ topic.id }}</small><span v-if="topic.unread_count" class="subject-unread" :aria-label="`${topic.unread_count} unread messages`">{{ ft("Unread ·") }} {{ topic.unread_count }}</span><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
         </button>
-        <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">No secure subjects yet. <span v-if="context?.unavailable_reason!=='provider_unassigned'">Start a subject to message your {{ teamLabel }}.</span></p>
-        <button v-if="Object.keys(rootCursors).length" type="button" :disabled="olderBusy" @click="olderSubjects">{{ olderBusy?'Loading…':'Older subjects' }}</button>
+        <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">{{ ft("No secure subjects yet.") }} <span v-if="context?.unavailable_reason!=='provider_unassigned'">{{ ft("Start a subject to message your") }} {{ ft(teamLabel) }}.</span></p>
+        <button v-if="Object.keys(rootCursors).length" type="button" :disabled="olderBusy" @click="olderSubjects">{{ ft(olderBusy?'Loading…':'Older subjects') }}</button>
       </aside>
       <div class="conversation-pane">
-        <p v-if="!selected&&!newSubject" class="empty-subjects">Choose a subject to read its messages and replies.</p>
+        <p v-if="!selected&&!newSubject" class="empty-subjects">{{ ft("Choose a subject to read its messages and replies.") }}</p>
         <template v-else>
-          <button class="back-subjects" type="button" @click="keepDraft();selected=null;newSubject=false">← All subjects</button>
-          <h3>{{ newSubject?'New secure subject':title(selected) }}</h3>
-          <p v-if="opening" role="status">Opening secure conversation…</p>
+          <button class="back-subjects" type="button" @click="keepDraft();selected=null;newSubject=false">{{ ft("← All subjects") }}</button>
+          <h3>{{ newSubject?ft('New secure subject'):title(selected) }}</h3>
+          <p v-if="opening" role="status">{{ ft("Opening secure conversation…") }}</p>
           <div v-else ref="threadEl" class="subject-messages">
-            <button v-if="Object.keys(replyCursors).length" type="button" :disabled="opening" @click="earlierReplies">Earlier replies</button>
+            <button v-if="Object.keys(replyCursors).length" type="button" :disabled="opening" @click="earlierReplies">{{ ft("Earlier replies") }}</button>
             <article v-for="m in messages" :key="m.id" :data-message-id="m.id" class="gmsg-bubble" :class="{mine:Number(m.sender_user_id)===Number(auth.user?.id),'is-notified':Number(m.id)===Number(highlightedMessageId)}">
               <p class="message-meta">{{ name(m) }} · {{ when(m.created_at) }}</p><div class="gmsg-message-text">{{ m.body }}</div>
               <button v-for="a in m.attachments||[]" :key="a.id" type="button" @click="downloadAttachment(a.downloadPath||`/chat/attachments/${a.id}`,a.original_filename)">{{ a.original_filename||'Secure attachment' }}</button>
             </article>
           </div>
-          <p v-if="selected?.thread.readOnly" class="retained">These messages retain their original recipients. Start a new subject to reach everyone currently eligible.</p>
+          <p v-if="selected?.thread.readOnly" class="retained">{{ ft("These messages retain their original recipients. Start a new subject to reach everyone currently eligible.") }}</p>
           <form v-if="newSubject||canReply" class="subject-composer" @submit.prevent="send">
-            <label v-if="newSubject">Subject<input v-model="subject" required maxlength="200" autocomplete="off" :disabled="sending" placeholder="What is this message about?" /></label>
-            <div class="conversation-audience"><strong>Who can read and reply</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }} · {{ participantRole(p) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>Secure messages are shared with the eligible family portal users listed here and the {{ teamLabel }}. {{ learning ? 'They do not replace a scheduled tutoring session.' : 'They are not therapy and do not replace a scheduled session.' }}</p></div>
+            <label v-if="newSubject">{{ ft("Subject") }}<input v-model="subject" required maxlength="200" autocomplete="off" :disabled="sending" :placeholder="ft('What is this message about?')" /></label>
+            <div class="conversation-audience"><strong>{{ ft("Who can read and reply") }}</strong><ul><li v-for="p in audience" :key="p.id">{{ p.name }} · {{ ft(participantRole(p)) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul><p>{{ ft("Secure messages are shared with the eligible family portal users listed here and the") }} {{ ft(teamLabel) }}. {{ learning ? 'They do not replace a scheduled tutoring session.' : 'They are not therapy and do not replace a scheduled session.' }}</p></div>
             <FamilySharingNotice ref="sharing" :agency-id="context?.agency_id" :scope-key="`${auth.user?.id}:${contextKey}:${selected?.id||'new'}`" />
-            <label>Message<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
+            <label>{{ ft("Message") }}<textarea v-model="draft" required rows="4" :disabled="sending" placeholder="Write to everyone listed above…" /></label>
             <button type="submit" :disabled="sending||opening||!draft.trim()||(newSubject&&!subject.trim())||!audience.length||audienceChanged">{{ sending?'Sending…':newSubject?'Send new subject':'Send reply' }}</button>
           </form>
-          <details v-if="selected"><summary>Message security & activity</summary><SecureMessageBanner :thread-id="selected.thread.thread_id" /></details>
+          <details v-if="selected"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :show-product-brand="false" :thread-id="selected.thread.thread_id" /></details>
         </template>
       </div>
     </div>
@@ -257,3 +260,5 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
 .conversation-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.conversation-tools label{display:grid;gap:4px}.conversation-tools select,.subject-composer input,.subject-composer textarea{width:100%;border:1px solid #b8c9db;border-radius:8px;padding:10px;font:inherit;box-sizing:border-box}.new-subject,.subject-composer button[type=submit]{border:0;border-radius:9px;padding:11px 16px;background:#064783;color:white;font-weight:700;cursor:pointer}.new-subject:disabled,button:disabled{opacity:.55;cursor:default}.conversation-explanation,.conversation-audience p,.retained{font-size:13px;line-height:1.6;color:#526980}.conversation-layout{display:grid;grid-template-columns:minmax(190px,32%) minmax(0,1fr);border:1px solid #d6e1ec;border-radius:12px;overflow:hidden;min-height:320px}.subjects{background:#f5f8fc;border-right:1px solid #d6e1ec}.subject-row{display:grid;gap:6px;width:100%;text-align:left;padding:16px;border:0;border-bottom:1px solid #d6e1ec;background:transparent;color:#173653;cursor:pointer;overflow-wrap:anywhere}.subject-row.active{background:#e0ecf9}.subject-row span,.subject-row small,.message-meta{font-size:12px;color:#5a7084}.conversation-pane{padding:20px;min-width:0}.subject-messages{display:flex;flex-direction:column;gap:14px;max-height:55vh;overflow:auto}.gmsg-bubble{background:#eef4fa;border-radius:10px;padding:12px}.gmsg-bubble.mine{background:#e4effc}.gmsg-message-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65}.subject-composer{display:grid;gap:14px;margin-top:20px}.subject-composer label{display:grid;gap:6px;font-weight:650;font-size:14px}.conversation-audience{border:1px solid #d6e1ec;border-radius:8px;padding:12px}.conversation-audience ul{padding-left:20px;font-size:13px}.empty-subjects{padding:16px;color:#5a7084;font-size:14px;line-height:1.6}.back-subjects{display:none}details{margin-top:20px;font-size:13px}@media(max-width:700px){.conversation-layout{display:block}.subjects{border-right:0}.is-open .subjects{display:none}.conversation-layout:not(.is-open) .conversation-pane{display:none}.back-subjects{display:block;border:0;background:none;color:#064783;padding:0 0 12px}.conversation-pane{padding:14px}.new-subject{width:auto}.subject-messages{max-height:48vh}}
 .gmsg-bubble.is-notified{outline:2px solid #126fb5;outline-offset:2px}
 </style>
+
+<style scoped>.current-conversation-audience:focus-visible{outline:3px solid #2467a7;outline-offset:3px}</style>

@@ -1,41 +1,45 @@
 <template>
   <section :id="learning ? 'learning-portal-guide' : 'auricwell-portal-guide'" class="portal-guide" :aria-label="`About your ${brandName} portal`">
-    <div class="guide-heading"><strong>{{ brandName }} <span v-if="auricWellBrand" class="beta-badge">Beta</span></strong><span>{{ learning ? 'Your tutoring and learning portal' : auricWellBrand ? 'Established 2026 · Built around your care' : 'Your counseling and family portal' }}</span></div>
-    <p>A place to keep up with your care and your family’s care. Thank you for helping us make it better.</p>
+    <GuardianContactCard :client-id="clientId" :agency-id="agencyId" @messages="$emit('navigate','messages')" />
+    <div class="guide-heading"><strong>{{ brandName }} </strong><span>{{ ft(learning ? 'Your tutoring and learning portal' : auricWellBrand ? 'Established 2026 · Built around your care' : 'Your counseling and family portal') }}</span></div>
+    <p>{{ ft("A place to keep up with your care and your family’s care. Thank you for helping us make it better.") }}</p>
     <details :open="learnOpen" @toggle="learnOpen = $event.target.open">
-      <summary>Learn about your portal and how your information is protected</summary>
+      <summary>{{ ft("Learn about your portal and how your information is protected") }}</summary>
       <div class="guide-details">
-        <h3>One account, the right information</h3>
-        <p>{{ learning ? 'Choose a student to see tutoring appointments, learning plans, practice, progress, shared materials and billing. Your tutor reviews what is shared with your account.' : 'Switch profiles to see your own care or an authorized dependent’s appointments, shared documents, messages and billing. Your agency, school and provider are shown with the relevant profile. The information available depends on your access and what your care team has shared.' }}</p>
-        <h3>Your information stays connected to your care</h3>
+        <h3>{{ ft("One account, the right information") }}</h3>
+        <p>{{ ft(learning ? 'Choose a student to see tutoring appointments, learning plans, practice, progress, shared materials and billing. Your tutor reviews what is shared with your account.' : 'Switch profiles to see your own care or an authorized dependent’s appointments, shared documents, messages and billing. Your agency, school and provider are shown with the relevant profile. The information available depends on your access and what your care team has shared.') }}</p>
+        <h3>{{ ft("Your information stays connected to your care") }}</h3>
         <ul>
-          <li>Sign-in and profile access checks limit which records you can open. Another guardian’s access can differ from yours.</li>
-          <li>Use this portal over its HTTPS connection for sensitive information. Messages and the text of support reports are encrypted before storage.</li>
-          <li>Documents and support screenshots require authorized access. Screenshots submitted through “Report a portal issue” are encrypted before storage and attached to your ticket, not published on a public page.</li>
-          <li>Card details are collected by the payment processor. Saving a card and authorizing payments are separate steps.</li>
-          <li>You control available notification choices for each profile. Optional text updates require your choice to enroll.</li>
+          <li>{{ ft("Sign-in and profile access checks limit which records you can open. Another guardian’s access can differ from yours.") }}</li>
+          <li>{{ ft("Use this portal over its HTTPS connection for sensitive information. Messages and the text of support reports are encrypted before storage.") }}</li>
+          <li>{{ ft("Documents and support screenshots require authorized access. Screenshots submitted through “Report a portal issue” are encrypted before storage and attached to your ticket, not published on a public page.") }}</li>
+          <li>{{ ft("Card details are collected by the payment processor. Saving a card and authorizing payments are separate steps.") }}</li>
+          <li>{{ ft("You control available notification choices for each profile. Optional text updates require your choice to enroll.") }}</li>
         </ul>
-        <p>{{ learning ? 'Your tutoring team manages your learning record. Contact your tutor about access, updates or learning questions.' : 'Your care agency manages your care record. You can ask your care team about access, corrections or records requests.' }} <router-link to="/privacy-policy">Read the privacy policy</router-link>.</p>
-        <h3>We are still improving</h3>
-        <p>{{ learning ? 'Your reports help us improve your tutoring portal. For scheduling, learning or billing questions, use Messages to reach your tutoring team.' : auricWellBrand ? 'AuricWell is in Beta, so you may occasionally encounter a bug or an unfinished detail. Your reports help us improve the experience. For appointment, care or billing questions, use Messages to reach the appropriate team.' : 'Your reports help us improve your family portal. For appointment, counseling or billing questions, use Messages to reach the appropriate team.' }}</p>
+        <p>{{ ft(learning ? 'Your tutoring team manages your learning record. Contact your tutor about access, updates or learning questions.' : 'Your care agency manages your care record. You can ask your care team about access, corrections or records requests.') }} <router-link to="/privacy-policy">{{ ft("Read the privacy policy") }}</router-link>.</p>
+        <h3>{{ ft("We are still improving") }}</h3>
+        <p>{{ ft(learning ? 'Your reports help us improve your tutoring portal. For scheduling, learning or billing questions, use Messages to reach your tutoring team.' : auricWellBrand ? 'For appointment, care or billing questions, use Messages to reach the appropriate team. You can also report a portal issue below.' : 'Your reports help us improve your family portal. For appointment, counseling or billing questions, use Messages to reach the appropriate team.') }}</p>
       </div>
     </details>
     <details v-if="clientId && agencyId" class="report-details" :open="reportOpen" @toggle="reportOpen = $event.target.open">
-      <summary>Report a portal issue</summary>
+      <summary>{{ ft("Report a portal issue") }}</summary>
       <form @submit.prevent="submit">
-        <p>Tell us what you tried and what happened. Your report goes directly to our technology team. You can follow replies in Messages → Support.</p>
-        <p class="small">Only you and authorized support staff can view this ticket. Avoid including passwords, full card numbers or unrelated people’s information in screenshots.</p>
-        <label>What went wrong?<textarea v-model="question" required minlength="5" maxlength="10000" rows="4" :disabled="busy" placeholder="For example: I tapped Download on my phone and saw an error." /></label>
-        <label>Attach screenshots (optional)<input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="busy" @change="selectFiles" /></label>
-        <p class="small">Up to three PNG, JPG or WebP images, 8 MB each.</p>
+        <p>{{ ft("Tell us what you tried and what happened. Your report goes directly to our technology team. You can follow replies in Messages → Support.") }}</p>
+        <p class="small">{{ ft("Only you and authorized support staff can view this ticket. Avoid including passwords, full card numbers or unrelated people’s information in screenshots.") }}</p>
+        <label>{{ ft("What went wrong?") }}<textarea v-model="question" required minlength="5" maxlength="10000" rows="4" :disabled="busy" placeholder="For example: I tapped Download on my phone and saw an error." /></label>
+        <label>{{ ft("Attach screenshots (optional)") }}<input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="busy" @change="selectFiles" /></label>
+        <p class="small">{{ ft("Up to three PNG, JPG or WebP images, 8 MB each.") }}</p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
-        <p v-if="ticketId" role="status">Thank you. Report #{{ ticketId }} is with our technology team. <button type="button" class="text-button" @click="$emit('navigate','messages')">Open Messages</button></p>
-        <button type="submit" :disabled="busy || question.trim().length < 5 || !!fileError">{{ busy ? 'Sending report…' : 'Send report' }}</button>
+        <p v-if="ticketId" role="status">{{ ft("Thank you. Report #") }}{{ ticketId }} {{ ft("is with our technology team.") }} <button type="button" class="text-button" @click="$emit('navigate','messages')">{{ ft("Open Messages") }}</button></p>
+        <button type="submit" :disabled="busy || question.trim().length < 5 || !!fileError">{{ ft(busy ? 'Sending report…' : 'Send report') }}</button>
       </form>
     </details>
   </section>
 </template>
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
+import GuardianContactCard from './GuardianContactCard.vue';
 import {computed,ref,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../../services/api';

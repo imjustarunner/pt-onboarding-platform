@@ -1,0 +1,1 @@
+export default {root:new URL('.',import.meta.url).pathname,test:{environment:'node',include:['src/services/__tests__/secureSessionComments.test.js','src/services/__tests__/guardianSchoolAffiliations.test.js','src/services/__tests__/guardianHelpContext.test.js','src/services/__tests__/guardianSchoolRoi.test.js'],restoreMocks:true}};

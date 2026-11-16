@@ -23,3 +23,13 @@ describe('client session booking rollout authorization',()=>{
   expect(m.save).toHaveBeenCalledWith({agencyId:2,actorUserId:5,input:req.body});expect(next).not.toHaveBeenCalled();
  });
 });
+
+
+it('lets a scoped admin discover agency tutoring booking without pretending the admin is a provider',async()=>{
+ m.providers.mockResolvedValue([{id:1496}]);m.access.mockResolvedValue({enabled:true,availableBusinessTypes:['tutoring']});const res=response(),next=vi.fn();
+ await getClientSessionBookingAccess({user:{id:1807,role:'admin'},query:{agencyId:453,providerUserId:1807,scope:'agency',businessType:'any'}},res,next);
+ expect(m.access).toHaveBeenCalledWith(453,1496,undefined,{businessType:'any'});expect(res.json).toHaveBeenCalledWith(expect.objectContaining({enabled:true,availableBusinessTypes:['tutoring']}));expect(m.save).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
+});
+it('does not give a provider the agency-wide scheduling capability',async()=>{
+ const next=vi.fn();await getClientSessionBookingAccess({user:{id:1496,role:'provider'},query:{agencyId:453,scope:'agency'}},response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.providers).not.toHaveBeenCalled();
+});

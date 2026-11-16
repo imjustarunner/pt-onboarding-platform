@@ -1,11 +1,12 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
-  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand" :brand-name="loading ? 'Loading your portal…' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${ft(portalAccountLabel)}${auricWellPortalBrand ? ' · Beta' : ''}`" :logo-url="loading ? '' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="auricWellPortalBrand ? careAgencyName : ''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="limitedServicePortal ? 'help' : 'messages'" @navigate="navigatePortal">
+  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand" :brand-name="loading ? 'Loading your portal…' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="ft(portalAccountLabel)" :test-environment="isQaPortal" :logo-url="loading ? '' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="'help'" @navigate="navigatePortal">
     <template #context>
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
-        <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select>
+        <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">{{ ft("English") }}</option><option value="es">{{ ft("Español") }}</option></select>
       </label>
-      <div v-if="allFamilyProfiles.length" class="family-context">
+      <p v-if="activePanel==='family_messages'" class="family-message-context" role="status">{{ ft("All authorized family profiles · Choose a client and service in Messages below.") }}</p>
+      <div v-else-if="allFamilyProfiles.length" class="family-context">
         <PortalContextPicker v-if="familyAgencies.length > 1" :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
         <PortalContextPicker v-if="allFamilyProfiles.length > 1 || familyAgencies.length > 1" class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('Choose a family member and organization. Each service keeps its own information.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
         <div v-if="allFamilyProfiles.length===1 && familyAgencies.length<=1" class="single-profile family-current-profile"><small>{{ ft('Viewing') }}</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
@@ -22,12 +23,12 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-else-if="loading" class="loading">{{ ft("Loading your dashboard…") }}</div>
 
-    <PastProvidersPanel v-else-if="!isSuperadminPreview && activePanel==='past_providers' && selectedChildRecordAccess" :key="`past:${currentAgencyId}:${selectedChildId}`" :client-id="Number(selectedChildId)" />
+    <PastProvidersPanel @help="navigatePortal('help')" v-else-if="!isSuperadminPreview && activePanel==='past_providers' && selectedChildRecordAccess" :key="`past:${currentAgencyId}:${selectedChildId}`" :client-id="Number(selectedChildId)" />
     <EndedServicePortal v-else-if="limitedServicePortal && selectedChildRecordAccess" :key="`ended:${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" :client-id="Number(selectedChildId)" :agency-id="Number(selectedChildAgencyId)" :user-id="authStore.user?.id" :service="selectedService" :access="selectedServiceAccess" :panel="activePanel" :learning="standardsLearningVisible" />
     <div v-else :key="`${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" class="layout guardian-layout">
       <GuardianPendingEnrollment :learning-only="learningOnlyPortalContext" v-if="!isSuperadminPreview" :key="`pending:${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" @state="pendingEnrollmentState = $event" />
-      <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
-      <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
+      <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>{{ ft("Please complete onboarding for") }} <strong>{{ profileLabel(selectedChild) }}</strong> {{ ft("so your new portal is accurate.") }}</span><button type="button" @click="navigatePortal('onboarding')">{{ ft("Continue onboarding") }}</button></p>
+      <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">{{ ft("Please complete the available onboarding steps before opening billing. Payment setup is included below.") }}</p>
       <PortalMigrationChecklist :profiles="readableFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
       <ClientUpdateChecklist v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess && activePanel === 'updates'" :key="`updates:${selectedChildAgencyId}:${selectedChildId}`" :profiles="readableFamilyProfiles" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :brand-name="auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :learning="standardsLearningVisible" @navigate="navigatePortal" />
@@ -37,8 +38,8 @@
       <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview && selectedChildRecordAccess" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="readableFamilyProfiles" :learning="familyProfilesLearningOnly(readableFamilyProfiles)" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance','enroll'].includes(activePanel)" class="empty-state">
-        <p>No children or programs are linked to this guardian account yet.</p>
-        <p class="hint">Ask your organization to add you as a guardian on the child’s record.</p>
+        <p>{{ ft("No children or programs are linked to this guardian account yet.") }}</p>
+        <p class="hint">{{ ft("Ask your organization to add you as a guardian on the child’s record.") }}</p>
       </div>
 
       <template v-else>
@@ -48,20 +49,20 @@
             ? ft('Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.')
             : ft('Detailed records are not available under your current access. Open Tasks & documents to review any pending enrollment, or contact the office about your access.') }}</p>
         </div>
-        <div v-else class="detail guardian-detail">
+        <div v-else-if="!standalonePanel" class="detail guardian-detail">
           <div class="panel guardian-panel">
             <section v-if="activePanel === 'family'" class="family-overview" aria-label="All family profiles">
               <GuardianSchoolReleaseNotice v-if="!isSuperadminPreview && schoolReleasePeople.length" :people="schoolReleasePeople" @open="openSchoolRelease" />
               <FamilyDashboard :profiles="allFamilyProfiles" :preview="isSuperadminPreview" @navigate="navigatePortal" @profile="chooseFamilyProfile" /><h2>{{ allFamilyProfiles.length > 1 ? ft("Your family members") : ft("Your profile") }}</h2><p>{{ ft("Choose a profile to see their appointments, documents, and next steps.") }}</p>
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
-                <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
+                <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ displayOrganization(person.agency_name) }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
                 <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Open Tasks & documents to review any pending enrollment, or ask the office about your access.') }}</p>
-                <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
-                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{ft(service.label)}}<small>{{service.provider_name || ft(service.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
+                <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">{{ ft("School:") }} {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
+                <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{displayOrganization(context.agency_name)}} · {{ft(service.label)}}<small>{{service.provider_name || ft(service.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{displayOrganization(context.agency_name)}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
               </article></div>
             </section>
 
-            <GuardianSchoolCareBridge v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
+            <GuardianSchoolCareBridge :time-zone="portalAgency?.timezone || 'America/Denver'" v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations.map(s=>({...s,name:displayOrganization(s.name)}))" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
             <template v-else-if="activePanel === 'tutoring'">
               <GuardianTutoringDashboard :progress-allowed="selectedGuardianPermissions.canViewProgress!==false" @appointments="navigatePortal('appointments')" embedded
                 :key="`${currentAgencyId}-${selectedChildId}-${selectedServiceId || 0}`"
@@ -71,29 +72,30 @@
                 :guardian-first-name="String(authStore.user?.first_name || authStore.user?.firstName || '').trim()"
                 :organization-slug="guardianPathSlug"
               />
-              <p v-else class="hint">Select a child to view their tutoring dashboard.</p>
+              <p v-else class="hint">{{ ft("Select a child to view their tutoring dashboard.") }}</p>
             </template>
             <template v-else-if="activePanel === 'overview'">
-              <template v-if="selectedInlineEvent"><button class="btn btn-secondary" @click="selectedInlineEvent = null">Back to dashboard</button><GuardianSkillBuildersEventView :event-id-prop="selectedInlineEvent.eventId" :program-event-mode="selectedInlineEvent.programMode" :inline="true" :hide-actions="true" /></template>
+              <template v-if="selectedInlineEvent"><button class="btn btn-secondary" @click="selectedInlineEvent = null">{{ ft("Back to dashboard") }}</button><GuardianSkillBuildersEventView :event-id-prop="selectedInlineEvent.eventId" :program-event-mode="selectedInlineEvent.programMode" :inline="true" :hide-actions="true" /></template>
               <template v-else>
                 <GuardianSchoolReleaseNotice v-if="!isSuperadminPreview && selectedSchoolRelease" :people="[selectedSchoolRelease]" @open="openSchoolRelease" />
-                <FamilyPortalHome :documents-available="portalNavigation.some(item=>item.key==='documents')" :client-first-name="selectedFirstName" :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="selectedPrograms" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
+                <FamilyPortalHome :documents-available="portalNavigation.some(item=>item.key==='documents')" :client-first-name="selectedFirstName" :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="selectedPrograms.map(p=>({...p,name:displayOrganization(p.name)}))" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
               </template>
             </template>
             <template v-else-if="activePanel === 'plan'">
               <GuardianPlanProgressPanel v-if="portalPlanAllowed" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-type="selectedChildClientType" />
               <p v-else class="hint">{{ ft(learningOnlySelectedProfile ? 'Learning-plan access is not shared with this account. Contact your tutoring team to review permissions.' : 'Plan access is not available for this relationship. Contact your care team to review permissions.') }}</p>
             </template>
+            <GuardianRecordsPanel v-else-if="activePanel === 'records'" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" @help="navigatePortal('help')" @messages="navigatePortal('messages')" />
             <template v-else-if="activePanel === 'registrations'">
               <div class="panel-head">
-                <div class="panel-title">Upcoming registrations</div>
-                <div class="panel-subtitle">Internal registration links available to guardian accounts.</div>
+                <div class="panel-title">{{ ft("Upcoming registrations") }}</div>
+                <div class="panel-subtitle">{{ ft("Choose from programs available to your family.") }}</div>
               </div>
               <div class="reg-catalog-head">
                 <div>
-                  <div class="reg-catalog-title">Open events and enrollments</div>
+                  <div class="reg-catalog-title">{{ ft("Open events and enrollments") }}</div>
                   <p class="reg-catalog-sub muted">
-                    Tap <strong>Register</strong> to continue. If an event has a linked digital form, you will be routed directly to it.
+                    {{ ft("Tap") }} <strong>{{ ft("Register") }}</strong> {{ ft("to continue. If an event has a linked digital form, you will be routed directly to it.") }}
                   </p>
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
@@ -110,27 +112,27 @@
                       {{ registrationPayerLine(item) }}
                     </div>
                     <div v-if="item.linkedIntakeTitle && item.kind === 'company_event'" class="muted small">
-                      Form: {{ item.linkedIntakeTitle }}
+                      {{ ft("Form:") }} {{ item.linkedIntakeTitle }}
                     </div>
                   </div>
                   <div class="reg-catalog-actions">
-                    <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
+                    <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">{{ ft("Register") }}</button>
                   </div>
                 </li>
               </ul>
-              <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">{{ standardsLearningVisible ? 'No tutoring programs are open for registration right now. Book a session or message your tutoring office.' : 'No programs are open for registration right now. Contact your team for the next options.' }} <button type="button" @click="navigatePortal('appointments')">View appointments</button></p>
+              <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">{{ standardsLearningVisible ? 'No tutoring programs are open for registration right now. Book a session or message your tutoring office.' : 'No programs are open for registration right now. Contact your team for the next options.' }} <button type="button" @click="navigatePortal('appointments')">{{ ft("View appointments") }}</button></p>
             </template>
-            <template v-else-if="activePanel === 'appointments'"><p v-if="isSuperadminPreview">Appointment details are available in the signed-in guardian account.</p><GuardianAppointmentsPanel family-notifications @service-ended="serviceEnded" @notifications="navigatePortal('notifications')" v-else :client-id="selectedChildId" /></template>
-            <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible"/>
+            <template v-else-if="activePanel === 'appointments'"><p v-if="isSuperadminPreview">{{ ft("Appointment details are available in the signed-in guardian account.") }}</p><GuardianAppointmentsPanel @help="navigatePortal('help')" family-notifications @service-ended="serviceEnded" @notifications="navigatePortal('notifications')" v-else :client-id="selectedChildId" /></template>
+            <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible" @help="navigatePortal('help')"/>
             <template v-else-if="activePanel === 'documents'">
-              <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
-              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild) && pendingEnrollmentState.loaded && !pendingEnrollmentState.pending" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" :learning="standardsLearningVisible" /><GuardianSharedFiles :client-id="selectedChildId" :learning="standardsLearningVisible" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
+              <p v-if="isSuperadminPreview">{{ ft("Documents are available in the signed-in family account.") }}</p>
+              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild) && pendingEnrollmentState.loaded && !pendingEnrollmentState.pending" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" :school="hasSchoolAffiliations" :learning="standardsLearningVisible" /><GuardianSharedFiles :client-id="selectedChildId" :learning="standardsLearningVisible" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
               <div class="panel-head">
-                <div class="panel-title">Client details</div>
-                <div class="panel-subtitle">Review and update information for this profile.</div>
+                <div class="panel-title">{{ ft("Client details") }}</div>
+                <div class="panel-subtitle">{{ ft("Review and update information for this profile.") }}</div>
               </div>
               <div v-if="!selectedChild" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
@@ -141,43 +143,42 @@
               </div>
               <div v-else-if="selectedChild" class="child-panel-content">
                 <p v-if="selectedChild.no_view" role="status">{{ pendingEnrollmentState.pending ? 'Your children are linked. Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.' : 'Your children are linked, but detailed records are not available under your current access. Contact your care team if this needs review.' }}</p>
-                <GuardianClientDetails :learning-only="learningOnlySelectedProfile" v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked && !selectedChild.no_view" :client-id="Number(selectedChildId)" />
+                <GuardianClientDetails :show-school-fields="hasSchoolAffiliations || standardsLearningVisible" :learning-only="learningOnlySelectedProfile" v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked && !selectedChild.no_view" :client-id="Number(selectedChildId)" />
                 <GuardianLearningInvitations v-if="!isSuperadminPreview && standardsLearningVisible && selectedChildRecordAccess" :key="`learning-invites:${selectedChildAgencyId}:${selectedChildId}`" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-name="selectedFirstName" />
                 <GuardianCareAccess :learning-only="learningOnlySelectedProfile" v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="selectedChildId" :client-name="selectedFirstName" :user-id="authStore.user?.id" @messages="navigatePortal('messages')" />
                 <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
-                  This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
-                  not available for privacy and compliance.
+                  {{ ft("This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are not available for privacy and compliance.") }}
                 </div>
                 <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="child-details">
                   <div v-if="selectedChildFullName" class="row">
-                    <div class="label">Name</div>
+                    <div class="label">{{ ft("Name") }}</div>
                     <div class="value">{{ selectedChildFullName }}</div>
                   </div>
                   <div class="row">
-                    <div class="label">Initials</div>
+                    <div class="label">{{ ft("Initials") }}</div>
                     <div class="value">{{ selectedChild.initials }}</div>
                   </div>
                   <div class="row">
-                    <div class="label">Program</div>
+                    <div class="label">{{ ft("Program") }}</div>
                     <div class="value">{{ selectedChild.organization_name }}</div>
                   </div>
                   <div class="row">
-                    <div class="label">Relationship</div>
+                    <div class="label">{{ ft("Relationship") }}</div>
                     <div class="value">{{ selectedChild.relationship_title || 'Guardian' }}</div>
                   </div>
                   <div class="row">
-                    <div class="label">Status</div>
+                    <div class="label">{{ ft("Status") }}</div>
                     <div class="value">{{ formatClientStatus(selectedChild.status) }}</div>
                   </div>
                   <div class="row">
-                    <div class="label">Docs</div>
+                    <div class="label">{{ ft("Docs") }}</div>
                     <div class="value">{{ formatDocStatus(selectedChild.document_status) }}</div>
                   </div>
                 </div>
 
                 <div v-if="standardsLearningVisible" class="learning-progress-block">
                   <div class="learning-progress-head">
-                    <h4 style="margin: 0;">Learning progress</h4>
+                    <h4 style="margin: 0;">{{ ft("Learning progress") }}</h4>
                     <button
                       type="button"
                       class="btn btn-secondary btn-sm"
@@ -188,38 +189,38 @@
                     </button>
                   </div>
                   <p class="hint" style="margin: 6px 0 10px;">
-                    Standards-aligned goals and trends for {{ childDisplayName(selectedChild) }}.
+                    {{ ft("Standards-aligned goals and trends for") }} {{ childDisplayName(selectedChild) }}.
                   </p>
                   <div v-if="learningProgressError" class="error" style="font-size: 13px;">{{ learningProgressError }}</div>
-                  <div v-else-if="learningProgressLoading" class="hint">Loading learning progress…</div>
+                  <div v-else-if="learningProgressLoading" class="hint">{{ ft("Loading learning progress…") }}</div>
                   <template v-else>
                     <div class="learning-progress-grid">
                       <div class="learning-progress-card">
-                        <div class="learning-progress-card-title">Domain trends</div>
+                        <div class="learning-progress-card-title">{{ ft("Domain trends") }}</div>
                         <ul v-if="learningDomainRows.length" class="learning-progress-list">
                           <li v-for="row in learningDomainRows" :key="`d-${row.domain_id}`">
                             <strong>{{ row.domain_title || row.domain_code || `Domain ${row.domain_id}` }}</strong>
                             <span class="muted small">
-                              · {{ Number(row.evidence_count || 0) }} data points
-                              <template v-if="row.avg_score != null"> · avg {{ formatLearningScore(row.avg_score) }}</template>
+                              · {{ Number(row.evidence_count || 0) }} {{ ft("data points") }}
+                              <template v-if="row.avg_score != null"> {{ ft("· avg") }} {{ formatLearningScore(row.avg_score) }}</template>
                             </span>
                           </li>
                         </ul>
-                        <p v-else class="hint" style="margin: 0;">No domain data yet.</p>
+                        <p v-else class="hint" style="margin: 0;">{{ ft("No domain data yet.") }}</p>
                       </div>
                       <div class="learning-progress-card">
-                        <div class="learning-progress-card-title">Active goals</div>
+                        <div class="learning-progress-card-title">{{ ft("Active goals") }}</div>
                         <ul v-if="learningGoalRows.length" class="learning-progress-list">
                           <li v-for="g in learningGoalRows.slice(0, 5)" :key="`g-${g.id}`">
                             <strong>{{ g.skill_title || `Skill ${g.skill_id}` }}</strong>
-                            <span class="muted small"> · {{ g.status }} · target {{ formatLearningDate(g.target_date) }}</span>
+                            <span class="muted small"> · {{ g.status }} {{ ft("· target") }} {{ formatLearningDate(g.target_date) }}</span>
                           </li>
                         </ul>
-                        <p v-else class="hint" style="margin: 0;">No goals set yet.</p>
+                        <p v-else class="hint" style="margin: 0;">{{ ft("No goals set yet.") }}</p>
                       </div>
                     </div>
                     <div class="learning-progress-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">Recommended next skills</div>
+                      <div class="learning-progress-card-title">{{ ft("Recommended next skills") }}</div>
                       <ul v-if="learningRecommendationRows.length" class="learning-progress-list">
                         <li v-for="r in learningRecommendationRows.slice(0, 4)" :key="`r-${r.domain_id}-${r.skill_id}`">
                           <strong>{{ r.skill_title || `Skill ${r.skill_id}` }}</strong>
@@ -229,7 +230,7 @@
                           </span>
                         </li>
                       </ul>
-                      <p v-else class="hint" style="margin: 0;">No recommendations yet.</p>
+                      <p v-else class="hint" style="margin: 0;">{{ ft("No recommendations yet.") }}</p>
                     </div>
 
                     <GuardianClinicalBooking learning :client-id="Number(selectedChildId)" :agency-id="selectedChildAgencyId" :service-id="selectedServiceId" @booked="loadSelectedChildLearningProgress" />
@@ -237,7 +238,7 @@
                     <!-- Upcoming tutoring sessions -->
                     <div class="learning-progress-card upcoming-sessions-card" style="margin-top: 10px;">
                       <div class="learning-progress-card-title">
-                        Upcoming tutoring sessions
+                        {{ ft("Upcoming tutoring sessions") }}
                         <span v-if="upcomingTutoringSessions.length" class="upcoming-count-badge">{{ upcomingTutoringSessions.length }}</span>
                       </div>
                       <ul v-if="upcomingTutoringSessions.length" class="learning-progress-list upcoming-list">
@@ -252,27 +253,27 @@
                           </div>
                           <div class="upcoming-session-meta muted small">
                             {{ fmtUpcomingDate(session.starts_at) }}
-                            <span v-if="session.delivery_context === 'in_person'"> · In-person</span>
-                            <span v-else> · Virtual</span>
+                            <span v-if="session.delivery_context === 'in_person'"> {{ ft("· In-person") }}</span>
+                            <span v-else> {{ ft("· Virtual") }}</span>
                           </div>
                           <button
                             type="button"
                             class="btn btn-primary btn-sm upcoming-launch-btn"
                             @click="router.push(session.session_url)"
                           >
-                            Join session
+                            {{ ft("Join session") }}
                           </button>
                         </li>
                       </ul>
                       <p v-else class="hint" style="margin: 0;">
-                        No upcoming sessions scheduled. Once a tutoring session is confirmed, it will appear here with a launch button.
+                        {{ ft("No upcoming sessions scheduled. Once a tutoring session is confirmed, it will appear here with a launch button.") }}
                       </p>
                     </div>
 
                     <div class="learning-progress-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">Recent tutoring sessions</div>
+                      <div class="learning-progress-card-title">{{ ft("Recent tutoring sessions") }}</div>
                       <p class="hint" style="margin: 0 0 10px;">
-                        Session summaries, learning progress, practice activities, and materials shared by the tutor.
+                        {{ ft("Session summaries, learning progress, practice activities, and materials shared by the tutor.") }}
                       </p>
                       <ul v-if="tutoringSummaries.length" class="learning-progress-list">
                         <li
@@ -294,19 +295,19 @@
                               :key="`m-${summary.sessionId}-${i}`"
                               class="tutoring-chip tutoring-chip-success"
                             >
-                              Mastered: {{ formatStandardChip(s) }}
+                              {{ ft("Mastered:") }} {{ formatStandardChip(s) }}
                             </span>
                             <span
                               v-for="(s, i) in summary.standardsNeedingReview.slice(0, 3)"
                               :key="`r-${summary.sessionId}-${i}`"
                               class="tutoring-chip tutoring-chip-warn"
                             >
-                              Review: {{ formatStandardChip(s) }}
+                              {{ ft("Review:") }} {{ formatStandardChip(s) }}
                             </span>
                           </div>
                           <div style="display: flex; gap: 8px; margin-top: 6px;">
                             <button type="button" class="btn btn-secondary btn-sm" @click="openTutoringSession(summary)">
-                              Open session
+                              {{ ft("Open session") }}
                             </button>
                             <button
                               type="button"
@@ -320,12 +321,12 @@
                         </li>
                       </ul>
                       <p v-else class="hint" style="margin: 0;">
-                        No tutoring sessions yet. Once a session ends, AI summaries and branded homework will appear here.
+                        {{ ft("No tutoring sessions yet. Once a session ends, AI summaries and branded homework will appear here.") }}
                       </p>
                     </div>
 
                     <div class="learning-progress-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">Published progress reports</div>
+                      <div class="learning-progress-card-title">{{ ft("Published progress reports") }}</div>
                       <ul v-if="losPublishedReports.length" class="learning-progress-list">
                         <li v-for="r in losPublishedReports" :key="`pr-${r.id}`" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
                           <div style="display: flex; justify-content: space-between; gap: 8px;">
@@ -336,11 +337,11 @@
                           <p v-if="r.previewText" class="hint" style="margin: 6px 0 0;">{{ r.previewText }}</p>
                         </li>
                       </ul>
-                      <p v-else class="hint" style="margin: 0;">No published tutoring progress reports yet.</p>
+                      <p v-else class="hint" style="margin: 0;">{{ ft("No published tutoring progress reports yet.") }}</p>
                     </div>
 
                     <div class="learning-progress-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">Practice / homework</div>
+                      <div class="learning-progress-card-title">{{ ft("Practice / homework") }}</div>
                       <ul v-if="losPractice.length" class="learning-progress-list">
                         <li v-for="a in losPractice" :key="`pa-${a.id}`" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
                           <div style="display: flex; justify-content: space-between; gap: 8px;">
@@ -354,11 +355,11 @@
                           </ol>
                         </li>
                       </ul>
-                      <p v-else class="hint" style="margin: 0;">No practice assignments yet.</p>
+                      <p v-else class="hint" style="margin: 0;">{{ ft("No practice assignments yet.") }}</p>
                     </div>
 
                     <div v-if="losParentUpdates.length" class="learning-progress-card" style="margin-top: 10px;">
-                      <div class="learning-progress-card-title">After-session updates</div>
+                      <div class="learning-progress-card-title">{{ ft("After-session updates") }}</div>
                       <ul class="learning-progress-list">
                         <li v-for="u in losParentUpdates" :key="`pu-${u.id}`" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
                           <div style="display: flex; justify-content: space-between; gap: 8px;">
@@ -380,10 +381,9 @@
                 />
 
                 <div v-if="!clinicalGuardianContext && !standardsLearningVisible && !selectedChild.guardian_portal_locked" class="intake-docs-block">
-                  <h4 style="margin: 20px 0 8px;">Intake documents</h4>
+                  <h4 style="margin: 20px 0 8px;">{{ ft("Intake documents") }}</h4>
                   <p class="hint" style="margin-bottom: 10px;">
-                    PDFs you signed on a digital intake form for this child (when the submission is tied to your guardian
-                    account).
+                    {{ ft("PDFs you signed on a digital intake form for this child (when the submission is tied to your guardian account).") }}
                   </p>
                   <div v-if="intakeDocsLoading" class="hint">{{ ft("Loading…") }}</div>
                   <ul v-else-if="intakeSignedDocs.length" class="intake-docs-list">
@@ -402,19 +402,19 @@
                       </button>
                     </li>
                   </ul>
-                  <p v-else class="hint">No intake-signed documents found for this child yet.</p>
+                  <p v-else class="hint">{{ ft("No intake-signed documents found for this child yet.") }}</p>
                 </div>
 
                 <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="guardian-checkin-hint">
                   <p class="hint" style="margin: 0; padding: 8px 10px; background: var(--bg-muted, #f0f4f8); border-radius: 6px;">
-                    <strong>Program check-in:</strong> Use the kiosk at the front desk when you drop off or pick up.
+                    <strong>{{ ft("Program check-in:") }}</strong> {{ ft("Use the kiosk at the front desk when you drop off or pick up.") }}
                   </p>
                 </div>
                 <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="guardian-daily-notes">
-                  <h4 style="margin: 16px 0 8px;">Daily Notes</h4>
-                  <p class="hint" style="margin-bottom: 10px;">Staff updates for {{ selectedChild.initials }}.</p>
+                  <h4 style="margin: 16px 0 8px;">{{ ft("Daily Notes") }}</h4>
+                  <p class="hint" style="margin-bottom: 10px;">{{ ft("Staff updates for") }} {{ selectedChild.initials }}.</p>
                   <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 10px;">
-                    <label>Date</label>
+                    <label>{{ ft("Date") }}</label>
                     <input v-model="guardianNoteDate" type="date" class="input" style="max-width: 160px;" @change="loadGuardianDailyNotes" />
                   </div>
                   <div v-if="guardianNotesLoading" class="hint">{{ ft("Loading…") }}</div>
@@ -425,22 +425,22 @@
                       <span class="guardian-note-time">{{ formatNoteTime(n.created_at) }}</span>
                     </div>
                   </div>
-                  <div v-else-if="guardianNoteDate" class="hint">No notes for this date.</div>
+                  <div v-else-if="guardianNoteDate" class="hint">{{ ft("No notes for this date.") }}</div>
                 </div>
               </div>
-              <div v-else class="hint">Select a child from the overview above.</div>
+              <div v-else class="hint">{{ ft("Select a child from the overview above.") }}</div>
             </template>
 
             <template v-else-if="['messages','family_messages'].includes(activePanel)">
               <SecureSessionCommentHistory v-if="!isSuperadminPreview" :client-id="activePanel === 'family_messages' ? null : selectedChildId" family />
-              <GuardianMessagesPanel :learning="activePanel !== 'family_messages' && learningOnlySelectedProfile" v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
-              <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
+              <GuardianMessagesPanel @context-change="context => {if(activePanel==='family_messages')familyMessageServiceKind=context?.serviceKind||'';}" :family-wide="activePanel==='family_messages'" :service-kind="activePanel==='family_messages'?'':selectedService?.service_kind" :learning="activePanel !== 'family_messages' && learningOnlySelectedProfile" v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
+              <div v-else class="hint">{{ ft("Guardian messaging is hidden in platform preview.") }}</div>
             </template>
 
             <template v-else-if="activePanel === 'notification_history'">
               <template v-if="!isSuperadminPreview && selectedChildId">
                 <GuardianInvitations :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" :language="familyLocale" />
-                <p v-if="selectedChild?.no_view" role="status">Communication history is not available under your current access. Your own enrollment invitation is shown above.</p>
+                <p v-if="selectedChild?.no_view" role="status">{{ ft("Communication history is not available under your current access. Your own enrollment invitation is shown above.") }}</p>
                 <ClientNotificationHistory v-else :client-id="selectedChildId" :language="familyLocale" guardian />
               </template>
             </template>
@@ -452,8 +452,7 @@
             <template v-else-if="activePanel === 'billing'">
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
-                  Guardians with a selected child see session charges, balances, and learning billing here when the program has
-                  billing enabled. This preview does not load ledger data.
+                  {{ ft("Guardians with a selected child see session charges, balances, and learning billing here when the program has billing enabled. This preview does not load ledger data.") }}
                 </p>
               </div>
               <template v-else>
@@ -466,13 +465,12 @@
 
             <template v-else-if="activePanel === 'dependents'">
               <div class="panel-head">
-                <div class="panel-title">Dependents</div>
-                <div class="panel-subtitle">Health, allergy, and emergency contact information for each child on your account.</div>
+                <div class="panel-title">{{ ft("Dependents") }}</div>
+                <div class="panel-subtitle">{{ ft("Health, allergy, and emergency contact information for each child on your account.") }}</div>
               </div>
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
-                  Dependent health and emergency contacts load here for real guardian accounts. Preview keeps this area empty so
-                  tenant PHI is not shown.
+                  {{ ft("Dependent health and emergency contacts load here for real guardian accounts. Preview keeps this area empty so tenant PHI is not shown.") }}
                 </p>
               </div>
               <GuardianDependentsTab
@@ -503,13 +501,13 @@
               <div class="panel-head">
                 <div class="panel-title">{{ ft("Reminder contacts") }}</div>
                 <div class="panel-subtitle">
-                  Add people who should get appointment reminders for
-                  {{ selectedChild ? childDisplayName(selectedChild) : 'your child' }} without portal access.
+                  {{ ft("Add people who should get appointment reminders for") }}
+                  {{ selectedChild ? childDisplayName(selectedChild) : 'your child' }} {{ ft("without portal access.") }}
                 </div>
               </div>
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
-                  Contact management is available for real guardian accounts. Preview keeps this empty.
+                  {{ ft("Contact management is available for real guardian accounts. Preview keeps this empty.") }}
                 </p>
               </div>
               <ClientAffiliatedContactsPanel
@@ -519,40 +517,24 @@
                 :client-initials="selectedChildInitials"
                 title="Appointment reminder contacts"
               />
-              <p v-else class="hint">Select a child to manage reminder contacts.</p>
+              <p v-else class="hint">{{ ft("Select a child to manage reminder contacts.") }}</p>
             </template>
 
             <template v-else>
               <div class="panel-head">
-                <div class="panel-title">{{ panelTitle }}</div>
-                <div class="panel-subtitle">Coming soon.</div>
+                <div class="panel-title">{{ ft("Choose a section") }}</div>
               </div>
-              <div class="hint">This section is planned but not available yet.</div>
+              <p>{{ ft("Use the menu to open your appointments, documents, messages, or account settings.") }}</p><button type="button" @click="navigatePortal('family')">{{ ft("Family overview") }}</button>
             </template>
           </div>
         </div>
       </template>
       </div>
 
-    <div v-if="comingSoonKey" class="modal-overlay" @click.self="closeComingSoon">
-      <div class="modal">
-        <div class="modal-header">
-          <h3 style="margin:0;">Coming soon</h3>
-          <button class="btn-close" type="button" @click="closeComingSoon">×</button>
-        </div>
-        <div class="modal-body">
-          {{ comingSoonMessage }}
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" type="button" @click="closeComingSoon">{{ ft("Close") }}</button>
-        </div>
-      </div>
-    </div>
-
     <div v-if="registrationEnrollOpen" class="modal-overlay" @click.self="closeRegistrationEnroll">
       <div class="modal modal-wide">
         <div class="modal-header">
-          <h3 style="margin:0;">Register</h3>
+          <h3 style="margin:0;">{{ ft("Register") }}</h3>
           <button class="btn-close" type="button" @click="closeRegistrationEnroll">×</button>
         </div>
         <div class="modal-body">
@@ -561,10 +543,10 @@
             · {{ registrationEnrollTarget ? registrationKindLabel(registrationEnrollTarget.kind) : '' }}
           </p>
           <div v-if="registrationEnrollError" class="error" style="font-size: 13px; margin-bottom: 10px;">{{ registrationEnrollError }}</div>
-          <p v-if="!registrationEnrollDependents.length" class="hint">No dependents linked for this agency. Ask your organization to link a child or use intake to add one.</p>
+          <p v-if="!registrationEnrollDependents.length" class="hint">{{ ft("No dependents linked for this agency. Ask your organization to link a child or use intake to add one.") }}</p>
           <template v-else>
             <div class="form-group" style="margin-bottom: 12px;">
-              <div class="lbl">Select child(ren)</div>
+              <div class="lbl">{{ ft("Select child(ren)") }}</div>
               <div v-for="d in registrationEnrollDependents" :key="d.clientId" class="reg-enroll-check">
                 <label>
                   <input v-model="registrationEnrollSelected" type="checkbox" :value="d.clientId" />
@@ -573,17 +555,17 @@
               </div>
             </div>
             <div v-if="registrationPayerChoiceNeeded" class="form-group">
-              <label class="lbl">Coverage / payer</label>
+              <label class="lbl">{{ ft("Coverage / payer") }}</label>
               <select v-model="registrationEnrollPayerType" class="input">
-                <option value="">Choose…</option>
-                <option v-if="registrationEnrollTarget?.medicaidEligible" value="medicaid">Medicaid</option>
-                <option v-if="registrationEnrollTarget?.cashEligible" value="cash">Cash / self-pay</option>
+                <option value="">{{ ft("Choose…") }}</option>
+                <option v-if="registrationEnrollTarget?.medicaidEligible" value="medicaid">{{ ft("Medicaid") }}</option>
+                <option v-if="registrationEnrollTarget?.cashEligible" value="cash">{{ ft("Cash / self-pay") }}</option>
               </select>
             </div>
           </template>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" type="button" @click="closeRegistrationEnroll">Cancel</button>
+          <button class="btn btn-secondary" type="button" @click="closeRegistrationEnroll">{{ ft("Cancel") }}</button>
           <button
             class="btn btn-primary"
             type="button"
@@ -595,7 +577,7 @@
         </div>
       </div>
     </div>
-    <template #footer><ServiceUseNotice v-if="!loading" :organization-slug="guardianPathSlug" :service-type="learningOnlyPortalContext ? 'tutoring' : selectedService?.service_kind || ''" /></template>
+    <template #footer><ServiceUseNotice v-if="!loading" :organization-slug="guardianPathSlug" :service-type="activePanel==='family_messages' ? (familyMessageServiceKind==='counseling'?'counseling':'tutoring') : learningOnlyPortalContext ? 'tutoring' : selectedService?.service_kind || ''" /></template>
   </FamilyPortalShell>
 
   </ClinicalWorkspaceFrame>
@@ -656,6 +638,7 @@ import AuricWellPortalGuide from '../../components/guardian/AuricWellPortalGuide
 import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';
 import HistoricalBillingRequest from '../../components/billing/HistoricalBillingRequest.vue';
 import ClientSupportAccounts from '../../components/guardian/ClientSupportAccounts.vue';
+import GuardianRecordsPanel from '../../components/guardian/GuardianRecordsPanel.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianInvitations from '../../components/guardian/GuardianInvitations.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
@@ -718,13 +701,14 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['enroll','assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const activePanel = ref(['records','enroll','assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const pendingEnrollmentState = ref({ loaded: false, pending: false });
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
 });
-const comingSoonKey = ref('');
+const standalonePanel = computed(() => ['onboarding','updates','help','assistance','enroll','notifications'].includes(activePanel.value));
+const isQaPortal = computed(() => authStore.user?.automationActor?.kind === 'qa_automation' || /(?:^|-)qa(?:-|$)/i.test(portalAgency.value?.slug || ''));
 const selectedInlineEvent = ref(null); // { eventId:number, programMode:boolean } | null
 
 const formatDocStatus = (s) => {
@@ -794,6 +778,8 @@ const parseFeatureFlags = (raw) => {
 };
 
 const selectedServiceId=ref(Number(route.query.serviceId)||null);
+const familyMessageServiceKind=ref('');
+const rememberedServiceByProfile=new Map();
 const selectedServices=computed(()=>children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value))?.services||[]);
 const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||selectedServices.value[0]||null);
 // The saved active child can differ from a deep link's child while overview
@@ -845,7 +831,7 @@ const schoolAffiliations = computed(() => {const profile=allFamilyProfiles.value
 const hasSchoolAffiliations = computed(() => schoolAffiliations.value.length > 0);
 const selectedSchoolId = ref(null);
 const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(s.organization_id) === Number(selectedSchoolId.value)) || schoolAffiliations.value[0] || null);
-const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSchool.value.name}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
+const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${displayOrganization(selectedSchool.value.name)}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
 const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
 const clinicalGuardianContext = computed(() => !!selectedChild.value && !standardsLearningVisible.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
 const auricWellPortalBrand=computed(()=>clinicalGuardianContext.value&&normalizeTenantBrandKey(portalAgency.value?.slug||selectedChild.value?.agency_slug)!=='nlu');
@@ -942,7 +928,8 @@ const portalAccountLabel = computed(() => !allFamilyProfiles.value.length || all
 const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family portal' ? 'My family / dashboard' : 'My dashboard');
 const selectedFirstName = computed(() => String(selectedChild.value?.full_name || '').split(' — ')[0].trim().split(/\s+/)[0] || 'Client');
 const selectedPrograms = computed(() => programs.value.filter(p => [Number(selectedChild.value?.agency_id),Number(selectedChild.value?.organization_id)].includes(Number(p.id))));
-function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:school.name,logo:school.logo_url} : person?.organization_type==='school' ? {name:person.organization_name,logo:person.organization_logo_url} : null; }
+function displayOrganization(name) {return isQaPortal.value?String(name||'').replace(/\s*[—-]\s*DEMO$/i,''):name;}
+function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:displayOrganization(school.name),logo:school.logo_url} : person?.organization_type==='school' ? {name:displayOrganization(person.organization_name),logo:person.organization_logo_url} : null; }
 const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => familyProfileHasRecordAccess(person) && profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
 const selectedSchoolRelease = computed(() => schoolReleasePeople.value.find(person => Number(person.clientId) === Number(selectedChildId.value)) || null);
 const schoolReleaseVersion=ref(0);
@@ -958,10 +945,13 @@ async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId 
   const aid=agencyId||(contexts.some(c=>Number(c.agency_id)===currentAgencyId.value)?currentAgencyId.value:profile?.agency_id);
   const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(aid));
   if (!profile || !agency?.slug) return;
+  if(selectedChildId.value&&selectedServiceId.value)rememberedServiceByProfile.set(`${currentAgencyId.value}:${selectedChildId.value}`,selectedServiceId.value);
   selectedPortalAgency.value = agency; agencyStore.setCurrentAgency(agency); selectedChildId.value = Number(profile.client_id);
-  selectedServiceId.value=Number(serviceId)||null;
+  const remembered=rememberedServiceByProfile.get(`${aid}:${profile.client_id}`);
+  const wanted=Number(serviceId)||remembered;
   const services=contexts.find(c=>Number(c.agency_id)===Number(aid))?.services||[];
-  const service=services.find(s=>Number(s.id)===Number(serviceId))||services[0];selectedServiceId.value=Number(service?.id)||null;
+  const service=services.find(s=>Number(s.id)===Number(wanted))||services[0];selectedServiceId.value=Number(service?.id)||null;
+  if(selectedServiceId.value)rememberedServiceByProfile.set(`${aid}:${profile.client_id}`,selectedServiceId.value);
   activePanel.value = panel || ((service?service.service_kind==='tutoring':['learning','tutoring'].includes(profile.client_type)) ? 'tutoring' : 'overview');
   await router.replace({path:`/${encodeURIComponent(agency.slug)}/guardian`,query:{portal:agency.slug,clientId:profile.client_id,serviceId:selectedServiceId.value||undefined,panel:activePanel.value}});
   scrollPortalTop();
@@ -1057,23 +1047,26 @@ const portalNavigation = computed(() => {
   const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance'].includes(i.key))
     && !(restrictedLearningGuardian.value && ['billing','payment_methods','family_billing'].includes(i.key))
     && !(selectedGuardianPermissions.value.canViewDocs===false && i.key==='documents'));
-  return available.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
+  return available.map(i=>({...i,secondary:['overview','registrations','past_providers','notification_history','billing','updates','checkins','evaluations','assistance','enroll','contact','messages','payment_methods','notifications'].includes(i.key),label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });
 const portalTitle = computed(() => limitedServicePortal.value ? ft(selectedServiceAccess.value.statusLabel) : activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `${familyLocale.value === 'es' ? 'Bienvenido' : 'Welcome'}${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
-const portalSubtitle = computed(() => limitedServicePortal.value ? 'Billing, receipts, records, and account support remain available.' : ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
+const portalSubtitle = computed(() => limitedServicePortal.value ? 'Billing, receipts, records, and account support remain available.' : ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',family_messages:'Choose a family member and service from the conversations you are authorized to use.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
 function navigatePortal(key) {
   if(limitedServicePortal.value&&!LIMITED_SERVICE_PANELS.includes(key))return;
   if (key === 'signout') { authStore.logout(); return; }
   if (key === 'dependents') key = 'family';
-  if (key === 'records') { router.push({path:'/my-records',query:{agencyId:selectedChildAgencyId.value}}); return; }
+  if (key === 'records') { activePanel.value = key; router.replace({query:{...route.query,clientId:selectedChildId.value,panel:key}}); scrollPortalTop(); return; }
   if (!['onboarding','updates','overview'].includes(key) && !portalNavigation.value.some(item => item.key === key)) return;
   if (key === 'waivers') { router.push(guardianWaiversLink.value); return; }
   onboardingBillingNotice.value = !limitedServicePortal.value && key === 'billing' && onboardingRequired.value;
   if (onboardingBillingNotice.value) key = 'onboarding';
   if (key === 'overview' && standardsLearningVisible.value && !limitedServicePortal.value) key = 'tutoring';
   activePanel.value = key; selectedInlineEvent.value = null;
-  router.replace({query:{...route.query,clientId:selectedChildId.value,panel:key}}); scrollPortalTop();
+  const query={...route.query,panel:key};
+  if(key==='family_messages'){delete query.clientId;delete query.serviceId;}else{query.clientId=selectedChildId.value;query.serviceId=selectedServiceId.value||undefined;}
+  router.replace({query}); scrollPortalTop();
 }
+watch(()=>[route.query.panel,route.query.clientId,route.query.serviceId],([panel,clientId,serviceId])=>{if(panel==='family_messages'&&(clientId||serviceId)){const query={...route.query};delete query.clientId;delete query.serviceId;void router.replace({query});}},{immediate:true});
 watch(() => route.query.panel, key => { if ((!limitedServicePortal.value||LIMITED_SERVICE_PANELS.includes(key))&&(['onboarding','updates','family','help','overview'].includes(key) || portalNavigation.value.some(item => item.key === key))) { if(key==='billing' && onboardingRequired.value)navigatePortal('billing');else activePanel.value=key; } });
 watch(() => [currentAgencyId.value,selectedChildId.value,isSuperadminPreview.value], async () => {
   const request=++portalGrantRequest;portalGrants.value=[];
@@ -1320,10 +1313,10 @@ async function openLearningClassWorkspace(item) {
 const panelTitle = computed(() => {
   if (activePanel.value === 'overview') return 'Family overview';
   if (activePanel.value === 'billing') return 'Billing';
-  if (activePanel.value === 'messages') return 'Messages by Conversa';
+  if (activePanel.value === 'messages') return 'Secure messages';
   if (activePanel.value === 'notifications') return 'Notifications';
   if (activePanel.value === 'policy') return 'Policy & Procedures';
-  return 'My Dashboard';
+  return 'Your portal';
 });
 
 const currentProgramSummary = computed(() => {
@@ -1379,17 +1372,6 @@ function openInlineEventFromWorkspace(evt) {
   activePanel.value = 'overview';
   selectedInlineEvent.value = { eventId: id, programMode: !!evt?.programMode };
 }
-
-const comingSoonMessage = computed(() => {
-  const key = String(comingSoonKey.value || '');
-  const map = {
-    contact: 'A contact card will list assigned providers and support team contacts.',
-    booking: 'A booking card will let you request and manage sessions.',
-    add_child: 'Add Child will allow you to link additional children to this account.',
-    additional_programs: 'Additional programs enrollment will be available here.'
-  };
-  return map[key] || 'This feature is coming soon.';
-});
 
 const resolveTargetSlug = (program) => {
   const slug = String(program?.slug || program?.portal_url || '').trim();
@@ -1959,13 +1941,7 @@ watch(
   { immediate: true }
 );
 
-const openComingSoon = (key) => {
-  comingSoonKey.value = String(key || '');
-};
 
-const closeComingSoon = () => {
-  comingSoonKey.value = '';
-};
 
 onMounted(async () => {
   try {

@@ -21,6 +21,14 @@ export async function readClientSessionBookingRollout(agencyId, db = pool) {
   return policy && Array.isArray(policy.entries) ? policy : empty();
 }
 export async function clientSessionBookingAccess(agencyId, providerUserId, db = pool, { businessType } = {}) {
+  if (businessType === 'any') {
+    const [clinical,tutoring]=await Promise.all([
+      clientSessionBookingAccess(agencyId,providerUserId,db),
+      clientSessionBookingAccess(agencyId,providerUserId,db,{businessType:'tutoring'})
+    ]);
+    const availableBusinessTypes=[...(clinical.enabled?['mental_health']:[]),...(tutoring.enabled?['tutoring']:[])];
+    return {enabled:availableBusinessTypes.length>0,availableBusinessTypes,reason:availableBusinessTypes.length?null:'No assigned service is currently available for scheduling in this organization.'};
+  }
   if (businessType === 'tutoring') {
     const offered = await readProviderServices(providerUserId, agencyId, db);
     const enabled = offered.careEligibility.canProvideCare && offered.services.some(service => service.serviceType === 'tutoring' && service.offered);

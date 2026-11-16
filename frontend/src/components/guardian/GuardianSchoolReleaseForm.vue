@@ -1,16 +1,16 @@
 <template>
   <section v-if="state !== 'idle'" class="portal-school-release" aria-label="School release of information">
-    <h3 v-if="!embedded">Assigned to your documents</h3>
-    <p v-if="!embedded" class="release-kicker">School release of information</p>
+    <h3 v-if="!embedded">{{ ft("Assigned to your documents") }}</h3>
+    <p v-if="!embedded" class="release-kicker">{{ ft("School release of information") }}</p>
     <p v-if="schoolName && state !== 'signed'" class="release-school">{{ schoolName }}</p>
-    <p v-if="state === 'form'">Complete this release here. It is saved to this child’s chart.</p>
-    <p v-if="state === 'loading'">Loading the school release…</p>
+    <p v-if="state === 'form'">{{ ft("Complete this release here. It is saved to this child’s chart.") }}</p>
+    <p v-if="state === 'loading'">{{ ft("Loading the school release…") }}</p>
     <p v-else-if="state === 'error'" role="alert">{{ error }}</p>
-    <p v-else-if="state === 'signed'">This school release is signed and saved on the chart.</p>
+    <p v-else-if="state === 'signed'">{{ ft("This school release is signed and saved on the chart.") }}</p>
     <div v-if="decisions.length" class="release-decisions">
-      <h4>Current school sharing permissions</h4>
-      <p>Either guardian’s explicit denial blocks clinical sharing with that staff member. Required scheduling, logistics and messaging remain available.</p>
-      <ul><li v-for="row in decisions" :key="row.schoolStaffUserId"><strong>{{ row.staffName }}: {{ decisionLabel(row.effectiveDecision) }}</strong><ul><li v-for="(guardian, index) in row.guardians" :key="index">{{ guardian.guardianName }}: {{ decisionLabel(guardian.decision) }}<span v-if="guardian.expired"> · permission expired</span></li></ul><p v-if="row.conflict">The guardians’ decisions differ. The more restrictive permission applies.</p></li></ul>
+      <h4>{{ ft("Current school sharing permissions") }}</h4>
+      <p>{{ ft("Either guardian’s explicit denial blocks clinical sharing with that staff member. Required scheduling, logistics and messaging remain available.") }}</p>
+      <ul><li v-for="row in decisions" :key="row.schoolStaffUserId"><strong>{{ row.staffName }}: {{ ft(decisionLabel(row.effectiveDecision)) }}</strong><ul><li v-for="(guardian, index) in row.guardians" :key="index">{{ guardian.guardianName }}: {{ ft(decisionLabel(guardian.decision)) }}<span v-if="guardian.expired"> {{ ft("· permission expired") }}</span></li></ul><p v-if="row.conflict">{{ ft("The guardians’ decisions differ. The more restrictive permission applies.") }}</p></li></ul>
     </div>
     <SmartSchoolRoiFlow
       v-if="packet && state === 'form'"
@@ -25,6 +25,8 @@
 </template>
 
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 import SmartSchoolRoiFlow from '../public/SmartSchoolRoiFlow.vue';
@@ -42,7 +44,7 @@ const error = ref('');
 const schoolName = ref('');
 const packet = ref(null);
 const decisions = ref([]);
-const decisionLabel = value => ({none:'No clinical sharing',roi:'Speak only',roi_docs:'Permitted goals and objectives'}[value] || 'Awaiting review');
+const decisionLabel = value => ({none:'No clinical sharing',roi:'Speak only',roi_docs:'Selected goals and objectives may be shared'}[value] || 'Awaiting review');
 let ticket = 0;
 
 async function load() {

@@ -5,7 +5,7 @@ const allowedRead=/^\/(?:past-providers|reenrollment|service-access|session-hist
 export function limitedServiceRouteAllowed(method,path){return method==='GET'&&allowedRead.test(path)||method==='POST'&&/^\/(?:cancellations\/[^/]+\/feedback|services\/\d+\/return-request)\/?$/.test(path);}
 const fail=(message,status=403)=>Object.assign(new Error(message),{status,code:'SERVICE_PORTAL_LIMITED'});
 export function limitedGlobalRouteAllowed(method,path){
- return method==='GET'&&/^\/(?:overview|clients|account)\/?$/.test(path)||method==='PUT'&&/^\/account\/?$/.test(path)
+ return method==='GET'&&/^\/(?:overview|help-context|clients|account)\/?$/.test(path)||method==='PUT'&&/^\/account\/?$/.test(path)
   ||['GET','POST'].includes(method)&&/^\/support-tickets(?:\/[^/]+(?:\/messages)?)?\/?$/.test(path)||method==='POST'&&/^\/technology-help\/?$/.test(path);
 }
 export function createGlobalServicePortalGate(overrides={}){
