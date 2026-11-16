@@ -1,0 +1,40 @@
+name: Client workspace and private history
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/views/admin/ClientManagementView.vue'
+      - 'frontend/src/components/admin/clientChart/**'
+      - 'frontend/src/components/clientExchange/**'
+      - 'frontend/src/components/AccountSecurityNotice.vue'
+      - 'frontend/src/AppWorkspace.vue'
+      - 'frontend/src/composables/useClientCreationDrafts.js'
+      - 'frontend/src/utils/queueAttention.js'
+      - 'backend/src/controllers/clientChart*.js'
+      - 'backend/src/controllers/clientCreationDraft.controller.js'
+      - 'backend/src/services/clientChart*.js'
+      - 'backend/src/services/privatePacketScanJob.service.js'
+      - '**/vitest.client-polish.config.js'
+      - '.github/workflows/client-workspace-polish.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  client-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - run: npm ci --ignore-scripts --prefix frontend
+      - run: npm ci --prefix backend
+      - run: frontend/node_modules/.bin/vitest run --config backend/vitest.chart-import.config.js
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+      - run: frontend/node_modules/.bin/vitest run --config backend/vitest.client-polish.config.js
+      - run: frontend/node_modules/.bin/vitest run --config frontend/vitest.chart-import.config.js
+      - run: frontend/node_modules/.bin/vitest run --config frontend/vitest.client-polish.config.js

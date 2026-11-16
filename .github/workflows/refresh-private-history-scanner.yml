@@ -1,0 +1,67 @@
+name: Refresh private medical history scanner
+on:
+  workflow_dispatch:
+    inputs:
+      backend_build_id:
+        description: Ready backend build SHA to use as the immutable worker base
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: refresh-private-medical-history-scanner
+  cancel-in-progress: false
+jobs:
+  scanner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: us-west3
+      EXPECTED_BUILD_ID: ${{ inputs.backend_build_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Resolve the ready backend image without reading secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_BUILD_ID" =~ ^[a-f0-9]{40}$ ]]
+          gcloud config set project "$PROJECT_ID"
+          revision=$(gcloud run services describe onboarding-backend --region="$REGION" --format='json(status.traffic)' | jq -er '.status.traffic[] | select(.percent == 100) | .revisionName')
+          base_image=$(gcloud run revisions describe "$revision" --region="$REGION" --format='value(status.imageDigest)')
+          service_url=$(gcloud run services describe onboarding-backend --region="$REGION" --format='value(status.url)')
+          curl --fail --silent --show-error "$service_url/api/app-version" | jq -e --arg sha "$EXPECTED_BUILD_ID" '.ready == true and .buildId == $sha' >/dev/null
+          [[ "$base_image" == *@sha256:* ]]
+          printf 'BASE_IMAGE=%s\n' "$base_image" >> "$GITHUB_ENV"
+          printf 'WORKER_IMAGE=%s\n' "$REGION-docker.pkg.dev/$PROJECT_ID/private-packet-scanner/worker:history-$EXPECTED_BUILD_ID" >> "$GITHUB_ENV"
+      - name: Build and publish the private worker from that release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          context=$(mktemp -d)
+          trap 'rm -rf "$context"' EXIT
+          mkdir "$context/backend"
+          cp backend/Dockerfile.packet-scanner "$context/Dockerfile"
+          cp backend/clamd.conf "$context/backend/clamd.conf"
+          docker build --build-arg "APP_IMAGE=$BASE_IMAGE" -t "$WORKER_IMAGE" "$context"
+          docker push "$WORKER_IMAGE"
+          digest_image=$(docker inspect --format='{{index .RepoDigests 0}}' "$WORKER_IMAGE")
+          [[ "$digest_image" == *@sha256:* ]]
+          printf 'WORKER_DIGEST=%s\n' "$digest_image" >> "$GITHUB_ENV"
+      - name: Update only the existing worker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run jobs update private-paper-packet-scan --region="$REGION" --image="$WORKER_DIGEST" --quiet --format='value(metadata.name)'
+      - name: Verify private scanning with synthetic bytes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run jobs execute private-paper-packet-scan --region="$REGION" --update-env-vars=PACKET_SCAN_SELF_TEST=1 --wait --quiet --format='value(metadata.name)'

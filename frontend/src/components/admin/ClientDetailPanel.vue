@@ -198,6 +198,7 @@
             :can-send-secure-message="canOpenClientSecureMessage"
             @secure-message="openClientSecureMessage"
             :can-view-medical-record="canViewMedicalRecord"
+            :can-view-private-chart="['super_admin', 'admin', 'support', 'provider', 'provider_plus'].includes(roleNorm)"
             :glance-items="overviewGlanceItems"
             :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
             :program-label="overviewProgramLabel"

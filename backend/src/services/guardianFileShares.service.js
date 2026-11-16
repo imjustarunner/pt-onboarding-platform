@@ -13,7 +13,7 @@ const fail=(status,message)=>{throw Object.assign(new Error(message),{status});}
 const roles=['super_admin','admin','agency_admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'];
 export const fileKeyHash=doc=>crypto.createHash('sha256').update(String(doc.storage_path)).digest('hex');
 export function shareableFile(doc) {
- return !!doc&&!doc.removed_at&&(!doc.expires_at||+new Date(doc.expires_at)>Date.now())
+ return !!doc&&doc.document_type!=='private_client_medical_history'&&!doc.removed_at&&(!doc.expires_at||+new Date(doc.expires_at)>Date.now())
   && (!doc.scan_status||doc.scan_status==='clean')&&!doc.quarantine_path
   && ['application/pdf','image/jpeg','image/png','text/plain'].includes(doc.mime_type);
 }

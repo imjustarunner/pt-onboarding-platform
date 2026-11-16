@@ -69,18 +69,18 @@ class ClientPhiDocument {
         expiresAt
       ]
     );
-    return this.findById(result.insertId);
+    return documentType==='private_client_medical_history' ? this.findById(result.insertId,{includePrivateHistory:true}) : this.findById(result.insertId);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute('SELECT * FROM client_phi_documents WHERE id = ? LIMIT 1', [id]);
+  static async findById(id, {includePrivateHistory=false}={}) {
+    const [rows] = await pool.execute(`SELECT * FROM client_phi_documents WHERE id = ? ${includePrivateHistory?'':"AND COALESCE(document_type,'') <> 'private_client_medical_history'"} LIMIT 1`, [id]);
     return rows[0] || null;
   }
 
-  static async findByClientId(clientId) {
+  static async findByClientId(clientId, {includePrivateHistory=false}={}) {
     const [rows] = await pool.execute(
       `SELECT * FROM client_phi_documents
-       WHERE client_id = ?
+       WHERE client_id = ? ${includePrivateHistory?'':"AND COALESCE(document_type,'') <> 'private_client_medical_history'"}
        ORDER BY uploaded_at DESC, id DESC`,
       [clientId]
     );
@@ -140,9 +140,9 @@ class ClientPhiDocument {
     return Number(result?.affectedRows || 0);
   }
 
-  static async findByStoragePath(storagePath) {
+  static async findByStoragePath(storagePath, {includePrivateHistory=false}={}) {
     const [rows] = await pool.execute(
-      `SELECT * FROM client_phi_documents WHERE storage_path = ? LIMIT 1`,
+      `SELECT * FROM client_phi_documents WHERE storage_path = ? ${includePrivateHistory?'':"AND COALESCE(document_type,'') <> 'private_client_medical_history'"} LIMIT 1`,
       [storagePath]
     );
     return rows[0] || null;

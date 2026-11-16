@@ -701,7 +701,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['records','enroll','assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const activePanel = ref(['past_providers','records','enroll','assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const pendingEnrollmentState = ref({ loaded: false, pending: false });
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
@@ -1921,7 +1921,7 @@ watch(
     allowedKeys.add('messages');
     allowedKeys.add('account');
     allowedKeys.add('notifications');
-    for(const key of ['assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','enroll','updates','help','plan','notification_history']) allowedKeys.add(key);
+    for(const key of ['records','past_providers','assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','enroll','updates','help','plan','notification_history']) allowedKeys.add(key);
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'

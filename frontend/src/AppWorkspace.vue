@@ -1,6 +1,6 @@
 <template>
   <BrandingProvider>
-    <AccountSecurityNotice v-if="isAuthenticated" />
+    <AccountSecurityNotice v-if="isAuthenticated && (hideGlobalNavForSchoolStaff || isImmersiveJoinRoute || route.meta?.familyCommandCenter)" class="security-fallback" />
     <FamilySharingNoticeHost v-if="isAuthenticated && user?.id && !isLoginEntry && !secureCommunicationRouteExcluded && !isPublicOfficeRoute" :user-id="user.id" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <SecureSessionCommentsHost v-if="isAuthenticated && canUseSessionComments(user?.role) && user?.id && !isLoginEntry && !secureCommunicationRouteExcluded && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :user-id="user.id" :family="isFamilyPortalAccount" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <InsuranceVerificationGate v-if="isAuthenticated && !sessionLockStore.isLocked && !sessionLockStore.warningActive" />
@@ -105,6 +105,7 @@
               :title="navLinksCanScroll ? 'Scroll sideways to see more menu items' : undefined"
             >
               <div class="nav-links">
+              <AccountSecurityNotice v-if="isAuthenticated" />
               <!--
                 Desktop word links / dropdowns: admin · super_admin · support only.
                 Everyone else uses the hamburger (sandwich) sidebar for these items.
@@ -1962,17 +1963,14 @@
               <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
                 <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
                 <span>
-                  <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
-                  <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
-                    — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
-                  </span>
+                  <strong>{{ payrollNewCount }}</strong> new payroll submission{{ payrollNewCount !== 1 ? 's' : '' }}
                 </span>
               </button>
               <button
                 type="button"
                 class="toast-dismiss-btn payroll-pending-toast-dismiss"
-                aria-label="Snooze for 3 hours"
-                title="Snooze for 3 hours"
+                aria-label="Dismiss these updates"
+                title="Dismiss these updates"
                 @pointerdown.prevent.stop="dismissPayrollPendingToast"
                 @click.prevent.stop="dismissPayrollPendingToast"
               >✕</button>
@@ -1985,7 +1983,7 @@
               <button type="button" class="hiring-toast" @click="goToPreHireFromToast()">
                 <span class="hiring-toast-icon" aria-hidden="true">🤝</span>
                 <span>
-                  <strong>{{ preHireToastCount }}</strong> in pre-hire
+                  <strong>{{ preHireToastCount }}</strong> new in pre-hire
                   <span v-if="preHireToastNames.length" class="hiring-toast-names">
                     — {{ preHireToastNames.slice(0, 3).join(', ') }}{{ preHireToastNames.length > 3 ? ` +${preHireToastNames.length - 3} more` : '' }}
                   </span>
@@ -1994,8 +1992,8 @@
               <button
                 type="button"
                 class="toast-dismiss-btn hiring-toast-dismiss"
-                aria-label="Snooze for 3 hours"
-                title="Snooze for 3 hours"
+                aria-label="Dismiss these updates"
+                title="Dismiss these updates"
                 @pointerdown.prevent.stop="dismissPreHireToast"
                 @click.prevent.stop="dismissPreHireToast"
               >✕</button>
@@ -2008,7 +2006,7 @@
               <button type="button" class="hiring-toast" @click="goToApplicantsFromToast()">
                 <span class="hiring-toast-icon" aria-hidden="true">📋</span>
                 <span>
-                  <strong>{{ applicantsToastCount }}</strong> application{{ applicantsToastCount !== 1 ? 's' : '' }}
+                  <strong>{{ applicantsToastCount }}</strong> new application{{ applicantsToastCount !== 1 ? 's' : '' }}
                   <span v-if="applicantsToastNames.length" class="hiring-toast-names">
                     — {{ applicantsToastNames.slice(0, 3).join(', ') }}{{ applicantsToastNames.length > 3 ? ` +${applicantsToastNames.length - 3} more` : '' }}
                   </span>
@@ -2017,8 +2015,8 @@
               <button
                 type="button"
                 class="toast-dismiss-btn hiring-toast-dismiss"
-                aria-label="Snooze for 3 hours"
-                title="Snooze for 3 hours"
+                aria-label="Dismiss these updates"
+                title="Dismiss these updates"
                 @pointerdown.prevent.stop="dismissApplicantsToast"
                 @click.prevent.stop="dismissApplicantsToast"
               >✕</button>
@@ -2309,6 +2307,7 @@ const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
 import EmailComposerDock from './components/messages/EmailComposerDock.vue';
 import AccountSecurityNotice from './components/AccountSecurityNotice.vue';
+import { newQueueItems } from './utils/queueAttention.js';
 import InsuranceVerificationGate from './components/billing/InsuranceVerificationGate.vue';
 import SchoolContactPlanSplash from './components/school/SchoolContactPlanSplash.vue';
 import SecureSessionCommentsHost from './components/session-comments/SecureSessionCommentsHost.vue';
@@ -4638,39 +4637,14 @@ const schoolClientsPendingCount = ref(0);
 let schoolClientsPendingInterval = null;
 
 // ---- Pending payroll submissions badge + toast ----
-const PAYROLL_TOAST_SNOOZE_KEY = 'payrollPendingToastSnoozedUntil';
-
-const readPayrollToastSnoozeUntil = () => {
-  try {
-    return Number(localStorage.getItem(PAYROLL_TOAST_SNOOZE_KEY) || 0) || 0;
-  } catch {
-    return 0;
-  }
-};
-
 const payrollPendingCount = ref(0);
 const payrollPendingItems = ref([]); // [{ userId, name, types, count }]
 const payrollPendingTypeCounts = ref({});
 const payrollPendingToastVisible = ref(false);
-/** Session + persisted snooze. Boolean so dismiss is immediate and cannot race a refetch. */
-const payrollToastSnoozed = ref(readPayrollToastSnoozeUntil() > Date.now());
-const showPayrollPendingToast = computed(
-  () => payrollPendingToastVisible.value && payrollPendingCount.value > 0 && !payrollToastSnoozed.value
-);
+const payrollNewCount = ref(0);
+const showPayrollPendingToast = computed(() => payrollPendingToastVisible.value && payrollNewCount.value > 0);
 let payrollPendingInterval = null;
-
-const snoozePayrollToast = (hours = 3) => {
-  payrollToastSnoozed.value = true;
-  try {
-    localStorage.setItem(PAYROLL_TOAST_SNOOZE_KEY, String(Date.now() + hours * 60 * 60 * 1000));
-  } catch { /* ignore */ }
-};
-
-const clearPayrollToastSnooze = () => {
-  payrollToastSnoozed.value = false;
-  try { localStorage.removeItem(PAYROLL_TOAST_SNOOZE_KEY); } catch { /* ignore */ }
-};
-
+const queueAttentionKey = kind => `queue-attention-v1:${user.value?.id}:${currentAgencyId.value}:${kind}`;
 const fetchPayrollPendingSubmissions = async () => {
   if (!canPollWorkspace()) return;
   if (!isAuthenticated.value || !canSeePayrollManagement.value || !currentAgencyId.value) {
@@ -4679,33 +4653,26 @@ const fetchPayrollPendingSubmissions = async () => {
     return;
   }
   try {
+    const requestedScope=queueAttentionKey('payroll');
     const resp = await api.get('/payroll/pending-submissions-summary', {
       params: { agencyId: Number(currentAgencyId.value) },
       skipGlobalLoading: true
     });
+    if(requestedScope!==queueAttentionKey('payroll'))return;
     payrollPendingCount.value = Number(resp.data?.totalCount || 0);
     payrollPendingItems.value = Array.isArray(resp.data?.ptoSubmissions) ? resp.data.ptoSubmissions : [];
     payrollPendingTypeCounts.value = resp.data?.typeCounts || {};
-    // Keep in-memory flag aligned with localStorage (e.g. after refresh / other tab)
-    if (!payrollToastSnoozed.value && readPayrollToastSnoozeUntil() > Date.now()) {
-      payrollToastSnoozed.value = true;
-    }
-    if (payrollPendingCount.value > 0) {
-      if (!payrollToastSnoozed.value) {
-        payrollPendingToastVisible.value = true;
-      }
-    } else {
-      // Queue cleared — allow toast to reappear for future submissions
-      payrollPendingToastVisible.value = false;
-      clearPayrollToastSnooze();
-    }
+    const key = queueAttentionKey('payroll');
+    const fresh = await newQueueItems(localStorage,key,(resp.data?.eventKeys || []).map(key => ({key})));
+    if (key !== queueAttentionKey('payroll')) return;
+    if (fresh.length) { payrollNewCount.value = fresh.length; payrollPendingToastVisible.value = true; }
+    else if (!payrollPendingCount.value) payrollPendingToastVisible.value = false;
   } catch {
     // best-effort
   }
 };
 
 const dismissPayrollPendingToast = () => {
-  snoozePayrollToast(3);
   payrollPendingToastVisible.value = false;
 };
 
@@ -4731,17 +4698,6 @@ const goToPayrollStage = () => {
 };
 
 // ---- Hiring attention toasts (pre-hire + applicants) ----
-const PREHIRE_TOAST_SNOOZE_KEY = 'preHireToastSnoozedUntil';
-const APPLICANTS_TOAST_SNOOZE_KEY = 'applicantsToastSnoozedUntil';
-
-const readSnoozeUntil = (key) => {
-  try {
-    return Number(localStorage.getItem(key) || 0) || 0;
-  } catch {
-    return 0;
-  }
-};
-
 const canSeeHiringToasts = computed(() =>
   isAuthenticated.value &&
   hasHiringFeature.value &&
@@ -4752,17 +4708,15 @@ const canSeeHiringToasts = computed(() =>
 const preHireToastCount = ref(0);
 const preHireToastNames = ref([]);
 const preHireToastVisible = ref(false);
-const preHireToastSnoozed = ref(readSnoozeUntil(PREHIRE_TOAST_SNOOZE_KEY) > Date.now());
 const showPreHireToast = computed(
-  () => preHireToastVisible.value && preHireToastCount.value > 0 && !preHireToastSnoozed.value
+  () => preHireToastVisible.value && preHireToastCount.value > 0
 );
 
 const applicantsToastCount = ref(0);
 const applicantsToastNames = ref([]);
 const applicantsToastVisible = ref(false);
-const applicantsToastSnoozed = ref(readSnoozeUntil(APPLICANTS_TOAST_SNOOZE_KEY) > Date.now());
 const showApplicantsToast = computed(
-  () => applicantsToastVisible.value && applicantsToastCount.value > 0 && !applicantsToastSnoozed.value
+  () => applicantsToastVisible.value && applicantsToastCount.value > 0
 );
 
 let hiringToastInterval = null;
@@ -4773,18 +4727,6 @@ const hiringToastFirstName = (u) => {
   const full = `${u?.first_name || ''} ${u?.last_name || ''}`.trim();
   if (full) return full.split(/\s+/)[0];
   return String(u?.personal_email || u?.email || 'Candidate').split('@')[0];
-};
-
-const snoozeHiringToast = (key, snoozedRef, hours = 3) => {
-  snoozedRef.value = true;
-  try {
-    localStorage.setItem(key, String(Date.now() + hours * 60 * 60 * 1000));
-  } catch { /* ignore */ }
-};
-
-const clearHiringToastSnooze = (key, snoozedRef) => {
-  snoozedRef.value = false;
-  try { localStorage.removeItem(key); } catch { /* ignore */ }
 };
 
 const fetchPeopleOperationsNavCounts = async () => {
@@ -4835,6 +4777,7 @@ const fetchHiringAttentionToasts = async () => {
     return;
   }
   const agencyId = Number(currentAgencyId.value);
+  const requestedScope=queueAttentionKey('hiring');
   try {
     const [preRes, appRes] = await Promise.all([
       api.get('/hiring/prehire-candidates', {
@@ -4847,9 +4790,9 @@ const fetchHiringAttentionToasts = async () => {
       }).catch(() => ({ data: [] }))
     ]);
 
+    if(requestedScope!==queueAttentionKey('hiring'))return;
     const preList = Array.isArray(preRes.data) ? preRes.data : [];
-    preHireToastCount.value = preList.length;
-    preHireToastNames.value = preList.map(hiringToastFirstName);
+
 
     const appRaw = Array.isArray(appRes.data)
       ? appRes.data
@@ -4857,28 +4800,17 @@ const fetchHiringAttentionToasts = async () => {
     // Keep toast focused on active applicants (exclude anyone still in pre-hire statuses).
     const preHireStatuses = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW']);
     const appList = appRaw.filter((u) => !preHireStatuses.has(String(u?.status || '').toUpperCase()));
-    applicantsToastCount.value = appList.length;
-    applicantsToastNames.value = appList.map(hiringToastFirstName);
 
-    if (!preHireToastSnoozed.value && readSnoozeUntil(PREHIRE_TOAST_SNOOZE_KEY) > Date.now()) {
-      preHireToastSnoozed.value = true;
-    }
-    if (!applicantsToastSnoozed.value && readSnoozeUntil(APPLICANTS_TOAST_SNOOZE_KEY) > Date.now()) {
-      applicantsToastSnoozed.value = true;
-    }
 
-    if (preHireToastCount.value > 0) {
-      if (!preHireToastSnoozed.value) preHireToastVisible.value = true;
-    } else {
-      preHireToastVisible.value = false;
-      clearHiringToastSnooze(PREHIRE_TOAST_SNOOZE_KEY, preHireToastSnoozed);
-    }
-
-    if (applicantsToastCount.value > 0) {
-      if (!applicantsToastSnoozed.value) applicantsToastVisible.value = true;
-    } else {
-      applicantsToastVisible.value = false;
-      clearHiringToastSnooze(APPLICANTS_TOAST_SNOOZE_KEY, applicantsToastSnoozed);
+    const scope = queueAttentionKey('hiring');
+    for (const [kind, rows, count, names, visible] of [
+      ['prehire',preList,preHireToastCount,preHireToastNames,preHireToastVisible],
+      ['applications',appList,applicantsToastCount,applicantsToastNames,applicantsToastVisible]
+    ]) {
+      const fresh = await newQueueItems(localStorage,`${scope}:${kind}`,rows.map(row => ({key:`${row.id}:${row.status || ''}`,row})));
+      if (scope !== queueAttentionKey('hiring')) return;
+      if (fresh.length) { count.value = fresh.length; names.value = fresh.map(item => hiringToastFirstName(item.row)); visible.value = true; }
+      else if (!rows.length) visible.value = false;
     }
   } catch {
     // best-effort
@@ -4886,12 +4818,10 @@ const fetchHiringAttentionToasts = async () => {
 };
 
 const dismissPreHireToast = () => {
-  snoozeHiringToast(PREHIRE_TOAST_SNOOZE_KEY, preHireToastSnoozed, 3);
   preHireToastVisible.value = false;
 };
 
 const dismissApplicantsToast = () => {
-  snoozeHiringToast(APPLICANTS_TOAST_SNOOZE_KEY, applicantsToastSnoozed, 3);
   applicantsToastVisible.value = false;
 };
 
@@ -6150,6 +6080,7 @@ watch(
 );
 
 function syncPayrollPendingPolling([authenticated, canSee, agencyId]) {
+  payrollPendingToastVisible.value=false;payrollNewCount.value=0;
   if (payrollPendingInterval) clearInterval(payrollPendingInterval);
   payrollPendingInterval = null;
   if (authenticated && canSee && agencyId) {
@@ -6166,6 +6097,7 @@ watch(
 );
 
 function syncHiringToastPolling() {
+  preHireToastVisible.value=false;applicantsToastVisible.value=false;preHireToastCount.value=0;applicantsToastCount.value=0;preHireToastNames.value=[];applicantsToastNames.value=[];
   if (hiringToastInterval) clearInterval(hiringToastInterval);
   hiringToastInterval = null;
   if (canSeeHiringToasts.value) {
@@ -8457,14 +8389,15 @@ button.nav-dropdown-button-link:hover {
 }
 
 /* ── Payroll pending submissions toast ── */
+.security-fallback { position:fixed; top:8px; right:12px; z-index:10100; background:var(--bg-card,#fff); border-radius:8px; }
 .app-status-tools {
   display: contents;
 }
 .app-corner-toasts {
   position: fixed;
-  top: 72px;
+  bottom: 24px;
   right: 20px;
-  z-index: 10050;
+  z-index: 10120;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

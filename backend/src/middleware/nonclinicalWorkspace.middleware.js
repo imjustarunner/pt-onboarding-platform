@@ -2,6 +2,7 @@ import {tutoringWorkspace} from '../services/tutoringWorkspace.service.js';
 export const nonclinicalProtectedPath=path=>{
  const value=String(path).split('?')[0];
  if(/^\/api\/(?:clinical-notes|clinical-data|clinical-session-security|clinical-forms|safety-plans|assessment-deliverables|outcome-measures|narriva|medical-billing|note-aid|supervision)(?:\/|$)/.test(value))return true;
+ if(/^\/api\/clients\/[1-9][0-9]*\/chart-import\/medical-history(?:\/|$)/.test(value))return true;
  if(/^\/api\/phi-documents\//.test(value)&&!/(?:enrollment-receipts|school-attachments)/.test(value))return true;
  return /^\/api\/clients\/[1-9][0-9]*(?:\/?$|\/(?:intake-note|clinical-responses|notes|daily-notes|insurance-card|agency-intake|paper-packet-documents|paper-packet-processing)(?:\/|$))/.test(value);
 };

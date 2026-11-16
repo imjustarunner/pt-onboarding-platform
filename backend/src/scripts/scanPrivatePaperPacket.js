@@ -8,6 +8,7 @@ import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import { paperPacketBytes } from '../services/paperPacketBytes.service.js';
 import { scanSessionMaterial } from '../services/sessionMaterialScan.service.js';
 import { evaluateAndApplyPaperPacketVision } from '../services/paperPacketVision.service.js';
+import { scanPrivateChartHistory } from '../services/clientChartHistory.service.js';
 import { scanPrivateClinicalMaterial } from '../services/privateClinicalMaterialScan.service.js';
 
 const clientId=Number(process.env.PACKET_SCAN_CLIENT_ID),documentId=Number(process.env.PACKET_SCAN_DOCUMENT_ID),actorId=Number(process.env.PACKET_SCAN_ACTOR_ID)||null;
@@ -44,12 +45,16 @@ try {
     if(clean.status!=='clean'||infected.status!=='infected')process.exitCode=1;
   }else{
   if(!clientId||!documentId||!String(marker||'').startsWith('private_scan_queued:'))throw Error('Missing private scan request.');
-  if(!['paper_packet','session_material'].includes(kind))throw Error('Invalid private scan request kind.');
+  if(!['paper_packet','session_material','chart_history'].includes(kind))throw Error('Invalid private scan request kind.');
   conn=await pool.getConnection();
   const [[lock]]=await conn.execute('SELECT GET_LOCK(?,0) AS acquired',[`private_packet_scan:${documentId}`]);
   locked=Number(lock.acquired)===1;
   if(locked){
-    if(kind==='session_material') {
+    if(kind==='chart_history') {
+      const result=await scanPrivateChartHistory({clientId,documentId,marker},{scan:async bytes=>{await startScanner();return scanSessionMaterial(bytes,{socketPath:'/tmp/pt-clamav/clamd.sock'});}});
+      console.log(JSON.stringify({event:'private_chart_history_scan_finished',status:result.status}));
+      if(result.status==='pending')process.exitCode=1;
+    } else if(kind==='session_material') {
       const result=await scanPrivateClinicalMaterial({clientId,documentId,clinicalSessionId,marker},{scan:async bytes=>{
         await startScanner();return scanSessionMaterial(bytes,{socketPath:'/tmp/pt-clamav/clamd.sock'});
       }});

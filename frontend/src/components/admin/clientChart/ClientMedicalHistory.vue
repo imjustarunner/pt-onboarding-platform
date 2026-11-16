@@ -1,0 +1,42 @@
+<template>
+ <section class="medical-history" aria-label="Medical history PDF">
+  <h4>Medical history PDF</h4>
+  <p>Upload this client’s complete history from the previous EHR. Large files are split locally into ordered PDF volumes with a page manifest.</p>
+  <p class="history-private">Files are encrypted in private storage. Only assigned providers, support and administrators can access them. Files stay unavailable until a private security check passes.</p>
+  <label>Client-specific PDF<input ref="input" type="file" accept="application/pdf,.pdf" :disabled="busy" @change="choose" /></label>
+  <p v-if="progress" role="status">{{ progress }}</p><p v-if="error" class="history-error" role="alert">{{ error }}</p>
+  <div v-if="archive" class="history-review"><strong>{{ archive.filename }}</strong><p>{{ archive.pageCount }} pages · {{ archive.parts.length }} volume(s) · up to 256 MB per source PDF</p><label class="history-check"><input v-model="confirmed" type="checkbox" :disabled="busy" /> I checked that every page belongs to {{ clientLabel || 'this client' }} (chart #{{ clientId }}).</label><button type="button" class="history-button history-primary" :disabled="busy || !confirmed" @click="upload">{{ busy ? 'Working…' : 'Upload complete medical history' }}</button><p v-if="archive.parts.length>1">Keep the original export for any digital signatures or embedded attachments.</p></div>
+  <div class="history-list-head"><strong>Saved history files</strong><button type="button" class="history-button" :disabled="busy" @click="load">Refresh file checks</button></div>
+  <p v-if="!documents.length && !busy">No medical history PDF uploaded yet.</p>
+  <ul><li v-for="doc in documents" :key="doc.id"><span>{{ doc.original_name || 'Medical history PDF' }}<small>{{ doc.available ? 'Private file check passed' : doc.scanStatus==='infected' ? 'File blocked by security check' : 'Encrypted · private file check pending' }}</small></span><button v-if="doc.available" type="button" class="history-button" :disabled="busy" @click="open(doc)">Open PDF</button><button v-else-if="doc.scanStatus!=='infected'" type="button" class="history-button" :disabled="busy" @click="check(doc)">Check file</button></li></ul>
+ </section>
+</template>
+<script setup>
+import { onBeforeUnmount,ref,watch } from 'vue';
+import api from '../../../services/api';
+import { prepareMedicalArchive,findArchiveDocument } from '../../../utils/auricwellMedicalArchive';
+const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},clientLabel:{type:String,default:''}});
+const emit=defineEmits(['busy']);
+const busy=ref(false),error=ref(''),progress=ref(''),archive=ref(null),confirmed=ref(false),documents=ref([]),input=ref(null);let generation=0;
+const base=()=>`/clients/${props.clientId}/chart-import/medical-history`;
+const config=()=>({skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.agencyId)}});
+watch(busy,value=>emit('busy',value),{flush:'sync'});
+function guard(version){if(version!==generation)throw Error('The selected client changed. Reopen the correct chart before uploading.');}
+function message(e){return e.response?.data?.error?.message||e.message||'Medical history could not be saved.';}
+async function load(){const version=generation;busy.value=true;error.value='';try{const{data}=await api.get(base(),config());guard(version);documents.value=data.documents||[];}catch(e){if(version===generation)error.value=message(e);}finally{if(version===generation)busy.value=false;}}
+async function choose(event){const file=event.target.files?.[0];if(!file||busy.value)return;const version=generation;busy.value=true;archive.value=null;confirmed.value=false;error.value='';progress.value='Reading this PDF locally…';try{const data=await prepareMedicalArchive(await file.arrayBuffer(),{filename:file.name,onProgress:({pages,total})=>{guard(version);progress.value=`Prepared ${pages} of ${total} pages…`;}});guard(version);archive.value=data;progress.value='Review the client identity before uploading.';}catch(e){if(version===generation)error.value=message(e);}finally{if(version===generation)busy.value=false;}}
+async function upload(){if(!archive.value||!confirmed.value||busy.value)return;const version=generation,url=base(),options=config();busy.value=true;error.value='';try{
+ const{data}=await api.get(url,options);guard(version);const stored=data.documents||[];const parts=[...archive.value.parts,archive.value.manifest];
+ for(let index=0;index<parts.length;index++){guard(version);const part=parts[index];if(!findArchiveDocument(stored,part.title)){const form=new FormData();form.append('file',new Blob([part.bytes],{type:'application/pdf'}),part.filename);form.append('documentTitle',part.title);form.append('identityConfirmed','true');const response=await api.post(url,form,options);guard(version);if(!response.data?.document?.id)throw Error('The uploaded volume was not confirmed. Refresh before retrying.');stored.push(response.data.document);}progress.value=`Saved ${index+1} of ${parts.length} history files…`;}
+ documents.value=stored;archive.value=null;confirmed.value=false;if(input.value)input.value.value='';progress.value='The history and manifest are encrypted and saved. Refresh file checks in a few minutes.';
+ }catch(e){if(version===generation)error.value=message(e);}finally{if(version===generation)busy.value=false;}}
+async function check(doc){const version=generation;busy.value=true;error.value='';try{const{data}=await api.post(`${base()}/${doc.id}/check`,{},config());guard(version);progress.value=data.message||'Private file check completed. Refresh to see the result.';await load();}catch(e){if(version===generation)error.value=message(e);}finally{if(version===generation)busy.value=false;}}
+async function open(doc){const version=generation;busy.value=true;error.value='';const popup=window.open('about:blank','_blank');try{const response=await api.get(`${base()}/${doc.id}/view`,{...config(),responseType:'blob'});guard(version);const blob=response.data instanceof Blob?response.data:new Blob([response.data],{type:'application/pdf'});if(blob.type.includes('json')){const data=JSON.parse(await blob.text());throw Error(data.error?.message||'This file cannot be opened.');}const url=URL.createObjectURL(blob);setTimeout(()=>URL.revokeObjectURL(url),120000);if(popup){popup.opener=null;popup.location.href=url;}else{const link=document.createElement('a');link.href=url;link.download=doc.original_name||'medical-history.pdf';link.click();}}catch(e){popup?.close();if(version===generation)error.value=message(e);}finally{if(version===generation)busy.value=false;}}
+function prepareLeave(){return !busy.value&&(!archive.value||window.confirm('This selected PDF has not been uploaded. Leave it here and select it again later? Your saved chart drafts will be kept.'));}
+defineExpose({prepareLeave});
+watch(()=>[props.clientId,props.agencyId],()=>{generation++;archive.value=null;confirmed.value=false;documents.value=[];progress.value='';load();},{immediate:true});
+onBeforeUnmount(()=>{generation++;emit('busy',false);});
+</script>
+<style scoped>
+.medical-history{border:1px solid #d4dfef;border-radius:12px;background:#f7faff;padding:16px;margin:16px 0;color:#17345c}h4{margin:0 0 8px}p{font-size:13px;line-height:1.5}.history-private,small{color:#60718a;font-size:12px}label{display:block;font-size:13px;font-weight:600;margin:10px 0}input[type=file]{display:block;margin-top:8px;font:inherit;max-width:100%}.history-review{background:#fff;padding:12px;border:1px solid #dce5f1;border-radius:8px}.history-check{display:flex;gap:8px;align-items:start}.history-button{background:#edf3fa;color:#173b69;border:1px solid #c5d5e8;border-radius:8px;padding:7px 11px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}.history-primary{background:#173b69;color:#fff;border-color:#173b69}.history-button:disabled{opacity:.5;cursor:default}.history-error{color:#b42318}.history-list-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;font-size:13px}ul{list-style:none;padding:0}li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #e0e7f1;font-size:12px;overflow-wrap:anywhere}li span{min-width:0}small{display:block;margin-top:4px}
+</style>

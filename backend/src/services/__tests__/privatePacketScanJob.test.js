@@ -31,3 +31,8 @@ it('queues clinical bytes by immutable document/client/session IDs only and neve
 it.each([{kind:'other'},{kind:'session_material',clinicalSessionId:0},{kind:'session_material',clinicalSessionId:166,doc:{id:9,client_id:99,is_encrypted:1,document_type:'session_supporting_material'}}])('rejects an unsupported or mismatched clinical worker request before dispatch %j',async change=>{
  const deps=fixture();await expect(queuePrivatePacketScan({...input,...change},deps)).rejects.toThrow();expect(deps.request).not.toHaveBeenCalled();
 });
+
+it('queues private chart history by scoped identifiers without any patient content or storage URL',async()=>{
+ const deps=fixture();await queuePrivatePacketScan({doc:{id:9,client_id:4,is_encrypted:1,document_type:'private_client_medical_history'},clientId:4,actorId:8,kind:'chart_history'},deps);
+ expect(deps.request.mock.calls[0][1].overrides.containerOverrides[0].env).toContainEqual({name:'PACKET_SCAN_KIND',value:'chart_history'});
+});

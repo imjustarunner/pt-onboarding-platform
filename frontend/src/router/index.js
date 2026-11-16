@@ -2,7 +2,7 @@ import { safeLoginDestination } from '../utils/loginHandoff';
 import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
-import { isGuardianReceiptRoute } from './guardianRoutePolicy.js';
+import { isGuardianWorkspaceRoute } from './guardianRoutePolicy.js';
 import { consumeSsoHandoff, isTokenAuthenticationRoute, isLoginEntryRoute, auricwellLoginDestination } from '../utils/loginHandoff';
 import { auricWellAccountDestination } from '../utils/familyPortalContext.js';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
@@ -6609,16 +6609,7 @@ router.beforeEach(async (to, from, next) => {
 
     // Guardians should not roam general employee surfaces
     if (String(authStore.user?.role || '').toLowerCase() === 'client_guardian') {
-      const p = String(to.path || '');
-      const isGuardianPath = p === '/my-portal' || p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
-      const isPractitionerClientDashboard = p.endsWith('/client-dashboard') || p.includes('/client-dashboard');
-      const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/', '/billing/complete'];
-      const pathOk =
-        isGuardianReceiptRoute(to) ||
-        isGuardianPath ||
-        isPractitionerClientDashboard ||
-        GUARDIAN_ALLOWED_EXTERNAL.some((prefix) => p.includes(prefix));
-      if (!pathOk) {
+      if (!isGuardianWorkspaceRoute(to)) {
         next(getDashboardRoute());
         return;
       }

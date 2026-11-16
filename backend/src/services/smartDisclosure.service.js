@@ -1014,7 +1014,7 @@ export async function getClientDisclosureStatus(clientId) {
       const [phiRows] = await pool.execute(
         `SELECT id, uploaded_at, document_title, original_name, document_type
          FROM client_phi_documents
-         WHERE client_id = ? AND removed_at IS NULL
+         WHERE client_id = ? AND removed_at IS NULL AND COALESCE(document_type,'') <> 'private_client_medical_history'
            AND (
              LOWER(COALESCE(document_type, '')) LIKE '%disclosure%'
              OR LOWER(COALESCE(document_title, '')) LIKE '%disclosure%'

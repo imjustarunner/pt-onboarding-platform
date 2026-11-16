@@ -222,6 +222,13 @@ export async function upsertClientAffiliatedContact({
     contact = await AgencyContact.findByPhone(phone, resolvedAgencyId);
   }
 
+  // Household members may share a phone or email. A paste must not rename one
+  // person into another merely because a communication detail matches.
+  if (importOnly && !existingContactId && contact && fullName) {
+    const nameKey = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    if (nameKey(contact.full_name) !== nameKey(fullName)) contact = null;
+  }
+
   if (contact && Number(contact.client_id) !== Number(clientId)
       && !await ClientContactAffiliation.findByClientAndContact(clientId, contact.id)) {
     if (existingContactId) throw Object.assign(new Error('Contact not found for this client'), { status: 404 });
