@@ -65,11 +65,11 @@ function snapshot(){return{form:{...form},created:created.value?{id:created.valu
 function save(){if(!hydrating&&agencyId.value)drafts.schedule(snapshot());}
 watch(form,save,{deep:true});watch([created,completed],save);
 watch(()=>form.kind,()=>{if(hydrating)return;form.organizationId=filteredOrganizations.value.length===1?filteredOrganizations.value[0].id:'';if(form.kind!=='school'){form.schoolYear='';form.grade='';}});
-watch(()=>form.demographics,()=>{if(hydrating||form.manual||created.value)return;clearTimeout(parseTimer);parseVersion++;parseTimer=setTimeout(readDemographics,500);});
+watch(()=>form.demographics,()=>{if(hydrating||form.manual||created.value)return;form.fullName='';form.dateOfBirth='';clearTimeout(parseTimer);parseVersion++;parseTimer=setTimeout(readDemographics,500);},{flush:'sync'});
 async function readDemographics(){
  if(!form.demographics.trim()||form.manual)return;const version=++parseVersion,text=form.demographics,context=generation;parsing.value=true;error.value='';
- try{const{data}=await api.post('/clients/demographics/preview',{text},{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(version!==parseVersion||context!==generation||text!==form.demographics)return;form.fullName=data.parsed?.fullName||'';form.dateOfBirth=data.parsed?.dateOfBirth||'';if(!form.fullName)error.value='The name could not be read. Check the demographics paste or use Manual entry.';}
- catch(e){if(context===generation)error.value=e.response?.data?.error?.message||'Demographics could not be read.';}finally{if(version===parseVersion)parsing.value=false;}
+ try{const{data}=await api.post('/clients/demographics/preview',{text},{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(version!==parseVersion||context!==generation||text!==form.demographics||form.manual)return false;form.fullName=data.parsed?.fullName||'';form.dateOfBirth=data.parsed?.dateOfBirth||'';if(!form.fullName)error.value='The name could not be read. Check the demographics paste or use Manual entry.';return !!form.fullName;}
+ catch(e){if(context===generation)error.value=e.response?.data?.error?.message||'Demographics could not be read.';return false;}finally{if(version===parseVersion)parsing.value=false;}
 }
 async function changeAgency(value){
  if(created.value||working.value)return;if(agencyId.value&&!(await drafts.flush()))return;
@@ -92,7 +92,7 @@ async function retryDraft(){if(!drafts.state.loaded){const currentAgency=agencyI
 async function create(){
  if(!canCreate.value)return;working.value=true;error.value='';
  try{
-  if(!form.manual){await readDemographics();if(!form.fullName)throw Error('Read and review the demographics before creating a chart.');}
+  if(!form.manual){const read=await readDemographics();if(!read||!form.fullName)throw Error('Read and review the demographics before creating a chart.');}
   save();if(!(await drafts.flush()))return;
   const payload={agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,provider_id:isBackoffice.value?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
   const{data}=await api.post('/clients',payload,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(!data?.id)throw Error('The client could not be saved.');created.value=data;save();await drafts.flush();emit('created',data);
