@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), read: vi.fn(), rollout: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), read: vi.fn(), rollout: vi.fn(),offered:vi.fn(),tutoringServices:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../staffCareEligibility.service.js', () => ({ readStaffCareEligibility: mocks.read }));
 vi.mock('../clientSessionBookingRollout.service.js', () => ({ requireClientSessionBooking: mocks.rollout }));
+vi.mock('../providerServiceOfferings.service.js',()=>({readProviderServices:mocks.offered}));
+vi.mock('../../models/TenantService.model.js',()=>({default:{listForAgency:mocks.tutoringServices}}));
 vi.mock('../billingPolicy.service.js', () => ({ isServiceCodeEnabledForAgency: async () => true, resolvePolicyRuleForServiceCode: async () => null }));
 import { getSchedulingBookingMetadata, validateSchedulingSelection } from '../schedulingTaxonomy.service.js';
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.rollout.mockResolvedValue({enabled:true});
+  mocks.offered.mockResolvedValue({careEligibility:{canProvideCare:false},services:[]});
+  mocks.tutoringServices.mockResolvedValue([]);
   mocks.read.mockResolvedValue({ canProvideCare: false, credentialTier: 'bachelors' });
   mocks.execute.mockImplementation(async sql => {
     if (sql.includes('FROM appointment_types')) return [[{ code: 'SESSION' }, { code: 'MEETING' }]];
@@ -46,5 +50,19 @@ describe('scheduling requires a care assignment as well as credentials', () => {
     await expect(validateSchedulingSelection({agencyId:453,providerId:1496,enforceSessionRollout:true,
       appointmentTypeCode:'SESSION',serviceCode:'90837',modality:'IN_PERSON'}))
       .rejects.toMatchObject({status:403});
+  });
+  it('uses the configured academic service for an assigned tutor without clinical credentials or grants',async()=>{
+    mocks.read.mockResolvedValue({canProvideCare:true,credentialTier:'unknown'});
+    mocks.execute.mockImplementation(async sql=>sql.includes('FROM appointment_types')?[[{code:'SESSION'}]]:
+      sql.includes('FROM appointment_subtypes')||sql.includes('FROM provider_service_code_grants')?[[]]:[[{code:'TUTORING',label:'Tutoring'}]]);
+    mocks.offered.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true}]});
+    mocks.tutoringServices.mockResolvedValue([{id:320,businessType:'tutoring',serviceCode:'TUTORING',name:'Tutoring',defaultDurationMinutes:60,isActive:true}]);
+    const input={agencyId:453,providerId:1496,enforceSessionRollout:true,appointmentTypeCode:'SESSION',
+      serviceCode:'TUTORING',tenantServiceId:320,modality:'IN_PERSON'};
+    await expect(validateSchedulingSelection(input)).resolves.toMatchObject({serviceCode:'TUTORING',modality:'IN_PERSON'});
+    mocks.offered.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:false}]});
+    await expect(validateSchedulingSelection(input)).rejects.toMatchObject({status:403});
+    mocks.offered.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true}]});
+    await expect(validateSchedulingSelection({...input,tenantServiceId:999})).rejects.toMatchObject({status:403});
   });
 });

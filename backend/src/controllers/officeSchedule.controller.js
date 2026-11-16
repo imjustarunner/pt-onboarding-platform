@@ -2703,6 +2703,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
         appointmentTypeCode: rawSelection.appointmentTypeCode,
         appointmentSubtypeCode: rawSelection.appointmentSubtypeCode,
         serviceCode: rawSelection.serviceCode,
+        tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
         modality: rawSelection.modality,
         scheduledStartAt: startAt,
         scheduledEndAt: endAt
@@ -3153,6 +3154,7 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
         appointmentTypeCode: reqRow.appointment_type_code,
         appointmentSubtypeCode: reqRow.appointment_subtype_code,
         serviceCode: reqRow.service_code,
+        tenantServiceId: Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0) || null,
         modality: reqRow.modality,
         scheduledStartAt: reqRow.start_at,
         scheduledEndAt: reqRow.end_at

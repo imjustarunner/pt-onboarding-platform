@@ -2,6 +2,8 @@ import { requireClientServiceKind } from './clientServiceContext.service.js';
 import {requireTestingEligibility,approvedTestingCodeAssignments} from './testingEligibility.service.js';
 import {requiresTestingRole,testingServiceDefinition} from '../content/testingServicePolicy.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
+import { readProviderServices } from './providerServiceOfferings.service.js';
+import TenantService from '../models/TenantService.model.js';
 import { resolveAgencySchedulingCatalog } from './agencySchedulingCatalog.service.js';
 import { readStaffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
@@ -248,7 +250,7 @@ async function listEligibleServiceCodesForTier(credentialTier, agencyId = null) 
   return active.filter((s) => allowed.has(s.code));
 }
 
-export async function getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId = null, providerId = null }) {
+export async function getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId = null, providerId = null, businessType = null, tenantServiceId = null }) {
   const careEligibility = await readStaffCareEligibility(providerId, agencyId);
   const credentialTier = providerId ? careEligibility.credentialTier : deriveCredentialTier({ userRole, providerCredentialText });
   const [appointmentTypes, appointmentSubtypes, allServiceCodes] = await Promise.all([
@@ -262,6 +264,17 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
   const credentialOverrides = await loadCredentialOverrides('CO');
   const grantedServiceCodes = providerId ? await grantedServiceCodesForProvider(agencyId, providerId) : [];
   let visibleServiceCodes = filterServiceCodesForCredential(catalog.eligibleServiceCodes, credentialTier, credentialOverrides, grantedServiceCodes);
+  // Academic tutoring uses its configured service and active tutoring role,
+  // without inventing a clinical credential or a medical service-code grant.
+  if (businessType === 'tutoring' && careEligibility.canProvideCare && !visibleServiceCodes.some(row=>row.code==='TUTORING')) {
+    const offered = await readProviderServices(providerId,agencyId);
+    if (offered.careEligibility.canProvideCare && offered.services.some(row=>row.serviceType==='tutoring'&&row.offered)) {
+      const services = (await TenantService.listForAgency(agencyId,{includeInactive:false}))
+        .filter(row=>row.businessType==='tutoring'&&row.serviceCode==='TUTORING'&&row.isActive!==false&&(!tenantServiceId||Number(row.id)===Number(tenantServiceId)));
+      if (services.length===1) visibleServiceCodes.push({code:'TUTORING',label:services[0].name,
+        tenantServiceId:services[0].id,isBillable:false,defaultNoteType:null,minDurationMinutes:services[0].defaultDurationMinutes||null});
+    }
+  }
   if(providerId && visibleServiceCodes.some(row=>requiresTestingRole(row.code))) {
     try {
       await requireTestingEligibility({agencyId,userId:providerId,serviceCodes:visibleServiceCodes.map(row=>row.code),checkCodeAssignments:false});
@@ -290,6 +303,7 @@ export async function validateSchedulingSelection({
   appointmentTypeCode,
   appointmentSubtypeCode,
   serviceCode,
+  tenantServiceId = null,
   modality,
   scheduledStartAt = null,
   scheduledEndAt = null
@@ -306,7 +320,8 @@ export async function validateSchedulingSelection({
     serviceKind: normalizedServiceCode === 'TUTORING' ? 'tutoring' : 'counseling' });
   const normalizedModality = normalizeModality(modality);
 
-  const metadata = await getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId, providerId });
+  const metadata = await getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId, providerId,
+    businessType:normalizedServiceCode==='TUTORING'?'tutoring':null,tenantServiceId });
   const typeCodes = new Set((metadata.appointmentTypes || []).map((t) => t.code));
   const subtypeRows = metadata.appointmentSubtypes || [];
 
