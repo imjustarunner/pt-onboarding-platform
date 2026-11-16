@@ -4,7 +4,7 @@
       <div><h4>Services &amp; providers</h4><p>Assign providers to each service. A school or program enrollment is optional.</p></div>
       <span class="service-count">{{ activeServices.length }} active {{ activeServices.length === 1 ? 'service' : 'services' }}</span>
     </header>
-    <p v-if="error" class="service-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="service-error" role="alert">{{ error }} <button v-if="!busy && editingServiceId===null && !statusEdit" type="button" @click="load">Retry</button></p>
     <p v-if="loading" role="status">Loading services…</p>
     <p v-else-if="!activeServices.length" class="services-empty">No active services for this agency. Add a service below to get started.</p>
     <ul class="services-list">
@@ -56,7 +56,7 @@ import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
 import { meaningfulProgram } from '../../utils/clientRosterContext.js';
 const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] } });
-const emit = defineEmits(['updated']);
+const emit = defineEmits(['updated','loaded','busy']);
 const auth=useAuthStore();
 const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
 const returnService=ref(null),returnRequests=ref([]),returnMessages=ref({});
@@ -100,6 +100,7 @@ async function load() {
       || (provider.agencyIds || []).some(id => Number(id) === Number(props.agencyId))
     );
   } else error.value = providerResult.reason.response?.data?.error?.message || 'Providers could not be loaded. Reopen Assignments to retry.';
+  emit('loaded',{services:services.value,error:error.value});
 }
 function edit(service, provider = null) {
   editingServiceId.value = service.id;
@@ -142,8 +143,11 @@ async function saveStatus(){
 async function loadReturns(service){const own=sequence;busy.value=true;error.value='';returnService.value=service;returnRequests.value=[];try{const{data}=await api.get(`/clients/${props.clientId}/service-enrollments/${service.id}/return-requests`,{params:{agencyId:props.agencyId}});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Return requests could not load.';}finally{if(own===sequence)busy.value=false;}}
 async function reviewReturn(request,decision){const own=sequence;busy.value=true;error.value='';try{const{data}=await api.post(`/clients/${props.clientId}/service-enrollments/${returnService.value.id}/return-requests/${request.id}/review`,{agencyId:Number(props.agencyId),decision,message:returnMessages.value[request.id]||''});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Request could not be reviewed.';}finally{if(own===sequence)busy.value=false;}}
 
+watch(()=>busy.value||loading.value||providersLoading.value||editingServiceId.value!==null||!!statusEdit.value||!!Number(draft.value.providerUserId)||!!draft.value.label.trim(),value=>emit('busy',value),{flush:'sync'});
+function prepareLeave(){if(busy.value||loading.value||providersLoading.value)return false;if(editingServiceId.value!==null||statusEdit.value||Number(draft.value.providerUserId)||draft.value.label.trim()){error.value='Save or cancel the assignment change before moving to another client.';return false;}return true;}
+defineExpose({prepareLeave});
 watch(() => [props.clientId, props.agencyId], load, { immediate: true });
-onBeforeUnmount(() => { ++sequence; });
+onBeforeUnmount(() => { ++sequence;emit('busy',false); });
 </script>
 
 <style scoped>

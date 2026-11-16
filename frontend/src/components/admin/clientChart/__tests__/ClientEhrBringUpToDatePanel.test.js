@@ -1,11 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { defineComponent } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 const mocks = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn() }));
 vi.mock('../../../../services/api', () => ({ default: mocks }));
 vi.mock('../../../../store/auth', () => ({ useAuthStore: () => ({ user:{id:10,role:'support'} }) }));
 import Panel from '../ClientEhrBringUpToDatePanel.vue';
-const stubs = { NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, ClientTransitionInvitation:true, Teleport:true };
+const stubs = { ClientUpdateAssignments:true, NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, ClientTransitionInvitation:true, Teleport:true };
 const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialTexts }, global: { stubs } });
 beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); mocks.patch.mockResolvedValue({ data: {} }); mocks.get.mockResolvedValue({ data: { drafts: {} } }); mocks.put.mockResolvedValue({ data: { revision: 1 } }); });
 it('imports supplied demographics and signals completion for the saved client', async () => {
@@ -155,4 +156,15 @@ it('routes source guardian channels separately and reimports demographics after 
  await wrapper.get('section[aria-label=Demographics] select').setValue('client');await button().trigger('click');await flushPromises();
  expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/demographics/import'))).toHaveLength(2);
  expect(mocks.post).toHaveBeenLastCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'client'}),expect.anything());wrapper.unmount();
+});
+
+it('places assignments after the records and waits for reviewed assignment changes before leaving',async()=>{
+ const leave=vi.fn(()=>false);const AssignmentStub=defineComponent({name:'ClientUpdateAssignments',emits:['busy','ready','updated'],setup(_, {expose}){expose({prepareLeave:leave});},template:'<section data-assignments>Assignments controls</section>'});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs:{...stubs,ClientUpdateAssignments:AssignmentStub}}});await flushPromises();
+ expect(wrapper.find('[data-assignments]').exists()).toBe(true);expect(wrapper.html().indexOf('data-assignments')).toBeGreaterThan(wrapper.html().indexOf('data-section="plan"'));
+ expect(await wrapper.vm.prepareLeave()).toBe(false);expect(leave).toHaveBeenCalledOnce();
+ await wrapper.findAll('button').find(button=>button.text()==='Mark done').trigger('click');await flushPromises();expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/note-aid-setup-complete'))).toBe(false);expect(wrapper.emitted('done')).toBeUndefined();
+ wrapper.findComponent(AssignmentStub).vm.$emit('busy',true);await flushPromises();expect(wrapper.emitted('busy').at(-1)).toEqual([true]);
+ wrapper.findComponent(AssignmentStub).vm.$emit('busy',false);leave.mockReturnValue(true);await flushPromises();expect(await wrapper.vm.prepareLeave()).toBe(true);
+ await wrapper.findAll('button').find(button=>button.text()==='Mark done').trigger('click');await flushPromises();expect(mocks.post).toHaveBeenCalledWith('/clients/12/note-aid-setup-complete',{},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);wrapper.unmount();
 });

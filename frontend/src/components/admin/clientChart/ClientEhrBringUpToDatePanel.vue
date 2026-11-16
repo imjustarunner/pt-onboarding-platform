@@ -74,6 +74,8 @@
       <p v-if="error" class="ehr-error">{{ error }}</p>
       <p v-if="successMessage" class="ehr-ok">{{ successMessage }}</p>
 
+      <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @updated="transitionRefreshKey++" />
+
       <div class="ehr-actions">
         <button v-if="creationFlow && requireVerifiedPayers" type="button" class="ehr-btn-primary" :disabled="busy || !creationRecordsReady || (hasCoveragePaste && !payerReady)" @click="completeCreation">Finish client import</button>
         <button v-if="!creationFlow && !historicalImport" type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
@@ -89,7 +91,7 @@
         </button>
       </div>
       <template v-if="!historicalImport && canPrepareAccounts">
-        <p v-if="!recordsReadyForInvitation" class="ehr-muted">Import the filled sections and finish pending reviews before sending the portal invitation.</p>
+        <p v-if="!recordsReadyForInvitation" class="ehr-muted">Import the filled sections, finish pending reviews and save assignment changes before sending the portal invitation.</p>
         <fieldset class="ehr-invitation" :disabled="busy || !recordsReadyForInvitation"><ClientTransitionInvitation :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></fieldset>
       </template>
     </div>
@@ -120,6 +122,7 @@ import { useChartImportDrafts } from '../../../composables/useChartImportDrafts.
 import ClientPayerLinkage from './ClientPayerLinkage.vue';
 import ClientMedicalHistory from './ClientMedicalHistory.vue';
 import ClientTransitionInvitation from '../../clients/ClientTransitionInvitation.vue';
+import ClientUpdateAssignments from './ClientUpdateAssignments.vue';
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
@@ -171,6 +174,8 @@ const visibleSections = computed(() => sections.filter(section => props.historic
   (canPrepareAccounts.value || !['insurance','billingComments'].includes(section.key)) && !(props.hideDemographics && section.key === 'demographics')));
 const drafts = useChartImportDrafts();
 const historyBusy=ref(false),historyPanel=ref(null);
+const assignmentsBusy=ref(false),assignmentsReady=ref(false),assignmentsPanel=ref(null);
+const showAssignments=computed(()=>!props.historicalImport&&!props.creationFlow&&canPrepareAccounts.value);
 const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
 const transitionRefreshKey = ref(0), invitationBusy = ref(false);
 const payerPosition = ref('primary');
@@ -178,7 +183,7 @@ const coverageDrafts = reactive({ primary: { text: '', imported: false }, second
 const allCoverageImported = computed(() => Object.values(coverageDrafts).every(draft => !draft.text.trim() || draft.imported));
 const hasCoveragePaste = computed(() => Boolean(payerText.value.trim()) || Object.values(coverageDrafts).some(draft => draft.text.trim()));
 const creationRecordsReady = computed(() => allCoverageImported.value && visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => status[section.key] === 'imported'));
-const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !reviewPending.intake && !reviewPending.plan);
+const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !reviewPending.intake && !reviewPending.plan && (!showAssignments.value || assignmentsReady.value));
 let hydratingDrafts = false;
 let pipelineSections = [];
 
@@ -200,7 +205,7 @@ const todayIso = computed(() => new Date().toISOString().slice(0, 10));
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && Object.values(coverageDrafts).some(draft => draft.text.trim()))
 );
-const busy = computed(() => importing.value || markingDone.value || showPlanReview.value || invitationBusy.value || historyBusy.value || payerBusy.value || drafts.state.loading);
+const busy = computed(() => importing.value || markingDone.value || showPlanReview.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || drafts.state.loading);
 watch(busy, value => emit('busy', value), { flush: 'sync' });
 let scopeGeneration = 0;
 let importScopeGeneration = 0;
@@ -678,6 +683,7 @@ async function prepareLeave() {
     error.value = 'Save the drafts before leaving this client. Retry any draft errors above.';
     return false;
   }
+  if (showAssignments.value && assignmentsPanel.value?.prepareLeave?.() === false) return false;
   return true;
 }
 defineExpose({ prepareLeave });
@@ -758,6 +764,7 @@ async function importAll(onlySection = null) {
 }
 
 async function markDoneOnly() {
+  if (await prepareLeave() === false) return;
   markingDone.value = true;
   error.value = '';
   try {
