@@ -21833,10 +21833,15 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
       ['event_time', `SELECT COUNT(DISTINCT JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kioskPunchInId'))) AS cnt FROM payroll_time_claims WHERE agency_id = ? AND status = 'submitted' AND claim_type = 'skill_builder_event' AND JSON_EXTRACT(payload_json, '$.kioskPunchInId') IS NOT NULL`],
     ];
     const typeCounts = { pto: (ptoRows || []).length };
+    const eventKeys = (ptoRows || []).map(row => `pto:${row.id}:${row.created_at}`);
     await Promise.all(claimQueries.map(async ([type, sql]) => {
       try {
         const [rows] = await pool.execute(sql, [agencyId]);
         typeCounts[type] = Number(rows?.[0]?.cnt || 0);
+        const table = {mileage:'payroll_mileage_claims',reimbursement:'payroll_reimbursement_claims',time:'payroll_time_claims',event_time:'payroll_time_claims'}[type];
+        const extra = type === 'time' ? " AND claim_type <> 'skill_builder_event'" : type === 'event_time' ? " AND claim_type = 'skill_builder_event'" : '';
+        const [events] = await pool.execute(type==='event_time' ? `SELECT JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.kioskPunchInId')) AS id,MIN(created_at) AS created_at FROM ${table} WHERE agency_id=? AND status='submitted'${extra} AND JSON_EXTRACT(payload_json,'$.kioskPunchInId') IS NOT NULL GROUP BY JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.kioskPunchInId'))` : `SELECT id,created_at FROM ${table} WHERE agency_id=? AND status='submitted'${extra}`, [agencyId]);
+        for (const row of events) eventKeys.push(`${type}:${row.id}:${row.created_at}`);
       } catch {
         typeCounts[type] = 0;
       }
@@ -21860,6 +21865,7 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
     res.json({
       ok: true,
       totalCount,
+      eventKeys,
       typeCounts,
       ptoSubmissions: Array.from(byUser.values())
     });

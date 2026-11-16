@@ -12,10 +12,11 @@ export async function queuePrivatePacketScan({ doc, clientId, actorId, kind='pap
     const client=await new GoogleAuth({scopes:['https://www.googleapis.com/auth/cloud-platform']}).getClient();
     return client.request({url,method:'POST',data:body,timeout:20000});
   }, now=Date.now }=overrides;
-  if(!['paper_packet','session_material'].includes(kind))throw new TypeError('Invalid private file check kind.');
+  if(!['paper_packet','session_material','chart_history'].includes(kind))throw new TypeError('Invalid private file check kind.');
   if(kind==='session_material' && (!Number.isSafeInteger(Number(clinicalSessionId)) || Number(clinicalSessionId)<1
     || doc?.document_type!=='session_supporting_material' || Number(doc.client_id)!==Number(clientId)
     || Number(doc.is_encrypted)!==1))throw new TypeError('Invalid encrypted clinical file check scope.');
+  if(kind==='chart_history' && (doc?.document_type!=='private_client_medical_history' || Number(doc.client_id)!==Number(clientId) || Number(doc.is_encrypted)!==1))throw new TypeError('Invalid encrypted history check scope.');
   if(!/^projects\/[^/]+\/locations\/[^/]+\/jobs\/[^/]+$/.test(jobName||''))return null;
   if(privateScanInProgress(doc,now()))return {status:'pending',message:'The private file check is queued or running. Refresh in a few minutes.'};
   const marker=`${prefix}${now()}:${crypto.randomUUID()}`;
@@ -25,7 +26,8 @@ export async function queuePrivatePacketScan({ doc, clientId, actorId, kind='pap
     await request(`https://run.googleapis.com/v2/${jobName}:run`,{overrides:{taskCount:1,timeout:'300s',containerOverrides:[{name:'scanner',env:[
       {name:'PACKET_SCAN_DOCUMENT_ID',value:String(doc.id)},{name:'PACKET_SCAN_CLIENT_ID',value:String(clientId)},
       {name:'PACKET_SCAN_ACTOR_ID',value:String(actorId)},{name:'PACKET_SCAN_MARKER',value:marker},
-      ...(kind==='session_material'?[{name:'PACKET_SCAN_KIND',value:kind},{name:'PACKET_SCAN_CLINICAL_SESSION_ID',value:String(clinicalSessionId)}]:[])
+      ...(kind!=='paper_packet'?[{name:'PACKET_SCAN_KIND',value:kind}]:[]),
+      ...(kind==='session_material'?[{name:'PACKET_SCAN_CLINICAL_SESSION_ID',value:String(clinicalSessionId)}]:[])
     ]}]}});
     return {status:'pending',message:'Private file check queued. Refresh in a few minutes; the file becomes available after it passes.'};
   } catch {

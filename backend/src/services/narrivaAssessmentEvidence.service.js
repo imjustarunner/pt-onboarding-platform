@@ -73,7 +73,7 @@ export async function loadNarrivaAssessmentEvidence(user,input,options={}) {
  const clientIds=requested.filter(r=>r.kind==='client_document').map(r=>r.id);
  const [selected]=clientIds.length?await pool.execute(`SELECT ${PHI_FIELDS} FROM client_phi_documents WHERE client_id=? AND agency_id=? AND id IN (${clientIds.map(()=>'?').join(',')})`,[context.clientId,context.agencyId,...clientIds]):[[]];
  for(const doc of [...recent,...selected]){
-  if(Number(doc.client_id)!==context.clientId||Number(doc.agency_id)!==context.agencyId||doc.mime_type!=='application/pdf'||doc.document_type===MATERIAL_TYPE||doc.removed_at||(doc.expires_at&&new Date(doc.expires_at)<=new Date()))continue;
+  if(Number(doc.client_id)!==context.clientId||Number(doc.agency_id)!==context.agencyId||doc.mime_type!=='application/pdf'||[MATERIAL_TYPE,'private_client_medical_history'].includes(doc.document_type)||doc.removed_at||(doc.expires_at&&new Date(doc.expires_at)<=new Date()))continue;
   byKey.set(`client_document:${doc.id}`,{choice:{kind:'client_document',id:Number(doc.id),title:safeTitle(doc,context),mimeType:doc.mime_type,createdAt:doc.uploaded_at,available:isCurrentClean(doc),scanStatus:doc.scan_status||'pending'},manifest:manifest('client_document',doc.id,doc)});
  }
  if(context.session){

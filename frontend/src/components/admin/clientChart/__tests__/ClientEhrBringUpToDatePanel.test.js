@@ -3,8 +3,8 @@ import { mount, flushPromises } from '@vue/test-utils';
 const mocks = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn() }));
 vi.mock('../../../../services/api', () => ({ default: mocks }));
 import Panel from '../ClientEhrBringUpToDatePanel.vue';
-const stubs = { NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, Teleport:true };
-const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialTexts }, global: { stubs: { NoteAidTreatmentPlanImportReview: true, ClientPayerLinkage: true, Teleport: true } } });
+const stubs = { NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, ClientMedicalHistory:true, Teleport:true };
+const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialTexts }, global: { stubs: { NoteAidTreatmentPlanImportReview: true, ClientPayerLinkage: true, ClientMedicalHistory: true, Teleport: true } } });
 beforeEach(() => { vi.clearAllMocks(); mocks.patch.mockResolvedValue({ data: {} }); mocks.get.mockResolvedValue({ data: { drafts: {} } }); mocks.put.mockResolvedValue({ data: { revision: 1 } }); });
 it('imports supplied demographics and signals completion for the saved client', async () => {
   mocks.post.mockResolvedValue({ data: { parsed: { fullName: 'Synthetic Client' } } });

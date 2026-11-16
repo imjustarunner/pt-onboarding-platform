@@ -48,7 +48,7 @@
         >Show Tests</button>
         <PostClientToExchangeButton />
         <button v-if="canSeeRenewalFlags && activeAgencyId" type="button" class="cm-hbtn cm-hbtn--ghost" @click="clientUpdateOpen = true">Add client for selected updates</button>
-        <button v-if="canUpdateCharts && clients.length" type="button" class="cm-hbtn cm-hbtn--ghost" @click="chartUpdateClient = clients[0]">Bring clients up to date</button>
+        <button v-if="canUpdateCharts && clients.length" type="button" class="cm-hbtn cm-hbtn--ghost" @click="chartUpdateClient = pagedClients[0] || clients[0]">Bring clients up to date</button>
         <button v-if="canUpdateCharts" type="button" class="cm-hbtn cm-hbtn--ghost" @click="openOfficeClientModal">+ Add office client from records</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
@@ -117,38 +117,38 @@
     <template v-else>
 
     <div v-if="!loading && !error" class="cm-summary-grid" data-tour="clients-summary">
-      <div class="cm-summary-card cm-summary-total">
+      <button type="button" class="cm-summary-card cm-summary-total" :aria-pressed="!summaryFilter" @click="setSummaryFilter('')">
         <div class="cm-summary-icon">👥</div>
         <div>
           <div class="cm-summary-value">{{ clientSummary.total }}</div>
           <div class="cm-summary-label">Total Clients</div>
           <div class="cm-summary-meta">{{ summaryScopeLabel }}</div>
         </div>
-      </div>
-      <div class="cm-summary-card cm-summary-completed">
+      </button>
+      <button type="button" class="cm-summary-card cm-summary-completed" :aria-pressed="summaryFilter === 'completed'" @click="setSummaryFilter('completed')">
         <div class="cm-summary-icon">✓</div>
         <div>
           <div class="cm-summary-value">{{ clientSummary.completed }}</div>
           <div class="cm-summary-label">Current / complete</div>
           <div class="cm-summary-meta">{{ clientSummary.completedPct }}% of total</div>
         </div>
-      </div>
-      <div class="cm-summary-card cm-summary-pending">
+      </button>
+      <button type="button" class="cm-summary-card cm-summary-pending" :aria-pressed="summaryFilter === 'pending'" @click="setSummaryFilter('pending')">
         <div class="cm-summary-icon">⏳</div>
         <div>
           <div class="cm-summary-value">{{ clientSummary.pending }}</div>
           <div class="cm-summary-label">Pending / Packet</div>
           <div class="cm-summary-meta">{{ clientSummary.pendingPct }}% of total</div>
         </div>
-      </div>
-      <div class="cm-summary-card cm-summary-attention">
+      </button>
+      <button type="button" class="cm-summary-card cm-summary-attention" :aria-pressed="summaryFilter === 'attention'" @click="setSummaryFilter('attention')">
         <div class="cm-summary-icon">!</div>
         <div>
           <div class="cm-summary-value">{{ clientSummary.attention }}</div>
           <div class="cm-summary-label">Needs Attention</div>
           <div class="cm-summary-meta">{{ clientSummary.attentionPct }}% of total</div>
         </div>
-      </div>
+      </button>
     </div>
 
     <!-- Filters and Search -->
@@ -167,6 +167,8 @@
           />
         </div>
         <ClientDisplayModeToggle />
+        <button v-if="canSeeRenewalFlags" type="button" class="cm-packet-btn" :aria-pressed="renewalFlagFilter === 'paper_packet_roi'" @click="renewalFlagFilter = renewalFlagFilter === 'paper_packet_roi' ? '' : 'paper_packet_roi'; applyFilters()">Process packets<span v-if="packetReviewCount != null"> · {{ packetReviewCount }}</span></button>
+        <button v-if="summaryFilter" type="button" class="cm-filter-clear" @click="setSummaryFilter('')">{{ summaryFilterLabel }} ×</button>
       </div>
       <div class="cm-search-hints muted">
         <span>Try:</span>
@@ -181,12 +183,12 @@
 
       <div class="filter-group cm-filter-row">
         <select
-          v-if="usingServerPagination"
+          v-if="canChooseListAgency"
           v-model="platformTenantFilter"
           @change="handlePlatformTenantChange"
           class="filter-select"
         >
-          <option value="">All Tenants</option>
+          <option value="">All authorized agencies</option>
           <option v-for="tenant in availableTenantFilters" :key="tenant.id" :value="String(tenant.id)">
             {{ tenant.name }}
           </option>
@@ -614,7 +616,7 @@
                 {{ client.provider_name || 'Unassigned' }}
               </span>
               <span v-if="client.provider_name" :title="assignmentTooltip(client)" class="cm-referral-date">
-                Assigned<template v-if="client.assigned_at || client.provider_assigned_at"> {{ formatDate(client.assigned_at || client.provider_assigned_at) }}</template>
+                Assigned <template v-if="client.assigned_at || client.provider_assigned_at"> {{ formatDate(client.assigned_at || client.provider_assigned_at) }}</template>
               </span>
             </td>
             <td v-if="columnPrefs.submissionDate" data-label="Submitted">{{ formatDate(client.submission_date) }}</td>
@@ -627,14 +629,14 @@
             <td v-if="columnPrefs.insurance" data-label="Coverage">{{ client.insurance_type_label || client.primary_insurer_name || '-' }}</td>
             <td v-if="columnPrefs.lastActivity" data-label="Activity">{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td v-if="canSeeRenewalFlags && columnPrefs.renewal" class="renewal-cell col-renewal" @click.stop>
-              <RenewalFlagsChips :flags="client.renewalFlags" compact />
+              <RenewalFlagsChips v-if="!client.renewalFlags?.paperPacketRoiSetup && !client.renewalFlags?.paperPacketVisionReview" :flags="client.renewalFlags" compact />
               <button
                 v-if="client.renewalFlags?.paperPacketRoiSetup || client.renewalFlags?.paperPacketVisionReview"
                 type="button"
-                class="btn btn-secondary btn-xs cm-renewal-btn"
+                class="btn cm-packet-btn btn-xs cm-renewal-btn"
                 @click.stop="openClientPaperProcessing(client)"
               >
-                Process paper packet
+                Process packet
               </button>
               <button
                 v-else-if="client.renewalFlags?.needsClientRenewal"
@@ -658,6 +660,8 @@
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="closeClientPanel()">
               <button v-if="canUpdateCharts" type="button" class="btn btn-secondary btn-xs" @click.stop="chartUpdateClient = client">Bring up to date</button>
+              <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
+                <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
               <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
               <button v-if="canInvitePortal" @click.stop="openPortalInvites([client.id])" class="btn btn-secondary btn-xs">Invite to portal</button>
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-xs cm-view-btn" title="Quick preview">
@@ -672,8 +676,7 @@
               >
                 Renew
               </button>
-              <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
-                <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
+
                 <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
                 <button type="button" class="btn btn-danger btn-sm" @click.stop="startEditStatus(client)">Archive client</button>
               </details>
@@ -685,7 +688,8 @@
 
     <ClientUpdateModal :open="clientUpdateOpen" :agency-id="activeAgencyId" @close="clientUpdateOpen = false" @created="fetchClients" @sent="clientUpdateOpen = false" />
     <!-- Create Client Modal -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
+    <ClientRecordsCreateModal v-if="showCreateModal && canUpdateCharts" :agencies="agenciesForCreate" :initial-agency-id="createAgencyEffectiveId || activeAgencyId" @close="showCreateModal=false" @created="fetchClients" />
+    <div v-if="showCreateModal && !canUpdateCharts" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content" @click.stop>
         <h3>Add client</h3>
         <p v-if="createdClientRecord" class="hint">Client #{{ createdClientRecord.id }} is saved. Continue below to finish importing, assigning, or posting this same client.</p>
@@ -768,7 +772,7 @@
               type="text" 
               required 
               maxlength="10"
-              placeholder="AbcDef"
+              placeholder="Abc Def"
             />
             <small>Case is preserved (max 10 characters).</small>
           </div>
@@ -887,12 +891,12 @@
               </button>
             </div>
           </div>
-          <div class="form-group">
+          <div v-if="selectedOrgIsSchool" class="form-group">
             <label>School Year</label>
             <input v-model="newClient.school_year" type="text" placeholder="2025-2026" />
             <small>Optional. Format: YYYY-YYYY</small>
           </div>
-          <div class="form-group">
+          <div v-if="selectedOrgIsSchool" class="form-group">
             <label>Grade</label>
             <select v-model="newClient.grade" class="filter-select">
               <option v-for="o in STANDARD_GRADE_SELECT_OPTIONS" :key="`nc-grade-${o.value}`" :value="o.value">{{
@@ -1332,11 +1336,13 @@ import {
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
 import ClientEhrBringUpToDatePanel from '../../components/admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import ClientChartUpdateModal from '../../components/admin/clientChart/ClientChartUpdateModal.vue';
+import ClientRecordsCreateModal from '../../components/admin/clientChart/ClientRecordsCreateModal.vue';
 import ClientAgencyLogo from '../../components/clients/ClientAgencyLogo.vue';
 import ClientMatchingPreferences from '../../components/public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
+import { generatedClientInitials } from '../../utils/clientInitials';
 import { finishClientCreation } from '../../utils/clientCreationOutcome.js';
 import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
 import ClientUpdateModal from '../../components/admin/ClientUpdateModal.vue';
@@ -1401,7 +1407,7 @@ const scopedTenantLabel = computed(() => {
 });
 
 const summaryScopeLabel = computed(() => {
-  if (usingServerPagination.value && !effectiveAgencyScopeId.value) return 'Across all tenants';
+  if (usingServerPagination.value && !effectiveAgencyScopeId.value) return 'All authorized agencies';
   if (scopedTenantLabel.value) return scopedTenantLabel.value;
   return 'Current scope';
 });
@@ -1630,7 +1636,7 @@ const {
 
 const clientDisplayLabel = computed(() => {
   if (isSchoolStaffRole.value) return 'Initials';
-  if (displayMode.value === 'full_name') return 'Name + Initials';
+  if (displayMode.value === 'full_name') return 'Name';
   if (displayMode.value === 'code') return 'Code';
   return 'Initials';
 });
@@ -1656,6 +1662,7 @@ function clientAgencyBrand(client) {
 
 const openCreateClientModal = async () => {
   showCreateModal.value = true;
+  if(canUpdateCharts.value)return;
   createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
   if (!canBackofficeEdit.value) newClient.value.provider_id = authStore.user?.id || null;
   // Ensure agency is set so org dropdown can populate immediately.
@@ -1673,6 +1680,7 @@ const openCreateClientModal = async () => {
 async function openOfficeClientModal() {
   createMode.value = 'paste';
   await openCreateClientModal();
+  if(canUpdateCharts.value)return;
   if (allowedCreateClientTypes.value.some(option => option.value === 'clinical')) newClient.value.client_type = 'clinical';
   const clinicalOrganizations = availableOrganizations.value.filter(org => ['clinical','office'].includes(String(org.organization_type || '').toLowerCase()));
   if (clinicalOrganizations.length === 1) newClient.value.organization_id = clinicalOrganizations[0].id;
@@ -1877,6 +1885,10 @@ const onSearchInput = () => {
 const currentPage = ref(1);
 const pageSize = ref(50);
 const platformTenantFilter = ref('');
+const summaryFilter = ref('');
+const summaryFilterLabel = computed(() => ({ completed:'Current / complete', pending:'Pending / packet', attention:'Needs attention' }[summaryFilter.value] || 'All clients'));
+function setSummaryFilter(value) { summaryFilter.value = value; applyFilters(); }
+const packetReviewCount = computed(() => serverSummary.value?.packetReview ?? (usingServerPagination.value ? null : clients.value.filter(c => c.renewalFlags?.paperPacketRoiSetup || c.renewalFlags?.paperPacketVisionReview).length));
 const serverTotal = ref(0);
 
 // Bulk selection + actions
@@ -1925,8 +1937,7 @@ const canSubmitCreate = computed(() => !creating.value && !parsingCreateDemograp
   && newClient.value.submission_date);
 function fillCreateInitials() {
   if (!newClient.value.initials && newClient.value.full_name) {
-    const names = newClient.value.full_name.trim().split(/\s+/);
-    newClient.value.initials = [names[0], names.length > 1 ? names[names.length - 1] : ''].map(name => name.slice(0, 3)).join('');
+    newClient.value.initials = generatedClientInitials(newClient.value.full_name);
   }
 }
 async function readCreateDemographics() {
@@ -2015,10 +2026,11 @@ const activeAgencyId = computed(() => {
   );
   return firstAgency?.id || null;
 });
-const usingServerPagination = computed(() => isSuperAdmin.value && !activeAgencyId.value);
+const canChooseListAgency=computed(()=>isSuperAdmin.value);
+const usingServerPagination = computed(() => true);
 
 const effectiveAgencyScopeId = computed(() => {
-  if (activeAgencyId.value) return Number(activeAgencyId.value);
+  if (!canChooseListAgency.value && activeAgencyId.value) return Number(activeAgencyId.value);
   const platformTenantId = Number(platformTenantFilter.value || 0);
   if (platformTenantId > 0) return platformTenantId;
   return null;
@@ -2026,7 +2038,7 @@ const effectiveAgencyScopeId = computed(() => {
 
 const allTenantFilters = computed(() => {
   return (tenantSourceOrganizations.value || [])
-    .filter((o) => String(o?.organization_type || o?.organizationType || 'agency').toLowerCase() === 'agency')
+    .filter((o) => ['agency','life_coach','consultant'].includes(String(o?.organization_type || o?.organizationType || 'agency').toLowerCase()))
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 
@@ -2127,11 +2139,16 @@ const currentPortalVariant = computed(() => {
 const fetchLinkedOrganizations = async () => {
   try {
     loadingOrganizations.value = true;
-    const agencyId = createAgencyEffectiveId.value;
-    if (!agencyId) {
-      linkedOrganizations.value = [];
+    const agencyId = showCreateModal.value ? createAgencyEffectiveId.value : effectiveAgencyScopeId.value;
+    if (!agencyId && canChooseListAgency.value) {
+      const results=await Promise.allSettled(allTenantFilters.value.map(async agency=>{
+        const {data}=await api.get(`/agencies/${agency.id}/affiliated-organizations`,{skipGlobalLoading:true});
+        return (Array.isArray(data)?data:[]).map(org=>({...org,affiliated_agency_id:Number(agency.id)}));
+      }));
+      linkedOrganizations.value=[...new Map(results.filter(result=>result.status==='fulfilled').flatMap(result=>result.value).map(org=>[Number(org.id),org])).values()];
       return;
     }
+    if (!agencyId) { linkedOrganizations.value=[]; return; }
 
     // Agency-side: prefer affiliation-based list (schools/programs/learning). Fallback to legacy agency↔school links if needed.
     try {
@@ -2391,6 +2408,7 @@ const fetchClients = async () => {
     if (referralEntryFilter.value) { params.append('referral_entry_id', referralEntryFilter.value); params.append('referral_direction', referralDirectionFilter.value); }
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
+    if (summaryFilter.value) params.append('summary_tone', summaryFilter.value);
     if (devFillFilter.value === 'only') params.append('demo', 'only');
     if (devFillFilter.value === 'exclude') params.append('demo', 'exclude');
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
@@ -2413,7 +2431,7 @@ const fetchClients = async () => {
       params.append('page', String(currentPage.value));
       params.append('per_page', String(pageSize.value));
       const parts = sortParts();
-      params.append('sort', parts.field);
+      params.append('sort', parts.field === 'initials' && displayMode.value === 'full_name' ? 'full_name' : parts.field);
       params.append('order', parts.order);
       // When in full platform mode (no tenant filter chosen), exclude hidden tenants.
       // If a specific tenant is selected, show it regardless of hidden status.
@@ -2481,10 +2499,15 @@ const fetchClientStatuses = async () => {
 const fetchProviders = async () => {
   try {
     const agencyId = showCreateModal.value ? createAgencyEffectiveId.value : effectiveAgencyScopeId.value;
-    if (!agencyId) {
-      availableProviders.value = [];
+    if (!agencyId && canChooseListAgency.value) {
+      const results=await Promise.allSettled(allTenantFilters.value.map(async agency=>{
+        const {data}=await api.get('/provider-scheduling/providers',{params:{agencyId:agency.id},skipGlobalLoading:true});
+        return Array.isArray(data)?data:data?.providers||[];
+      }));
+      availableProviders.value=[...new Map(results.filter(result=>result.status==='fulfilled').flatMap(result=>result.value).map(provider=>[Number(provider.id),provider])).values()];
       return;
     }
+    if (!agencyId) { availableProviders.value=[]; return; }
     const response = await api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true });
     availableProviders.value = response.data || [];
   } catch (err) {
@@ -3281,9 +3304,16 @@ const openClientFromQuery = async () => {
   }
 };
 
+const listPreferences = { platformTenantFilter, clientStatusFilter, workflowStatusFilter, devFillFilter, organizationFilter, providerFilter, skillsOnly, sortBy, pageSize, renewalFlagFilter, summaryFilter, cmViewMode };
+const listPreferencesKey = computed(() => `client-management-preferences-v2:${authStore.user?.id || 'anon'}`);
+function restoreListPreferences() {
+  try { const saved = JSON.parse(localStorage.getItem(listPreferencesKey.value) || '{}'); for (const [key, target] of Object.entries(listPreferences)) if (Object.hasOwn(saved,key) && typeof saved[key] === typeof target.value) target.value = saved[key]; } catch { /* Preferences are optional. */ }
+}
+watch(() => Object.fromEntries(Object.entries(listPreferences).map(([key,target]) => [key,target.value])), value => { try { localStorage.setItem(listPreferencesKey.value,JSON.stringify(value)); } catch {} }, { deep:true });
+watch(displayMode, () => { if (usingServerPagination.value && sortParts().field === 'initials') fetchClients(); });
 onMounted(async () => {
+  restoreListPreferences();
   loadColumnPrefs();
-  loadSideCounts();
   if (isSuperAdmin.value) {
     loadHiddenTenants();
   }
@@ -3299,6 +3329,7 @@ onMounted(async () => {
     createAgencyId.value = String(activeAgencyId.value);
   }
   await fetchLinkedOrganizations();
+  await loadSideCounts();
   await fetchClientStatuses();
   // Deep-link: /admin/clients?client_status_key=prospective
   const statusKeyQ = String(route.query?.client_status_key || route.query?.clientStatusKey || '').trim().toLowerCase();
@@ -3311,10 +3342,7 @@ onMounted(async () => {
   await openClientFromQuery();
   if (route.query?.new === '1') await openCreateClientModal();
 
-  // Default school year for new clients (best-effort; user can override).
-  if (!newClient.value.school_year) {
-    newClient.value.school_year = currentSchoolYear.value;
-  }
+
 });
 
 watch(
@@ -4375,4 +4403,26 @@ watch(() => currentPage.value, (newPage, oldPage) => {
  .cm-clients-table .actions-cell { position:static; justify-content:flex-start; }
 }
 .client-mgmt-page{max-width:none;width:100%;padding:14px 18px}.cm-clients-table .col-initials{min-width:180px;max-width:270px}.cm-clients-table td,.cm-clients-table th{padding-left:10px;padding-right:10px}.cm-header-copy h1{margin:4px 0}
+
+.cm-summary-grid { gap:8px; margin-bottom:12px; }
+.cm-summary-card { padding:10px 12px; gap:9px; align-items:center; text-align:left; font:inherit; cursor:pointer; }
+.cm-summary-card:hover, .cm-summary-card[aria-pressed="true"] { border-color:#b7c9e2; background:#f3f7fc; }
+.cm-summary-icon { width:30px; height:30px; border-radius:8px; font-size:15px; }
+.cm-summary-value { font-size:1.25rem; }.cm-summary-label { font-size:.8rem; }.cm-summary-meta { font-size:.72rem; }
+.cm-clients-table { table-layout:auto; width:100%; }
+.cm-clients-table th, .cm-clients-table td { padding:7px 8px; font-size:12px; }
+.cm-clients-table .col-initials { width:auto; min-width:120px; max-width:220px; }
+.cm-clients-table .col-actions { width:150px; min-width:150px; }
+.cm-clients-table td { max-width:185px; overflow-wrap:anywhere; }
+.cm-initials-badge { white-space:normal; text-align:left; border-radius:8px; }
+.cm-status-pill, .cm-affiliation-badge { white-space:normal; padding:4px 7px; }
+.actions-cell { white-space:normal; }
+.cm-row-actions { display:inline-block; vertical-align:top; margin-left:4px; }
+.cm-row-actions[open] { position:relative; }
+.cm-row-actions[open] > :not(summary) { display:block; box-sizing:border-box; margin:4px 0; white-space:normal; min-width:130px; }
+.cm-row-actions[open] { min-width:140px; }
+.cm-packet-btn { border:1px solid #efbad2; background:#fce6f0; color:#9b245a; border-radius:8px; padding:6px 10px; font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
+.cm-packet-btn[aria-pressed="true"] { background:#f8cde0; }.cm-filter-clear { border:0; background:#eef3fa; color:#17345c; padding:6px 10px; border-radius:8px; cursor:pointer; }
+@media(max-width:720px) { .cm-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.cm-clients-table .col-initials,.cm-clients-table .col-actions { min-width:0; max-width:100%; } }
+
 </style>

@@ -83,7 +83,7 @@ export function useClientDisplayMode() {
 
     const mode = displayModeRef.value;
     if (mode === 'full_name') {
-      if (fullName) return initials ? `${fullName} (${initials})` : fullName;
+      if (fullName) return fullName;
       return initials || code || fallback;
     }
     if (mode === 'code') return code || initials || fallback;

@@ -182,3 +182,10 @@ it('ignores a saved-listing refresh failure after switching to another listing',
  expect(wrapper.findComponent({name:'ClientExchangeEssentialsEditor'}).props('listing').id).toBe(20);
  expect(wrapper.text()).not.toContain('Matching details were saved, but');wrapper.unmount();
 });
+it('aggregates authorized agencies and restores the saved scope and sort',async()=>{
+ localStorage.clear();mocks.user={id:70,role:'support'};mocks.route.params={organizationSlug:'itsco'};mocks.route.query={};mocks.store=reactive({currentAgency:{id:2},userAgencies:[{id:2,name:'ITSCO'},{id:3,name:'Other Agency'}],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});
+ mocks.get.mockReset().mockImplementation(async(url,config)=>({data:{listings:url.endsWith('/listings')?[{id:Number(config.params.agencyId)*10,agencyId:config.params.agencyId,status:'open'}]:[],requests:[]}}));
+ let wrapper=makeWrapper();await flushPromises();expect(mocks.get).toHaveBeenCalledWith('/client-exchange/listings',{params:{agencyId:2}});expect(mocks.get).toHaveBeenCalledWith('/client-exchange/listings',{params:{agencyId:3}});expect(wrapper.findAllComponents({name:'ListingCard'})).toHaveLength(2);
+ await wrapper.find('select[aria-label="Sort exchange listings"]').setValue('oldest');await wrapper.find('select').setValue('3');await flushPromises();wrapper.unmount();
+ wrapper=makeWrapper();await flushPromises();expect(wrapper.find('select').element.value).toBe('3');expect(wrapper.find('select[aria-label="Sort exchange listings"]').element.value).toBe('oldest');wrapper.unmount();localStorage.clear();
+});

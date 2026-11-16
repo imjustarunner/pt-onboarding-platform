@@ -106,7 +106,7 @@ export async function protectOutboundEmail({to,cc,bcc,actorUserId=null}) {
 
 export async function protectStorageResource(key) {
  const req=evidenceRequestContext.getStore();
- if(!protectionActor(req)||!/(?:^|\/)(phi-documents|intake_signed|intake_uploads)(?:\/|$)/i.test(String(key)))return;
+ if(!protectionActor(req)||!/(?:^|\/)(phi-documents|private-chart-history|intake_signed|intake_uploads)(?:\/|$)/i.test(String(key)))return;
  req.protectionStorage ||= new Map();
  if(!req.protectionStorage.has(String(key))){
   const covered=req.protectionRouteChecked && req.protectionStorage.size===0;

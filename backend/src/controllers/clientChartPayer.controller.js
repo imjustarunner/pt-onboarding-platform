@@ -49,14 +49,28 @@ export async function searchClientPayers(req, res, next) {
     const sourceId = String(source.sourcePayerId || policy.sourcePayerId || policy.payerId || '').trim();
     const name = String(source.payerName || policy.insurerName || '').trim().slice(0,64);
     if (query && (query.length < 2 || query.length > 64)) throw Object.assign(new Error('Search with 2–64 characters'), { status: 400 });
-    const connection = await resolveClaimMdConnection(scope.agencyId);
-    let payers = [];
-    // Include both the copied ID and name results; source IDs may use another
-    // clearinghouse's routes. The staff member selects the intended payer.
-    if (!query && /^[A-Za-z0-9_-]{1,32}$/.test(sourceId)) payers.push(...asList((await fetchPayers({ accountKey: connection.accountKey, payerId: sourceId })).payer));
-    if ((query || name).length >= 2) payers.push(...asList((await fetchPayers({ accountKey: connection.accountKey, payerName: query || name })).payer));
-    payers = [...new Map(payers.map(payer => [String(payer.payerid), payer])).values()];
-    res.set('Cache-Control','no-store').json({ payers: payers.slice(0,100).map(publicPayer) });
+    const catalog = await listPayerSetupRequests(scope.agencyId,pool);
+    const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const terms = normalize(query).split(' ').filter(Boolean);
+    const configured = catalog.filter(row => {
+      const haystack=normalize([row.payer_name,row.directory_name,row.source_payer_id,row.claimmd_payer_id,row.source_names_json,row.review_note].join(' '));
+      return !terms.length || terms.every(term=>haystack.includes(term));
+    }).map(row => {
+      let capabilities={};try{capabilities=typeof row.directory_snapshot_json==='string'?JSON.parse(row.directory_snapshot_json):row.directory_snapshot_json||{};}catch{}
+      return { payerId:String(row.claimmd_payer_id||''), name:row.payer_name, directoryName:row.directory_name||'', source:'agency', catalogId:row.id,
+        verified:row.directory_status==='id_match' && !!row.claimmd_payer_id, note:row.review_note||'',
+        claims:capabilities['1500_claims']||'unknown',eligibility:capabilities.eligibility||'unknown' };
+    });
+    let payers=[],directoryWarning='';
+    try {
+      const connection=await resolveClaimMdConnection(scope.agencyId);
+      if(!query && /^[A-Za-z0-9_-]{1,32}$/.test(sourceId))payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerId:sourceId})).payer));
+      if(query && /^[0-9]{2,32}$/.test(query))payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerId:query})).payer));
+      if((query||name).length>=2)payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerName:query||name})).payer));
+    } catch { directoryWarning='The live clearinghouse directory is unavailable. Agency payers are still shown; linking requires a fresh directory check.'; }
+    const configuredIds=new Set(configured.filter(row=>row.payerId).map(row=>row.payerId));
+    const directory=[...new Map(payers.map(payer=>[String(payer.payerid),payer])).values()].filter(payer=>!configuredIds.has(String(payer.payerid))).slice(0,100).map(payer=>({...publicPayer(payer),source:'directory',verified:true}));
+    res.set('Cache-Control','no-store').json({payers:[...configured,...directory],directoryWarning});
   } catch (error) { next(error); }
 }
 

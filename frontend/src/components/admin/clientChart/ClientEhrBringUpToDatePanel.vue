@@ -5,7 +5,7 @@
     @click.self="!embedded && !busy && emit('close')"
   >
     <div :class="embedded ? undefined : 'ehr-bring'" role="dialog" aria-labelledby="ehr-bring-title">
-      <header class="ehr-bring-head">
+      <header v-if="!embedded" class="ehr-bring-head">
         <div>
           <h3 id="ehr-bring-title">{{ historicalImport ? 'Intake and latest treatment plan' : creationFlow ? 'Import new client records' : 'Bring up to date' }}</h3>
           <p class="ehr-bring-sub">
@@ -43,6 +43,8 @@
         </div>
         <p v-if="drafts.state.sections[section.key]?.error" class="ehr-error" role="alert">{{ drafts.state.sections[section.key].error }} <button type="button" class="ehr-link" @click="drafts.retry(section.key)">Save this paste as the latest draft</button></p>
       </section>
+
+      <ClientMedicalHistory v-if="!historicalImport" ref="historyPanel" :client-id="clientId" :agency-id="agencyId" :client-label="clientLabel" @busy="historyBusy=$event" />
 
       <ClientPayerLinkage v-if="!historicalImport" :client-id="clientId" :agency-id="agencyId" :refresh-key="payerRefreshKey" @ready-change="payerReady = $event" @busy="payerBusy = $event" />
 
@@ -99,6 +101,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { useChartImportDrafts } from '../../../composables/useChartImportDrafts.js';
 import ClientPayerLinkage from './ClientPayerLinkage.vue';
+import ClientMedicalHistory from './ClientMedicalHistory.vue';
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
@@ -114,6 +117,7 @@ const props = defineProps({
   clientLabel: { type: String, default: '' },
   initialTexts: { type: Object, default: () => ({}) },
   creationFlow: { type: Boolean, default: false },
+  autoImport: { type: Boolean, default: true },
   requireVerifiedPayers: { type: Boolean, default: false },
   embedded: { type: Boolean, default: false },
   historicalImport: { type: Boolean, default: false },
@@ -143,6 +147,7 @@ const sections = [
 ];
 const visibleSections = computed(() => sections.filter(section => props.historicalImport ? ['intake', 'plan'].includes(section.key) : !(props.hideDemographics && section.key === 'demographics')));
 const drafts = useChartImportDrafts();
+const historyBusy=ref(false),historyPanel=ref(null);
 const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
 const payerPosition = ref('primary');
 const creationRecordsReady = computed(() => visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => status[section.key] === 'imported'));
@@ -167,7 +172,7 @@ const todayIso = computed(() => todayCalendarDate());
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim())
 );
-const busy = computed(() => importing.value || markingDone.value || showPlanReview.value || payerBusy.value || drafts.state.loading);
+const busy = computed(() => importing.value || markingDone.value || showPlanReview.value || historyBusy.value || payerBusy.value || drafts.state.loading);
 watch(busy, value => emit('busy', value), { flush: 'sync' });
 let scopeGeneration = 0;
 let importScopeGeneration = 0;
@@ -224,7 +229,7 @@ watch(
     planSourceDate.value = saved?.plan?.value?.sourceDate || ''; planSourceAuthor.value = saved?.plan?.value?.sourceAuthor || '';
     hydratingDrafts = false;
     for (const section of visibleSections.value) if (sectionTexts[section.key]) drafts.schedule(section.key, draftValue(section.key));
-    if (props.creationFlow && !props.historicalImport) importAll();
+    if (props.creationFlow && props.autoImport && !props.historicalImport) importAll();
   },
   { immediate: true, flush: 'sync' }
 );
@@ -595,6 +600,7 @@ async function completeCreation() {
 }
 
 async function prepareLeave() {
+  if (historyPanel.value?.prepareLeave?.() === false) return false;
   await drafts.flush();
   if (Object.values(drafts.state.sections).some(section => section.error) || (drafts.state.loadError && hasAnyPaste.value)) {
     error.value = 'Save the drafts before leaving this client. Retry any draft errors above.';
@@ -680,6 +686,8 @@ async function markDoneOnly() {
   overflow: auto;
 }
 .ehr-bring {
+  box-sizing: border-box;
+  min-width: 0;
   width: min(820px, 100%);
   background: #fff;
   border-radius: 14px;
@@ -752,7 +760,7 @@ async function markDoneOnly() {
   color: #b91c1c;
 }
 .ehr-plan-review-lift :deep(.na-modal-backdrop) {
-  z-index: 5100;
+  z-index: 10300;
 }
 .ehr-label {
   display: flex;
@@ -805,7 +813,7 @@ async function markDoneOnly() {
 }
 .ehr-btn-primary {
   border: none;
-  background: #0f766e;
+  background: #173b69;
   color: #fff;
 }
 .ehr-btn-primary:disabled, .ehr-btn-ghost:disabled {

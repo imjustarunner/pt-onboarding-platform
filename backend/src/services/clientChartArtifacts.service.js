@@ -453,7 +453,7 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
   ]);
 
   const paperIds=new Set((paperDocs || []).filter(d=>!d.removed_at).map(d=>Number(d.id)));
-  const activePhi = [...new Map([...(phiDocs || []),...(paperDocs || [])].filter(d=>!d?.removed_at).map(d=>[Number(d.id),d])).values()];
+  const activePhi = [...new Map([...(phiDocs || []),...(paperDocs || [])].filter(d=>!d?.removed_at && d.document_type!=='private_client_medical_history').map(d=>[Number(d.id),d])).values()];
   const usedPhiIds = new Set();
   const usedIsdIds = new Set();
   const usedSectionKeys = new Set();

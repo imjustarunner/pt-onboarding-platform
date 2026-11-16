@@ -62,3 +62,11 @@ it('shows insurance as missing for a school chart with an empty paper-policy pla
  expect(next).not.toHaveBeenCalled();
  expect(response.json.mock.calls[0][0].policies[0]).toMatchObject({hasInsurance:false,linked:false,payerId:''});
 });
+
+it('prioritizes the configured agency route and aliases when Kaiser bills through a different payer',async()=>{
+ m.list.mockResolvedValue([{id:7,payer_name:'Kaiser Colorado',source_names_json:JSON.stringify(['Kaiser Permanente','Beacon behavioral']),claimmd_payer_id:'43324',directory_status:'id_match',directory_name:'Beacon Health Options',review_note:'Colorado behavioral route'}]);
+ const request=req();request.body={position:'primary',search:'beac'};const response=res();await searchClientPayers(request,response,vi.fn());expect(response.json.mock.calls[0][0].payers[0]).toMatchObject({source:'agency',payerId:'43324',name:'Kaiser Colorado',directoryName:'Beacon Health Options',verified:true});
+});
+it('keeps agency routes visible if the live directory is temporarily unavailable without claiming a fresh verification',async()=>{
+ m.list.mockResolvedValue([{id:7,payer_name:'Agency payer',claimmd_payer_id:'43324',directory_status:'id_match'}]);m.connection.mockRejectedValue(Error('offline'));const request=req();request.body={position:'primary'};const response=res(),next=vi.fn();await searchClientPayers(request,response,next);expect(next).not.toHaveBeenCalled();expect(response.json.mock.calls[0][0].payers[0].source).toBe('agency');expect(response.json.mock.calls[0][0].directoryWarning).toContain('fresh directory check');expect(m.write).not.toHaveBeenCalled();
+});

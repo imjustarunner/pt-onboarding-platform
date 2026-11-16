@@ -6419,7 +6419,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
               AND coa.organization_id = ?
               AND coa.is_active = TRUE
              LEFT JOIN users u ON u.id = d.uploaded_by_user_id
-             WHERE 1=1
+             WHERE COALESCE(d.document_type,'') <> 'private_client_medical_history'
              ${docFilter}
              ORDER BY d.uploaded_at DESC, d.id DESC
              LIMIT 200`,

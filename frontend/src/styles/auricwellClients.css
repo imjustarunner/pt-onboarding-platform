@@ -3,3 +3,8 @@
 .auricwell-client-workspace .auricwell-brand{margin-bottom:7px}
 .auricwell-client-workspace button,.auricwell-client-workspace select,.auricwell-client-workspace input{font:inherit}
 .auricwell-client-workspace .cm-initials-badge{background:#eaf2fb!important;color:#164b86!important}
+
+.auricwell-client-workspace { --text-primary:#17345c; --text-secondary:#60718a; }
+.auricwell-client-workspace .btn-secondary { background:#eef3fa; color:#173b69; border:1px solid #d5e0ee; border-radius:8px; }
+.auricwell-client-workspace .btn-primary { background:#173b69; color:#fff; border:1px solid #173b69; border-radius:8px; }
+.auricwell-client-workspace .btn.cm-packet-btn { background:#fce6f0; color:#9b245a; border-color:#efbad2; }

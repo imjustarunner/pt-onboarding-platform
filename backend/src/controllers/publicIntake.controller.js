@@ -12203,7 +12203,7 @@ export const submitPublicIntake = async (req, res, next) => {
               const [rows] = await pool.execute(
                 `SELECT id, document_type, title, created_at
                  FROM client_phi_documents
-                 WHERE client_id = ?
+                 WHERE client_id = ? AND COALESCE(document_type,'') <> 'private_client_medical_history'
                  ORDER BY id DESC
                  LIMIT 40`,
                 [cid]

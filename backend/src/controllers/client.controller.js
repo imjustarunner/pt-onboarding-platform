@@ -1,3 +1,4 @@
+import { generatedClientInitials } from '../../../frontend/src/navigation/clientInitials.js';
 import { attachRosterServiceContexts } from '../services/clientServiceContext.service.js';
 import {filterClientDemos} from '../utils/clientDemoFilter.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
@@ -543,7 +544,7 @@ export const getClients = async (req, res, next) => {
       includeSensitive: true, // Agency view includes all fields
       status,
       organization_id: organization_id ? parseInt(organization_id) : undefined,
-      provider_id: provider_id ? (String(userRole).toLowerCase() === 'provider' ? userId : parseInt(provider_id)) : undefined,
+      provider_id: provider_id ? (['provider','provider_plus'].includes(String(userRole).toLowerCase()) ? userId : parseInt(provider_id)) : undefined,
       search,
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : undefined,
       paperwork_status_id: paperwork_status_id ? parseInt(paperwork_status_id, 10) : undefined,
@@ -671,7 +672,7 @@ export const getClients = async (req, res, next) => {
         .filter(Boolean);
     };
 
-    if (filterProviderId && roleNorm === 'provider') {
+    if (filterProviderId && ['provider','provider_plus'].includes(roleNorm)) {
       providerScopedClients = await mergeCpaAssignedClients(userId);
     } else if (
       filterProviderId &&
@@ -769,10 +770,11 @@ export const getClients = async (req, res, next) => {
       out = out.filter(client => linkedIds.has(Number(client.id)));
     }
 
-    const shouldPaginate = userRole === 'super_admin' && paginateRequested;
+    const shouldPaginate = paginateRequested;
 
     const SORT_FIELD_MAP = {
       initials: (c) => String(c.initials || c.full_name || '').toLowerCase(),
+      full_name: (c) => String(c.full_name || c.initials || '').toLowerCase(),
       agency_name: (c) => String(c.agency_name || '').toLowerCase(),
       organization_name: (c) => String(c.organization_name || '').toLowerCase(),
       client_status_label: (c) => String(c.client_status_label || c.client_status_key || '').toLowerCase(),
@@ -837,6 +839,9 @@ export const getClients = async (req, res, next) => {
       out = await attachRosterServiceContexts(out, { agencyIds, providerId: options.provider_id || null });
     }
 
+    const summaryTone = String(req.query.summary_tone || '');
+    const summaryRows = out;
+    if (['completed','pending','attention'].includes(summaryTone)) out = out.filter(row => clientSummaryTone(row) === summaryTone);
     if (!shouldPaginate) {
       return res.json(out);
     }
@@ -851,7 +856,7 @@ export const getClients = async (req, res, next) => {
     let completed = 0;
     let pending = 0;
     let attention = 0;
-    for (const c of out || []) {
+    for (const c of summaryRows || []) {
       const tone = clientSummaryTone(c);
       if (tone === 'completed') completed += 1;
       else if (tone === 'pending') pending += 1;
@@ -864,10 +869,11 @@ export const getClients = async (req, res, next) => {
       page,
       per_page: perPage,
       summary: {
-        total,
+        total: summaryRows.length,
         completed,
         pending,
-        attention
+        attention,
+        packetReview: summaryRows.filter(c => c.renewalFlags?.paperPacketRoiSetup || c.renewalFlags?.paperPacketVisionReview).length
       }
     });
   } catch (error) {
@@ -1266,6 +1272,7 @@ export const createClient = async (req, res, next) => {
       const fields = validateFaxFields(req.body.faxIntake.fields);
       req.body.full_name = fields.client_full_name;
     }
+    if (!req.body.initials && req.body.full_name) req.body.initials=generatedClientInitials(req.body.full_name);
     const {
       organization_id,
       agency_id,
@@ -1490,8 +1497,8 @@ export const createClient = async (req, res, next) => {
     // matches exist unless forceCreate is set. Mixed/active matches stay warnings.
     // IMPORTANT: preserve user-entered casing in storage/display, but use uppercase for matching/dedup checks.
     const initialsForSave = String(initials || '').trim();
-    const normalizedInitials = initialsForSave.toUpperCase();
-    if (resolvedClientType === 'school' && !isValidSchoolInitials(normalizedInitials)) {
+    const normalizedInitials = initialsForSave.replace(/\s+/g,'').toUpperCase();
+    if (resolvedClientType === 'school' && !isValidSchoolInitials(normalizedInitials) && initialsForSave !== generatedClientInitials(full_name)) {
       return res.status(400).json({
         error: { message: 'School clients require exactly 6 initials (first 3 + last 3 letters).' }
       });
@@ -1540,7 +1547,7 @@ export const createClient = async (req, res, next) => {
          LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
          WHERE c.agency_id = ?
            AND c.organization_id = ?
-           AND UPPER(c.initials) = ?
+           AND UPPER(REPLACE(c.initials, ' ', '')) = ?
          ORDER BY c.id DESC
          LIMIT 20`,
         [parsedAgencyId, parsedOrganizationId, normalizedInitials]
@@ -1612,7 +1619,7 @@ export const createClient = async (req, res, next) => {
          LEFT JOIN agencies a ON c.agency_id = a.id
          LEFT JOIN users p ON c.provider_id = p.id
          LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
-         WHERE UPPER(c.initials) = ?
+         WHERE UPPER(REPLACE(c.initials, ' ', '')) = ?
          ORDER BY c.id DESC
          LIMIT 10`,
         [normalizedInitials]
