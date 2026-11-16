@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {linkedServiceRelationship,resolveLinkedServiceBilling,linkedServiceLineBlockers} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { getApprovedClinicalContext, clinicalVersionReference, approvedVersionBillingBlockers, PENDING_CLINICAL_REVISION_HOLD } from './clinicalNoteVersionBilling.service.js';
 import { hasPendingRevision } from './clinicalNoteVersion.service.js';
@@ -19,12 +20,17 @@ export async function approvedClinicalClaimPlan({ note, session = {}, agencyId =
     lines = recorded.map(line => ({ procedureCode: String(line.procedureCode || line.procedure_code || line.serviceCode || line.code || '').toUpperCase(), units: Number(line.units) }));
   } else {
     const primary = String(metadata.serviceCode || context.serviceCode || approved.session.service_code || '').toUpperCase();
-    lines = [{ procedureCode: primary, units: Number(metadata.billingPrimaryUnits || 1) }];
-    for (const addon of metadata.billingAddons || []) {
+    const family=linkedServiceRelationship(primary);
+    const linked=family && !family.isAddon ? resolveLinkedServiceBilling(primary,metadata.structuredChart?.durationMinutes ?? metadata.durationMinutes ?? approved.session.duration_minutes,{modifiers:metadata.modifiers}) : null;
+    if(linked && !linked.claimable)throw policyError(409,linked.reason);
+    lines = [{ procedureCode: primary, units: linked?.units ?? Number(metadata.billingPrimaryUnits || 1) }];
+    for (const addon of [...(metadata.billingAddons || []).filter(addon=>!linked || String(addon.code || addon.serviceCode || '').toUpperCase()!==family.addon),...(linked?.addons || [])]) {
       const code = String(addon.code || addon.serviceCode || addon.procedureCode || '').toUpperCase();
       if (code && code !== primary) lines.push({ procedureCode: code, units: Number(addon.units || 1) });
     }
   }
+  const linkedBlockers=linkedServiceLineBlockers(lines,metadata.structuredChart?.durationMinutes ?? metadata.durationMinutes ?? approved.session.duration_minutes,metadata.serviceCode || context.serviceCode || approved.session.service_code);
+  if(linkedBlockers.length)throw policyError(409,linkedBlockers[0]);
   if (!lines.length || lines.length > 50 || lines.some(line => !/^[A-Z0-9]{5}$/.test(line.procedureCode) || !Number.isInteger(line.units) || line.units < 1 || line.units > 999)) throw policyError(409, 'Complete the approved version’s service codes and units before reconciling billing.');
   const scheduled=await reconcileNewClaimAfterHours({session:approved.session,note:current,lines,metadata,billing:await savedClinicalFunding(approved.session)});
   if(!scheduled.decision&&lines.some(line=>line.procedureCode==='99051'))throw policyError(409,'Verify the approved encounter start and source timezone before reconciling the99051 line.');

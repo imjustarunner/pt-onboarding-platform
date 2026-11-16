@@ -153,7 +153,7 @@ export const createCustomTask = async (req, res, next) => {
     });
 
     // Notify assignee (skips if waiting or self-assigned)
-    notifyTaskAssigned({ task, actorUserId: userId }).catch(() => {});
+    await notifyTaskAssigned({ task, actorUserId: userId });
 
     res.status(201).json(task);
   } catch (err) {
@@ -296,8 +296,8 @@ export const updateCustomTask = async (req, res, next) => {
     });
 
     // If assignee changed, notify the new assignee (skips if waiting or self-assigned)
-    if (updates.assignedToUserId !== undefined && updated) {
-      notifyTaskAssigned({ task: updated, actorUserId: userId }).catch(() => {});
+    if (updates.assignedToUserId !== undefined && updated && Number(task.assigned_to_user_id || 0) !== Number(updated.assigned_to_user_id || 0)) {
+      await notifyTaskAssigned({ task: updated, actorUserId: userId });
     }
 
     res.json(updated);
@@ -442,6 +442,7 @@ export const setTaskAssignees = async (req, res, next) => {
       raw != null && raw !== '' ? parseInt(raw, 10) || null : null;
     const updated = await Task.updateCustomTask(task.id, { assignedToUserId: assigneeId });
     if (assigneeId) await TaskCollaborator.removeUser(task.id, assigneeId);
+    if (assigneeId && Number(task.assigned_to_user_id || 0) !== Number(assigneeId)) await notifyTaskAssigned({ task: updated, actorUserId: req.user.id });
     res.json({ assigneeUserId: updated?.assigned_to_user_id ?? null });
   } catch (err) {
     next(err);

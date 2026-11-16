@@ -1,5 +1,5 @@
 import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
-import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { utcDateToZonedYmd, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { syntheticBillingRow, includesDemoBilling } from './billingTransactionFilters.js';
 import { attachClaimReferences } from './clinicalClaimReferences.service.js';
 import { collapseClaimAttempts } from './claimFamily.service.js';
@@ -8,11 +8,12 @@ import { clinicalBillingStage, clinicalApprovalFields, clinicalApprovalJoins } f
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const date = value => value instanceof Date ? value.toISOString().slice(0, 10) : /^\d{4}-\d{2}-\d{2}/.test(String(value || '')) ? String(value).slice(0, 10) : null;
-const encounterDate = row => { const raw = row.scheduled_start_at; if (!raw) return null; const instant = raw instanceof Date ? raw : new Date(String(raw).replace(' ', 'T').replace(/Z?$/, 'Z')); return utcDateToZonedYmd(instant, row.source_timezone || 'America/Denver'); };
+const encounterDate = row => utcDateToZonedYmd(utcMysqlToIso(row.scheduled_start_at), row.source_timezone || 'America/Denver');
 const missing = error => ['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error?.code);
 const labels = { note_needed: 'Note Needed', draft: 'Draft', pending_review: 'Pending Review', revisions_needed: 'Revisions Needed', ready_to_submit: 'Final checks required', submitted: 'Submitted', processing: 'Processing', paid: 'Paid', denied: 'Denied', rejected:'Rejected', on_hold: 'On hold', closed: 'Closed' };
 const marks = values => values.map(() => '?').join(',');
 const stageAliases = { ready: 'ready_to_submit', in_progress: 'processing' };
+const submissionType = row => !row.claimId ? 'Not submitted' : ['replacement','corrected'].includes(row.resubmission_type) ? 'Replacement / corrected' : row.resubmission_type==='void' ? 'Void / cancellation' : ['resubmit','original_retry'].includes(row.resubmission_type) ? 'Resubmission after rejection' : Number(row.payer_sequence || 1)===2 ? 'Secondary claim' : 'Original claim';
 export const claimQueueFilters=['pending_submission','pending_initial_submission','pending_resubmission','open','information_required','needs_review','needs_help','submitted_or_processing','awaiting_signatures'];
 export function billingDashboardBucket(row) {
   if (!Number(row.claimId) || ['paid','void','voided','closed','adjusted'].includes(row.claim_lifecycle)) return null;
@@ -73,6 +74,11 @@ export function normalizeBillingWorkItem(row) {
     date_of_service: date(row.date_of_service || context.dateOfService || row.service_date) || encounterDate(row),
     service_code: primaryLine?.procedureCode || context.serviceCode || row.service_code || null,
     units: primaryLine?.units ?? context.billingPrimaryUnits ?? row.units ?? null,
+    recorded_minutes: context.durationMinutes ?? row.duration_minutes ?? null,
+    service_location_id: id(row.service_location_id || context.serviceLocationId),
+    claimmd_submitted_at: row.claimmd_submitted_at instanceof Date ? row.claimmd_submitted_at.toISOString() : row.claimmd_submitted_at || null,
+    closure: metadata.claimClosure || null,
+    closed_by_user_id: id(metadata.claimClosure?.actorUserId),
     place_of_service: row.place_of_service || context.placeOfService || null,
     duration_minutes: context.durationMinutes ?? null, service_location_id: id(context.serviceLocationId),
     diagnosis_codes: Array.isArray(codes) ? codes : [], service_lines: Array.isArray(lines) ? lines : [],
@@ -81,6 +87,10 @@ export function normalizeBillingWorkItem(row) {
     rendering_provider_user_id: id(metadata.renderingUserId || row.provider_user_id),
     supervisor_user_id: id(row.supervisor_user_id),
     amount_cents: row.amount_cents == null ? null : Number(row.amount_cents), currency_code: row.currency_code || 'USD' };
+  item.hiddenFromQueue = metadata.hiddenFromQueue === true;
+  item.encounter_date_of_service = date(context.dateOfService || object(row.session_metadata_json).serviceDate) || encounterDate(row);
+  item.encounter_timezone = row.source_timezone || 'America/Denver';
+  item.service_date_mismatch = !!item.claimId && !!item.encounter_date_of_service && !!item.date_of_service && item.date_of_service !== item.encounter_date_of_service;
   item.stage = billingWorkStage(item); item.stageLabel = labels[item.stage];
   item.key = row.key || (item.claimId ? `claim:${item.claimId}` : item.clinical_note_id ? `note:${item.clinical_note_id}` : item.draft_id ? `draft:${item.draft_id}` : `session:${item.clinical_session_id}`);
   item.source = item.claimId ? 'claim' : item.clinical_note_id ? 'note' : item.draft_id ? 'draft' : row.source || 'clinical_session';
@@ -90,7 +100,7 @@ export function normalizeBillingWorkItem(row) {
   item.canSubmit = false; // A fresh server review, not a list-row action, authorizes transmission.
   item.resubmission = metadata.resubmission || null;
   item.resubmission_type = metadata.resubmission?.kind || row.resubmission_type || (row.claim_frequency_code === '7' ? 'replacement' : row.claim_frequency_code === '8' ? 'void' : 'original');
-  for (const key of ['encounter_context_json', 'claim_metadata_json', 'review_requests_json', 'claim_lines_json', 'diagnosis_codes_json', 'is_billable', 'requires_supervisor_cosign', 'has_original_signature']) delete item[key];
+  for (const key of ['encounter_context_json', 'session_metadata_json', 'claim_metadata_json', 'review_requests_json', 'claim_lines_json', 'diagnosis_codes_json', 'is_billable', 'requires_supervisor_cosign', 'has_original_signature']) delete item[key];
   return item;
 }
 
@@ -105,27 +115,28 @@ export async function loadBillingWorkItems(agencyIds, deps) {
   if (!agencyIds.length) return { items: [], draftsAvailable: true, appointmentsAvailable: true };
   const scope = marks(agencyIds);
   const [claims] = await deps.clinical.execute(`SELECT c.id AS claimId,c.agency_id,c.client_id,c.clinical_session_id,c.parent_claim_id,c.payer_sequence,
-    c.claim_number,c.billing_revision,c.claim_lifecycle,c.claimmd_last_status,c.amount_cents,c.currency_code,c.date_of_service,c.updated_at,c.payer_name,c.place_of_service,c.billing_npi,c.rendering_npi,
-    c.diagnosis_codes_json,c.metadata_json AS claim_metadata_json,s.provider_user_id,s.service_code,${noteFields},
-    (SELECT JSON_ARRAYAGG(JSON_OBJECT('procedureCode',l.procedure_code,'units',l.units,'chargeCents',l.charge_cents,'lineNumber',l.line_number)) FROM clinical_claim_lines l WHERE l.clinical_claim_id=c.id) AS claim_lines_json,
+    c.claim_number,c.billing_revision,c.claim_lifecycle,c.claimmd_last_status,c.claimmd_submitted_at,c.amount_cents,c.currency_code,c.date_of_service,c.updated_at,c.payer_name,c.place_of_service,c.billing_npi,c.rendering_npi,
+    c.diagnosis_codes_json,c.metadata_json AS claim_metadata_json,s.provider_user_id,s.service_code,s.duration_minutes,s.service_location_id,s.scheduled_start_at,s.source_timezone,s.metadata_json AS session_metadata_json,${noteFields},
+    (SELECT JSON_ARRAYAGG(JSON_OBJECT('procedureCode',l.procedure_code,'units',l.units,'chargeCents',l.charge_cents,'lineNumber',l.line_number,'modifiers',l.modifiers_json,'serviceDate',l.service_date,'diagnosisPointers',l.diagnosis_pointers)) FROM clinical_claim_lines l WHERE l.clinical_claim_id=c.id) AS claim_lines_json,
     EXISTS(SELECT 1 FROM clinical_claim_change_requests ch WHERE ch.agency_id=c.agency_id AND ch.clinical_session_id=c.clinical_session_id AND ch.status IN ('pending','reconciliation_required')) AS service_change_pending
     FROM clinical_claims c LEFT JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id
     LEFT JOIN clinical_notes n ON n.id=c.clinical_note_id AND n.agency_id=c.agency_id ${versionJoins}
-    WHERE c.agency_id IN (${scope}) AND c.is_deleted=0`, agencyIds);
-  const [sessions] = await deps.clinical.execute(`SELECT s.id AS clinical_session_id,s.agency_id,s.client_id,s.appointment_id,s.office_event_id,s.provider_user_id,s.service_code,s.place_of_service,s.updated_at,s.scheduled_start_at,s.source_timezone,
+    WHERE c.agency_id IN (${scope}) AND c.is_deleted=0 AND c.client_id IS NOT NULL`, agencyIds);
+  const [sessions] = await deps.clinical.execute(`SELECT s.id AS clinical_session_id,s.agency_id,s.client_id,s.appointment_id,s.office_event_id,s.provider_user_id,s.service_code,s.place_of_service,s.duration_minutes,s.service_location_id,s.updated_at,s.scheduled_start_at,s.source_timezone,
     COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.snapshot_json,'$.encounterContext.dateOfService')),JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json,'$.dateOfService')),JSON_UNQUOTE(JSON_EXTRACT(s.metadata_json,'$.serviceDate'))) AS date_of_service,
     JSON_EXTRACT(r.snapshot_json,'$.metadataJson.diagnosisCodes') AS diagnosis_codes_json,${noteFields}
     FROM clinical_sessions s LEFT JOIN clinical_notes n ON n.id=(SELECT n2.id FROM clinical_notes n2 WHERE n2.clinical_session_id=s.id AND n2.agency_id=s.agency_id AND n2.is_deleted=0 ORDER BY n2.id DESC LIMIT 1)
     ${versionJoins}
-    WHERE s.agency_id IN (${scope}) AND s.service_code IS NOT NULL
+    WHERE s.agency_id IN (${scope}) AND s.service_code IS NOT NULL AND s.client_id IS NOT NULL
     AND LOWER(COALESCE(s.encounter_status,'')) NOT IN ('cancelled','canceled','no_show','void','voided','rescheduled')
     AND (n.id IS NOT NULL OR COALESCE(s.scheduled_end_at,s.scheduled_start_at)<UTC_TIMESTAMP())
     AND (n.id IS NULL OR COALESCE(n.note_type,'') NOT IN ('treatment_plan','discharge_summary','treatment_summary'))
-    AND NOT EXISTS(SELECT 1 FROM clinical_claims c WHERE c.agency_id=s.agency_id AND c.clinical_session_id=s.id AND c.is_deleted=0)`, agencyIds);
+    AND NOT EXISTS(SELECT 1 FROM clinical_claims c WHERE c.agency_id=s.agency_id AND c.clinical_session_id=s.id AND c.is_deleted=0)
+    AND NOT EXISTS(SELECT 1 FROM clinical_claim_sessions cs WHERE cs.agency_id=s.agency_id AND cs.clinical_session_id=s.id)`, agencyIds);
   let drafts = [], appointments = [], draftsAvailable = true, appointmentsAvailable = true;
   try { [drafts] = await deps.main.execute(`SELECT d.id AS draft_id,d.agency_id,d.client_id,d.user_id AS provider_user_id,d.clinical_session_id,d.office_event_id,d.service_code,d.date_of_service,d.updated_at
-    FROM clinical_note_drafts d LEFT JOIN clients c ON c.id=d.client_id AND c.agency_id=d.agency_id
-    WHERE d.agency_id IN (${scope}) AND d.archived_at IS NULL AND (d.client_id IS NULL OR c.id IS NOT NULL)`, agencyIds); }
+    FROM clinical_note_drafts d JOIN clients c ON c.id=d.client_id AND c.agency_id=d.agency_id
+    WHERE d.agency_id IN (${scope}) AND d.archived_at IS NULL AND d.client_id IS NOT NULL`, agencyIds); }
   catch (error) { if (!missing(error)) throw error; draftsAvailable = false; }
   try { [appointments] = await deps.main.execute(`SELECT a.id AS appointment_id,a.agency_id,ap.client_id,a.clinical_session_id,a.office_event_id,a.provider_user_id,a.service_code,a.start_at AS scheduled_start_at,a.source_timezone,a.updated_at
     FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.role='client' JOIN clients c ON c.id=ap.client_id AND c.agency_id=a.agency_id
@@ -144,16 +155,22 @@ export async function loadBillingWorkItems(agencyIds, deps) {
     if (rows.some(row => sameEncounter(row, appointment))) continue;
     rows.push({ ...appointment, key: `appointment:${appointment.appointment_id}:${appointment.client_id}`, source: 'appointment' });
   }
-  const items = rows.map(normalizeBillingWorkItem);
+  const items = rows.map(normalizeBillingWorkItem).filter(item => !item.hiddenFromQueue);
   await enrichBillingWorkNames(items, agencyIds, deps);
   await attachClaimReferences(items, deps.clinical);
-  return { items:collapseClaimAttempts(items), draftsAvailable, appointmentsAvailable };
+  return { items:collapseClaimAttempts(items.filter(item => item.client_id && item.client_link_verified)), draftsAvailable, appointmentsAvailable };
 }
 
 export async function enrichBillingWorkNames(items, agencyIds, deps) {
   const clientIds = [...new Set(items.map(row => row.client_id).filter(Boolean))];
-  const userIds = [...new Set(items.flatMap(row => [row.provider_user_id, row.billing_provider_user_id, row.rendering_provider_user_id, row.supervisor_user_id, row.posted_by_user_id]).filter(Boolean))];
-  const clients = new Map(), users = new Map();
+  const userIds = [...new Set(items.flatMap(row => [row.provider_user_id, row.billing_provider_user_id, row.rendering_provider_user_id, row.supervisor_user_id, row.posted_by_user_id,row.closed_by_user_id]).filter(Boolean))];
+  const clients = new Map(), users = new Map(), locations = new Map();
+  const locationIds = [...new Set(items.map(row => row.service_location_id).filter(Boolean))];
+  for (let start = 0; start < locationIds.length; start += 500) {
+    const batch = locationIds.slice(start, start + 500);
+    const [rows] = await deps.main.execute(`SELECT id,agency_id,name FROM agency_service_locations WHERE agency_id IN (${marks(agencyIds)}) AND id IN (${marks(batch)})`, [...agencyIds, ...batch]);
+    for (const location of rows) locations.set(`${location.agency_id}:${location.id}`, location.name);
+  }
   for (let start = 0; start < clientIds.length; start += 500) {
     const batch = clientIds.slice(start, start + 500);
     const [rows] = await deps.main.execute(`SELECT id,agency_id,full_name,initials,is_demo,billing_insurance_payload FROM clients WHERE agency_id IN (${marks(agencyIds)}) AND id IN (${marks(batch)})`, [...agencyIds, ...batch]);
@@ -166,9 +183,11 @@ export async function enrichBillingWorkNames(items, agencyIds, deps) {
   }
   for (const row of items) {
     const client = clients.get(`${row.agency_id}:${row.client_id}`);
+    row.client_link_verified = !!client;
     row.client_name = client?.full_name || client?.initials || (row.client_id ? `Client #${row.client_id}` : 'Client not linked');
     row.is_demo_client = Number(client?.is_demo) === 1;
-    for (const type of ['provider', 'billing_provider', 'rendering_provider', 'supervisor', 'posted_by']) row[`${type}_name`] = users.get(row[`${type}_user_id`]) || null;
+    row.service_location_name = locations.get(`${row.agency_id}:${row.service_location_id}`) || null;
+    for (const type of ['provider', 'billing_provider', 'rendering_provider', 'supervisor', 'posted_by','closed_by']) row[`${type}_name`] = users.get(row[`${type}_user_id`]) || null;
     if (!row.payer_name && client?.billing_insurance_payload) {
       try { row.payer_name = decryptFamilyBilling(client.billing_insurance_payload, `client-insurance:${row.agency_id}:${row.client_id}`)?.primary?.insurerName || null; }
       catch { row.insuranceUnavailable = true; }
@@ -182,14 +201,15 @@ export function filterBillingWorkItems(items, query = {}, organizations = []) {
   if (query.clientId != null && query.clientId !== '' && !id(query.clientId)) throw Object.assign(new Error('Invalid client filter.'), { status: 400 });
   const org = new Map(organizations.map(a => [Number(a.id), a.name]));
   const search = String(query.search || '').trim().slice(0, 100).toLowerCase();
-  let rows = items.filter(row => (includesDemoBilling(query) || !syntheticBillingRow(row)) && (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
+  let rows = items.filter(row => id(row.client_id) && row.client_link_verified !== false && (includesDemoBilling(query) || !syntheticBillingRow(row)) && (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
     matchesClaimQueue(row,status) &&
     (!search || [row.key,row.claim_reference,row.claim_number,row.claimId,row.client_id,row.clinical_note_id,row.draft_id,row.clinical_session_id,row.appointment_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.claim_aliases||[]),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
-  const allowed = ['organization','date_of_service','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage'];
+  const allowed = ['organization','date_of_service','claimmd_submitted_at','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage','submission_type'];
   const sort = query.sortBy || 'date_of_service', direction = query.direction === 'asc' ? 1 : -1;
   if (!allowed.includes(sort)) throw Object.assign(new Error('Invalid claim sort column.'), { status: 400 });
   rows.sort((a,b) => {
-    const av = sort === 'organization' ? org.get(a.agency_id) : a[sort], bv = sort === 'organization' ? org.get(b.agency_id) : b[sort];
+    const value = row => sort === 'organization' ? org.get(row.agency_id) : sort === 'submission_type' ? submissionType(row) : row[sort];
+    const av = value(a), bv = value(b);
     if (av == null && bv != null) return 1; if (bv == null && av != null) return -1;
     const comparison = ['amount_cents','units'].includes(sort) ? Number(av || 0)-Number(bv || 0) : String(av || '').localeCompare(String(bv || ''), undefined, { numeric: true, sensitivity: 'base' });
     return comparison * direction || a.key.localeCompare(b.key);

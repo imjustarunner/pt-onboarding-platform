@@ -4,6 +4,7 @@ import { h0004UnitSummary } from '../../../frontend/src/navigation/h0004Units.js
  * custom bands, min/max gates, and overflow code auto-switch.
  */
 
+import {resolveLinkedServiceBilling} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 const MEDICAID_8_MIN = 8;
 
 function toInt(value, fallback = null) {
@@ -125,6 +126,8 @@ export function resolveSessionBilling({
   if(requested==='H0004' && mode==='MEDICAID_8_MINUTE_LADDER' && (toInt(unitMinutes,15)||15)===15 && (min==null||m>=min) && (max==null||max>=h0004Upper) && m>h0004Upper) {
     return {...base,units:h0004Summary.units,requiresReview:true,reviewCode:'H0004_DURATION_OVER_LIMIT',reason:h0004Summary.reason};
   }
+  const linked = resolveLinkedServiceBilling(requested, m);
+  if (linked) return { ...base, ...linked };
 
   // Overflow: duration at/above threshold → switch code (caller may re-resolve with overflow rule)
   if (overflowCode && overflowAt != null && m >= overflowAt) {
@@ -252,6 +255,10 @@ export function ruleFromMedicalServiceCodeRow(row) {
 
 export function resolveWithOverflowChain(minutes, primaryRule, lookupOverflowRule) {
   let result = resolveSessionBilling({ minutes, ...primaryRule, serviceCode: primaryRule.serviceCode });
+  if (result.addons?.length && typeof lookupOverflowRule === 'function') {
+    const missing = result.addons.find(addon => !lookupOverflowRule(addon.code));
+    if (missing) return {...result, claimable:false, reason:`Enable and configure linked add-on ${missing.code} before billing ${primaryRule.serviceCode}.`};
+  }
   if (result.overflowApplied && result.effectiveServiceCode && typeof lookupOverflowRule === 'function') {
     const overflowRule = lookupOverflowRule(result.effectiveServiceCode);
     if (overflowRule) {

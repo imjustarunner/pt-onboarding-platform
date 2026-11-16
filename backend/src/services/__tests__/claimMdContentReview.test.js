@@ -41,7 +41,7 @@ describe('server-attested AI content review',()=>{
   });
   it('requires exact current source evidence and ignores frontend AI-generated flags',async()=>{
     const db={execute:vi.fn().mockResolvedValue([[]])};
-    expect(await currentClaimContentReview(1,2,'current',db)).toMatchObject({status:'required'});expect(db.execute.mock.calls[0][1]).toEqual([1,2,'current','claim-content-v2']);
+    expect(await currentClaimContentReview(1,2,'current',db)).toMatchObject({status:'required'});expect(db.execute.mock.calls[0][1]).toEqual([1,2,'current','claim-content-v2-provider-context']);
   });
   it('fails closed without approved privacy configuration and does not use an API-key fallback',async()=>{
     vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','false');const fetchImpl=vi.fn();await expect(redactReviewNarrative('note',{}, {fetchImpl})).rejects.toMatchObject({status:503});expect(fetchImpl).not.toHaveBeenCalled();

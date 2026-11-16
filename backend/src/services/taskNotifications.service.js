@@ -13,6 +13,8 @@
  */
 import Notification from '../models/Notification.model.js';
 import pool from '../config/database.js';
+import NotificationDispatcherService from './notificationDispatcher.service.js';
+import { sendTaskAssignmentEmail } from './taskAssignmentEmail.service.js';
 
 /**
  * Returns the full name + agency_id for a user. Lightweight lookup.
@@ -32,9 +34,7 @@ async function getUserMeta(userId) {
  *  - task is in 'waiting' status
  *  - assignee is the same as actorUserId (self-assign)
  *
- * Notifications are COALESCED per assignee: consecutive unread assignment
- * notifications are merged into one row whose count increments ("3 tasks
- * assigned to you") rather than one row per task.
+ * Keep one unread notice per task and assignee, preserving its direct link.
  */
 export async function notifyTaskAssigned({ task, actorUserId }) {
   try {
@@ -42,19 +42,19 @@ export async function notifyTaskAssigned({ task, actorUserId }) {
     if (!assigneeId) return;
     if (Number(assigneeId) === Number(actorUserId)) return;
     if (task?.status === 'waiting') return;
+    if (['completed','cancelled','canceled'].includes(task?.status)) return;
 
     const agencyId = task?.assigned_to_agency_id ?? task?.assignedToAgencyId ?? null;
     const taskTitle = task?.title ?? 'A task';
 
-    await Notification.coalesceOrCreate({
+    const notification = await Notification.coalesceOrCreate({
       type: 'custom_task_assigned',
       severity: 'info',
-      title: 'Task assigned to you',
+      title: 'New task assigned to you',
       userId: Number(assigneeId),
       agencyId: agencyId ? Number(agencyId) : null,
-      // Scope to null/null so all assignment events for this user coalesce together.
-      relatedEntityType: null,
-      relatedEntityId: null,
+      relatedEntityType: 'task',
+      relatedEntityId: task.id,
       actorUserId: actorUserId ? Number(actorUserId) : null,
       actorSource: 'task_assignment',
       batchDelta: 1,
@@ -64,8 +64,13 @@ export async function notifyTaskAssigned({ task, actorUserId }) {
           ? `"${taskTitle}" has been assigned to you.`
           : `${count} tasks have been assigned to you. Open your Task Hub to review them.`,
       titleBuilder: (count) =>
-        count === 1 ? 'Task assigned to you' : `${count} tasks assigned to you`
+        count === 1 ? 'New task assigned to you' : `${count} assignment updates for this task`
     });
+    // A device notice contains no task title/description; opening it requires authentication.
+    await Promise.allSettled([
+      NotificationDispatcherService.dispatchPushForNotification({ ...notification, title: 'New task assigned to you', message: 'Sign in to view your task.' }),
+      sendTaskAssignmentEmail({ task, actorUserId }).catch(error => console.warn('[task assignment email]', task.id, error.code || 'delivery_failed'))
+    ]);
   } catch (err) {
     console.error('[taskNotifications] notifyTaskAssigned failed:', err);
   }

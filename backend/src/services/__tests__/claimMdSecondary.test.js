@@ -3,12 +3,40 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
 vi.mock('../claimMdWorkflow.service.js',()=>({recordClaimEvent:vi.fn()}));
-import {validatePrimaryAdjudication,secondaryInsurance,applySecondaryAdjudication,prepareSecondaryClaim} from '../secondaryClaim.service.js';
+vi.mock('../billingPayerRules.service.js',async original=>({...await original(),loadBillingPayerRules:vi.fn(async()=>({available:true,payerPrograms:[]}))}));
+vi.mock('../claimAdjudicationEvidence.service.js',()=>({validateClaimAdjudicationEvidence:vi.fn(async()=>[{id:'11111111-1111-4111-8111-111111111111',sha256:'a'.repeat(64)}])}));
+import {validatePrimaryAdjudication,secondaryInsurance,applySecondaryAdjudication,prepareSecondaryClaim,externalPrimaryCharges,externalPrimarySourceHash} from '../secondaryClaim.service.js';
+import {validateClaimAdjudicationEvidence} from '../claimAdjudicationEvidence.service.js';
+import {recordClaimEvent} from '../claimMdWorkflow.service.js';
 import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncryption.service.js';
 import {readClientInsurance} from '../clientInsurance.service.js';
 const charge={proc_code:'90834',charge:'100.00',units:'1'},input=()=>({attested:true,crossoverConfirmedAbsent:true,reference:'ERA 123 verified',primaryClaimControlNumber:'ICN123',paymentDate:'2026-09-24',lines:[{paidCents:7000,adjustments:[{code:'CO45',amountCents:2000},{code:'PR1',amountCents:1000}]}]});
 beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));readClientInsurance.mockResolvedValue({primary:{payerId:'PRIMARY'},secondary:{payerId:'SECOND',insurerName:'Second'}});});
 describe('secondary coordination of benefits',()=>{
+ it('permits a documented external primary without forging an app submission or changing primary history',async()=>{
+  const {db,source}=setup(),prior=db.execute.getMockImplementation();
+  db.execute.mockImplementation(async(sql,args)=>{
+   if(sql.startsWith('SELECT * FROM clinical_claims WHERE id='))return [[{id:7,agency_id:1,client_id:3,clinical_session_id:2,payer_sequence:1,claim_lifecycle:'draft',billing_revision:0,date_of_service:'2026-09-20'}]];
+   if(sql.includes('SELECT event_key'))return [[]];
+   if(sql.startsWith('SELECT * FROM clinical_claim_lines'))return [[{procedure_code:'90834',units:1,charge_cents:10000,service_date:'2026-09-20',modifiers_json:'[]'}]];
+   return prior(sql,args);
+  });
+  const result=await prepareSecondaryClaim({agencyId:1,parentClaimId:7,actorUserId:9,adjudication:{...input(),source:'external_primary',externalSystem:'TherapyNotes',evidenceIds:['11111111-1111-4111-8111-111111111111']}},source);
+  expect(result).toMatchObject({claimId:11,claimTransmitted:false});
+  expect(recordClaimEvent).toHaveBeenCalledWith(expect.objectContaining({claimId:7,eventType:'external_primary_adjudication_recorded',actorUserId:9,payload:expect.objectContaining({claimTransmittedByApp:false})}),db);
+  expect(db.execute.mock.calls.some(([sql])=>/SET .*claimmd_submitted_at|SET .*claim_lifecycle/.test(sql))).toBe(false);
+  const update=db.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_claims'));expect(decryptFamilyBilling(update[1][0],'claim-cob:1:11')).toMatchObject({source:'external_primary',externalSystem:'TherapyNotes',evidence:[expect.objectContaining({sha256:'a'.repeat(64)})]});
+ });
+ it('refuses missing or cross-claim manual proof and rolls back without creating secondary',async()=>{
+  validateClaimAdjudicationEvidence.mockRejectedValueOnce(Object.assign(Error('Proof belongs to another claim'),{status:409}));const {db,source}=setup();await expect(prepareSecondaryClaim({agencyId:1,parentClaimId:7,actorUserId:9,adjudication:input()},source)).rejects.toMatchObject({status:409});expect(db.rollback).toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO clinical_claims'))).toBe(false);
+ });
+ it('binds external source lines to dates, modifiers, units, charges and payer',()=>{
+  const claim={date_of_service:'2026-09-20'},line={procedure_code:'H0004',units:4,charge_cents:10000,modifiers_json:'["U9"]'};
+  const original=externalPrimarySourceHash('PRIMARY',externalPrimaryCharges(claim,[line]));for(const change of [{units:3},{charge_cents:9000},{modifiers_json:'[]'}])expect(externalPrimarySourceHash('PRIMARY',externalPrimaryCharges(claim,[{...line,...change}]))).not.toBe(original);
+ });
+ it('holds network and incomplete-primary denials before Medicaid secondary billing',()=>{
+  for(const code of ['CO242','PR243','CO16','CO18'])expect(()=>validatePrimaryAdjudication({...input(),lines:[{paidCents:0,adjustments:[{code,amountCents:10000}]}]},[charge],{medicaidSecondary:true})).toThrow(/primary network/);
+ });
  it('maps primary payment and CAS adjustments while preserving full charges',()=>{
   const cob=validatePrimaryAdjudication(input(),[charge]),payload=applySecondaryAdjudication({payerid:'SECOND',other_payerid:'PRIMARY',remote_claimid:'PT-1-11',charge:[charge]},cob);
   expect(payload).toMatchObject({payerid:'SECOND',other_payerid:'PRIMARY',payer_order:'Secondary',amount_paid:'70.00',other_ins_payment_date:'20260924',charge:[{charge:'100.00',primary_paid_amount:'70.00',primary_paid_date:'20260924',adj_code_1:'CO45',adj_amt_1:'20.00',adj_code_2:'PR1',adj_amt_2:'10.00'}]});

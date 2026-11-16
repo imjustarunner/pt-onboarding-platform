@@ -6,7 +6,7 @@ const handle=fn=>async(req,res,next)=>{try{
  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
  res.json(await fn(req,agencyId));
 }catch(e){next(e);}};
-export const indexRemittances=handle((req,agencyId)=>listRemittances(agencyId,{before:req.query.before?positive(req.query.before):0}));
+export const indexRemittances=handle((req,agencyId)=>listRemittances(agencyId,{...req.query,before:req.query.before?positive(req.query.before):0}));
 export const getRemittance=handle((req,agencyId)=>remittanceDetail(agencyId,positive(req.params.id)));
 export const syncEras=handle(async(req,agencyId)=>{const result=await syncRemittances({agencyId});return {...result,balanceUpdates:await applyResponsibilityJobs(agencyId)};});
 export const retryBalances=handle((req,agencyId)=>applyResponsibilityJobs(agencyId));

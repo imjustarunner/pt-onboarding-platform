@@ -35,19 +35,22 @@
           <td><strong>{{ request.payer_name }}</strong><small v-if="sourceAliases(request).length">Also listed as {{ sourceAliases(request).join(', ') }}</small></td>
           <td>{{ request.claimmd_payer_id || 'Needs review' }}<small v-if="request.directory_name">{{ request.directory_name }}</small><small v-if="request.source_payer_id && request.source_payer_id !== request.claimmd_payer_id">Previous EHR ID: {{ request.source_payer_id }}</small><small>{{ directoryStatusLabel(request.directory_status) }}</small></td>
           <td>{{ capabilityLabel(request,'1500_claims') }}</td><td>{{ capabilityLabel(request,'era') }}</td><td>{{ capabilityLabel(request,'eligibility') }}</td>
-          <td><button :disabled="busy || !connection.configured" @click="reviewPayerRequest(request)">Review route</button><small>{{ request.review_note || 'Select the correct plan and billing office.' }}</small><small v-if="request.directory_checked_at">Directory checked {{ String(request.directory_checked_at).slice(0,10) }}</small></td>
+          <td><button :disabled="busy || !connection.configured" @click="reviewPayerRequest(request)">Review route</button><button :disabled="busy" @click="archivePayerRequest(request)">Remove from setup list</button><small>{{ request.review_note || 'Select the correct plan and billing office.' }}</small><small v-if="request.directory_checked_at">Directory checked {{ String(request.directory_checked_at).slice(0,10) }}</small></td>
         </tr>
       </tbody></table></div>
       <details><summary>Payer not in the directory? Request manual setup</summary><form class="actions" @submit.prevent="addPayerRequest"><label>Payer name <input v-model="requestedPayer" required minlength="2" maxlength="120" /></label><button :disabled="busy">Request manual setup</button></form></details>
       <p>Being on this list does not establish contracting, electronic enrollment or active coverage. Enrollment progress appears below.</p>
     </section>
-    <h4>Add a payer from Claim.MD’s directory</h4>
+    <section ref="payerDirectoryPanel" tabindex="-1" aria-label="Payer route review">
+    <h4>{{ routeReview ? `Review ${routeReview.payer_name}` : 'Add a payer from Claim.MD’s directory' }}</h4>
+    <p v-if="routeReview">Review the exact plan below, save its route to your payer list, then complete each required enrollment for the selected offices. Removing a setup entry preserves existing claims and external enrollment records.</p>
     <p>Find the exact plan, add its electronic route to this agency, then open enrollment for the selected billing group. Claims, ERA and eligibility have separate requirements.</p>
     <form class="actions" data-testid="payer-directory-search" @submit.prevent="searchPayers">
       <label>Search by <select v-model="searchBy"><option value="name">Payer name</option><option value="id">Electronic payer ID</option></select></label>
       <label>{{ searchBy === 'id' ? 'Payer ID' : 'Payer name' }} <input v-model="search" :minlength="searchBy === 'id' ? 1 : 2" maxlength="64" required /></label>
       <button :disabled="busy || !connection.configured">Find payers</button>
     </form>
+    <details v-if="payers.length"><summary>Choose offices and additional billing NPIs</summary><button type="button" @click="scopeOfficeIds=billingOffices.map(office=>Number(office.id))">Select all offices</button><button type="button" @click="scopeOfficeIds=[]">Clear office selection</button><label v-for="office in billingOffices" :key="office.id"><input v-model="scopeOfficeIds" type="checkbox" :value="Number(office.id)" /> {{ office.name || office.street_address || 'Saved billing office' }}</label><p>Offices sharing an NPI use one enrollment step unless the payer requires separate location enrollment. All steps use this organization’s saved tax ID.</p><button type="button" @click="emit('manage-billing-offices')">Manage billing office NPIs</button></details>
     <label>Billing office / group
       <select v-model="billingOfficeId" data-testid="billing-office">
         <option value="">Select a billing office</option>
@@ -74,13 +77,15 @@
         <small v-if="existingEnrollment(payer)">Existing form uses {{ billingOffices.find(o=>Number(o.id)===Number(existingEnrollment(payer).billing_office_location_id))?.name || 'its saved billing office' }}. Continue opens that billing identity.</small>
         <small v-if="transactionUnavailable(payer)">The directory does not support this transaction. Use the payer’s manual process.</small>
         <small v-else-if="transactionAvailable(payer)">The directory lists this transaction as available. The form shows any remaining provider requirements.</small>
+        <section v-if="scopedBillingGroups.length" aria-label="Selected office enrollment steps"><h5>Selected offices</h5><div v-for="group in scopedBillingGroups" :key="group.npi"><p>{{ group.offices.map(office=>office.name || office.street_address).join(', ') }} · Billing NPI {{ group.npi || 'missing' }} · {{ enrollmentStatus(groupEnrollment(payer,group.npi)?.status || 'Not started') }}</p><button :disabled="busy || !connection.configured || !/^\d{10}$/.test(group.npi || '') || transactionUnavailable(payer) || (enrollmentType === 'era' && !acknowledgeEraRouting)" @click="openPayerForOffice(payer,group.offices[0].id)">Manage this billing NPI</button></div></section>
       </li>
     </ul>
     <table v-if="enrollments.length">
-      <thead><tr><th>Payer ID</th><th>Billing office / NPI</th><th>Transaction</th><th>Progress</th><th>Last update</th><th></th></tr></thead>
-      <tbody><tr v-for="item in enrollments" :key="item.id"><td>{{ item.payer_id }}</td><td>{{ billingOffices.find(o => o.id === item.billing_office_location_id)?.name || 'Office unavailable' }} · {{ item.provider_npi }}</td><td>{{ item.enrollment_type }}</td><td>{{ enrollmentStatus(item.status) }}</td><td>{{ item.last_event_at || 'Awaiting Claim.MD update' }}</td><td><button :disabled="busy" @click="reopenEnrollment(item)">View / continue</button></td></tr></tbody>
+      <thead><tr><th>Payer</th><th>Billing office</th><th>Transaction</th><th>Progress</th><th>Last update</th><th></th></tr></thead>
+      <tbody><tr v-for="item in enrollments" :key="item.id"><td>{{ item.payer_name || payerDisplayName(item.payer_id) }}</td><td>{{ billingOffices.find(o => Number(o.id) === Number(item.billing_office_location_id))?.name || 'Office name unavailable' }}</td><td>{{ item.enrollment_type }}</td><td>{{ enrollmentStatus(item.status) }}</td><td>{{ item.last_event_at || 'Awaiting Claim.MD update' }}</td><td><button :disabled="busy" @click="reopenEnrollment(item)">View / continue</button></td></tr></tbody>
     </table>
     <p v-else>No enrollments started from this app yet.</p>
+    </section>
 
     </template>
     <section v-if="draft" class="review" aria-label="Edit existing claim draft">
@@ -156,11 +161,10 @@
       </div>
       <section v-if="review.supervision" class="review">
         <h4>Who delivered and oversaw the service</h4>
-        <p>Treating clinician: {{ providerLabel(review.supervision.serviceProvider) }}</p>
-        <p v-if="review.supervision.supervisingProvider">Overseeing clinician: {{ providerLabel(review.supervision.supervisingProvider) }}</p>
+        <p>Treating provider: {{ providerLabel(review.supervision.serviceProvider) }}</p>
+        <p v-if="review.supervision.supervisingProvider">Overseeing provider: {{ providerLabel(review.supervision.supervisingProvider) }}</p>
         <p>Claim rendering provider: {{ providerLabel(review.supervision.renderingProvider) }}</p>
         <p v-if="review.supervision.cosignPending">Supervisor cosign is still outstanding. Submission follows the applicable supervision and payer policy.</p>
-        <p v-if="review.supervision.npi2027">January 2027 individual service-provider NPI requirement applies.</p>
         <p v-if="review.supervision.rule">Policy basis: {{ review.supervision.rule.reference }} · {{ review.supervision.rule.effectiveFrom }}–{{ review.supervision.rule.effectiveThrough }}</p>
       </section>
       <section v-if="review.clientId" class="review-tasks" aria-label="Complete claim requirements" @input="approved=false" @change="approved=false">
@@ -247,7 +251,7 @@
       <p v-if="historyMeta.patientControlNumber && historyMeta.claimReference !== historyMeta.patientControlNumber">Earlier payer reference: {{ historyMeta.patientControlNumber }}. Retained for matching previously submitted claims.</p>
       <details v-if="historyMeta.attempts?.length > 1"><summary>Submission attempts and earlier references ({{ historyMeta.attempts.length }})</summary><ul><li v-for="attempt in historyMeta.attempts" :key="attempt.id">Attempt {{ attempt.number }} · {{ claimStatusLabel(attempt.lifecycle) }}<template v-if="attempt.submittedAt"> · {{ formatBillingTimestamp(attempt.submittedAt) }}</template><template v-if="attempt.payerReference"> · Sent reference {{ attempt.payerReference }}</template></li></ul></details>
       <button v-if="historyMeta.nextBefore" type="button" :disabled="busy" @click="loadEarlierHistory">Load earlier history</button>
-      <p v-if="!history.length">No clearinghouse activity yet.</p>
+      <p v-if="!history.length">No claim history events were recorded. This does not establish why a claim was closed or whether it was submitted outside this app.</p>
       <article v-for="event in history" :key="event.id">
         <small v-if="event.attemptNumber">Attempt {{ event.attemptNumber }} · </small>
         <strong>{{ claimHistoryLabel(event.type) }}</strong> · {{ clearinghouseStatusLabel(event.status) || event.status || 'Recorded' }} · {{ formatBillingTimestamp(event.createdAt) }} · {{ event.actorName || (event.actorUserId ? `User #${event.actorUserId}` : 'System / clearinghouse') }}
@@ -256,6 +260,7 @@
         <p v-for="(message, i) in event.messages || []" :key="i">{{ message.message }} <small>{{ message.fields }}</small></p>
         <ul><li v-for="suggestion in event.suggestions || []" :key="suggestion">{{ suggestion }}</li></ul>
         <p v-if="event.reason">{{ event.reason }}</p>
+        <ClaimSubmissionSnapshot v-if="event.type === 'approved_submission' && event.payload" :payload="event.payload" :supervision="event.supervision" :practice="event.practice === true || event.mode === 'practice'" />
         <p v-if="event.type==='remittance_posted'">{{ event.denied ? 'Denied' : 'Payer adjudication' }} · Paid {{ claimHistoryMoney(event.paidCents) }} · Adjustments {{ claimHistoryMoney(event.adjustmentCents) }} · Patient responsibility {{ claimHistoryMoney(event.responsibilityCents) }}<template v-if="event.payerControlNumber"> · Payer control number {{ event.payerControlNumber }}</template></p>
         <ul v-if="claimHistoryChanges(event).length"><li v-for="change in claimHistoryChanges(event)" :key="change.label">{{ change.label }}: {{ change.before }} → {{ change.after }}</li></ul>
       </article>
@@ -279,11 +284,12 @@ import ClaimServiceChangesPanel from './ClaimServiceChangesPanel.vue';
 import ClientDocumentationReadiness from '../billing/ClientDocumentationReadiness.vue';
 import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import ClaimSubmissionSnapshot from '../billing/ClaimSubmissionSnapshot.vue';
 import { claimRequirementAction } from '../../utils/claimReviewRequirements.js';
 import api from '../../services/api';
 import { claimHistoryLabel, clearinghouseStatusLabel, claimStatusLabel, claimHistoryChanges, claimHistoryMoney } from '../../utils/billingWorkspace.js';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' }, readOnly: Boolean });
-const emit = defineEmits(['updated']);
+const emit = defineEmits(['updated','manage-billing-offices']);
 const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;
 const saveRollout = async input => (await api.put('/medical-billing/provider-rollout', { ...input, agencyId: props.agencyId })).data;
 const reviewTask = ref('');
@@ -304,25 +310,34 @@ async function openRequirement(task) {
 const toggleReviewTask = task => { approved.value=false;reviewTask.value=reviewTask.value===task?'':task; };
 const busy = ref(false), error = ref(''), notice = ref(''), activeClaimId = ref(null);
 const payerRequests=ref([]), requestedPayer=ref(''), setupSearch=ref('');
+const payerDirectoryPanel=ref(null),routeReview=ref(null),scopeOfficeIds=ref([]);
+let payerSetupLoad=Promise.resolve();
 const decoded = (value, fallback) => { if (typeof value !== 'string') return value || fallback; try { return JSON.parse(value) || fallback; } catch { return fallback; } };
 const sourceAliases = request => decoded(request.source_names_json, []).filter(name => name !== request.payer_name);
 const filteredPayerRequests = computed(() => payerRequests.value.filter(request => [request.payer_name,request.directory_name,request.source_payer_id,request.claimmd_payer_id,...sourceAliases(request)].join(' ').toLowerCase().includes(setupSearch.value.trim().toLowerCase())));
 const capabilityLabel = (request, type) => ({yes:'Available',enrollment:'Enrollment required',no:'Not available'})[decoded(request.directory_snapshot_json, {})[type]] || 'Needs review';
 const directoryStatusLabel = value => ({id_match:'ID found in directory',alias_review:'Legacy ID — review required',not_found:'Route not found',manual_review:'Manual setup review'})[value] || 'Not checked';
-function reviewPayerRequest(request) {
+async function reviewPayerRequest(request) {
+  routeReview.value=request;
   search.value = request.directory_name || request.payer_name;
-  searchPayers(request.claimmd_payer_id || undefined);
+  searchBy.value='name';
+  await searchPayers(request.claimmd_payer_id || undefined);
+  await nextTick();if(active){payerDirectoryPanel.value?.scrollIntoView?.({behavior:'smooth',block:'start'});payerDirectoryPanel.value?.focus?.({preventScroll:true});}
 }
+async function managePayer(payerId){await payerSetupLoad;if(!active)return;const request=payerRequests.value.find(item=>item.claimmd_payer_id===payerId);await reviewPayerRequest(request || {payer_name:'Payer route',claimmd_payer_id:payerId});}
+const archivePayerRequest=request=>run(async()=>{const {data}=await api.delete(`/medical-billing/payer-setup-requests/${request.id}`,{params:{agencyId:props.agencyId}});if(active){payerRequests.value=data.items || [];notice.value='Removed from the setup list. Existing claims, payer records and external enrollments remain on record.';emit('updated');}});
 const loadPayerRequests=async()=>{const {data}=await api.get('/medical-billing/payer-setup-requests',{params:{agencyId:props.agencyId}});if(active)payerRequests.value=data.items || [];};
 const addPayerRequest=()=>run(async()=>{const {data}=await api.post('/medical-billing/payer-setup-requests',{agencyId:props.agencyId,payerName:requestedPayer.value});if(active){payerRequests.value=data.items || [];requestedPayer.value='';}});
 const isAgencyPayer = payer => payerRequests.value.some(r => r.claimmd_payer_id === payer.payerid && r.directory_status === 'id_match');
 const addDirectoryPayer = payer => run(async () => {
   const {data} = await api.post('/medical-billing/payer-setup-requests',{agencyId:props.agencyId,payerId:payer.payerid});
-  if (active) { payerRequests.value=data.items || []; notice.value='Payer route saved for this agency. Open enrollment to complete any provider requirements.'; }
+  if (active) { payerRequests.value=data.items || []; notice.value='Payer route saved for this agency. Open enrollment to complete any provider requirements.';emit('updated'); }
 });
 const search = ref(''), searchBy = ref('name'), billingOfficeId = ref(''), billingOffices = ref([]), enrollmentType = ref('1500'), acknowledgeEraRouting = ref(false);
 const selectedOffice = computed(() => billingOffices.value.find(o => Number(o.id) === Number(billingOfficeId.value)));
 const billingGroups = computed(() => [...new Set(billingOffices.value.map(o=>o.practice_npi))].map(npi=>({npi,offices:billingOffices.value.filter(o=>o.practice_npi===npi)})));
+const scopedBillingGroups=computed(()=>billingGroups.value.map(group=>({...group,offices:group.offices.filter(office=>scopeOfficeIds.value.includes(Number(office.id)))})).filter(group=>group.offices.length));
+const payerDisplayName=payerId=>payerRequests.value.find(request=>request.claimmd_payer_id===payerId)?.directory_name || payers.value.find(payer=>payer.payerid===payerId)?.payer_name || 'Payer name needs review';
 const sameGroupOfficeCount = computed(() => billingOffices.value.filter(o=>o.practice_npi===selectedOffice.value?.practice_npi).length);
 const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD', provider_validation_required: 'Action needed — NPPES phone validation', era_receiver_conflict: 'Action needed — release or transfer ERA enrollment from the current receiving account' })[status] || status;
 const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null), adjustments = ref([]);
@@ -333,6 +348,8 @@ const transactionCapability = payer => payer[{'1500':'1500_claims',era:'era',eli
 const transactionUnavailable = payer => transactionCapability(payer) === 'no';
 const transactionAvailable = payer => transactionCapability(payer) === 'yes';
 const existingEnrollment = payer => enrollments.value.find(e=>e.payer_id===payer.payerid && e.provider_npi===selectedOffice.value?.practice_npi && e.enrollment_type===enrollmentType.value);
+const groupEnrollment=(payer,npi)=>enrollments.value.find(item=>item.payer_id===payer.payerid && item.provider_npi===npi && item.enrollment_type===enrollmentType.value);
+function openPayerForOffice(payer,officeId){billingOfficeId.value=String(officeId);openPayerEnrollment(payer);}
 function openPayerEnrollment(payer) {
   if (transactionUnavailable(payer)) return;
   const existing = existingEnrollment(payer);
@@ -491,8 +508,8 @@ const submit = () => run(async () => {
   const { data } = await api.post(`/medical-billing/claimmd/claims/${claimId}/submit`, { agencyId: props.agencyId, approved: true, reviewHash: review.value.reviewHash, accountMode: props.connection.mode });
   if (active) { review.value = null; approved.value = false; notice.value = data.message; emit('updated'); await fetchHistory(claimId); }
 });
-onMounted(() => { if (['all', 'payers'].includes(props.section)) run(async () => { await loadPayerRequests(); if(props.connection.configured){ await fetchBillingOffices(); await fetchEnrollments(); } }); });
-defineExpose({ reviewClaim, showHistory, editClaim });
+onMounted(() => { if (['all', 'payers'].includes(props.section)) payerSetupLoad=run(async () => { await loadPayerRequests(); if(props.connection.configured){ await fetchBillingOffices(); await fetchEnrollments(); } }); });
+defineExpose({ reviewClaim, showHistory, editClaim, managePayer });
 </script>
 
 <style scoped>

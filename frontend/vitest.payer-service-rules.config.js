@@ -1,0 +1,2 @@
+import base from './vitest.billing-operations.config.js';
+export default {...base,test:{...base.test,include:[...base.test.include,'src/components/admin/__tests__/SecondaryClaimPanel.test.js','src/components/billing/__tests__/BillingRulesSettings.test.js','src/components/billing/__tests__/PayerServiceRules.test.js','src/views/admin/__tests__/ServiceCodeSetup.test.js','src/views/admin/__tests__/MedicalBillingManagedAccess.test.js','src/utils/__tests__/noteAidBillingAddons.test.js','src/views/admin/__tests__/ClinicalNoteGeneratorView.smoke.test.js']}};

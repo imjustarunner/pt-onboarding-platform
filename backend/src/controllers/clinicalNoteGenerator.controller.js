@@ -50,7 +50,10 @@ import {
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey } from '../services/noteAidSignedSessions.service.js';
 import { buildUnattachedQuestionnaireContext } from '../services/noteAidQuestionnaireContext.service.js';
-import { CRISIS_90839_SERVICE_DESCRIPTION } from '../utils/noteAidBillingAddons.js';
+import { CRISIS_90839_SERVICE_DESCRIPTION, resolveNoteAidBillingCodes } from '../utils/noteAidBillingAddons.js';
+import {clientPayerServiceEligibility} from '../services/clientPayerServiceEligibility.service.js';
+import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
+import {linkedServiceRelationship} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 import NoteAidAgencyCatalog from '../models/NoteAidAgencyCatalog.model.js';
 import { isQuickCopyDraft } from '../utils/therapyNotesQuickGenerator.js';
 import { generateTherapyNotesQuickCopy } from './therapyNotesQuickGenerator.controller.js';
@@ -1299,10 +1302,19 @@ export const generateClinicalNote = async (req, res, next) => {
     const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
     const catalogCodes = serviceCodeCatalog.length ? serviceCodeCatalog : null;
     const tierCodes = eligibleServiceCodesForTier(tier); // null => all
-    const allowedCodes = catalogCodes
+    let allowedCodes = catalogCodes
       ? (Array.isArray(tierCodes) ? intersectCodes(catalogCodes, tierCodes) : catalogCodes)
       : tierCodes;
+    if(Array.isArray(allowedCodes))allowedCodes=allowedCodes.filter(code=>!linkedServiceRelationship(code)?.isAddon);
+    if(linkedServiceRelationship(serviceCode)?.isAddon)return res.status(400).json({error:{message:'Choose the parent service. Its linked add-on units are calculated automatically from documented eligible minutes.'}});
     const requestedToolId = req.body?.toolId ? String(req.body.toolId).trim() : '';
+    if(clientId && (!requestedToolId || serviceCode)){
+      const access=await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId});
+      if(!access.ok || !(await listClientAgencyMembershipIds(clientId)).includes(Number(agencyId)))return res.status(403).json({error:{message:'This client is not available in the selected practice.'}});
+      const eligibility=await clientPayerServiceEligibility({agencyId,clientId,providerUserId:req.user.id,dateOfService,codes:allowedCodes});
+      allowedCodes=eligibility.serviceCodes;
+      if(!allowedCodes.length || (serviceCode && !allowedCodes.includes(serviceCode)))return res.status(403).json({error:{message:eligibility.message || 'This service is not enabled for the client’s payer and coverage category.'}});
+    }
     const effectiveAutoSelect = !narrivaWorkflow && !requestedToolId && (autoSelectCode || tier === 'unknown');
     // Billing code optional when an explicit Note Workspace tool (gem) is selected (plans / termination / diagnosis).
     if (!effectiveAutoSelect && !serviceCode && !requestedToolId) {
@@ -1661,7 +1673,8 @@ export const generateClinicalNote = async (req, res, next) => {
         terminationHistory: terminationHistory?.counts || null,
         encounterAge: intakeTool ? encounterAge : null,
         sessionContext: { durationMinutes: Number(req.body?.durationMinutes) || null },
-        billingPrimaryUnits: serviceCode === '90834' && Number(req.body?.durationMinutes) >= 75 ? 2 : 1,
+        billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes}).primaryUnits,
+        billingAddons: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes}).addons,
         model: modelName,
         aidId: aidIdRaw || null,
         latencyMs,

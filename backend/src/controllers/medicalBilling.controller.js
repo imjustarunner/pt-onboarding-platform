@@ -2598,6 +2598,7 @@ export const createMedicalClaim = async (req, res, next) => {
             .trim()
             .toUpperCase();
         let primaryUnits = Number(meta.billingPrimaryUnits || req.body.primaryUnits || 0) || 0;
+        let calculatedAddons=null;
         const approvedDetails = (meta.serviceDetailAmendments || []).filter(a => a.approvedAt).at(-1)?.serviceDetails;
         const durationMins = Number(approvedDetails?.durationMinutes ?? meta.structuredChart?.durationMinutes ?? meta.durationMinutes ?? sessionDurationMinutes ?? 0) || 0;
 
@@ -2618,12 +2619,15 @@ export const createMedicalClaim = async (req, res, next) => {
                 const hit = byCode.get(String(code).toUpperCase());
                 return hit ? ruleFromMedicalServiceCodeRow(hit) : null;
               });
+              if(!resolved.claimable)throw Object.assign(new Error(resolved.reason),{status:409});
+              calculatedAddons=resolved.addons || null;
               if (resolved?.effectiveServiceCode) primary = resolved.effectiveServiceCode;
               if (resolved?.claimable && Number(resolved.units || 0) > 0) {
                 primaryUnits = Number(resolved.units);
               }
             }
           } catch (unitErr) {
+            if(unitErr.status)throw unitErr;
             console.warn('[createMedicalClaim] unit resolve skipped', unitErr?.message || unitErr);
           }
         }
@@ -2638,7 +2642,9 @@ export const createMedicalClaim = async (req, res, next) => {
             serviceDate: dateOfService
           });
         }
-        const addons = Array.isArray(meta.billingAddons) ? meta.billingAddons : [];
+        const {linkedServiceRelationship}=await import('../../../frontend/src/navigation/linkedServiceBilling.js');
+        const family=linkedServiceRelationship(primary);
+        const addons = [...(Array.isArray(meta.billingAddons) ? meta.billingAddons : []).filter(addon=>!family || String(addon.code).toUpperCase()!==family.addon),...(calculatedAddons || [])];
         for (const a of addons) {
           const code = String(a?.code || '').trim().toUpperCase();
           if (!code || code === primary) continue;
@@ -2653,6 +2659,7 @@ export const createMedicalClaim = async (req, res, next) => {
         const lineModifiers = modifiers.map(m => String(m || '').trim().toUpperCase()).filter(code => /^[A-Z0-9]{2}$/.test(code));
         if (lineModifiers.length && lines[0]) lines[0] = { ...lines[0], modifiers: [...new Set([...(lines[0].modifiers || []), ...lineModifiers])] };
       } catch (lineBuildErr) {
+        if(lineBuildErr.status)throw lineBuildErr;
         console.warn('[createMedicalClaim] auto line build failed', lineBuildErr?.message || lineBuildErr);
       }
     }

@@ -1,4 +1,6 @@
 import clinicalPool from '../config/clinicalDatabase.js';
+import {populateLinkedSessionClaim} from './linkedServiceClaimLines.service.js';
+import { utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 
 export const CLAIM_OPEN_LEAD_MS = 5 * 60 * 1000;
 export const CLAIM_OPEN_CATCHUP_MS = 12 * 60 * 60 * 1000;
@@ -6,9 +8,17 @@ export const CLAIM_OPEN_CATCHUP_MS = 12 * 60 * 60 * 1000;
 const blockedStatus = new Set(['no_show', 'cancelled', 'canceled', 'voided', 'rescheduled']);
 
 export function sessionShouldOpenClaim(startAt, now = Date.now()) {
-  const start = startAt instanceof Date ? startAt.getTime() : Date.parse(String(startAt || '').replace(' ', 'T'));
+  const start = Date.parse(utcMysqlToIso(startAt) || '');
   if (!Number.isFinite(start)) return false;
   return start <= now + CLAIM_OPEN_LEAD_MS && start >= now - CLAIM_OPEN_CATCHUP_MS;
+}
+
+export function sessionClaimServiceDate(session) {
+  let metadata=session.metadata_json;
+  if(typeof metadata==='string')try{metadata=JSON.parse(metadata);}catch{metadata={};}
+  const recorded=String(metadata?.serviceDate || '');
+  if(/^\d{4}-\d{2}-\d{2}$/.test(recorded) && !Number.isNaN(Date.parse(recorded)) && new Date(recorded).toISOString().slice(0,10)===recorded)return recorded;
+  return utcDateToZonedYmd(utcMysqlToIso(session.scheduled_start_at), session.source_timezone || 'America/Denver');
 }
 
 export function claimGroupKey(claim) {
@@ -34,10 +44,11 @@ export async function openDueSessionClaims(db = clinicalPool, now = new Date()) 
   const start = new Date(now.getTime() - CLAIM_OPEN_CATCHUP_MS);
   const end = new Date(now.getTime() + CLAIM_OPEN_LEAD_MS);
   const [sessions] = await db.execute(
-    `SELECT s.id, s.agency_id, s.client_id, s.provider_user_id, s.service_code, s.place_of_service, s.scheduled_start_at
+    `SELECT s.id, s.agency_id, s.client_id, s.provider_user_id, s.service_code, s.place_of_service, s.scheduled_start_at, s.source_timezone, s.metadata_json
      FROM clinical_sessions s
      WHERE s.scheduled_start_at >= ? AND s.scheduled_start_at <= ?
        AND s.service_code IS NOT NULL AND TRIM(s.service_code) <> ''
+       AND s.client_id IS NOT NULL
        AND LOWER(COALESCE(s.encounter_status, '')) NOT IN ('no_show', 'cancelled', 'canceled', 'voided', 'rescheduled')
        AND (s.claim_blocked_reason IS NULL OR s.claim_blocked_reason = '')
        AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.agency_id = s.agency_id AND c.clinical_session_id = s.id)
@@ -48,8 +59,9 @@ export async function openDueSessionClaims(db = clinicalPool, now = new Date()) 
   );
   let opened = 0;
   for (const session of sessions || []) {
-    if (!sessionShouldOpenClaim(session.scheduled_start_at, now.getTime()) || blockedStatus.has(String(session.encounter_status || '').toLowerCase())) continue;
-    const serviceDate = session.scheduled_start_at instanceof Date ? session.scheduled_start_at.toISOString().slice(0, 10) : String(session.scheduled_start_at).slice(0, 10);
+    if (!session.client_id || !sessionShouldOpenClaim(session.scheduled_start_at, now.getTime()) || blockedStatus.has(String(session.encounter_status || '').toLowerCase())) continue;
+    const serviceDate = sessionClaimServiceDate(session);
+    if(!serviceDate)continue;
     const [result] = await db.execute(
       `INSERT INTO clinical_claims
          (clinical_session_id, agency_id, client_id, claim_status, amount_cents, currency_code, metadata_json, created_by_user_id, clinical_note_id, place_of_service, date_of_service, claim_lifecycle)
@@ -88,6 +100,7 @@ export async function attachSignedSessionToClaim({ agencyId, sessionId, noteId }
   );
   const link = links?.[0];
   if (!link || !['draft', 'ready'].includes(link.claim_lifecycle)) return { attached: false, reason: link ? 'claim already sent' : 'no open claim' };
+  await populateLinkedSessionClaim({agencyId:aid,claimId:link.clinical_claim_id,noteId:nid,sessionId:sid},db);
   await db.execute('UPDATE clinical_claim_sessions SET clinical_note_id = ?, include_on_submit = 1 WHERE agency_id = ? AND clinical_session_id = ?', [nid, aid, sid]);
   await db.execute('UPDATE clinical_claims SET clinical_note_id = COALESCE(clinical_note_id, ?), claim_lifecycle = ? WHERE id = ? AND agency_id = ? AND claim_lifecycle IN (\'draft\', \'ready\')', [nid, 'ready', link.clinical_claim_id, aid]);
   await db.execute('UPDATE clinical_claim_lines SET clinical_note_id = ? WHERE clinical_claim_id = ? AND clinical_note_id IS NULL', [nid, link.clinical_claim_id]);

@@ -57,7 +57,11 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
     capabilities: { claims: true, enrollments: true, paymentPosting: true, scheduledReports: false, eft: true }, updatedAt: new Date().toISOString() };
   if (!organizations.length) return result;
   const allIds = organizations.map(a => a.id), allMarks = allIds.map(() => '?').join(',');
-  let workItems = [], enrollments = [], payments = [];
+  let workItems = [], enrollments = [], payments = [], payerCatalog = [], billingOffices = [];
+  try {
+    [payerCatalog]=await deps.main.execute(`SELECT r.agency_id,r.payer_name,r.archived_at,d.claimmd_payer_id AS payer_id,d.directory_status,d.directory_snapshot_json FROM medical_payer_setup_requests r JOIN medical_payer_setup_details d ON d.request_id=r.id WHERE r.agency_id IN (${allMarks}) AND d.directory_status='id_match'`,allIds);
+    [billingOffices]=await deps.main.execute(`SELECT id,agency_id,name,street_address,city,state,postal_code,practice_npi FROM office_locations WHERE agency_id IN (${allMarks}) AND is_active=1 AND use_as_billing_address=1`,allIds);
+  } catch(error){if(!missingSchema(error))throw error;}
   try {
     const work = await (deps.loadWorkItems || loadBillingWorkItems)(allIds, deps);
     await attachBillingClaimIssues(work.items,allIds,deps.main);
@@ -75,6 +79,8 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
     await enrichBillingWorkNames(payments,allIds,deps);
   } catch(e) { if(!missingSchema(e))throw e;result.capabilities.paymentPosting=false; }
   for (const organization of organizations) {
+    organization.payers=payerCatalog.filter(row=>Number(row.agency_id)===organization.id && row.payer_id && !row.archived_at).map(({payer_id,payer_name,directory_snapshot_json})=>({payerId:payer_id,payerName:payer_name,capabilities:typeof directory_snapshot_json==='string'?JSON.parse(directory_snapshot_json):directory_snapshot_json || {}}));
+    organization.billingOffices=billingOffices.filter(row=>Number(row.agency_id)===organization.id);
     const payment=payments.filter(p=>Number(p.agency_id)===organization.id&&(includesDemoBilling(query)||!syntheticBillingRow(p))).reduce((total,row)=>({posting_count:total.posting_count+Number(row.posting_count||0),paid_cents:total.paid_cents+Number(row.paid_cents||0)}),{posting_count:0,paid_cents:0});
     organization.payments=result.capabilities.paymentPosting?{postingCount:Number(payment?.posting_count||0),paidCents:Number(payment?.paid_cents||0)}:null;
     try { const eft=await deps.eftList(organization.id); organization.eft=eft.items.map(({id,officeId,payerId,payerName,providerNpi,status,identityCurrent,updatedAt})=>({id,officeId,payerId,payerName,providerNpi,status,identityCurrent,updatedAt})); organization.eftHasMore=eft.hasMore; }
@@ -88,7 +94,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
     catch (e) { if (!missingSchema(e)) throw e; organization.connection = { configured: false, unavailable: true }; }
     const connectionId = organization.connection.accountId ? `account:${organization.connection.accountId}` : `agency:${organization.id}`;
     organization.enrollments = enrollments.filter(r => Number(r.agency_id) === organization.id && r.connection_id === connectionId)
-      .map(({ billing_office_location_id, provider_npi, payer_id, enrollment_type, status, last_event_at }) => ({ officeId: billing_office_location_id, providerNpi: provider_npi, payerId: payer_id, type: enrollment_type, status, lastEventAt: last_event_at }));
+      .map(({ billing_office_location_id, provider_npi, payer_id, enrollment_type, status, last_event_at }) => ({ officeId: billing_office_location_id, officeName:organization.billingOffices.find(office=>Number(office.id)===Number(billing_office_location_id))?.name || null,providerNpi: provider_npi, payerId: payer_id,payerName:payerCatalog.find(payer=>Number(payer.agency_id)===organization.id && payer.payer_id===payer_id)?.payer_name || null, type: enrollment_type, status, lastEventAt: last_event_at }));
   }
   if (!result.capabilities.claims) return result;
   const scopeIds = new Set(scope.map(a => a.id));

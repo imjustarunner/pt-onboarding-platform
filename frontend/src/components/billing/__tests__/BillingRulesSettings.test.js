@@ -49,6 +49,8 @@ describe('billing rules settings', () => {
     expect(wrapper.text()).toContain('90837');
     expect(wrapper.text()).toContain('Aneta Czepiel');
     const aneta = wrapper.findAll('tbody tr').find((row) => row.text().includes('Aneta Czepiel'));
+    await wrapper.find('input[placeholder="Name or credential"]').setValue('Other');
+    await wrapper.find('[aria-label="Provider search results"] button').trigger('click');
     const other = wrapper.findAll('tbody tr').find((row) => row.text().includes('Other Clinician'));
     expect(aneta.find('[role="switch"]').attributes('aria-checked')).toBe('true');
     expect(other.find('[role="switch"]').attributes('aria-checked')).toBe('false');
@@ -59,6 +61,8 @@ describe('billing rules settings', () => {
     api.put.mockResolvedValue({ data: rules });
     const wrapper = mount(BillingRulesSettings, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } });
     await flushPromises();
+    await wrapper.find('input[placeholder="Name or credential"]').setValue('Other');
+    await wrapper.find('[aria-label="Provider search results"] button').trigger('click');
     const other = wrapper.findAll('tbody tr').find((row) => row.text().includes('Other Clinician'));
     await other.find('[role="switch"]').trigger('click');
     expect(api.put).toHaveBeenCalledWith('/medical-billing/billing-rules/provider-grant', {

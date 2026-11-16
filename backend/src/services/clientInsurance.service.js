@@ -16,6 +16,7 @@ export function mergePatientDefaults(patient = {}, demographics = {}) {
   return merged;
 }
 POLICY_TEXT_FIELDS.push('copay', 'lastEligibilityCheck', 'subscriberPhone', 'sourcePayerId');
+POLICY_TEXT_FIELDS.push('programType');
 export function normalizePolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw billingError(400, 'Insurance policy must be an object');
   const out = {};
@@ -27,6 +28,8 @@ export function normalizePolicy(value = {}) {
   }
   if (out.subscriberFirstName && out.subscriberLastName) out.subscriberName = `${out.subscriberFirstName} ${out.subscriberLastName}`;
   out.isMedicaid = policyIsMedicaid(value);
+  if (out.isMedicaid) out.relationshipToSubscriber = 'self';
+  if(out.programType && !['commercial','medicaid','tricare','medicare'].includes(out.programType))throw billingError(400,'Select a valid insurance coverage category');
   if (out.relationshipToSubscriber && !['self','child','spouse','other'].includes(out.relationshipToSubscriber)) throw billingError(400, 'Invalid subscriber relationship');
   for (const key of ['subscriberDob', 'effectiveDate', 'terminationDate']) if (out[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(out[key]) || !Number.isFinite(Date.parse(out[key])) || new Date(out[key]).toISOString().slice(0,10) !== out[key])) throw billingError(400, 'Use a valid YYYY-MM-DD insurance date');
   return out;

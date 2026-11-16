@@ -32,6 +32,8 @@ export async function saveDirectoryPayer({agencyId,payer,actorUserId}, db) {
       claimmd_payer_id=VALUES(claimmd_payer_id),directory_name=VALUES(directory_name),directory_status='id_match',
       directory_snapshot_json=VALUES(directory_snapshot_json),directory_checked_at=UTC_TIMESTAMP()`,
       [requestId,payer.payerid,payer.payer_name,JSON.stringify(capabilities)]);
+    await db.execute('UPDATE medical_payer_setup_requests SET archived_at=NULL,archived_by_user_id=NULL WHERE id=? AND agency_id=?',[requestId,agencyId]);
+    await db.execute("INSERT INTO medical_payer_setup_events(agency_id,request_id,actor_user_id,action,reason) VALUES(?,?,?,'route_saved','Exact payer route verified against the clearinghouse directory')",[agencyId,requestId,actorUserId]);
     await syncCredentialingPayerCatalog({ agencyId, actorUserId, apply: true, onlyPayerId: payer.payerid, withinTransaction: true, trustedPayerWrite: true }, db);
     await db.commit();
     return requestId;
@@ -80,14 +82,27 @@ export async function importPayerSetupCatalog({ agencies, payers, directory, act
   return { agencies: agencies.map(a => a.id), rows, applied: true };
 }
 
-export async function listPayerSetupRequests(agencyId, db) {
+export async function listPayerSetupRequests(agencyId, db, {includeArchived=false}={}) {
   try {
     const [rows] = await db.execute(`SELECT r.id,r.payer_name,r.created_at,d.source_payer_id,d.claimmd_payer_id,d.directory_name,d.directory_status,d.directory_snapshot_json,d.source_names_json,d.review_note,d.directory_checked_at
-      FROM medical_payer_setup_requests r LEFT JOIN medical_payer_setup_details d ON d.request_id=r.id WHERE r.agency_id=? ORDER BY r.payer_name,r.id`, [agencyId]);
+      FROM medical_payer_setup_requests r LEFT JOIN medical_payer_setup_details d ON d.request_id=r.id WHERE r.agency_id=? ${includeArchived?'':'AND r.archived_at IS NULL'} ORDER BY r.payer_name,r.id`, [agencyId]);
     return rows;
   } catch (error) {
-    if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
+    if (!['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(error.code)) throw error;
     const [rows] = await db.execute('SELECT id,payer_name,created_at FROM medical_payer_setup_requests WHERE agency_id=? ORDER BY payer_name,id', [agencyId]);
     return rows;
   }
+}
+
+export async function archivePayerSetup({agencyId,requestId,actorUserId,reason='Removed from the payer setup list by billing staff.'},db) {
+  await db.beginTransaction();
+  try {
+    const [[row]]=await db.execute('SELECT id,archived_at FROM medical_payer_setup_requests WHERE id=? AND agency_id=? FOR UPDATE',[requestId,agencyId]);
+    if(!row)throw Object.assign(new Error('Payer setup entry not found for this organization.'),{status:404});
+    if(!row.archived_at){
+      await db.execute("INSERT INTO medical_payer_setup_events(agency_id,request_id,actor_user_id,action,reason) VALUES(?,?,?,'archived',?)",[agencyId,requestId,actorUserId,String(reason).trim().slice(0,1000)]);
+      await db.execute('UPDATE medical_payer_setup_requests SET archived_at=UTC_TIMESTAMP(),archived_by_user_id=? WHERE id=? AND agency_id=?',[actorUserId,requestId,agencyId]);
+    }
+    await db.commit();return {archived:true};
+  }catch(error){await db.rollback();throw error;}
 }

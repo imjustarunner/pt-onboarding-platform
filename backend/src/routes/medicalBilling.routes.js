@@ -7,7 +7,9 @@ import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../co
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getH0002SourceDocuments, closeH0002RoiTask, getH0002ScreeningReview, signH0002ScreeningReview, saveH0002ScreeningDraft, forwardH0002Screening, translateH0002Screening } from '../controllers/h0002Screening.controller.js';
 import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../controllers/serviceBillingSupervisor.controller.js';
-import { getBillingRules, putBillingCredentialRule, putProviderServiceGrant } from '../controllers/billingRules.controller.js';
+import { getBillingRules, putBillingCredentialRule, putProviderServiceGrant,putBillingPayerRule } from '../controllers/billingRules.controller.js';
+import {getClientServiceCodeEligibility} from '../controllers/clientServiceCodeEligibility.controller.js';
+import {listPrimaryProof,uploadPrimaryProof,downloadPrimaryProof,getSecondaryManualReview} from '../controllers/claimAdjudicationEvidence.controller.js';
 import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
 import {getMedicalServiceFees,saveMedicalServiceFees} from '../controllers/medicalServiceFees.controller.js';
@@ -30,7 +32,7 @@ import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdW
 import { getBillingWorkspace, getBillingWorkspaceTransactions, getBillingDashboardSummary } from '../controllers/claimMdWorkspace.controller.js';
 import { submitReadyClaimSet } from '../controllers/bulkClaimSubmit.controller.js';
 import { getInsuranceVerificationWorkspace } from '../controllers/insuranceVerificationWorkspace.controller.js';
-import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
+import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices, closeClaimWithoutSubmission } from '../controllers/claimMdWorkflow.controller.js';
 import { getClaimServiceChanges,resolveClaimServiceChange } from '../controllers/claimMdWorkflow.controller.js';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -126,6 +128,7 @@ router.get('/sessions/:sessionId/appointment-billing', excludeSupportClinicalCon
 router.get('/planned-services', ...claimsGate, requireMedicalBillingFinancialAccess, getPlannedBillingServices);
 router.get('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
+router.delete('/payer-setup-requests/:requestId', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.get('/workspace', getBillingWorkspace);
 router.get('/workspace/dashboard-summary', getBillingDashboardSummary);
 router.get('/workspace/transactions', getBillingWorkspaceTransactions);
@@ -141,8 +144,10 @@ router.put('/screening-sessions/:sessionId/draft', requireClinicalNoteSigning, s
 router.post('/screening-sessions/:sessionId/forward', requireClinicalNoteSigning, forwardH0002Screening);
 router.post('/screening-sessions/:sessionId/translate', requireClinicalChart, translateH0002Screening);
 router.get('/billing-rules', ...masterGate, [query('agencyId').isInt({ min: 1 })], getBillingRules);
+router.get('/service-code-eligibility',requireClinicalChart,getClientServiceCodeEligibility);
 router.put('/billing-rules/credential', ...masterGate, [body('agencyId').isInt({ min: 1 }), body('serviceCode').isString(), body('credentialTier').isString()], putBillingCredentialRule);
 router.put('/billing-rules/provider-grant', ...masterGate, [body('agencyId').isInt({ min: 1 }), body('userId').isInt({ min: 1 }), body('serviceCode').isString()], putProviderServiceGrant);
+router.put('/billing-rules/payer', ...masterGate, requireMedicalBillingFinancialAccess,putBillingPayerRule);
 router.get('/service-supervisors', requireMedicalBillingFinancialAccess, getServiceBillingSupervisors);
 router.put('/service-supervisors', requireMedicalBillingFinancialAccess, putServiceBillingSupervisor);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
@@ -179,6 +184,10 @@ router.get('/clients/:clientId/coverage', ...masterGate, requireMedicalBillingFi
 router.post('/clients/:clientId/coverage/check', ...claimMdGate, checkClientCoverage);
 router.post('/clients/:clientId/coverage/review', ...masterGate, requireMedicalBillingFinancialAccess, reviewClientCoverage);
 router.post('/claims/:claimId/secondary', ...claimMdGate, createSecondaryClaim);
+router.get('/claims/:claimId/primary-proof', ...claimMdGate,listPrimaryProof);
+router.get('/claims/:claimId/secondary-review', ...claimMdGate,getSecondaryManualReview);
+router.post('/claims/:claimId/primary-proof', ...claimMdGate,uploadPrimaryProof);
+router.get('/claims/:claimId/primary-proof/:evidenceId/download', ...claimMdGate,downloadPrimaryProof);
 
 router.get(
   '/status',
@@ -712,6 +721,7 @@ router.get('/claimmd/claims/:claimId/review', ...claimMdGate, reviewClaim);
 router.post('/claimmd/claims/:claimId/ai-review', ...claimMdGate, runClaimAiReview);
 router.post('/claimmd/claims/:claimId/ai-findings/resolve', ...claimMdGate, resolveClaimAiFinding);
 router.get('/claimmd/claims/:claimId/history', ...claimMdGate, claimHistory);
+router.post('/claimmd/claims/:claimId/close', ...claimMdGate, closeClaimWithoutSubmission);
 router.get('/claimmd/claims/:claimId/service-changes', ...claimMdGate,getClaimServiceChanges);
 router.post('/claimmd/claims/:claimId/service-changes/:requestId/resolve', ...claimMdGate,resolveClaimServiceChange);
 router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);

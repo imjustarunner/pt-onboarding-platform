@@ -6,10 +6,26 @@ import { coverageDate,coverageFingerprint } from './coverageVerification.service
 import { policyError } from './supervisedBillingPolicy.service.js';
 import { hasPendingClaimChange,previouslyTransmitted } from './claimServiceChanges.service.js';
 import { recordClaimEvent } from './claimMdWorkflow.service.js';
+import {distinctInsurancePolicies,policyIsMedicaid} from '../utils/insurancePaymentPolicy.js';
+import {loadBillingPayerRules,programForPolicy} from './billingPayerRules.service.js';
+import {validateClaimAdjudicationEvidence} from './claimAdjudicationEvidence.service.js';
 const serviceIdentity=line=>Object.fromEntries(['from_date','thru_date','mod1','mod2','mod3','mod4'].map(k=>[k,String(line[k]||'')]));
 const money=n=>(n/100).toFixed(2);
 const cents=n=>{if(!Number.isSafeInteger(n)||n<0||n>1000000000)throw policyError(400,'Use non-negative integer cents from the primary remittance');return n;};
-export function validatePrimaryAdjudication(input,charges){
+export function externalPrimaryCharges(claim,lines){
+ return lines.map(line=>{
+  if(!/^[A-Z0-9]{5}$/.test(line.procedure_code || '') || !Number.isSafeInteger(Number(line.charge_cents)) || Number(line.charge_cents)<0 || !(Number(line.units)>0))throw policyError(409,'Complete and review every primary service code, unit and billed charge against the external ERA/EOB.');
+  const raw=line.service_date || claim.date_of_service,date=raw instanceof Date?raw.toISOString().slice(0,10):String(raw || '').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw policyError(409,'Record the primary service dates shown on the ERA/EOB.');
+  let mods=line.modifiers_json || [];if(typeof mods==='string')mods=JSON.parse(mods);
+  return {proc_code:line.procedure_code,units:String(line.units),charge:(Number(line.charge_cents)/100).toFixed(2),from_date:date.replaceAll('-',''),thru_date:date.replaceAll('-',''),...Object.fromEntries(mods.slice(0,4).map((mod,i)=>[`mod${i+1}`,mod]))};
+ });
+}
+export const externalPrimarySourceHash=(payerId,charges)=>crypto.createHash('sha256').update(JSON.stringify({payerId,charges:charges.map(line=>({procedureCode:line.proc_code,units:String(line.units),charge:line.charge,identity:serviceIdentity(line)}))})).digest('hex');
+function assertMedicaidDenialBasis(lines){
+ if(lines.some(line=>Number(line.paidCents)===0 && line.adjustments?.some(a=>/^(CO|PR|OA|PI)(242|243|16|18)$/.test(a.code))))throw policyError(409,'Resolve the primary network, credentialing, missing-information or duplicate-claim denial before Medicaid secondary billing. These denials do not establish that the service is not covered.');
+}
+export function validatePrimaryAdjudication(input,charges,{medicaidSecondary=false}={}){
  if(!input||!Array.isArray(charges)||!charges.length)throw policyError(400,'Primary ERA/EOB adjudication and original service lines are required');
  if(input.attested!==true||input.crossoverConfirmedAbsent!==true)throw policyError(409,'Review the primary ERA/EOB and confirm the claim was not already crossed over to secondary');
  if(typeof input.reference!=='string'||input.reference.trim().length<5||input.reference.length>2000||typeof input.primaryClaimControlNumber!=='string'||!input.primaryClaimControlNumber.trim()||input.primaryClaimControlNumber.length>100)throw policyError(400,'Record the primary payer claim number and ERA/EOB reference');
@@ -24,10 +40,11 @@ export function validatePrimaryAdjudication(input,charges){
   if(paidCents+adjustments.reduce((n,a)=>n+a.amountCents,0)!==billedCents)throw policyError(409,`Primary payment and adjustments must balance to the full billed charge on line ${i+1}`);
   return {lineNumber:i+1,procedureCode:charge.proc_code,units:String(charge.units),billedCents,paidCents,adjustments,serviceIdentity:serviceIdentity(charge)};
  });
+ if(medicaidSecondary)assertMedicaidDenialBasis(lines);
  return {paymentDate,primaryClaimControlNumber:input.primaryClaimControlNumber.trim(),reference:input.reference.trim(),attested:true,crossoverConfirmedAbsent:true,lines};
 }
 export function secondaryInsurance(insurance){
- if(!insurance?.primary?.payerId||!insurance?.secondary?.payerId||insurance.primary.payerId===insurance.secondary.payerId)throw policyError(409,'Configure distinct primary and secondary payer IDs before preparing a secondary claim');
+ if(!distinctInsurancePolicies(insurance?.primary,insurance?.secondary))throw policyError(409,'Configure distinct primary and secondary insurance policies before preparing a secondary claim. A shared payer route needs distinct member or group identifiers.');
  return {...insurance,primary:insurance.secondary,secondary:insurance.primary};
 }
 export function applySecondaryAdjudication(payload,cob){
@@ -39,9 +56,11 @@ export function applySecondaryAdjudication(payload,cob){
  });
  return {...payload,payer_order:'Secondary',amount_paid:money(cob.lines.reduce((n,l)=>n+l.paidCents,0)),other_ins_payment_date:cob.paymentDate.replaceAll('-',''),charge};
 }
-export function readSecondaryAdjudication(claim,insurance){
+export function readSecondaryAdjudication(claim,insurance,{medicaidSecondary=false}={}){
  const cob=decryptFamilyBilling(claim.cob_payload_encrypted,`claim-cob:${claim.agency_id}:${claim.id}`);
  if(!cob||cob.coverageFingerprint!==coverageFingerprint(insurance)||claim.destination_payer_id!==insurance?.secondary?.payerId)throw policyError(409,'Coverage changed since the secondary draft; re-review primary adjudication and payer order');
+ if(medicaidSecondary || policyIsMedicaid(insurance.secondary))assertMedicaidDenialBasis(cob.lines || []);
+ if(!cob.evidence?.length)throw policyError(409,'Attach and review the primary ERA/EOB proof before submitting this secondary claim.');
  return cob;
 }
 export async function prepareSecondaryClaim({agencyId,parentClaimId,actorUserId,adjudication},source=clinicalPool){
@@ -53,14 +72,27 @@ export async function prepareSecondaryClaim({agencyId,parentClaimId,actorUserId,
   const [[session]]=await db.execute('SELECT id,encounter_status FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[ref.clinical_session_id,agencyId]);
   if(!session||session.encounter_status!=='completed')throw policyError(409,'Only a completed visit can have a secondary claim');
   const [[parent]]=await db.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? FOR UPDATE',[parentClaimId,agencyId]);
-  if(!parent||parent.is_deleted||Number(parent.payer_sequence||1)!==1||!parent.claimmd_submitted_at||!parent.claimmd_claim_id||parent.claim_lifecycle==='void')throw policyError(409,'Use the transmitted primary claim and its payer adjudication; a clearinghouse acceptance alone is insufficient');
+  if(!parent||parent.is_deleted||Number(parent.payer_sequence||1)!==1||parent.claim_lifecycle==='void')throw policyError(409,'Use the primary claim and its actual payer adjudication; a clearinghouse acceptance alone is insufficient');
   if(await hasPendingClaimChange(parent,db))throw policyError(409,'Resolve outstanding primary service corrections first');
   const insurance=await readClientInsurance(parent.client_id,agencyId);secondaryInsurance(insurance);
   const [[submission]]=await db.execute("SELECT event_key,payload_encrypted FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type='approved_submission' ORDER BY id DESC LIMIT 1",[agencyId,parentClaimId]);
-  if(!submission)throw policyError(409,'The original submitted payload is required to prepare a secondary claim');
-  const sent=decryptFamilyBilling(submission.payload_encrypted,`claimmd:${agencyId}:${parentClaimId}:${submission.event_key}`).payload;
+  const external=adjudication?.source==='external_primary';
+  let sent;
+  if(external){
+   if(parent.claimmd_submitted_at || parent.claimmd_claim_id || submission)throw policyError(409,'This primary was submitted through the app. Use its recorded submission when reviewing the ERA/EOB.');
+   if(!['draft','ready','closed'].includes(parent.claim_lifecycle) || String(adjudication.externalSystem || '').trim().length<3 || String(adjudication.externalSystem).length>255)throw policyError(409,'Record where the primary claim was actually submitted and review the external ERA/EOB.');
+   const [sourceLines]=await db.execute('SELECT * FROM clinical_claim_lines WHERE clinical_claim_id=? ORDER BY line_number FOR UPDATE',[parentClaimId]);
+   if(!sourceLines.length)throw policyError(409,'Record the externally adjudicated primary service lines before preparing secondary.');
+   sent={payerid:insurance.primary.payerId,charge:externalPrimaryCharges(parent,sourceLines)};
+  }else{
+   if(!parent.claimmd_submitted_at || !parent.claimmd_claim_id || !submission)throw policyError(409,'Use an actual app primary submission, or select Submitted externally and attach its ERA/EOB proof. A clearinghouse rejection is insufficient.');
+   sent=decryptFamilyBilling(submission.payload_encrypted,`claimmd:${agencyId}:${parentClaimId}:${submission.event_key}`).payload;
+  }
   if(sent.payerid!==insurance.primary.payerId)throw policyError(409,'Current primary payer differs from the adjudicated claim. Reconcile coverage first');
-  const cob={...validatePrimaryAdjudication(adjudication,sent.charge),coverageFingerprint:coverageFingerprint(insurance),parentClaimId,parentBillingRevision:Number(parent.billing_revision||0),reviewedBy:actorUserId,reviewedAt:new Date().toISOString()};
+  const payerRules=await loadBillingPayerRules(agencyId);
+  const medicaidSecondary=policyIsMedicaid(insurance.secondary) || programForPolicy(insurance.secondary,payerRules).program==='medicaid';
+  const evidence=await validateClaimAdjudicationEvidence({agencyId,claimId:parentClaimId,clientId:parent.client_id,evidenceIds:adjudication?.evidenceIds},db);
+  const cob={...validatePrimaryAdjudication(adjudication,sent.charge,{medicaidSecondary}),evidence,source:external?'external_primary':'app_primary',externalSystem:external?adjudication.externalSystem.trim():null,externalSourceHash:external?externalPrimarySourceHash(sent.payerid,sent.charge):null,coverageFingerprint:coverageFingerprint(insurance),parentClaimId,parentBillingRevision:Number(parent.billing_revision||0),reviewedBy:actorUserId,reviewedAt:new Date().toISOString()};
   const [[existing]]=await db.execute('SELECT * FROM clinical_claims WHERE agency_id=? AND parent_claim_id=? FOR UPDATE',[agencyId,parentClaimId]);
   if(existing&&(existing.is_deleted||previouslyTransmitted(existing)))throw policyError(409,'A secondary claim already exists or was transmitted. Reconcile it; do not create another');
   let childId=existing?.id;
@@ -72,6 +104,7 @@ export async function prepareSecondaryClaim({agencyId,parentClaimId,actorUserId,
   }
   await db.execute('UPDATE clinical_claims SET cob_payload_encrypted=?,destination_payer_id=?,payer_name=?,billing_revision=billing_revision+1 WHERE id=? AND agency_id=?',[encryptFamilyBilling(cob,`claim-cob:${agencyId}:${childId}`),insurance.secondary.payerId,insurance.secondary.insurerName,childId,agencyId]);
   await recordClaimEvent({agencyId,claimId:childId,connectionId:`agency:${agencyId}`,eventKey:`secondary-draft:${crypto.randomUUID()}`,eventType:'secondary_draft',actorUserId,payload:{parentClaimId,adjudication:cob,claimTransmitted:false}},db);
+  if(external)await recordClaimEvent({agencyId,claimId:parentClaimId,connectionId:`agency:${agencyId}`,eventKey:`external-primary-review:${crypto.randomUUID()}`,eventType:'external_primary_adjudication_recorded',actorUserId,payload:{secondaryClaimId:childId,adjudication:cob,claimTransmittedByApp:false}},db);
   await db.commit();return {claimId:childId,parentClaimId,claimTransmitted:false};
  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }

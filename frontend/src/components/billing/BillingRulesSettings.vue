@@ -8,16 +8,16 @@
         <p>
           These are the service codes each credential group may use. The Colorado default is what the practice follows today.
           If Colorado changes a rule, update that cell here. A practice update stays visible for the next person.
-          H0002 stays off for everyone until you turn it on for one provider.
+          H0002 stays off until explicitly enabled for a provider. Payer categories below are practice rules; enrollment and payer-specific requirements still apply.
         </p>
       </div>
     </header>
 
     <p v-if="!agencyId" class="status">Select a practice to see its billing rules.</p>
     <p v-else-if="loading" class="status">Loading Colorado rules…</p>
-    <p v-else-if="error" class="status error" role="alert">{{ error }}</p>
+    <p v-if="error" class="status error" role="alert">{{ error }}</p>
 
-    <template v-else>
+    <template v-if="agencyId && !loading">
       <div class="tier-legend">
         <article v-for="tier in rules.tiers" :key="tier.id">
           <h3>{{ tier.label }}</h3>
@@ -29,12 +29,13 @@
         <div class="panel-heading">
           <div>
             <h3 id="person-exceptions-title">One provider, one extra service</h3>
-            <p>H0002 is off by default, including for interns and licensed clinicians. Turn it on only for the person who should see it.</p>
+            <p>Search for the provider who needs H0002, select them, and turn it on. Only selected providers and existing grants appear below.</p>
           </div>
           <label>Find a provider
             <input v-model="providerQuery" type="search" placeholder="Name or credential" />
           </label>
         </div>
+        <ul v-if="providerQuery.trim().length >= 2" class="provider-search-results" aria-label="Provider search results"><li v-for="provider in providerMatches" :key="provider.id"><button type="button" @click="selectedProviderId=provider.id;providerQuery=''">{{ provider.name }} · {{ provider.credential || 'Credential not recorded' }}</button></li><li v-if="!providerMatches.length">No provider matches that search.</li></ul>
         <div class="table-scroll">
           <table>
             <thead>
@@ -65,12 +66,14 @@
                 </td>
               </tr>
               <tr v-if="!visibleProviders.length">
-                <td colspan="4">No provider matches that search.</td>
+                <td colspan="4">Search for and select a provider to enable H0002.</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
+
+      <BillingPayerRules v-if="rules.payerRules" :rules="rules.payerRules" :codes="rules.codes" :tiers="rules.tiers" :saving="saving" @change="setPayerRule" />
 
       <section class="panel" aria-labelledby="colorado-matrix-title">
         <div class="panel-heading">
@@ -87,6 +90,7 @@
             <thead>
               <tr>
                 <th>Service</th>
+                <th>Allowed payer categories</th>
                 <th v-for="tier in rules.tiers" :key="tier.id">{{ tier.label }}</th>
               </tr>
             </thead>
@@ -97,6 +101,7 @@
                   <span>{{ code.description }}</span>
                   <em v-if="code.optIn">Default off. Use the provider list above.</em>
                 </th>
+                <td class="program-badges"><button v-for="program in rules.payerRules?.programs || []" :key="program.id" type="button" :class="['program-badge',{allowed:code.payerPrograms?.[program.id]}]" :aria-pressed="!!code.payerPrograms?.[program.id]" :disabled="saving || !rules.payerRules?.available" @click="setPayerRule({kind:'program_service',program:program.id,serviceCode:code.code,allowed:!code.payerPrograms?.[program.id]})">{{ program.label }} {{ code.payerPrograms?.[program.id] ? '✓' : '×' }}</button></td>
                 <td v-for="tier in rules.tiers" :key="tier.id">
                   <button
                     type="button"
@@ -122,10 +127,11 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import BillingSectionNav from './BillingSectionNav.vue';
+import BillingPayerRules from './BillingPayerRules.vue';
 
 const props = defineProps({
   scopedAgencyId: { type: [Number, String], default: null }
@@ -137,16 +143,19 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 const providerQuery = ref('');
+const selectedProviderId=ref(null);
 const codeQuery = ref('');
 const rules = ref({ tiers: [], codes: [], providers: [] });
 
-const visibleProviders = computed(() => {
+const providers=computed(()=>[...new Map((rules.value.providers || []).map(provider=>[Number(provider.id),provider])).values()]);
+const providerMatches = computed(() => {
   const query = providerQuery.value.trim().toLowerCase();
-  return (rules.value.providers || []).filter((provider) => {
-    if (!query) return true;
+  return providers.value.filter((provider) => {
+    if (query.length<2) return false;
     return `${provider.name} ${provider.credential}`.toLowerCase().includes(query);
-  });
+  }).slice(0,20);
 });
+const visibleProviders=computed(()=>providers.value.filter(provider=>provider.grants.includes('H0002') || Number(provider.id)===Number(selectedProviderId.value)));
 
 const visibleCodes = computed(() => {
   const query = codeQuery.value.trim().toLowerCase();
@@ -160,21 +169,29 @@ function tierLabel(id) {
   return rules.value.tiers.find((tier) => tier.id === id)?.label || 'Credential not recognized — QBHA codes only';
 }
 
+let requestSequence=0;
+onBeforeUnmount(()=>{requestSequence++;});
 async function load() {
+  const sequence=++requestSequence;
+  rules.value={tiers:[],codes:[],providers:[]};saving.value=false;
   if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
   try {
     const { data } = await api.get('/medical-billing/billing-rules', { params: { agencyId: agencyId.value } });
+    if(sequence!==requestSequence)return;
     rules.value = data || { tiers: [], codes: [], providers: [] };
   } catch (err) {
+    if(sequence!==requestSequence)return;
     error.value = err?.response?.data?.error?.message || 'The billing rules could not be loaded.';
   } finally {
-    loading.value = false;
+    if(sequence===requestSequence)loading.value = false;
   }
 }
 
 async function setRule(code, credentialTier, allowed) {
+  if(saving.value)return;
+  const sequence=requestSequence;
   saving.value = true;
   error.value = '';
   try {
@@ -184,15 +201,17 @@ async function setRule(code, credentialTier, allowed) {
       credentialTier,
       allowed
     });
-    rules.value = data;
+    if(sequence===requestSequence)rules.value = data;
   } catch (err) {
-    error.value = err?.response?.data?.error?.message || 'That Colorado rule could not be saved.';
+    if(sequence===requestSequence)error.value = err?.response?.data?.error?.message || 'That Colorado rule could not be saved.';
   } finally {
-    saving.value = false;
+    if(sequence===requestSequence)saving.value = false;
   }
 }
 
 async function setGrant(provider, enabled) {
+  if(saving.value)return;
+  const sequence=requestSequence;
   saving.value = true;
   error.value = '';
   try {
@@ -202,19 +221,22 @@ async function setGrant(provider, enabled) {
       serviceCode: 'H0002',
       enabled
     });
-    rules.value = data;
+    if(sequence===requestSequence)rules.value = data;
   } catch (err) {
-    error.value = err?.response?.data?.error?.message || 'That provider exception could not be saved.';
+    if(sequence===requestSequence)error.value = err?.response?.data?.error?.message || 'That provider exception could not be saved.';
   } finally {
-    saving.value = false;
+    if(sequence===requestSequence)saving.value = false;
   }
 }
 
-watch(agencyId, load, { immediate: true });
+async function setPayerRule(change){if(saving.value)return;saving.value=true;error.value='';const scope=agencyId.value,sequence=requestSequence;try{const {data}=await api.put('/medical-billing/billing-rules/payer',{agencyId:scope,revision:rules.value.payerRules.revision,...change});if(sequence===requestSequence)rules.value=data;}catch(err){if(sequence===requestSequence)error.value=err?.response?.data?.error?.message || 'The payer billing rule could not be saved.';}finally{if(sequence===requestSequence)saving.value=false;}}
+
+watch(agencyId,()=>{selectedProviderId.value=null;providerQuery.value='';load();},{ immediate: true });
 </script>
 
 <style scoped>
 .billing-rules { color: var(--brand-ink, #1d2633); }
+.provider-search-results{list-style:none;padding:8px;border:1px solid #d5dbe3;border-radius:8px;max-height:260px;overflow:auto}.provider-search-results button{width:100%;text-align:left;border:0;background:none;padding:9px;cursor:pointer}.program-badges{min-width:220px}.program-badge{border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;border-radius:999px;padding:5px 9px;margin:3px;font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}.program-badge.allowed{background:#e7f6ef;border-color:#73a68d;color:#145c38}
 .eyebrow { color: var(--brand-red, #b80016); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; margin: 0 0 4px; text-transform: uppercase; }
 .rules-header h2, .panel h3 { margin: 0 0 6px; }
 .rules-header p, .panel-heading p, .tier-legend p { color: #4d5968; line-height: 1.45; margin: 0; max-width: 78ch; }

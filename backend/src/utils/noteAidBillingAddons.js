@@ -2,6 +2,7 @@
  * Mirror of frontend noteAidBillingAddons for backend generate / claim metadata.
  */
 import {evaluate99051Schedule} from './clinicalAfterHoursPolicy.js';
+import {resolveLinkedServiceBilling} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 export const ADDON_CODES = {
   INTERACTIVE_COMPLEXITY: '90785',
   CRISIS_ADDON: '90840',
@@ -110,6 +111,11 @@ export function resolveNoteAidBillingCodes({
     addons.push(...crisis.addons);
     warnings.push(...crisis.warnings);
     switchedFrom = crisis.switchedFrom;
+  } else if (resolveLinkedServiceBilling(code, durationMinutes)) {
+    const linked = resolveLinkedServiceBilling(code, durationMinutes);
+    primaryUnits = linked.units;
+    addons.push(...linked.addons);
+    if (linked.reason) warnings.push(linked.reason);
   } else if (code === '90837' || (code === '90834' && Number(durationMinutes) >= 75)) {
     const ext = resolveExtendedEncounter90837({
       durationMinutes,

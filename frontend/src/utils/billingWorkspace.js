@@ -21,15 +21,14 @@ export const clearinghouseStatusLabel = status => {
   }[code] || `Clearinghouse status ${code}`;
 };
 export const claimHistoryLabel = type => ({
+  claim_closed:'Claim closed without submission',
   correction:'Billing fields updated',
   remittance_posted:'Payer adjudication posted',
   resubmission_created:'Submission attempt prepared',
   approved_submission: 'Submitted',
   acknowledgement: 'Acknowledged',
   response: 'Update from clearinghouse',
-  remittance_posted: 'Payment posted',
   billing_override: 'Billing override saved',
-  correction: 'Billing correction',
   status_changed: 'Status changed',
   payer_claim_id: 'Payer claim ID'
 }[type] || String(type || 'Update').replaceAll('_', ' '));

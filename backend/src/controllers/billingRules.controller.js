@@ -1,4 +1,5 @@
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
+import {saveBillingPayerRule} from '../services/billingPayerRules.service.js';
 import {
   coloradoBillingRules,
   saveCredentialRule,
@@ -21,6 +22,9 @@ export async function getBillingRules(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+export async function putBillingPayerRule(req,res,next){
+ try{const agencyId=await agencyFrom(req);await saveBillingPayerRule({...req.body,agencyId,actorUserId:req.user.id});res.json(await coloradoBillingRules(agencyId));}catch(error){next(error);}
 }
 
 export async function putBillingCredentialRule(req, res, next) {

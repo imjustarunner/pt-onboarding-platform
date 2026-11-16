@@ -221,7 +221,7 @@ describe('unified clinical and claim workflow', () => {
     const payload=data();payload.claims=[{id:null,key:'draft:16',source:'draft',agency_id:1,client_id:12,client_name:'DEMO QA Client',draft_id:16,stage:'draft',readOnly:true,canReviewClaim:false}];
     api.get.mockResolvedValue({data:payload});const w=mount(BillingWorkspaceView);await flushPromises();
     await button(w,'Draft #16').trigger('click');await flushPromises();
-    const drawer=w.find('[role="dialog"]');expect(drawer.exists()).toBe(true);expect(drawer.text()).toContain('The clinician’s note is in progress');
+    const drawer=w.find('[role="dialog"]');expect(drawer.exists()).toBe(true);expect(drawer.text()).toContain('The provider’s note is in progress');
     expect(drawer.text()).not.toContain('Edit billing fields');expect(drawer.text()).not.toContain('Review for submission');expect(drawer.find('[data-testid="claim-tools"]').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();
     w.unmount();
   });
@@ -229,7 +229,7 @@ describe('unified clinical and claim workflow', () => {
     const payload=data();payload.claims=[{id:null,key:'note:132',agency_id:1,client_id:2304,clinical_note_id:132,stage:'ready_to_submit',duration_minutes:60,service_location_id:121,units:4,place_of_service:'02'}];
     api.get.mockResolvedValue({data:payload});const w=mount(BillingWorkspaceView);await flushPromises();await button(w,'Note #132').trigger('click');await flushPromises();
     const facts=w.get('[role="dialog"] .claim-facts');
-    expect(facts.text()).toContain('Recorded minutes60');expect(facts.text()).toContain('Service location#121');expect(facts.text()).toContain('Units4');expect(facts.text()).toContain('Place of service02');
+    expect(facts.text()).toContain('Recorded minutes60');expect(facts.text()).toContain('Service locationSaved location unavailable');expect(facts.text()).toContain('Units4');expect(facts.text()).toContain('Place of service02');
     expect(api.post).not.toHaveBeenCalled();w.unmount();
   });
   it('opens an approved note as a claim for review without transmitting it', async () => {

@@ -1,5 +1,10 @@
 import pool from '../config/database.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
+import {loadBillingPayerRules,programCredentialAllowed,programServiceAllowed,PAYER_PROGRAMS} from './billingPayerRules.service.js';
+import {listPayerSetupRequests} from './payerSetupCatalog.service.js';
+// A broad sees_clients flag alone does not make a support account a provider.
+const BILLING_PROVIDER_SQL="(LOWER(u.role) IN ('provider','provider_plus','intern','intern_plus','qbha') OR u.has_provider_access=1 OR (LOWER(u.role)='supervisor' AND u.sees_clients=1))";
+export function isBillingRuleProvider(row){const role=String(row.role || '').toLowerCase();return ['provider','provider_plus','intern','intern_plus','qbha'].includes(role) || Number(row.has_provider_access)===1 || role==='supervisor' && Number(row.sees_clients)===1;}
 
 /** Codes that stay off for every credential until a practice turns them on for one person. */
 export const OPT_IN_SERVICE_CODES = ['H0002'];
@@ -156,11 +161,12 @@ export async function saveCredentialRule({ stateCode = 'CO', serviceCode, creden
 
 async function providerBelongsToAgency(agencyId, userId) {
   const [rows] = await pool.execute(
-    `SELECT 1
-     FROM user_agencies
-     WHERE agency_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1
+    `SELECT 1 FROM users u
+     WHERE u.id=? AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+       AND ${BILLING_PROVIDER_SQL}
+       AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.agency_id=? AND ua.user_id=u.id AND COALESCE(ua.is_active,1)=1)
      LIMIT 1`,
-    [Number(agencyId), Number(userId)]
+    [Number(userId), Number(agencyId)]
   );
   return Boolean(rows?.length);
 }
@@ -184,12 +190,11 @@ export async function saveProviderServiceGrant({ agencyId, userId, serviceCode, 
 
 export async function listBillingRuleProviders(agencyId) {
   const [rows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.credential, u.role, ua.agency_role
+    `SELECT u.id, u.first_name, u.last_name, u.credential, u.role,u.has_provider_access,u.sees_clients
      FROM users u
-     JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-     WHERE COALESCE(ua.is_active, 1) = 1
-       AND COALESCE(u.is_active, 1) = 1
-       AND (u.sees_clients = 1 OR u.has_provider_access = 1)
+     WHERE EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)
+       AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived,0)=0
+       AND ${BILLING_PROVIDER_SQL}
      ORDER BY u.first_name, u.last_name, u.id`,
     [Number(agencyId)]
   );
@@ -211,7 +216,7 @@ export async function listBillingRuleProviders(agencyId) {
     if (!byUser.has(id)) byUser.set(id, []);
     byUser.get(id).push(codeOf(grant.service_code));
   }
-  return (rows || []).map((row) => {
+  return [...new Map((rows || []).filter(isBillingRuleProvider).map(row=>[Number(row.id),row])).values()].map((row) => {
     const tier = deriveCredentialTier({
       userRole: row.agency_role || row.role,
       providerCredentialText: row.credential
@@ -228,6 +233,10 @@ export async function listBillingRuleProviders(agencyId) {
 
 export async function coloradoBillingRules(agencyId) {
   const overrides = await loadCredentialOverrides('CO');
+  const payerRules=await loadBillingPayerRules(agencyId);
+  const payerList=await listPayerSetupRequests(agencyId,pool);
+  payerRules.payers=[...new Map(payerList.filter(row=>row.directory_status==='id_match' && row.claimmd_payer_id).map(row=>[row.claimmd_payer_id,{payerId:row.claimmd_payer_id,name:row.directory_name || row.payer_name,programs:payerRules.payerPrograms.find(p=>p.payerId===row.claimmd_payer_id)?.programs || []}])).values()];
+  payerRules.programTiers=Object.fromEntries(PAYER_PROGRAMS.map(program=>[program.id,Object.fromEntries(COLORADO_CREDENTIAL_TIERS.map(tier=>[tier.id,programCredentialAllowed(payerRules,program.id,tier.id)]))]));
   const descriptions = new Map();
   try {
     const [rows] = await pool.execute(
@@ -241,7 +250,7 @@ export async function coloradoBillingRules(agencyId) {
     if (!missingTable(error)) throw error;
   }
   const extraCodes = [...overrides.keys()].map((key) => key.split('|')[1]).filter(Boolean);
-  const codes = [...new Set([...coloradoDefaultCodes(), ...extraCodes])].sort().map((serviceCode) => {
+  const codes = [...new Set([...coloradoDefaultCodes(), ...descriptions.keys(), ...extraCodes])].sort().map((serviceCode) => {
     const tiers = {};
     const sources = {};
     for (const tier of COLORADO_CREDENTIAL_TIERS) {
@@ -254,7 +263,8 @@ export async function coloradoBillingRules(agencyId) {
       description: descriptions.get(serviceCode) || CODE_LABELS[serviceCode] || serviceCode,
       tiers,
       sources,
-      optIn: OPT_IN_SERVICE_CODES.includes(serviceCode)
+      optIn: OPT_IN_SERVICE_CODES.includes(serviceCode),
+      payerPrograms:Object.fromEntries(PAYER_PROGRAMS.map(program=>[program.id,programServiceAllowed(payerRules,program.id,serviceCode)]))
     };
   });
   return {
@@ -263,6 +273,7 @@ export async function coloradoBillingRules(agencyId) {
     tiers: COLORADO_CREDENTIAL_TIERS,
     codes,
     optInCodes: OPT_IN_SERVICE_CODES,
-    providers: await listBillingRuleProviders(agencyId)
+    providers: await listBillingRuleProviders(agencyId),
+    payerRules
   };
 }

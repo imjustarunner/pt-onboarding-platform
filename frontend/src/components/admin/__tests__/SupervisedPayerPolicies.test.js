@@ -7,7 +7,7 @@ beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:{items:[],pro
 describe('supervised payer policy controls',()=>{
   it('starts unverified and requires separate mapping and deferred-cosign attestations',async()=>{
     const w=mount(SupervisedPayerPolicies,{props:{agencyId:377}});await flushPromises();
-    expect(w.text()).toContain('January 1, 2027');expect(w.findAll('input[type=checkbox]').every(c=>!c.element.checked)).toBe(true);
+    expect(w.text()).toContain('withdrew');expect(w.findAll('input[type=checkbox]').every(c=>!c.element.checked)).toBe(true);
     const inputs=w.findAll('input');await inputs[0].setValue('COCHA');await inputs[1].setValue('Medicaid');
     const dates=w.findAll('input[type=date]');await dates[0].setValue('2026-01-01');await dates[1].setValue('2026-12-31');
     const text=w.findAll('textarea');await text[0].setValue('Payer manual reference');await text[1].setValue('Document pending payer verification');

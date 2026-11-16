@@ -1,14 +1,20 @@
 import pool from '../config/database.js';
-import { listPayerSetupRequests, saveDirectoryPayer } from '../services/payerSetupCatalog.service.js';
+import { listPayerSetupRequests, saveDirectoryPayer, archivePayerSetup } from '../services/payerSetupCatalog.service.js';
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { fetchPayers } from '../services/claimMd.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 
 export async function payerSetupRequests(req,res,next) {
   try {
-    const agencyId=Number(req.query.agencyId || req.body.agencyId);
+    const agencyId=Number(req.query.agencyId || req.body?.agencyId);
     if (!Number.isSafeInteger(agencyId) || agencyId<1) return res.status(400).json({error:{message:'Valid agency is required'}});
     await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
+    if(req.method==='DELETE'){
+      const requestId=Number(req.params.requestId);
+      if(!Number.isSafeInteger(requestId)||requestId<1)return res.status(400).json({error:{message:'Select a valid payer setup entry'}});
+      const db=await pool.getConnection();
+      try{await archivePayerSetup({agencyId,requestId,actorUserId:req.user.id},db);}finally{db.release();}
+    }
     if(req.method==='POST') {
       if (req.body.payerId !== undefined) {
         const payerId = String(req.body.payerId).trim();

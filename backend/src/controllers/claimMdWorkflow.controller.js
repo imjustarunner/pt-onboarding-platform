@@ -2,6 +2,13 @@ import {requireTestingEligibility} from '../services/testingEligibility.service.
 import {requiresTestingRole} from '../content/testingServicePolicy.js';
 import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
+import { closeUnsubmittedClaim } from '../services/claimClosure.service.js';
+import { determineLicenseStatus } from '../utils/credentialNormalization.js';
+import { listPayerSetupRequests } from '../services/payerSetupCatalog.service.js';
+import {loadBillingPayerRules,evaluateClientBillingPayerRules,programForPolicy} from '../services/billingPayerRules.service.js';
+import {deriveCredentialTier} from '../utils/clinicalServiceCodeEligibility.js';
+import {filterServiceCodesForCredential,loadCredentialOverrides,grantedServiceCodesForProvider} from '../services/billingRules.service.js';
+import {linkedServiceLineBlockers} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 import { loadClaimFamily, claimRecordId } from '../services/claimFamily.service.js';
 import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
 import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalClaimForReview, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
@@ -23,7 +30,8 @@ import { evaluateClaimReadiness } from '../services/clinicalClaimReadiness.servi
 import { documentationScope, getClientDocumentationReadiness } from '../services/clientDocumentationReadiness.service.js';
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { buildClaimMdJsonClaim, fetchPayers, requestEnrollment } from '../services/claimMd.service.js';
-import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim } from '../services/secondaryClaim.service.js';
+import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim,externalPrimaryCharges,externalPrimarySourceHash } from '../services/secondaryClaim.service.js';
+import {validateClaimAdjudicationEvidence} from '../services/claimAdjudicationEvidence.service.js';
 import { asList, claimReviewHash, claimEventHistory, claimFamilyHistory, safeEnrollmentUrl, taxIdHash, recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { applyBillingClaimOverrides } from '../services/applyBillingClaimOverrides.service.js';
 import { listClaimMdBillingProfiles, getClaimMdBillingProfile, resolveClaimMdBillingProfile, describeClaimServiceSite, assertClaimBillingNpi } from '../services/claimMdBillingProfile.service.js';
@@ -58,11 +66,22 @@ export async function prepareClaimReview(agencyId, claimId) {
   if(claimRecordId(family.current)!==Number(claimId))readiness.blockers.push('A newer submission attempt exists for this claim. Open the current attempt from the claim history.');
   if (!claim.clinical_note_id || lines.some(line => Number(line.clinical_note_id) !== Number(claim.clinical_note_id))) throw fail(409, 'Every service line must be linked to this claim’s signed note');
   const sourceInsurance = await readClientInsurance(claim.client_id, agencyId);
+  const billingPayerRules=await loadBillingPayerRules(agencyId);
   const secondary = Number(claim.payer_sequence || 1) === 2;
-  const cob = secondary ? readSecondaryAdjudication(claim, sourceInsurance) : null;
+  const cob = secondary ? readSecondaryAdjudication(claim, sourceInsurance,{medicaidSecondary:programForPolicy(sourceInsurance?.secondary,billingPayerRules).program==='medicaid'}) : null;
+  if(!secondary && !claim.claimmd_submitted_at){
+    const [[externalReview]]=await clinicalPool.execute("SELECT id FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type='external_primary_adjudication_recorded' LIMIT 1",[agencyId,claimId]);
+    if(externalReview)readiness.blockers.push('This primary was reported submitted externally with ERA/EOB proof. Do not send it again from the app. Continue through its linked secondary claim.');
+  }
   if (secondary) {
-    const [[parent]] = await clinicalPool.execute('SELECT id,client_id,clinical_session_id,billing_revision,is_deleted,claim_lifecycle FROM clinical_claims WHERE id=? AND agency_id=?',[claim.parent_claim_id,agencyId]);
+    await validateClaimAdjudicationEvidence({agencyId,claimId:claim.parent_claim_id,clientId:claim.client_id,evidenceIds:cob.evidence.map(file=>file.id)},clinicalPool);
+    const [[parent]] = await clinicalPool.execute('SELECT id,client_id,clinical_session_id,billing_revision,is_deleted,claim_lifecycle,date_of_service FROM clinical_claims WHERE id=? AND agency_id=?',[claim.parent_claim_id,agencyId]);
     if (!parent || parent.is_deleted || parent.claim_lifecycle==='void' || Number(parent.client_id)!==Number(claim.client_id) || Number(parent.clinical_session_id)!==Number(claim.clinical_session_id) || Number(parent.billing_revision)!==cob.parentBillingRevision) throw fail(409,'The primary claim changed. Reconcile it and review the secondary adjudication again');
+    if(cob.source==='external_primary'){
+      const [sourceLines]=await clinicalPool.execute('SELECT * FROM clinical_claim_lines WHERE clinical_claim_id=? ORDER BY line_number',[claim.parent_claim_id]);
+      if(externalPrimarySourceHash(sourceInsurance.primary.payerId,externalPrimaryCharges(parent,sourceLines))!==cob.externalSourceHash)throw fail(409,'The external primary service lines changed. Re-review the ERA/EOB and its proof before secondary billing.');
+      readiness.warnings.push('Primary adjudication was entered from an external submission with uploaded proof. The app did not transmit the primary claim.');
+    }
   }
   const insurance = secondary ? secondaryInsurance(sourceInsurance) : sourceInsurance;
   const { listCoverageEvidence, coverageReviewBlockers } = await import('../services/coverageVerification.service.js');
@@ -79,6 +98,8 @@ export async function prepareClaimReview(agencyId, claimId) {
   const approvedContext = await getApprovedClinicalContext({ note: documentation.note, session: liveSession });
   const session = approvedContext.session;
   documentation.note = approvedContext.note;
+  const billingMetadata=claimMetadata(documentation.note);
+  readiness.blockers.push(...linkedServiceLineBlockers(lines,billingMetadata.structuredChart?.durationMinutes || billingMetadata.durationMinutes || session?.duration_minutes,billingMetadata.serviceCode || session?.service_code));
   const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
   const rollout = await providerBillingRolloutReview({ agencyId, providerUserId: providerId, payerId: insurance?.primary?.payerId, serviceDate: claim.date_of_service });
   if (!rollout.ready) readiness.blockers.push(rollout.reason);
@@ -88,12 +109,22 @@ export async function prepareClaimReview(agencyId, claimId) {
     if (linePolicy.supervisorUserId !== policy.supervisorUserId || linePolicy.billingMode !== policy.billingMode)
       readiness.blockers.push('Services with different billing supervisors need separately documented encounters and claims.');
   }
-  const [users] = await pool.execute('SELECT id,first_name,last_name FROM users WHERE id IN (?,?)', [providerId,policy.supervisorUserId || 0]);
+  const [users] = await pool.execute('SELECT id,first_name,last_name,credential,role,title FROM users WHERE id IN (?,?)', [providerId,policy.supervisorUserId || 0]);
   await Promise.all(users.map(async u => { u.npi = await providerBillingNpi({ agencyId, userId: u.id, coreNpi: u.npi }); }));
-  const person = id => { const u=users.find(r=>Number(r.id)===Number(id)); return u?{id:Number(u.id),firstName:u.first_name,lastName:u.last_name,npi:u.npi || null}:null; };
+  const person = id => { const u=users.find(r=>Number(r.id)===Number(id)); return u?{id:Number(u.id),firstName:u.first_name,lastName:u.last_name,npi:u.npi || null,profileLicenseStatus:determineLicenseStatus(u).status}:null; };
   const configuredPayerPolicy = await loadPayerPolicy(agencyId, insurance?.primary?.payerId, insurance?.primary?.planType);
   const payerPolicy = { ...configuredPayerPolicy, coloradoMedicaid: configuredPayerPolicy?.coloradoMedicaid === true || insurance?.primary?.payerId === 'COCHA' };
   const supervision = evaluateSupervisedBilling({ policy,payerPolicy,dateOfService:claim.date_of_service,serviceProvider:person(providerId),supervisor:person(policy.supervisorUserId),note:documentation.note });
+  const treatingUser=users.find(user=>Number(user.id)===providerId);
+  const [credentialOverrides,providerGrants]=await Promise.all([loadCredentialOverrides('CO'),grantedServiceCodesForProvider(agencyId,providerId)]);
+  const credentialTier=deriveCredentialTier({userRole:treatingUser?.role,providerCredentialText:treatingUser?.credential});
+  const permitted=new Set(filterServiceCodesForCredential(lines.map(line=>line.procedure_code),credentialTier,credentialOverrides,providerGrants));
+  supervision.providerCodePermissions={credentialTier,grants:providerGrants,rules:[...credentialOverrides]};
+  for(const line of lines)if(!permitted.has(line.procedure_code))readiness.blockers.push(`${line.procedure_code} is not enabled for the treating provider. Review their billing rules and individual grants.`);
+  const payerServiceRules=evaluateClientBillingPayerRules({rules:billingPayerRules,insurance:sourceInsurance,credentialTier,serviceCodes:lines.map(line=>line.procedure_code),dateOfService:claim.date_of_service,payerSequence:secondary?2:1});
+  supervision.payerServiceRules=payerServiceRules;
+  readiness.blockers.push(...payerServiceRules.blockers);
+  readiness.warnings.push(...(payerServiceRules.warnings || []));
   if (rollout.entry?.requiresSupervision && (Number(policy.supervisorUserId) !== Number(rollout.entry.supervisorUserId) || policy.billingMode !== 'billing_supervisor' || !supervision.rule?.mappingVerified))
     readiness.blockers.push('Complete the provider’s assigned supervisor and dated payer billing rule before submission.');
   if (policy.billingMode === 'billing_supervisor') {
@@ -202,7 +233,7 @@ export async function runClaimAiReview(req,res,next) {
     if(!prepared.payload)throw fail(409,'Complete the claim fields shown in review before running AI consistency review');
     if(!['draft','ready','rejected'].includes(prepared.claim.claim_lifecycle))throw fail(409,'Reconcile this submitted claim before reviewing a replacement');
     if(!prepared.documentation.note.provider_signed_at)throw fail(409,'Provider must sign before submission review');
-    const result=await runClaimContentReview({agencyId,claimId,sourceHash:prepared.sourceHash,documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,contentReviewPolicy:prepared.contentReviewPolicy,actorUserId:req.user.id});
+    const result=await runClaimContentReview({agencyId,claimId,sourceHash:prepared.sourceHash,documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,supervision:prepared.supervision,contentReviewPolicy:prepared.contentReviewPolicy,actorUserId:req.user.id});
     res.json({review:result});
   }catch(e){next(e);}
 }
@@ -227,6 +258,14 @@ export async function claimHistory(req, res, next) {
     if (!claim) throw fail(404, 'Claim not found');
     res.json(await claimFamilyHistory(agencyId,claim.id,{before:req.query.before || null}));
   } catch (e) { next(e); }
+}
+
+export async function closeClaimWithoutSubmission(req,res,next) {
+  try {
+    const agencyId=await agencyFor(req),claimId=Number(req.params.claimId);
+    if(!Number.isSafeInteger(claimId)||claimId<1)throw fail(400,'A valid claim ID is required');
+    res.json(await closeUnsubmittedClaim({agencyId,claimId,actorUserId:req.user.id,reason:req.body.reason,revision:req.body.revision}));
+  } catch(error){next(error);}
 }
 
 export async function searchClaimMdPayers(req, res, next) {
@@ -276,7 +315,8 @@ export async function listClaimMdEnrollments(req, res, next) {
     const connection = await resolveClaimMdConnection(agencyId);
     const [items] = await clinicalPool.execute(`SELECT id, billing_office_location_id, payer_id, enrollment_type, provider_npi, status, last_event_at, updated_at
       FROM claimmd_enrollments WHERE agency_id = ? AND connection_id = ? ORDER BY updated_at DESC LIMIT 200`, [agencyId, connection.connectionId]);
-    res.json({ items });
+    const catalog=await listPayerSetupRequests(agencyId,pool,{includeArchived:true});
+    res.json({ items:items.map(item=>({...item,payer_name:catalog.find(payer=>payer.claimmd_payer_id===item.payer_id)?.directory_name || catalog.find(payer=>payer.claimmd_payer_id===item.payer_id)?.payer_name || null})) });
   } catch (e) { next(e); }
 }
 

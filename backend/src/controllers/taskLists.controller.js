@@ -13,7 +13,7 @@ import TaskListMember from '../models/TaskListMember.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import User from '../models/User.model.js';
-import { notifyTaskAddedToList } from '../services/taskNotifications.service.js';
+import { notifyTaskAddedToList, notifyTaskAssigned } from '../services/taskNotifications.service.js';
 import { normalizeTaskCategories } from '../constants/taskCategories.js';
 
 async function requireMembership(req, res, next) {
@@ -472,6 +472,7 @@ export const createTaskInList = async (req, res, next) => {
       metadata: { source: 'task_list', taskListId: listId }
     });
 
+    await notifyTaskAssigned({ task, actorUserId: userId });
     // Fire batched/coalesced notifications to all list members (except the creator).
     notifyTaskAddedToList({
       task,

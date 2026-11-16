@@ -7,6 +7,7 @@ import { resolveClaimMdConnection } from '../claimMdConnection.service.js';
 import { recordClaimEvent } from '../claimMdWorkflow.service.js';
 import { setClaimResponsibility } from '../familyLedger/sources.js';
 import { normalizeEra, matchesSubmission, list, hash, fail } from './normalize.js';
+import { remittanceQuery, remittanceSummary, remittanceMatches, sortRemittances } from './query.js';
 
 const context = (agencyId, id, kind='era') => `remittance:${agencyId}:${kind}:${id}`;
 const decode = row => decrypt(row.payload_encrypted,context(row.agency_id,row.id));
@@ -41,7 +42,7 @@ export async function submissionMatches(db,agencyId,connectionId,item,era,claimI
  }
  return matches;
 }
-export async function importRemittance({agencyId,connection,raw,identity,pool=clinicalPool}) {
+export async function importRemittance({agencyId,connection,raw,identity,directory=null,pool=clinicalPool}) {
  const era=normalizeEra(raw,{...identity,eraId:raw.eraid}),digest=hash(raw);
  return transaction(async db=>{
   // The unique insert serializes concurrent imports before any child records exist.
@@ -53,7 +54,8 @@ export async function importRemittance({agencyId,connection,raw,identity,pool=cl
    return {id:row.id,status:row.status,existing:true};
   }
   // Preserve the original ERA encrypted. The API only exposes a curated view, never bank account fields.
-  await db.execute('UPDATE claimmd_remittances SET payload_encrypted=? WHERE id=?',[encrypt({raw,era},context(agencyId,row.id)),row.id]);
+  const receipt = directory ? {check_type:directory.check_type || null,received_time:directory.received_time || null,check_number:directory.check_number || null} : null;
+  await db.execute('UPDATE claimmd_remittances SET payload_encrypted=? WHERE id=?',[encrypt({raw,era,directory:receipt},context(agencyId,row.id)),row.id]);
   for(const item of era.items){
    const matches=await submissionMatches(db,agencyId,connection.connectionId,item,era);
    const claimId=matches.length===1?matches[0]:null;
@@ -78,7 +80,7 @@ export async function syncRemittances({agencyId,maxDownloads=10}) {
    if(imported>=maxDownloads){moreAvailable=true;break;}
    const raw=await fetchEraData({ agencyId, accountKey:connection.accountKey,eraId:String(entry.eraid)});
    normalizeEra(raw,{...identity,eraId:String(entry.eraid)});
-   await importRemittance({agencyId,connection,raw,identity});imported++;
+   await importRemittance({agencyId,connection,raw,identity,directory:entry});imported++;
    await new Promise(resolve=>setTimeout(resolve,700));
   }
   if(moreAvailable||rows.length<100)break;
@@ -88,19 +90,29 @@ export async function syncRemittances({agencyId,maxDownloads=10}) {
  await clinicalPool.execute('INSERT INTO claimmd_era_sync_state(agency_id,connection_id,last_success_at) VALUES(?,?,NOW()) ON DUPLICATE KEY UPDATE last_success_at=NOW()',[agencyId,connection.connectionId]);
  return {imported,skipped,moreAvailable};
 }
-export async function listRemittances(agencyId,{before=0}={}) {
- const [rows]=await clinicalPool.execute(`SELECT * FROM claimmd_remittances WHERE agency_id=? ${before?'AND id<?':''} ORDER BY id DESC LIMIT 51`,before?[agencyId,before]:[agencyId]);
- const [totals]=await clinicalPool.execute('SELECT COUNT(*) AS count,COALESCE(SUM(paid_cents),0) AS paidCents,COALESCE(SUM(adjustment_cents-responsibility_cents),0) AS adjustmentCents FROM claimmd_payment_postings WHERE agency_id=?',[agencyId]);
- const [jobs]=await clinicalPool.execute("SELECT COUNT(*) AS count FROM claimmd_responsibility_jobs WHERE agency_id=? AND status NOT IN ('completed','superseded')",[agencyId]);
- const [sync]=await clinicalPool.execute('SELECT MAX(last_success_at) AS lastSyncAt FROM claimmd_era_sync_state WHERE agency_id=?',[agencyId]);
- return {rows:rows.slice(0,50).map(r=>{const {era}=decode(r);return {id:r.id,eraId:era.eraId,payerName:era.payerName,paidDate:era.paidDate,paidCents:era.paidCents,status:r.status,claimCount:era.items.length};}),nextBefore:rows.length>50?rows[49].id:null,totals:totals[0],pendingBalances:Number(jobs[0].count),lastSyncAt:sync[0].lastSyncAt};
+export async function listRemittances(agencyId,input={},db=clinicalPool) {
+ const query=remittanceQuery(input), matched=[],statuses=new Set(),paymentTypes=new Set();
+ let cursor=Number(input.before || 0), more=true;
+ if(!Number.isSafeInteger(cursor)||cursor<0)throw fail(400,'Invalid remittance cursor');
+ // Apply search and sorting before pagination, including encrypted attached claims.
+ while(more){
+  const [batch]=await db.execute(`SELECT * FROM claimmd_remittances WHERE agency_id=? ${cursor?'AND id<?':''} ORDER BY id DESC LIMIT 200`,cursor?[agencyId,cursor]:[agencyId]);
+  for(const record of batch){const snapshot=decode(record),row=remittanceSummary(record,snapshot);statuses.add(row.status);if(row.paymentType)paymentTypes.add(row.paymentType);if(remittanceMatches(row,snapshot.era,query))matched.push(row);}
+  more=batch.length===200;if(batch.length)cursor=Number(batch.at(-1).id);
+ }
+ sortRemittances(matched,query);
+ const offset=(query.page-1)*50,rows=matched.slice(offset,offset+50);
+ const [totals]=await db.execute('SELECT COUNT(*) AS count,COALESCE(SUM(paid_cents),0) AS paidCents,COALESCE(SUM(adjustment_cents-responsibility_cents),0) AS adjustmentCents FROM claimmd_payment_postings WHERE agency_id=?',[agencyId]);
+ const [jobs]=await db.execute("SELECT COUNT(*) AS count FROM claimmd_responsibility_jobs WHERE agency_id=? AND status NOT IN ('completed','superseded')",[agencyId]);
+ const [sync]=await db.execute('SELECT MAX(last_success_at) AS lastSyncAt FROM claimmd_era_sync_state WHERE agency_id=?',[agencyId]);
+ return {rows,page:query.page,pageSize:50,total:matched.length,options:{statuses:[...statuses].sort(),paymentTypes:[...paymentTypes].sort()},nextBefore:null,totals:totals[0],pendingBalances:Number(jobs[0].count),lastSyncAt:sync[0].lastSyncAt};
 }
 export async function remittanceDetail(agencyId,id) {
  const [[row]]=await clinicalPool.execute('SELECT * FROM claimmd_remittances WHERE id=? AND agency_id=?',[id,agencyId]);
  if(!row)throw fail(404,'Remittance not found');
- const {era}=decode(row);
+ const snapshot=decode(row),{era}=snapshot;
  const [items]=await clinicalPool.execute('SELECT i.*,j.status AS balance_status,j.error_message FROM claimmd_remittance_items i LEFT JOIN claimmd_payment_postings p ON p.remittance_item_id=i.id LEFT JOIN claimmd_responsibility_jobs j ON j.posting_id=p.id WHERE i.remittance_id=? AND i.agency_id=? ORDER BY i.item_index',[id,agencyId]);
- return {id:row.id,status:row.status,reviewHash:row.payload_hash,...era,items:items.map(i=>({...decodeItem(i),id:i.id,claimId:i.clinical_claim_id,postingStatus:i.status,balanceStatus:i.balance_status,balanceError:i.error_message}))};
+ return {...era,...remittanceSummary(row,snapshot),reviewHash:row.payload_hash,items:items.map(i=>({...decodeItem(i),id:i.id,claimId:i.clinical_claim_id,postingStatus:i.status,balanceStatus:i.balance_status,balanceError:i.error_message}))};
 }
 export async function matchRemittanceItem({agencyId,id,itemId,claimId,reason,actorUserId}) {
  if(!String(reason||'').trim())throw fail(400,'Document why this claim matches the remittance');

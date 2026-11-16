@@ -16839,7 +16839,7 @@ const bookingServiceCodeOptions = computed(() => {
     };
   }).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
-  if (selected && (isAppointmentEditMode.value || isScheduleEventEditMode.value) && !out.some((row) => row.code === selected)) {
+  if (selected && (isAppointmentEditMode.value || isScheduleEventEditMode.value) && !editorInfoClientId.value && !virtualSessionSelectedClientIdSet.value.size && !out.some((row) => row.code === selected)) {
     out.push({
       code: selected,
       label: `Legacy (${selected})`,
@@ -17090,12 +17090,20 @@ const loadBookingMetadataForProvider = async () => {
   try {
     bookingMetadataLoading.value = true;
     bookingMetadataError.value = '';
+    bookingMetadata.value={...bookingMetadata.value,serviceCodes:[]};
     const data = await loadBookingCatalog('/office-schedule/booking-metadata', params);
+    if(requestId!==bookingMetadataRequest)return;
+    const clientIds=isScheduleEventEditMode.value ? [editorInfoClientId.value].filter(Boolean) : [...virtualSessionSelectedClientIdSet.value];
+    const eligibility=await Promise.all(clientIds.map(clientId=>api.get('/medical-billing/service-code-eligibility',{params:{agencyId:Number(editorAgencyId.value || effectiveAgencyId.value),clientId,providerId,dateOfService:editorDateYmd.value}})));
+    let codes=Array.isArray(data?.serviceCodes)?data.serviceCodes:[];
+    for(const result of eligibility){const allowed=new Set(result.data.serviceCodes || []);codes=codes.filter(item=>allowed.has(typeof item==='string'?item:String(item.code || item.service_code || item.serviceCode || '')));}
     if (requestId !== bookingMetadataRequest) return;
+    if(eligibility.length && bookingServiceCode.value && !codes.some(item=>(typeof item==='string'?item:item.code)===bookingServiceCode.value))bookingServiceCode.value='';
+    bookingMetadataError.value=eligibility.map(result=>result.data.message).filter(Boolean).join(' ');
     bookingMetadata.value = {
       appointmentTypes: Array.isArray(data?.appointmentTypes) ? data.appointmentTypes : [],
       appointmentSubtypes: Array.isArray(data?.appointmentSubtypes) ? data.appointmentSubtypes : [],
-      serviceCodes: Array.isArray(data?.serviceCodes) ? data.serviceCodes : [],
+      serviceCodes: codes,
       serviceLocations: bookingMetadata.value.serviceLocations.length ? bookingMetadata.value.serviceLocations : data.serviceLocations || []
     };
     if (bookingMetadata.value.serviceLocations.length) {
@@ -17122,6 +17130,8 @@ const loadBookingMetadataForProvider = async () => {
     if (requestId === bookingMetadataRequest) bookingMetadataLoading.value = false;
   }
 };
+
+watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIdSet.value].sort().join(','),editorDateYmd],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
 
 const modalOfficeRoomOptions = computed(() => {
   const g = officeGrid.value;

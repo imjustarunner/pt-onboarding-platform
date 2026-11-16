@@ -1,6 +1,8 @@
 <template>
   <div class="policy-fields">
-    <label>{{ tx('Client’s relationship to subscriber') }}<select :value="modelValue.relationshipToSubscriber || ''" :required="requireComplete" @change="update('relationshipToSubscriber', $event.target.value)"><option value="">{{ tx('Select') }}</option><option value="self">{{ tx('Self') }}</option><option value="child">{{ tx('Child') }}</option><option value="spouse">{{ tx('Spouse') }}</option><option value="other">{{ tx('Other') }}</option></select></label>
+    <label>{{ tx('Coverage category') }}<select :value="modelValue.programType || ''" @change="update('programType',$event.target.value)"><option value="">{{ tx('Not classified') }}</option><option value="commercial">Commercial</option><option value="medicaid">Medicaid</option><option value="tricare">TRICARE</option><option value="medicare">Medicare</option></select></label>
+    <label>{{ tx('Client’s relationship to subscriber') }}<select :value="modelValue.relationshipToSubscriber || ''" :required="requireComplete" :disabled="medicaid" @change="update('relationshipToSubscriber', $event.target.value)"><option value="">{{ tx('Select') }}</option><option value="self">{{ tx('Self') }}</option><option value="child">{{ tx('Child') }}</option><option value="spouse">{{ tx('Spouse') }}</option><option value="other">{{ tx('Other') }}</option></select></label>
+    <p v-if="medicaid" class="self-subscriber">{{ tx('Medicaid uses Self automatically for primary and secondary coverage.') }}</p>
     <p v-if="selfPatient" class="self-subscriber">{{ tx('Subscriber is the client. Name, birth date, sex and address use the client identity above; no duplicate entry is needed.') }}</p>
     <template v-if="useCatalog">
       <label>Insurance carrier<select aria-label="Insurance carrier" :value="selectedPayerId" :required="requireComplete" @change="selectPayer($event.target.value)"><option value="">Select a configured payer</option><option v-for="payer in payers" :key="payer.id" :value="String(payer.id)">{{ payer.name }}</option></select></label>
@@ -25,11 +27,13 @@
 </template>
 <script setup>
 import {computed,watch} from 'vue';
+import { policyIsMedicaid } from '../../navigation/insurancePaymentPolicy.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import { clientSubscriber, insuranceSubscriberIssues, matchConfiguredPayer, withConfiguredPayer } from '../../navigation/paperInsuranceReview.js';
 import { medicaidMemberIdNeedsDiscovery } from '../../navigation/paperInsuranceReview.js';
 const { tx, intakeLocale } = useIntakeStepTx();
 const props = defineProps({ modelValue: { type:Object, default:()=>({}) }, patient:{type:Object,default:null}, payers:{type:Array,default:null}, requireComplete:{type:Boolean,default:true}, scopeKey:{type:[String,Number],default:''},paperEntry:Boolean });
+const medicaid = computed(() => policyIsMedicaid(props.modelValue));
 const selfPatient=computed(()=>props.patient && props.modelValue.relationshipToSubscriber==='self');
 const emit = defineEmits(['update:modelValue']);
 const fields = [{key:'insurerName',label:'Insurance carrier',required:true},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'eligibilityPayerId',label:'Eligibility payer ID (if different)'},{key:'memberId',label:'Member ID',required:true},{key:'groupNumber',label:'Group number'},{key:'patientSuffix',label:'Patient/member suffix'},{key:'subscriberFirstName',label:'Subscriber legal first name',required:true},{key:'subscriberLastName',label:'Subscriber legal last name',required:true},{key:'subscriberDob',label:'Subscriber date of birth',type:'date'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberAddressLine2',label:'Apartment / suite'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'planType',label:'Plan type'},{key:'effectiveDate',label:'Coverage effective date',type:'date'},{key:'terminationDate',label:'Coverage end date (if applicable)',type:'date'},{key:'claimsPhone',label:'Claims phone'}];
@@ -44,14 +48,15 @@ const additionalFields=computed(()=>props.paperEntry?visibleFields.value.filter(
 function selectPayer(id) { const payer=props.payers?.find(p=>String(p.id)===id);if(payer)emit('update:modelValue',withSubscriber(withConfiguredPayer(props.modelValue,payer))); }
 function useClientIdentity() { emit('update:modelValue',{...props.modelValue,...clientSubscriber(props.patient)}); }
 function withSubscriber(policy) {
+  if (policyIsMedicaid(policy)) policy = { ...policy, relationshipToSubscriber: 'self' };
   if(!props.patient || policy.relationshipToSubscriber!=='self')return policy;
   const p=props.patient;
   return {...policy,subscriberFirstName:p.firstName || '',subscriberLastName:p.lastName || '',subscriberDob:p.dateOfBirth || '',subscriberSex:p.sex || '',subscriberAddressLine1:p.addressLine1 || '',subscriberAddressLine2:p.addressLine2 || '',subscriberCity:p.city || '',subscriberState:p.state || '',subscriberPostalCode:p.postalCode || ''};
 }
 function fillAddress(address) { emit('update:modelValue', withSubscriber({ ...props.modelValue, subscriberAddressLine1: address.street, subscriberCity: address.city || '', subscriberState: address.state || '', subscriberPostalCode: address.postalCode || '' })); }
-function update(key,value) { emit('update:modelValue',withSubscriber({...props.modelValue,[key]:value})); }
-watch(()=>[props.patient,props.modelValue.relationshipToSubscriber],()=>{
-  if(!selfPatient.value)return;const next=withSubscriber(props.modelValue);
+function update(key,value) {const next={...props.modelValue,[key]:value};if(key==='programType')next.isMedicaid=value==='medicaid';if(key==='isMedicaid')next.programType=value?'medicaid':next.programType==='medicaid'?'':next.programType;emit('update:modelValue',withSubscriber(next)); }
+watch(()=>[props.patient,props.modelValue],()=>{
+  if(!medicaid.value && !selfPatient.value)return;const next=withSubscriber(props.modelValue);
   if(JSON.stringify(next)!==JSON.stringify(props.modelValue))emit('update:modelValue',next);
 },{deep:true,immediate:true});
 </script>

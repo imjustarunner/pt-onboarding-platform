@@ -346,7 +346,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, useId } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, useId , provide} from 'vue';
 import '../../styles/settingsReadability.css';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -2087,8 +2087,11 @@ const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null, setti
   return q;
 };
 
+let selectionSequence=0;
 const selectItem = async (categoryId, itemId, { agencyTab = null, settingField = null } = {}) => {
+  const sequence=++selectionSequence;
   if (!(await prepareSettingsNavigation())) return;
+  if(sequence!==selectionSequence)return;
   // Two-phase update: clear first, then set new selection on next tick.
   // Avoids Vue patch race (emitsOptions / __vnode errors when switching dynamic components).
   const prevCategory = selectedCategory.value;
@@ -2110,6 +2113,7 @@ const selectItem = async (categoryId, itemId, { agencyTab = null, settingField =
   selectedItem.value = null;
 
   nextTick(() => {
+    if(sequence!==selectionSequence)return;
     selectedCategory.value = categoryId;
     selectedItem.value = itemId;
     expandedCategoryIds.value = new Set([String(categoryId)]);
@@ -2120,6 +2124,7 @@ const selectItem = async (categoryId, itemId, { agencyTab = null, settingField =
     }
   });
 };
+provide('selectBillingSettings',item=>selectItem('general',item));
 
 const findCategoryIdForItem = (itemId) => {
   if (!itemId) return null;
@@ -2149,6 +2154,7 @@ const trySetSelection = (categoryId, itemId, { deepLink = false } = {}) => {
   );
   const deepLinkOk = deepLink && !!itemMeta;
   if (!hubOk && !navOk && !platformHubOk && !deepLinkOk) return false;
+  selectionSequence++;
   selectedCategory.value = categoryId;
   selectedItem.value = itemId;
   expandedCategoryIds.value = new Set([String(categoryId)]);

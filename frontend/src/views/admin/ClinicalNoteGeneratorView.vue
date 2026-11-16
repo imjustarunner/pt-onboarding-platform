@@ -1,6 +1,7 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="supervisorReviewItem?.agencyId || noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" return-label="Back to app">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
+    <p v-if="contextError" role="status" class="na-status">{{ contextError }}</p>
     <header v-if="!isEmbedded" v-show="!supervisorReviewItem" class="na-topbar">
       <div class="na-brand">
         <img v-if="clinicalWorkspaceBranding" class="na-brand-mark" :src="AURICWELL_MARK_URL" alt="AuricWell" />
@@ -1731,6 +1732,7 @@ import {
   shouldSuggest99051
 } from '../../utils/noteAidBillingAddons.js';
 import { evaluate99051Schedule } from '../../utils/clinicalAfterHoursPolicy.js';
+import {linkedServiceRelationship} from '../../utils/linkedServiceBilling.js';
 import { rememberRecentAid, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
@@ -3748,6 +3750,7 @@ function maybeSuggestAfterHours99051() {
 function toggleManualAddonCode(codeRaw) {
   const code = String(codeRaw || '').trim().toUpperCase();
   if (!code) return;
+  if(linkedServiceRelationship(code)?.isAddon){applyBillingRulesForCurrentSession({announce:true});return;}
   if (code === '90785') {
     includeInteractiveComplexity.value = !includeInteractiveComplexity.value;
     onInteractiveComplexityChange();
@@ -3878,7 +3881,7 @@ const SERVICE_CODE_DESCRIPTIONS = {
 };
 
 // Allow manual entry if a code isn't listed; backend still enforces eligibility.
-const canUseOtherCode = computed(() => true);
+const canUseOtherCode = computed(() => !selectedClientId.value);
 
 function serviceCodeVisible(code) {
   const normalized = String(code || '').trim().toUpperCase();
@@ -3894,9 +3897,9 @@ const rawEligibleServiceCodes = computed(() => {
   const granted = new Set((grantedServiceCodes.value || []).map((item) => String(item || '').trim().toUpperCase()).filter(Boolean));
   const visible = list
     .map((code) => String(code || '').trim().toUpperCase())
-    .filter((code) => code && serviceCodeVisible(code));
+    .filter((code) => code && !linkedServiceRelationship(code)?.isAddon && serviceCodeVisible(code));
   granted.forEach((code) => {
-    if (code && !visible.includes(code)) visible.push(code);
+    if (!selectedClientId.value && code && !visible.includes(code)) visible.push(code);
   });
   return Array.from(new Set(visible)).sort();
 });
@@ -3974,13 +3977,13 @@ function aidIsEligible(aid) {
   if (!serviceCodeVisible(code)) return false;
   if (HIDDEN_ADDON_CODES.has(code)) return false;
   if (!Array.isArray(eligibleServiceCodes.value)) return true;
-  if (!available.size) return true;
+  if (!available.size) return !selectedClientId.value;
   if (available.has(code)) return true;
   if (aid.codeGroupId) {
     const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
     return !!(g && g.codes.some((c) => available.has(c)));
   }
-  return true;
+  return !selectedClientId.value;
 }
 
 const aidsForSelectedCategory = computed(() => {
@@ -4319,6 +4322,7 @@ const resolveNoteTypeSelection = (raw) => {
 };
 
 watch(selectedNoteCategory, () => {
+  if(isWorkspaceHydrating())return;
   const aids = aidsForSelectedCategory.value;
   if (selectedAidId.value && !aids.some((a) => a.id === selectedAidId.value)) {
     selectedAidId.value = '';
@@ -4635,6 +4639,7 @@ const generateDisabled = computed(() => {
   if(narrivaServicePending.value)return true;
   if (appointmentAlertBlocked.value) return true;
   if (selectedAid.value?.autoSelect && !actualServiceCode.value) return true;
+  if(selectedClientId.value && actualServiceCode.value && Array.isArray(eligibleServiceCodes.value) && !eligibleServiceCodes.value.includes(actualServiceCode.value))return true;
   if (pendingDurationChange.value || durationCodeMismatch.value) return true;
   if (skipAiAid.value) return true;
   if (generating.value) return true;
@@ -4663,6 +4668,7 @@ const generateBlockedReason = computed(() => {
   if(narrivaServicePending.value)return 'Confirm the service-code change for the actual encounter before generating.';
   if (appointmentAlertBlocked.value) return 'Review the appointment alert above before continuing.';
   if (selectedAid.value?.autoSelect && !actualServiceCode.value) return 'Select the actual encounter service before generating. Narriva does not choose or change billed codes automatically.';
+  if(selectedClientId.value && actualServiceCode.value && Array.isArray(eligibleServiceCodes.value) && !eligibleServiceCodes.value.includes(actualServiceCode.value))return contextError.value || 'Choose a service allowed for this client’s coverage and provider.';
   if (isTerminationAid.value && (!effectiveClientId.value || !terminationReason.value || !terminationRecommendation.value.trim())) return 'Select a client, termination reason, and provider recommendation.';
   if (skipAiAid.value) return 'Manual writer is selected — edit the sections below.';
   if (generating.value) return 'Generating…';
@@ -5223,7 +5229,24 @@ const copySectionContent = async (panel) => {
   }, 1500);
 };
 
+let contextRequestSequence=0,payerRequestSequence=0,credentialContextCodes=null;
+const refreshPayerServiceChoices=async()=>{
+  const sequence=++payerRequestSequence,clientId=Number(selectedClientId.value || 0),agencyId=currentAgencyId.value;
+  if(!clientId){eligibleServiceCodes.value=credentialContextCodes;contextError.value='';return;}
+  eligibleServiceCodes.value=[];
+  try{
+    const {data}=await api.get('/medical-billing/service-code-eligibility',{params:{agencyId,clientId,dateOfService:dateOfService.value},skipGlobalLoading:true,timeout:15000});
+    if(sequence!==payerRequestSequence || agencyId!==currentAgencyId.value)return;
+    const allowed=data.serviceCodes || [];
+    eligibleServiceCodes.value=credentialContextCodes===null?allowed:credentialContextCodes.filter(code=>allowed.includes(code));
+    contextError.value=data.message || '';
+  }catch(e){if(sequence===payerRequestSequence && agencyId===currentAgencyId.value){eligibleServiceCodes.value=[];contextError.value=e.response?.data?.error?.message || 'Could not verify the client’s available service codes. Retry before choosing a billing service.';}}
+};
 const loadContext = async () => {
+  const requestId=++contextRequestSequence;
+  const agencyId=currentAgencyId.value;
+  const clientId=Number(selectedClientId.value || 0);
+  if(clientId) eligibleServiceCodes.value=[];
   try {
     if (!canUseTool.value) return;
     loadingContext.value = true;
@@ -5233,24 +5256,28 @@ const loadContext = async () => {
       skipGlobalLoading: true,
       timeout: 15000
     });
+    if(requestId!==contextRequestSequence || agencyId!==currentAgencyId.value)return;
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
     hcbsCategory.value = res?.data?.hcbsCategory ?? null;
-    eligibleServiceCodes.value = res?.data?.eligibleServiceCodes ?? null;
+    credentialContextCodes=res?.data?.eligibleServiceCodes ?? null;
+    eligibleServiceCodes.value=credentialContextCodes;
     restrictedServiceCodes.value = Array.isArray(res?.data?.restrictedServiceCodes) ? res.data.restrictedServiceCodes : ['H0002'];
     grantedServiceCodes.value = Array.isArray(res?.data?.grantedServiceCodes) ? res.data.grantedServiceCodes : [];
     audioAgreementTemplates.value = Array.isArray(res?.data?.audioAgreementTemplates) ? res.data.audioAgreementTemplates : [];
+    await refreshPayerServiceChoices();
   } catch (e) {
+    if(requestId!==contextRequestSequence)return;
     contextError.value = e.response?.data?.error?.message || 'Failed to load user context';
     providerCredentialText.value = '';
     derivedTier.value = 'unknown';
     hcbsCategory.value = null;
-    eligibleServiceCodes.value = null;
+    eligibleServiceCodes.value = clientId ? [] : null;
     restrictedServiceCodes.value = ['H0002'];
     grantedServiceCodes.value = [];
     audioAgreementTemplates.value = [];
   } finally {
-    loadingContext.value = false;
+    if(requestId===contextRequestSequence)loadingContext.value = false;
   }
 };
 
@@ -7581,6 +7608,8 @@ watch(selectedClientId, () => {
   if (isWorkspaceHydrating()) return;
   if (draftId.value) scheduleAutosave(800);
 });
+
+watch([selectedClientId,dateOfService],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
 
 const onPlanImportSaved = async (plan) => {
   // Saving creates a new retained plan version. Reopening the original planId
@@ -10021,6 +10050,7 @@ watch(
 
 onBeforeUnmount(() => {
   bootstrapSeq += 1;
+  contextRequestSequence++;payerRequestSequence++;
   if (autosaveTimer) {
     window.clearInterval(autosaveTimer);
     autosaveTimer = null;

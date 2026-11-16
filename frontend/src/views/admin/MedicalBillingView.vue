@@ -1,5 +1,5 @@
 <template>
-  <div v-if="canRunBillingReports" class="mb-page">
+  <div v-if="canRunBillingReports" class="mb-page" :class="{ 'mb-page--service-codes': serviceCodesOnly }">
     <header class="mb-header">
       <h1>{{ serviceCodesOnly ? 'Service codes' : 'Medical Billing' }}</h1>
       <router-link v-if="serviceCodesOnly" :to="feeScheduleLocation">Open fee schedules →</router-link>
@@ -118,23 +118,25 @@
           Add codes missing from the catalog. Configure single-unit vs multi-unit, minutes per unit,
           Medicaid 8-minute bands, min/max time, and an overflow code when duration is too long.
         </p>
-        <div class="mb-form-grid">
-          <input v-model="svcForm.serviceCode" class="mb-input" placeholder="Code (e.g. 90837)" />
+        <h3 v-if="editingServiceCode" role="status">Editing {{ editingServiceCode }}</h3>
+        <p v-if="serviceRelationship" class="muted">{{ serviceRelationship.isAddon ? `Calculated automatically with ${serviceRelationship.parent}. This add-on cannot be selected as a standalone service.` : `One unit of ${serviceRelationship.parent}; ${serviceRelationship.addon} is added automatically starting at ${serviceRelationship.addonStart} eligible minutes, then every ${serviceRelationship.increment} minutes.` }}</p>
+        <div ref="serviceCodeEditor" class="mb-form-grid" tabindex="-1">
+          <input v-model="svcForm.serviceCode" class="mb-input" aria-label="Service code" placeholder="Code (e.g. 90837)" />
           <input v-model="svcForm.description" class="mb-input mb-input--wide" placeholder="Description" />
-          <select v-model="svcForm.unitCalcMode" class="mb-input">
+          <select v-if="!serviceRelationship" v-model="svcForm.unitCalcMode" class="mb-input">
             <option value="SINGLE">Single unit (1 per encounter)</option>
             <option value="MEDICAID_8_MINUTE_LADDER">Medicaid 8-minute ladder (15-min units)</option>
             <option value="FIXED_BLOCK">Fixed block (floor minutes ÷ unit)</option>
             <option value="CUSTOM_BANDS">Custom bands (use ladder JSON)</option>
             <option value="NONE">None / not unitized</option>
           </select>
-          <input v-model.number="svcForm.unitMinutes" class="mb-input" type="number" placeholder="Min per unit" />
-          <input v-model.number="svcForm.minMinutes" class="mb-input" type="number" placeholder="Min time" />
-          <input v-model.number="svcForm.maxMinutes" class="mb-input" type="number" placeholder="Max time" />
+          <input v-if="!serviceRelationship" v-model.number="svcForm.unitMinutes" class="mb-input" type="number" placeholder="Min per unit" />
+          <input v-if="!serviceRelationship" v-model.number="svcForm.minMinutes" class="mb-input" type="number" placeholder="Min time" />
+          <input v-if="!serviceRelationship" v-model.number="svcForm.maxMinutes" class="mb-input" type="number" placeholder="Max time" />
           <input v-model.number="svcForm.maxUnitsPerSession" class="mb-input" type="number" placeholder="Max units/session" />
           <input v-model.number="svcForm.maxUnitsPerDay" class="mb-input" type="number" placeholder="Max units/day" />
-          <input v-model="svcForm.overflowServiceCode" class="mb-input" placeholder="Overflow code" />
-          <input v-model.number="svcForm.overflowAtMinutes" class="mb-input" type="number" placeholder="Overflow at (min)" />
+          <input v-if="!serviceRelationship" v-model="svcForm.overflowServiceCode" class="mb-input" placeholder="Overflow code" />
+          <input v-if="!serviceRelationship" v-model.number="svcForm.overflowAtMinutes" class="mb-input" type="number" placeholder="Overflow at (min)" />
           <input v-model="svcForm.defaultPlaceOfService" class="mb-input" placeholder="Default POS" maxlength="2" />
           <select v-model="svcForm.sessionMode" class="mb-input" title="Session mode for Book Session primary codes">
             <option value="individual">Session mode: Individual</option>
@@ -165,12 +167,14 @@
           <p v-if="!svcForm.isActive" class="muted mb-input--wide">Catalog reference only. Verify payer coverage, units, provider qualifications and required service-role approval before enabling.</p>
           <div class="mb-pos-list">
             <span class="muted">Allowed POS (where this code may be offered)</span>
-            <label v-for="p in POS_CHOICES" :key="`pos-${p.code}`" class="mb-check">
+            <p v-if="manualPlaces" class="muted">October 2026 billing manual · page {{ manualPlaces.page }}. Select the locations this practice offers. Telehealth requires the applicable telehealth and payer rules.</p>
+            <button v-if="manualPlaces" type="button" class="mb-btn mb-btn--small" @click="svcForm.allowedPos=[...manualPlaces.places]">Use manual locations</button>
+            <label v-for="p in servicePosChoices" :key="`pos-${p.code}`" class="mb-check">
               <input v-model="svcForm.allowedPos" type="checkbox" :value="p.code" />
               {{ p.code }} — {{ p.label }}
             </label>
           </div>
-          <button type="button" class="mb-btn" :disabled="svcSaving" @click="saveServiceCode">Save code</button>
+          <button type="button" class="mb-btn" :disabled="svcSaving" @click="saveServiceCode">{{ editingServiceCode ? `Save ${editingServiceCode}` : 'Save code' }}</button>
         </div>
         <ServiceInformation v-if="svcForm.serviceCode" :service-code="svcForm.serviceCode" :agency-id="agencyId" :service-info="serviceCodes.find(item => String(item.service_code || item.serviceCode).toUpperCase() === String(svcForm.serviceCode).toUpperCase())?.serviceInfo || null" />
         <div class="mb-row" style="margin-top: 0.75rem;">
@@ -183,11 +187,10 @@
           <label>Find a code <input v-model="inventoryQuery" class="mb-input" type="search" placeholder="Code or description" /></label>
         </div>
         <p class="muted">Colors identify the service category; the text labels identify its pay basis. An inactive reference is visible here while clinical use remains disabled.</p>
-        <ul class="mb-list service-inventory">
-          <li v-for="c in visibleServiceCodes" :key="c.id" :class="`inventory-${c.inventory?.group || 'other'}`">
-            <strong>{{ c.service_code }}</strong>
-            <span v-if="c.inventory" class="service-category" :class="`category-${c.inventory.group}`">{{ c.inventory.groupLabel }}</span>
-            <span class="catalog-status" :class="{ inactive: !c.isActive }">{{ c.isActive ? 'Enabled' : 'Inactive · setup required' }}</span>
+        <div class="service-code-scroll" tabindex="0" aria-label="Service code catalog"><table class="service-code-table"><thead><tr><th>Service</th><th>Description</th><th>Billing units and limits</th><th>Allowed place of service</th><th></th></tr></thead><tbody>
+          <tr v-for="c in visibleServiceCodes" :key="c.id" :class="`inventory-${c.inventory?.group || 'other'}`">
+            <td><strong>{{ c.service_code }}</strong>
+            <span v-if="c.inventory" class="service-category" :class="`category-${c.inventory.group}`">{{ c.inventory.groupLabel }}</span><span class="catalog-status" :class="{inactive:!c.isActive}">{{ c.isActive ? 'Enabled' : 'Inactive · setup required' }}</span>
             <span
               v-if="serviceCodeSessionMode(c) === 'group'"
               class="mb-ready mb-ready--group"
@@ -198,19 +201,18 @@
               class="mb-ready"
               title="Individual session code"
             >Indiv</span>
-            <span class="muted">{{ c.description || '' }}</span>
-            <div v-if="c.inventory" class="inventory-basis"><strong>{{ c.inventory.payLabel }}</strong> · {{ c.inventory.compensationBasis }}<small v-if="c.inventory.requiredRole">Testing role required · Medicaid only</small><small v-if="c.inventory.baseCode">Add-on to {{ c.inventory.baseCode }}; do not use alone.</small><small v-if="c.inventory.claimTiming">{{ c.inventory.claimTiming }}</small></div>
-            <span>{{ c.unit_calc_mode }}</span>
+            </td><td class="service-description" :title="[c.description,c.inventory?.compensationBasis,c.inventory?.claimTiming].filter(Boolean).join(' · ')">{{ c.description || '' }} <span v-if="c.inventory" class="muted">{{ c.inventory.payLabel }}<span v-if="c.inventory.baseCode"> · Add-on to {{ c.inventory.baseCode }}</span></span></td>
+            <td><span>{{ serviceUnitLabel(c) }}</span>
             <span v-if="c.min_minutes != null">min {{ c.min_minutes }}m</span>
             <span v-if="c.max_minutes != null">max {{ c.max_minutes }}m</span>
             <span v-if="c.overflow_service_code">→ {{ c.overflow_service_code }}</span>
             <span v-if="c.missed_billing_mode && c.missed_billing_mode !== 'none'" class="muted">
               missed: {{ c.missed_billing_mode }}{{ c.missed_billing_service_code ? ` (${c.missed_billing_service_code})` : '' }}
             </span>
-            <span v-if="formatAllowedPos(c)" class="muted">POS {{ formatAllowedPos(c) }}</span>
-            <button type="button" class="mb-btn mb-btn--small" @click="editServiceCode(c)">Edit</button>
-          </li>
-        </ul>
+            </td><td><span v-if="formatAllowedPos(c)" class="muted">{{ formatAllowedPos(c) }}</span></td>
+            <td><button type="button" class="mb-btn mb-btn--small" @click="editServiceCode(c)">Edit</button></td>
+          </tr>
+        </tbody></table></div>
         <p v-if="!visibleServiceCodes.length" class="muted">No service codes match this selection.</p>
       </section>
       <template v-if="!serviceCodesOnly">
@@ -401,7 +403,9 @@
 <script setup>
 import ClinicalNoteCosignReview from '../../components/clinical/ClinicalNoteCosignReview.vue';
 import ServiceInformation from '../../components/notes/ServiceInformation.vue';
-import { computed, watch, ref } from 'vue';
+import { computed, watch, ref, nextTick } from 'vue';
+import {linkedServiceRelationship} from '../../utils/linkedServiceBilling.js';
+import {BILLING_MANUAL_POS,BILLING_POS_CHOICES} from '../../navigation/billingManualPlaces.js';
 import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
@@ -492,14 +496,13 @@ const svcSaving = ref(false);
 const locSaving = ref(false);
 const previewMinutes = ref(53);
 const previewResult = ref('');
-const POS_CHOICES = [
-  { code: '02', label: 'Telehealth (other)' },
-  { code: '10', label: 'Telehealth (patient home)' },
-  { code: '11', label: 'Office' },
-  { code: '03', label: 'School' },
-  { code: '12', label: "Patient's Residence" },
-  { code: '22', label: 'On Campus-Outpatient Hospital' }
-];
+const manualPlaces=computed(()=>BILLING_MANUAL_POS[String(svcForm.value.serviceCode || '').trim().toUpperCase()] || null);
+const servicePosChoices=computed(()=>{
+  const selected=svcForm.value.allowedPos || [];
+  const manual=manualPlaces.value;
+  const choices=BILLING_POS_CHOICES.filter(p=>!manual || manual.places.includes(p.code) || ['02','10'].includes(p.code) || selected.includes(p.code));
+  return [...choices,...selected.filter(code=>!choices.some(p=>p.code===code)).map(code=>({code,label:'Saved practice location — review policy'}))];
+});
 
 const svcForm = ref({
   isActive: true,
@@ -609,7 +612,15 @@ const loadServiceLocations = async () => {
   }
 };
 
-const editServiceCode = (row) => {
+const serviceCodeEditor = ref(null), editingServiceCode = ref('');
+const serviceRelationship = computed(() => linkedServiceRelationship(svcForm.value.serviceCode));
+const serviceUnitLabel = row => {
+  const relation=linkedServiceRelationship(row.service_code);
+  return relation ? relation.isAddon ? `Auto with ${relation.parent} · each ${relation.increment}m` : `1 unit + auto ${relation.addon}` : row.unit_calc_mode;
+};
+const editServiceCode = async (row) => {
+  editingServiceCode.value=row.service_code;
+  previewResult.value='';error.value='';
   const allowed = parseAllowedPos(row.allowed_place_of_service_json);
   svcForm.value = {
     isActive: row.isActive === true || Number(row.is_active) === 1,
@@ -628,12 +639,15 @@ const editServiceCode = (row) => {
     missedBillingMode: row.missed_billing_mode || 'none',
     missedBillingServiceCode: row.missed_billing_service_code || '',
     missedBillingTriggers: row.missed_billing_triggers || 'no_show,late_cancel',
-    allowedPos: allowed.length ? allowed : ['02', '10', '11', '03'],
+    allowedPos: allowed.length ? allowed : [...(BILLING_MANUAL_POS[row.service_code]?.places || [])],
     tierQbha: true,
     tierBachelors: true,
     tierInternPlus: true
   };
   applyTiersToForm(row.allowed_credential_tiers_json);
+  await nextTick();
+  serviceCodeEditor.value?.scrollIntoView?.({behavior:'smooth',block:'center'});
+  serviceCodeEditor.value?.querySelector('input')?.focus({preventScroll:true});
 };
 
 const saveServiceCode = async () => {
@@ -687,7 +701,8 @@ const previewUnits = async () => {
       return;
     }
     previewResult.value = [
-      `${d.units} unit(s)`,
+      `${d.effectiveServiceCode || svcForm.value.serviceCode} × ${d.units}`,
+      ...(d.addons || []).map(addon => `${addon.code} × ${addon.units} (automatic)`),
       d.effectiveServiceCode && d.effectiveServiceCode !== svcForm.value.serviceCode
         ? `as ${d.effectiveServiceCode}`
         : null,
@@ -942,6 +957,7 @@ watch(agencyId, async () => {
 
 <style scoped>
 .mb-page { max-width: 1420px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+.mb-page--service-codes{width:100%;max-width:none;margin:0;box-sizing:border-box;padding:0 0 2rem}.service-code-scroll{overflow-x:auto;max-width:100%;margin-top:16px}.service-code-table{width:100%;border-collapse:collapse;text-align:left}.service-code-table th,.service-code-table td{padding:11px 10px;border-bottom:1px solid #e5eaf0;white-space:nowrap;vertical-align:middle}.service-code-table th{font-size:12px;color:#5c6570}.service-code-table .service-description{max-width:48vw;overflow:hidden;text-overflow:ellipsis}.service-code-table td>span+span{margin-left:8px}
 .mb-header h1 { margin: 0 0 0.35rem; font-size: 1.5rem; }
 .muted { color: #5c6570; font-size: 0.92rem; }
 .mb-card {

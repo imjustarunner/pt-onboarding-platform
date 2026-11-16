@@ -1,7 +1,7 @@
 <template>
   <section class="payer-policy" aria-label="Supervised billing policies">
-    <h2>Supervised billing &amp; January 2027 readiness</h2>
-    <p>Keep the treating clinician, overseeing clinician, and billing organization distinct. Colorado Medicaid requires the service provider’s individual NPI on behavioral-health claims beginning January 1, 2027.</p>
+    <h2>Supervised billing &amp; provider mapping</h2>
+    <p>Keep the treating provider, overseeing provider, and billing organization distinct. HCPF’s October 2026 update withdrew the statewide Box 19 NPI requirement. Confirm any additional RAE or payer requirements. U9 remains required on applicable Colorado Medicaid behavioral-health service lines delivered by prelicensed or unlicensed providers from July 1, 2026.</p>
     <p>Confirm the applicable payer/product instructions and Claim.MD mapping before verifying a rule. Neither an accepted claim nor an NPI alone establishes credentialing or enrollment.</p>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="loading">Loading payer policies…</p>
@@ -15,7 +15,7 @@
           <h3>Service-date period {{ index + 1 }}</h3>
           <div class="fields"><label>Effective from<input v-model="rule.effectiveFrom" type="date" required /></label><label>Effective through<input v-model="rule.effectiveThrough" type="date" required /></label></div>
           <label>Provider mapping<select v-model="rule.providerMapping"><option value="supervisor_rendering">Overseeing provider in rendering field (legacy policy)</option><option value="service_rendering_with_supervisor">Treating provider in rendering field + separate supervising provider</option></select></label>
-          <p v-if="rule.providerMapping === 'service_rendering_with_supervisor'">Use only after the payer and Claim.MD confirm these fields for this product. January field-placement guidance still requires verification.</p>
+          <p v-if="rule.providerMapping === 'service_rendering_with_supervisor'">Use only after the payer and Claim.MD confirm these fields for this product and service-date period.</p>
           <label>Authoritative policy / confirmation reference<textarea v-model="rule.reference" required maxlength="1000" /></label>
           <label><input v-model="rule.deferredCosignAllowed" type="checkbox" /> Verified policy permits submission after the treating provider signs, before supervisor cosign</label>
           <label><input v-model="rule.mappingVerified" type="checkbox" /> I verified this mapping and the applicable supervised-billing eligibility requirements</label>

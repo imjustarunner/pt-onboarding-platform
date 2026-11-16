@@ -5,7 +5,6 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import { getProviderClaimBillingMode } from './resolveClaimProviders.service.js';
 
-export const NPI_CHANGE_DATE = '2027-01-01';
 export const NONBILLABLE_TYPES = ['MISSED_APPOINTMENT', 'NO_SHOW', 'TERMINATION', 'TREATMENT_PLAN', 'TREATMENT_SUMMARY', 'CONTACT_NOTE', 'CONTACT', 'APPOINTMENT_WAIVER', 'APPOINTMENT_CHANGE'];
 export const parseObject = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 export const policyError = (status, message) => Object.assign(new Error(message), { status });
@@ -154,13 +153,12 @@ export function evaluateSupervisedBilling({ policy, payerPolicy, dateOfService, 
   if (!note.provider_signed_at) blockers.push('Provider signature is required');
   if (supervised && !policy.supervisorUserId) blockers.push('Assign a responsible billing supervisor');
   if (supervised && (!rule || !rule.mappingVerified)) blockers.push('Verify the payer/product provider mapping for this date of service');
-  const coMedicaid = payerPolicy?.coloradoMedicaid === true;
-  // The announcement does not specify DOS versus submission date. Guard both until clarified.
-  const npi2027 = coMedicaid && (dos >= NPI_CHANGE_DATE || dateOnly(claimDate) >= NPI_CHANGE_DATE);
-  if ((!supervised || npi2027 || rule?.providerMapping === 'service_rendering_with_supervisor') && !validNpi(serviceProvider?.npi)) blockers.push('The treating service provider needs a valid individual NPI');
+  // HCPF's October 1, 2026 update withdrew the statewide Box 19 requirement.
+  // https://myemail.constantcontact.com/Health-First-Colorado-Behavioral-Health-Updates-October-2026.html?aid=4wxrcLnzPuY&soid=1120776134797
+  // A verified, dated payer/product rule still determines the actual mapping.
+  const npi2027 = false; // Retained for older review clients; no statewide date gate.
+  if ((!supervised || rule?.providerMapping === 'service_rendering_with_supervisor') && !validNpi(serviceProvider?.npi)) blockers.push('The treating service provider needs a valid individual NPI');
   if (supervised && !validNpi(supervisor?.npi)) blockers.push('The overseeing provider needs a valid individual NPI');
-  if (npi2027 && supervised && rule?.providerMapping !== 'service_rendering_with_supervisor') blockers.push('January 2027 requires the service provider NPI on the claim; confirm the updated payer/Claim.MD mapping');
-  if (coMedicaid && !npi2027 && !validNpi(serviceProvider?.npi)) warnings.push('Obtain the treating provider’s individual NPI before January 1, 2027');
   const cosignPending = (!!policy.supervisorUserId || amended) && !cosigned;
   if (cosignPending) {
     if (amended) blockers.push('Every amendment/addendum requires supervisor sign-off before submission; review settings and deferred cosign cannot waive it');

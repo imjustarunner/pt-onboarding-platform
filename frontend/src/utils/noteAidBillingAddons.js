@@ -7,6 +7,7 @@
 import { h0004UnitSummary } from '../navigation/h0004Units.js';
 import { evaluate99051Schedule, isProBonoFunding } from './clinicalAfterHoursPolicy.js';
 
+import {resolveLinkedServiceBilling} from './linkedServiceBilling.js';
 export const ADDON_CODES = {
   INTERACTIVE_COMPLEXITY: '90785',
   CRISIS_ADDON: '90840',
@@ -166,7 +167,12 @@ export function resolveNoteAidBillingCodes({
         'EXTENDED ENCOUNTER: Session 75+ minutes — bill two units of 90834 (not 90837).'
       ]));
       switchedFrom = switchedFrom || (code !== String(primaryCode || '').toUpperCase() ? String(primaryCode || '').toUpperCase() : '90837');
-    } else if (code === '90837' || (code === '90834' && Number(durationMinutes) >= 75)) {
+  } else if (resolveLinkedServiceBilling(code, durationMinutes)) {
+    const linked = resolveLinkedServiceBilling(code, durationMinutes);
+    primaryUnits = linked.units;
+    addons.push(...linked.addons);
+    if (linked.reason) warnings.push(linked.reason);
+  } else if (code === '90837' || (code === '90834' && Number(durationMinutes) >= 75)) {
       code = ext.primaryCode;
       primaryUnits = ext.primaryUnits;
       isExtendedEncounter = ext.isExtendedEncounter;

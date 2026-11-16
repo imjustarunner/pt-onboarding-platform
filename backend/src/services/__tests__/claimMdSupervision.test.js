@@ -72,8 +72,8 @@ describe('supervised billing policy',()=>{
     const v=input();v.policy.cosignTiming='before_submission';Object.assign(v.note,{supervisor_cosigned_at:'2026-09-24',supervisor_cosigned_by_user_id:2,metadata_json:{supervisorCosign:{contentHash:'old'}},review_content_hash:'new'});
     expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/cosign/);v.note.review_content_hash='old';expect(evaluateSupervisedBilling(v).blockers).toEqual([]);
   });
-  it('holds old mapping on January 1 for either submission or service date',()=>{
-    for(const field of ['dateOfService','claimDate']){const v=input();v[field]='2027-01-01';expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/January 2027/);}
+  it('holds unverified payer mapping without the withdrawn statewide January mandate',()=>{
+    for(const field of ['dateOfService','claimDate']){const v=input();v[field]='2027-01-01';expect(evaluateSupervisedBilling(v).blockers.join()).not.toMatch(/January 2027/);}
     const v=input();v.dateOfService=v.claimDate='2027-01-01';v.payerPolicy.rules=[{...rule(),effectiveFrom:'2027-01-01',effectiveThrough:'2027-12-31',providerMapping:'service_rendering_with_supervisor'}];
     expect(evaluateSupervisedBilling(v)).toMatchObject({blockers:[],emitSupervisor:true,renderingProvider:{id:1},supervisingProvider:{id:2}});
     v.payerPolicy.rules[0].mappingVerified=false;expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Verify/);
