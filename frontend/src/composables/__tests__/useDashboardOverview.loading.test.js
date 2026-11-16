@@ -38,7 +38,7 @@ it('reports a schedule failure and retries only the schedule', async () => {
   api.get.mockClear().mockResolvedValue({ data: { scheduleEvents: [] } });
   await state.refresh('schedule');
   expect(api.get).toHaveBeenCalledTimes(1);
-  expect(api.get.mock.calls[0][1]).toMatchObject({ timeout: 12000, skipGlobalLoading: true });
+  expect(api.get.mock.calls[0][1]).toMatchObject({ timeout: 45000, skipGlobalLoading: true, params: expect.objectContaining({ includeAllAgencies: 1, skipOfficeMaterialize: 1, skipGoogleSync: 1 }) });
   expect(state.sectionState.schedule.error).toBe('');
 });
 
@@ -58,4 +58,11 @@ it('does not invent a zero paycheck or comparison when no pay history exists', a
   api.get.mockResolvedValue({ data: {} });
   const state = create(); await flushPromises();
   expect(state.paycheckCompare.value).toEqual({ ratio: null, average: null, sampleSize: 0, last: null });
+});
+
+it('keeps the longer schedule wait separate from the other overview cards', async () => {
+  api.get.mockResolvedValue({data:{}});create();await flushPromises();
+  const schedule=api.get.mock.calls.find(([url])=>url.endsWith('/schedule-summary'));
+  expect(schedule[1].timeout).toBe(45000);
+  for(const [url,config] of api.get.mock.calls.filter(([url])=>!url.endsWith('/schedule-summary')))expect(config.timeout,url).toBe(12000);
 });

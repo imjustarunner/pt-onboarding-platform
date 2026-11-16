@@ -469,7 +469,7 @@ export function useDashboardOverview(opts = {}) {
     const groups = {
       schedule: async (apply) => {
         const { data } = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, {
-          ...config, params: { agencyId: aid, weekStart: startOfWeekMondayYmd(), includeAllAgencies: 1 }
+          ...config, timeout: 45000, params: { agencyId: aid, weekStart: startOfWeekMondayYmd(), includeAllAgencies: 1, skipOfficeMaterialize: 1, skipGoogleSync: 1 }
         });
         apply(() => { scheduleSummary.value = data || {}; });
       },
