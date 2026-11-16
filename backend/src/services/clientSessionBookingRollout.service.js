@@ -71,11 +71,17 @@ export async function saveClientSessionBookingRollout({ agencyId, actorUserId, i
     await db.beginTransaction();
     const [[agency]] = await db.execute('SELECT feature_flags FROM agencies WHERE id = ? FOR UPDATE', [agencyId]);
     if (!agency) throw fail(404, 'Practice not found.');
-    const current = parseFeatureFlags(agency.feature_flags).clientSessionBookingRollout || empty();
+    const flags = parseFeatureFlags(agency.feature_flags);
+    const current = flags.clientSessionBookingRollout || empty();
     if (Number(input.revision) !== Number(current.revision)) throw fail(409, 'The rollout changed. Refresh before saving.');
     const providers = await sessionBookingProviders(agencyId, db);
     if (providerUserIds.some(providerId => !providers.some(provider => provider.id === providerId)))
       throw fail(403, 'Only active client-facing providers in this practice can be selected.');
+    if (Number(agencyId) === 2 && input.enabled && flags.transitionWeek?.enforceCohorts === true) {
+      const { readTransitionWeek } = await import('./transitionWeek.service.js');
+      const { assertTransitionBookingCohort } = await import('../utils/transitionWeekPolicy.js');
+      assertTransitionBookingCohort((await readTransitionWeek(agencyId, db)).state, providerUserIds);
+    }
     const updatedAt = new Date().toISOString();
     const entries = (current.entries || []).filter(entry => !providerUserIds.includes(Number(entry.providerUserId)));
     for (const providerUserId of providerUserIds) {

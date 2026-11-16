@@ -1,0 +1,49 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//PlotTwistCo//Transition Week Drafts//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:transition-week-morning-20261116@plottwisthq.com
+DTSTAMP:20261116T030000Z
+DTSTART:20261116T153000Z
+DTEND:20261116T154500Z
+SUMMARY:DRAFT: Transition coordination
+STATUS:TENTATIVE
+DESCRIPTION:Draft proposed time. Assign organizer and staff calendars aft
+ er schedule review. No invitations have been sent.
+RRULE:FREQ=DAILY;COUNT=5
+END:VEVENT
+BEGIN:VEVENT
+UID:transition-week-midday-20261116@plottwisthq.com
+DTSTAMP:20261116T030000Z
+DTSTART:20261116T191500Z
+DTEND:20261116T193000Z
+SUMMARY:DRAFT: Transition blocker review
+STATUS:TENTATIVE
+DESCRIPTION:Draft proposed time. Assign organizer and staff calendars aft
+ er schedule review. No invitations have been sent.
+RRULE:FREQ=DAILY;COUNT=5
+END:VEVENT
+BEGIN:VEVENT
+UID:transition-week-afternoon-20261116@plottwisthq.com
+DTSTAMP:20261116T030000Z
+DTSTART:20261116T233000Z
+DTEND:20261116T234500Z
+SUMMARY:DRAFT: Transition acceptance review
+STATUS:TENTATIVE
+DESCRIPTION:Draft proposed time. Assign organizer and staff calendars aft
+ er schedule review. No invitations have been sent.
+RRULE:FREQ=DAILY;COUNT=5
+END:VEVENT
+BEGIN:VEVENT
+UID:transition-week-provider-training-20261117@plottwisthq.com
+DTSTAMP:20261116T030000Z
+DTSTART:20261117T170000Z
+DTEND:20261117T183000Z
+SUMMARY:DRAFT: NLU provider training and supervised practice
+STATUS:TENTATIVE
+DESCRIPTION:Draft proposed time. Assign organizer and staff calendars aft
+ er schedule review. No invitations have been sent.
+END:VEVENT
+END:VCALENDAR

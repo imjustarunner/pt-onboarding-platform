@@ -28,7 +28,7 @@ export function buildAuricWellOperations({ user, agency, platformBranding = {}, 
   const flags = parseFeatureFlags(agency.feature_flags ?? agency.featureFlags);
   const billing = canAccessMedicalBilling(user, agency.id) && isMedicalBillingEnabled(flags);
   const operations = [
-    { id: 'transition', label: 'EHR Transition', description: 'Choose a provider, match existing clients, review chart and insurance paste, upload medical history, and import a weekly agenda.', href: href(auricwellSettingsLocation(agency, 'auricwell-transition')), status: 'Transition workspace' },
+    { id: 'transition', label: 'Rollout plan & EHR Transition', description: 'Manage NLU, ITSCO and Inner Strength readiness, owners, training videos, groups of five, records, families, Google, texting and billing.', href: href(auricwellSettingsLocation(agency, 'auricwell-transition')), status: 'Full rollout plan' },
     { id: 'providers', label: 'Import providers & provider directory', description: 'Use the existing Import Providers action, then review provider identities and agency assignments.', href: scoped('/admin/providers'), status: 'Existing workflow' },
     { id: 'clients', label: 'Clients, caseloads & chart imports', description: 'Open existing clients or add clients; use the existing demographics, intake, and treatment plan paste tools.', href: scoped('/admin/clients'), status: 'Existing workflow' },
     { id: 'guardians', label: 'Families, guardians & portal access', description: 'Review guardian accounts and client relationships using the existing family tools.', href: scoped('/admin/guardians'), status: 'Existing workflow' },

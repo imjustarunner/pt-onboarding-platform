@@ -63,7 +63,7 @@ export async function restartNotifyrePurpose({ scope, phone, purpose, evidence }
     // grant is permanent merely because it was once opted in.
     if (saved && Object.hasOwn(saved, 'expiresAt')) grant = { evidence: saved, expiresAt: saved.expiresAt };
   }
-  if (!grant?.evidence?.reference || !['web_form','paper_form','preference_center','staff_verbal','inbound_start_contact_invitation'].includes(grant.evidence.source)
+  if (!grant?.evidence?.reference || !['web_form','paper_form','preference_center','staff_verbal','inbound_start_contact_invitation','inbound_start_reviewed'].includes(grant.evidence.source)
       || (grant.expiresAt && (!Number.isFinite(Date.parse(grant.expiresAt)) || Date.parse(grant.expiresAt) <= Date.now()))) return false;
   const details = JSON.stringify({ ...grant.evidence, restart: evidence });
   const [event] = await db.execute(`INSERT IGNORE INTO sms_permission_events (scope_key,phone,purpose,status,evidence_json,provider_message_id)

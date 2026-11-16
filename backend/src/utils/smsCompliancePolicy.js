@@ -34,6 +34,14 @@ export function validateSmsRegistration(registration) {
     errors.push('helpKeywordOwner must be application or the registered carrier');
   }
   if (registration?.approved !== true || registration?.numberLinked !== true) errors.push('Carrier approval and number linking must be verified');
+  const flow = registration?.startEnrollment;
+  if (flow?.enabled === true) {
+    if (registration.provider !== 'notifyre' || registration.allowRestart !== true || !['version','approvalReference','disclosure'].every(key => typeof flow[key] === 'string') || !String(flow.version || '').trim()
+        || String(flow.version).length > 100 || !String(flow.approvalReference || '').trim() || String(flow.approvalReference).length > 500
+        || !String(flow.disclosure || '').trim() || String(flow.disclosure).length > 4000
+        || !Array.isArray(flow.purposes) || !flow.purposes.length || new Set(flow.purposes).size !== flow.purposes.length
+        || flow.purposes.some(p => !['care','reminders','billing'].includes(p) || !registration.purposes?.includes(p))) errors.push('START enrollment requires an approved, versioned Notifyre family-service disclosure and matching purposes');
+  }
   return errors;
 }
 

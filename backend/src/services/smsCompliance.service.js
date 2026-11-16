@@ -10,6 +10,7 @@ import { checkinSmsOptedOut, setCheckinSmsPreference, restartCheckinSms } from '
 import { categoryRestartMessage } from '../utils/smsCategoryRestart.js';
 import { setProviderRelayPreference, restartProviderRelay, cancelPendingRelayReplies } from './providerRelayPreference.service.js';
 import pool from '../config/database.js';
+import { capturePhoneEnrollmentCommand } from './smsPhoneEnrollment.service.js';
 import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
@@ -337,6 +338,7 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   let categoryRestart = false;
   if (consentDb && ['STOP','START'].includes(keyword)
       && (keyword === 'STOP' || (!validateSmsRegistration(registration).length && registration.allowRestart === true))) {
+    if (registration.startEnrollment?.enabled === true) await capturePhoneEnrollmentCommand({ sender, phone, keyword, messageId, receivedAt }, consentDb);
     await consentDb.beginTransaction();
     try {
       const applied = await applyNotifyreAccountCommand({phone, keyword, at:receivedAt}, consentDb);

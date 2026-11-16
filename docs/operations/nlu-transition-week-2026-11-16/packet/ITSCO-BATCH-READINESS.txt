@@ -1,0 +1,7 @@
+ITSCO NAMED BATCHES — PENDING VERIFIED COUNTS
+
+The batch tool is implemented, but actual named groups have not been populated or frozen.
+The available historical provider roster does not contain weekly session counts.
+Use the current active roster and verified completed-session counts for October 19–November 15, plus upcoming-week counts for November 16–22. Missing counts must not become zero.
+An authorized practice operator enters/reviews that source in the ITSCO board. The app then creates named groups of five, lowest weekly volume first, with a smaller final group if needed.
+Record the source, owner, next action and readiness evidence; do not mark cohort_ranking passed until the named ranking is actually frozen.
