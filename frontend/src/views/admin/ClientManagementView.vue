@@ -48,6 +48,8 @@
         >Show Tests</button>
         <PostClientToExchangeButton />
         <button v-if="canSeeRenewalFlags && activeAgencyId" type="button" class="cm-hbtn cm-hbtn--ghost" @click="clientUpdateOpen = true">Add client for selected updates</button>
+        <button v-if="canUpdateCharts && clients.length" type="button" class="cm-hbtn cm-hbtn--ghost" @click="chartUpdateClient = clients[0]">Bring clients up to date</button>
+        <button v-if="canUpdateCharts" type="button" class="cm-hbtn cm-hbtn--ghost" @click="openOfficeClientModal">+ Add office client from records</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
     </div>
@@ -569,6 +571,7 @@
               style="cursor:pointer;"
               :title="`${getClientDisplay(client)} — open profile`"
             >
+              <ClientAgencyLogo :agency="clientAgencyBrand(client)" class="cm-client-agency-logo" />
               <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
               <span
                 v-if="nameDuplicateClientIds.has(client.id)"
@@ -654,6 +657,7 @@
               </label>
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="closeClientPanel()">
+              <button v-if="canUpdateCharts" type="button" class="btn btn-secondary btn-xs" @click.stop="chartUpdateClient = client">Bring up to date</button>
               <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
               <button v-if="canInvitePortal" @click.stop="openPortalInvites([client.id])" class="btn btn-secondary btn-xs">Invite to portal</button>
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-xs cm-view-btn" title="Quick preview">
@@ -699,11 +703,15 @@
             <label>Demographics</label>
             <textarea v-model="createRecords.demographics" rows="5" @blur="!newClient.full_name && createRecords.demographics.trim() && readCreateDemographics()" placeholder="Paste name, date of birth, contact details…"></textarea>
             <button type="button" class="btn btn-secondary" :disabled="parsingCreateDemographics || !createRecords.demographics.trim()" @click="readCreateDemographics">{{ parsingCreateDemographics ? 'Reading…' : 'Fill details from demographics' }}</button>
+            <template v-for="section in createSupplementarySections" :key="section.key">
+              <label>{{ section.label }}</label>
+              <textarea v-model="createRecords[section.key]" rows="4" :placeholder="`Paste ${section.label.toLowerCase()}…`"></textarea>
+            </template>
             <label>Intake</label>
             <textarea v-model="createRecords.intake" rows="5" placeholder="Paste the intake note…"></textarea>
             <label>Most recent treatment plan</label>
             <textarea v-model="createRecords.plan" rows="5" placeholder="Paste the most recent treatment plan…"></textarea>
-            <small>Pasted records are imported before the client is assigned or posted. Any treatment-plan review opens before completion.</small>
+            <small>Save the client to open the same section-by-section import, autosaved drafts, and payer verification used for existing clients. The provider is affiliated after import is finished.</small>
           </section>
           <ClientMatchingPreferences v-model="createMatchingPreferences" :max-selections="0" />
           <ClientSchedulePreferences v-model="createSchedule" />
@@ -774,7 +782,7 @@
             </select>
             <small v-if="providerOptionsLoading">Loading provider schedules…</small>
             <small v-else-if="newClient.organization_id && (availableProvidersForOrg || []).length === 0">
-              No scheduled providers found for this organization.
+              No providers found for this organization.
             </small>
           </div>
           <div class="form-group" v-if="newClient.provider_id && selectedOrgIsSchool">
@@ -975,9 +983,11 @@
     <ClientEhrBringUpToDatePanel
       v-if="createdClientRecord && createMode === 'paste'"
       :open="showCreatedRecordsImport" :client-id="createdClientRecord.id" :agency-id="createdClientRecord.agency_id || createAgencyEffectiveId"
-      :client-label="newClient.full_name || newClient.initials" :initial-texts="createRecords" creation-flow
+      :client-label="newClient.full_name || newClient.initials" :initial-texts="createRecords" creation-flow require-verified-payers
       @close="showCreatedRecordsImport = false" @imported="onCreatedRecordsImported"
     />
+
+    <ClientChartUpdateModal v-if="chartUpdateClient" :initial-client="chartUpdateClient" :agency-id="effectiveAgencyScopeId" @close="chartUpdateClient = null" @updated="fetchClients" />
 
     <!-- Rollover Modal (extra confirmation gates) -->
     <div v-if="showRolloverModal" class="modal-overlay" @click.self="closeRolloverModal">
@@ -1321,6 +1331,8 @@ import {
 } from '../../utils/clientManagementVisuals.js';
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
 import ClientEhrBringUpToDatePanel from '../../components/admin/clientChart/ClientEhrBringUpToDatePanel.vue';
+import ClientChartUpdateModal from '../../components/admin/clientChart/ClientChartUpdateModal.vue';
+import ClientAgencyLogo from '../../components/clients/ClientAgencyLogo.vue';
 import ClientMatchingPreferences from '../../components/public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
@@ -1634,6 +1646,14 @@ const WORKFLOW_STATUS_OPTIONS = [
 ];
 const showCreateModal = ref(false);
 const clientUpdateOpen = ref(false);
+const chartUpdateClient = ref(null);
+const canUpdateCharts = computed(() => ['super_admin','admin','support','provider','provider_plus'].includes(String(authStore.user?.role || '').toLowerCase()));
+function clientAgencyBrand(client) {
+  const rows = [...(agencyStore.userAgencies || []), ...(agencyStore.agencies || []), ...(allTenantFilters.value || []), agencyStore.currentAgency];
+  return { id: client.agency_id, name: client.agency_name, ...Object.assign({}, ...rows.filter(agency => Number(agency?.id) === Number(client.agency_id))) };
+}
+
+
 const openCreateClientModal = async () => {
   showCreateModal.value = true;
   createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
@@ -1650,6 +1670,13 @@ const openCreateClientModal = async () => {
   await fetchCreateInsuranceTypes();
   await fetchLanguageOptions();
 };
+async function openOfficeClientModal() {
+  createMode.value = 'paste';
+  await openCreateClientModal();
+  if (allowedCreateClientTypes.value.some(option => option.value === 'clinical')) newClient.value.client_type = 'clinical';
+  const clinicalOrganizations = availableOrganizations.value.filter(org => ['clinical','office'].includes(String(org.organization_type || '').toLowerCase()));
+  if (clinicalOrganizations.length === 1) newClient.value.organization_id = clinicalOrganizations[0].id;
+}
 const showBulkImportModal = ref(false);
 const creating = ref(false);
 const linkedOrganizations = ref([]);
@@ -1884,7 +1911,12 @@ const createdDocumentsSaved = ref(false);
 const showCreatedRecordsImport = ref(false);
 const createSchedule = ref({});
 const createMatchingPreferences = ref({});
-const createRecords = reactive({ demographics: '', intake: '', plan: '' });
+const createSupplementarySections = [
+  { key: 'insurance', label: 'Insurance' }, { key: 'payer', label: 'Payer information' }, { key: 'billingComments', label: 'Billing comments' },
+  { key: 'contacts', label: 'Additional contacts' }, { key: 'comments', label: 'Patient comments' }
+];
+const createRecords = reactive({ demographics: '', intake: '', plan: '', insurance: '', payer: '', billingComments: '', contacts: '', comments: '' });
+
 const parsingCreateDemographics = ref(false);
 let createDemographicsVersion = 0;
 const canSubmitCreate = computed(() => !creating.value && !parsingCreateDemographics.value
@@ -3175,7 +3207,7 @@ const closeCreateModal = () => {
   createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
   createSchedule.value = {};
   createMatchingPreferences.value = {};
-  Object.assign(createRecords, { demographics: '', intake: '', plan: '' });
+  for (const key of Object.keys(createRecords)) createRecords[key] = '';
   faxReview.value = null;
   showCreateModal.value = false;
   createAgencyId.value = '';
@@ -3388,6 +3420,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 </script>
 
 <style scoped>
+.cm-client-agency-logo { width: 22px; height: 22px; object-fit: contain; vertical-align: middle; margin-right: 6px; border-radius: 5px; }
 .cm-row-actions { position: relative; }
 .cm-row-actions summary { cursor: pointer; list-style: none; }
 .cm-row-actions[open] { z-index: 5; }
