@@ -16,3 +16,9 @@ it('uses the Google cookie rather than a stale stored token and loads controls w
 it('keeps retained Google users on the code step without credential controls or verification requests',async()=>{const w=render({signIn:{method:'google',retainsGoogle:true,showCredentialSetup:false}});await flushPromises();expect(api.get).not.toHaveBeenCalled();expect(w.text()).toContain('will keep its Google account and Gmail access');expect(w.find('button').exists()).toBe(false);expect(w.find('.password-setup').exists()).toBe(false);expect(w.text()).not.toContain('SSO');w.unmount();});
 it('shows only app sign-in for password accounts',async()=>{api.get.mockRejectedValue({response:{status:401}});const w=render({signIn:{method:'password',showCredentialSetup:true,passkeyEligible:true}});await flushPromises();expect(w.get('[data-testid=verify-account]').text()).toBe('Sign in to the app');expect(w.text()).not.toContain('Sign in with Google');expect(w.text()).not.toContain('changeover');w.unmount();});
 it('does not offer credential setup when account policy is unavailable',async()=>{const w=render({signIn:undefined});await flushPromises();expect(api.get).not.toHaveBeenCalled();expect(w.find('button').exists()).toBe(false);expect(w.text()).toContain('can still save your progress');w.unmount();});
+it('offers required NLU preparation and working agency sign-in/recovery links while Google is still active',async()=>{
+ api.get.mockResolvedValue({data:{id:465}});
+ const w=render({agencySlug:'nlu',signIn:{method:'google',retainsGoogle:true,showCredentialSetup:true,credentialPreparationRequired:true}});await flushPromises();
+ expect(w.find('.password-setup').exists()).toBe(true);expect(w.text()).toContain('save it safely');
+ expect(w.findAll('a').map(a=>a.attributes('href'))).toEqual(['/nlu/login','/nlu/login?recovery=password']);w.unmount();
+});

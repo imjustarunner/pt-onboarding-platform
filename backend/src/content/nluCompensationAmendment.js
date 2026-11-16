@@ -3,20 +3,26 @@ import {nluCategoryDefinitionsHtml,WAGE_FLOOR_HTML} from './providerRolesNovembe
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dollars=value=>value==null?'[confirm]':`$${Number(value).toFixed(2)}`;
 export const isNluAmendment=data=>data?.nluCompensationPolicyVersion===NLU_COMPENSATION_POLICY_VERSION||data?.schedule?.nluCompensationPolicyVersion===NLU_COMPENSATION_POLICY_VERSION;
+export function nluAmendmentServiceScope(data){
+ const s=data.schedule||{},roles=s.serviceRoles||data.CONTRACT_SERVICE_ROLES||[];
+ const clinical=roles.length?roles.includes('psychotherapy'):s.clinicalEligible!==false;
+ return {clinical,directCare:clinical||roles.includes('bachelors_counseling')};
+}
 export function nluAmendmentIndirectHtml(schedule = {}) {
  const minutes=Math.max(10,Number(schedule.autoIndirectMinutes)||0);
  return `<h3>Automatic indirect pay for approved Direct Care services</h3><p>All eligible approved Direct Care assignments receive ${esc(minutes)} paid indirect minutes per direct-hour equivalent at the individual’s agreed indirect hourly rate, in addition to direct-service pay. Apply the allowance proportionally to the verified service mapping and actual eligible time; it is not limited to H0004 or decided by the first digit of a code. One 15-minute direct-hour-equivalent unit includes ${esc(minutes/4)} indirect minutes; 30 eligible direct minutes include ${esc(minutes/2)} indirect minutes. Preserve any greater agreed allowance.</p><p>This includes approved general Direct Care and authorized Testing administration/scoring or eligible clinical telephone work mapped to that bucket. Professional Testing evaluation and childcare do not receive a second automatic indirect supplement. Approved tutoring retains its separately agreed allowance. Record additional actual compensable work without paying the same minutes twice. Category 1 remains limited to its approved nonclinical services; this allowance does not create clinical authority.</p><p>Read the company handbook’s “Automatic indirect pay for approved Direct Care assignments” section for the operating rule. A new or unsigned amendment must state the applicable allowance expressly. Publishing this clarification does not rewrite an executed agreement, change its actual signatures, restart probation or reduce earned pay.</p>`;
 }
 export function nluAmendmentIssues(data) {
  const s=data.schedule||{},issues=[];
+ const scope=nluAmendmentServiceScope(data);
  if(!NLU_COMPENSATION_CATEGORIES[Number(s.category)])issues.push('Choose the approved NLU category.');
  if(!NLU_PAY_LEVELS.some(l=>l.level===Number(s.level)))issues.push('Choose the approved pay level.');
  if(!data.employee?.name)issues.push('Confirm the employee name.');
  if(!data.initialAgreement&&!data.employee?.originalAgreementDate)issues.push('Identify the existing agreement being amended.');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(data.effectiveDate||'')))issues.push('Confirm the prospective effective date.');
  if(!(Number(s.indirectRate)>0))issues.push('Confirm the applicable indirect hourly rate.');
- if(Number(s.category)>1&&s.clinicalEligible!==false)for(const field of ['creditRate','hcodeRate','supportRate','creditRateProbation','hcodeRateProbation'])if(!(Number(s[field])>0))issues.push(`Confirm ${field} for the individual schedule.`);
- if(s.clinicalEligible===false&&['creditRate','creditRateProbation','hcodeRate','hcodeRateProbation'].some(key=>Number(s[key])>0&&!(data.createdVia==='employee_compensation_ui'&&data.source?.priorAgreement&&Number(s[key])===Number(data.source?.priorSchedule?.[key]))))issues.push('A nonclinical-only agreement must not introduce clinical or H-code compensation. Preserve any actual existing clinical terms through a separately reviewed amendment.');
+ if(Number(s.category)>1)for(const field of [...(scope.clinical?['creditRate','creditRateProbation']:[]),...(scope.directCare?['hcodeRate','hcodeRateProbation']:[]),...(scope.clinical||scope.directCare?['supportRate']:[])])if(!(Number(s[field])>0))issues.push(`Confirm ${field} for the individual schedule.`);
+ if(!scope.clinical&&!scope.directCare&&['creditRate','creditRateProbation','hcodeRate','hcodeRateProbation'].some(key=>Number(s[key])>0&&!(data.createdVia==='employee_compensation_ui'&&data.source?.priorAgreement&&Number(s[key])===Number(data.source?.priorSchedule?.[key]))))issues.push('A nonclinical-only agreement must not introduce clinical or H-code compensation. Preserve any actual existing clinical terms through a separately reviewed amendment.');
  if(Number(s.category)===1&&!s.childcareLevel&&!s.tutoringLevel&&!(Number(s.homeworkHelpRate)>0))issues.push('Document at least one approved nonclinical service placement and its rate.');
  for(const field of ['childcareLevel','tutoringLevel'])if(s[field]!=null&&!NLU_PAY_LEVELS.some(l=>l.level===Number(s[field])))issues.push(`Confirm the separately approved ${field}.`);
  if(s.tutoringLevel&&Number(s.tutoringCategory??s.category)>2&&!(Number(s.tutoringHourlyRate??s.tutoringRate)>0)&&!((Number(s.tutoringRates?.virtual??s.tutoringVirtualRate)>0)&&(Number(s.tutoringRates?.in_person??s.tutoringRates?.['in-person']??s.tutoringInPersonRate)>0)))issues.push('Confirm the individually approved Category 3/4 tutoring rate.');
@@ -27,13 +33,12 @@ export function nluAmendmentIssues(data) {
 }
 export function renderNluAmendment(data) {
  const s=data.schedule||{},issues=nluAmendmentIssues(data);
+ const scope=nluAmendmentServiceScope(data);
  const indirectMinutes=Math.max(10,Number(s.autoIndirectMinutes)||0);
  const rows=[];
  const row=(name,basis,regular,reduced)=>rows.push(`<tr><th>${esc(name)}</th><td>${esc(basis)}</td><td>${dollars(regular)}</td><td>${reduced==null?'—':dollars(reduced)}</td></tr>`);
- if(Number(s.category)>1&&s.clinicalEligible!==false) {
-  row('Clinical Session Rate','per approved clinical credit',s.creditRate,s.creditRateProbation);
-  row('General Direct Care','per direct-hour equivalent',s.hcodeRate,s.hcodeRateProbation);
- }
+ if(Number(s.category)>1&&scope.clinical)row('Clinical Session Rate','per approved clinical credit',s.creditRate,s.creditRateProbation);
+ if(Number(s.category)>1&&scope.directCare)row('General Direct Care','per direct-hour equivalent',s.hcodeRate,s.hcodeRateProbation);
  row('Indirect work','per actual hour',s.indirectRate);
  if(s.supportRate!=null)row('Support activities','per actual hour',s.supportRate);
  if(s.homeworkHelpRate!=null)row('Homework Help','per actual approved hour',s.homeworkHelpRate);

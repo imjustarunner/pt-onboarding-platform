@@ -175,13 +175,14 @@
       <div class="attach glass-inset">
         <h3>Contract amendment plan</h3>
         <p class="hint">
-          For the upcoming Provider Update, use <strong>Job description acknowledgment</strong> so each person
+          For NLU’s combined October–November update, use <strong>Individual compensation amendment</strong> and review each employee’s services, category, level, rates and effective date in Compensation drafts. Release the person’s reviewed document before requesting their signature. For a separate duties-only update, <strong>Job description acknowledgment</strong> ensures each person
           receives a personalized addendum with their Job Description clause (<code>JOB_DESC_JD_*</code>) and an
           agreement to those duties. Legacy mode still supports a static document template ID.
         </p>
         <label class="field">
           <span>Amendment type</span>
           <select v-model="draft.amendmentPlan.mode" class="input">
+            <option value="compensation">Individual compensation amendment (services, category, level and pay)</option>
             <option value="job_description_acknowledgment">Job description acknowledgment (per-person JD clause)</option>
             <option value="document_template">Custom document template (legacy)</option>
           </select>
@@ -200,6 +201,7 @@
           Uses contract config <code>itsco_job_description_acknowledgment_addendum</code> — resolves each employee’s JD
           from their hiring profile or current title, then embeds the matching <code>JOB_DESC_JD_*</code> clause.
         </p>
+        <p v-else-if="draft.amendmentPlan.mode === 'compensation'" class="hint">Use the Compensation drafts tab to prepare and release each person’s own agreement. Selecting this plan alone does not create, approve, sign or change pay.</p>
         <div v-else class="row wrap">
           <label class="field grow">
             <span>Document template ID</span>
@@ -467,18 +469,22 @@ watch(previewFullOpen, open => { if (open && previewProviderId.value) void loadP
 const showDemoOnly = ref(false);
 const sendMode = ref('all');
 const selectedSendIds = ref([]);
+function sectionDefaults(){
+ const config=defaultSectionConfig();
+ return Number(props.agencyId)===6?{...config,services:true,spanish_intake:false,school_availability:false,client_fall_update:false,amendments:true}:config;
+}
 const draft = reactive({
   id: null,
   title: 'Provider Update',
   notes: '',
-  config: defaultSectionConfig(),
+  config: sectionDefaults(),
   attachedAdminUpdateId: null,
   audience: {
     amendments: { mode: 'all', userIds: [] },
     client_fall_update: { mode: 'auto', userIds: [] }
   },
   amendmentPlan: {
-    mode: 'job_description_acknowledgment',
+    mode: Number(props.agencyId)===6?'compensation':'job_description_acknowledgment',
     contractConfigSlug: 'itsco_job_description_acknowledgment_addendum',
     documentTemplateId: '',
     effectiveDate: '',
@@ -607,14 +613,14 @@ function startCompose() {
   draft.id = null;
   draft.title = 'Provider Update';
   draft.notes = '';
-  draft.config = defaultSectionConfig();
+  draft.config = sectionDefaults();
   draft.attachedAdminUpdateId = null;
   draft.audience = {
     amendments: { mode: 'all', userIds: [] },
     client_fall_update: { mode: 'auto', userIds: [] }
   };
   draft.amendmentPlan = {
-    mode: 'job_description_acknowledgment',
+    mode: Number(props.agencyId)===6?'compensation':'job_description_acknowledgment',
     contractConfigSlug: 'itsco_job_description_acknowledgment_addendum',
     documentTemplateId: '',
     effectiveDate: '',
@@ -644,6 +650,7 @@ function pushPayload() {
     const title = draft.amendmentPlan.title || (mode === 'job_description_acknowledgment'
       ? 'Job Description Acknowledgment'
       : 'Contract amendment');
+    if (mode === 'compensation') return { mode, effectiveDate, title: draft.amendmentPlan.title || 'Individual Compensation Amendment' };
     if (!effectiveDate && mode !== 'job_description_acknowledgment' && !draft.amendmentPlan.documentTemplateId) {
       return null;
     }

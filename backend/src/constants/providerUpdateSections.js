@@ -5,6 +5,7 @@ import {normalizeSectionTraining} from '../../../frontend/src/navigation/provide
  */
 
 export const PROVIDER_UPDATE_SECTIONS = [
+  {key:'services',title:'Services & Tutoring',shortTitle:'Services',description:'Select counseling, tutoring or both, then review the details for each service.',checklist:['Confirm all services you provide','Complete tutoring subjects, ages and grades'],mode:'embedded',icon:'clients',defaultEnabled:false},
   {key:'spanish_intake',title:'Spanish-Language Intake',shortTitle:'Spanish Intake',description:'Coordinate intake and follow-up for Spanish-speaking clients and parents.',checklist:['Identify the preferred language','Coordinate the intake handoff','Document the next steps'],mode:'ack',icon:'clients',defaultEnabled:false},
   {
     key: 'admin_update',

@@ -93,6 +93,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   // These are review material only. Never put draft policies into a published
   // section or its metadata merely because their source snapshot is available.
   source.reviewUpdates = tenant === 'nlu' ? reviewedPolicy.updates : applyNluH2014ReviewClarification(reviewedPolicy.updates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
+  if(tenant==='nlu')source.reviewUpdates=source.reviewUpdates.map(update=>({...update,period_label:'October and November 2026',digest_title:'October and November 2026 NLU Handbook Updates'}));
   source.reviewUpdatesCapturedAt = '2026-11-13';
   return source;
 }

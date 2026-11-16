@@ -82,3 +82,12 @@ it('hides deferral for password accounts and disables it for previews',async()=>
  const preview=render({recipient:{previewOnly:true,signIn:{method:'google'}}});
  const button=preview.get('[data-testid=defer-sso-setup]');expect(button.element.disabled).toBe(true);await button.trigger('click');expect(api.put).not.toHaveBeenCalled();preview.unmount();
 });
+it('requires NLU password storage and recovery readiness along with the existing code',async()=>{
+ const w=render({agencyId:6,recipient:{providerUserId:7,agencyId:6,agencySlug:'nlu',signIn:{method:'google',credentialPreparationRequired:true}},section:{key:'pin',data:{quickView:{hasPasscode:true},credentialReadiness:{passwordReady:true,recoveryEmailReady:true}}}});
+ expect(w.find('[data-testid=defer-sso-setup]').exists()).toBe(false);
+ const confirm=()=>w.findAll('button').find(b=>b.text().includes('Confirm my saved password'));
+ expect(confirm().element.disabled).toBe(true);
+ for(const checkbox of w.findAll('input[type=checkbox]'))await checkbox.setValue(true);
+ expect(confirm().element.disabled).toBe(false);await confirm().trigger('click');await flushPromises();
+ expect(api.put).toHaveBeenCalledWith('/provider-update/me/sections/pin',expect.objectContaining({data:expect.objectContaining({passwordStoredSafely:true,recoveryEmailConfirmed:true,codeStoredSafely:true})}));w.unmount();
+});

@@ -25,3 +25,8 @@ it('applies personal exceptions only in the recipient agency',()=>{
  const other={id:9,feature_flags:{...org.feature_flags,providerUpdateGoogleRetentionOverrides:{7:false}}};
  expect(providerUpdateSignIn({...user,has_supervisor_privileges:1},[other,org],2).retainsGoogle).toBe(true);
 });
+it('requires NLU credential preparation even when current Google access is retained',()=>{
+ const nlu={...org,id:6};
+ expect(providerUpdateSignIn({...user,role:'provider_plus'},[nlu],6)).toMatchObject({method:'google',retainsGoogle:true,showCredentialSetup:true,credentialPreparationRequired:true});
+ expect(providerUpdateSignIn(user,[nlu],6)).toMatchObject({method:'google',showCredentialSetup:true,credentialPreparationRequired:true});
+});

@@ -38,16 +38,17 @@
     />
 
     <div v-else-if="section.key === 'pin'" class="pu-panel">
-      <template v-if="recipient?.signIn?.method==='google'">
+      <template v-if="recipient?.signIn?.method==='google' && !nluPreparation">
         <p>You can continue this update with your existing Google sign-in. Quick View, app-password preparation and passkeys can be set up later.</p>
         <button type="button" class="pu-btn primary" data-testid="defer-sso-setup" :disabled="saving || quickViewResetBusy || recipient?.previewOnly" @click="markComplete({ssoSetupDeferred:true})">Keep Google sign-in — save and continue</button>
       </template>
-      <p><strong>To set up Quick View:</strong> create or reset your six-digit code, save it somewhere safe, then choose the confirmation button below. App-password preparation and optional passkeys do not block this step.</p>
+      <p><strong>To set up Quick View:</strong> create or reset your six-digit code, save it somewhere safe, then choose the confirmation button below. For NLU, app-password preparation and an accessible recovery email are required before this step is complete. Passkeys are optional.</p>
       <template v-if="newPasscode || !quickViewAlreadySet"><button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
-      <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><button v-if="section.data?.quickViewVideoUrl" type="button" class="pu-btn training-video-button" @click="openTrainingVideo({url:section.data.quickViewVideoUrl,title:'Quick View instructions',trigger:$event.currentTarget})">▶ Watch Quick View instructions</button><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
+      <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. For NLU it is temporary until the new app is ready, likely through AuricWell initially, where you will access your information and notifications. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><button v-if="section.data?.quickViewVideoUrl" type="button" class="pu-btn training-video-button" @click="openTrainingVideo({url:section.data.quickViewVideoUrl,title:'Quick View instructions',trigger:$event.currentTarget})">▶ Watch Quick View instructions</button><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
       <p>Your agency’s Quick View: <a :href="recipient?.quickViewUrl" target="_blank" rel="noopener noreferrer">{{recipient?.quickViewUrl}}</a></p>
       <p>Everyone needs a six-digit Quick View code, including people who sign in with Google. Before continuing, write your code down and keep it in a safe place, or save it in your password manager. It will be displayed only once. Your invitation identifies your account; no extra sign-in is needed to create this code.</p>
       <p v-if="newPasscode" ref="quickViewFeedback" tabindex="-1" role="status" data-search-private>Your new code: <strong>{{newPasscode}}</strong>. Write it down and keep it in a safe place, or save it in your password manager now. It will not be displayed again. Do not share it.</p>
+      <label v-if="nluPreparation && newPasscode" class="field"><span><input v-model="quickViewCodeAcknowledged" type="checkbox"/> I saved my new six-digit code safely. I can now review another section without losing access to it.</span></label>
       <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">{{ saving ? 'Creating your code…' : 'Create my six-digit Quick View code' }}</button>
       </template><p v-else-if="quickViewResetShown">Your new six-digit Quick View code is shown below. Save it somewhere safe, then confirm this step.</p><p v-else-if="!quickViewLocked">Your six-digit Quick View code is already set and will not be displayed again. If you have it saved, confirm below. If you do not have it, reset it here first. This is separate from your Google or app password.</p>
       <p v-if="quickViewLocked" class="err" role="alert">Your Quick View code is locked. Reset it below before confirming this step.</p>
@@ -57,15 +58,26 @@
         <button type="button" class="pu-btn" :disabled="saving || checkingQuickView || quickViewResetBusy || recipient?.previewOnly" @click="refreshQuickViewStatus">{{ checkingQuickView ? 'Checking your code…' : 'Check my code status' }}</button>
       </div>
       <div v-if="showQuickViewReset && !recipient?.previewOnly">
-        <p>Resetting an existing code requires your own account sign-in. If needed, <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">sign in to your account</a>, return here, and choose Try again. Google sign-in accounts do not need an app password.</p>
+        <p>Resetting an existing code requires your own account sign-in. If needed, <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">sign in to your account</a>, return here, and choose Try again. Keep Google sign-in until your confirmed changeover; NLU staff also prepare their app password before that changeover.</p>
         <QuickViewPrivacyPanel v-if="recipient?.providerUserId" :expected-user-id="recipient.providerUserId" :agency-id="agencyId" passcode-only @passcode-changed="onQuickViewReset" @busy-change="value => quickViewResetBusy=value" />
         <p v-else role="alert">Your account details could not be loaded. Refresh this update before resetting your code.</p>
       </div>
-      <button v-if="newPasscode || quickViewAlreadySet" type="button" class="pu-btn primary" :disabled="saving || checkingQuickView || quickViewResetBusy || quickViewLocked || recipient?.previewOnly" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">{{ saving ? 'Saving your code confirmation…' : newPasscode || quickViewResetShown ? 'I saved my code somewhere safe — continue' : 'I have my code saved safely — save and continue' }}</button>
+      <button v-if="!nluPreparation && (newPasscode || quickViewAlreadySet)" type="button" class="pu-btn primary" :disabled="saving || checkingQuickView || quickViewResetBusy || quickViewLocked || recipient?.previewOnly || (nluPreparation && (!passwordStoredSafely || !recoveryEmailConfirmed || !credentialReadiness.passwordReady || !credentialReadiness.recoveryEmailReady))" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true,...(nluPreparation?{passwordStoredSafely,recoveryEmailConfirmed}:{})})">{{ saving ? 'Saving your code confirmation…' : newPasscode || quickViewResetShown ? 'I saved my code somewhere safe — continue' : 'I have my code saved safely — save and continue' }}</button>
       <p v-if="!newPasscode && !showQuickViewReset">You can also reset your code in <a :href="quickViewAccountUrl" target="_blank" rel="noopener noreferrer">Accounts &amp; access</a>. When you return, choose Check my code status here.</p>
       <p><strong>Add Quick View to your home screen:</strong> On iPhone/iPad, open the agency link in Safari → Share → Add to Home Screen. On Android, open it in Chrome → ⋮ → Add to home screen or Install app. Save your code in your password manager.</p>
-      <ProviderUpdateSecuritySetup :user-id="recipient?.providerUserId" :sign-in="recipient?.signIn" :agency-slug="recipient?.agencySlug || route.params.organizationSlug" :preview="!!recipient?.previewOnly" />
+      <ProviderUpdateSecuritySetup :user-id="recipient?.providerUserId" :sign-in="recipient?.signIn" :agency-slug="recipient?.agencySlug || route.params.organizationSlug" :preview="!!recipient?.previewOnly" @credentials-changed="refreshQuickViewStatus" />
+      <div v-if="nluPreparation" class="pu-panel">
+        <p>App password: {{credentialReadiness.passwordReady?'Set':'Needs setup'}}. Personal recovery email: {{credentialReadiness.recoveryEmailReady?'Saved':'Needs review in Contact & Address'}}.</p>
+        <button type="button" class="pu-btn" @click="$emit('navigate','contact_info')">Review Contact &amp; Address</button>
+        <button type="button" class="pu-btn" :disabled="checkingQuickView || recipient?.previewOnly" @click="refreshQuickViewStatus">Check my password and recovery-email setup</button>
+        <label class="field"><span><input v-model="passwordStoredSafely" type="checkbox"/> I have my app password saved safely, separately from my six-digit code.</span></label>
+        <label class="field"><span><input v-model="recoveryEmailConfirmed" type="checkbox"/> My personal recovery email is correct and I can access it.</span></label>
+        <p>Keep your personal recovery email on file. Routine personal-email notifications will be turned off when the new app is ready and notifications move there.</p>
+        <button v-if="newPasscode || quickViewAlreadySet" type="button" class="pu-btn primary" :disabled="saving || checkingQuickView || quickViewResetBusy || quickViewLocked || recipient?.previewOnly || !passwordStoredSafely || !recoveryEmailConfirmed || !credentialReadiness.passwordReady || !credentialReadiness.recoveryEmailReady || ((newPasscode || quickViewResetShown) && !quickViewCodeAcknowledged)" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true,passwordStoredSafely:true,recoveryEmailConfirmed:true})">Confirm my saved password, code and recovery email — continue</button>
+      </div>
     </div>
+
+    <ProviderUpdateServices v-else-if="section.key === 'services'" ref="servicesEditor" :data="section.data" :busy="saving" :readonly="!!recipient?.previewOnly" @complete="markComplete" />
 
     <!-- Typical availability -->
     <div v-else-if="section.key === 'work_hours'" class="pu-panel">
@@ -145,7 +157,7 @@
 
     <!-- Contact -->
     <div v-else-if="section.key === 'contact_info'" class="pu-panel">
-      <p>A personal email address is required to complete this section. Adding it does not change your email notification choices. You can save your progress and return later.</p>
+      <p>A personal email address you can access is required for account recovery, including password resets after your Google SSO transition. Adding it does not enroll you in notifications. For NLU, routine personal-email notification reminders will end when the new app is ready; keep this address for recovery. You can save progress and return later.</p>
       <label v-for="field in contactFields" :key="field.key" class="field"><span>{{field.label}}{{field.key === 'personalEmail' ? ' (required)' : ''}}</span><input v-model="contact[field.key]" class="input" :type="field.key === 'personalEmail' ? 'email' : 'text'" :required="field.key === 'personalEmail'" :autocomplete="field.autocomplete" /></label>
       <p v-if="localError" class="err" role="alert">{{localError}}</p>
       <button type="button" class="pu-btn primary" :disabled="saving" @click="saveContact">Save &amp; confirm contact</button>
@@ -202,6 +214,7 @@
 
     <!-- Notification prefs -->
     <div v-else-if="section.key === 'notification_prefs'">
+      <p v-if="nluPreparation">Personal-email notification reminders are temporary until the new app is ready. Notifications will move into the app; your saved personal address will remain available for account recovery.</p>
       <ProviderPersonalEmailPreferences v-if="showPersonalEmailPreferences" v-model="emailPreference" :readonly="!!recipient?.previewOnly" :transition-planned="!!recipient?.signIn?.transitionPlanned" />
       <ProviderContactHours :base="reviewBase" :agency-id="agencyId" :readonly="!!recipient?.previewOnly" />
       <p v-if="section.data?.hasSchoolAssignments" class="pu-panel">School visits: reminders do not require families to confirm attendance. Appointment-reply alerts below also cover school absences and scheduling concerns. Review those replies in the app; they do not automatically cancel the visit.</p>
@@ -326,6 +339,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import TypicalAvailabilityInput from '../publicServices/TypicalAvailabilityInput.vue';
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
+import ProviderUpdateServices from './ProviderUpdateServices.vue';
 import ProviderUpdateOfficeReview from './ProviderUpdateOfficeReview.vue';
 
 import ProviderPersonalEmailPreferences from './ProviderPersonalEmailPreferences.vue';
@@ -363,6 +377,10 @@ const schoolChanges=ref('');
 const photoUrl=ref('');
 
 const newPasscode=ref('');
+const servicesEditor=ref(null);
+const nluPreparation=computed(()=>Number(props.agencyId || props.recipient?.agencyId)===6);
+const credentialReadiness=ref(props.section.data?.credentialReadiness || {});
+const passwordStoredSafely=ref(props.section.data?.passwordStoredSafely===true),recoveryEmailConfirmed=ref(props.section.data?.recoveryEmailConfirmed===true);
 const quickViewCodeAcknowledged=ref(false);
 const quickViewFeedback=ref(null),quickViewError=ref(''),quickViewConflict=ref(false);
 const quickViewLocalStatus=ref(null),checkingQuickView=ref(false),showQuickViewReset=ref(false),quickViewResetShown=ref(false);
@@ -406,6 +424,7 @@ async function refreshQuickViewStatus(){
  try{
   const {data}=await api.get(`${reviewBase.value}/quick-view-status`,{params:{agencyId:props.agencyId},skipGlobalLoading:true,timeout:30000});
   quickViewLocalStatus.value={hasPasscode:!!data.hasPasscode,isLocked:!!data.isLocked};
+  if(data.credentialReadiness)credentialReadiness.value=data.credentialReadiness;
   quickViewConflict.value=false;
  }catch(e){quickViewError.value=e.response?.data?.error?.message || 'Could not check your code. Try again before confirming this step.';}
  finally{checkingQuickView.value=false;}
@@ -510,7 +529,7 @@ async function saveSectionPayload(payload) {
 const officeReviewEditor=ref(null);
 let draftBaseline=null;
 function currentDraft(){
- const drafts={contact_info:{contact:{...contact}},profile_blurb:{blurb:blurb.value},specialties:{clinicalFocus:clinicalFocus.value,specialties:{...specialties}},license:{license:{...license}},credential_display:{credential:credential.value,displayLabel:displayLabel.value,publicGender:publicGender.value,sessionLanguages:sessionLanguages.value},work_hours:{typicalAvailability:typicalAvailability.value.split(',').map(s=>s.trim()).filter(Boolean)},preferred_days:{preferredDays:preferredDays.value},office_review:officeReviewEditor.value?.draft(),supervision_hours:{...supervisionReview}};
+ const drafts={services:servicesEditor.value?.draft(),contact_info:{contact:{...contact}},profile_blurb:{blurb:blurb.value},specialties:{clinicalFocus:clinicalFocus.value,specialties:{...specialties}},license:{license:{...license}},credential_display:{credential:credential.value,displayLabel:displayLabel.value,publicGender:publicGender.value,sessionLanguages:sessionLanguages.value},work_hours:{typicalAvailability:typicalAvailability.value.split(',').map(s=>s.trim()).filter(Boolean)},preferred_days:{preferredDays:preferredDays.value},office_review:officeReviewEditor.value?.draft(),supervision_hours:{...supervisionReview}};
  return drafts[props.section.key];
 }
 async function saveDraft(){

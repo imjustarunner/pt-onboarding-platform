@@ -1,7 +1,7 @@
 /** Refresh only NLU drafts. Never schedules/sends invitations or changes pay. */
 import fs from 'node:fs';
 import pool from '../config/database.js';
-import {nluRefreshSections,nluRefreshAudience,nluRefreshTopics,nluRolloutNote} from '../content/nluProviderUpdateRefresh.js';
+import {nluRefreshSections,nluRefreshAudience,nluRefreshTopics,nluRolloutNote,NLU_UPDATE_TITLE} from '../content/nluProviderUpdateRefresh.js';
 import {UPDATE_PALETTE} from '../content/october2026UpdateRevisions.js';
 const apply=process.argv.includes('--apply'),db=await pool.getConnection();
 try{
@@ -22,17 +22,24 @@ try{
  if(apply){
   if(!process.env.UPDATE_BACKUP_PATH)throw new Error('Set a new backup path.');
   fs.writeFileSync(process.env.UPDATE_BACKUP_PATH,JSON.stringify({update,topics,pushes,recipients,version,sections,digest,entries},null,2),{mode:0o600,flag:'wx'});
+  await db.execute('UPDATE admin_updates SET title=?,subtitle=? WHERE id=? AND agency_id=6 AND status=\'draft\'',[NLU_UPDATE_TITLE,'November 2026 release including the undelivered October update',update.id]);
   for(const [index,t]of changes.entries()){
    const old=topics.find(x=>x.topic_key===t.key);
    if(old)await db.execute('UPDATE admin_update_topics SET title=?,body_html=?,enabled=1 WHERE id=? AND update_id=?',[t.title,t.body,old.id,update.id]);
    else await db.execute(`INSERT INTO admin_update_topics(update_id,topic_key,enabled,title,description,icon_key,color,sort_order,body_html,is_builtin) VALUES (?,?,1,?,'',?,?,?,?,0)`,[update.id,t.key,t.title,t.icon,UPDATE_PALETTE[index%UPDATE_PALETTE.length],index,t.body]);
   }
-  await db.execute("UPDATE admin_update_topics SET enabled=0 WHERE update_id=? AND topic_key IN ('compensation','compensation_october','private_virtual_rooms','schoolcarebridge','auricwell')",[update.id]);
-  const order=['welcome','people','programs','profile','availability_profiles','business_cards','office_kiosk','tasks_my_work','notes_workspace','supervision','quick_view','communications','library_transition','spanish_intake','school_assignments','terms'];
+  await db.execute("UPDATE admin_update_topics SET enabled=0 WHERE update_id=? AND topic_key IN ('compensation','compensation_october','private_virtual_rooms','schoolcarebridge','auricwell','spanish_intake','school_assignments','client_updates')",[update.id]);
+  const order=['welcome','people','programs','services','profile','availability_profiles','business_cards','office_kiosk','tasks_my_work','notes_workspace','supervision','quick_view','communications','library_transition','handbook','terms'];
   for(const [i,key]of order.entries())await db.execute('UPDATE admin_update_topics SET sort_order=?,color=? WHERE update_id=? AND topic_key=?',[i,UPDATE_PALETTE[i%UPDATE_PALETTE.length],update.id,key]);
   for(const push of pushes){
-   const config={...nluRefreshSections()};
+   const prior=typeof push.section_config_json==='string'?JSON.parse(push.section_config_json):push.section_config_json||{};
+   const config={...prior,...nluRefreshSections(),...(prior._training?{_training:prior._training}:{})};
    await db.execute('UPDATE provider_update_pushes SET section_config_json=?,section_audience_json=?,notes=? WHERE id=? AND agency_id=6 AND status=\'draft\'',[JSON.stringify(config),JSON.stringify(nluRefreshAudience),`${push.title.startsWith('[PREVIEW]')?'Read-only preview. No invitation sent. ':''}${nluRolloutNote}`,push.id]);
+  }
+  if(digest)await db.execute('UPDATE workplace_handbook_digests SET title=?,period_label=?,notes=? WHERE id=? AND agency_id=6 AND status=\'draft\'',['October and November 2026 NLU Handbook Updates','October and November 2026','nlu-oct-nov-2026-v1',digest.id]);
+  for(const push of pushes){
+   const priorPlan=typeof push.amendment_plan_json==='string'?JSON.parse(push.amendment_plan_json):push.amendment_plan_json;
+   await db.execute('UPDATE provider_update_pushes SET title=?,notes=?,amendment_plan_json=? WHERE id=? AND agency_id=6 AND status=\'draft\'',[`${push.title.startsWith('[PREVIEW]')?'[PREVIEW] ':''}${NLU_UPDATE_TITLE}`,`nlu-oct-nov-2026-v1 ${nluRolloutNote}`,JSON.stringify(priorPlan?.mode==='compensation'?priorPlan:{mode:'compensation',title:'Individual Compensation Amendment'}),push.id]);
   }
   for(const [i,t]of changes.filter(t=>['spanish_intake','business_cards','office_kiosk','communications','availability_profiles','quick_view','tasks_my_work'].includes(t.key)).entries())if(version){
    const slug={spanish_intake:'spanish-language-intake',business_cards:'business-cards-and-public-profiles',office_kiosk:'office-kiosk-procedures'}[t.key]||`provider-update-${t.key.replaceAll('_','-')}`;
@@ -46,5 +53,5 @@ try{
   }
   await db.commit();
  }else await db.rollback();
- console.log(JSON.stringify({mode:apply?'applied':'dry-run',agencyId:6,adminUpdateId:update.id,pushIds:pushes.map(p=>p.id),topics:changes.map(t=>t.key),handbookDraft:version?.id,rollout:'Draft held; possible two-week delay, date unconfirmed',invitationsSent:0,payChanges:0}));
+ console.log(JSON.stringify({mode:apply?'applied':'dry-run',agencyId:6,adminUpdateId:update.id,pushIds:pushes.map(p=>p.id),topics:changes.map(t=>t.key),handbookDraft:version?.id,rollout:'Combined October-November draft; release requires reviewed individual amendments',invitationsSent:0,payChanges:0}));
 }catch(e){await db.rollback();throw e;}finally{db.release();await pool.end();}
