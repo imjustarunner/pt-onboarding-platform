@@ -96,16 +96,19 @@ export function inferNluContractCategory({credential = '',jobTitle = '',role = '
   return null;
 }
 
-export function contractServiceRolePlan({ selected, inferred, details, libraryClauses = [], enabled = true, serviceCompensationTerms = {} } = {}) {
+export function contractServiceRolePlan({ selected, inferred, details, libraryClauses = [], enabled = true, serviceCompensationTerms = {}, servicePayLevels = {}, deferTestingAssignment = false } = {}) {
   if (!enabled) return { roles: [], clauses: [], manifest: [], missingFields:[] };
   const roles = selected === undefined ? normalizeContractServiceRoles(inferred) : normalizeContractServiceRoles(selected, {strict:true});
   const approvedDetails = normalizeContractServiceRoleDetails(details);
+  for (const role of roles) {
+    if (!approvedDetails[role]?.payLevel && servicePayLevels[role]) approvedDetails[role] = {...approvedDetails[role],payLevel:servicePayLevels[role]};
+  }
   const library = new Map(libraryClauses.map(clause=>[clause.clause_key,clause]));
   const missingFields = [];
   for (const role of roles) {
     if (['childcare','psychological_testing'].includes(role) && !approvedDetails[role]?.compensationTerms && !serviceCompensationTerms[role]) missingFields.push(`${role.toUpperCase()}_COMPENSATION_TERMS`);
     if (role === 'childcare' && !approvedDetails[role]?.payLevel) missingFields.push('CHILDCARE_PAY_LEVEL');
-    if (role === 'psychological_testing' && !approvedDetails[role]?.authorizationTerms) missingFields.push('PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS');
+    if (role === 'psychological_testing' && !approvedDetails[role]?.authorizationTerms && !deferTestingAssignment) missingFields.push('PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS');
   }
   return {
     roles, missingFields,

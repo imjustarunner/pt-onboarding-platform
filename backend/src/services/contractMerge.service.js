@@ -620,7 +620,12 @@ export async function renderContractHtml({
   // Server-resolved schedules satisfy NLU childcare and approved Testing terms.
   // Other individual service terms remain required; preview tokens cannot bypass them.
   if(terms?.serviceCompensationTerms && (handbookTenant(agency)==='nlu' || terms.serviceCompensationTerms.psychological_testing)) {
-    rolePlan=contractServiceRolePlan({...roleInput,libraryClauses:roleLibraryClauses,serviceCompensationTerms:terms.serviceCompensationTerms});
+    const nluSchedule=handbookTenant(agency)==='nlu' && terms.schedule?.nluCompensationPolicyVersion;
+    rolePlan=contractServiceRolePlan({...roleInput,libraryClauses:roleLibraryClauses,serviceCompensationTerms:terms.serviceCompensationTerms,
+      servicePayLevels:nluSchedule?{childcare:terms.schedule.childcareLevel}: {},
+      // The standard employment agreement records compensation. Specific testing
+      // assignments remain separately authorized; do not fabricate one to hire.
+      deferTestingAssignment:!!nluSchedule});
   }
   const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
   const handbookClauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses,{tenant:handbookTenant(agency)}) : payClauses;

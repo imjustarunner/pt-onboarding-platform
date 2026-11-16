@@ -24,6 +24,7 @@ import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 import { isPublicAuthFormActive } from '../utils/publicAuthForm.js';
 import { requestAgencyId } from '../utils/requestAgencyContext.js';
 import { mobileMainCookieSessionOnly } from '../utils/mobileMainHandoff.js';
+import { isNluPrehireWorkspace } from '../utils/nluPrehireForm.js';
 
 const api = axios.create({
   baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : getApiBaseUrl(),
@@ -220,6 +221,9 @@ api.interceptors.request.use(
       const isPublicIntakeApi =
         url.includes('/public-intake/') || url.startsWith('public-intake/');
       const isClientProfilePage = /\/admin\/clients\/\d+(?:\/|$)/.test(String(window.location.pathname || ''));
+      let currentHiringAgency = null;
+      try { currentHiringAgency = JSON.parse(localStorage.getItem('currentAgency') || 'null'); } catch { /* no stored context */ }
+      const isNluHiringForm = isNluPrehireWorkspace(window.location.pathname, currentHiringAgency);
       const isBackgroundWidgetApi =
         /\/notifications(\?|$|\/)/.test(url)
         || /\/kudos\//.test(url)
@@ -230,7 +234,7 @@ api.interceptors.request.use(
         || /\/agencies\/\d+\/(users|departments)(\?|$)/.test(url)
         || url.includes('/supervision/providers')
         || /\/availability\//.test(url);
-      if (!config?.skipGlobalLoading && (isPayrollWorkspacePath(window.location.pathname) || isClientProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
+      if (!config?.skipGlobalLoading && (isNluHiringForm || isPayrollWorkspacePath(window.location.pathname) || isClientProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {

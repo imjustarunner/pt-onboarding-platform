@@ -1,7 +1,6 @@
-import {isNluCompensationProfile,NLU_COMPENSATION_POLICY_VERSION,nluTutoringRate,nluChildcareRate,normalizeChildcareRatesByBand} from './nluCompensationPolicy.js';
+import {isNluCompensationProfile,NLU_COMPENSATION_POLICY_VERSION,NLU_TUTORING_PLACEMENT_VERSION,nluTutoringRate,nluChildcareRate,normalizeChildcareRatesByBand} from './nluCompensationPolicy.js';
 import {nluCategoryDefinitionsHtml,WAGE_FLOOR_HTML} from './providerRolesNovember2026.js';
 import {programScheduleTerms} from './programServiceRates.js';
-import {inferNluContractCategory} from './contractServiceRoles.js';
 import {TESTING_SERVICE_POLICY_VERSION,testingCompensationSchedule} from './testingServicePolicy.js';
 import {withContractProbation,contractProbationHtml} from './contractProbationPolicy.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -14,9 +13,9 @@ export function nluEmploymentCategoryTerms({row,tokens={},legal}) {
  const roles=tokens.CONTRACT_SERVICE_ROLES||[];
  const details=tokens.CONTRACT_SERVICE_ROLE_DETAILS||tokens.CONTRACT_EXPECTATIONS?.serviceRoleDetails||{};
  if(category===1&&roles.some(r=>['bachelors_counseling','psychotherapy','psychological_testing'].includes(r)))throw error('NLU Category 1 is limited to approved nonclinical childcare, tutoring and educational duties. Choose an eligible category for the selected clinical/testing role.');
- const inferred=inferNluContractCategory({credential:String(tokens.CREDENTIAL||''),jobTitle:String(tokens.JOB_TITLE||''),role:String(tokens.ROLE_LABEL||'')});
+ // Hiring selects compensation placement explicitly. A degree/license inference is
+ // a suggestion, not another approval gate or an authorization to deliver care.
  const exception=String(tokens.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE||'').trim();
- if(((category===3&&(inferred==null||inferred<3))||(category===4&&inferred!==4))&&!exception)throw error('Document the written NLU placement-exception approval, qualifications, responsibilities, supervision and effective date before using this category.');
  const schedule=withContractProbation({...profile,nluCompensationPolicyVersion:NLU_COMPENSATION_POLICY_VERSION,category,level,supportRate:profile.supportActivityRate,clinicalEligible:roles.includes('psychotherapy'),autoIndirectMinutes:category===1?0:10},tokens);
  if(exception)schedule.placementExceptionReference=exception;
  const exceptionHtml=exception?`<p><strong>Written placement-exception approval:</strong> ${escape(exception)}. The approval covers compensation placement only; it does not expand professional or payer authority.</p>`:'';
@@ -38,16 +37,16 @@ export function nluEmploymentCategoryTerms({row,tokens={},legal}) {
   const tutoringLevel=Number(tokens.TUTORING_LEVEL??details.tutoring?.payLevel??level);
   const rawApproved=tokens.TUTORING_HOURLY_RATE??details.tutoring?.hourlyRate;
   const approved=rawApproved==null||rawApproved===''?null:Number(rawApproved);
-  const virtual=nluTutoringRate({category,level:tutoringLevel,format:'virtual',individualHourlyRate:approved});
-  const inPerson=nluTutoringRate({category,level:tutoringLevel,format:'in_person',individualHourlyRate:approved});
+  const virtual=nluTutoringRate({category,level:tutoringLevel,format:'virtual',individualHourlyRate:approved,useCategorySchedule:true});
+  const inPerson=nluTutoringRate({category,level:tutoringLevel,format:'in_person',individualHourlyRate:approved,useCategorySchedule:true});
   const virtualProbation=category>=3&&!schedule.probationWaived?Math.round(virtual*85)/100:virtual;
   const inPersonProbation=category>=3&&!schedule.probationWaived?Math.round(inPerson*85)/100:inPerson;
   add('Tutoring — virtual','per actual hour',virtual,category>=3?virtualProbation:null);
   add('Tutoring — in person','per actual hour',inPerson,category>=3?inPersonProbation:null);
-  Object.assign(schedule,{tutoringLevel,tutoringHourlyRate:approved,tutoringVirtualRate:virtual,tutoringInPersonRate:inPerson});
+  Object.assign(schedule,{tutoringLevel,tutoringHourlyRate:approved,tutoringVirtualRate:virtual,tutoringInPersonRate:inPerson,tutoringPlacementVersion:NLU_TUTORING_PLACEMENT_VERSION});
   if(category>=3)schedule.tutoringRateProbation=virtualProbation;
  }
- const childcareLevel=tokens.CHILDCARE_LEVEL??details.childcare?.payLevel;
+ const childcareLevel=tokens.CHILDCARE_LEVEL??details.childcare?.payLevel??level;
  const childcareRate=tokens.CHILDCARE_HOURLY_RATE??details.childcare?.hourlyRate;
  if(roles.includes('childcare')&&childcareLevel!=null)schedule.childcareLevel=Number(childcareLevel);
  if(roles.includes('childcare'))schedule.childcareRatesByBand=normalizeChildcareRatesByBand(details.childcare?.ratesByBand);

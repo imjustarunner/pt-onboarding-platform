@@ -41,13 +41,13 @@ describe('NLU childcare written schedule in a combined-role contract',()=>{
   expect((await render({payLevel:1})).html).toContain('1 child per active caregiver: $22.00/hour');
   expect((await render({payLevel:3})).html).toContain('1 child per active caregiver: $24.00/hour');
  });
- it('still blocks a missing childcare placement or invalid band overrides',async()=>{
-  await expect(render({payLevel:undefined})).rejects.toThrow('approved NLU service category and pay level');
+ it('inherits the employee pay level but still rejects invalid band overrides',async()=>{
+  expect((await render({payLevel:undefined})).tokens.COMPENSATION_SCHEDULE.childcareLevel).toBe(1);
   await expect(render({ratesByBand:{4:-1}})).rejects.toThrow('positive hourly amount');
  });
- it('resolves Testing pay independently of childcare while requiring Testing assignment approval',async()=>{
+ it('resolves Testing compensation while keeping clinical assignment authorization separate',async()=>{
   const result=await render({hourlyRate:31}, {CONTRACT_SERVICE_ROLES:['childcare','psychological_testing']});
-  expect(result.unresolvedTokens).toEqual(['PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS']);
+  expect(result.unresolvedTokens).toEqual([]);
   expect(result.tokens.COMPENSATION_SCHEDULE).toMatchObject({childcareRate:31,testingAdministrationRate:24,testingEvaluationRate:24,testingAuthorized:false});
   expect(result.html).toContain('1 child per active caregiver: $31.00/hour');
   expect(result.html).toContain('Authorized administration/scoring: $24.00/actual hour');
