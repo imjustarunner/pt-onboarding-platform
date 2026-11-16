@@ -38,6 +38,11 @@ it('shows both approved bachelor Direct Care and tutoring pay without implying p
  expect(nluAmendmentIssues(data)).not.toContain('Confirm creditRate for the individual schedule.');
  expect(nluAmendmentIssues(data).some(s=>s.includes('nonclinical-only'))).toBe(false);
 });
+it('omits Spanish intake and current client-follow-up material from both saved and source review changes',()=>{
+ const entry={subject:'Spanish-language intake and handoff',handbook_section_slug:'spanish-language-intake-and-handoff',changed_content:'old handoff'};
+ const result=combinedNluHandbookReview({digest:{notes:NLU_COMBINED_UPDATE_MARKER},entries:[entry,{subject:'Client updates',changed_content:'old follow-up'}]},{reviewUpdates:[entry,{subject:'Current pay',changed_content:'keep'}]});
+ expect(result.entries.map(e=>e.subject)).toEqual(['Current pay']);
+});
 it('generates a recoverable, repeatable draft-only content migration without changing credentials, signatures or pay',()=>{
  const sql=nluNovemberMigration();
  expect(sql).toContain('snapshot_json');expect(sql).toContain('automation_actor');expect(sql).toContain("p.status<>'draft'");expect(sql).toContain("LEFT(r.token,8)<>'preview_'");expect(sql).toContain('revision.applied_at IS NULL');

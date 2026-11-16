@@ -18,13 +18,15 @@ export function assertNluCredentialConfirmation(readiness,data){
 
 export function combinedNluHandbookReview(result,source){
  if(result?.digest?.notes!==NLU_COMBINED_UPDATE_MARKER)return result;
- const updates=(source?.reviewUpdates||[]).filter(e=>String(e.changed_content||'').trim());
+ const excluded=e=>['spanish-language-intake','spanish-language-intake-and-handoff'].includes(e.handbook_section_slug)||/spanish.*intake|school assignments|client (?:updates|follow.up)/i.test(e.subject||'');
+ const updates=(source?.reviewUpdates||[]).filter(e=>String(e.changed_content||'').trim()&&!excluded(e));
  const key=e=>e.subject||e.handbook_section_slug||e.id;
  const latest=new Map(updates.map(e=>[key(e),e]));
  const bySection=new Map();
  for(const update of updates){if(update.handbook_section_slug){const values=bySection.get(update.handbook_section_slug)||[];values.push(update);bySection.set(update.handbook_section_slug,values);}}
  const entries=[];const seen=new Set();
  for(const saved of result.entries||[]){
+  if(excluded(saved))continue;
   const sectionMatches=bySection.get(saved.handbook_section_slug)||[];
   const current=latest.get(key(saved))||(sectionMatches.length===1?sectionMatches[0]:null);
   const identity=key(current||saved);if(seen.has(identity))continue;

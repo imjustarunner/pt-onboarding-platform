@@ -61,10 +61,11 @@ was held because it was already issued. Use that result before claiming a live d
 was refreshed. Roll back paired application traffic if necessary; preserve revision
 snapshots, original digests, signatures and any newly collected recipient work.
 
-Validation before integration: 150 targeted backend tests (including four native MySQL
+Validation before integration: 151 targeted backend tests (including four native MySQL
 draft-preservation/reapplication checks), 80 frontend tests, and 20 compensation tests
-passed. Every one of the 57 source review entries is represented in the combined view
-(49 distinct entries after identical repetitions are consolidated). The private source
+passed. All 56 applicable source review entries are represented in the combined view
+(48 distinct entries after identical repetitions are consolidated); the retired Spanish
+intake item is omitted from this packet while its original policy/history is preserved. The private source
 files used for testing matched the committed private-library manifest checksums.
 
 The broader legacy autumn handbook test has four pre-existing failures involving
