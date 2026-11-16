@@ -8,6 +8,18 @@ const row=(id=22)=>({agencyId:450,clientId:id,clientName:`DEMO QA Client ${id}`,
 const payload=(rows=[row()])=>({data:{items:rows,total:rows.length}});
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue(payload());});
 afterEach(()=>{document.body.innerHTML='';});
+it('accepts a submitted ID search during the initial load and ignores the late unfiltered response',async()=>{
+ let initial;api.get.mockImplementationOnce(()=>new Promise(resolve=>initial=resolve));
+ const w=mount(InsuranceVerificationQueue,{props:{agencyId:450},attachTo:document.body});
+ const search=w.get('header form');expect(search.get('button').element.disabled).toBe(false);
+ api.get.mockResolvedValue(payload([{...row(2434),clientName:'Lark QA',selfPay:true,ready:true}]));
+ await search.get('input').setValue('2434');await search.trigger('submit');await flushPromises();
+ expect(api.get.mock.calls.at(-1)[1].params.search).toBe('2434');
+ expect(w.get('[data-testid="coverage-client-2434"]').text()).toContain('Client #2434');
+ initial(payload([{...row(2437),clientName:'Sorrel QA'}]));await flushPromises();
+ expect(w.text()).toContain('Lark QA');expect(w.text()).not.toContain('Sorrel QA');
+ expect(w.find('[data-testid="coverage-client-2437"]').exists()).toBe(false);w.unmount();
+});
 it('shows the returned client, organization and review identities in the row and dialog',async()=>{
  api.get.mockResolvedValue(payload([{...row(2437),clientName:'Sorrel QA',ready:true,reviewId:123}]));
  const w=mount(InsuranceVerificationQueue,{props:{agencyId:450},attachTo:document.body});await flushPromises();
