@@ -1,4 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
+import crypto from 'node:crypto';
 const m=vi.hoisted(()=>({execute:vi.fn(),settings:vi.fn(),context:vi.fn(),send:vi.fn(),user:vi.fn(),setup:vi.fn(),event:vi.fn(),agency:vi.fn(),sharedAccess:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../emailSettings.service.js',()=>({getAgencyEmailSettings:m.settings}));
@@ -48,12 +49,16 @@ it('resolves a message recipient through active guardian/self links without a no
 });
 
 it('tells a guardian a message was posted to their dependent account with the provider and agency named',async()=>{
+ // Keep the unrelated random claim token from coincidentally containing the numeric fixture ID.
+ const random=vi.spyOn(crypto,'randomBytes').mockReturnValue(Buffer.alloc(24,0xab));
+ try {
  const execute=m.execute.getMockImplementation();
  m.execute.mockImplementation(async(sql,...params)=>sql.includes('SELECT relationship_type')?[[{relationship_type:'guardian'}]]:execute(sql,...params));
  await sendSecureMessageNotification({...input,senderUserId:1412});
  const sent=m.send.mock.calls[0][0];expect(sent.text).toContain("A new message has been posted to your dependent's account.");
  expect(sent.text).toContain('Please sign in to AuricWell to read this message and reply.');
  expect(sent.text).toContain('Demo at ITSCO sent you a secure message');expect(sent.text).not.toContain('1412');
+ } finally { random.mockRestore(); }
 });
 it('does not call an adult self account a dependent',async()=>{
  const execute=m.execute.getMockImplementation();
