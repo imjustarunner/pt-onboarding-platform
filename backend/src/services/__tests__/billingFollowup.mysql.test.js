@@ -11,7 +11,7 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   const [tables]=await db.query('SHOW TABLES');await db.query('SET FOREIGN_KEY_CHECKS=0');for(const t of tables)await db.query(`DROP TABLE \`${Object.values(t)[0]}\``);await db.query('SET FOREIGN_KEY_CHECKS=1');
   // Synthetic fixture only. This guard and local-only database prevent live-data tests.
   let fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');fixture=fixture.slice(fixture.indexOf('CREATE TABLE agencies'));await db.query(fixture);
-  for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1745_copay_receipts_and_credits.sql','1486_client_coverage_verification.sql','1790_stedi_insurance_discovery.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
+  for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1832_client_billing_account_setup.sql','1833_guest_invoice_payments.sql','1745_copay_receipts_and_credits.sql','1486_client_coverage_verification.sql','1790_stedi_insurance_discovery.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
   await db.query(`ALTER TABLE agencies ADD slug VARCHAR(100),ADD portal_url VARCHAR(100),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD organization_type VARCHAR(20) DEFAULT 'agency',ADD feature_flags JSON;
    ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD is_demo BOOLEAN DEFAULT 0;
    ALTER TABLE clients ADD date_of_birth DATE,ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME,ADD insurance_type_id INT;
@@ -26,6 +26,7 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
    ALTER TABLE family_receivables ADD insurance_fingerprint CHAR(64);
    UPDATE clients SET date_of_birth='2017-01-01';
    INSERT INTO client_billing_payers(agency_id,client_id,guardian_user_id) VALUES(1,101,10),(1,101,20);
+   INSERT INTO client_billing_responsibility_profiles(agency_id,client_id,party_kind,responsible_user_id,updated_by_user_id) VALUES(1,101,'account',10,99);
    INSERT INTO guardian_portal_policies(agency_id,client_id,shared_billing) VALUES(1,101,1);`);
   await db.query(await readFile(new URL('../../../../database/migrations/1641_reviewed_insurance_email_tasks.sql',import.meta.url),'utf8'));
   await db.execute("UPDATE users SET email='synthetic@example.invalid' WHERE id=10");
@@ -142,7 +143,7 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   const allocations=await allocationsFor(r.id);assert.deepEqual(allocations.map(a=>[a.amount_cents,a.share_basis_points,a.share_basis]),[[6001,6000,'total'],[4000,4000,'total']]);
   const first=await listBalances({agencyId:1,userId:10}),second=await listBalances({agencyId:1,userId:20});
   assert.equal(first.length,2);assert.equal(first.filter(x=>x.canPay).length,1);assert.equal(summarizeBillingNeeds({balances:first}).dueCents,6001);assert.equal(summarizeBillingNeeds({balances:second}).dueCents,4000);
-  const [notices]=await db.execute('SELECT guardian_user_id FROM family_balance_notifications WHERE receivable_id=? ORDER BY guardian_user_id',[r.id]);assert.deepEqual(notices.map(x=>x.guardian_user_id),[10,20]);
+  const [notices]=await db.execute('SELECT guardian_user_id FROM family_balance_notifications WHERE receivable_id=? ORDER BY guardian_user_id',[r.id]);assert.deepEqual(notices.map(x=>x.guardian_user_id),[10]);
   const {recordCash}=await import('../familyLedger/payments.js');
   await recordCash({agencyId:1,allocationId:allocations[0].id,payerUserId:10,amountCents:1000,idempotencyKey:'synthetic-partial-payment',actorUserId:99,note:'Synthetic test receipt'});
   const {applyFinalClaimResponsibility}=await import('../familyLedger/receivables.js');const {transaction}=await import('../familyLedger/policy.js');

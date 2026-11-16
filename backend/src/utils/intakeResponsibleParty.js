@@ -1,1 +1,1 @@
-export { normalizeIntakeResponsibleParty } from '../../../frontend/src/utils/intakeResponsibleParty.js';
+export { normalizeIntakeResponsibleParty } from '../../../frontend/src/navigation/intakeResponsibleParty.js';
