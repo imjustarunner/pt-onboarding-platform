@@ -1,6 +1,6 @@
 <template>
 <section class="progress-records">
- <header><h2>{{ clientName }}’s {{ ft(kind==='checkins'?'check-ins & trends':'evaluations') }}</h2><button @click="load">{{ ft("Refresh") }}</button></header>
+ <header><h2>{{ ft(kind==='checkins'?'{name}’s check-ins & trends':'{name}’s evaluations',{name:clientName}) }}</h2><button @click="load">{{ ft("Refresh") }}</button></header>
  <p v-if="loading" role="status">{{ ft("Loading…") }}</p><p v-if="error" role="alert">{{error}}</p>
  <template v-if="kind==='checkins'">
   <p>{{ ft("Completed kiosk feedback appears after it is connected to the correct client and appointment.") }}</p>

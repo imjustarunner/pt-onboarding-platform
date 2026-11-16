@@ -56,7 +56,7 @@ const menuOpen = ref(false), logoFailed = ref(false),isPhone=ref(typeof window!=
 let previousOverflow=null;
 function resizePortal(){isPhone.value=window.innerWidth<=760;if(!isPhone.value)menuOpen.value=false;}
 function unlockBody(){if(previousOverflow!==null){document.body.style.overflow=previousOverflow;previousOverflow=null;}}
-function menuKey(event){if(!isPhone.value)return;if(event.key==='Escape'){event.preventDefault();menuOpen.value=false;return;}if(event.key!=='Tab')return;const nodes=[...menuPanel.value.querySelectorAll('button:not([disabled]),a[href],input,select,[tabindex="0"]')];const first=nodes[0],last=nodes.at(-1);if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}}
+function menuKey(event){if(!isPhone.value)return;if(event.key==='Escape'){event.preventDefault();menuOpen.value=false;return;}if(event.key!=='Tab')return;const nodes=[...menuPanel.value.querySelectorAll('button:not([disabled]),a[href],input,select,summary,[tabindex="0"]')].filter(node=>{const closed=node.closest('details:not([open])');if(closed&&node!==closed.querySelector('summary'))return false;for(let parent=node;parent&&parent!==menuPanel.value;parent=parent.parentElement){if(parent.hidden||getComputedStyle(parent).display==='none')return false;}return true;});const first=nodes[0],last=nodes.at(-1);if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}}
 watch([menuOpen,isPhone],async([open,phone])=>{if(open&&phone){if(previousOverflow===null)previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';await nextTick();menuPanel.value?.querySelector('button')?.focus();}else{unlockBody();await nextTick();menuTrigger.value?.focus({preventScroll:true});}});
 onMounted(()=>window.addEventListener('resize',resizePortal));onBeforeUnmount(()=>{window.removeEventListener('resize',resizePortal);unlockBody();});
 const headerHeight=ref(150),stickyHeader=ref(null);let headerObserver;
@@ -85,4 +85,8 @@ watch(() => props.logoUrl, () => { logoFailed.value = false; });
 <style scoped>
 .portal-context{grid-column:1/-1;padding:10px 22px 14px;min-width:0;max-width:100%;box-sizing:border-box;border-bottom:1px solid #e3eaf3;background:white}
 @media(max-width:760px){.family-portal{width:100%;max-width:100%;box-sizing:border-box}.portal-sticky-header{box-sizing:border-box;width:100%}.portal-context{padding:8px 14px 12px}.portal-sidebar{inset:0 auto 0 0!important;height:100dvh;max-height:100dvh;width:min(340px,92vw);box-sizing:border-box;z-index:3001;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(20px + env(safe-area-inset-bottom,0px));overscroll-behavior:contain}.portal-menu-backdrop{inset:0!important;z-index:3000;height:100dvh}.portal-drawer-close{display:block;margin:0 0 16px auto;padding:10px 14px;border:1px solid #c7d6e6;border-radius:9px;background:#fff;color:#173451;font:600 16px system-ui;min-height:44px}.portal-main{box-sizing:border-box}.portal-brand{flex:1;min-width:0}.portal-brand small{font-size:11px}.portal-topbar h1{overflow-wrap:anywhere}}
+</style>
+
+<style scoped>
+.portal-support{margin-top:16px;padding:10px}.portal-support-art,.portal-support h2,.portal-support p{display:none}.portal-support button{padding:10px 12px}.portal-nav-wrap nav button{padding-top:10px;padding-bottom:10px}
 </style>
