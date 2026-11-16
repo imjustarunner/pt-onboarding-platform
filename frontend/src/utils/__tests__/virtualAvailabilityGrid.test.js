@@ -47,3 +47,6 @@ describe('virtual availability minute precision',()=>{
 });
 
 it('keeps legacy saved openings unclassified and normalizes an explicit stored service for both editor and calendar',()=>{expect(savedOpeningServiceType({serviceType:null})).toBe('');expect(savedOpeningServiceType({})).toBe('');expect(savedOpeningServiceType({service_type:'TUTORING'})).toBe('tutoring');expect(savedOpeningServiceType({serviceType:'counseling'})).toBe('counseling');expect(savedOpeningServiceType({serviceType:'childcare'})).toBe('');});
+
+import {calendarVirtualOpening} from '../../../../backend/src/utils/calendarVirtualOpening.js';
+it.each([[true,true],[false,true],[true,false]])('renders the actual calendar projection as Tutoring with persisted audience flags (%s/%s)',(availableForIntake,availableForSession)=>{const wire=JSON.parse(JSON.stringify(calendarVirtualOpening({id:255,agencyId:453,dayOfWeek:'Sunday',startTime:'19:15',endTime:'21:15',serviceType:'tutoring',sessionType:'BOTH',availableForIntake,availableForSession})));expect(savedOpeningServiceType(wire)).toBe('tutoring');expect(wire).toMatchObject({availableForIntake,availableForSession});});
