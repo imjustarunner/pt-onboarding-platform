@@ -27,7 +27,7 @@
       </section>
       <section aria-label="School release of information">
         <h3>{{ ft("School information release") }}</h3><strong>{{ ft(roiLabel) }}</strong>
-        <p v-if="school?.roi?.signed_at">{{ ft("Signed") }} {{ formatDate(school.roi.signed_at) }}</p>
+        <p v-if="school?.roi?.signed_at">{{ ft("Signed") }} {{ formatSignedAt(school.roi.signed_at) }}</p>
         <p v-if="school?.roi?.expires_at">{{ ft("Expires") }} {{ formatDate(school.roi.expires_at) }}</p>
         <button v-if="school?.roi?.document_id" :disabled="downloading" @click="openRoi">{{ ft(downloading ? 'Opening…' : 'Open my signed release') }}</button>
         <p v-else-if="school?.roi?.status === 'completed'">{{ ft("Your available signed copies are in Tasks & documents.") }}</p>
@@ -47,10 +47,10 @@
 </template>
 <script setup>
 import {useFamilyLocale} from '../../composables/useFamilyLocale';
-const {ft}=useFamilyLocale();
+const {ft,locale:familyLocale}=useFamilyLocale();
 import { computed, ref, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
-const props = defineProps({schools:{type:Array,default:()=>[]},schoolId:[Number,String],clientId:[Number,String],clientName:{type:String,default:''}});
+const props = defineProps({schools:{type:Array,default:()=>[]},schoolId:[Number,String],clientId:[Number,String],clientName:{type:String,default:''},timeZone:{type:String,default:'America/Denver'}});
 defineEmits(['navigate','update:schoolId']);
 const school = computed(() => props.schools.find(s => Number(s.organization_id) === Number(props.schoolId)) || props.schools[0] || null);
 const downloading = ref(false), downloadError = ref('');
@@ -62,11 +62,18 @@ const roiLabel = computed(() => {
   if (roi?.expires_at && String(roi.expires_at).slice(0,10) < new Date().toISOString().slice(0,10)) return 'School release expired';
   return ({completed:'Signed school release on file',issued:'Awaiting signature',in_progress:'Signing in progress',revoked:'School release revoked',expired:'School release expired'})[roi?.status] || 'No signed school release is available here yet';
 });
+function formatSignedAt(value) {
+  const raw=String(value||'');
+  if(/^\d{4}-\d{2}-\d{2}$/.test(raw))return formatDate(raw);
+  const date=new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(raw)?raw:raw.replace(' ','T')+'Z');
+  if(Number.isNaN(date.getTime()))return ft('Date unavailable');
+  return new Intl.DateTimeFormat(familyLocale.value,{timeZone:props.timeZone||'America/Denver',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(date);
+}
 function formatDate(value) { const date = new Date(String(value).slice(0,10) + 'T12:00:00'); return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString(); }
 function staffLabel(staff) {
   if (staff.status === 'former') return 'Historical school entry';
   if (roiLabel.value === 'School release expired') return 'School release expired';
-  return ({roi_docs:'Selected school documents may be shared',roi:'Provider communication is allowed',limited:'School coordination',packet:'No current sharing permission'})[staff.access_level] || 'School record';
+  return ({roi_docs:'Selected goals and objectives may be shared',roi:'Provider communication is allowed',limited:'School coordination',packet:'No current sharing permission'})[staff.access_level] || 'School record';
 }
 async function openRoi() {
   const current = ++request; downloading.value = true; downloadError.value = '';

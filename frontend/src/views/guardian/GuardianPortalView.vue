@@ -62,7 +62,7 @@
               </article></div>
             </section>
 
-            <GuardianSchoolCareBridge v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations.map(s=>({...s,name:displayOrganization(s.name)}))" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
+            <GuardianSchoolCareBridge :time-zone="portalAgency?.timezone || 'America/Denver'" v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations.map(s=>({...s,name:displayOrganization(s.name)}))" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
             <template v-else-if="activePanel === 'tutoring'">
               <GuardianTutoringDashboard :progress-allowed="selectedGuardianPermissions.canViewProgress!==false" @appointments="navigatePortal('appointments')" embedded
                 :key="`${currentAgencyId}-${selectedChildId}-${selectedServiceId || 0}`"

@@ -25,3 +25,5 @@ describe('SchoolCareBridge family view',()=>{
   const w=mount(Bridge,{props:{schools,clientId:8}});await w.get('select').setValue('19');expect(w.emitted('update:schoolId')[0]).toEqual([19]);await w.get('.return-care').trigger('click');expect(w.emitted('navigate')[0]).toEqual(['overview']);
  });
 });
+
+it('shows an existing signature in the practice timezone while keeping the expiry as a calendar date',()=>{const w=mount(Bridge,{props:{clientId:8,timeZone:'America/Denver',schools:[{organization_id:20,name:'Current School',status:'current',roi:{status:'completed',signed_at:'2026-11-13T04:21:08.426Z',expires_at:'2030-11-13'}}]}});expect(w.text()).toContain('Nov 12, 2026');expect(w.text()).toContain('MST');expect(w.text()).toContain('11/13/2030');w.unmount();});
