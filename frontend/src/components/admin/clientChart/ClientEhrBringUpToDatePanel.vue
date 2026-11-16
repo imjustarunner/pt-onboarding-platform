@@ -178,7 +178,7 @@ const coverageDrafts = reactive({ primary: { text: '', imported: false }, second
 const allCoverageImported = computed(() => Object.values(coverageDrafts).every(draft => !draft.text.trim() || draft.imported));
 const hasCoveragePaste = computed(() => Boolean(payerText.value.trim()) || Object.values(coverageDrafts).some(draft => draft.text.trim()));
 const creationRecordsReady = computed(() => allCoverageImported.value && visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => status[section.key] === 'imported'));
-const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !reviewPending.intake && !reviewPending.plan && (!showAssignments.value || assignmentsReady.value));
+const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !props.pendingProviderAssignment && !reviewPending.intake && !reviewPending.plan && (!showAssignments.value || assignmentsReady.value));
 let hydratingDrafts = false;
 let pipelineSections = [];
 
