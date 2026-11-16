@@ -24,6 +24,7 @@ vi.mock('../clientPortalEmail.service.js', () => ({
   clientEmailContext: async () => ({ portal: { slug: 'fixture' }, url: path => `https://example.invalid/fixture/${path}` }),
   sendClientPortalEmail: m.send
 }));
+vi.mock('../familyPortalLocale.service.js', async importOriginal => ({...await importOriginal(),familyEnrollmentContext:async()=>({locale:'en'})}));
 vi.mock('../clientPortalContext.service.js', () => ({ clientPortalInviteUrl: () => 'https://example.invalid/fixture/login?redirect=%2Ffixture%2Fguardian' }));
 import { createClientUpdate, sendClientUpdate, resolveClientUpdatePacketBinding } from '../clientUpdate.service.js';
 
