@@ -573,8 +573,8 @@ export const getClients = async (req, res, next) => {
     };
 
     // Page IDs in SQL before hydrating charts or computing per-client needs.
-    // Specialized renewal/referral views retain their full reconciliation path.
-    if (paginateRequested && isBackofficeRole(userRole) && !skillBuildersOnly
+    // Specialized provider/renewal/referral views retain their reconciliation path.
+    if (paginateRequested && isBackofficeRole(userRole) && !skillBuildersOnly && !provider_id
       && !req.query.referral_entry_id && !req.query.renewalFlag && !req.query.renewal_flag
       && !['true','1'].includes(String(req.query.includeGuardians || req.query.include_guardians || '').toLowerCase())
       && String(req.query.includeServiceContext || '')!=='1'

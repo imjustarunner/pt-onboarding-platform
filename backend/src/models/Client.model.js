@@ -369,8 +369,8 @@ class Client {
 
     if (provider_id) {
       const assignment = clientServiceAssignmentSql({ providerId: provider_id, agencyId: agency_id, serviceKind: 'counseling' });
-      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : ''}) OR ${assignment.sql}${options.directoryPage?' OR EXISTS (SELECT 1 FROM client_provider_assignments directory_provider WHERE directory_provider.client_id=c.id AND directory_provider.provider_user_id=? AND directory_provider.is_active=1)':''})`;
-      values.push(provider_id, ...(agency_id ? [agency_id] : []), ...assignment.params,...(options.directoryPage?[provider_id]:[]));
+      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : ''}) OR ${assignment.sql})`;
+      values.push(provider_id, ...(agency_id ? [agency_id] : []), ...assignment.params);
     }
 
     if (status) {

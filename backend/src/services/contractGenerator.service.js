@@ -355,7 +355,9 @@ export async function previewCandidateContract({
   const merged = { ...autofill, ...tokens };
   // The reviewed credential override owns credential-dependent rendering and pay
   // validation. A stale wizard token must not override the selected credential.
-  if (credentialOverride != null) for (const key of ['CREDENTIAL','CREDENTIAL_KEY','DEGREE','LICENSE_TYPE','LICENSE_INFO']) merged[key]=autofill[key] || '';
+  if (credentialOverride != null) for (const key of ['CREDENTIAL','CREDENTIAL_KEY','DEGREE','LICENSE_TYPE','LICENSE_INFO']) {
+    merged[key]=autofill[key] || '';merged[key.replaceAll('_','')]=merged[key];
+  }
 
   merged.HANDBOOK_REFERENCES_ENABLED='1';
   if (Object.hasOwn(tokens, 'UNIVERSITY_NAME')) merged.UNIVERSITY = tokens.UNIVERSITY_NAME;

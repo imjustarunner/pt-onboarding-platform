@@ -31,3 +31,14 @@ it('mounts and loads the client dashboard without runtime setup errors',async()=
  const wrapper=shallowMount(ClientManagement,{global:{plugins:[pinia],stubs:{RouterLink:true}}});
  try{await flushPromises();expect(wrapper.get('h1').text()).toBe('Client Management');expect(wrapper.find('.client-mgmt-page').exists()).toBe(true);expect(apiMock.get.mock.calls.some(([url])=>String(url).startsWith('/clients?'))).toBe(true);}finally{wrapper.unmount();}
 });
+
+it('restores the visible client list after a longer chart visit while the refresh is pending',async()=>{
+ localStorage.clear();sessionStorage.clear();let refresh;
+ apiMock.get.mockImplementation(async url=>({data:String(url).startsWith('/clients?')?{items:[{id:1,agency_id:2,initials:'CACHE',full_name:'CACHE Client',status:'ACTIVE'}],total:1}:[]}));
+ const pinia=createPinia();setActivePinia(pinia);const agency=useAgencyStore(pinia);agency.userAgencies=[{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}];agency.agencies=agency.userAgencies;agency.currentAgency=agency.userAgencies[0];
+ const mountView=()=>shallowMount(ClientManagement,{global:{plugins:[pinia],stubs:{RouterLink:true}}});
+ const first=mountView();await flushPromises();expect(first.text()).toContain('CACHE');first.unmount();
+ const now=Date.now();const time=vi.spyOn(Date,'now').mockReturnValue(now+10*60*1000);
+ apiMock.get.mockImplementation(url=>String(url).startsWith('/clients?')?new Promise(resolve=>{refresh=resolve}):Promise.resolve({data:[]}));
+ const returned=mountView();try{await flushPromises();expect(returned.text()).toContain('CACHE');expect(returned.find('.loading').exists()).toBe(false);expect(refresh).toBeTypeOf('function');refresh({data:{items:[],total:0}});await flushPromises();}finally{returned.unmount();time.mockRestore();}
+});

@@ -73,6 +73,6 @@ describe('contract assignment consistency', () => {
 
 it('uses the selected credential throughout rendering instead of a stale wizard credential',async()=>{
  mocks.autofill.mockResolvedValueOnce({CREDENTIAL:'MA',CREDENTIAL_KEY:'',DEGREE:'MA',LICENSE_TYPE:'MA',LICENSE_INFO:'MA'});
- await previewCandidateContract({...request,credentialOverride:'MA',tokens:{CREDENTIAL:'BA',CREDENTIAL_KEY:'LPC',LICENSE_TYPE:'LPC'}});
- expect(mocks.preview.mock.calls[0][0].tokens).toMatchObject({CREDENTIAL:'MA',CREDENTIAL_KEY:'',DEGREE:'MA',LICENSE_TYPE:'MA',LICENSE_INFO:'MA'});
+ await previewCandidateContract({...request,credentialOverride:'MA',tokens:{CREDENTIAL:'BA',CREDENTIAL_KEY:'LPC',LICENSE_TYPE:'LPC',LICENSETYPE:'LPC'}});
+ expect(mocks.preview.mock.calls[0][0].tokens).toMatchObject({CREDENTIAL:'MA',CREDENTIAL_KEY:'',DEGREE:'MA',LICENSE_TYPE:'MA',LICENSETYPE:'MA',LICENSE_INFO:'MA'});
 });
