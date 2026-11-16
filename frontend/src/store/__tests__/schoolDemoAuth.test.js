@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAuthStore } from '../auth';
+import {rememberClientManagementWorkspace,readClientManagementWorkspace} from '../../utils/clientManagementWorkspace.js';
 vi.mock('../../services/api', () => ({ default: { get: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() } }));
 beforeEach(() => { localStorage.clear(); setActivePinia(createPinia()); });
 describe('public demo authentication', () => {
@@ -14,5 +15,11 @@ describe('public demo authentication', () => {
     const auth = useAuthStore();
     auth.user = { id: 42, role: 'school_staff', status: 'ACTIVE_EMPLOYEE' };
     expect(auth.isAuthenticated).toBe(true);
+  });
+  it('clears patient workspace memory when authentication is cleared',()=>{
+    const auth=useAuthStore();auth.user={id:42,role:'support'};
+    rememberClientManagementWorkspace('synthetic-session',{state:{clients:[{id:4,initials:'JL'}]}});
+    expect(readClientManagementWorkspace('synthetic-session')).not.toBeNull();
+    auth.clearAuth();expect(readClientManagementWorkspace('synthetic-session')).toBeNull();
   });
 });

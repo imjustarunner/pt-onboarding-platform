@@ -162,9 +162,8 @@ function cleanName(value) {
 
 function cleanSex(value) {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!s || s.length > 40) return null;
-  if (/^(yes|no|n\/a|dependent'?s?)$/i.test(s)) return null;
-  return s;
+  const english=englishPaperValue('administrativeSex',s);
+  return ['Male','Female','Other','Unknown','Prefer not to say'].find(option=>option.toLowerCase()===english.toLowerCase())||null;
 }
 
 function cleanGrade(value) {
@@ -225,14 +224,14 @@ function splitContactLine(value) {
 function cleanStreet(value) {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (!s || s.length > 120) return null;
-  if (/^(state|zip|city|dependent)/i.test(s) || parseDateToken(s) || !/[A-Za-zÀ-ÿ]/.test(s)) return null;
+  if (/^(state|zip|city|dependent|male\b|female\b|masculino\b|femenino\b)/i.test(s) || /parent or custodian|legal right|padre.*custodio/i.test(s) || parseDateToken(s) || !/[A-Za-zÀ-ÿ]/.test(s)) return null;
   return s;
 }
 
 function cleanCity(value) {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (!s || s.length > 80) return null;
-  if (/^(state|zip code|zip)\b/i.test(s)) return null;
+  if (/^(state|zip code|zip)\b/i.test(s) || /^\d{3,}\b|\b(?:male|female|masculino|femenino|custodian|dependent|parent|custodio)\b/i.test(s)) return null;
   return s.split(/\bstate\b/i)[0].trim() || null;
 }
 
@@ -283,7 +282,7 @@ export function extractPaperPacketDemographics(rawText, {insuranceText,demograph
     if (label.key === 'age') continue;
     if (label.key === 'fullName' && !result.fullName) result.fullName = cleanName(value);
     else if (label.key === 'dateOfBirth' && !result.dateOfBirth) {result.sourceValues.dateOfBirth=value;result.dateOfBirth=parseDateToken(value,/^fecha\b/.test(foldPaperText(line))?'es':'en');if(!result.dateOfBirth&&value)result.dateOfBirthNeedsReview=true;}
-    else if (label.key === 'administrativeSex' && !result.administrativeSex) result.administrativeSex = cleanSex(value);
+    else if (label.key === 'administrativeSex' && !result.administrativeSex) {result.administrativeSex=cleanSex(value);if(result.administrativeSex&&value!==result.administrativeSex)result.sourceValues.administrativeSex=value;}
     else if (label.key === 'preferredLanguage' && !result.preferredLanguage) result.preferredLanguage = cleanShortText(value, 100);
     else if (label.key === 'grade' && !result.grade) result.grade = cleanGrade(value);
     else if (label.key === 'addressStreet' && !result.addressStreet) result.addressStreet = cleanStreet(value);
@@ -315,9 +314,9 @@ export function extractPaperPacketDemographics(rawText, {insuranceText,demograph
   for(const key of ['administrativeSex','grade','preferredLanguage','guardianPreferredLanguage','guardianRelationship'])if(result[key]){const original=result[key];result[key]=englishPaperValue(key,original);if(original!==result[key])result.sourceValues[key]=original;}
   if (demographicsText) {
     const table=extractPaperPacketDemographics(demographicsText,{locale:result.sourceLocale});
-    for(const key of ['fullName','dateOfBirth','administrativeSex','grade','addressStreet','addressCity','addressState','addressZip'])result[key]=table[key];
-    if(table.sourceValues?.dateOfBirth)result.sourceValues.dateOfBirth=table.sourceValues.dateOfBirth;
-    result.dateOfBirthNeedsReview=!!table.dateOfBirthNeedsReview;
+    const located=new Set(demographicsText.split('\n').map(line=>matchLabel(line)?.key));
+    for(const key of ['fullName','dateOfBirth','administrativeSex','grade','addressStreet','addressCity','addressState','addressZip'])if(located.has(key)){result[key]=table[key];if(table.sourceValues?.[key])result.sourceValues[key]=table.sourceValues[key];else delete result.sourceValues[key];}
+    if(located.has('dateOfBirth'))result.dateOfBirthNeedsReview=!!table.dateOfBirthNeedsReview;
   }
   if (insuranceText) {
     const table=extractPaperPacketDemographics(insuranceText);

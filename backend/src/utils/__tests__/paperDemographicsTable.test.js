@@ -24,5 +24,24 @@ test('reads Spanish table labels and handwritten sex using the same coordinate a
  const spanish=[word('Nombre',20,20),word('del',62,20),word('dependiente',85,20),word('Fecha',20,50),word('de',55,50),word('nacimiento',72,50),word('del',20,65),word('dependiente',43,65),word('Edad',300,50),word('del',330,50),word('dependiente',352,50),word('Sexo',20,95),word('del',52,95),word('dependiente',75,95),word('Grado',300,95),word('del',337,95),word('dependiente',360,95),word('Dirección',20,125),word('del',80,125),word('dependiente',103,125),word('Ciudad',20,155),word('del',65,155),word('dependiente',88,155),word('Estado',300,155),word('Código',420,155),word('postal',465,155)];
  const answers=words.slice(19);const male=answers.find(w=>w.symbols.map(s=>s.text).join('')==='Male');male.symbols=[...'Masculino'].map(text=>({text}));annotation.pages[0].blocks[0].paragraphs[0].words=[...spanish,...answers];
  const parsed=extractPaperPacketDemographics('Cuestionario de admisión\nSu correo electrónico',{demographicsText:paperDemographicsTableText(annotation),locale:'es'});
- assert.equal(parsed.fullName,'Jordan Lee');assert.equal(parsed.administrativeSex,'Male');assert.equal(parsed.dateOfBirth,'2015-03-14');assert.equal(parsed.addressStreet,'123 Main St');
+ assert.equal(parsed.fullName,'Jordan Lee');assert.equal(parsed.administrativeSex,'Male');assert.equal(parsed.sourceValues.administrativeSex,'Masculino');assert.equal(parsed.dateOfBirth,'2015-03-14');assert.equal(parsed.addressStreet,'123 Main St');
+});
+
+for(const degrees of [-5,4])test(`keeps skewed intake rows separate on page three (${degrees} degrees)`,()=>{
+ const annotation=fixture(),page=annotation.pages[0],words=page.blocks[0].paragraphs[0].words;
+ // OCR can split a printed label while handwriting and a custody paragraph are
+ // returned in separate, unrelated paragraphs after all of the printed labels.
+ const label=words.find(w=>w.symbols.map(s=>s.text).join('')==='Name');
+ label.symbols=[...'Na'].map(text=>({text}));label.boundingBox.vertices[1].x-=12;label.boundingBox.vertices[2].x-=12;
+ words.push(word('me',102,20,12),word('Are',20,183),word('you',45,183),word('the',70,183),word('legal',95,183),word('parent',130,183),word('or',172,183),word('custodian',190,183));
+ const angle=degrees*Math.PI/180;
+ for(const w of words)for(const v of w.boundingBox.vertices){const{x,y}=v;v.x=100+x*Math.cos(angle)-y*Math.sin(angle);v.y=100+x*Math.sin(angle)+y*Math.cos(angle);}
+ annotation.pages=[{blocks:[]},{blocks:[]},page];
+ const parsed=extractPaperPacketDemographics('Consent\nIntake questionnaire',{demographicsText:paperDemographicsTableText(annotation)});
+ assert.equal(parsed.fullName,'Jordan Lee');assert.equal(parsed.dateOfBirth,'2015-03-14');assert.equal(parsed.administrativeSex,'Male');assert.equal(parsed.addressStreet,'123 Main St');assert.equal(parsed.addressCity,'Colorado Springs');assert.equal(parsed.addressZip,'80919');
+});
+
+test('rejects flattened OCR that combines sex, street and a custody question as City',()=>{
+ const parsed=extractPaperPacketDemographics("Dependent's Name Jordan Lee\nDependent's City Male 123 Main Colorado Springs parent or custodian of the\nState CO\nZip Code 80919");
+ assert.equal(parsed.addressCity,null);assert.equal(parsed.addressState,'CO');assert.equal(parsed.addressZip,'80919');
 });

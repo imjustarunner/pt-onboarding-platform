@@ -143,6 +143,45 @@ it('offers an explicit reread of the existing packet and preserves entered data 
  expect(w.get('input[maxlength="255"]').element.value).toBe('Unsaved synthetic name');expect(w.findAll('button').some(b=>b.text()==='Refresh file-check status')).toBe(false);
 });
 
+const demographicReading=fields=>({documentId:9,snapshotId:'UNCHANGED-WRITTEN-ANSWERS',sourceLocale:'en',translationStatus:'original',sourceValues:{},dateOfBirthNeedsReview:false,fields,parent1:{},parent2:{},responses:[]});
+const demographicInput=label=>w.findAll('.paper-fields label').find(l=>l.text()===label).get('input');
+it('prefills the open review from packet proposals instead of an abbreviated chart name and old OCR mistakes',async()=>{
+ context.client.full_name='J Lee';context.client.address_street='03/14/2015';context.client.address_city='Male 123 Main Colorado Springs parent or custodian of the';
+ context.packetReading=demographicReading({firstName:'Jordan',lastName:'Taylor Lee',dateOfBirth:'2015-03-14',gender:'male',address_street:'123 Main St',address_city:'Colorado Springs',address_state:'CO',address_zip:'80919'});
+ await render();
+ expect(demographicInput('Client first name').element.value).toBe('Jordan');expect(demographicInput('Client last name').element.value).toBe('Taylor Lee');expect(w.get('.paper-fields select').element.value).toBe('Male');expect(demographicInput('Street address').element.value).toBe('123 Main St');expect(demographicInput('City').element.value).toBe('Colorado Springs');
+ expect(context.client.full_name).toBe('J Lee');expect(context.state.completedSteps).toEqual([]);expect(api.put).not.toHaveBeenCalled();expect(w.text()).toContain('Use English packet details');
+});
+it('applies a completed reread with the same written-response snapshot while preserving staff edits',async()=>{
+ context.packetReading=demographicReading({firstName:'Jordan',lastName:'Lee',grade:'4',address_street:'03/14/2015',address_city:'Male 123 Main parent or custodian of the'});
+ await render();expect(demographicInput('City').element.value).toBe('');expect(demographicInput('Street address').element.value).toBe('');
+ api.post.mockResolvedValueOnce({data:{status:'clean',readingQueued:true,message:'Reading queued'}});
+ await w.findAll('button').find(b=>b.text()==='Reread packet details').trigger('click');await flushPromises();
+ await demographicInput('Client first name').setValue('Staff corrected name');await demographicInput('Street address').setValue('456 Reviewed St');await demographicInput('Grade').setValue('');
+ context.packetRead.id=12;context.packetReading.fields={firstName:'Jordan',lastName:'Taylor Lee',grade:'5',gender:'Male',address_street:'123 Main St',address_city:'Colorado Springs'};
+ await w.findAll('button').find(b=>b.text()==='Refresh file-check status').trigger('click');await flushPromises();
+ expect(demographicInput('Client first name').element.value).toBe('Staff corrected name');expect(demographicInput('Client last name').element.value).toBe('Taylor Lee');expect(demographicInput('Street address').element.value).toBe('456 Reviewed St');expect(demographicInput('City').element.value).toBe('Colorado Springs');expect(demographicInput('Grade').element.value).toBe('');expect(w.get('.paper-fields select').element.value).toBe('Male');expect(context.state.completedSteps).toEqual([]);
+});
+it('automatically refreshes a queued first read and fills previously unavailable proposals',async()=>{
+ vi.useFakeTimers();vi.spyOn(document,'hidden','get').mockReturnValue(false);await render();
+ api.post.mockResolvedValueOnce({data:{status:'clean',readingQueued:true,message:'Reading queued'}});
+ await w.findAll('button').find(b=>b.text()==='Reread packet details').trigger('click');await flushPromises();
+ context.packetRead.id=12;context.packetReading=demographicReading({firstName:'Jordan',lastName:'Taylor Lee',gender:'Male',address_city:'Colorado Springs'});
+ await vi.advanceTimersByTimeAsync(4000);await flushPromises();
+ expect(demographicInput('Client first name').element.value).toBe('Jordan');expect(demographicInput('City').element.value).toBe('Colorado Springs');expect(w.findAll('button').some(b=>b.text()==='Refresh file-check status')).toBe(false);
+});
+it('retains saved staff edits and the proposal baseline through a remount and reread',async()=>{
+ vi.useFakeTimers();context.packetReading=demographicReading({firstName:'Jordan',lastName:'Lee',address_city:'Colorado Springs'});await render();
+ await demographicInput('Client first name').setValue('Staff entered name');await vi.advanceTimersByTimeAsync(600);await flushPromises();
+ expect(context.workingDraft.demographicBaseline.firstName).toBe('Jordan');w.unmount();
+ context.packetReading.fields={firstName:'Jordan',lastName:'Taylor Lee',address_city:'Denver'};await render();
+ expect(demographicInput('Client first name').element.value).toBe('Staff entered name');expect(demographicInput('Client last name').element.value).toBe('Taylor Lee');expect(demographicInput('City').element.value).toBe('Denver');
+});
+it('does not automatically replace demographics that staff have already completed',async()=>{
+ context.state.completedSteps=['demographics'];context.packetReading=demographicReading({firstName:'Different',lastName:'Proposal',gender:'Male'});await render();
+ expect(demographicInput('Client first name').element.value).toBe('Synthetic');expect(demographicInput('Client last name').element.value).toBe('Student');expect(api.put).not.toHaveBeenCalled();
+});
+
 it('copies Spanish packet proposals into English fields and posts only a reviewed response snapshot',async()=>{
  context.packetReading={documentId:9,snapshotId:'SOURCE-ES-1',sourceLocale:'es',translationStatus:'translated',sourceValues:{administrativeSex:'Masculino'},dateOfBirthNeedsReview:false,fields:{firstName:'José',lastName:'Prueba',dateOfBirth:'2023-09-23',gender:'Male'},parent1:{firstName:'María',lastName:'Prueba',relationshipTitle:'Mother'},responses:[{key:'medicalInformation',label:'Medical information',sourceText:'No tiene alergias.',sourceLocale:'es',englishText:'No allergies.',status:'translated'}]};
  await render();await w.findAll('button').find(b=>b.text()==='Use English packet details').trigger('click');expect(w.findAll('.paper-fields input')[0].element.value).toBe('José');expect(w.get('.paper-fields select').element.value).toBe('Male');

@@ -3397,7 +3397,7 @@ async function refreshWorkspace() {
 onBeforeUnmount(() => {
   clientRequestSequence++;
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-  if (!activeWorkspaceKey || !workspaceReady.value || error.value) return;
+  if (!authStore.user?.id || !activeWorkspaceKey || activeWorkspaceKey !== currentWorkspaceKey() || !workspaceReady.value || error.value) return;
   rememberClientManagementWorkspace(activeWorkspaceKey, {
     state: Object.fromEntries(Object.entries(workspaceState).map(([key, value]) => [key, value.value])),
     selectedIds: [...selectedIds.value], selectedClients: [...selectedClientRecords.value.values()],

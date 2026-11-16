@@ -1,5 +1,5 @@
 <template>
-  <details v-if="reading && (reading.sourceLocale === 'es' || reading.responses.length || reading.dateOfBirthNeedsReview)" class="english-entry" :open="reading.sourceLocale === 'es'">
+  <details v-if="reading" class="english-entry" :open="reading.sourceLocale === 'es'">
     <summary>English packet entry <span>{{ reading.translationStatus === 'reviewed' ? 'Reviewed' : reading.translationStatus === 'unavailable' ? 'Translation needs follow-up' : 'Review proposal' }}</span></summary>
     <p>Compare the English proposal with the source PDF before saving. Names, addresses and identifying numbers stay as written.</p>
     <table v-if="Object.keys(reading.sourceValues).length"><thead><tr><th>Field</th><th>Written answer</th><th>English entry</th></tr></thead><tbody><tr v-for="(value,key) in reading.sourceValues" :key="key"><th>{{ fieldLabels[key] || key }}</th><td>{{ value }}</td><td>{{ proposedValue(key) || 'Confirm from the PDF' }}</td></tr></tbody></table>
