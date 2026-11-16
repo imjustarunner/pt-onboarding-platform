@@ -1,12 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { defineComponent } from 'vue';
+import { defineComponent, onMounted } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 const mocks = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn() }));
 vi.mock('../../../../services/api', () => ({ default: mocks }));
 vi.mock('../../../../store/auth', () => ({ useAuthStore: () => ({ user:{id:10,role:'support'} }) }));
 import Panel from '../ClientEhrBringUpToDatePanel.vue';
-const stubs = { ClientUpdateAssignments:true, NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, ClientTransitionInvitation:true, Teleport:true };
+const ReadyAssignments=defineComponent({name:'ClientUpdateAssignments',emits:['ready'],setup(_, {emit,expose}){onMounted(()=>emit('ready',true));expose({prepareLeave:()=>true});},template:'<section data-ready-assignments />'});
+const stubs = { ClientUpdateAssignments:ReadyAssignments, NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, ClientTransitionInvitation:true, Teleport:true };
 const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialTexts }, global: { stubs } });
 beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); mocks.patch.mockResolvedValue({ data: {} }); mocks.get.mockResolvedValue({ data: { drafts: {} } }); mocks.put.mockResolvedValue({ data: { revision: 1 } }); });
 it('imports supplied demographics and signals completion for the saved client', async () => {
@@ -167,4 +168,16 @@ it('places assignments after the records and waits for reviewed assignment chang
  wrapper.findComponent(AssignmentStub).vm.$emit('busy',true);await flushPromises();expect(wrapper.emitted('busy').at(-1)).toEqual([true]);
  wrapper.findComponent(AssignmentStub).vm.$emit('busy',false);leave.mockReturnValue(true);await flushPromises();expect(await wrapper.vm.prepareLeave()).toBe(true);
  await wrapper.findAll('button').find(button=>button.text()==='Mark done').trigger('click');await flushPromises();expect(mocks.post).toHaveBeenCalledWith('/clients/12/note-aid-setup-complete',{},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);wrapper.unmount();
+});
+
+it('honors client-owned contact channels selected before creating an office chart',async()=>{
+ mocks.post.mockResolvedValue({data:{parsed:{fullName:'Synthetic adult',email:'adult@example.test'}}});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialContactOwner:'client',initialTexts:{demographics:'Legal Name\nSynthetic adult'}},global:{stubs}});await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'client'}),expect.anything());wrapper.unmount();
+});
+it('keeps assignments and the portal invitation inside the creation flow before final completion',async()=>{
+ const AssignmentStub=defineComponent({name:'ClientUpdateAssignments',emits:['ready'],setup(_, {emit,expose}){onMounted(()=>emit('ready',false));expose({prepareLeave:()=>true});},template:'<section data-create-assignments />'});
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true},global:{stubs:{...stubs,ClientUpdateAssignments:AssignmentStub}}});await flushPromises();const finish=()=>wrapper.findAll('button').find(button=>button.text()==='Finish client import');expect(finish().attributes('disabled')).toBeDefined();
+ expect(wrapper.html().indexOf('data-create-assignments')).toBeLessThan(wrapper.html().indexOf('client-transition-invitation-stub'));expect(wrapper.html().indexOf('client-transition-invitation-stub')).toBeLessThan(wrapper.html().indexOf('Finish client import'));
+ wrapper.findComponent(AssignmentStub).vm.$emit('ready',true);await flushPromises();expect(finish().attributes('disabled')).toBeUndefined();wrapper.unmount();
 });

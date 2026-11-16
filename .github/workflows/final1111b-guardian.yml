@@ -129,7 +129,7 @@ jobs:
           node --test backend/src/utils/__tests__/paperDemographicsTable.test.js backend/src/utils/__tests__/paperPacketDemographics.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.client-management-needs.config.js
           cd frontend
-          node node_modules/vitest/vitest.mjs run --config vite.config.js src/views/__tests__/hire.setup.test.js
+          node node_modules/vitest/vitest.mjs run --config vite.config.js src/views/__tests__/hire.setup.test.js src/components/admin/clientChart/__tests__/ClientRecordsCreateModal.test.js
       - name: Retain exact backend test evidence
         if: always()
         uses: actions/upload-artifact@v4

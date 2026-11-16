@@ -1,3 +1,4 @@
+import { providerScheduleWindowQuery } from '../utils/providerScheduleWindowQuery.js';
 import { withMeetingWindow } from '../services/meetingWindowConflict.service.js';
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import {interviewCalendarEventId} from '../utils/interviewCalendarLink.js';
@@ -277,52 +278,9 @@ class ProviderScheduleEvent {
   static async listForUserInWindow({ agencyId, agencyIds = null, allAgencies = false, providerId, windowStart, windowEnd }) {
     const pId = Number(providerId || 0);
     if (!pId || !windowStart || !windowEnd) return [];
-    const ids = Array.isArray(agencyIds)
-      ? Array.from(new Set(agencyIds.map((n) => Number(n || 0)).filter((n) => n > 0)))
-      : [];
-    const aId = Number(agencyId || 0);
-    let scopeClause = 'pse.agency_id IS NULL';
-    let scopeParams = [];
-    if (allAgencies) {
-      scopeClause = '1=1';
-    } else if (ids.length) {
-      scopeClause = `(pse.agency_id IN (${ids.map(() => '?').join(',')}) OR pse.agency_id IS NULL)`;
-      scopeParams = ids;
-    } else if (aId > 0) {
-      scopeClause = '(pse.agency_id = ? OR pse.agency_id IS NULL)';
-      scopeParams = [aId];
-    }
-    // Include events where user is provider (host) OR where user is attendee of a TEAM_MEETING
-    const userClause = `(EXISTS (SELECT 1 FROM scheduled_trainings st JOIN user_agencies ua ON ua.agency_id=pse.agency_id AND ua.user_id=${pId} AND ua.is_active=1 JOIN users su ON su.id=ua.user_id AND COALESCE(su.is_active,1)=1 AND su.role NOT IN ('client','client_guardian','guardian','parent','school_staff','school_support','school_admin','school','kiosk','prehire','candidate') WHERE st.event_id=pse.id AND st.agency_visible=1) OR pse.provider_id = ? OR (
-      UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
-      AND EXISTS (
-        SELECT 1 FROM provider_schedule_event_attendees psea
-        WHERE psea.event_id = pse.id AND psea.user_id = ?
-      )
-    ))`;
-    // Fall school-visit bookings store the school org as agency_id (for logo).
-    // Always include those for this provider even when the calendar is filtered to the tenant.
-    const fallVisitClause = `(pse.provider_id = ? AND UPPER(COALESCE(pse.kind, '')) IN ('FALL_CHECKIN_PRESLOT', 'FALL_CHECKIN_BOOKED'))`;
-    const params = [...scopeParams, pId, pId, pId, windowEnd, windowStart, windowEnd, windowStart];
-    // Include CANCELLED rows so cancelled meetings remain visible on calendars.
-    const [rows] = await pool.execute(
-      `SELECT *
-       FROM provider_schedule_events pse
-       WHERE (
-           (${scopeClause} AND ${userClause})
-           OR ${fallVisitClause}
-         )
-         AND pse.recurrence_horizon_held=0
-         AND (
-           (pse.all_day = 1 AND pse.start_date < DATE(?) AND pse.end_date > DATE(?))
-           OR
-           (pse.all_day = 0 AND pse.start_at < ? AND pse.end_at > ?)
-         )
-       ORDER BY
-         CASE WHEN pse.all_day = 1 THEN CONCAT(pse.start_date, ' 00:00:00') ELSE pse.start_at END ASC,
-         pse.id ASC`,
-      params
-    );
+    const {sql,params}=providerScheduleWindowQuery({agencyId,agencyIds,allAgencies,providerId:pId,windowStart,windowEnd});
+    // Preserve cancelled meetings; candidate selection only changes the read plan.
+    const [rows]=await pool.execute(sql,params);
     return rows || [];
   }
 

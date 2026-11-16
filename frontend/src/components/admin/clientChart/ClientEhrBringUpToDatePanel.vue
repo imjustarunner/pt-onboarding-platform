@@ -77,7 +77,6 @@
       <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @updated="transitionRefreshKey++" />
 
       <div class="ehr-actions">
-        <button v-if="creationFlow && requireVerifiedPayers" type="button" class="ehr-btn-primary" :disabled="busy || !creationRecordsReady || (hasCoveragePaste && !payerReady)" @click="completeCreation">Finish client import</button>
         <button v-if="!creationFlow && !historicalImport" type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
           {{ markingDone ? 'Marking…' : 'Mark done' }}
         </button>
@@ -94,6 +93,7 @@
         <p v-if="!recordsReadyForInvitation" class="ehr-muted">Import the filled sections, finish pending reviews and save assignment changes before sending the portal invitation.</p>
         <fieldset class="ehr-invitation" :disabled="busy || !recordsReadyForInvitation"><ClientTransitionInvitation :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></fieldset>
       </template>
+      <button v-if="creationFlow && requireVerifiedPayers" type="button" class="ehr-btn-primary ehr-finish" :disabled="busy || !creationRecordsReady || (showAssignments && !assignmentsReady) || (hasCoveragePaste && !payerReady)" @click="completeCreation">Finish client import</button>
     </div>
   </div>
 
@@ -114,6 +114,7 @@
 </template>
 
 <script setup>
+import { CLIENT_RECORD_SECTIONS } from '../../../utils/clientRecordSections.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { getActivePinia } from 'pinia';
 import { useAuthStore } from '../../../store/auth';
@@ -138,6 +139,7 @@ const props = defineProps({
   clientLabel: { type: String, default: '' },
   initialTexts: { type: Object, default: () => ({}) },
   creationFlow: { type: Boolean, default: false },
+  initialContactOwner: { type:String, default:'guardian', validator:value=>['guardian','client'].includes(value) },
   autoImport: { type: Boolean, default: true },
   requireVerifiedPayers: { type: Boolean, default: false },
   embedded: { type: Boolean, default: false },
@@ -157,25 +159,16 @@ let importedIntakeDraft = null;
 const reviewPending = reactive({ intake: false, plan: false });
 const planText = ref('');
 const insuranceText = ref(''), contactsText = ref(''), commentsText = ref(''), payerText = ref(''), billingCommentsText = ref('');
-const contactOwner = ref('guardian'), preparePrimaryGuardian = ref(true), importedContacts = ref([]), guardianContactNames = ref([]);
+const contactOwner = ref(props.initialContactOwner), preparePrimaryGuardian = ref(true), importedContacts = ref([]), guardianContactNames = ref([]);
 let contactImportRevision = 0;
 const sectionTexts = reactive({ demographics: demographicsText, intake: intakeText, plan: planText, insurance: insuranceText, contacts: contactsText, comments: commentsText, payer: payerText, billingComments: billingCommentsText });
-const sections = [
-  { key: 'comments', label: 'Patient comments', placeholder: 'Patient Comments\nPaste administrative comments…', rows: 4, hint: 'Saved to Administrative note on the overview. Accessible to assigned providers, support, and administrators.' },
-  { key: 'demographics', label: 'Demographics', placeholder: 'Legal Name\nDate of Birth\n…' },
-  { key: 'contacts', label: 'Additional contacts', placeholder: 'Paste Contacts, including names, relationships, phones, email, and other details…', hint: 'Paste the parent and other contact cards below demographics. Source ROI and reminder details remain available for review.' },
-  { key: 'insurance', label: 'Insurance', placeholder: 'Beacon Health Options (43324): Primary\nPolicy Information\nCopay\n$20.00\nMember ID\n…\nPolicy Group\n…\nPolicy Holder\nSelf', hint: 'One paste for this coverage, including carrier, policy and payer details. Confirm the matching electronic payer below after importing.' },
-  { key: 'payer', label: 'Payer information', placeholder: 'Payer Information\nPayer Name\nNetwork\nBilling Method\nInsurance Type\nPayer ID\nAddress', hint: 'After import, confirm the matching electronic payer below. A TherapyNotes payer ID alone does not verify the route.' },
-  { key: 'billingComments', label: 'Billing comments', placeholder: 'Billing Comments\nPaste billing comments…', rows: 4 },
-  { key: 'intake', label: 'Intake', placeholder: 'Paste intake note text…', rows: 8 },
-  { key: 'plan', label: 'Treatment plan', placeholder: 'Paste treatment plan text…', rows: 8 }
-];
+const sections = CLIENT_RECORD_SECTIONS;
 const visibleSections = computed(() => sections.filter(section => props.historicalImport ? ['intake', 'plan'].includes(section.key) : section.key !== 'payer' &&
   (canPrepareAccounts.value || !['insurance','billingComments'].includes(section.key)) && !(props.hideDemographics && section.key === 'demographics')));
 const drafts = useChartImportDrafts();
 const historyBusy=ref(false),historyPanel=ref(null);
 const assignmentsBusy=ref(false),assignmentsReady=ref(false),assignmentsPanel=ref(null);
-const showAssignments=computed(()=>!props.historicalImport&&!props.creationFlow&&canPrepareAccounts.value);
+const showAssignments=computed(()=>!props.historicalImport&&canPrepareAccounts.value&&(!props.creationFlow||props.requireVerifiedPayers));
 const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
 const transitionRefreshKey = ref(0), invitationBusy = ref(false);
 const payerPosition = ref('primary');
@@ -250,7 +243,7 @@ function restoreCoverage(saved, preserve = false) {
   payerPosition.value = active;
   insuranceText.value = coverageDrafts[active].text;
   status.insurance = coverageDrafts[active].imported ? 'imported' : 'missing';
-  contactOwner.value = saved?.demographics?.value?.contactOwner === 'client' ? 'client' : 'guardian';
+  contactOwner.value = ['client','guardian'].includes(saved?.demographics?.value?.contactOwner) ? saved.demographics.value.contactOwner : props.initialContactOwner;
 }
 async function loadImportedContacts(generation) {
   if (!canPrepareAccounts.value || props.historicalImport) return;
@@ -278,7 +271,7 @@ watch(
     hydratingDrafts = true;
     payerPosition.value = 'primary';
     for (const position of ['primary', 'secondary']) Object.assign(coverageDrafts[position], { text: '', imported: false });
-    importedContacts.value = []; guardianContactNames.value = []; preparePrimaryGuardian.value = true; contactOwner.value = 'guardian';
+    importedContacts.value = []; guardianContactNames.value = []; preparePrimaryGuardian.value = true; contactOwner.value = props.initialContactOwner;
     for (const section of sections) { sectionTexts[section.key] = props.initialTexts[section.key] || ''; status[section.key] = props.recordStatus?.[section.key] || 'missing'; }
     error.value = ''; successMessage.value = ''; stepLog.value = [];
     showPlanReview.value = false; planReviewText.value = ''; importedIntakeDraft = null;
@@ -780,6 +773,7 @@ async function markDoneOnly() {
 </script>
 
 <style scoped>
+.ehr-finish { margin-top: 16px; }
 .ehr-invitation { border: 0; padding: 0; margin: 0; min-width: 0; }
 .ehr-section { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid #e2e8f0; }
 .ehr-section-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

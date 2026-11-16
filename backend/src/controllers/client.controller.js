@@ -1,3 +1,4 @@
+import { isOfficeRootOrganization, supportsAgencyOfficeClients } from '../utils/clientOfficeOrganization.js';
 import { supportsDirectorySort } from '../utils/clientDirectoryPage.js';
 import { generatedClientInitials } from '../../../frontend/src/navigation/clientInitials.js';
 import { attachRosterServiceContexts } from '../services/clientServiceContext.service.js';
@@ -452,6 +453,7 @@ async function getAgencyEnabledClientTypes(agencyId) {
     }
     const portalVariant = String(featureFlags?.portalVariant || 'healthcare_provider').trim().toLowerCase();
     if (portalVariant === 'employee') out.add('basic_nonclinical');
+    if (supportsAgencyOfficeClients(agency)) out.add('clinical');
   } catch {
     // ignore
   }
@@ -1407,7 +1409,8 @@ export const createClient = async (req, res, next) => {
     const peekOrgForResolve = await Agency.findById(parsedOrganizationId);
     const peekTypeForResolve = String(peekOrgForResolve?.organization_type || '').toLowerCase();
     const intakeOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
-    if (!peekOrgForResolve || peekTypeForResolve === 'agency' || !intakeOrgTypes.includes(peekTypeForResolve)) {
+    const requestedOfficeRoot=isOfficeRootOrganization({agencyId:parsedAgencyId,organizationId:parsedOrganizationId,organizationType:peekTypeForResolve,clientType:client_type});
+    if (!requestedOfficeRoot && (!peekOrgForResolve || peekTypeForResolve === 'agency' || !intakeOrgTypes.includes(peekTypeForResolve))) {
       const { resolveOrganizationIdForPublicBooking } = await import('../services/publicIntakeClient.service.js');
       const sourceNorm = String(source || '').trim().toUpperCase();
       const serviceType =
@@ -1434,7 +1437,8 @@ export const createClient = async (req, res, next) => {
     const orgType = organization.organization_type || 'agency';
     const normalizedOrgType = String(orgType).toLowerCase();
     const allowedOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
-    if (!allowedOrgTypes.includes(normalizedOrgType)) {
+    const officeRoot=isOfficeRootOrganization({agencyId:parsedAgencyId,organizationId:parsedOrganizationId,organizationType:normalizedOrgType,clientType:client_type});
+    if (!officeRoot && !allowedOrgTypes.includes(normalizedOrgType)) {
       return res.status(400).json({ 
         error: { message: `Clients must be associated with an organization of type: ${allowedOrgTypes.join(', ')}` } 
       });
@@ -1482,7 +1486,7 @@ export const createClient = async (req, res, next) => {
     const isPractitionerSelfOrg =
       (normalizedOrgType === 'life_coach' || normalizedOrgType === 'consultant') &&
       parsedOrganizationId === parsedAgencyId;
-    let isLinked = isPractitionerSelfOrg;
+    let isLinked = isPractitionerSelfOrg || officeRoot;
     if (!isLinked) {
       try {
         const orgs = await OrganizationAffiliation.listActiveOrganizationsForAgency(parsedAgencyId);
