@@ -1,4 +1,5 @@
 import {getProviderUpdateSignIn} from '../services/providerUpdateSignIn.service.js';
+import {requiresNluCredentialPreparation,nluCredentialReadiness,assertNluCredentialConfirmation} from '../services/nluProviderUpdatePolicy.js';
 import { validatePersonalMessagePatch } from '../utils/personalMessagePreferences.js';
 import {enabledSectionKeys} from '../constants/providerUpdateSections.js';
 import {getProviderUpdateRecords,saveProviderReviewProfile} from '../services/providerUpdateRecords.service.js';
@@ -157,8 +158,14 @@ export async function persistReviewSection(recipient, key, data, completed) {
     if(!tasks.length||tasks.some(t=>t.providerCompleted!==true))throw fail('Your assigned amendment agreement must be signed before this section can be completed.');
   }
   await saveProviderReviewProfile(recipient,key,data);
+  if(key==='services'){
+    const {saveProviderUpdateServices}=await import('../services/providerUpdateServices.service.js');
+    await saveProviderUpdateServices(recipient,data);
+  }
   if(key==='pin'){
+    const prepare=requiresNluCredentialPreparation(recipient.agency_id);
     if(data?.ssoSetupDeferred===true){
+      if(prepare)throw fail('NLU requires your app password, six-digit code and personal recovery email before this step can be completed.');
       const signIn=await getProviderUpdateSignIn(recipient.provider_user_id,recipient.agency_id);
       if(signIn.method!=='google')throw fail('This option is available only for accounts using Google sign-in.');
       for(const field of Object.keys(data))delete data[field];
@@ -168,8 +175,9 @@ export async function persistReviewSection(recipient, key, data, completed) {
     const status=await getCredentialStatus(recipient.provider_user_id);
     if(!status.hasPasscode||status.isLocked)throw fail('Create or reset your six-digit Quick View passcode using the controls in this step, then save and confirm it.');
     if(data?.quickViewConfirmed!==true||data?.codeStoredSafely!==true)throw fail('Save your new Quick View code somewhere safe before continuing.');
+    if(prepare)assertNluCredentialConfirmation(await nluCredentialReadiness(recipient.provider_user_id),data);
     for(const field of Object.keys(data))delete data[field];
-    Object.assign(data,{quickViewConfirmed:true,codeStoredSafely:true,...(status.passcodeVersion != null ? {confirmedPasscodeVersion:status.passcodeVersion} : {})});
+    Object.assign(data,{quickViewConfirmed:true,codeStoredSafely:true,...(prepare?{passwordStoredSafely:true,recoveryEmailConfirmed:true}:{}),...(status.passcodeVersion != null ? {confirmedPasscodeVersion:status.passcodeVersion} : {})});
   }
   if (key === 'supervision_hours') {
     const supervisors = await User.getSupervisors(recipient.provider_user_id, recipient.agency_id);
@@ -223,7 +231,7 @@ export async function quickViewSetupStatus(req,res,next){
   const r=await reviewRecipient(req);requireSection(r,'pin');
   const status=await getCredentialStatus(r.provider_user_id);
   res.setHeader('Cache-Control','no-store');
-  res.json({hasPasscode:status.hasPasscode,isLocked:status.isLocked});
+  res.json({hasPasscode:status.hasPasscode,isLocked:status.isLocked,...(requiresNluCredentialPreparation(r.agency_id)?{credentialReadiness:await nluCredentialReadiness(r.provider_user_id)}:{})});
  }catch(e){next(e);}
 }
 

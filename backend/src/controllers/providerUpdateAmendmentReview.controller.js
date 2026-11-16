@@ -11,7 +11,7 @@ export async function recipientAmendment(recipient){
   FROM contract_generations g LEFT JOIN tasks t ON t.id=g.task_id LEFT JOIN signed_documents s ON s.task_id=t.id
   WHERE g.agency_id=? AND g.candidate_user_id=?
   AND JSON_UNQUOTE(JSON_EXTRACT(g.token_values_json,'$.draftKind'))=? ORDER BY g.id DESC`,[recipient.agency_id,recipient.provider_user_id,DRAFT_KIND]);
- const row=rows.find(r=>recipient.previewOnly || (r.task_id && Number(parse(r.token_values_json)?.pushId)===Number(recipient.push_id)));
+ const row=rows.find(r=>{const data=parse(r.token_values_json)||{};return recipient.previewOnly?(!r.task_id&&(!data.pushId||Number(data.pushId)===Number(recipient.push_id))):(r.task_id&&Number(data.pushId)===Number(recipient.push_id));});
  if(!row)return null;
  const data=parse(row.token_values_json),audit=parse(row.audit_trail)||{};
  return {id:row.id,pushId:Number(data.pushId)||null,html:row.rendered_html,taskId:row.task_id,name:data.employee?.name,

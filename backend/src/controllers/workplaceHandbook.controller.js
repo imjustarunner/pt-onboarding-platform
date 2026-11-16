@@ -95,12 +95,18 @@ export const linkEntry = async (req, res, next) => {
 };
 
 async function getUpdateReviewDigest(agencyId, context, {allowDraft = false, preferDraft = false} = {}) {
-  let result = await getPublishedDigestForAgency(agencyId, context);
-  if (allowDraft && (!result?.digest || preferDraft)) {
+  const {combinedNlu,...digestContext}=context;
+  let result = await getPublishedDigestForAgency(agencyId, digestContext);
+  if (allowDraft && (!result?.digest || preferDraft || context.combinedNlu)) {
     const drafts = (await listDigests(agencyId)).filter(digest => digest.status === 'draft');
-    const linked = drafts.find(digest => context.pushId && Number(digest.provider_update_push_id) === Number(context.pushId))
+    const combined = Number(agencyId)===6 ? drafts.find(digest => digest.notes==='nlu-oct-nov-2026-v1' && Number(digest.admin_update_id)===Number(context.adminUpdateId)) : null;
+    const linked = combined || drafts.find(digest => context.pushId && Number(digest.provider_update_push_id) === Number(context.pushId))
       || drafts.find(digest => context.adminUpdateId && Number(digest.admin_update_id) === Number(context.adminUpdateId));
-    if (linked) result = await getDigest(linked.id, agencyId);
+    if (linked && (combined || !result?.digest || preferDraft)) result = await getDigest(linked.id, agencyId);
+  }
+  if(Number(agencyId)===6&&result?.digest?.notes==='nlu-oct-nov-2026-v1'){
+    const {combinedNluHandbookReview}=await import('../services/nluProviderUpdatePolicy.js');
+    result=combinedNluHandbookReview(result,await sourceForAgency(agencyId,{includeCurrentForms:false}));
   }
   return result;
 }
@@ -118,6 +124,7 @@ export const getPublished = async (req, res, next) => {
       // Match the email-link reader, using the update's actual attachment rather
       // than a caller-supplied draft/month. Unassigned and future drafts stay private.
       context.adminUpdateId = push.attached_admin_update_id || null;
+      context.combinedNlu = Number(agencyId)===6 && String(push.notes||'').startsWith('nlu-oct-nov-2026-v1');
       if (push.status === 'sent') {
         const [recipients] = await pool.execute(`SELECT id FROM provider_update_recipients
           WHERE push_id=? AND agency_id=? AND provider_user_id=? AND LEFT(token,8)<>'preview_' LIMIT 1`, [push.id, agencyId, req.user.id]);
@@ -416,7 +423,8 @@ export const publicPublishedByToken = async (req, res, next) => {
     const push = await getPush(recipient.push_id);
     const digest = await getUpdateReviewDigest(recipient.agency_id, {
       adminUpdateId: push?.attached_admin_update_id || null,
-      pushId: push?.id || null
+      pushId: push?.id || null,
+      combinedNlu: Number(recipient.agency_id)===6 && String(push?.notes||'').startsWith('nlu-oct-nov-2026-v1')
     }, {allowDraft: !!push?.id, preferDraft: !!recipient.previewOnly});
     const handbook = await getPublishedHandbook(recipient.agency_id);
     res.json(handbookResponseForReader({

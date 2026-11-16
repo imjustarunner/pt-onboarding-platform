@@ -4,6 +4,7 @@
  */
 
 export const PROVIDER_UPDATE_SECTIONS = [
+  {key:'services',title:'Services & Tutoring',shortTitle:'Services',description:'Select counseling, tutoring or both, then review the details for each service.',checklist:['Confirm all services you provide','Complete tutoring subjects, ages and grades'],mode:'embedded',icon:'clients',defaultEnabled:false},
   {key:'spanish_intake',title:'Spanish-Language Intake',shortTitle:'Spanish Intake',description:'Coordinate intake and follow-up for Spanish-speaking clients and parents.',checklist:['Identify the preferred language','Coordinate the intake handoff','Document the next steps'],mode:'ack',icon:'clients',defaultEnabled:false},
   {
     key: 'admin_update',
@@ -268,7 +269,7 @@ export const PROVIDER_UPDATE_PAGES = [
     description: 'Confirm and refine how you appear to clients.',
     checklist: ['Edit profile blurb', 'Confirm specialties', 'Update focus areas'],
     icon: 'specialties',
-    sectionKeys: ['profile_blurb', 'specialties', 'credential_display', 'directory_photo']
+    sectionKeys: ['services', 'profile_blurb', 'specialties', 'credential_display', 'directory_photo']
   },
   {key:'public_profile_review',title:'My Public Profile',shortTitle:'My Profile',description:'Check how your profile and availability look to clients.',checklist:['Review your live profile','Copy your link or create a QR code'],icon:'photo',sectionKeys:['public_profile_review']},
   {
@@ -336,6 +337,7 @@ export function buildPagesFromSections(sections = []) {
   const pages = [];
   for (const page of PROVIDER_UPDATE_PAGES) {
     const pageSections = page.sectionKeys.map((k) => byKey.get(k)).filter(Boolean);
+    if (byKey.get('pin')?.data?.credentialPreparationRequired) pageSections.sort((a,b)=>Number(b.key==='contact_info')-Number(a.key==='contact_info'));
     if (!pageSections.length) continue;
     const completed = pageSections.every((s) => s.completed);
     const anyStarted = pageSections.some(

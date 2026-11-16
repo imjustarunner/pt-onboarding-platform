@@ -146,6 +146,8 @@ server.listen(PORT, HOST, () => {
       const {requireTransitionWeekReadiness}=await import('./services/transitionWeekReadiness.service.js');
       const transitionReadiness=await requireTransitionWeekReadiness();
       console.log(`[startup:transition] Rollout and phone-consent schema verified (${transitionReadiness.tables} tables; ${transitionReadiness.migration})`);
+      const {requireNluProviderUpdateReadiness}=await import('./services/nluProviderUpdateReadiness.service.js');
+      console.log('[startup:nlu-provider-update] Combined October-November refresh verified',JSON.stringify(await requireNluProviderUpdateReadiness()));
       const {requireNoteworthyTrialSchema}=await import('./services/noteworthyReleaseReadiness.service.js');
       await requireNoteworthyTrialSchema();
       console.log('[startup:noteworthy] Trial, encrypted inquiry and durable deletion schema verified');

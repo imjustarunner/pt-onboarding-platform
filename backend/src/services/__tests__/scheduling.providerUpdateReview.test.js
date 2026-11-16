@@ -1,3 +1,4 @@
+vi.mock('../nluProviderUpdatePolicy.js',async original=>({...await original(),nluCredentialReadiness:vi.fn(async()=>({passwordReady:true,recoveryEmailReady:true}))}));
 vi.mock('../providerUpdateSignIn.service.js',()=>({getProviderUpdateSignIn:vi.fn(async()=>({retainsGoogle:false}))}));
 import {getProviderUpdateSignIn} from '../providerUpdateSignIn.service.js';
 vi.mock('../inboxDigest.service.js',()=>({updateCommunicationPrefs:vi.fn(async()=>({}))}));
@@ -79,7 +80,7 @@ it('requires signed communication choices and keeps signatures out of provider-u
  expect(data).toEqual({choices,accessRequests:undefined,reviewedAt:'2026-10-06T12:00:00Z'});
 });
 
-it('requires a configured, unlocked Quick View passcode and strips credential material from the update',async()=>{getCredentialStatus.mockResolvedValueOnce({hasPasscode:false,isLocked:false});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');const data={quickViewConfirmed:true,codeStoredSafely:true,pin:'123456'};await persistReviewSection(recipient,'pin',data,true);expect(data).toEqual({quickViewConfirmed:true,codeStoredSafely:true});expect(getCredentialStatus).toHaveBeenLastCalledWith(recipient.provider_user_id);});
+it('requires a configured, unlocked Quick View passcode and strips credential material from the update',async()=>{getCredentialStatus.mockResolvedValueOnce({hasPasscode:false,isLocked:false});await expect(persistReviewSection({...recipient,agency_id:2},'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true});await expect(persistReviewSection({...recipient,agency_id:2},'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');const data={quickViewConfirmed:true,codeStoredSafely:true,pin:'123456'};await persistReviewSection({...recipient,agency_id:2},'pin',data,true);expect(data).toEqual({quickViewConfirmed:true,codeStoredSafely:true});expect(getCredentialStatus).toHaveBeenLastCalledWith(recipient.provider_user_id);});
 
 it('initializes only the invited recipient’s missing code without a password or administrator identity',async()=>{
  res.setHeader=vi.fn();getCredentialStatus.mockResolvedValue({hasPasscode:false,isLocked:false});
@@ -93,7 +94,7 @@ it('blocks Quick View creation for previews and prevents overwriting existing co
 it('returns only the invited person’s code status without exposing credentials or changing them',async()=>{
  res.setHeader=vi.fn();getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true,passcodeVersion:4,passcodeHash:'private',token:'private'});
  await quickViewSetupStatus(req,res,next);expect(next).not.toHaveBeenCalled();expect(getCredentialStatus).toHaveBeenCalledWith(9);
- expect(res.json).toHaveBeenCalledWith({hasPasscode:true,isLocked:true});expect(res.setHeader).toHaveBeenCalledWith('Cache-Control','no-store');expect(createInitialPasscode).not.toHaveBeenCalled();
+ expect(res.json).toHaveBeenCalledWith({hasPasscode:true,isLocked:true,credentialReadiness:{passwordReady:true,recoveryEmailReady:true}});expect(res.setHeader).toHaveBeenCalledWith('Cache-Control','no-store');expect(createInitialPasscode).not.toHaveBeenCalled();
 });
 
 it('rejects status checks when the invitation’s agency membership or code step is unavailable',async()=>{
@@ -105,7 +106,7 @@ it('rejects status checks when the invitation’s agency membership or code step
 it('records the current code version when confirming without retaining secret material',async()=>{
  getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:false,passcodeVersion:4});
  const data={quickViewConfirmed:true,codeStoredSafely:true,pin:'123456',confirmedPasscodeVersion:999};
- await persistReviewSection(recipient,'pin',data,true);
+ await persistReviewSection({...recipient,agency_id:2},'pin',data,true);
  expect(data).toEqual({quickViewConfirmed:true,codeStoredSafely:true,confirmedPasscodeVersion:4});
 });
 
@@ -212,14 +213,14 @@ it('allows server-verified Google accounts to defer setup without recording a fa
  getProviderUpdateSignIn.mockResolvedValue({method:'google'});
  getCredentialStatus.mockResolvedValue({hasPasscode:false,isLocked:true});
  const data={ssoSetupDeferred:true,quickViewConfirmed:true,codeStoredSafely:true,passcode:'private'};
- await persistReviewSection(recipient,'pin',data,true);
+ await persistReviewSection({...recipient,agency_id:2},'pin',data,true);
  expect(data).toEqual({ssoSetupDeferred:true,reviewedAt:expect.any(String)});
  expect(getCredentialStatus).not.toHaveBeenCalled();
 });
 it('rejects SSO deferral for password accounts and incomplete section saves', async () => {
  getProviderUpdateSignIn.mockResolvedValue({method:'password'});
- await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},true)).rejects.toThrow('Google sign-in');
- await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},false)).rejects.toThrow();
+ await expect(persistReviewSection({...recipient,agency_id:2},'pin',{ssoSetupDeferred:true},true)).rejects.toThrow('Google sign-in');
+ await expect(persistReviewSection({...recipient,agency_id:2},'pin',{ssoSetupDeferred:true},false)).rejects.toThrow();
 });
 
 function authenticatedSchoolRequest(){
@@ -251,3 +252,12 @@ it('rejects another assignment even when an authenticated caller supplies its pr
  authenticatedSchoolRequest();req.params.assignmentId='987';req.body.providerId=987;
  await schoolAdjustment(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));expect(createMySchoolAvailabilityRequest).not.toHaveBeenCalled();
 });
+
+ it('requires NLU preparation even while Google is active and strips all supplied credential material',async()=>{
+ getProviderUpdateSignIn.mockResolvedValue({method:'google'});
+ await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},true)).rejects.toThrow('NLU requires');
+ await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true,codeStoredSafely:true},true)).rejects.toThrow('saved safely');
+ const data={quickViewConfirmed:true,codeStoredSafely:true,passwordStoredSafely:true,recoveryEmailConfirmed:true,password:'never store',pin:'123456'};
+ await persistReviewSection(recipient,'pin',data,true);
+ expect(data).toEqual({quickViewConfirmed:true,codeStoredSafely:true,passwordStoredSafely:true,recoveryEmailConfirmed:true});
+ });

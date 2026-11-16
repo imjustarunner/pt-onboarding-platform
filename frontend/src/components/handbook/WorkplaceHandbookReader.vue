@@ -38,6 +38,7 @@
           rel="noopener"
         >Admin · Original handbook ↗</a>
       </header>
+      <p v-if="Number(agencyId)===6"><a href="/nlu/workplace-handbook" target="_blank" rel="noopener noreferrer">Open your NLU Workplace Handbook ↗</a>. Review the complete policy changes below, then read your own compensation amendment separately.</p>
 
       <p v-if="digest?.status === 'draft'" class="muted">These communicated updates are being incorporated into the Workplace Handbook. You can mark this review complete below; doing so does not publish the manual or sign your amendment.</p>
       <p v-if="canEdit" class="editor-notice">Administrator editing: changes saved here update this shared handbook digest for everyone in the agency.</p>

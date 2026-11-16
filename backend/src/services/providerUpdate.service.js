@@ -15,6 +15,7 @@ import {spanishIntakeProcedure} from '../content/october2026UpdateRevisions.js';
 import {getProviderUpdateRecords} from './providerUpdateRecords.service.js';
 import { getStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
 import {getCredentialStatus} from './quickViewAuth.service.js';
+import {requiresNluCredentialPreparation,nluCredentialReadiness,tracksPrelicensureHours} from './nluProviderUpdatePolicy.js';
 /**
  * Provider Update — modular, toggleable staff update pushes (separate from Fall Update).
  */
@@ -750,6 +751,21 @@ export async function getRecipientBundle(recipient, {push: providedPush = null, 
     };
   });
   const records = await getProviderUpdateRecords(recipient.provider_user_id,recipient.agency_id);
+  if(Number(recipient.agency_id)===6&&!tracksPrelicensureHours(records)){
+    const index=sectionList.findIndex(s=>s.key==='supervision_hours');if(index>=0)sectionList.splice(index,1);
+  }
+  const servicesSection=sectionList.find(s=>s.key==='services');
+  if(servicesSection){
+    const {getProviderUpdateServices,tutoringReviewValues}=await import('./providerUpdateServices.service.js');
+    const current=await getProviderUpdateServices(recipient.provider_user_id,recipient.agency_id);
+    servicesSection.data=servicesSection.completed?current:{...current,...servicesSection.data,options:current.options};
+    if(!recipient.locked_at&&current.selected.includes('tutoring')){
+      try{tutoringReviewValues(current.tutoring);}catch{if(servicesSection.completed)servicesSection.status='in_progress';servicesSection.completed=false;}
+    }
+    if(Number(recipient.agency_id)===6&&current.selected.length&&!current.selected.includes('counseling')){
+      const index=sectionList.findIndex(s=>s.key==='specialties');if(index>=0)sectionList.splice(index,1);
+    }
+  }
   for(const section of sectionList){
     const defaults={spanish_intake:{bodyHtml:spanishIntakeProcedure},contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{publicGender:records.publicGender,credential:records.credential,displayRole:records.displayRole},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
     section.data={...defaults,...section.data};
@@ -777,10 +793,20 @@ export async function getRecipientBundle(recipient, {push: providedPush = null, 
   const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
   const signIn=await getProviderUpdateSignIn(recipient.provider_user_id,recipient.agency_id);
   const quickViewSection=sectionList.find(s=>s.key==='pin');
-  if(quickViewSection && !(signIn.method==='google' && quickViewSection.data.ssoSetupDeferred===true)){
+  const prepareCredentials=requiresNluCredentialPreparation(recipient.agency_id);
+  if(quickViewSection && (prepareCredentials || !(signIn.method==='google' && quickViewSection.data.ssoSetupDeferred===true))){
     const status=await getCredentialStatus(recipient.provider_user_id);
     quickViewSection.data={...quickViewSection.data,quickView:{hasPasscode:status.hasPasscode,isLocked:status.isLocked}};
     const versionChanged=quickViewSection.data.confirmedPasscodeVersion != null && Number(quickViewSection.data.confirmedPasscodeVersion)!==Number(status.passcodeVersion);
+    if(prepareCredentials){
+      const readiness=await nluCredentialReadiness(recipient.provider_user_id);
+      quickViewSection.data.credentialReadiness=readiness;
+      quickViewSection.data.credentialPreparationRequired=true;
+      if(!recipient.locked_at&&(!readiness.passwordReady||!readiness.recoveryEmailReady||quickViewSection.data.passwordStoredSafely!==true||quickViewSection.data.recoveryEmailConfirmed!==true)){
+        if(quickViewSection.completed)quickViewSection.status='in_progress';
+        quickViewSection.completed=false;
+      }
+    }
     if(!recipient.locked_at&&(!status.hasPasscode||status.isLocked||versionChanged||quickViewSection.data.quickViewConfirmed!==true)){quickViewSection.completed=false;quickViewSection.status='not_started';}
   }
   if (communicationSection) {
@@ -946,7 +972,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments','office_review','specialties','contact_info'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (['services','notification_prefs','pin','amendments','office_review','specialties','contact_info'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,

@@ -9,7 +9,7 @@ import { roleDevelopmentNovemberUpdates as roleUpdates } from './roleDevelopment
 const octoberRationales = JSON.parse(readFileSync(new URL('./handbooks/itsco-draft-updates.json', import.meta.url))).updates;
 export const AUTUMN_RELEASES = {
   itsco: { name: 'ITSCO', slug: 'itsco', host: 'app.itsco.health', period: 'November 2026' },
-  nlu: { name: 'Next Level Up', slug: 'nlu', host: 'app.nextleveluplcc.com', period: 'October 2026' },
+  nlu: { name: 'Next Level Up', slug: 'nlu', host: 'app.nextleveluplcc.com', period: 'October and November 2026' },
   isi: { name: 'Inner Strength Institute', slug: 'tisi', host: 'app.theinnerstrengthinstitute.com', period: 'October 2026' }
 };
 

@@ -2527,6 +2527,8 @@ const showForgotPassword = () => {
   forgotPasswordEmail.value = u.includes('@') ? u : '';
 };
 
+watch(() => route.query.recovery, value => { if (value === 'password') showForgotPassword(); }, { immediate: true });
+
 const showForgotUsername = () => {
     // Agencies are now stored in localStorage by fetchUserAgencies for future login redirects
   showForgotUsernameMessage.value = true;

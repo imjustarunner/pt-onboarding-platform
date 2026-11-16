@@ -19,6 +19,10 @@ beforeEach(()=>{
 });
 afterEach(()=>wrapper?.unmount());
 async function render({legalNotice=false}={}){wrapper=mount(LoginView,{global:{plugins:[createPinia()],stubs:{PoweredByFooter:true,ServiceUseNotice:!legalNotice,PasskeySignIn:true,HqLoginShell:{template:'<main><slot/></main>'}}}});await flushPromises();}
+it('opens normal password recovery from an explicit provider-update link without submitting a reset',async()=>{
+ route.query={recovery:'password'};await render();expect(wrapper.find('#forgotEmail').exists()).toBe(true);
+ expect(post.mock.calls.some(([url])=>url.includes('request-password-reset'))).toBe(false);
+});
 it('keeps an explicit agency login on that agency after remembering school staff',async()=>{
  await render();
  expect(replace.mock.calls.some(([target])=>JSON.stringify(target).includes('auricwell-qa-demo-school'))).toBe(false);

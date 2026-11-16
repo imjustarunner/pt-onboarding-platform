@@ -1,6 +1,6 @@
 <template>
  <section class="security-setup" data-analytics-ignore>
-  <template v-if="signIn?.retainsGoogle">
+  <template v-if="signIn?.retainsGoogle && !signIn?.credentialPreparationRequired">
    <h3>Your sign-in stays the same</h3>
    <p v-if="usesGoogle">Keep using <strong>Sign in with Google</strong> with your work account. Your role will keep its Google account and Gmail access. You do not need to create an app password or a passkey for this update.</p>
    <p v-else>Your role will keep its Google account and Gmail access. Continue using your existing app sign-in. You do not need to create a new password or a passkey for this update.</p>
@@ -10,6 +10,8 @@
    <h3>{{ signIn.transitionPlanned ? 'Prepare your app sign-in' : 'Your app sign-in' }}</h3>
    <p v-if="signIn.transitionPlanned">You currently sign in with Google using your work account. Prepare an app password for your upcoming change to app-only access. Keep using Google until you receive your changeover instructions. This setup does not turn off Google or Gmail. Check your personal recovery email in Contact &amp; Address.</p>
    <p v-else>You sign in directly to the app. If you already have a password, you can keep it. You do not need to create another one for this update.</p>
+   <p v-if="signIn.credentialPreparationRequired">Before NLU turns off Google SSO for you, set or confirm your app password and save it safely along with your separate six-digit Quick View code. Add an accessible personal recovery email in Contact &amp; Address. If your password is already set, keep it or use the reset link when needed.</p>
+   <p><a :href="loginUrl" target="_blank" rel="noopener noreferrer">Open my sign-in page ↗</a> · <a :href="resetUrl" target="_blank" rel="noopener noreferrer">Forgot or reset my password ↗</a></p>
    <p v-if="signIn.passkeyEligible">A passkey is optional. After signing in below, choose “Set up a passkey” to open your device’s Face ID, fingerprint, or security-key prompt. Checking your sign-in alone does not create a passkey.</p>
    <template v-if="preview"><p class="notice">Preview only. Staff sign in to their own account before changing credentials.</p><fieldset disabled><label>New app password<input type="password" placeholder="At least 14 characters" /></label><button>Save app password</button><button v-if="signIn.passkeyEligible">Set up a passkey</button></fieldset></template>
    <template v-else>
@@ -19,7 +21,7 @@
      <button type="button" data-testid="refresh-verification" :disabled="checking" @click="refresh">{{ checking ? 'Checking sign-in…' : 'Check my sign-in again' }}</button>
     </div>
     <p v-if="message" role="status">{{message}}</p>
-    <template v-if="verified"><SignInPasswordSetup :expected-user-id="userId" :key="`password-${revision}`" /><PasskeysPanel v-if="signIn.passkeyEligible" :expected-user-id="userId" :key="`passkey-${revision}`" /></template>
+    <template v-if="verified"><SignInPasswordSetup :expected-user-id="userId" :key="`password-${revision}`" @ready="$emit('credentials-changed')" /><PasskeysPanel v-if="signIn.passkeyEligible" :expected-user-id="userId" :key="`passkey-${revision}`" /></template>
    </template>
   </template>
   <p v-else>Continue using your usual sign-in. Your account’s sign-in instructions are unavailable right now; you can still save your progress and complete your Quick View code step.</p>
@@ -31,6 +33,9 @@ import api from '../../services/api';
 import SignInPasswordSetup from '../SignInPasswordSetup.vue';
 import PasskeysPanel from '../PasskeysPanel.vue';
 const props=defineProps({userId:[Number,String],agencySlug:String,preview:Boolean,signIn:Object});
+defineEmits(['credentials-changed']);
+const loginUrl=computed(()=>`/${encodeURIComponent(props.agencySlug||'itsco')}/login`);
+const resetUrl=computed(()=>`/${encodeURIComponent(props.agencySlug||'itsco')}/login?recovery=password`);
 const usesGoogle=computed(()=>props.signIn?.method==='google');
 const verified=ref(false),message=ref(''),revision=ref(0),checking=ref(false);let popup=null,awaitingVerification=false;
 async function refresh(){

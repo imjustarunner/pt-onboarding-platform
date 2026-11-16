@@ -2,6 +2,7 @@ import User from '../models/User.model.js';
 import { passwordRecoverySsoState } from './passwordRecoveryPolicy.service.js';
 import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import { passkeyRoleAllowed } from '../utils/passkeyPolicy.js';
+import {requiresNluCredentialPreparation} from './nluProviderUpdatePolicy.js';
 
 const retainedRoles = new Set(['admin', 'agency_admin', 'super_admin', 'support', 'supervisor', 'clinical_practice_assistant', 'provider_plus', 'internship_mentor']);
 const enabled = value => [true, 1, '1'].includes(value);
@@ -18,12 +19,14 @@ export function providerUpdateSignIn(user, organizations, agencyId) {
   const retainsGoogle = typeof override === 'boolean' ? override : retainedByRole;
   const policy = passwordRecoverySsoState(user, organizations);
   const usesGoogle = policy.ssoRequired || (policy.ssoEnabled && retainsGoogle && !usesPasswordLogin(user));
+  const prepare=requiresNluCredentialPreparation(agencyId);
   return {
     method: usesGoogle ? 'google' : 'password',
     retainsGoogle: policy.ssoEnabled && retainsGoogle,
     transitionPlanned: usesGoogle && !retainsGoogle,
-    showCredentialSetup: !(policy.ssoEnabled && retainsGoogle),
-    passkeyEligible: !(policy.ssoEnabled && retainsGoogle) && passkeyRoleAllowed(user)
+    showCredentialSetup: prepare || !(policy.ssoEnabled && retainsGoogle),
+    passkeyEligible: (prepare || !(policy.ssoEnabled && retainsGoogle)) && passkeyRoleAllowed(user),
+    ...(prepare?{credentialPreparationRequired:true}:{})
   };
 }
 
