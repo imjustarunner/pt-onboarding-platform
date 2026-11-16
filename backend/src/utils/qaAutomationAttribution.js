@@ -7,12 +7,17 @@ const FIXTURES = Object.freeze({1433:'Avery',1434:'Jordan',1438:'Cameron',1439:'
 // exclusively for automation. Retain the original registration/version above.
 const NLU_AUTHORIZATION_REF = 'owner-reserved-nlu-automated-qa-2026-11-14-v1';
 const NLU_FIXTURES = Object.freeze({1456:'Linked parent',1496:'Finley',1759:'Morgan',1771:'Casey',1785:'Rene',1807:'Riley QA reviewer'});
+// Owner selected this retained guardian for the school's bot walkthrough on
+// 2026-11-15. Keep its authorization distinct from the earlier fixture grants.
+const SCHOOL_AUTHORIZATION_REF = 'owner-reserved-sora-school-qa-2026-11-15-v1';
+const SCHOOL_FIXTURES = Object.freeze({1782:'Sora'});
 export function qaAutomationActorFor(userId) {
  const raw=String(userId ?? '');
  if(!/^[1-9]\d*$/.test(raw))return null;
  const id=Number(raw);
  if(!Number.isSafeInteger(id))return null;
  if(Object.hasOwn(NLU_FIXTURES,id))return {kind:'qa_automation',actorUserId:id,fixture:NLU_FIXTURES[id],authorizationRef:NLU_AUTHORIZATION_REF,qaAgencyBoundary:id===1456?[450,451,452,453,454]:[453,454]};
+ if(Object.hasOwn(SCHOOL_FIXTURES,id))return {kind:'qa_automation',actorUserId:id,fixture:SCHOOL_FIXTURES[id],authorizationRef:SCHOOL_AUTHORIZATION_REF,qaAgencyBoundary:[450,451]};
  if(!Object.hasOwn(FIXTURES,id))return null;
  return {kind:'qa_automation',actorUserId:id,fixture:FIXTURES[id],authorizationRef:AUTHORIZATION_REF,qaAgencyBoundary:[450,451,452]};
 }
