@@ -56,3 +56,9 @@ it('rejects a policy changed during the external directory lookup',async()=>{
  m.read.mockResolvedValueOnce({primary:{insurerName:'First',payerId:''}}).mockResolvedValueOnce({primary:{insurerName:'Changed',payerId:''}});
  const next=vi.fn();await linkClientPayer(req(),res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.write).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();
 });
+it('shows insurance as missing for a school chart with an empty paper-policy placeholder',async()=>{
+ m.read.mockResolvedValue({primary:{},secondary:null,paperReviewRequired:true});const response=res(),next=vi.fn();
+ await getClientPayerReadiness(req(),response,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(response.json.mock.calls[0][0].policies[0]).toMatchObject({hasInsurance:false,linked:false,payerId:''});
+});

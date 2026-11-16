@@ -609,7 +609,8 @@ async function importSupplementary(key) {
   assertScope();
   status[key] = 'imported';
   if (['insurance', 'payer'].includes(key)) { payerReady.value = false; payerRefreshKey.value++; }
-  log(true, key === 'comments' ? 'Patient comments saved to Administrative note' : key === 'insurance' ? 'Insurance imported for billing review' : 'Additional contacts imported');
+  const messages = { comments: 'Patient comments saved to Administrative note', insurance: 'Insurance imported for billing review', payer: 'Payer information imported', billingComments: 'Billing comments imported', contacts: 'Additional contacts imported' };
+  log(true, messages[key]);
   return result;
 }
 

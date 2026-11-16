@@ -27,7 +27,7 @@ export async function getClientPayerReadiness(req, res, next) {
       const hasInsurance = !!policy && ['insurerName','memberId','payerId','sourcePayerId'].some(key => policy[key]);
       const matches = policy?.payerId ? catalog.filter(row => row.directory_status === 'id_match' && String(row.claimmd_payer_id) === policy.payerId) : [];
       const verification = evidence.value?.[position];
-      const verified = !!policy && verification?.payerId === policy.payerId && verification.policyFingerprint === fingerprint(policy);
+      const verified = hasInsurance && !!verification && verification.payerId === policy.payerId && verification.policyFingerprint === fingerprint(policy);
       let capabilities = {};
       try { capabilities = typeof matches[0]?.directory_snapshot_json === 'string' ? JSON.parse(matches[0].directory_snapshot_json) : matches[0]?.directory_snapshot_json || {}; } catch { /* Display unknown support until refreshed. */ }
       return { position, hasInsurance, insurerName: policy?.insurerName || '', sourcePayerId: policy?.sourcePayerId || source.value?.[position]?.sourcePayerId || '',
