@@ -17,7 +17,7 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive, 'nlu-tutoring-ui': nluTutoringUi }">
-      <div v-if="pageLoading && !isPayrollRoute && !isScheduleRoute && !isClientProfileRoute && !isDashboardRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !isPayrollRoute && !isScheduleRoute && !isClientWorkspaceRoute && !isDashboardRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -2700,7 +2700,7 @@ const isDashboardRoute = computed(() => [
   'TenantAdminDashboard', 'OrganizationTenantAdminDashboard',
   'OperationsDashboard', 'OrganizationOperationsDashboard', 'OrganizationClubManagerDashboard'
 ].includes(route.name));
-const isClientProfileRoute = computed(() => /\/admin\/clients\/\d+(?:\/|$)/.test(String(route.path || '')));
+const isClientWorkspaceRoute = computed(() => /\/admin\/clients(?:\/|$)/.test(String(route.path || '')));
 const isScheduleRoute = computed(() => {
   const path = String(route.path || '');
   if (/\/(?:my-schedule|buildings\/schedule|office\/schedule|schedule\/staff|schedule\/board\/[^/]+|provider-mobile\/schedule)\/?$/.test(path)) return true;
@@ -2874,7 +2874,7 @@ function suppressScheduleFullscreenLoader() {
 const isPayrollRoute=computed(()=>isPayrollWorkspacePath(route.path));
 function syncPageLoading(isOn) {
   try {
-    if (isPayrollRoute.value || isScheduleRoute.value || isClientProfileRoute.value || isDashboardRoute.value) {
+    if (isPayrollRoute.value || isScheduleRoute.value || isClientWorkspaceRoute.value || isDashboardRoute.value) {
       suppressScheduleFullscreenLoader();
       return;
     }
@@ -2898,7 +2898,7 @@ function syncPageLoading(isOn) {
       loaderShowTimer = window.setTimeout(() => {
         loaderShowTimer = null;
         try {
-          if (!globalLoading.value || isScheduleRoute.value || isClientProfileRoute.value || isDashboardRoute.value) return;
+          if (!globalLoading.value || isScheduleRoute.value || isClientWorkspaceRoute.value || isDashboardRoute.value) return;
           loadingStartedAt = Date.now();
           pageLoading.value = true;
         } catch {
@@ -2933,7 +2933,7 @@ watch(globalLoading, syncPageLoading);
 watch(isPayrollRoute,()=>syncPageLoading(globalLoading.value),{flush:'sync'});
 // Re-evaluate even when a request stays pending across navigation or a tab change.
 watch(isScheduleRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
-watch(isClientProfileRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
+watch(isClientWorkspaceRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isDashboardRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isSchoolPortalShellActive, (active) => {
   if (active) suppressSchoolPortalFullscreenLoader();
@@ -6384,8 +6384,10 @@ function showNextNotificationToast() {
   if (pref.sound === true) playNotificationSound();
 }
 
+let notificationUpdateInFlight=false;
 const showNewNotificationToast = async () => {
-  if (!canPollWorkspace()) return;
+  if (!canPollWorkspace() || notificationUpdateInFlight) return;
+  notificationUpdateInFlight=true;
   try {
     if (!notificationUpdatesInitialized.value) {
       await initializeNotificationUpdateCursor();
@@ -6459,7 +6461,7 @@ const showNewNotificationToast = async () => {
     showNextNotificationToast();
   } catch {
     // Best-effort live notification polling.
-  }
+  } finally { notificationUpdateInFlight=false; }
 };
 
 const maybeShowLoginNotificationsModal = () => {

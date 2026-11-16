@@ -3437,9 +3437,10 @@ onMounted(async () => {
   if (!createAgencyId.value && activeAgencyId.value) {
     createAgencyId.value = String(activeAgencyId.value);
   }
-  await Promise.all([fetchLinkedOrganizations(), fetchClientStatuses(), fetchProviders()]);
+  const pickersReady = Promise.all([fetchLinkedOrganizations(), fetchClientStatuses(), fetchProviders()]);
   // Deep-link: /admin/clients?client_status_key=prospective
   const statusKeyQ = String(route.query?.client_status_key || route.query?.clientStatusKey || '').trim().toLowerCase();
+  if (statusKeyQ) await pickersReady;
   if (statusKeyQ && Array.isArray(clientStatuses.value) && clientStatuses.value.length) {
     const match = clientStatuses.value.find((s) => String(s.status_key || '').toLowerCase() === statusKeyQ);
     if (match?.id) clientStatusFilter.value = String(match.id);

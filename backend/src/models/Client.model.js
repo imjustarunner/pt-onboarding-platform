@@ -1,3 +1,4 @@
+import { readDirectoryPage } from '../utils/clientDirectoryPage.js';
 import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 import pool from '../config/database.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
@@ -356,7 +357,11 @@ class Client {
       WHERE 1=1
     `;
 
-    if (agency_id) {
+    if (options.agency_ids?.length) {
+      const marks=options.agency_ids.map(()=>'?').join(',');
+      query+=` AND (c.agency_id IN (${marks}) OR EXISTS (SELECT 1 FROM client_agency_assignments listed_agency WHERE listed_agency.client_id=c.id AND listed_agency.agency_id IN (${marks}) AND listed_agency.is_active=1))`;
+      values.push(...options.agency_ids,...options.agency_ids);
+    } else if (agency_id) {
       query += ` AND (c.agency_id = ? OR EXISTS (SELECT 1 FROM client_agency_assignments listed_agency
         WHERE listed_agency.client_id=c.id AND listed_agency.agency_id=? AND listed_agency.is_active=1))`;
       values.push(agency_id, agency_id);
@@ -364,8 +369,8 @@ class Client {
 
     if (provider_id) {
       const assignment = clientServiceAssignmentSql({ providerId: provider_id, agencyId: agency_id, serviceKind: 'counseling' });
-      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : ''}) OR ${assignment.sql})`;
-      values.push(provider_id, ...(agency_id ? [agency_id] : []), ...assignment.params);
+      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : ''}) OR ${assignment.sql}${options.directoryPage?' OR EXISTS (SELECT 1 FROM client_provider_assignments directory_provider WHERE directory_provider.client_id=c.id AND directory_provider.provider_user_id=? AND directory_provider.is_active=1)':''})`;
+      values.push(provider_id, ...(agency_id ? [agency_id] : []), ...assignment.params,...(options.directoryPage?[provider_id]:[]));
     }
 
     if (status) {
@@ -416,6 +421,16 @@ class Client {
 
     if (exclude_compliance_archived) {
       query += ' AND c.compliance_archived_at IS NULL';
+    }
+
+    if (options.directoryPage) {
+      if (!options.includeArchived && String(status || '').toUpperCase()!=='ARCHIVED') query+=" AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'";
+      if (options.clientStatusKey && !client_status_id) {query+=' AND LOWER(cs.status_key)=?';values.push(options.clientStatusKey);}
+      if (options.demo==='only') query+=' AND (COALESCE(c.is_demo,0)=1 OR COALESCE(c.created_via_dev_fill,0)=1)';
+      if (options.demo==='exclude') query+=' AND COALESCE(c.is_demo,0)<>1 AND COALESCE(c.created_via_dev_fill,0)<>1';
+      const page=await readDirectoryPage({executor:pool,query,values,hasChecklist,...options.directoryPage});
+      page.items=page.items.map(row=>{delete row.billing_insurance_payload;return {...row,provider_name:row.provider_first_name && row.provider_last_name?`${row.provider_first_name} ${row.provider_last_name}`:null};});
+      return page;
     }
 
     query += ' ORDER BY c.submission_date DESC, c.created_at DESC';

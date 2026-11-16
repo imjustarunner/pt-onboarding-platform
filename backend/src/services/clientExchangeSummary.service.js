@@ -21,9 +21,14 @@ async function intakeConcerns(clientId) {
   const [rows] = await pool.execute(`SELECT s.id, s.client_id, s.intake_data, s.submitted_at, s.created_at,
       s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
       l.intake_fields, l.intake_steps
-    FROM intake_submissions s LEFT JOIN intake_links l ON l.id = s.intake_link_id
-    WHERE s.submitted_at IS NOT NULL AND (s.client_id = ? OR EXISTS
-      (SELECT 1 FROM intake_submission_clients isc WHERE isc.intake_submission_id = s.id AND isc.client_id = ?))
+    FROM intake_submissions s
+    JOIN (
+      SELECT direct.id FROM intake_submissions direct WHERE direct.client_id=? AND direct.submitted_at IS NOT NULL
+      UNION
+      SELECT linked.id FROM intake_submission_clients isc JOIN intake_submissions linked ON linked.id=isc.intake_submission_id
+        WHERE isc.client_id=? AND linked.submitted_at IS NOT NULL
+    ) client_submissions ON client_submissions.id=s.id
+    LEFT JOIN intake_links l ON l.id=s.intake_link_id
     ORDER BY s.submitted_at DESC`, [clientId, clientId]);
   if (!rows.length) return [];
   decryptIntakeSubmissionRows(rows);

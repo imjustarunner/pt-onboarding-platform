@@ -353,6 +353,10 @@ export async function previewCandidateContract({
     officeLocationId: officeLocationId || tokens.ASSIGNED_OFFICE_ID || null
   });
   const merged = { ...autofill, ...tokens };
+  // The reviewed credential override owns credential-dependent rendering and pay
+  // validation. A stale wizard token must not override the selected credential.
+  if (credentialOverride != null) for (const key of ['CREDENTIAL','CREDENTIAL_KEY','DEGREE','LICENSE_TYPE','LICENSE_INFO']) merged[key]=autofill[key] || '';
+
   merged.HANDBOOK_REFERENCES_ENABLED='1';
   if (Object.hasOwn(tokens, 'UNIVERSITY_NAME')) merged.UNIVERSITY = tokens.UNIVERSITY_NAME;
   // Agency and office records own these fields. Blank or stale client tokens must

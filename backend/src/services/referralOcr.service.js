@@ -1,3 +1,4 @@
+import { paperDemographicsTableText } from '../utils/paperDemographicsTable.js';
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import dommatrixPkg from 'dommatrix';
 import StorageService from './storage.service.js';
@@ -184,7 +185,7 @@ class ReferralOcrService {
     return filteredText || text;
   }
 
-  static async extractPdfWithVision({ buffer, pagesToScan, languageHint, includePaperInsurance = false, includePageText = false }) {
+  static async extractPdfWithVision({ buffer, pagesToScan, languageHint, includePaperInsurance = false, includePageText = false, includePaperDemographics = false }) {
     const bucket = await StorageService.getGCSBucket();
     const prefix = `referrals_ocr_tmp/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
     const gcsUri = `gs://${bucket.name}/${prefix}`;
@@ -220,7 +221,7 @@ class ReferralOcrService {
       const [listed] = await bucket.getFiles({ prefix });
       files = listed || [];
       const chunks = [];
-      let insuranceText='';
+      let insuranceText='', demographicsText='';
       for (const file of files) {
         try {
           const [content] = await file.download();
@@ -230,6 +231,7 @@ class ReferralOcrService {
             const txt = r?.fullTextAnnotation?.text || r?.textAnnotations?.[0]?.description || '';
             if (txt) chunks.push({ text: txt, page: Number(r?.context?.pageNumber) || chunks.length + 1 });
             if(includePaperInsurance && !insuranceText)insuranceText=paperInsuranceTableText(r?.fullTextAnnotation);
+            if(includePaperDemographics && !demographicsText)demographicsText=paperDemographicsTableText(r?.fullTextAnnotation);
           });
         } catch {
           // ignore malformed chunk
@@ -237,7 +239,7 @@ class ReferralOcrService {
       }
       chunks.sort((a,b)=>a.page-b.page);
       const text=chunks.map(item=>item.text).join('\n').trim();
-      return includePageText||includePaperInsurance?{text,...(includePageText?{pages:chunks}:{}),...(includePaperInsurance?{insuranceText}:{})}:text;
+      return includePageText||includePaperInsurance||includePaperDemographics?{text,...(includePaperDemographics?{demographicsText}:{}),...(includePageText?{pages:chunks}:{}),...(includePaperInsurance?{insuranceText}:{})}:text;
     } catch (error) {
       console.error('Vision PDF OCR failed.', {
         code: Number.isInteger(error?.code) ? error.code : 'vision_ocr_failed'

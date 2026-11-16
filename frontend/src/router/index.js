@@ -5848,7 +5848,12 @@ router.beforeEach(async (to, from, next) => {
       slug &&
       String(from.params.organizationSlug || '') === String(slug);
 
-    if (!queryOnlySameOrgRoute) {
+    // Reuse established tenant context between authenticated pages. Refetching
+    // branding and the same organization here blocked every return to a client list.
+    const sameAuthenticatedTenant = authStore.isAuthenticated && to.meta.requiresAuth && from.meta?.requiresAuth
+      && typeof slug==='string' && !!slug && String(from.params?.organizationSlug || '')===slug
+      && [organizationStore.currentOrganization?.slug, organizationStore.currentOrganization?.portal_url].some(value=>String(value || '').toLowerCase()===slug.toLowerCase());
+    if (!queryOnlySameOrgRoute && !sameAuthenticatedTenant) {
       const isProviderPlus = String(authStore.user?.role || '').toLowerCase() === 'provider_plus';
       if (typeof slug === 'string' && slug && authStore.isAuthenticated && authStore.user && (isSupervisor(authStore.user) || isProviderPlus)) {
         await agencyStore.fetchSuperviseePortalSlugs();

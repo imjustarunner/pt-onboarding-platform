@@ -1,3 +1,4 @@
+import { firstLoginDedupSql } from '../utils/notificationFirstLoginDedup.js';
 import Notification from '../models/Notification.model.js';
 import NotificationService from '../services/notification.service.js';
 import User from '../models/User.model.js';
@@ -751,7 +752,7 @@ export const getNotificationCounts = async (req, res, next) => {
           pageSize: 1,
           scope: requestedScope === 'managed_feed' ? 'managed' : (requestedScope || 'inbox')
         };
-        const result = await queryNotificationFeed(req);
+        const result = await queryNotificationFeed(req, { countsOnly: true });
         const counts = {};
         for (const facet of result.facets.agencies || []) counts[facet.agencyId] = facet.unread;
         // Header badge must match feed totals — per-agency facets can under-count when agency_id is missing.
@@ -1416,25 +1417,7 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     params.push(...access.agencyIds);
     // Historical first-login notifications were fanned out once per agency.
     // Keep the audit rows, but expose one account-level event to each viewer.
-    clauses.push(`(
-      n.type NOT IN ('first_login', 'first_login_pending')
-      OR n.id = (
-        SELECT n2.id
-        FROM notifications n2
-        LEFT JOIN organization_affiliations oa2
-          ON oa2.organization_id = n2.agency_id AND oa2.is_active = TRUE
-        LEFT JOIN agency_schools axs2
-          ON axs2.school_organization_id = n2.agency_id AND axs2.is_active = TRUE
-        WHERE n2.type IN ('first_login', 'first_login_pending')
-          AND COALESCE(n2.related_entity_id, n2.user_id) = COALESCE(n.related_entity_id, n.user_id)
-          AND n2.agency_id IN (${access.agencyIds.map(() => '?').join(',')})
-        ORDER BY CASE
-          WHEN oa2.organization_id IS NULL AND axs2.school_organization_id IS NULL THEN 0
-          ELSE 1
-        END, n2.agency_id ASC, n2.id ASC
-        LIMIT 1
-      )
-    )`);
+    clauses.push(firstLoginDedupSql(access.agencyIds));
     params.push(...access.agencyIds);
   } else {
     clauses.push('1 = 0');
@@ -1636,7 +1619,7 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
   return { sql: clauses.join(' AND '), params, readExpr };
 }
 
-async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId = false } = {}) {
+async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId = false, countsOnly = false, updatesOnly = false } = {}) {
   const requestedAgencyId = req.query.agencyId ? Number(req.query.agencyId) : null;
   const scope = String(req.query.scope || 'inbox').toLowerCase();
   const access = await getFeedAccess(req, requestedAgencyId, scope);
@@ -1705,6 +1688,13 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
     LEFT JOIN agencies a ON a.id = n.agency_id
     LEFT JOIN users au ON au.id = n.actor_user_id
     LEFT JOIN clients c ON LOWER(COALESCE(n.related_entity_type, '')) = 'client' AND c.id = n.related_entity_id`;
+  if (countsOnly) {
+    // A header badge needs one grouped count, not a full inbox page plus four
+    // independent facet scans. All authorization/preferences use the same WHERE.
+    const [rows]=await pool.execute(`SELECT n.agency_id,COUNT(*) AS unread ${joins} WHERE ${current.sql} GROUP BY n.agency_id`,current.params);
+    const agencies=rows.map(row=>({agencyId:Number(row.agency_id),unread:Number(row.unread || 0)}));
+    return {unreadCount:agencies.reduce((sum,row)=>sum+row.unread,0),facets:{agencies}};
+  }
   const page = Math.max(1, Number.parseInt(req.query.page || '1', 10) || 1);
   const requestedSize = forcePageSize || Number.parseInt(req.query.pageSize || '25', 10) || 25;
   const pageSize = Math.max(1, Math.min(forcePageSize ? 10000 : 100, requestedSize));
@@ -1724,7 +1714,7 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
     : 'NULL';
 
   const [[countRow], [rows], [facetRows], [categoryFacetRows], [typeFacetRows], [unreadCountRows]] = await Promise.all([
-    pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${current.sql}`, current.params),
+    updatesOnly ? Promise.resolve([[{total:0}]]) : pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${current.sql}`, current.params),
     pool.execute(
       `SELECT n.*, ${current.readExpr} AS _is_read_for_viewer,
         COALESCE(nur.requires_follow_up, FALSE) AS _requires_follow_up_for_viewer,
@@ -1737,10 +1727,10 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
        ${joins}
        WHERE ${current.sql}
        ORDER BY ${orderBy}
-       LIMIT ${pageSize} OFFSET ${offset}`,
+       LIMIT ${updatesOnly?pageSize+1:pageSize} OFFSET ${offset}`,
       current.params
     ),
-    pool.execute(
+    updatesOnly ? Promise.resolve([[]]) : pool.execute(
       `SELECT n.agency_id, n.type, n.severity, ${facetBase.readExpr} AS viewer_is_read,
         COALESCE(nur.requires_follow_up, FALSE) AS viewer_follow_up,
         (nur.dismissed_at IS NOT NULL) AS viewer_dismissed,
@@ -1751,14 +1741,14 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
        GROUP BY n.agency_id, n.type, n.severity, viewer_is_read, viewer_follow_up, viewer_dismissed, viewer_snoozed`,
       facetBase.params
     ),
-    pool.execute(
+    updatesOnly ? Promise.resolve([[]]) : pool.execute(
       `SELECT n.type, COUNT(*) AS count
        ${joins}
        WHERE ${categoryFacetBase.sql}
        GROUP BY n.type`,
       categoryFacetBase.params
     ),
-    pool.execute(
+    updatesOnly ? Promise.resolve([[]]) : pool.execute(
       `SELECT n.type, COUNT(*) AS count
        ${joins}
        WHERE ${typeFacetBase.sql}
@@ -1770,7 +1760,7 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
       : pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${unreadMatch.sql}`, unreadMatch.params)
   ]);
 
-  const items = rows || [];
+  const items = updatesOnly ? (rows || []).slice(0,pageSize) : (rows || []);
   for (const item of items) {
     item.is_read = !!item._is_read_for_viewer;
     item._requires_follow_up_for_viewer = !!item._requires_follow_up_for_viewer;
@@ -1813,7 +1803,7 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
     matchingTotal += count;
     typeMap.set(row.type, (typeMap.get(row.type) || 0) + count);
   }
-  const total = Number(countRow?.[0]?.total || 0);
+  const total = updatesOnly ? offset+(rows || []).length : Number(countRow?.[0]?.total || 0);
   const matchingUnreadCount = requestedStatus === 'unread'
     ? total
     : Number(unreadCountRows?.[0]?.total || 0);
@@ -2055,7 +2045,7 @@ export const getNotificationUpdates = async (req, res, next) => {
   try {
     const initialize = String(req.query.initialize || '') === '1';
     req.query = { ...req.query, status: 'all', sort: initialize ? 'newest' : 'oldest', page: 1, pageSize: initialize ? 1 : 50 };
-    const result = await queryNotificationFeed(req, { includeAfterId: !initialize });
+    const result = await queryNotificationFeed(req, { includeAfterId: !initialize, updatesOnly: true });
     res.json({
       items: result.items,
       unreadCount: result.unreadCount,

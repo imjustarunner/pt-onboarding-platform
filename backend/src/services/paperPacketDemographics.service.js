@@ -112,13 +112,13 @@ export function readPaperPacketDemographicCandidate(client) {
 export async function applyPaperPacketDemographicsFromText({
   clientId,
   ocrText,
-  insuranceText,
+  insuranceText, demographicsText,
   documentId = null,
   locale = 'auto',
   actorUserId = null
 } = {}) {
   const cid = Number(clientId || 0);
-  const extracted=extractPaperPacketDemographics(ocrText,{insuranceText,locale});
+  const extracted=extractPaperPacketDemographics(ocrText,{insuranceText,demographicsText,locale});
   const parsed=await translatePaperResponses(extracted);
   if (!cid || !paperPacketDemographicsHaveContent(parsed)) {
     return { attempted: true, stored: false, filled: [] };

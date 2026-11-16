@@ -53,6 +53,7 @@ describe('hire setup wizards', () => {
     expect(wrapper.get('#standard-agreement-review a').attributes('href')).toContain('tab=library');
     expect(wrapper.get('#standard-agreement-review button').element.disabled).toBe(true);
     expect(wrapper.findAll('label').find(l=>l.text().includes('Tutoring')&&l.find('input[type="checkbox"]').exists()).get('input').element.checked).toBe(true);
+    wrapper.vm.contract.probationChoice='no';await flushPromises();
     await button('Update contract preview').trigger('click'); await flushPromises();
     expect(http.post.mock.calls.at(-1)[1]).toMatchObject({configId:32,tokens:{CONTRACT_SERVICE_ROLES:['tutoring'],CONTRACT_SERVICE_ROLE_DETAILS:{tutoring:{payLevel:3}}}});
     expect(http.post.mock.calls.some(([url])=>url.includes('send-prehire'))).toBe(false);
@@ -67,6 +68,7 @@ describe('hire setup wizards', () => {
     wrapper=mount(StartPreHire,{global:{stubs:{RouterLink:true}}});await flushPromises();
     expect(wrapper.findAll('label').some(l=>l.text().startsWith('Pay category'))).toBe(false);
     expect(wrapper.text()).toContain('Approved agreement or written-offer reference');
+    wrapper.vm.contract.probationChoice='no';await flushPromises();
     await button('Update contract preview').trigger('click');await flushPromises();
     expect(http.post.mock.calls.at(-1)[1].tokens).toMatchObject({COMPENSATION_CATEGORY:'',COMPENSATION_LEVEL:'',INDIVIDUAL_COMPENSATION_BASIS:'approved_individual_agreement'});
   });
@@ -334,4 +336,15 @@ describe('saved pre-hire progress', () => {
     expect(wrapper.text()).toContain('This draft changed in another window.');
     expect(wrapper.findAll('label').find(l => l.text().startsWith('Min hours')).get('input').element.value).toBe('6');
   });
+});
+
+it('chooses contract credentials from the shared app dropdown and sends the same selection to preview',async()=>{
+ const original=http.get.getMockImplementation();http.get.mockImplementation(async url=>{const result=await original(url);if(url.includes('wizard-context')){result.data.tokens.CREDENTIAL='BA';result.data.tokens.LICENSE_TYPE='BA';result.data.suggested.compensationCategory=3;result.data.suggested.compensationLevel=1;result.data.compensationLevels=[{category:3,level:1}];}return result;});
+ wrapper=mount(StartPreHire,{global:{stubs:{RouterLink:true}}});await flushPromises();
+ const picker=wrapper.findComponent({name:'CredentialPicker'});expect(picker.exists()).toBe(true);
+ await picker.get('button[aria-label="Remove BA"]').trigger('click');await picker.get('select').setValue('MA');await flushPromises();
+ const probation=wrapper.findAll('select').find(select=>select.find('option[value="yes"]').exists()&&select.find('option[value="no"]').exists());if(probation)await probation.setValue('no');
+ wrapper.vm.contract.compensationCategory='3';wrapper.vm.contract.compensationLevel='1';await flushPromises();
+ await button('Update contract preview').trigger('click');await flushPromises();
+ expect(http.post.mock.calls.filter(([url])=>url.endsWith('/preview')).at(-1)?.[1]).toMatchObject({credential:'MA',tokens:{CREDENTIAL:'MA',LICENSE_TYPE:'MA'}});
 });

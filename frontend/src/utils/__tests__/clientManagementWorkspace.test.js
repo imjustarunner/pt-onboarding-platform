@@ -15,7 +15,7 @@ it('restores filters, selections and records from memory without sharing session
   }
   const restored = readClientManagementWorkspace(key,2000);restored.state.clients[0].initials='changed';
   expect(readClientManagementWorkspace(key,2000).state.clients[0].initials).toBe('SE');
-  expect(readClientManagementWorkspace(key,301000)).toBeNull();
+  expect(readClientManagementWorkspace(key,1801000)).toBeNull();
 });
 it('shows active providers and explicitly enabled clinicians while excluding demo, staff and inactive records', () => {
   const provider = { role:'provider', is_active:1, status:'ACTIVE', membership_active:1, sees_clients:1 };

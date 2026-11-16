@@ -121,6 +121,15 @@ jobs:
           src/components/clients/__tests__/ClientPortalOverview.test.js
           src/components/clients/__tests__/ClientPortalInviteDialog.test.js
           src/components/guardian/__tests__/GuardianInvitations.test.js
+      - name: Bounded client directory, notification query cost, packet OCR and contract credentials
+        env:
+          REQUIRE_PACKET_WORKSPACE_MYSQL: '1'
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.packet-workspace-contract.config.js
+          node --test backend/src/utils/__tests__/paperDemographicsTable.test.js backend/src/utils/__tests__/paperPacketDemographics.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.client-management-needs.config.js
+          cd frontend
+          node node_modules/vitest/vitest.mjs run --config vite.config.js src/views/__tests__/hire.setup.test.js
       - name: Retain exact backend test evidence
         if: always()
         uses: actions/upload-artifact@v4

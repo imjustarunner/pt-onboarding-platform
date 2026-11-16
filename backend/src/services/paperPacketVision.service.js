@@ -199,7 +199,7 @@ export async function evaluateAndApplyPaperPacketVision({
   }
 
   let ocrText = '';
-  let insuranceText = '';
+  let insuranceText = '', demographicsText = '';
   let ocrPages = [];
   try {
     // Prefer full-document Vision for signed packets (not handwritten-only filter).
@@ -211,11 +211,12 @@ export async function evaluateAndApplyPaperPacketVision({
       buffer,
       pagesToScan,
       languageHint: ['en','es'],
-      includePaperInsurance: true, includePageText: true
+      includePaperInsurance: true, includePageText: true, includePaperDemographics: true
     });
     ocrText = typeof extracted === 'string' ? extracted : extracted.text || '';
     ocrPages = typeof extracted === 'object' ? extracted.pages || [] : [];
     insuranceText=typeof extracted==='string'?'':extracted.insuranceText;
+    demographicsText=typeof extracted==='string'?'':extracted.demographicsText;
   } catch (e) {
     console.warn('[paperPacketVision] OCR failed');
     const reviewReasons = ['vision_ocr_failed'];
@@ -238,7 +239,7 @@ export async function evaluateAndApplyPaperPacketVision({
     demographicApply = await applyPaperPacketDemographicsFromText({
       clientId: cid,
       ocrText,
-      insuranceText,
+      insuranceText, demographicsText,
       documentId: phiId,
       locale:packetLocale,
       actorUserId

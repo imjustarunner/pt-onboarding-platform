@@ -1,3 +1,4 @@
+import { supportsDirectorySort } from '../utils/clientDirectoryPage.js';
 import { generatedClientInitials } from '../../../frontend/src/navigation/clientInitials.js';
 import { attachRosterServiceContexts } from '../services/clientServiceContext.service.js';
 import {filterClientDemos} from '../utils/clientDemoFilter.js';
@@ -475,6 +476,22 @@ async function getSkillBuilderEligibilityForUser(userId) {
   }
 }
 
+async function attachRosterAssignmentAudit(rows) {
+  if (!rows.length) return rows;
+  try {
+    const ids=rows.map(row=>Number(row.id));
+    const [assignments]=await pool.execute(`SELECT h.client_id,h.changed_at AS assigned_at,
+      CONCAT_WS(' ',u.first_name,u.last_name) AS assigned_by_name
+      FROM client_status_history h JOIN clients c ON c.id=h.client_id
+      LEFT JOIN users u ON u.id=h.changed_by_user_id
+      WHERE h.client_id IN (${ids.map(()=>'?').join(',')}) AND h.field_changed='provider_id'
+        AND h.id=(SELECT MAX(latest.id) FROM client_status_history latest WHERE latest.client_id=h.client_id AND latest.field_changed='provider_id')
+        AND h.to_value=CAST(c.provider_id AS CHAR)`,ids);
+    const byId=new Map(assignments.map(row=>[Number(row.client_id),row]));
+    return rows.map(row=>({...row,...(byId.get(Number(row.id))||{})}));
+  } catch(error) {if(error.code!=='ER_NO_SUCH_TABLE')throw error;return rows;}
+}
+
 export const getClients = async (req, res, next) => {
   try {
     const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id, client_type } = req.query;
@@ -513,7 +530,8 @@ export const getClients = async (req, res, next) => {
     if (userRole === 'super_admin') {
       // Super admin can see all clients
       // Get all agencies
-      const allAgencies = await Agency.findAll(true, false);
+      // Scope selection needs IDs, not the full agency/theme/icon directory.
+      const [allAgencies] = await pool.execute('SELECT id FROM agencies WHERE COALESCE(is_archived,0)=0');
       agencyIds = allAgencies.map(a => a.id);
     } else {
       // Regular users: filter by their assigned agencies
@@ -553,6 +571,20 @@ export const getClients = async (req, res, next) => {
       created_via_dev_fill: createdViaDevFill,
       exclude_compliance_archived: !includeComplianceArchived
     };
+
+    // Page IDs in SQL before hydrating charts or computing per-client needs.
+    // Specialized renewal/referral views retain their full reconciliation path.
+    if (paginateRequested && isBackofficeRole(userRole) && !skillBuildersOnly
+      && !req.query.referral_entry_id && !req.query.renewalFlag && !req.query.renewal_flag
+      && !['true','1'].includes(String(req.query.includeGuardians || req.query.include_guardians || '').toLowerCase())
+      && String(req.query.includeServiceContext || '')!=='1'
+      && supportsDirectorySort(String(req.query.sort || req.query.sort_by || ''))) {
+      const result=await Client.findAll({...options,agency_ids:agencyIds,includeArchived,clientStatusKey:clientStatusKeyRaw,demo:String(req.query.demo || '').toLowerCase(),directoryPage:{page:pageParam,perPage:perPageParam,sort:String(req.query.sort || req.query.sort_by || ''),order:String(req.query.order || req.query.sort_order || 'desc'),summaryTone:String(req.query.summary_tone || '')}});
+      try {result.items=attachRenewalFlagsToClients(result.items,await computeRenewalFlagsForClients(result.items));}
+      catch(e){console.warn('[getClients] page renewal flags failed',e?.code || 'unknown');}
+      result.items=await attachRosterAssignmentAudit(redactClientNamesForRole(result.items,userRole));
+      return res.json(result);
+    }
 
     // Get clients for all user's agencies
     let allClients = [];
@@ -819,20 +851,7 @@ export const getClients = async (req, res, next) => {
     }
 
     out=filterClientDemos(out,String(req.query.demo || '').toLowerCase());
-    if (out.length && isBackofficeRole(req.user.role)) {
-      try {
-        const ids = out.map(row => Number(row.id));
-        const [assignments] = await pool.execute(`SELECT h.client_id,h.changed_at AS assigned_at,
-          CONCAT_WS(' ',u.first_name,u.last_name) AS assigned_by_name
-          FROM client_status_history h JOIN clients c ON c.id=h.client_id
-          LEFT JOIN users u ON u.id=h.changed_by_user_id
-          WHERE h.client_id IN (${ids.map(() => '?').join(',')}) AND h.field_changed='provider_id'
-          AND h.id=(SELECT MAX(latest.id) FROM client_status_history latest WHERE latest.client_id=h.client_id AND latest.field_changed='provider_id')
-          AND h.to_value=CAST(c.provider_id AS CHAR)`, ids);
-        const byId = new Map(assignments.map(row => [Number(row.client_id),row]));
-        out = out.map(row => ({...row,...(byId.get(Number(row.id)) || {})}));
-      } catch (e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
-    }
+    if (isBackofficeRole(req.user.role)) out=await attachRosterAssignmentAudit(out);
 
     if (String(req.query.includeServiceContext || '') === '1') {
       out = await attachRosterServiceContexts(out, { agencyIds, providerId: options.provider_id || null });

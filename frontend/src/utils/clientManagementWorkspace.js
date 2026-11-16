@@ -1,6 +1,6 @@
 // Keep return navigation fast without persisting client records to browser storage.
 const snapshots = new Map();
-const MAX_AGE_MS = 5 * 60 * 1000;
+const MAX_AGE_MS = 30 * 60 * 1000;
 
 export function clientManagementWorkspaceKey({ userId, role, sessionId, agencyId, path } = {}) {
   return JSON.stringify([userId, role, sessionId || '', agencyId || 'platform', path]);

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), preview: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), preview: vi.fn(), autofill: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../contractMerge.service.js', () => ({
-  autofillTokensForCandidate: vi.fn(async () => ({ EMPLOYEE_FULL_NAME: 'New Employee', COMPANY_ADDRESS: '100 Headquarters Rd', ASSIGNED_OFFICE_ID: '7', ASSIGNED_OFFICE_NAME: 'Selected Office', ASSIGNED_OFFICE_ADDRESS: '200 Office St' })),
+  autofillTokensForCandidate: mocks.autofill.mockImplementation(async () => ({ EMPLOYEE_FULL_NAME: 'New Employee', COMPANY_ADDRESS: '100 Headquarters Rd', ASSIGNED_OFFICE_ID: '7', ASSIGNED_OFFICE_NAME: 'Selected Office', ASSIGNED_OFFICE_ADDRESS: '200 Office St' })),
   renderContractHtml: mocks.preview, getAgencyBuilderDefaults: vi.fn(), inferCompensationFromCredential: vi.fn()
 }));
 vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: {}, COMPENSATION_CATEGORIES: [] }));
@@ -69,4 +69,10 @@ describe('contract assignment consistency', () => {
     setup({ failGeneration: true }); await expect(generateAndAssignCandidateContract(request)).rejects.toThrow('failed generation');
     expect(db.rollback).toHaveBeenCalled(); expect(db.commit).not.toHaveBeenCalled(); expect(db.release).toHaveBeenCalled();
   });
+});
+
+it('uses the selected credential throughout rendering instead of a stale wizard credential',async()=>{
+ mocks.autofill.mockResolvedValueOnce({CREDENTIAL:'MA',CREDENTIAL_KEY:'',DEGREE:'MA',LICENSE_TYPE:'MA',LICENSE_INFO:'MA'});
+ await previewCandidateContract({...request,credentialOverride:'MA',tokens:{CREDENTIAL:'BA',CREDENTIAL_KEY:'LPC',LICENSE_TYPE:'LPC'}});
+ expect(mocks.preview.mock.calls[0][0].tokens).toMatchObject({CREDENTIAL:'MA',CREDENTIAL_KEY:'',DEGREE:'MA',LICENSE_TYPE:'MA',LICENSE_INFO:'MA'});
 });

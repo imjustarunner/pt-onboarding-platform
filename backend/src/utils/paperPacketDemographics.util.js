@@ -47,13 +47,13 @@ const LABEL_RULES = [
   ['primaryInsurance', /^seguro (?:m[eé]dico )?primario\b/i],
   ['policyHolder', /^titular (?:de la p[oó]liza|del seguro)\b/i],
   ['memberId', /^(?:id|identificaci[oó]n|n[uú]mero) (?:de|del) (?:miembro|afiliado)\b/i],
-  ['fullName', /^dependent'?s?\s+name\b/i],
+  ['fullName', /^dependent['’‘]?s?\s+name\b/i],
   ['dateOfBirth', /^dependent['’]?s?\s+date\s+of\s+birth\b/i],
-  ['age', /^dependent'?s?\s+age\b/i],
-  ['administrativeSex', /^dependent'?s?\s+sex\b/i],
-  ['grade', /^dependent'?s?\s+grade\b/i],
-  ['addressStreet', /^dependent'?s?\s+address\b/i],
-  ['addressCity', /^dependent'?s?\s+city\b/i],
+  ['age', /^dependent['’‘]?s?\s+age\b/i],
+  ['administrativeSex', /^dependent['’‘]?s?\s+sex\b/i],
+  ['grade', /^dependent['’‘]?s?\s+grade\b/i],
+  ['addressStreet', /^dependent['’‘]?s?\s+address\b/i],
+  ['addressCity', /^dependent['’‘]?s?\s+city\b/i],
   ['addressState', /^state\b/i],
   ['addressZip', /^zip\s*code\b/i],
   ['guardianName', /^your name\b/i],
@@ -225,7 +225,7 @@ function splitContactLine(value) {
 function cleanStreet(value) {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (!s || s.length > 120) return null;
-  if (/^(state|zip|city|dependent)/i.test(s)) return null;
+  if (/^(state|zip|city|dependent)/i.test(s) || parseDateToken(s) || !/[A-Za-zÀ-ÿ]/.test(s)) return null;
   return s;
 }
 
@@ -236,7 +236,7 @@ function cleanCity(value) {
   return s.split(/\bstate\b/i)[0].trim() || null;
 }
 
-export function extractPaperPacketDemographics(rawText, {insuranceText,locale='auto'} = {}) {
+export function extractPaperPacketDemographics(rawText, {insuranceText,demographicsText,locale='auto'} = {}) {
   const result = emptyParsed();
   result.sourceLocale=paperPacketLocale(rawText,locale);result.sourceValues={};result.responses=paperWrittenResponses(rawText,result.sourceLocale);
   const lines = joinSpanishLabels(rawText).replace(/\r\n/g, '\n')
@@ -248,13 +248,18 @@ export function extractPaperPacketDemographics(rawText, {insuranceText,locale='a
     .replace(/\s+(?=(?:seguro primario|seguro secundario|titular de la póliza|titular secundario|número de identificación de miembro|número de identificación secundario|número de grupo de la póliza|número de grupo secundario)\b)/giu, '\n')
     .split('\n');
   let i = 0;
+  let intakeStarted = false;
   while (i < lines.length) {
     const line = String(lines[i] || '').trim();
     if (!line) {
       i += 1;
       continue;
     }
-    if (STOP_LINE.test(foldPaperText(line))) break;
+    if (STOP_LINE.test(foldPaperText(line))) {
+      if (intakeStarted) break;
+      i += 1;
+      continue;
+    }
     const yesNo = YES_NO_RULES.find(([, re]) => re.test(foldPaperText(line)));
     if (yesNo) {
       let answer = markedYesNo(line);
@@ -271,6 +276,7 @@ export function extractPaperPacketDemographics(rawText, {insuranceText,locale='a
       i += 1;
       continue;
     }
+    if (['fullName','dateOfBirth','administrativeSex','addressStreet'].includes(label.key)) intakeStarted = true;
     const taken = takeValue(lines, i, label.rest);
     i = taken.next;
     const value = taken.value;
@@ -307,6 +313,12 @@ export function extractPaperPacketDemographics(rawText, {insuranceText,locale='a
     else if (label.key === 'secondaryGroup' && !result.secondaryGroup) result.secondaryGroup = cleanShortText(value, 80);
   }
   for(const key of ['administrativeSex','grade','preferredLanguage','guardianPreferredLanguage','guardianRelationship'])if(result[key]){const original=result[key];result[key]=englishPaperValue(key,original);if(original!==result[key])result.sourceValues[key]=original;}
+  if (demographicsText) {
+    const table=extractPaperPacketDemographics(demographicsText,{locale:result.sourceLocale});
+    for(const key of ['fullName','dateOfBirth','administrativeSex','grade','addressStreet','addressCity','addressState','addressZip'])result[key]=table[key];
+    if(table.sourceValues?.dateOfBirth)result.sourceValues.dateOfBirth=table.sourceValues.dateOfBirth;
+    result.dateOfBirthNeedsReview=!!table.dateOfBirthNeedsReview;
+  }
   if (insuranceText) {
     const table=extractPaperPacketDemographics(insuranceText);
     for(const key of ['primaryInsurance','secondaryInsurance','policyHolder','secondaryHolder','memberId','secondaryMemberId','policyGroup','secondaryGroup'])result[key]=table[key];

@@ -114,6 +114,7 @@
         <div class="sph-grid">
           <template v-for="field in visibleContractFields" :key="field.key">
             <ContractServiceFocusSelect v-if="field.key === 'SERVICE_FOCUS'" v-model="contractOverrides.SERVICE_FOCUS" :options="serviceFocusOptions" />
+            <div v-else-if="field.key === 'LICENSE_TYPE'"><span>{{ field.label }}</span><CredentialPicker v-model="contractCredential" /><span class="muted">Uses the app’s credential list. Select the recorded degree and any license or candidate registration.</span></div>
             <label v-else>{{ field.label }}<input v-model="contractOverrides[field.key]" :readonly="['COMPANY_ADDRESS', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS'].includes(field.key) || (agreementBuilder && field.key === 'ROLE_LABEL')" /></label>
           </template>
           <label v-if="showSchoolDays">Expected school days / week <input v-model="contract.minDays" type="number" min="1" max="7" step="1" /><span class="muted small">Expected days present in the school. Each school day is approximately 8:00 a.m.–3:00 p.m., with roughly seven clients. Applies when school is all or part of the service focus.</span></label>
@@ -237,6 +238,7 @@
 </template>
 
 <script setup>
+import CredentialPicker from '../../components/CredentialPicker.vue';
 import { isSupervisor } from '../../utils/helpers.js';
 import HirePackageContents from '../../components/hiring/HirePackageContents.vue';
 import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
@@ -581,7 +583,7 @@ const initiate = async () => {
         compensationLevel: contract.compensationLevel,
         officeLocationId: officeLocationId.value,
         compensationCategory: contract.compensationCategory || inferredCategory.value || null,
-        credential: contractOverrides.LICENSE_TYPE || detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL || null,
+        credential: contractCredential.value || null,
         contractConfigId: contractConfigId.value,
         contractPreviewHash: contractPreview.value?.previewHash,
         contractBuilderTemplateId: null,
@@ -628,7 +630,11 @@ const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agency
 const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId.value}&category=workflow&item=packages`));
 const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agencyId.value}`));
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
-const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverrides,
+const contractCredential = computed({
+  get: () => contractOverrides.CREDENTIAL ?? wizardTokens.value.CREDENTIAL ?? detail.value?.profile?.credential ?? '',
+  set: value => { contractOverrides.CREDENTIAL=value; contractOverrides.LICENSE_TYPE=value; }
+});
+const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverrides, CREDENTIAL:contractCredential.value,
   AGREEMENT_SELECTION_DRIVEN: agreementBuilder.value ? '1' : '0', AGREEMENT_VARIANT: agreementVariant.value,
   ...(contractTenant.value ? {
     CONTRACT_EXPECTATIONS: individualExpectations.value,
@@ -654,7 +660,7 @@ function setAdditionalContractField(key, value) {
 }
 const lastPreviewInput = ref('');
 const previewMatches = computed(() => lastPreviewInput.value === JSON.stringify(previewInput.value));
-const previewInput = computed(() => ({ compensationLevel: contract.compensationLevel, officeLocationId: officeLocationId.value, configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: contractOverrides.LICENSE_TYPE || detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL }));
+const previewInput = computed(() => ({ compensationLevel: contract.compensationLevel, officeLocationId: officeLocationId.value, configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: contractCredential.value }));
 watch(previewInput, () => { contractReviewed.value = false; }, { deep: true });
 const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.required !== false && !r.url)));
 const probationRequired = computed(() => !!contractTenant.value && !/amendment|addendum|acknowledg/i.test(contractConfigs.value.find(c=>Number(c.id)===Number(contractConfigId.value))?.slug||''));
@@ -691,10 +697,10 @@ async function refreshContractLibrary() {
   }
   catch (e) { previewError.value = 'Could not refresh contract settings.'; }
 }
-watch(() => contractOverrides.LICENSE_TYPE, async credential => {
+watch(contractCredential, async credential => {
   if (loading.value || !credential) return;
   try { const { data } = await api.get('/contracts/infer-compensation', { params: { agencyId: agencyId.value, credential, jobTitle: jobTitle.value } });
-    if (credential !== contractOverrides.LICENSE_TYPE) return;
+    if (credential !== contractCredential.value) return;
     inferredCategory.value = data.compensationCategory; inferredPayLabel.value = data.payCategoryLabel;
     contract.compensationCategory = String(data.compensationCategory || ''); contract.compensationLevel = '';
   } catch { previewError.value = 'Could not infer compensation. Select the category and level explicitly.'; }
