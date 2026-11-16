@@ -1,80 +1,84 @@
 <template>
   <div class="family-billing">
-    <header><h3>{{ section === 'authorization' ? 'Payment authorization' : section === 'payment' ? 'Payment method' : learningOnly ? 'Payment methods' : 'Insurance & payment methods' }}</h3><p>{{ learningOnly ? 'Your saved payment methods remain private to your account, including when another guardian also pays.' : 'Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.' }}</p></header>
-    <p v-if="loading" role="status">Loading billing…</p>
+    <header><h3>{{ ft(section === 'authorization' ? 'Payment authorization' : section === 'payment' ? 'Payment method' : learningOnly ? 'Payment methods' : 'Insurance & payment methods') }}</h3><p>{{ ft(learningOnly ? 'Your saved payment methods remain private to your account, including when another guardian also pays.' : 'Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.') }}</p></header>
+    <p v-if="loading" role="status">{{ ft("Loading billing…") }}</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
     <InsuranceCardTasks v-if="section === 'all' && insurableClients.length" :key="insuranceRevision" :agency-id="agencyId" :client-id="clientId" />
     <template v-if="data">
-      <p v-if="!data.clients.length">{{learningOnly?'No student payment profiles are available under your current access in this organization.':'No client billing profiles are available under your current access in this organization.'}}</p>
+      <p v-if="!data.clients.length">{{ ft(learningOnly?'No student payment profiles are available under your current access in this organization.':'No client billing profiles are available under your current access in this organization.') }}</p>
       <section class="client-grid">
         <article v-for="client in scopedClients" :key="client.clientId" class="billing-card">
           <h4>{{ client.clientName }}</h4>
-          <p><strong>Responsible payer:</strong> {{ client.responsiblePayers.map(p => p.name).join(', ') || 'Not yet designated' }}</p>
-          <p v-if="!learningOnly && client.insuranceOnFile && client.insuranceApplicable !== false">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
-          <p v-if="!learningOnly && client.medicaid" class="status">Medicaid coverage: a payment method is not required.</p>
-          <p v-else-if="client.paymentSetupRequested" role="status">Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.</p>
-          <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
+          <p><strong>{{ ft("Responsible payer:") }}</strong> {{ ft(client.responsiblePayers.map(p => p.name).join(', ') || 'Not selected') }}</p>
+          <p v-if="!client.responsiblePayers.length" class="status">{{ ft("A payer has not been selected. This setup status does not mean you owe a balance.") }}</p>
+          <p v-if="client.canAcceptResponsibility" class="status">{{ ft("Financial responsibility is a separate authorization for future verified charges. Reviewing it does not make a payment or turn on automatic payments.") }}</p>
+          <p v-if="!learningOnly && client.insuranceOnFile && client.insuranceApplicable !== false">{{ ft("Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.") }}</p>
+          <p v-if="!learningOnly && client.medicaid" class="status">{{ ft("Medicaid coverage: a payment method is not required.") }}</p>
+          <p v-else-if="client.paymentSetupRequested" role="status">{{ ft("Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.") }}</p>
+          <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">{{ ft("Review and sign payment authorization") }}</button>
           <template v-else-if="client.canManageBilling && !client.medicaid">
-            <p v-if="!client.medicaid" class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : learningOnly ? 'Payment is handled separately under your agreed tutoring arrangement. Contact the office if you need help.' : 'Payment method required before paid services' }}</p>
-            <label>Your card for this {{learningOnly?'student':'client'}}<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
-            <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this {{learningOnly?'student':'client'}}</button>
-            <p v-if="client.recurringEnabled">Recurring authorization active, up to {{ money(client.recurringLimitCents) }} per charge.</p>
-            <button v-if="client.recurringEnabled" class="btn btn-secondary" type="button" :disabled="busy" @click="revoke(client)">Revoke recurring authorization</button>
-            <button v-else-if="!client.medicaid" class="btn btn-secondary" type="button" :disabled="busy || !client.paymentCardId" @click="openAuthorization(client,'recurring')">Authorize recurring billing</button>
+            <p v-if="!client.medicaid" class="status">{{ ft(client.paymentCardId ? 'Your payment method is assigned' : learningOnly ? 'Payment is handled separately under your agreed tutoring arrangement. Contact the office if you need help.' : 'Payment method required before paid services') }}</p>
+            <label>{{ ft("Your card for this") }} {{ ft(learningOnly?'student':'client') }}<select v-model="cardSelections[client.clientId]"><option value="">{{ ft("Select a saved card") }}</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
+            <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">{{ ft("Apply card to this") }} {{ ft(learningOnly?'student':'client') }}</button>
+            <p v-if="client.recurringEnabled">{{ ft("Recurring authorization active, up to") }} {{ money(client.recurringLimitCents) }} {{ ft("per charge.") }}</p>
+            <button v-if="client.recurringEnabled" class="btn btn-secondary" type="button" :disabled="busy" @click="revoke(client)">{{ ft("Revoke recurring authorization") }}</button>
+            <button v-else-if="!client.medicaid" class="btn btn-secondary" type="button" :disabled="busy || !client.paymentCardId" @click="openAuthorization(client,'recurring')">{{ ft("Authorize recurring billing") }}</button>
           </template>
-          <button v-else-if="!client.medicaid && client.canAcceptResponsibility" class="btn btn-secondary" type="button" @click="openAuthorization(client,'responsibility')">Accept financial responsibility</button>
+          <button v-else-if="!client.medicaid && client.canAcceptResponsibility" class="btn btn-secondary" type="button" @click="openAuthorization(client,'responsibility')">{{ ft("Review financial responsibility") }}</button>
         </article>
       </section>
       <form v-if="authorization" class="billing-card authorization" @submit.prevent="authorize">
-        <h4>{{ authorization.purpose === 'recurring' ? 'Authorize recurring payments' : 'Accept financial responsibility' }} for {{ authorization.client.clientName }}</h4>
+        <h4>{{ ft(authorization.purpose === 'recurring' ? 'Authorize recurring payments' : 'Accept financial responsibility') }} {{ ft("for") }} {{ authorization.client.clientName }}</h4>
         <p>{{ data.terms }}</p>
-        <label v-if="authorization.purpose === 'recurring'">Maximum amount per charge (USD)<input v-model="limitDollars" type="number" min="0.01" max="10000" step="0.01" required /></label>
-        <label>Your full name (electronic signature)<input v-model="signature" required maxlength="255" autocomplete="name" /></label>
-        <label class="check"><input v-model="accepted" type="checkbox" required /> I have read and agree to this authorization for this {{learningOnly?'student':'client'}}.</label>
-        <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">Sign authorization</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">Cancel</button></div>
+        <label v-if="authorization.purpose === 'recurring'">{{ ft("Maximum amount per charge (USD)") }}<input v-model="limitDollars" type="number" min="0.01" max="10000" step="0.01" required /></label>
+        <label>{{ ft("Your full name (electronic signature)") }}<input v-model="signature" required maxlength="255" autocomplete="name" /></label>
+        <label class="check"><input v-model="accepted" type="checkbox" required /> {{ ft("I have read and agree to this authorization for this") }} {{ ft(learningOnly?'student':'client') }}.</label>
+        <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">{{ ft("Sign authorization") }}</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">{{ ft("Cancel") }}</button></div>
       </form>
       <template v-if="manageableClients.length || insurableClients.length">
         <section v-if="paymentEligibleClients.length && section !== 'authorization'" class="billing-card wallet-section">
-          <p v-if="data.paymentSimulator?.enabled" class="qa-payment-notice" role="status">QA payment simulation is enabled. These records do not move money or contact a bank.</p>
-          <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled||data.paymentSimulator?.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : data.paymentSimulator?.enabled?'Add a QA test card':'Add a card' }}</button></div>
-          <p v-if="!data.stripe.enabled&&!data.paymentSimulator?.enabled">Online card setup is not available yet because this agency has not completed its payment connection. Your financial authorization is saved separately.</p>
+          <p v-if="data.paymentSimulator?.enabled" class="qa-payment-notice" role="status">{{ ft("QA payment simulation is enabled. These records do not move money or contact a bank.") }}</p>
+          <div class="section-head"><h4>{{ ft("Your saved cards") }}</h4><button v-if="data.stripe.enabled||data.paymentSimulator?.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ ft(showCard ? 'Close card form' : data.paymentSimulator?.enabled?'Add a QA test card':'Add a card') }}</button></div>
+          <p v-if="!data.stripe.enabled&&!data.paymentSimulator?.enabled">{{ ft("Online card setup is not available yet because this agency has not completed its payment connection. Your financial authorization is saved separately.") }}</p>
           <QaPendingPayments v-if="data.paymentSimulator?.enabled" :agency-id="agencyId" :key="`${agencyId}:${guardianUserId || ''}`" @resolved="load" />
-          <p v-if="!data.cards.length">No payment method on file.</p>
-          <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} <template v-if="card.simulated"> · Simulated · {{card.simulationScenario}}</template><template v-else> · {{ expired(card) ? 'Expired' : 'Expires' }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</template></span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
-          <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for your clients at this agency.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
+          <p v-if="!data.cards.length">{{ ft("No payment method on file.") }}</p>
+          <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} <template v-if="card.simulated"> {{ ft("· Simulated ·") }} {{card.simulationScenario}}</template><template v-else> · {{ ft(expired(card) ? 'Expired' : 'Expires') }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</template></span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">{{ ft("Remove") }}</button></div>
+          <div v-if="removingCard" class="notice"><p>{{ ft("Remove your card ending in") }} {{ removingCard.card_last4 }}{{ ft("? This also revokes its recurring authorizations for your clients at this agency.") }}</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">{{ ft("Remove card") }}</button> <button class="btn btn-secondary" @click="removingCard = null">{{ ft("Keep card") }}</button></div>
           <QaTestCardSetup v-if="showCard&&paymentEligibleClients.length&&data.paymentSimulator?.enabled" :key="`${agencyId}:${guardianUserId || ''}:${clientId || ''}`" :agency-id="agencyId" :terms="data.terms" :terms-version="data.termsVersion" @saved="cardSaved" />
           <SecureCardSetup v-else-if="showCard && paymentEligibleClients.length" :key="`${agencyId}:${guardianUserId || ''}:${clientId || ''}`" :agency-id="agencyId" :owner-key="guardianUserId" :collection-allowed="paymentEligibleClients.length > 0" @saved="cardSaved" />
         </section>
         <section v-if="insurableClients.length && section === 'all'" class="billing-card insurance-section">
-          <div class="section-head"><h4>Your insurance policies</h4><button class="btn btn-secondary" type="button" @click="editInsurance()">Add insurance</button></div>
-          <p>You may add coverage you hold for your child without accepting payment responsibility. Additional coverage is submitted for office review and does not replace another parent’s policy.</p>
-          <p v-if="!scopedProfiles.length">No insurance policy has been assigned from your account.</p>
+          <div class="section-head"><h4>{{ ft("Your insurance policies") }}</h4><button class="btn btn-secondary" type="button" @click="editInsurance()">{{ ft("Add insurance") }}</button></div>
+          <p>{{ ft("You may add coverage you hold for your child without accepting payment responsibility. Additional coverage is submitted for office review and does not replace another parent’s policy.") }}</p>
+          <p v-if="!scopedProfiles.length">{{ ft("No insurance policy has been assigned from your account.") }}</p>
           <article v-for="profile in scopedProfiles" :key="profile.id" class="policy-summary">
-            <h5>{{ profile.primary.insurerName || 'Policy awaiting review' }}</h5>
-            <p>Member ID: {{ profile.primary.memberId || 'Missing' }} · Subscriber: {{ profile.primary.subscriberName || 'Missing' }}</p>
-            <p>Coverage submitted for: {{ profile.clientIds.map(id => data.clients.find(c => Number(c.clientId) === id)?.clientName).filter(Boolean).join(', ') || 'No client selected' }}</p>
-            <p>The office reviews coverage and determines primary and secondary billing before submitting claims.</p>
-            <p v-if="profile.secondary">Secondary: {{ profile.secondary.insurerName }} · Member ID: {{ profile.secondary.memberId }}</p>
-            <details v-if="profile.missingClaimFields.length"><summary>Information needed for claims</summary><ul><li v-for="issue in profile.missingClaimFields" :key="issue">{{ issue }}</li></ul></details>
-            <button class="btn btn-secondary" type="button" @click="editInsurance(profile)">Review coverage / apply to clients</button>
+            <h5>{{ ft(profile.primary.insurerName || 'Policy awaiting review') }}</h5>
+            <p>{{ ft("Member ID:") }} {{ ft(profile.primary.memberId || 'Missing') }} {{ ft("· Subscriber:") }} {{ ft(profile.primary.subscriberName || 'Missing') }}</p>
+            <p>{{ ft("Coverage submitted for:") }} {{ ft(profile.clientIds.map(id => data.clients.find(c => Number(c.clientId) === id)?.clientName).filter(Boolean).join(', ') || 'No client selected') }}</p>
+            <p>{{ ft("The office reviews coverage and determines primary and secondary billing before submitting claims.") }}</p>
+            <p v-if="profile.secondary">{{ ft("Secondary:") }} {{ profile.secondary.insurerName }} {{ ft("· Member ID:") }} {{ profile.secondary.memberId }}</p>
+            <details v-if="profile.missingClaimFields.length"><summary>{{ ft("Information needed for claims") }}</summary><ul><li v-for="issue in profile.missingClaimFields" :key="issue">{{ issue }}</li></ul></details>
+            <button class="btn btn-secondary" type="button" @click="editInsurance(profile)">{{ ft("Review coverage / apply to clients") }}</button>
           </article>
         </section>
         <form v-if="!learningOnly && insuranceDraft" ref="insuranceForm" class="billing-card" @submit.prevent="saveInsurance">
-          <h4>Insurance coverage</h4>
-          <label>Policy scope<select v-model="insuranceDraft.coverageScope"><option value="client">One client</option><option value="account_holder">Account holder and covered dependents</option></select></label>
-          <fieldset><legend>Clients covered by this policy</legend><label v-for="client in insurableClients" :key="client.clientId" class="check"><input v-model="insuranceDraft.clientIds" type="checkbox" :value="Number(client.clientId)" /> {{ client.clientName }}</label></fieldset>
-          <InsuranceCardReader :key="`primary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('primary',$event)" @files="cardFiles.primary=$event"/><h5>Your policy</h5><p>The office determines whether this is primary or secondary coverage for each client.</p><InsurancePolicyFields :scope-key="`${insuranceDraft.clientIds.join(',')}:${draftVersion}:primary`" v-model="insuranceDraft.primary" />
-          <label class="check"><input v-model="hasSecondary" type="checkbox" /> Add another policy you hold</label>
-          <template v-if="hasSecondary"><InsuranceCardReader :key="`secondary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('secondary',$event)" @files="cardFiles.secondary=$event"/><h5>Additional policy</h5><InsurancePolicyFields :scope-key="`${insuranceDraft.clientIds.join(',')}:${draftVersion}:secondary`" v-model="insuranceDraft.secondary" /></template>
-          <label class="check"><input v-model="coverageConfirmed" type="checkbox" required /> I confirm that the selected clients are covered. I have checked the subscriber and member details; I understand the office must verify benefits.</label>
-          <div class="actions"><button class="btn btn-primary" :disabled="busy || !coverageConfirmed">Save coverage</button><button class="btn btn-secondary" type="button" @click="insuranceDraft = null">Cancel</button></div>
+          <h4>{{ ft("Insurance coverage") }}</h4>
+          <label>{{ ft("Policy scope") }}<select v-model="insuranceDraft.coverageScope"><option value="client">{{ ft("One client") }}</option><option value="account_holder">{{ ft("Account holder and covered dependents") }}</option></select></label>
+          <fieldset><legend>{{ ft("Clients covered by this policy") }}</legend><label v-for="client in insurableClients" :key="client.clientId" class="check"><input v-model="insuranceDraft.clientIds" type="checkbox" :value="Number(client.clientId)" /> {{ client.clientName }}</label></fieldset>
+          <InsuranceCardReader :key="`primary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('primary',$event)" @files="cardFiles.primary=$event"/><h5>{{ ft("Your policy") }}</h5><p>{{ ft("The office determines whether this is primary or secondary coverage for each client.") }}</p><InsurancePolicyFields :scope-key="`${insuranceDraft.clientIds.join(',')}:${draftVersion}:primary`" v-model="insuranceDraft.primary" />
+          <label class="check"><input v-model="hasSecondary" type="checkbox" /> {{ ft("Add another policy you hold") }}</label>
+          <template v-if="hasSecondary"><InsuranceCardReader :key="`secondary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('secondary',$event)" @files="cardFiles.secondary=$event"/><h5>{{ ft("Additional policy") }}</h5><InsurancePolicyFields :scope-key="`${insuranceDraft.clientIds.join(',')}:${draftVersion}:secondary`" v-model="insuranceDraft.secondary" /></template>
+          <label class="check"><input v-model="coverageConfirmed" type="checkbox" required /> {{ ft("I confirm that the selected clients are covered. I have checked the subscriber and member details; I understand the office must verify benefits.") }}</label>
+          <div class="actions"><button class="btn btn-primary" :disabled="busy || !coverageConfirmed">{{ ft("Save coverage") }}</button><button class="btn btn-secondary" type="button" @click="insuranceDraft = null">{{ ft("Cancel") }}</button></div>
         </form>
       </template>
     </template>
   </div>
 </template>
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import InsuranceCardReader from '../billing/InsuranceCardReader.vue';
 import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 import { ref, computed, watch, nextTick } from 'vue';

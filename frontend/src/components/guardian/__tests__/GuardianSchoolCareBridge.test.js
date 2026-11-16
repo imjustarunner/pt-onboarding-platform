@@ -12,13 +12,13 @@ describe('SchoolCareBridge family view',()=>{
   const w=mount(Bridge,{props:{schools,clientId:8}});expect(w.text()).toContain('Wednesday');expect(w.text()).toContain('Taylor Provider');expect(w.text()).toContain('Robin Staff');expect(w.text()).toContain('Awaiting signature');expect(w.text()).not.toContain('Old Provider');
  });
  it('labels former schools and providers while retaining their signed ROI access',()=>{
-  const w=mount(Bridge,{props:{schools,schoolId:19,clientId:8}});expect(w.text()).toContain('Former school');expect(w.text()).toContain('Previous assignment');expect(w.text()).toContain('Old Staff');expect(w.text()).toContain('Open my signed ROI');expect(w.text()).not.toContain('Taylor Provider');
+  const w=mount(Bridge,{props:{schools,schoolId:19,clientId:8}});expect(w.text()).toContain('Former school');expect(w.text()).toContain('Previous assignment');expect(w.text()).toContain('Old Staff');expect(w.text()).toContain('Open my signed release');expect(w.text()).not.toContain('Taylor Provider');
  });
  it('opens the signed ROI through the authorized client document endpoint',async()=>{
   api.get.mockResolvedValueOnce({data:{url:'https://storage.googleapis.com/test/roi.pdf'}});
   const click=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
   const w=mount(Bridge,{props:{schools,schoolId:19,clientId:8}});
-  await w.findAll('button').find(b=>b.text()==='Open my signed ROI').trigger('click');await flushPromises();
+  await w.findAll('button').find(b=>b.text()==='Open my signed release').trigger('click');await flushPromises();
   expect(api.get).toHaveBeenCalledWith('/guardian-portal/clients/8/intake-documents/42/download-url');expect(click).toHaveBeenCalled();click.mockRestore();w.unmount();
  });
  it('switches school context and returns to the client care dashboard',async()=>{

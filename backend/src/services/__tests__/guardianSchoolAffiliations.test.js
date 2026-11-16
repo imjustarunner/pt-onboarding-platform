@@ -3,7 +3,7 @@ const execute = vi.hoisted(() => vi.fn());
 vi.mock('../../config/database.js', () => ({default:{execute}}));
 import {attachGuardianSchoolAffiliations} from '../guardianSchoolAffiliations.service.js';
 const client = {client_id:8,organization_id:20,organization_type:'school',organization_name:'Current School',permissions_json:{canViewDocs:true}};
-const options = {guardianUserId:4,providerClientIds:[8],documentClientIds:[8]};
+const options = {guardianUserId:4,providerClientIds:[8],documentClientIds:[8],loadConsent:async()=>new Map()};
 beforeEach(() => execute.mockReset());
 function seed() {
  execute.mockResolvedValueOnce([[{client_id:8,organization_id:20,name:'Current School',is_active:1,is_primary:1},{client_id:8,organization_id:19,name:'Former School',is_active:0,is_primary:0}]])
@@ -39,7 +39,7 @@ describe('guardian school history', () => {
   expect(rows.every(c=>c.school_affiliations.length===0)).toBe(true);expect(execute).not.toHaveBeenCalled();
  });
  it('does not disclose clinical schedule or document links without the corresponding scopes', async () => {
-  seed();const [result]=await attachGuardianSchoolAffiliations([client],{guardianUserId:4});
+  seed();const [result]=await attachGuardianSchoolAffiliations([client],{guardianUserId:4,loadConsent:options.loadConsent});
   expect(result.school_affiliations.every(s=>s.providers.length===0)).toBe(true);
   expect(result.school_affiliations[1].roi.document_id).toBeNull();
  });
@@ -47,4 +47,15 @@ describe('guardian school history', () => {
   seed();const [result]=await attachGuardianSchoolAffiliations([{...client,permissions_json:{canViewDocs:false}}],options);
   expect(result.school_affiliations[1].roi.document_id).toBeNull();
  });
+});
+
+it('uses this guardian’s signed enrollment evidence when no separate signing link exists',async()=>{
+ execute.mockResolvedValue([[]]);const loadConsent=vi.fn(async()=>new Map([[8,[{decisions:[{guardianUserId:4,signedAt:'2026-11-12',expired:false},{guardianUserId:5,signedAt:'2026-11-13',expired:false}]}]]]));
+ const [row]=await attachGuardianSchoolAffiliations([client],{...options,loadConsent});
+ expect(row.school_affiliations[0].roi).toMatchObject({status:'completed',signed_at:'2026-11-12',document_id:null,source:'signed_enrollment'});
+ expect(loadConsent).toHaveBeenCalledWith(expect.objectContaining({clientIds:[8],schoolOrganizationId:20}));
+});
+it('does not claim another guardian’s signature is the current guardian’s release',async()=>{
+ execute.mockResolvedValue([[]]);const loadConsent=async()=>new Map([[8,[{decisions:[{guardianUserId:5,signedAt:'2026-11-12',expired:false}]}]]]);
+ const [row]=await attachGuardianSchoolAffiliations([client],{...options,loadConsent});expect(row.school_affiliations[0].roi.status).toBe('not_on_file');
 });

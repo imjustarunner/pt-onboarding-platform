@@ -21,7 +21,7 @@
     <p v-if="notice" role="status">{{ notice }}</p>
     <GuardianServiceExitFeedback v-if="exitFeedbackId&&!preview" :key="`${clientId}:${exitFeedbackId}`" :client-id="clientId" :operation-id="exitFeedbackId" @close="exitFeedbackId='';exitFeedbackDismissed=true" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
-    <p v-else-if="!appointments.length">{{ ft("No appointments are available to display.") }}</p>
+    <p v-else-if="!appointments.length">{{ ft("No appointments are scheduled yet. Contact your team to arrange the next visit.") }} <button type="button" @click="$emit('help')">{{ ft("Contact your team") }}</button></p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : a.modality === 'VIRTUAL' ? ft('Online') : a.modality }} · {{ ft(a.status.replaceAll('_',' ')) }}</p>
       <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">{{ ft("Join online appointment →") }}</a>
@@ -92,7 +92,7 @@ const authStore = getActivePinia() ? useAuthStore() : { user: null };
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
-const emit=defineEmits(['notifications','service-ended']);
+const emit=defineEmits(['notifications','service-ended','help']);
 const editingId=ref(null),actionForm=ref(null);
 const cancellationAppointment=ref(null),cancellationScope=ref('single');
 const exitFeedbackId=ref(''),exitFeedbackDismissed=ref(false);

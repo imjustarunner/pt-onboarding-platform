@@ -3,8 +3,8 @@ import { AURICWELL_MARK_URL } from '../constants/auricwellBrand.js';
 // Do not add an LLC suffix, covered-entity status, or a privacy officer without source evidence.
 const profile = (slug, name, origin, kind, options = {}) => ({slug, name, legalName:name, origin, kind, color:'#285e51', logo:'', contactUrl:`${origin}/contact`, ...options});
 export const tenantLegalProfiles = {
-  itsco: profile('itsco','ITSCO','https://www.itsco.health','healthcare',{legalName:'ITSCO, LLC',logo:'/assets/itsco/logo.png',email:'support@itsco.health',privacyEmail:'PO@ITSCO.health',privacyPhone:'833-444-8726',privacyOfficer:'Michael Mendez'}),
-  nlu: profile('nlu','Next Level Up','https://nextleveluplcc.com','healthcare',{legalName:'NEXTLEVELUP, LLC',logo:'/assets/nlu/logo.png',color:'#1F2A44',phone:'719-377-6577'}),
+  itsco: profile('itsco','ITSCO','https://www.itsco.health','healthcare',{legalName:'ITSCO, LLC',logo:'/assets/itsco/logo.png',phone:'719-657-7444',email:'support@itsco.health',privacyEmail:'PO@ITSCO.health',privacyPhone:'833-444-8726',privacyOfficer:'Michael Mendez'}),
+  nlu: profile('nlu','Next Level Up','https://nextleveluplcc.com','healthcare',{legalName:'NEXTLEVELUP, LLC',logo:'/assets/nlu/logo.png',color:'#1F2A44',phone:'719-377-6577',email:'support@nextleveluplcc.com'}),
   tisi: profile('tisi','The Inner Strength Institute','https://theinnerstrengthinstitute.com','healthcare',{legalName:'The Inner Strength Institute LLC',logo:'/assets/branding/innerstrength-mark.png',color:'#1E40AF',phone:'719-657-1381',email:'support@innerstrengthin.com'}),
   // A provider NPP remains a draft until this practice supplies a working privacy contact.
   rise: profile('rise','Rise Revive','https://risereviveco.com','prelaunch',{logo:'/assets/rise/logo.webp',color:'#123f2e'}),
@@ -17,7 +17,7 @@ export const tenantLegalProfiles = {
   michael: profile('michael','Michael V. Mendez Consulting','https://michaelvmendez.com','consulting',{color:'#304c58',contactUrl:'https://plottwisthq.com/michael'}),
   sstc: profile('sstc','Summit Stats Team Challenge','https://summitstatstc.com','fitness',{color:'#1F6FB5',contactUrl:'https://summitstatstc.com/support'})
 };
-export const tenantLegalAliases = {plottwistco:'ptco',plottwist:'ptco',plottwisthq:'ptco',nextlevelup:'nlu','nlu-qa-demo':'nlu','nlu-qa-learning':'nlu',nextleveluplcc:'nlu','next-level-up':'nlu',innerstrength:'tisi',theinnerstrengthinstitute:'tisi',riserevive:'rise',risereviveco:'rise',mentalrange:'range',summitstats:'sstc',summitstatsteamchallenge:'sstc'};
+export const tenantLegalAliases = {'auricwell-qa-demo':'itsco','auricwell-qa-demo-school':'itsco','auricwell-qa-demo-clinic':'itsco',plottwistco:'ptco',plottwist:'ptco',plottwisthq:'ptco',nextlevelup:'nlu','nlu-qa-demo':'nlu','nlu-qa-learning':'nlu',nextleveluplcc:'nlu','next-level-up':'nlu',innerstrength:'tisi',theinnerstrengthinstitute:'tisi',riserevive:'rise',risereviveco:'rise',mentalrange:'range',summitstats:'sstc',summitstatsteamchallenge:'sstc'};
 export function canonicalLegalSlug(slug) { const key=String(slug||'').trim().toLowerCase(); return tenantLegalAliases[key] || key; }
 export function legalProfileForContext({host='',organizationSlug='',path=''}={}) {
   let slug=organizationSlug || String(path).match(/^\/p\/([^/]+)/)?.[1] || '';

@@ -64,3 +64,12 @@ it('recognizes the occurrence provider through an active service enrollment when
   db.execute.mockImplementation(async sql=>sql.includes('FROM user_agencies')?[[{user_id:7}]]:[[{id:30,is_active:0}]]);
   expect(await service.hasCurrentRights(provider,appointment)).toBe(false);
 });
+
+it('accepts a normally authenticated guardian with a prepared password and retained PENDING_SETUP status',async()=>{
+ const user={id:4,role:'client_guardian',status:'PENDING_SETUP',is_active:1,has_password:1};
+ const db={execute:vi.fn(async sql=>sql.includes('FROM users WHERE id=?')?[[user]]:[[]])};
+ const service=createSecureSessionComments({db});expect(await service.actor({id:4})).toMatchObject({id:4,status:'PENDING_SETUP'});
+ for(const denied of [{...user,has_password:0},{...user,role:'provider'},{...user,role:'staff'},{...user,is_active:0},{...user,is_archived:1},{...user,terminated_at:'2026-01-01'}]){
+  db.execute.mockResolvedValue([[denied]]);await expect(service.actor({id:4})).rejects.toMatchObject({status:403});
+ }
+});

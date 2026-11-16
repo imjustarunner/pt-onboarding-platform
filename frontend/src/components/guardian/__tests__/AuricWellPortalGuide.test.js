@@ -4,9 +4,9 @@ const mocks=vi.hoisted(()=>({post:vi.fn(),route:{query:{}}}));
 vi.mock('../../../services/api',()=>({default:{post:mocks.post}}));
 vi.mock('vue-router',()=>({useRoute:()=>mocks.route}));
 import Guide from '../AuricWellPortalGuide.vue';
-const create=()=>mount(Guide,{props:{agencyId:2,clientId:8},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});
+const create=()=>mount(Guide,{props:{agencyId:2,clientId:8},global:{stubs:{GuardianContactCard:true,RouterLink:{template:'<a><slot /></a>'}}}});
 beforeEach(()=>{vi.clearAllMocks();mocks.route.query={};mocks.post.mockResolvedValue({data:{ticketId:71}});});
-it('opens the guide from the migration email and labels Beta without an unconfigured support address',()=>{mocks.route.query={welcome:'learn-more'};const w=create();expect(w.get('details').attributes()).toHaveProperty('open');expect(w.text()).toContain('Established 2026');expect(w.text()).toContain('Beta');expect(w.text()).not.toContain('technology@');w.unmount();});
+it('opens the guide from the migration email without a Beta label or an invented support address',()=>{mocks.route.query={welcome:'learn-more'};const w=create();expect(w.get('details').attributes()).toHaveProperty('open');expect(w.text()).toContain('Established 2026');expect(w.text()).not.toContain('Beta');expect(w.text()).not.toContain('technology@');w.unmount();});
 it('sends a report only on submit, scoped to the selected profile, with a deduplication key',async()=>{
  const w=create();expect(mocks.post).not.toHaveBeenCalled();await w.get('textarea').setValue('The download failed on my phone.');await w.get('form').trigger('submit');await flushPromises();
  const [url,body]=mocks.post.mock.calls[0];expect(url).toBe('/guardian-portal/technology-help');expect(body.get('clientId')).toBe('8');expect(body.get('agencyId')).toBe('2');expect(body.get('question')).toBe('The download failed on my phone.');expect(body.get('requestId')).toMatch(/^[a-f0-9-]{36}$/);expect(w.text()).toContain('Report #71');w.unmount();
@@ -22,10 +22,10 @@ it('blocks over-limit screenshots before a submission',async()=>{
 });
 
 it('uses the tutoring tenant identity and learning wording without clinical product branding',()=>{
- const w=mount(Guide,{props:{agencyId:6,clientId:8,brandName:'Next Level Up',learning:true},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});
+ const w=mount(Guide,{props:{agencyId:6,clientId:8,brandName:'Next Level Up',learning:true},global:{stubs:{GuardianContactCard:true,RouterLink:{template:'<a><slot /></a>'}}}});
  expect(w.attributes('aria-label')).toBe('About your Next Level Up portal');
  expect(w.text()).toContain('Next Level Up');expect(w.text()).toContain('learning plans');
  expect(w.text()).not.toMatch(/AuricWell|care record|Beta/);expect(w.find('#learning-portal-guide').exists()).toBe(true);w.unmount();
 });
 
-it('uses NLU counseling help without AuricWell or Beta wording',async()=>{const w=mount(Guide,{props:{agencyId:453,clientId:8,brandName:'Next Level Up',learning:false},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();expect(w.text()).toContain('Your counseling and family portal');expect(w.text()).not.toMatch(/AuricWell|Beta/);w.unmount();});
+it('uses NLU counseling help without AuricWell or Beta wording',async()=>{const w=mount(Guide,{props:{agencyId:453,clientId:8,brandName:'Next Level Up',learning:false},global:{stubs:{GuardianContactCard:true,RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();expect(w.text()).toContain('Your counseling and family portal');expect(w.text()).not.toMatch(/AuricWell|Beta/);w.unmount();});

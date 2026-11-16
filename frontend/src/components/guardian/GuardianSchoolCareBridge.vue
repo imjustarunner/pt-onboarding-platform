@@ -2,50 +2,52 @@
   <section class="school-bridge" aria-label="SchoolCareBridge school connection">
     <header>
       <img src="https://mh4kidz.org/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />
-      <div><p class="eyebrow">Your school connection</p><h2>{{ school?.name || 'SchoolCareBridge' }}</h2>
-        <span v-if="school" class="school-status" :class="{ former: school.status === 'former' }">{{ school.status === 'former' ? 'Former school' : 'Current school' }}</span>
+      <div><p class="eyebrow">{{ ft("Your school connection") }}</p><h2>{{ ft(school?.name || 'SchoolCareBridge') }}</h2>
+        <span v-if="school" class="school-status" :class="{ former: school.status === 'former' }">{{ ft(school.status === 'former' ? 'Former school' : 'Current school') }}</span>
       </div>
     </header>
-    <label v-if="schools.length > 1" class="school-picker">School history
+    <label v-if="schools.length > 1" class="school-picker">{{ ft("School history") }}
       <select :value="school?.organization_id" @change="$emit('update:schoolId', Number($event.target.value))">
-        <option v-for="item in schools" :key="item.organization_id" :value="item.organization_id">{{ item.name }} — {{ item.status === 'former' ? 'Former school' : 'Current school' }}</option>
+        <option v-for="item in schools" :key="item.organization_id" :value="item.organization_id">{{ item.name }} — {{ ft(item.status === 'former' ? 'Former school' : 'Current school') }}</option>
       </select>
     </label>
-    <p v-if="school?.status === 'former'">This school is part of {{ clientName || 'your client' }}’s history. Moving on from a school does not close your family’s AuricWell account.</p>
-    <p v-else>SchoolCareBridge connects {{ clientName || 'your client' }}’s school program with their care in AuricWell.</p>
+    <p v-if="school?.status === 'former'">{{ ft("This school is part of") }} {{ ft(clientName || 'your client') }}{{ ft("’s history. Moving on from a school does not close your family’s AuricWell account.") }}</p>
+    <p v-else>{{ ft("SchoolCareBridge connects") }} {{ ft(clientName || 'your client') }}{{ ft("’s school program with their care in AuricWell.") }}</p>
     <div class="school-details">
       <section aria-label="School service day and provider">
-        <h3>Service day &amp; provider</h3>
+        <h3>{{ ft("Service day & provider") }}</h3>
         <ul v-if="school?.providers?.length">
           <li v-for="(provider, index) in school.providers" :key="index">
             <strong>{{ provider.name }}</strong>
-            <span>{{ provider.service_day || 'Day not yet assigned' }}<template v-if="provider.soft_time"> · {{ provider.soft_time }}</template> · {{ provider.status === 'former' ? 'Previous assignment' : 'Current assignment' }}</span>
-            <a v-if="provider.profile_url" :href="provider.profile_url" target="_blank" rel="noopener noreferrer">Public profile</a>
+            <span>{{ ft(provider.service_day || 'Day not yet assigned') }}<template v-if="provider.soft_time"> · {{ provider.soft_time }}</template> · {{ ft(provider.status === 'former' ? 'Previous assignment' : 'Current assignment') }}</span>
+            <a v-if="provider.profile_url" :href="provider.profile_url" target="_blank" rel="noopener noreferrer">{{ ft("Public profile") }}</a>
           </li>
         </ul>
-        <p v-else>No provider assignment is shared here yet.</p>
+        <p v-else>{{ ft("No provider assignment is shared here yet.") }}</p>
       </section>
       <section aria-label="School release of information">
-        <h3>School ROI</h3><strong>{{ roiLabel }}</strong>
-        <p v-if="school?.roi?.signed_at">Signed {{ formatDate(school.roi.signed_at) }}</p>
-        <p v-if="school?.roi?.expires_at">Expires {{ formatDate(school.roi.expires_at) }}</p>
-        <button v-if="school?.roi?.document_id" :disabled="downloading" @click="openRoi">{{ downloading ? 'Opening…' : 'Open my signed ROI' }}</button>
-        <p v-else-if="school?.roi?.status === 'completed'">Your available signed copies are in Tasks &amp; documents.</p>
-        <p v-else-if="['issued','in_progress','not_on_file'].includes(school?.roi?.status)">This release is assigned in Tasks &amp; documents.</p>
-        <button v-if="school?.status !== 'former' && ['issued','in_progress','not_on_file'].includes(school?.roi?.status)" type="button" @click="$emit('navigate', 'documents')">Open the assigned release</button>
+        <h3>{{ ft("School information release") }}</h3><strong>{{ ft(roiLabel) }}</strong>
+        <p v-if="school?.roi?.signed_at">{{ ft("Signed") }} {{ formatDate(school.roi.signed_at) }}</p>
+        <p v-if="school?.roi?.expires_at">{{ ft("Expires") }} {{ formatDate(school.roi.expires_at) }}</p>
+        <button v-if="school?.roi?.document_id" :disabled="downloading" @click="openRoi">{{ ft(downloading ? 'Opening…' : 'Open my signed release') }}</button>
+        <p v-else-if="school?.roi?.status === 'completed'">{{ ft("Your available signed copies are in Tasks & documents.") }}</p>
+        <p v-else-if="['issued','in_progress','not_on_file'].includes(school?.roi?.status)">{{ ft("This release is assigned in Tasks & documents.") }}</p>
+        <button v-if="school?.status !== 'former' && ['issued','in_progress','not_on_file'].includes(school?.roi?.status)" type="button" @click="$emit('navigate', 'documents')">{{ ft("Open the assigned release") }}</button>
         <p v-if="downloadError" role="alert">{{ downloadError }}</p>
       </section>
       <section aria-label="School staff included">
-        <h3>School staff included</h3>
-        <ul v-if="school?.staff?.length"><li v-for="(staff,index) in school.staff" :key="index"><strong>{{ staff.name }}</strong><span>{{ staffLabel(staff) }}</span></li></ul>
-        <p v-else>No school staff have been included on this record yet.</p>
+        <h3>{{ ft("School staff included") }}</h3>
+        <ul v-if="school?.staff?.length"><li v-for="(staff,index) in school.staff" :key="index"><strong>{{ staff.name }}</strong><span>{{ ft(staffLabel(staff)) }}</span></li></ul>
+        <p v-else>{{ ft("No school staff have been included on this record yet.") }}</p>
       </section>
     </div>
-    <p>Other signed documents and waivers stay in their own sections in AuricWell. Your family’s records and care-team conversations remain available according to your sharing permissions after a school change.</p>
-    <button class="return-care" @click="$emit('navigate', 'overview')">Open AuricWell care dashboard →</button>
+    <p>{{ ft("Other signed documents and waivers stay in their own sections in AuricWell. Your family’s records and care-team conversations remain available according to your sharing permissions after a school change.") }}</p>
+    <button class="return-care" @click="$emit('navigate', 'overview')">{{ ft("Open AuricWell care dashboard →") }}</button>
   </section>
 </template>
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import { computed, ref, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
 const props = defineProps({schools:{type:Array,default:()=>[]},schoolId:[Number,String],clientId:[Number,String],clientName:{type:String,default:''}});
@@ -57,14 +59,14 @@ onUnmounted(() => { request++; });
 watch(() => [props.clientId, props.schoolId], () => { request++; downloading.value = false; downloadError.value = ''; });
 const roiLabel = computed(() => {
   const roi = school.value?.roi;
-  if (roi?.expires_at && String(roi.expires_at).slice(0,10) < new Date().toISOString().slice(0,10)) return 'ROI expired';
-  return ({completed:'Signed ROI on file',issued:'Awaiting signature',in_progress:'Signing in progress',revoked:'ROI revoked',expired:'ROI expired'})[roi?.status] || 'No digital school ROI on file';
+  if (roi?.expires_at && String(roi.expires_at).slice(0,10) < new Date().toISOString().slice(0,10)) return 'School release expired';
+  return ({completed:'Signed school release on file',issued:'Awaiting signature',in_progress:'Signing in progress',revoked:'School release revoked',expired:'School release expired'})[roi?.status] || 'No signed school release is available here yet';
 });
 function formatDate(value) { const date = new Date(String(value).slice(0,10) + 'T12:00:00'); return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString(); }
 function staffLabel(staff) {
   if (staff.status === 'former') return 'Historical school entry';
-  if (roiLabel.value === 'ROI expired') return 'ROI expired';
-  return ({roi_docs:'ROI includes document sharing',roi:'ROI includes provider communication',limited:'School coordination',packet:'No current ROI permission'})[staff.access_level] || 'School record';
+  if (roiLabel.value === 'School release expired') return 'School release expired';
+  return ({roi_docs:'Selected school documents may be shared',roi:'Provider communication is allowed',limited:'School coordination',packet:'No current sharing permission'})[staff.access_level] || 'School record';
 }
 async function openRoi() {
   const current = ++request; downloading.value = true; downloadError.value = '';
@@ -74,7 +76,7 @@ async function openRoi() {
     const url = new URL(data.url, window.location.origin);
     if (url.protocol !== 'https:') throw new Error('Invalid document URL');
     const link = document.createElement('a'); link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.click();
-  } catch { if (current === request) downloadError.value = 'This ROI could not be opened. Please try again or contact your care team.'; }
+  } catch { if (current === request) downloadError.value = 'This school release could not be opened. Please try again or contact your care team.'; }
   finally { if (current === request) downloading.value = false; }
 }
 </script>
