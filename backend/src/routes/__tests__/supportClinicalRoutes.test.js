@@ -14,7 +14,7 @@ vi.mock('../../controllers/clinicalNoteGenerator.controller.js',()=>Object.fromE
 ].map(name=>[name,(req,res)=>res.json({clinicalContent:true})])));
 vi.mock('../../controllers/therapyNotesQuickGenerator.controller.js',()=>Object.fromEntries([
   'getTherapyNotesQuickCopyCatalog','listTherapyNotesQuickCopyNotes','getTherapyNotesQuickCopyNote','updateTherapyNotesQuickCopyNote',
-  'transcribeTherapyNotesQuickCopy','generateTherapyNotesQuickCopy'
+  'transcribeTherapyNotesQuickCopy','generateTherapyNotesQuickCopy','getTherapyNotesQuickCopyServiceReference'
 ].map(name=>[name,(req,res)=>res.json({personalGenerator:true})])));
 vi.mock('../../controllers/noteAidWorkQueue.controller.js',()=>Object.fromEntries([
   'listNoteAidWorkQueue','syncNoteAidWorkQueue','appendNoteAidWorkQueue','patchNoteAidWorkQueueItem','deleteNoteAidWorkQueueItem','clearNoteAidWorkQueue'

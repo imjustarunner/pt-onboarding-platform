@@ -27,7 +27,7 @@ import { maybeDecryptNotePayload } from '../../services/clinicalNoteCrypto.servi
 import { logNoteAidChartEvent } from '../../services/noteAidChartAudit.service.js';
 import {
   generateTherapyNotesQuickCopy, getTherapyNotesQuickCopyCatalog, listTherapyNotesQuickCopyNotes,
-  getTherapyNotesQuickCopyNote, updateTherapyNotesQuickCopyNote, transcribeTherapyNotesQuickCopy
+  getTherapyNotesQuickCopyNote, updateTherapyNotesQuickCopyNote, transcribeTherapyNotesQuickCopy, getTherapyNotesQuickCopyServiceReference
 } from '../therapyNotesQuickGenerator.controller.js';
 import { THERAPY_NOTES_QUICK_COPY_ID, readQuickCopyNote } from '../../utils/therapyNotesQuickGenerator.js';
 
@@ -35,6 +35,18 @@ const request = () => ({ user: { id: 501, role: 'staff' }, body: { agencyId: 6, 
   serviceCode: 'H0004', toolId: 'clinical_h0004_note', clientName: 'Jane Example',
   dateOfService: '2026-11-15', inputText: 'Jane Example practiced a coping skill.' }, query: {}, params: {} });
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+it('lets authorized generator staff read the supplied code reference without clinical chart eligibility',async()=>{
+  const req=request(),res=response(),next=vi.fn();req.user.role='support';req.params.serviceCode='H0004';
+  await getTherapyNotesQuickCopyServiceReference(req,res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledWith({serviceInfo:expect.objectContaining({code:'H0004',source:expect.objectContaining({title:expect.any(String)})})});
+  expect(requireStaffCareEligibility).not.toHaveBeenCalled();expect(generateClinicalText).not.toHaveBeenCalled();
+});
+it('keeps the code reference scoped to generator organization membership',async()=>{
+  User.getAgencies.mockResolvedValueOnce([]);const req=request(),res=response();req.params.serviceCode='H0004';
+  await getTherapyNotesQuickCopyServiceReference(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);
+});
 const rowFromInput = input => ({ id: 42, user_id: 501, agency_id: input.agencyId,
   client_id: input.clientId || null, clinical_session_id: input.clinicalSessionId || null,
   office_event_id: input.officeEventId || null, initials: input.initials || null,

@@ -87,6 +87,37 @@ describe('separate Therapy Notes generator', () => {
     expect(wrapper.text()).not.toContain('Manual writer');
   });
 
+  it('groups the catalog into the previous aid families and filters by a selected section', async () => {
+    const wrapper=await generator();
+    expect(wrapper.findAll('.tng-family h3').map(node=>node.text())).toEqual(['Universal Aids','Psychotherapy Aids']);
+    await wrapper.findAll('.tng-categories button').find(node=>node.text()==='Psychotherapy Aids').trigger('click');
+    expect(wrapper.find('[data-tool-id="clinical_h0004_note"]').exists()).toBe(false);
+    expect(wrapper.find('[data-tool-id="clinical_psychotherapy_note"]').exists()).toBe(true);
+    expect(wrapper.find('.tng-catalog-toolbar').text()).toContain('2 generators');
+  });
+
+  it('opens service information without selecting a generator or creating a note', async () => {
+    const wrapper=await generator();
+    api.get.mockResolvedValueOnce({data:{serviceInfo:{code:'H0004',title:'H0004 service reference',status:'available',source:{title:'Supplied handbook',pages:[1]},serviceDescription:'Existing supplied service description.'}}});
+    await wrapper.find('button[aria-label="Service information for H0004"]').trigger('click');
+    await flushPromises();
+    expect(api.get).toHaveBeenLastCalledWith('/clinical-notes/quick-copy/service-reference/H0004',{params:{agencyId:6}});
+    expect(document.body.textContent).toContain('Existing supplied service description.');
+    expect(wrapper.find('[name="quick-copy-client-name"]').exists()).toBe(false);
+    expect(api.post).not.toHaveBeenCalled();
+    await wrapper.find('button[aria-label="Service information for H0004"]').trigger('keydown',{key:'Escape'});
+  });
+
+  it('starts another note from the bottom after saving reviewed text', async () => {
+    const wrapper=await generator();await generate(wrapper);
+    await wrapper.find('.tng-section textarea').setValue('Reviewed and saved before starting another note.');
+    await wrapper.find('[data-testid="new-note-bottom"]').trigger('click');await flushPromises();
+    expect(api.patch).toHaveBeenCalledWith('/clinical-notes/quick-copy/notes/42',expect.objectContaining({sections:expect.objectContaining({Subjective:'Reviewed and saved before starting another note.'})}),expect.any(Object));
+    expect(wrapper.find('.tng-output').exists()).toBe(false);
+    expect(wrapper.find('#tng-tools-search').exists()).toBe(true);
+    expect(wrapper.find('.tng-history__note').text()).toContain('Alex Sample');
+  });
+
   it('generates and saves H0004 through the dedicated endpoint with no chart, session, or duration fields', async () => {
     const wrapper = await generator();
     await generate(wrapper);
