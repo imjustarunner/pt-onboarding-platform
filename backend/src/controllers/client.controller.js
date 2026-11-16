@@ -14,7 +14,6 @@ import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model
 import { auditBilling } from '../services/familyBillingPolicy.service.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
-import { clientChangeIsNoop, clientChangeValue } from '../utils/clientChangeValue.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
@@ -1290,7 +1289,6 @@ export const createClient = async (req, res, next) => {
       paperwork_delivery_method_id,
       doc_date,
       full_name,
-      date_of_birth,
       contact_phone,
       guardian_portal_enabled,
       client_type,
@@ -1298,7 +1296,6 @@ export const createClient = async (req, res, next) => {
       primary_parent_language,
       skills
     } = req.body;
-    if (date_of_birth && (!/^\d{4}-\d{2}-\d{2}$/.test(String(date_of_birth)) || Number.isNaN(Date.parse(date_of_birth)) || new Date(`${date_of_birth}T00:00:00Z`).toISOString().slice(0,10)!==date_of_birth)) return res.status(400).json({error:{message:'Enter a valid date of birth.'}});
     const forceCreate = req.body?.forceCreate === true || req.body?.force_create === true;
     const sourceNorm = String(source || '').trim().toUpperCase();
 
@@ -1763,7 +1760,6 @@ export const createClient = async (req, res, next) => {
       provider_id: resolvedProviderId,
       initials: initialsForSave,
       full_name: full_name ? String(full_name).trim() : null,
-      date_of_birth: date_of_birth || undefined,
       contact_phone: contact_phone ? String(contact_phone).trim() : null,
       guardian_portal_enabled: guardian_portal_enabled ? 1 : 0,
       client_type: resolvedClientType,
@@ -3493,7 +3489,6 @@ export const updateClient = async (req, res, next) => {
     // For other fields, log here
     const changedFields = Object.keys(req.body).filter(key => 
       ['organization_id', 'agency_id', 'initials', 'submission_date', 'document_status', 'source', 'client_type'].includes(key)
-      && !clientChangeIsNoop(key, currentClient[key], updatedClient[key])
     );
 
     for (const field of changedFields) {
@@ -3501,8 +3496,8 @@ export const updateClient = async (req, res, next) => {
         client_id: id,
         changed_by_user_id: userId,
         field_changed: field,
-        from_value: clientChangeValue(field, currentClient[field]),
-        to_value: clientChangeValue(field, updatedClient[field]),
+        from_value: currentClient[field]?.toString() || null,
+        to_value: req.body[field]?.toString() || null,
         note: `Updated ${field}`
       });
     }
@@ -5580,7 +5575,7 @@ const buildEffectiveCategoryMap = (intakeFields = [], intakeSteps = []) => {
 const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], scopedClientResponses = null) => {
   const labelMap = new Map();
   for (const f of intakeFields) {
-    if (f?.key) labelMap.set(String(f.key).toLowerCase(), { ...f, label: f.label || readableIntakeKey(f.key), scope: f.scope || 'submission' });
+    if (f?.key) labelMap.set(String(f.key), { label: f.label || f.key, scope: f.scope || 'submission' });
   }
 
   const submissionBag = getSubmissionBag(submissionData);
@@ -5627,17 +5622,17 @@ const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], s
 
   const result = [];
   for (const [key, value] of Object.entries(allResponses)) {
-    if (SKIP_KEYS.has(key) || /^skip_(psc17|phqa|phq9|gad7)$/i.test(key) || key === 'communicationDraft') continue;
+    if (SKIP_KEYS.has(key)) continue;
     if (!hasVal(value)) continue;
     // Complex values always stringify to "[object Object]" in the UI. We don't
     // want those polluting the Additional Intake Responses card.
     if (isPlainObjectLike(value)) continue;
-    const meta = labelMap.get(String(key).toLowerCase());
+    const meta = labelMap.get(key);
     result.push({
       key,
-      label: normalizeLabel(meta?.label || readableIntakeKey(key)),
+      label: normalizeLabel(meta?.label || key),
       scope: meta?.scope || 'submission',
-      value: readableIntakeValue(value, meta)
+      value: String(value).trim()
     });
   }
   return result;
@@ -6151,7 +6146,6 @@ export const getClientClinicalResponses = async (req, res, next) => {
           } catch { /* ignore */ }
         }
       } catch { /* ignore */ }
-      intakeFields = flattenIntakeFields(intakeFields, formConfig.intakeSteps);
       const categoryMap = buildEffectiveCategoryMap(intakeFields, formConfig.intakeSteps);
       const out = { intakeFields, formConfig, categoryMap };
       linkCache.set(linkId, out);
@@ -7252,6 +7246,7 @@ export const importClientDemographics = async (req, res, next) => {
 
     const {
       demographicsToClientPatch,
+      applyGuardianContactOwnership,
       encryptDemographicsPayload,
       isDemographicsEncryptionConfigured,
       demographicsImportHasContent,
@@ -7289,6 +7284,10 @@ export const importClientDemographics = async (req, res, next) => {
     }
 
     const patch = demographicsToClientPatch(parsed);
+    if (req.body?.contactOwner === 'guardian') {
+      const current = await Client.findById(clientId, { includeSensitive: true });
+      applyGuardianContactOwnership(parsed, patch, current);
+    }
     if (isDemographicsEncryptionConfigured()) {
       // Store as object for JSON columns (mysql2 serializes); avoid double-encoded strings.
       patch.demographics_phi_enc = encryptDemographicsPayload(parsed);
@@ -7484,7 +7483,7 @@ export const listClientAffiliations = async (req, res, next) => {
          FROM client_organization_assignments coa
          JOIN agencies org ON org.id = coa.organization_id
          WHERE coa.client_id = ?
-           ${['true','1'].includes(String(req.query.includeHistory)) ? '' : 'AND coa.is_active = TRUE'}
+           AND coa.is_active = TRUE
          ORDER BY coa.is_primary DESC, org.name ASC`,
         [clientId]
       );

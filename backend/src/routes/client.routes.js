@@ -106,18 +106,7 @@ import {
   getClientCommunicationBody,
   listClientSmsAudit
 } from '../controllers/clientCommunications.controller.js';
-import {
-  getOnboardingChecklist,
-  putOnboardingDocs,
-  postMarkPacketSignature,
-  postAcknowledgeRoiStaff,
-  postWaiveNewPacketFlag,
-  putOnboardingRoiExpiration,
-  postCompleteStaffOnboarding,
-  listPaperPacketDocuments, getPaperProcessing, putPaperProcessing, postPaperProcessing, viewPaperProcessingDocument, checkPaperProcessingDocument,
-  getOnboardingQueue,
-  getProviderOnboardingQueue
-} from '../controllers/clientOnboarding.controller.js';
+import { getOnboardingChecklist, putOnboardingDocs, postMarkPacketSignature, listPaperPacketDocuments, getPaperProcessing, viewPaperProcessingDocument, checkPaperProcessingDocument, putPaperProcessing, postPaperProcessing, postAcknowledgeRoiStaff, postWaiveNewPacketFlag, putOnboardingRoiExpiration, postCompleteStaffOnboarding, getOnboardingQueue, getProviderOnboardingQueue } from "../controllers/clientOnboarding.controller.js";
 import {
   getClientDisclosure,
   requireClientDisclosure
@@ -361,6 +350,12 @@ router.post('/:id/confirm-services-started', postConfirmServicesStarted);
 router.get('/:id/onboarding-checklist', getOnboardingChecklist);
 router.put('/:id/onboarding-docs', putOnboardingDocs);
 router.post('/:id/onboarding/mark-packet-signature', postMarkPacketSignature);
+router.get('/:id/paper-packet-documents', listPaperPacketDocuments);
+router.get('/:id/paper-packet-processing', getPaperProcessing);
+router.get('/:id/paper-packet-processing/documents/:docId/view', viewPaperProcessingDocument);
+router.post('/:id/paper-packet-processing/documents/:docId/check', checkPaperProcessingDocument);
+router.put('/:id/paper-packet-processing', putPaperProcessing);
+router.post('/:id/paper-packet-processing/complete', postPaperProcessing);
 router.post('/:id/onboarding/waive-new-packet', postWaiveNewPacketFlag);
 router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
 router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);

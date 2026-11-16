@@ -111,14 +111,34 @@ test('paperPacketDemographicFill writes only empty client fields', () => {
   );
   assert.equal(patch.full_name, undefined);
   assert.equal(patch.date_of_birth, '2015-03-14');
-  assert.equal(patch.contact_phone, '(719) 555-0101');
+  assert.equal(patch.contact_phone, undefined);
   assert.equal(patch.grade, '5');
 });
 
 
-test('reads only the DOB attached to a wrapped current-packet label',()=>{
- const parsed=extractPaperPacketDemographics("Dependent’s Date of\nBirth\n03/12/2016\nDependent's\nGrade\n5\nSIGN HERE — REQUIRED\n11/09/2026");
- assert.equal(parsed.dateOfBirth,'2016-03-12');assert.equal(parsed.grade,'5');
+test('reads Spanish dependent sex and bilingual demographic labels without putting parent channels on the child', () => {
+  const parsed = extractPaperPacketDemographics(`Nombre del dependiente: Synthetic Student
+Fecha de nacimiento del dependiente
+11/19/2012
+Sexo del dependiente
+Masculino
+Su nombre
+Synthetic Parent
+Su teléfono
+(719) 555-0101
+Su correo electrónico
+parent@example.test
+Idioma preferido
+Spanish`);
+  assert.equal(parsed.administrativeSex, 'Male');
+  assert.equal(parsed.dateOfBirth, '2012-11-19');
+  assert.equal(parsed.guardianName, 'Synthetic Parent');
+  assert.equal(parsed.preferredLanguage, 'Spanish');
+  const patch = paperPacketDemographicFill({}, parsed);
+  assert.equal(patch.gender, 'Male');
+  assert.equal(patch.preferred_language, 'Spanish');
+  assert.equal(patch.email, undefined);
+  assert.equal(patch.contact_phone, undefined);
 });
 
 test('keeps same-row primary and secondary policy cells separate',()=>{

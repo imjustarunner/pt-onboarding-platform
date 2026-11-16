@@ -1,4 +1,5 @@
 import { inject, ref, unref } from 'vue';
+import {useFamilyLocale} from './useFamilyLocale';
 import {
   lookupStructuredIntakeTranslation,
   txFmtStructuredIntake
@@ -10,12 +11,14 @@ import {
  */
 export function useIntakeStepTx() {
   const intakeStringTranslations = inject('intakeStringTranslations', ref({}));
-  const intakeLocale = inject('intakeLocale', ref('en'));
+  const family=useFamilyLocale();
+  const intakeLocale = inject('intakeLocale', family.locale);
 
   const tx = (text) => {
     const s = String(text || '');
     if (unref(intakeLocale) !== 'es') return s;
-    return lookupStructuredIntakeTranslation(s, unref(intakeStringTranslations) || {});
+    const translated=lookupStructuredIntakeTranslation(s, unref(intakeStringTranslations) || {});
+    return translated===s?family.ft(s):translated;
   };
 
   const txFmt = (template, vars = {}) =>

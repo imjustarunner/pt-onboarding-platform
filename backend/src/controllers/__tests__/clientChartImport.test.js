@@ -36,3 +36,24 @@ it('rejects oversized drafts and invalid revisions', async () => {
   }
   expect(m.save).not.toHaveBeenCalled();
 });
+it('keeps primary and secondary draft text independent and validates each size',async()=>{
+ const request=req();request.params.section='insurance';request.body={text:'Secondary draft',revision:0,metadata:{position:'secondary',coverageDrafts:{primary:{text:'Primary draft',imported:true},secondary:{text:'Secondary draft',imported:false}}}};
+ await saveChartImportDraft(request,res(),vi.fn());
+ expect(m.save).toHaveBeenCalledWith(expect.anything(),'insurance',10,expect.objectContaining({position:'secondary',coverageDrafts:{primary:{text:'Primary draft',imported:true},secondary:{text:'Secondary draft',imported:false}}}),10,0);
+ request.body.metadata.coverageDrafts.primary.text='x'.repeat(200001);const next=vi.fn();await saveChartImportDraft(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:400}));
+});
+it('requires account staff to prepare imported portal identities',async()=>{
+ const request=req();request.user.role='provider';request.params.section='contacts';request.body.preparePrimaryGuardian=true;
+ const next=vi.fn();await importChartSection(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.importSection).not.toHaveBeenCalled();
+});
+it('gives providers a coverage summary without subscriber, payer or billing-comment details',async()=>{
+ const request=req();request.user.role='provider';m.insurance.mockResolvedValue({primary:{insurerName:'Example',memberId:'PRIVATE',subscriberName:'Private Parent',copay:'20',isMedicaid:false}});
+ const response=res();await getChartSupplementaryRecords(request,response,vi.fn());
+ expect(response.json.mock.calls[0][0]).toMatchObject({insurance:{primary:{insurerName:'Example',isMedicaid:false,programType:''}},payer:null,billingComments:'',accountAccess:false});
+ expect(JSON.stringify(response.json.mock.calls[0][0])).not.toContain('PRIVATE');expect(m.read).not.toHaveBeenCalledWith(expect.anything(),'billingComments');
+});
+it.each(['insurance','payer','billingComments'])('does not read or save providers’ billing import drafts (%s)',async section=>{
+ const request=req();request.user.role='provider';request.params.section=section;const next=vi.fn();await saveChartImportDraft(request,res(),next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.save).not.toHaveBeenCalled();
+ const response=res();await getChartImportDrafts(request,response,vi.fn());expect(response.json.mock.calls[0][0].drafts[section]).toBeUndefined();
+});

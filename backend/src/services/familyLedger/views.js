@@ -6,6 +6,8 @@ import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { parseJson, today, dateOnly, assertCollectible } from './policy.js';
 import { findReceivable, sourcePayload } from './receivables.js';
 import { presentBalance } from './presentation.js';
+import { relationshipAccessMode, presentPaymentOnlyBalance, presentPaymentOnlyReceipt } from '../../utils/portalRelationshipAccess.js';
+import { payerServiceBreakdown } from './payerPresentation.js';
 
 export async function billingServiceFilter({agencyId,userId,clientId,serviceId}) {
   if(!serviceId)return {sql:'',args:[]};
@@ -29,16 +31,17 @@ export async function listBalances({agencyId,userId,clientId=null,serviceId=null
   const result=[];
   for(const row of rows){
     if(!staff){
-      if(!allowed.has(row.clientId)) {try{await requireStatementAccess(userId,row.clientId,agencyId);allowed.set(row.clientId,true);}catch(e){if(e.status!==403)throw e;allowed.set(row.clientId,false);}}
+      if(!allowed.has(row.clientId)) {try{const link=await requireStatementAccess(userId,row.clientId,agencyId);allowed.set(row.clientId,relationshipAccessMode({...link,access_enabled:1}));}catch(e){if(e.status!==403)throw e;allowed.set(row.clientId,false);}}
       if(!allowed.get(row.clientId))continue;
     }
     if(!receivables.has(row.receivableId)) {
       const source=await findReceivable(agencyId,row.receivableId);
       let collectible=false,collectionIssue=null;
       if(source.status==='open')try{await assertCollectible(source);collectible=true;}catch(e){if(e.status!==409)throw e;collectionIssue=e.message;}
-      receivables.set(row.receivableId,{collectible,collectionIssue,responsibility:sourcePayload(source)});
+      receivables.set(row.receivableId,{collectible,collectionIssue,responsibility:sourcePayload(source),payerDetails:staff?{}:await payerServiceBreakdown(source,allowed.get(row.clientId))});
     }
     const value=presentBalance({...row,dueDate:row.dueDate?dateOnly(row.dueDate):null,serviceDate:row.serviceDate?dateOnly(row.serviceDate):null,payerName:[row.payerFirst,row.payerLast].filter(Boolean).join(' ')},{...receivables.get(row.receivableId),own:Number(row.payerUserId)===Number(userId),staff});
+    Object.assign(value,receivables.get(row.receivableId).payerDetails||{});
     if(staff){const {externallyManaged}=await import('./collectionHandoff.js');value.externallyManaged=await externallyManaged(row.allocationId);}
     if(staff&&receivables.get(row.receivableId).collectionIssue)value.explanation=receivables.get(row.receivableId).collectionIssue;
     delete value.payerFirst;delete value.payerLast;
@@ -50,15 +53,16 @@ export async function listBalances({agencyId,userId,clientId=null,serviceId=null
     if(!staff && value.billingState==='review' && !value.isOwnShare)delete value.plan;
     const [attempts]=await pool.execute("SELECT id,status FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown') ORDER BY id DESC LIMIT 1",[row.allocationId]);
     if(attempts.length){value.canPay=false;value.paymentStatus=attempts[0].status;if(staff)value.pendingPaymentId=attempts[0].id;value.explanation='Payment confirmation is pending. Do not make a second payment; refresh or contact billing.';}
-    result.push(value);
+    result.push(staff?value:presentPaymentOnlyBalance(value,allowed.get(row.clientId)));
   }
   return result;
 }
 export async function receiptFor({agencyId,paymentId,userId,staff=false}) {
   const [rows]=await pool.execute(`SELECT p.*,r.client_id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id JOIN family_receivables r ON r.id=a.receivable_id WHERE p.id=? AND p.agency_id=? AND p.status='succeeded'`,[paymentId,agencyId]);
   if(!rows.length)throw billingError(404,'Receipt not found');
-  const row=rows[0];let self=false;
+  const row=rows[0];let self=false,accessMode='care';
   if(!staff){
+    accessMode=relationshipAccessMode({...await requireBillingLink(userId,row.client_id,agencyId),access_enabled:1});
     const [links]=await pool.execute('SELECT * FROM client_guardians WHERE client_id=? AND guardian_user_id=? AND access_enabled=1',[row.client_id,userId]);
     const link=links[0];const permissions=parseJson(link?.permissions_json,{});
     self=!!link&&link.relationship_type==='self'&&!permissions.noView&&!permissions.noViewOtherGuardian;
@@ -71,7 +75,7 @@ export async function receiptFor({agencyId,paymentId,userId,staff=false}) {
   const {paymentCreditState}=await import('./copayCredits.js');
   receipt.credit=await paymentCreditState(row.id);
   await auditBilling({agencyId,clientId:row.client_id,userId,action:'receipt_viewed',objectId:row.id});
-  return receipt;
+  return staff?receipt:presentPaymentOnlyReceipt(receipt,accessMode);
 }
 export async function listReceipts({agencyId,userId,staff=false,clientId=null,serviceId=null,ownOnly=false}) {
   const serviceFilter=await billingServiceFilter({agencyId,userId,clientId,serviceId});

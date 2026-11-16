@@ -18,6 +18,14 @@ export const listProvidersForScheduling = async (req, res, next) => {
   try {
     const agencyId = parseAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const activeProvidersOnly = ['true', '1'].includes(String(req.query.activeProvidersOnly || '').toLowerCase());
+    const providerFilter = activeProvidersOnly ? `
+      AND COALESCE(ua.is_active, 1) = 1
+      AND COALESCE(u.is_demo, 0) = 0
+      AND COALESCE(u.sees_clients, 1) = 1
+      AND UPPER(COALESCE(u.status, '')) NOT IN ('INACTIVE','TERMINATED','SUSPENDED','DISABLED','DELETED')
+      AND (LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','facilitator') OR u.has_provider_access = TRUE)
+    ` : '';
 
     // Backward compatible: some user fields may not exist yet (provider_accepting_new_clients, is_archived, etc).
     try {
@@ -46,6 +54,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
              )
              OR (u.has_provider_access = TRUE)
            )
+         ${providerFilter}
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
       );
@@ -69,6 +78,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
              )
              OR (u.has_provider_access = TRUE)
            )
+         ${providerFilter}
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
       );

@@ -108,3 +108,10 @@ it('allows the selected tutoring office discussion without treating it as charge
   data.intakeData.responses.submission.paymentInfo={arrangement:'discuss'};
   await expect(validateIntakeBilling(data)).resolves.toBeUndefined();expect(pool.execute).not.toHaveBeenCalled();
 });
+
+it('validates an explicitly selected other billing contact before Medicaid or card-collection early returns',async()=>{
+ const data=school({isSelfPay:true,authorizationSourceMethod:'self_pay',primary:{insurerName:'Self-Pay',memberId:''}});
+ data.intakeData.responses.submission.paymentInfo={responsibleParty:{kind:'other',contact:{fullName:'Synthetic Contact'}}};
+ await expect(validateIntakeBilling(data)).rejects.toThrow('complete mailing address');
+ expect(pool.execute).not.toHaveBeenCalled();
+});

@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn(),client:vi.fn(),prepareGuardian:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:m.readInsurance,writeClientInsurance:m.writeInsurance}));
 vi.mock('../clientContactAffiliation.service.js',()=>({upsertClientAffiliatedContact:m.upsert}));
 vi.mock('../../models/ClientContactAffiliation.model.js',()=>({default:{listForClient:m.contacts}}));
+vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
+vi.mock('../guardianAccountPreparation.service.js',()=>({prepareGuardianAccount:m.prepareGuardian}));
 import { readChartRecord,saveChartRecord,importSupplementaryChartSection } from '../clientChartImport.service.js';
 const scope={clientId:12,agencyId:2};
 let db, stored;
@@ -16,6 +18,7 @@ beforeEach(()=>{
    return [[{id:12}]];
  });
  m.contacts.mockResolvedValue([]);m.upsert.mockResolvedValue({affiliation:{id:50,agencyContactId:60}});m.readInsurance.mockResolvedValue(null);m.writeInsurance.mockImplementation(async value=>value);
+ m.client.mockResolvedValue({id:12,agency_id:2});m.prepareGuardian.mockResolvedValue({prepared:true,userId:40,requiresAccessReview:true,invitationSent:false});
 });
 afterEach(()=>vi.unstubAllEnvs());
 it('encrypts private drafts at rest, scopes them to the owner, and round trips the source text',async()=>{
@@ -54,4 +57,21 @@ it('keeps patient comments out of the general/shared notes model',async()=>{
  await importSupplementaryChartSection(scope,'comments','Patient Comments\nsvgEdit\nSynthetic administrative comment',10);
  expect((await readChartRecord(scope,'comments')).value).toEqual({message:'Synthetic administrative comment'});
  expect(m.execute.mock.calls.some(([sql])=>sql.includes('client_notes'))).toBe(false);
+});
+it('imports selected secondary coverage without replacing the primary policy',async()=>{
+ m.readInsurance.mockResolvedValue({primary:{insurerName:'Primary',memberId:'FIRST'},secondary:{insurerName:'Old Secondary'},patient:{firstName:'Synthetic'}});
+ await importSupplementaryChartSection(scope,'insurance','Insurance carrier\nNew Secondary\nMember ID\nSECOND',10,{position:'secondary'});
+ expect(m.writeInsurance).toHaveBeenCalledWith(expect.objectContaining({primary:{insurerName:'Primary',memberId:'FIRST'},secondary:{insurerName:'New Secondary',memberId:'SECOND'}}),db);
+});
+it('prepares only the matching primary parent and retains secondary parents as contacts',async()=>{
+ m.client.mockResolvedValue({id:12,agency_id:2,email:'primary@example.test',contact_phone:'555-111-2222'});
+ m.upsert.mockImplementation(async value=>({affiliation:{id:value.fullName==='Primary Parent'?50:51,agencyContactId:value.fullName==='Primary Parent'?60:61}}));
+ const result=await importSupplementaryChartSection(scope,'contacts','svgEdit\nPrimary Parent\nMobile Phone555-111-2222Emailprimary@example.test\nRelationshipFather\nsvgEdit\nSecond Parent\nMobile Phone555-111-3333Emailsecond@example.test\nRelationshipMother',10,{preparePrimaryGuardian:true});
+ expect(m.prepareGuardian).toHaveBeenCalledOnce();
+ expect(m.prepareGuardian).toHaveBeenCalledWith(expect.objectContaining({actorUserId:10,profile:expect.objectContaining({email:'primary@example.test',relationship:'Father'})}));
+ expect(result[0].portalAccount).toMatchObject({invitationSent:false,requiresAccessReview:true});expect(result[1].portalAccount).toBeUndefined();
+});
+it('prepares an additional account only when that contact was explicitly selected',async()=>{
+ await importSupplementaryChartSection(scope,'contacts','svgEdit\nSecond Parent\nEmailsecond@example.test\nRelationshipMother',10,{guardianContactNames:['Second Parent']});
+ expect(m.prepareGuardian).toHaveBeenCalledWith(expect.objectContaining({profile:expect.objectContaining({email:'second@example.test'})}));
 });

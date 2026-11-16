@@ -1,40 +1,42 @@
 <template>
-  <div class="initial-setup-container" :style="pageStyle">
+  <div class="initial-setup-container" :lang="authLocale" :style="pageStyle">
     <div class="setup-content">
       <div class="setup-card">
+<label class="portal-auth-language">Idioma / Language <select :value="authLocale" @change="setAuthLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select></label>
         <PasswordRecoveryBrand
+          :locale="authLocale"
           :tenant="tenantBrand"
           :school="schoolBrand"
           :fallback-logo-url="brandingStore.displayLogoUrl || brandingStore.logoUrl"
         />
         <div v-if="loading" class="loading">
-          <p>Loading...</p>
+          <p>{{ authText("Loading...") }}</p>
         </div>
         <div v-else-if="error" class="error">
-          <h2>Setup Error</h2>
-          <p>{{ error }}</p>
-          <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
+          <h2>{{ authText("Setup Error") }}</h2>
+          <p>{{ authText(error) }}</p>
+          <router-link :to="loginTo" class="btn btn-primary">{{ authText("Go to Login") }}</router-link>
         </div>
         <div v-else class="setup-form">
-          <h2>Welcome, {{ userFirstName }}!</h2>
-          <p class="subtitle">Create your password to get started. You will be signed in automatically after you save it.</p>
+          <h2>{{ authText('Welcome, {name}!', { name:userFirstName }) }}</h2>
+          <p class="subtitle">{{ authText("Create your password to get started. You will be signed in automatically after you save it.") }}</p>
 
           <form @submit.prevent="handleSetup" autocomplete="on">
             <div v-if="loginUsername" class="form-group">
-              <label for="setupUsername">Your sign-in username</label>
+              <label for="setupUsername">{{ authText("Your sign-in username") }}</label>
               <input id="setupUsername" name="username" :value="loginUsername" type="text" autocomplete="username" autocapitalize="none" :spellcheck="false" readonly class="form-input" />
-              <p class="field-hint">On your own device, you can save your password when your browser offers. Next time, use this email and your password.</p>
+              <p class="field-hint">{{ authText("On your own device, you can save your password when your browser offers. Next time, use this email and your password.") }}</p>
             </div>
             <!-- New password -->
             <div class="form-group">
-              <label for="password">Password</label>
+              <label for="password">{{ authText("Password") }}</label>
               <div class="input-wrap">
                 <input
                   id="password"
                   name="new-password"
                   v-model="password"
                   :type="showPassword ? 'text' : 'password'"
-                  placeholder="Choose your password"
+                  :placeholder="authText('Choose your password')"
                   required
                   class="form-input"
                   :disabled="setting"
@@ -45,23 +47,23 @@
                   minlength="10"
                   maxlength="128"
                 />
-                <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
-                  {{ showPassword ? 'Hide' : 'Show' }}
+                <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? authText('Hide password') : authText('Show password')">
+                  {{ showPassword ? authText("Hide") : authText("Show") }}
                 </button>
               </div>
-              <PasswordStrengthMeter :password="password" :confirm-password="confirmPassword" />
+              <PasswordStrengthMeter :locale="authLocale" :password="password" :confirm-password="confirmPassword" />
             </div>
 
             <!-- Confirm password -->
             <div class="form-group">
-              <label for="confirmPassword">Confirm Password</label>
+              <label for="confirmPassword">{{ authText("Confirm Password") }}</label>
               <div class="input-wrap">
                 <input
                   id="confirmPassword"
                   name="confirm-password"
                   v-model="confirmPassword"
                   :type="showConfirm ? 'text' : 'password'"
-                  placeholder="Re-enter your password"
+                  :placeholder="authText('Re-enter your password')"
                   required
                   class="form-input"
                   :disabled="setting"
@@ -72,14 +74,14 @@
                   minlength="10"
                   maxlength="128"
                 />
-                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
-                  {{ showConfirm ? 'Hide' : 'Show' }}
+                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? authText('Hide password') : authText('Show password')">
+                  {{ showConfirm ? authText("Hide") : authText("Show") }}
                 </button>
               </div>
             </div>
 
             <div v-if="requiresClientDob" class="form-group">
-              <label for="clientDob">Client’s date of birth</label>
+              <label for="clientDob">{{ authText("Client’s date of birth") }}</label>
               <input
                 id="clientDob"
                 v-model="clientDob"
@@ -88,17 +90,17 @@
                 class="form-input"
                 :disabled="setting"
               />
-              <p class="field-hint">{{ guardianAccount ? 'Enter your date of birth if you are also a client, or the date of birth of any one of your linked dependents to finish opening your account.' : 'Enter your date of birth to finish opening your portal account.' }}</p>
+              <p class="field-hint">{{ guardianAccount ? authText("Enter your date of birth if you are also a client, or the date of birth of any one of your linked dependents to finish opening your account.") : authText("Enter your date of birth to finish opening your portal account.") }}</p>
             </div>
 
-            <p v-if="setupError" class="error-message">{{ setupError }}</p>
+            <p v-if="setupError" class="error-message">{{ authText(setupError) }}</p>
 
             <button
               type="submit"
               class="btn btn-primary"
               :disabled="setting || !!passwordMismatch || !password || !confirmPassword || (requiresClientDob && !clientDob)"
             >
-              {{ setting ? 'Saving and signing you in…' : 'Create password and continue' }}
+              {{ setting ? authText("Saving and signing you in…") : authText("Create password and continue") }}
             </button>
           </form>
         </div>
@@ -110,6 +112,8 @@
 </template>
 
 <script setup>
+import { usePortalAuthLocale, withPortalAuthLanguage, portalAuthError } from '../utils/portalAuthLocale.js';
+
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useBrandingStore } from '../store/branding';
@@ -122,6 +126,7 @@ import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.
 
 const router = useRouter();
 const route = useRoute();
+const { locale: authLocale, setLocale: setAuthLocale, text: authText } = usePortalAuthLocale(route);
 const brandingStore = useBrandingStore();
 
 const loading = ref(true);
@@ -146,12 +151,12 @@ const pageStyle = computed(() => ({
 }));
 const loginTo = computed(() => {
   const slug = route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug;
-  return slug ? `/${slug}/login` : '/login';
+  return withPortalAuthLanguage(slug ? `/${slug}/login` : '/login', authLocale.value);
 });
 
 const passwordMismatch = computed(() =>
   password.value && confirmPassword.value && password.value !== confirmPassword.value
-    ? 'Passwords do not match'
+    ? authText("Passwords do not match")
     : ''
 );
 
@@ -159,7 +164,7 @@ const validateToken = async () => {
   const token = route.params.token;
 
   if (!token) {
-    error.value = 'Invalid setup link. Token is missing.';
+    error.value = authText("Invalid setup link. Token is missing.");
     loading.value = false;
     return;
   }
@@ -178,7 +183,7 @@ const validateToken = async () => {
     if (slug) await brandingStore.fetchAgencyTheme(slug);
     loading.value = false;
   } catch (err) {
-    error.value = err.response?.data?.error?.message || err.message || 'Invalid or expired setup link. Please contact your administrator.';
+    error.value = portalAuthError(err, authLocale.value, 'Invalid or expired setup link. Please contact your administrator.');
     loading.value = false;
   }
 };
@@ -190,13 +195,13 @@ const handleSetup = async () => {
   }
   const basics = checkPasswordBasics(password.value);
   if (!basics.valid) {
-    setupError.value = basics.message;
+    setupError.value = authText(basics.message);
     return;
   }
 
   const token = route.params.token;
   if (!token) {
-    setupError.value = 'Invalid setup link';
+    setupError.value = authText('Invalid setup link');
     return;
   }
 
@@ -208,9 +213,9 @@ const handleSetup = async () => {
       password: password.value,
       clientDob: requiresClientDob.value ? clientDob.value : undefined
     });
-    await completePasswordTokenLogin(response.data, router, { portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug });
+    await completePasswordTokenLogin(response.data, router, { locale:authLocale.value, portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug });
   } catch (err) {
-    setupError.value = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
+    setupError.value = portalAuthError(err, authLocale.value, 'Failed to set password. Please try again.');
     setting.value = false;
   }
 };
@@ -224,6 +229,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.portal-auth-language { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; }
+.portal-auth-language select { padding:8px; font:inherit; }
 .initial-setup-container {
   display: flex;
   flex-direction: column;

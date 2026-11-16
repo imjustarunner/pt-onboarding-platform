@@ -3,6 +3,12 @@ import pool from '../config/database.js';
 import {portalMigrationOverview} from './portalMigration.service.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
 import {sendClientPortalEmail} from './clientPortalEmail.service.js';
+import {portalUrlWithLocale} from './familyPortalLocale.service.js';
+
+export function onboardingReminderEmail({locale='en',url,items=[]}) {
+ const spanish=locale==='es',pending=items.filter(item=>!item.complete&&!item.waiting).map(item=>item.title);
+ return {subject:spanish?'Quedan algunos pasos en su nuevo portal':'A few steps remain in your new portal',linkUrl:url,linkLabel:spanish?'Continuar configuración':'Continue onboarding',text:spanish?`Gracias por acompañarnos en el cambio a su nuevo portal. Inicie sesión para revisar su información y completar los formularios y las firmas pendientes.\n\n${url}\n\nSu progreso está guardado. Puede cambiar de perfil en Mi familia. Recibirá recordatorios como máximo cada 48 horas mientras haya tareas disponibles y las actualizaciones por correo estén activadas.`:`Thank you for making the move to your new portal. A few onboarding steps and assigned documents are still available for you to complete. Please sign in to review your information and finish the steps shown for your profile.\n\n${pending.length?`Pending: ${pending.join(', ')}.\n\n`:''}${url}\n\nYour progress is saved. You can switch profiles in My family. We will remind you no more than once every 48 hours while available steps remain and email updates are enabled. If a step is waiting for your care team, you do not need to complete it yet.`};
+}
 
 export const hasActionableOnboarding = overview => !!overview?.enrolled && overview.items?.some(item => !item.complete && !item.waiting);
 // A single account reminder per 48 hours, even when several profiles or agencies
@@ -30,10 +36,10 @@ export async function sendDueOnboardingReminder(userId,db=pool) {
    const gate=await familyNotificationDeliveryGate({agencyId:profile.agency_id,clientId:profile.client_id,to:profile.email,templateType:'portal_onboarding_reminder'});
    if(!gate.allowed)continue;
    const [claim]=await connection.execute('INSERT INTO family_portal_onboarding_reminders (agency_id,guardian_user_id) VALUES (?,?)',[profile.agency_id,userId]);
-   const link=`https://auricwell.com/${encodeURIComponent(profile.slug)}/guardian?panel=onboarding&clientId=${profile.client_id}`;
+   const link=portalUrlWithLocale(`https://auricwell.com/${encodeURIComponent(profile.slug)}/guardian?panel=onboarding&clientId=${profile.client_id}`,overview.locale||'en');
    try{
-    const result=await sendClientPortalEmail({agencyId:profile.agency_id,clientId:profile.client_id,userId,to:profile.email,source:'auto',templateType:'portal_onboarding_reminder',subject:'A few steps remain in your new portal',text:`Thank you for making the move to your new portal. A few onboarding steps are still available for you to complete. Please sign in to review your information and finish the steps shown for your profile.\n\n${link}\n\nYour progress is saved. You can switch profiles in My family. We will remind you no more than once every 48 hours while available steps remain and email updates are enabled. If a step is waiting for your care team, you do not need to complete it yet.`,linkUrl:link,linkLabel:'Continue onboarding'});
-    const sent=!!result?.id&&!result.queued&&!result.skipped&&!result.blocked&&!result.pendingApproval;
+    const result=await sendClientPortalEmail({agencyId:profile.agency_id,clientId:profile.client_id,userId,to:profile.email,source:'auto',templateType:'portal_onboarding_reminder',...onboardingReminderEmail({locale:overview.locale,url:link,items:overview.items})});
+    const sent=!!result?.id&&!result.queued&&!result.skipped&&!result.blocked&&!result.pendingApproval&&!result.redirected;
     await connection.execute("UPDATE family_portal_onboarding_reminders SET status=?,sent_at=IF(?='sent',UTC_TIMESTAMP(),NULL),reason=? WHERE id=?",[sent?'sent':'held',sent?'sent':'held',sent?null:'Delivery held by existing notification controls',claim.insertId]);
     return {sent};
    }catch(e){await connection.execute("UPDATE family_portal_onboarding_reminders SET status='unknown',reason='Review delivery before attempting another reminder' WHERE id=?",[claim.insertId]);throw e;}

@@ -5,8 +5,8 @@
  * paper-packet catalog (one-signature packet bundle + separate ROI).
  */
 import pool from '../config/database.js';
+import { acknowledgeReviewedPaperRoi } from './managedPaperRoiAcknowledgement.service.js';
 import Client from '../models/Client.model.js';
-import { clientChangeValue } from '../utils/clientChangeValue.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
@@ -27,7 +27,7 @@ import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { rosterClientHasAssignedProvider } from '../utils/schoolYearRosterFilter.js';
 import { displayServiceDay, isRealServiceDay } from '../utils/schoolReportBuckets.js';
 import { getDisposition } from './clientYearDisposition.service.js';
-import { acknowledgeReviewedPaperRoi } from './managedPaperRoiAcknowledgement.service.js';
+
 
 function rosterHasWeekday(client) {
   if (isRealServiceDay(client?.service_day)) return true;
@@ -450,13 +450,11 @@ export async function getClientOnboardingChecklist(clientId) {
     can_complete_staff_onboarding: fallSummary?.fall_pending ? false : (staffComplete && !staffMarked),
     provider_user_id: providerUserId,
     client: {
-      id: Number(client.id),
       initials: client.initials || null,
       full_name: client.full_name || null,
       identifier_code: client.identifier_code || null,
       agency_id: client.agency_id ? Number(client.agency_id) : null,
       organization_name: client.organization_name || null,
-      organization_slug: client.organization_slug || null,
       organization_id: client.organization_id ? Number(client.organization_id) : null,
       service_day: client.service_day || null,
       insurance_type_id: client.insurance_type_id ? Number(client.insurance_type_id) : null,
@@ -465,7 +463,7 @@ export async function getClientOnboardingChecklist(clientId) {
       client_status_label: client.client_status_label || null,
       client_status_key: statusKey || null,
       provider_id: providerUserId || (client.provider_id ? Number(client.provider_id) : null),
-      roi_expires_at: clientChangeValue('roi_expires_at', client.roi_expires_at)
+      roi_expires_at: client.roi_expires_at ? String(client.roi_expires_at).slice(0, 10) : null
     },
     provider_name: providerName
   };
@@ -538,11 +536,10 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
     }
   }
 
-  // The paper signature day, not this review's clock time, starts its term.
-  // Unknown paper dates remain pending for explicit review; do not invent today.
-  if (!client.roi_expires_at && /^\d{4}-\d{2}-\d{2}$/.test(String(paperRoiSignedDate||''))) {
-    const {paperPacketRoiExpiresAtYmd}=await import('../utils/paperPacketRoiExpiry.js');
-    await Client.update(cid,{roi_expires_at:paperPacketRoiExpiresAtYmd(paperRoiSignedDate)},actorUserId);
+  // The source date determines the paper release term.
+  if (!client.roi_expires_at && /^\d{4}-\d{2}-\d{2}$/.test(String(paperRoiSignedDate || ''))) {
+    const { paperPacketRoiExpiresAtYmd } = await import('../utils/paperPacketRoiExpiry.js');
+    await Client.update(cid, { roi_expires_at: paperPacketRoiExpiresAtYmd(paperRoiSignedDate) }, actorUserId);
   }
 
   return getClientOnboardingChecklist(cid);

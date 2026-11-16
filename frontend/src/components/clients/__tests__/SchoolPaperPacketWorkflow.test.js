@@ -11,7 +11,7 @@ const guardian=(id)=>({guardian_user_id:id,first_name:'Synthetic',last_name:`Par
 beforeEach(()=>{
  vi.stubGlobal('URL',Object.assign(class extends URL {},{createObjectURL:vi.fn(()=> 'blob:synthetic-paper'),revokeObjectURL:vi.fn()}));
  vi.clearAllMocks();saveInsurance.mockResolvedValue(true);saveRoi.mockResolvedValue(true);pendingRoi.mockReturnValue([{schoolStaffUserId:99,nextState:'roi_docs'}]);reloadRoi.mockResolvedValue();
- context={documents:[{id:9,mime_type:'application/pdf',scan_status:'clean'}],client:{id:4,agency_id:2,organization_id:3,full_name:'Synthetic Student',date_of_birth:'2018-01-02',insurance_type_id:7},schoolName:'Example School',guardians:[guardian(20),guardian(21)],state:{completedSteps:[],invitations:{}},packetRead:{id:11,documentId:9,status:'applied',roiSignatureDetected:true,disclosureSignatureDetected:true,versionLabel:'2026-08-20'}};
+ context={documents:[{id:9,mime_type:'application/pdf',scan_status:'clean',submittedDate:'2026-11-15'}],client:{id:4,agency_id:2,organization_id:3,full_name:'Synthetic Student',date_of_birth:'2018-01-02',insurance_type_id:7},schoolName:'Example School',guardians:[guardian(20),guardian(21)],state:{completedSteps:[],invitations:{}},packetRead:{id:11,documentId:9,status:'applied',roiSignatureDetected:true,disclosureSignatureDetected:true,versionLabel:'2026-08-20'}};
  api.get.mockImplementation(async(path)=>path.includes('/view')?{data:{text:async()=>JSON.stringify({url:'/synthetic-private-packet.pdf'})},headers:{'content-type':'application/json'}}:{data:path.endsWith('/paper-packet-processing')?structuredClone(context):path==='/client-settings/insurance-types'?[{id:7,label:'Commercial',is_active:1}]:[]});
  api.put.mockImplementation(async(path,{step,data})=>{if(step==='draft'){context.workingDraft={...structuredClone(data),clientId:4,agencyId:2};context.state.workingDraftRevision=Number(context.state.workingDraftRevision||0)+1;return {data:{state:structuredClone(context.state)}};}context.state.completedSteps=[...new Set([...context.state.completedSteps,step])];if(step==='consents'&&data.evidenceReview)context.state.consentReview={...data.evidenceReview,kind:'human_source_review'};if(step==='demographics')context.state.documentId=data.documentId;if(step.startsWith('guardian'))context.state[`${step}Id`]=data.guardianUserId||null;return {data:{state:structuredClone(context.state)}};});
  api.post.mockResolvedValue({data:{state:{completedSteps:steps,processedAt:'2026-11-07T22:00:00Z',invitations:{20:{status:'sent'},21:{status:'failed'}}}}});
@@ -20,7 +20,7 @@ afterEach(()=>{w?.unmount();vi.useRealTimers();vi.unstubAllGlobals();});
 async function render({realRoi=false}={}){w=mount(SchoolPaperPacketWorkflow,{props:{clientId:4},global:{stubs:{
  PDFPreview:{props:['pdfUrl'],emits:['loaded'],mounted(){this.$emit('loaded',{totalPages:6})},template:'<div data-test="packet">{{pdfUrl}}</div>'},
  ClientInsuranceEditor:{template:'<form><input value="Unsaved policy edit" /></form>',methods:{save:saveInsurance}},
- AssignmentCoverageReview:true,ClientOnboardingRoiStaffPanel:realRoi?false:{template:'<div data-test="roi"/>',methods:{saveAllDirty:saveRoi,getPendingChanges:pendingRoi,reload:reloadRoi}}
+ AssignmentCoverageReview:true,ClientTransitionInvitation:true,ClientOnboardingRoiStaffPanel:realRoi?false:{template:'<div data-test="roi"/>',methods:{saveAllDirty:saveRoi,getPendingChanges:pendingRoi,reload:reloadRoi}}
 }}});await flushPromises();}
 const next=()=>w.findAll('.paper-actions button').at(-1).trigger('click');
 it('saves the single insurance editor as a draft and advances without requesting a separate verification',async()=>{
@@ -40,7 +40,7 @@ it('finishes only after saving ROI corrections and displays each recipient outco
  context.state={completedSteps:steps,documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes'};await render();
  await fillHuman();
  saveRoi.mockResolvedValueOnce(false);await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('ROI corrections');
- await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
+ await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true,sendInvitations:false});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
  await w.findAll('button').find(b=>b.text()==='Retry failed invitations').trigger('click');await flushPromises();expect(saveRoi).toHaveBeenCalledTimes(2);expect(api.post).toHaveBeenCalledTimes(2);
 });
 it('keeps an unmatched paper packet pending without offering a new signature form',async()=>{
@@ -148,4 +148,23 @@ it('copies Spanish packet proposals into English fields and posts only a reviewe
  await render();await w.findAll('button').find(b=>b.text()==='Use English packet details').trigger('click');expect(w.findAll('.paper-fields input')[0].element.value).toBe('José');expect(w.get('.paper-fields select').element.value).toBe('Male');
  await w.get('[aria-label="Medical information in English"]').setValue('No known food allergies.');await w.findAll('.english-entry input[type="checkbox"]')[0].setValue(true);await next();await flushPromises();
  expect(api.put).toHaveBeenCalledWith('/clients/4/paper-packet-processing',expect.objectContaining({step:'demographics',data:expect.objectContaining({firstName:'José',gender:'Male',englishResponses:{snapshotId:'SOURCE-ES-1',reviewed:true,answers:{medicalInformation:'No known food allergies.'}}})}));
+});
+
+
+it('provides standard languages with free entry and defaults source evidence without asking for PDF page input', async () => {
+ context.state={completedSteps:steps,documentId:9,guardian1Id:20};
+ context.reviewDefaults={locale:'es',signerName:'Synthetic Parent 20',submittedDate:'2026-11-15',roi:{signedDate:'2026-11-03',dateSource:'paper',page:5},disclosure:{signedDate:'2026-11-15',dateSource:'submission',page:6}};
+ await render();
+ expect(w.vm.humanEvidence.locale).toBe('es');
+ expect(w.vm.humanEvidence.roi).toMatchObject({signerName:'Synthetic Parent 20',signedDate:'2026-11-03',page:5});
+ expect(w.vm.humanEvidence.disclosure).toMatchObject({signedDate:'2026-11-15',dateSource:'submission'});
+ await w.findAll('nav button')[5].trigger('click');
+ expect(w.text()).toContain('second parent signature is optional');
+ expect(w.find('input[type="number"]').exists()).toBe(false);
+ await w.findAll('nav button')[0].trigger('click');
+ expect(w.findAll('datalist option').map(option=>option.attributes('value'))).toEqual(['English','Spanish','Unknown']);
+});
+it('defaults a new second parent to a contact without preparing a portal account', async () => {
+ context.state={completedSteps:['demographics','guardian1'],documentId:9,guardian1Id:20};context.guardians=[guardian(20)];
+ await render();expect(w.vm.guardianForms[1].preparePortalAccount).toBe(false);
 });

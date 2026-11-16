@@ -66,3 +66,11 @@ it('rejects labels-only or unreadable policies and unnamed contacts', () => {
   expect(() => parseChartInsurance('Insurance\nPolicy Information\nCopay\nMember ID')).toThrow();
   expect(() => parseChartContacts('Mobile Phone\n555-111-2222')).toThrow();
 });
+it('reads policy group and a separately printed Self policyholder from one insurance paste', () => {
+  expect(parseChartInsurance('[Example Health (43324)](https://example.test/payer): Primary\nPolicy Information\nCopay\n$20.00\nMember ID\nTEST123\nPolicy Group\n47110-004\nPolicy Holder\nSelf\nEligibility\nNot verified.').primary)
+    .toMatchObject({ insurerName:'Example Health', payerId:'43324', memberId:'TEST123', groupNumber:'47110-004', relationshipToSubscriber:'self', lastEligibilityCheck:'Not verified.' });
+});
+it('routes unlabelled coverage to its selected slot and refuses a conflicting source heading', () => {
+  expect(parseChartInsurance('Insurance carrier\nExample Secondary\nMember ID\nSECOND', { position:'secondary' })).toMatchObject({ secondary:{ insurerName:'Example Secondary', memberId:'SECOND' } });
+  expect(() => parseChartInsurance('Example (43324): Primary\nMember ID\nPRIMARY', { position:'secondary' })).toThrow('labeled primary');
+});

@@ -11,6 +11,7 @@ import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+
 import Agency from '../models/Agency.model.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { getLatestPaperPacketVisionEval } from './paperPacketVision.service.js';
@@ -75,17 +76,47 @@ export async function paperProcessingSourceDocument(clientId, documentId, overri
 export async function paperProcessingContext(clientId, overrides = {}) {
   const deps = dependencies(overrides), client = await readClient(clientId, deps);
   const [guardians, school, vision, documents] = await Promise.all([deps.guardians.listForClient(client.id), deps.agencies.findById(client.organization_id), deps.vision(client.id), deps.documents.findSchoolPaperPacketsForClient(client.id)]);
+  const state = paperProcessingState(client);
+  const contacts = (await Promise.all([state.guardian1ContactId,state.guardian2ContactId].filter(Boolean).map(id=>deps.contacts.findById(id)))).filter(contact=>contact && Number(contact.client_id)===Number(client.id) && Number(contact.agency_id)===Number(client.agency_id));
   const fields = ['id','agency_id','organization_id','full_name','date_of_birth','gender','grade','address_street','address_apt','address_city','address_state','address_zip','preferred_language','primary_parent_language','insurance_type_id'];
   return { packetReading:paperReadingForStaff(client),client: Object.fromEntries(fields.map(key => [key, client[key] ?? null])), schoolName: school?.name || '',
     documents: (documents || []).filter(doc => (doc.referral_draft_id || doc.source_referral_draft_id) && !doc.removed_at
       && Number(doc.client_id) === Number(client.id) && Number(doc.agency_id) === Number(client.agency_id) && Number(doc.school_organization_id) === Number(client.organization_id))
-      .map(doc => ({ id:doc.id, original_name:doc.original_name, mime_type:doc.mime_type, scan_status:doc.scan_status })),
+      .map(doc => ({ id:doc.id, original_name:doc.original_name, mime_type:doc.mime_type, scan_status:doc.scan_status, submittedDate: sourceDate(doc) })),
+    contacts: contacts.map(contact=>({id:contact.id,agencyContactId:contact.agency_contact_id,fullName:contact.contact_full_name,email:contact.contact_email,phone:contact.contact_phone,relationshipTitle:contact.relationship_type})),
     state: publicState(paperProcessingState(client)), workingDraft:readWorkingDraft(client,deps), guardians: guardians.map(g => ({ guardian_user_id:g.guardian_user_id,
       first_name:g.first_name,last_name:g.last_name,email:g.email,phone_number:g.phone ?? g.phone_number ?? '',
-      relationship_title:g.relationship_title,access_enabled:g.access_enabled,permissions_json:g.permissions_json })),
+      relationship_title:g.relationship_title,relationship_type:g.relationship_type,access_enabled:g.access_enabled,permissions_json:g.permissions_json })),
+    reviewDefaults: packetReviewDefaults(client, vision, documents, guardians),
     packetRead: vision ? { id:vision.id,documentId:vision.phi_document_id,status:vision.status,versionLabel:vision.detected_version_label,
       roiSignatureDetected:!!vision.roi_signature_detected,disclosureSignatureDetected:!!vision.disclosure_signature_detected,
+      locale:object(vision.raw_summary || vision.raw_vision_summary_json).packetLocale || null,
+      hasReviewHints:!!object(vision.raw_summary || vision.raw_vision_summary_json).reviewHints,
       reviewReasons:vision.review_reasons || [] } : null };
+}
+
+function sourceDate(doc = {}) {
+  const value = doc.source_submission_date || doc.submission_date || doc.source_submitted_at || doc.uploaded_at || doc.created_at;
+  return value instanceof Date ? value.toISOString().slice(0, 10) : calendar(String(value || '').slice(0, 10));
+}
+function packetReviewDefaults(client, vision, documents = [], guardians = []) {
+  const summary = object(vision?.raw_summary || vision?.raw_vision_summary_json);
+  const hints = object(summary.reviewHints);
+  const doc = documents.find(item => Number(item.id) === Number(vision?.phi_document_id)) || {};
+  const submittedDate = sourceDate(doc) || calendar(String(summary.submittedAt || '').slice(0, 10));
+  const state = paperProcessingState(client);
+  const guardian = guardians.find(item => Number(item.guardian_user_id) === Number(state.guardian1Id)) || guardians[0];
+  let packetGuardian = '';
+  if (client.paper_packet_demo_candidate_enc) {
+    try { packetGuardian = decryptDemographicsPayload(client.paper_packet_demo_candidate_enc)?.guardianName || ''; } catch { /* missing candidate remains reviewable */ }
+  }
+  const signerName = packetGuardian || [guardian?.first_name, guardian?.last_name].filter(Boolean).join(' ');
+  const result = { locale: hints.locale || summary.packetLocale || null, submittedDate, signerName };
+  for (const key of ['roi', 'disclosure']) {
+    const hint = object(hints[key]);
+    result[key] = { signerName, signedDate: calendar(hint.signedDate) || submittedDate || '', dateSource: calendar(hint.signedDate) ? 'paper' : submittedDate ? 'submission' : null, page: Number.isInteger(hint.page) && hint.page > 0 ? hint.page : null };
+  }
+  return result;
 }
 export async function savePaperProcessingStep(input, overrides = {}) {
   const deps = dependencies(overrides);
@@ -118,23 +149,26 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
     }
     state.documentId = Number(doc.id);
   } else if (step === 'guardian1' || step === 'guardian2') {
-    if (step === 'guardian2' && (data.notListed === true || data.contactOnly === true)) {
-      state.guardian2Id = null;
-      const contacts=data.contactOnly === true ? await deps.contacts.listForClient(client.id) : [];
-      state.additionalContactIds=contacts.map(row=>Number(row.id));
-      state.guardian2ContactIds=contacts.filter(row=>['parent','guardian','parent_guardian'].includes(String(row.relationship_type).toLowerCase())).map(row=>Number(row.id));
-      if(data.contactOnly === true && !contacts.length)throw fail('Save the other parent or an additional contact, or select that no other parent is listed.');
-    }
-    else {
+    if (step === 'guardian2' && data.notListed === true) { state.guardian2Id=null;state.guardian2ContactId=null;state.guardian2ContactIds=[]; }
+    else if (data.contactOnly === true && Number(data.affiliationId)) {
+      const contact=await deps.contacts.findById(Number(data.affiliationId));
+      if(!contact||Number(contact.client_id)!==Number(client.id)||Number(contact.agency_id)!==Number(client.agency_id)||Number(contact.is_active)!==1)throw fail('Select a saved contact for this client.');
+      state[`${step}Id`]=null;state[`${step}ContactId`]=Number(contact.id);
+      if(step==='guardian2')state.guardian2ContactIds=[Number(contact.id)];
+    } else if(step==='guardian2'&&data.contactOnly===true){
+      state.guardian2Id=null;const contacts=await deps.contacts.listForClient(client.id);state.additionalContactIds=contacts.map(row=>Number(row.id));state.guardian2ContactIds=contacts.filter(row=>['parent','guardian','parent_guardian'].includes(String(row.relationship_type).toLowerCase())).map(row=>Number(row.id));
+      if(!contacts.length)throw fail('Save the other parent or an additional contact, or select that no other parent is listed.');
+    } else {
       const guardianId = Number(data.guardianUserId), link = await deps.guardians.getLink({clientId:client.id,guardianUserId:guardianId});
-      if (!link || (Number(link.access_enabled) !== 1 && !preparedGuardianLink(link) && data.reactivateConfirmed !== true)) throw fail('Connect a verified parent or guardian account, or review the paused contact’s access before continuing.');
+      if (!link) throw fail('Connect the parent, guardian or client contact before continuing.');
       if (guardianId === Number(state[step === 'guardian2' ? 'guardian1Id' : 'guardian2Id'])) throw fail('The second guardian needs their own account and email.');
       state[`${step}Id`] = guardianId;
       if(Number(link.access_enabled)!==1 && !preparedGuardianLink(link) && data.reactivateConfirmed === true)state.reactivationGuardianIds=[...new Set([...(state.reactivationGuardianIds || []),guardianId])];
+      state[`${step}ContactId`]=null;
     }
   } else if (step === 'school') {
     if (data.schoolConfirmed !== true || !['yes','no','unsure'].includes(data.sharedCustody)) throw fail('Confirm the school and the custody/decision-making information on the paper packet.');
-    if (data.sharedCustody === 'yes' && !state.guardian2Id && !state.guardian2ContactIds?.length) throw fail('Shared custody requires the other guardian’s contact. Complete the second-parent step.');
+    if (data.sharedCustody === 'yes' && !state.guardian2Id && !state.guardian2ContactId && !state.guardian2ContactIds?.length) throw fail('Shared custody requires the other guardian’s contact. Complete the second-parent step.');
     state.sharedCustody = data.sharedCustody;
   } else if (step === 'insurance') {
     if (data.reviewed !== true) throw fail('Review and save the insurance or self-pay information before continuing.');
@@ -157,7 +191,7 @@ export async function completePaperProcessing(input, overrides = {}) {
   const deps = dependencies(overrides);
   return withPacketLock(input.clientId, deps, () => complete(input, deps));
 }
-async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirmed}, deps) {
+async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirmed, sendInvitations = false}, deps) {
     let client = await readClient(clientId, deps), state = { ...paperProcessingState(client) };
     if (!state.processedAt && PAPER_PROCESSING_STEPS.some(step => !(state.completedSteps || []).includes(step))) throw fail('Complete each packet-processing step first.');
     await sourceDocument(client, state.documentId, deps);
@@ -168,10 +202,11 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       if (signaturesConfirmed !== true || staffRoiConfirmed !== true) throw fail('Confirm the existing paper signatures and matched staff ROI selections.');
       assertPacketMatch(client, state, vision);
       if(state.consentReview?.kind==='human_source_review'){const current=await deps.staff.listSchoolStaffRosterForClient({clientId:client.id,schoolOrganizationId:client.organization_id,roiExpiresAt:client.roi_expires_at});const key=rows=>JSON.stringify(rows.map(row=>({schoolStaffUserId:Number(row.schoolStaffUserId||row.school_staff_user_id),state:row.state||row.effective_access_state||row.access_level||'packet'})).sort((a,b)=>a.schoolStaffUserId-b.schoolStaffUserId));if(key(current)!==key(state.consentReview.staffSelections))throw fail('School staff selections changed after the paper review. Review and save the release step again.',409);}
-      if(state.guardian2ContactIds?.length){const contacts=await deps.contacts.listForClient(client.id);if(state.guardian2ContactIds.some(id=>!contacts.some(row=>Number(row.id)===Number(id))))throw fail('The other parent’s contact changed. Review the contacts step again.',409);}
+      if(state.guardian2ContactId){const contact=await deps.contacts.findById(state.guardian2ContactId);if(!contact||Number(contact.client_id)!==Number(client.id)||Number(contact.agency_id)!==Number(client.agency_id))throw fail('The other parent’s contact changed. Review the contacts step again.',409);}
+      else if(state.guardian2ContactIds?.length){const contacts=await deps.contacts.listForClient(client.id);if(state.guardian2ContactIds.some(id=>!contacts.some(row=>Number(row.id)===Number(id))))throw fail('The other parent’s contact changed. Review the contacts step again.',409);}
       if (!['yes', 'no'].includes(state.sharedCustody)) throw fail('Clarify custody/decision-making rights before finishing this packet.');
-      if (!state.guardian1Id || (state.guardian2Id && Number(state.guardian1Id) === Number(state.guardian2Id))) throw fail('Each parent needs their own enabled portal contact.');
-      if (state.sharedCustody === 'yes' && !state.guardian2Id && !state.guardian2ContactIds?.length) throw fail('Save the other parent as a contact or prepare their separate portal account.');
+      if ((!state.guardian1Id && !state.guardian1ContactId) || (state.guardian2Id && Number(state.guardian1Id) === Number(state.guardian2Id))) throw fail('Save distinct contacts for the parent or client.');
+      if (state.sharedCustody === 'yes' && !state.guardian2Id && !state.guardian2ContactId && !state.guardian2ContactIds?.length) throw fail('Complete the second guardian’s portal contact.');
       await deps.markSignatures({clientId:client.id,actorUserId:actorId,packetVersionLabel:state.consentReview?.versionLabel||vision.detected_version_label,packetLocale:state.consentReview?.locale||'en',paperRoiSignedDate:state.consentReview?.roi?.signedDate||null});
       await deps.markDocuments({clientId:client.id,actorUserId:actorId,items:[{key:'roi',status:'present'}]});
       await deps.acknowledgeRoi({clientId:client.id,actorUserId:actorId});
@@ -212,6 +247,8 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       if(!activationBlocked.size)state.guardianAccessFinalizedAt=new Date().toISOString();
       await writeState(client,state,actorId,deps);
     }
+    // Sending follows an explicit invitation review in the Portal section.
+    if (sendInvitations !== true) return publicState(state);
     state.invitations = { ...(state.invitations || {}) };
     for (const guardianId of [...new Set([state.guardian1Id,state.guardian2Id].filter(Boolean).map(Number))]) {
       if(activationBlocked.has(guardianId))continue;
@@ -223,7 +260,7 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
         try {
           state.invitations[guardianId] = {status:'pending',reason:'Invitation delivery is in progress. Check communication history if it stays pending.',attemptedAt:new Date().toISOString()};
           await writeState(client, state, actorId, deps);
-          const result = await deps.send({agencyId:client.agency_id,actorUserId:actorId,clientId:client.id,guardianUserId:guardianId,existingLinkOnly:true,paperPacketProcessed:true});
+          const result = await deps.send({agencyId:client.agency_id,actorUserId:actorId,clientId:client.id,guardianUserId:guardianId,existingLinkOnly:true,paperPacketProcessed:true,migration:true});
           const d = result?.delivery;
           const status = d?.blocked || d?.skipped ? 'blocked' : d?.queued || d?.pendingApproval ? 'queued' : d?.redirected ? 'redirected' : d?.id ? 'sent' : 'unconfirmed';
           state.invitations[guardianId] = {status,communicationId:d?.id || null,reason:d?.reason || null,attemptedAt:new Date().toISOString()};
@@ -270,12 +307,24 @@ const calendar=value=>{const raw=String(value||'');return /^\d{4}-\d{2}-\d{2}$/.
 async function validateHumanEvidence(client,state,vision,evidence,deps,actorId){
  if(!vision||Number(vision.phi_document_id)!==Number(state.documentId)||Number(evidence.evaluationId)!==Number(vision.id)||Number(evidence.documentId)!==Number(state.documentId)||!['applied','needs_review'].includes(vision.status))throw fail('The packet reading changed. Reopen and review the current source before confirming it.',409);
  if(evidence.sourceViewed!==true||evidence.denyReviewed!==true)throw fail('Review this source PDF, its printed version, and every DENY selection before confirming.');
- const versionLabel=String(evidence.versionLabel||'').trim(),locale=evidence.locale==='es'?'es':'en';
+ const documents = await deps.documents.findSchoolPaperPacketsForClient(client.id);
+ const guardians = await deps.guardians.listForClient(client.id);
+ const defaults = packetReviewDefaults(client,vision,documents,guardians);
+ const versionLabel=String(evidence.versionLabel||'').trim(),locale=evidence.locale || defaults.locale;
+ if (!['en','es'].includes(locale)) throw fail('Confirm the language printed on this packet.');
  const version=versionLabel?await deps.versions(client.organization_id,locale,versionLabel):null;
  if(!version?.id)throw fail('The printed packet version could not be matched for this school. Leave it pending and obtain the correct packet.');
- const signatures={};for(const key of ['roi','disclosure']){const signature=evidence[key]||{},signerName=String(signature.signerName||'').trim().slice(0,255),signedDate=calendar(signature.signedDate),page=Number(signature.page);
- if(signature.status!=='present'||signerName.length<2||!signedDate||!Number.isInteger(page)||page<1||page>100)throw fail('Confirm a present signature, printed signer name, valid signed date, and PDF page for both ROI and disclosure. Missing or uncertain signatures stay pending.');
- signatures[key]={status:'present',signerName,signedDate,page};}
+ const signatures={};for(const key of ['roi','disclosure']) {
+   const signature=evidence[key]||{}, hint=defaults[key];
+   const signerName=String(signature.signerName || defaults.signerName || '').trim().slice(0,255);
+   if (signature.signedDate && !calendar(signature.signedDate)) throw fail('Use a valid signed date from the packet.');
+   const signedDate=calendar(signature.signedDate) || hint.signedDate;
+   const page=Number(signature.page || hint.page) || null;
+   if (signature.status !== 'present') throw fail('Confirm the existing signature for the school ROI and the packet consent bundle. Missing or uncertain signatures stay pending.');
+   if (!signedDate) throw fail('The paper date and submission date are unavailable. Review this packet date.');
+   if (page !== null && (!Number.isInteger(page) || page < 1 || page > 100)) throw fail('The detected source page is invalid. Recheck the packet.');
+   signatures[key]={status:'present',signerName:signerName || null,signedDate,dateSource:signature.signedDate && signature.dateSource !== 'submission' ? 'paper' : hint.dateSource || 'paper',page};
+ }
  const expiresAt=paperPacketRoiExpiresAtYmd(signatures.roi.signedDate);
  const staff=await deps.staff.listSchoolStaffRosterForClient({clientId:client.id,schoolOrganizationId:client.organization_id,roiExpiresAt:expiresAt});
  if(!staff.length)throw fail('Review the school staff list before confirming the paper release.');
@@ -297,7 +346,7 @@ async function saveReviewedConsent({client,state,data,actorId,deps}){
   }
   await sourceDocument(client,state.documentId,deps);
   const vision=await deps.vision(client.id),manual=data.evidenceReview?await validateHumanEvidence(client,state,vision,data.evidenceReview,deps,actorId):null;
-  if(!manual)throw fail('Record the printed packet version, signer names and dates, and source review before saving the paper release.');
+  if(!manual)throw fail('Record the printed packet version, source review and signature presence before saving the paper release.');
   const changes=Array.isArray(data.staffChanges)?data.staffChanges:[],allowed=new Set(manual.staffSelections.map(row=>Number(row.schoolStaffUserId))),seen=new Set();
   if(changes.length>allowed.size)throw fail('Review the current school staff list.');
   for(const change of changes){const id=Number(change.schoolStaffUserId);if(!allowed.has(id)||seen.has(id)||!['packet','limited','roi','roi_docs'].includes(change.nextState))throw fail('A staff selection does not belong to the current school.');seen.add(id);}
@@ -309,6 +358,13 @@ async function saveReviewedConsent({client,state,data,actorId,deps}){
   await writeState(client,state,actorId,scoped,manual.roiExpiresAt);
   for(const change of changes)await deps.staff.setAccessState({clientId:client.id,schoolOrganizationId:client.organization_id,schoolStaffUserId:Number(change.schoolStaffUserId),nextState:change.nextState,actorUserId:actorId,...(atomic?{db:connection}:{})});
   if(changes.length){const staff=await deps.staff.listSchoolStaffRosterForClient({clientId:client.id,schoolOrganizationId:client.organization_id,roiExpiresAt:manual.roiExpiresAt,...(atomic?{db:connection}:{})});state.consentReview.staffSelections=staff.map(staffReviewSelection);await writeState(client,state,actorId,scoped,manual.roiExpiresAt);}
+  // A reviewed packet supplies a locale only when this account has no explicit one.
+  // JSON_SET preserves consent/privacy flags; malformed permission records stay untouched.
+  for(const guardianId of [...new Set([state.guardian1Id,state.guardian2Id].filter(Boolean).map(Number))]) {
+    await scoped.database.execute(`UPDATE client_guardians SET permissions_json=JSON_SET(COALESCE(permissions_json,JSON_OBJECT()),'$.portalLanguage',?)
+      WHERE client_id=? AND guardian_user_id=? AND (permissions_json IS NULL OR JSON_VALID(permissions_json))
+      AND JSON_EXTRACT(COALESCE(permissions_json,JSON_OBJECT()),'$.portalLanguage') IS NULL`,[manual.locale,client.id,guardianId]);
+  }
   if(transaction)await connection.commit();return publicState(state);
  }catch(error){if(transaction)await connection.rollback();throw error;}
 }

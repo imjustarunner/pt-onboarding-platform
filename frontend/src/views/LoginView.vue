@@ -1,5 +1,6 @@
 <template>
   <component
+    :lang="authLocale"
     :is="isFundThredLogin ? FundThredLoginShell : isPlatformLogin ? HqLoginShell : 'div'"
     class="login-page"
     :class="{ 'login-page--auricwell': isAuricWellLogin, 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--tisi-video': showTisiLoginVideo, 'login-page--nlu-video': showNluLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
@@ -169,7 +170,7 @@
         <div v-else-if="isPlatformLogin" class="hq-cardhead">
           <img src="/assets/ptco/logo-flat.webp" alt="" width="90" height="112" />
           <h2>PlotTwist<span>HQ</span></h2>
-          <p>Sign in to your account</p>
+          <p>{{ authText("Sign in to your account") }}</p>
         </div>
 
         <div v-else-if="!isIpadPreviewMode && !isPlatformLogin && !showTenantVideoHero" class="login-logo">
@@ -180,7 +181,8 @@
         <p v-if="!isAppLike && !isSSTCLogin && !isPlatformLogin && loginParentBranding" class="subtitle">{{ portalLoginSubtitle }}</p>
         <p v-else-if="!isAppLike && !isPlatformLogin && !showTenantVideoHero" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
-        <div v-if="error" class="error" v-html="formatError(error)"></div>
+        <label class="portal-auth-language">Idioma / Language <select :value="authLocale" @change="setAuthLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select></label>
+        <div v-if="error" class="error" v-html="formatError(authText(error))"></div>
         <div v-if="showSignupSuggestion" class="login-signup-suggestion">
           <p class="login-signup-suggestion__text">
             No account was found for <strong>{{ suggestedSignupEmail }}</strong>. Create an account first, then apply for a club.
@@ -367,7 +369,7 @@
           @forget="forgetRememberedAccount"
         />
 
-        <PasskeySignIn v-if="!workspacePreparing && !showRememberedGoogleButton && !isSchoolCareBridge && loginTheme?.agency?.organization_type !== 'school' && identifiedLoginMethod !== 'google'" :disabled="loading" @signed-in="handlePasskeyLogin" />
+        <PasskeySignIn :locale="authLocale" v-if="!workspacePreparing && !showRememberedGoogleButton && !isSchoolCareBridge && loginTheme?.agency?.organization_type !== 'school' && identifiedLoginMethod !== 'google'" :disabled="loading" @signed-in="handlePasskeyLogin" />
         <!-- Biometric login button (native only, when token is saved) -->
         <div v-if="showBiometricButton && !workspacePreparing" class="biometric-login-wrap">
           <button
@@ -386,7 +388,7 @@
             <span v-else>Sign in with Biometrics</span>
           </button>
           <p v-if="biometricError" class="biometric-error">{{ biometricError }}</p>
-          <div class="biometric-divider"><span>or use password</span></div>
+          <div class="biometric-divider"><span>{{ authText("or use password") }}</span></div>
         </div>
 
         <div v-if="!workspacePreparing" :class="{ 'app-auth-panel': isAppLike, 'ipad-auth-panel': isIpadPreviewMode }">
@@ -396,7 +398,7 @@
               :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
             >
               <div class="form-group login-credentials-username">
-                <label for="username">{{ isSchoolCareBridge ? 'Email address' : usernameFieldLabel }}</label>
+                <label for="username">{{ isSchoolCareBridge ? authText("Email address") : usernameFieldLabel }}</label>
                 <input
                   id="username"
                   name="username"
@@ -418,9 +420,9 @@
               </div>
 
               <div v-if="needsOrgChoice" class="form-group login-credentials-org">
-                <label for="orgChoice">Choose your organization</label>
+                <label for="orgChoice">{{ authText("Choose your organization") }}</label>
                 <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
-                  <option disabled value="">Select an organization</option>
+                  <option disabled value="">{{ authText("Select an organization") }}</option>
                   <option v-for="o in orgOptions" :key="o.portal_url || o.slug || o.id" :value="(o.portal_url || o.slug || '').toLowerCase()">
                     {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
                   </option>
@@ -438,7 +440,7 @@
               </div>
 
               <div v-if="(showPassword || isPlatformLogin) && !needsOrgChoice" class="form-group login-credentials-password">
-                <label for="password">Password</label>
+                <label for="password">{{ authText("Password") }}</label>
                 <div class="password-input-wrap">
                   <input
                     id="password"
@@ -446,7 +448,7 @@
                     v-model="password"
                     :type="passwordVisible ? 'text' : 'password'"
                     required
-                    placeholder="Enter your password"
+                    :placeholder="authText('Enter your password')"
                     autocomplete="current-password"
                     @paste="loginAuto.passwordInserted"
                     @input="onPasswordInput"
@@ -460,36 +462,36 @@
                   <button
                     type="button"
                     class="password-toggle-btn"
-                    :aria-label="passwordVisible ? 'Hide password' : 'Show password'"
-                    :title="passwordVisible ? 'Hide password' : 'Show password'"
+                    :aria-label="passwordVisible ? authText('Hide password') : authText('Show password')"
+                    :title="passwordVisible ? authText('Hide password') : authText('Show password')"
                     @click="passwordVisible = !passwordVisible"
                   >
                     <component v-if="isPlatformLogin" :is="passwordVisible ? EyeOff : Eye" :size="20" aria-hidden="true" />
-                    <template v-else>{{ passwordVisible ? 'Hide' : 'Show' }}</template>
+                    <template v-else>{{ passwordVisible ? authText("Hide") : authText("Show") }}</template>
                   </button>
                 </div>
               </div>
             </div>
 
-            <button v-if="username && !showPassword" type="button" class="btn btn-link" @click="forgetRememberedAccount">Use another account</button>
+            <button v-if="username && !showPassword" type="button" class="btn btn-link" @click="forgetRememberedAccount">{{ authText("Use another account") }}</button>
             <div v-if="!needsOrgChoice" class="remember-row">
               <label class="remember-me">
                 <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" @change="saveRememberPreference" />
-                Remember me on this browser
+                {{ authText("Remember me on this browser") }}
               </label>
-              <a v-if="isPlatformLogin" href="#" @click.prevent="showForgotPassword" class="help-link">Forgot password?</a>
+              <a v-if="isPlatformLogin" href="#" @click.prevent="showForgotPassword" class="help-link">{{ authText("Forgot password?") }}</a>
             </div>
             
             <button v-if="needsOrgChoice" type="submit" class="btn btn-primary" :disabled="verifying || loading || !selectedOrgSlug">
-              {{ verifying ? 'Verifying…' : 'Continue' }}
+              {{ verifying ? authText("Verifying…") : authText("Continue") }}
             </button>
 
             <button v-else-if="!showPassword" type="submit" class="btn btn-primary" :disabled="verifying || loading || !username.trim()">
-              {{ verifying ? 'Verifying…' : isPlatformLogin ? 'Sign In' : 'Verify' }}
+              {{ verifying ? authText("Verifying…") : isPlatformLogin ? authText("Sign In") : authText("Verify") }}
             </button>
 
             <button v-else type="submit" class="btn btn-primary" :disabled="loading">
-              {{ loading ? 'Signing in...' : 'Sign In' }}
+              {{ loading ? authText("Signing in...") : authText("Sign In") }}
             </button>
 
             <button
@@ -499,7 +501,7 @@
               :disabled="loading || verifying"
               @click="resetToUsernameStep"
             >
-              Change username
+              {{ authText("Change username") }}
             </button>
           </form>
           <section v-if="nluEnrollmentPath" class="nlu-enrollment-entry" aria-label="Tutoring enrollment"><strong>Looking for tutoring?</strong><p>Find a tutor or start a tutoring enrollment. You do not need an account to send a request.</p><router-link class="nlu-button nlu-button--primary" :to="nluEnrollmentPath">Enroll in tutoring</router-link></section>
@@ -513,12 +515,12 @@
           <RouterLink v-if="isFundThredLogin" to="/fundthred/pricing" class="help-link">Explore FundThred plans and bundles</RouterLink>
           <RouterLink v-else-if="isPlatformLogin" to="/plans" class="help-link">Compare Basic, Premium and Premium Plus</RouterLink>
           <div v-if="!isPlatformLogin" class="login-help">
-            <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
+            <a href="#" @click.prevent="showForgotPassword" class="help-link">{{ authText("Forgot Password?") }}</a>
             <span class="help-separator">|</span>
-            <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
+            <a href="#" @click.prevent="showForgotUsername" class="help-link">{{ authText("Forgot Username?") }}</a>
             <template v-if="loginSlug">
               <span class="help-separator">|</span>
-              <router-link :to="`/${encodeURIComponent(loginSlug)}/support?topic=parent_access`" class="help-link">Contact us</router-link>
+              <router-link :to="`/${encodeURIComponent(loginSlug)}/support?topic=parent_access`" class="help-link">{{ authText("Contact us") }}</router-link>
             </template>
             <template v-if="showClubLinks && !isAppLike">
               <span class="help-separator">|</span>
@@ -549,10 +551,10 @@
             :aria-expanded="showLoginSecurity"
             aria-controls="login-security-guidance"
             @click="showLoginSecurity = !showLoginSecurity"
-          >Security</button>
+          >{{ authText("Security") }}</button>
           <aside v-if="showLoginSecurity" id="login-security-guidance" class="login-security-guidance" aria-label="Sign-in safety" tabindex="-1">
-            <strong>Keep your sign-in secure</strong>
-            <p>Use your saved work bookmark to sign in. If an unexpected document asks you to log in, close it and open your bookmark instead. Keep your password and authenticator codes private.</p>
+            <strong>{{ authText("Keep your sign-in secure") }}</strong>
+            <p>{{ authText("Use your saved work bookmark to sign in. If an unexpected document asks you to log in, close it and open your bookmark instead. Keep your password and authenticator codes private.") }}</p>
           </aside>
         </div>
 
@@ -561,16 +563,16 @@
         <!-- Forgot Password Modal -->
         <div v-if="showForgotPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
-            <h3>{{ isSchoolPortalOrg ? 'Set your password' : 'Reset your password' }}</h3>
+            <h3>{{ isSchoolPortalOrg ? authText("Set your password") : authText("Reset your password") }}</h3>
             <p class="modal-subtitle">
-              {{ isSchoolPortalOrg
+              {{ authLocale === 'es' ? authText('Enter your email to receive a link to set or reset your portal password.') : isSchoolPortalOrg
                 ? 'Enter the email on your school staff account. If you have never logged in or your temporary password expired, we will email you a link to set your password.'
                 : 'Enter your work login email or personal recovery email. We\'ll send a set/reset link and remind you of your login username (always your work email).' }}
             </p>
             <form @submit.prevent="submitForgotPassword" class="modal-form">
               <div class="form-group">
-                <label for="forgotEmail">Email</label>
-                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required :placeholder="isSchoolPortalOrg ? 'name@yourschool.edu' : 'work or personal email'" />
+                <label for="forgotEmail">{{ authText("Email") }}</label>
+                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required :placeholder="isSchoolPortalOrg ? 'name@yourschool.edu' : authText('work or personal email')" />
               </div>
               <div v-if="canShowCurrentEmployeeRescue" class="employee-rescue">
                 <button
@@ -582,11 +584,11 @@
                   {{ currentEmployeeRescueLoading ? 'Checking…' : 'Are you a current employee? Click here' }}
                 </button>
               </div>
-              <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
-              <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <div v-if="recoveryError" class="error">{{ authText(recoveryError) }}</div>
+              <div v-if="recoverySuccess" class="success">{{ authText(recoverySuccess) }}</div>
               <div v-if="recoverySuccess" class="recovery-junk-notice">
-                <strong>Check Junk / Spam.</strong>
-                This email often lands there. Open Junk, move the message to Inbox if you find it, and mark the sender as safe so future messages are delivered.
+                <strong>{{ authText("Check Junk / Spam.") }}</strong>
+                {{ authLocale === 'es' ? 'Busque también en Correo no deseado o Spam. Si encuentra el mensaje, muévalo a su bandeja de entrada y marque al remitente como seguro para recibir mensajes futuros.' : 'This email often lands there. Open Junk, move the message to Inbox if you find it, and mark the sender as safe so future messages are delivered.' }}
               </div>
               <div v-if="recoveryDebug" class="debug">
                 <p><strong>Local recovery debug</strong></p>
@@ -606,7 +608,7 @@
               >
                 {{ forgotPasswordSubmitLabel }}
               </button>
-              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
+              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">{{ authText("Cancel") }}</button>
             </form>
           </div>
         </div>
@@ -623,12 +625,12 @@
                 <label for="guardianTempEmail">Email / username</label>
                 <input id="guardianTempEmail" v-model="forgotPasswordEmail" type="email" required placeholder="name@email.com" />
               </div>
-              <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
-              <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <div v-if="recoveryError" class="error">{{ authText(recoveryError) }}</div>
+              <div v-if="recoverySuccess" class="success">{{ authText(recoverySuccess) }}</div>
               <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
-                {{ recoveryLoading ? 'Sending…' : 'Ask the care team for a new token' }}
+                {{ recoveryLoading ? authText("Sending…") : 'Ask the care team for a new token' }}
               </button>
-              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
+              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">{{ authText("Cancel") }}</button>
             </form>
           </div>
         </div>
@@ -685,17 +687,17 @@
                   />
                 </div>
               </template>
-              <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
-              <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <div v-if="recoveryError" class="error">{{ authText(recoveryError) }}</div>
+              <div v-if="recoverySuccess" class="success">{{ authText(recoverySuccess) }}</div>
               <button
                 v-if="recoverTriedSchoolEmail"
                 type="submit"
                 class="btn btn-primary"
                 :disabled="recoveryLoading"
               >
-                {{ recoveryLoading ? 'Sending…' : 'Submit ticket' }}
+                {{ recoveryLoading ? authText("Sending…") : 'Submit ticket' }}
               </button>
-              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
+              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">{{ authText("Cancel") }}</button>
             </form>
           </div>
         </div>
@@ -709,6 +711,8 @@
 <script setup>
 import { loginVerificationQuery } from '../utils/loginHandoff';
 import { createLoginAutomation } from '../utils/loginAutomation';
+import { usePortalAuthLocale, withPortalAuthLanguage, rememberAuthenticatedPortalLanguage } from '../utils/portalAuthLocale.js';
+
 import AuricWellAuthBrand from '../components/AuricWellAuthBrand.vue';
 import PasskeySignIn from '../components/PasskeySignIn.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
@@ -797,6 +801,7 @@ import { createLoginRecoveryCaptchaScope } from '../utils/loginRecoveryCaptchaSc
 // Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();
+const { locale: authLocale, setLocale: setAuthLocale, text: authText } = usePortalAuthLocale(route);
 const leavePublicAuthForm = enterPublicAuthForm();
 onUnmounted(leavePublicAuthForm);
 const identifiedFamilySurface = ref('');
@@ -835,6 +840,7 @@ const tryBiometricLogin = async () => {
   const result = await authenticateWithBiometrics('Sign in to Summit Stats');
   if (result.success && result.token) {
     authStore.setAuth(result.token, result.user);
+    rememberAuthenticatedPortalLanguage(result.user, authLocale.value);
     try {
       sessionStorage.setItem('justLoggedIn', 'true');
       sessionStorage.setItem('justLoggedInAt', String(Date.now()));
@@ -1018,7 +1024,7 @@ const isIpadPreviewMode = computed(() => appPreviewMode.value === 'ipad');
 const isAppLike = computed(() => isAppPreviewMode.value || browserIsStandalone());
 const primaryLoginTitle = computed(() => (isSSTCLogin.value ? SUMMIT_STATS_TEAM_CHALLENGE_NAME : displayTitle.value));
 const primaryLoginSubtitle = computed(() =>
-  isSSTCLogin.value ? 'Sign in to continue' : defaultLoginSubtitle.value
+  isSSTCLogin.value ? authText("Sign in to continue") : defaultLoginSubtitle.value
 );
 const loginContainerStyle = computed(() => {
   if (isAppLike.value) {
@@ -1031,9 +1037,9 @@ const loginContainerStyle = computed(() => {
   }
   return { background: loginBackground.value };
 });
-const usernameFieldLabel = computed(() => (isPlatformLogin.value ? 'Work email' : isSSTCLogin.value ? 'Email, username, or phone number' : 'Username'));
+const usernameFieldLabel = computed(() => (isPlatformLogin.value ? authText("Work email") : isSSTCLogin.value ? 'Email, username, or phone number' : authText("Username")));
 const usernameFieldPlaceholder = computed(() =>
-  isPlatformLogin.value ? 'you@yourcompany.com' : isSSTCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : 'Enter your username'
+  isPlatformLogin.value ? 'you@yourcompany.com' : isSSTCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : authText("Enter your username")
 );
 
 // Agency login theme data
@@ -1114,15 +1120,15 @@ const portalLoginSubtitle = computed(() => {
   if (isSchoolPortalOrg.value) {
     if (school && partner) return `${school} · in partnership with ${partner}`;
     if (school) return 'Sign in to your School Portal';
-    return 'Sign in to continue';
+    return authText("Sign in to continue");
   }
   if (school && partner) return `${school} · in partnership with ${partner}`;
   if (school) return `${school} · Sign in below`;
-  return 'Sign in to continue';
+  return authText("Sign in to continue");
 });
 
 const defaultLoginSubtitle = computed(() =>
-  isAuricWellLogin.value ? `Sign in to your ${loginTheme.value?.agency?.name || ''} AuricWell portal`.replace('  ', ' ') : isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : 'Sign in to continue'
+  isAuricWellLogin.value ? authText('Sign in to your {agency} AuricWell portal', { agency:loginTheme.value?.agency?.name || '' }).replace('  ', ' ') : isOrgLogin.value && isSchoolPortalOrg.value ? 'Sign in to your School Portal' : authText("Sign in to continue")
 );
 const sstcTenantDisplayName = computed(() => {
   const themedName = String(loginTheme.value?.agency?.name || '').trim();
@@ -1323,7 +1329,7 @@ const showTenantVideoHero = computed(
 const tenantVideoAuthSubtitle = computed(() => {
   const name = String(loginTheme.value?.agency?.name || brandingStore.portalAgency?.name || '').trim();
   if (name) return `Log in to your ${name} account`;
-  return 'Sign in to continue';
+  return authText("Sign in to continue");
 });
 
 // Fetch agency-specific login theme
@@ -1672,7 +1678,7 @@ const showRememberedGoogleButton = computed(() => {
 });
 const returningAccountGreeting = computed(() => {
   const name = showRememberedGoogleButton.value && rememberedGoogleLogin.value?.displayName?.trim().split(/\s+/)[0];
-  return name ? `Welcome back, ${name}` : 'Welcome back';
+  return name ? authText('Welcome back, {name}', {name}) : authText("Welcome back");
 });
 
 const showChangeUsernameButton = computed(() =>
@@ -2241,7 +2247,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     showPassword.value = true;
   } catch (e) {
-    error.value = rateLimitNotice(e) || e?.response?.data?.error?.message || 'Verification failed. Please try again.';
+    error.value = authText(rateLimitNotice(e) || e?.response?.data?.error?.message || 'Verification failed. Please try again.');
     showPassword.value = false;
     needsOrgChoice.value = false;
   } finally {
@@ -2298,6 +2304,7 @@ const handleSubmit = async () => {
 
 const handlePasskeyLogin = async (data) => {
   authStore.setAuth(null, data.user, data.sessionId);
+  rememberAuthenticatedPortalLanguage(data.user, authLocale.value);
   try { sessionStorage.setItem('justLoggedIn','true'); sessionStorage.setItem('justLoggedInAt',String(Date.now())); } catch { /* cookie-only sign-in */ }
   await authStore.refreshUser();
   await handleLogin({success:true,agencies:data.agencies});
@@ -2311,6 +2318,7 @@ const handleLogin = async (passkeyResult = null) => {
   const result = passkeyResult || await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
+    rememberAuthenticatedPortalLanguage(authStore.user, authLocale.value);
     await runWorkspaceTransition(async () => {
       if (String(authStore.user?.role || '').toLowerCase() !== 'kiosk') {
         await Promise.all([startActivityTracking({ force: true }), brandingStore.prepareDashboardIcons()]);
@@ -2497,11 +2505,11 @@ const startForgotPasswordCooldown = () => {
 };
 
 const forgotPasswordSubmitLabel = computed(() => {
-  if (recoveryLoading.value) return 'Sending…';
+  if (recoveryLoading.value) return authText("Sending…");
   if (forgotPasswordCooldownRemaining.value > 0) {
-    return `Sent (${forgotPasswordCooldownRemaining.value}s)`;
+    return authText('Sent ({seconds}s)', { seconds:forgotPasswordCooldownRemaining.value });
   }
-  return isSchoolPortalOrg.value ? 'Send set-password link' : 'Send reset link';
+  return isSchoolPortalOrg.value ? 'Send set-password link' : authText("Send reset link");
 });
 
 onUnmounted(() => {
@@ -2608,7 +2616,7 @@ const submitForgotPassword = async () => {
       organizationSlug: loginSlug.value || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
 
-    recoverySuccess.value = resp?.data?.message || 'If the email matches an account, you will receive a reset link shortly.';
+    recoverySuccess.value = resp?.data?.message || authText("If the email matches an account, you will receive a reset link shortly.");
     recoveryDebug.value = resp?.data?.debug || null;
     startForgotPasswordCooldown();
   } catch (e) {
@@ -2714,6 +2722,8 @@ const handleLogoError = (event) => {
 </script>
 
 <style scoped>
+.portal-auth-language { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; }
+.portal-auth-language select { padding:8px; font:inherit; }
 .login-page--auricwell .login-card { background:#fff; color:#234166; border-radius:20px; box-shadow:0 12px 48px #20456714; }
 .login-page--auricwell .login-logo .logo-image { max-height:68px; }
 
@@ -4669,6 +4679,8 @@ html[data-pt-app-preview-mode="ipad"] .login-help {
 </style>
 
 <style scoped>
+.portal-auth-language { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; }
+.portal-auth-language select { padding:8px; font:inherit; }
 @media (min-width: 769px) {
   .login-page--video-auth:not(.login-page--tisi-video):not(.login-page--app-like) .login-container {
     justify-content: center;

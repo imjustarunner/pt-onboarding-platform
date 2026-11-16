@@ -1,6 +1,6 @@
 <template>
  <div v-if="supported" class="passkey-sign-in" data-analytics-ignore>
-  <button type="button" class="btn btn-secondary" :disabled="busy || disabled" @click="signIn">{{busy?'Waiting for your device…':'Sign in with a passkey'}}</button>
+  <button type="button" class="btn btn-secondary" :disabled="busy || disabled" @click="signIn">{{authText(busy?'Waiting for your device…':'Sign in with a passkey')}}</button>
   <p v-if="error" role="alert">{{error}}</p>
  </div>
 </template>
@@ -9,7 +9,9 @@ import {ref} from 'vue';
 import {browserSupportsWebAuthn,startAuthentication} from '@simplewebauthn/browser';
 import api from '../services/api';
 import {passkeyError} from '../utils/passkeys';
-defineProps({disabled:Boolean});const emit=defineEmits(['signed-in']);
+import {portalAuthText} from '../utils/portalAuthLocale.js';
+const props=defineProps({disabled:Boolean,locale:{type:String,default:'en'}});const emit=defineEmits(['signed-in']);
+const authText=text=>portalAuthText(props.locale,text);
 const supported=browserSupportsWebAuthn() && window.isSecureContext;
 const busy=ref(false),error=ref('');
 async function signIn(){busy.value=true;error.value='';try{

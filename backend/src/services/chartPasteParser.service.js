@@ -69,27 +69,29 @@ export function parseChartContacts(input) {
 }
 
 const INSURANCE_FIELDS = {
-  'Insurance carrier': 'insurerName', 'Insurer Name': 'insurerName', Payer: 'insurerName', Carrier: 'insurerName',
-  'Payer ID': 'payerId', 'Member ID': 'memberId', 'Member Number': 'memberId', 'Group Number': 'groupNumber', Copay: 'copay',
+  'Insurance carrier': 'insurerName', 'Insurer Name': 'insurerName', 'Payer Name': 'insurerName', Payer: 'insurerName', Carrier: 'insurerName',
+  'Payer ID': 'payerId', 'Member ID': 'memberId', 'Member Number': 'memberId', 'Policy Group': 'groupNumber', 'Group Number': 'groupNumber', Copay: 'copay',
   Eligibility: 'lastEligibilityCheck', 'Subscriber Name': 'subscriberName', 'Policy Holder Name': 'subscriberName', Name: 'subscriberName',
   'Subscriber DOB': 'subscriberDob', 'Subscriber Date of Birth': 'subscriberDob', 'Date of Birth': 'subscriberDob',
-  'Administrative Sex': 'subscriberSex', 'Subscriber Sex': 'subscriberSex', 'Relationship to Subscriber': 'relationshipToSubscriber',
+  'Administrative Sex': 'subscriberSex', 'Subscriber Sex': 'subscriberSex', 'Relationship to Subscriber': 'relationshipToSubscriber', 'Policy Holder': 'relationshipToSubscriber',
   'Subscriber Address': 'subscriberAddressLine1', Address: 'subscriberAddressLine1', 'Phone Number': 'subscriberPhone',
   'Effective Date': 'effectiveDate', 'Termination Date': 'terminationDate'
 };
 
-export function parseChartInsurance(input) {
+export function parseChartInsurance(input, { position = null } = {}) {
   const blocks = { primary: [], secondary: [] };
-  let slot = 'primary';
+  let slot = position || 'primary';
   for (const line of clean(input).split('\n')) {
     const heading = line.trim().match(/^(.+?)\s*(?:\(([^)]+)\))?\s*:\s*(Primary|Secondary)$/i);
     const plain = line.trim().match(/^(Primary|Secondary)(?: Insurance| Coverage| Policy)?\s*:?(.*)$/i);
     if (heading) {
       slot = heading[3].toLowerCase();
+      if (position && slot !== position) throw Object.assign(new Error(`This paste is labeled ${slot}. Choose ${slot} coverage before importing it.`), { status: 400 });
       blocks[slot].push(`Insurance carrier:\t${heading[1].trim()}`);
       if (heading[2]) blocks[slot].push(`Payer ID:\t${heading[2]}`);
     } else if (plain) {
       slot = plain[1].toLowerCase();
+      if (position && slot !== position) throw Object.assign(new Error(`This paste is labeled ${slot}. Choose ${slot} coverage before importing it.`), { status: 400 });
       if (plain[2].trim()) blocks[slot].push(`Insurance carrier:\t${plain[2].trim()}`);
     } else if (/^Policy Holder:\s*/i.test(line.trim())) {
       blocks[slot].push(`Relationship to Subscriber:\t${line.replace(/^\s*Policy Holder:\s*/i, '').replace(/\s+of$/i, '')}`);

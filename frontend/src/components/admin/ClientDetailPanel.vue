@@ -751,9 +751,8 @@
                 <h3>Documents &amp; Insurance</h3>
               </header>
               <div class="ov-card-body">
-                <ClientInsuranceEditor v-if="canViewClientBillingImport || (canSupportClientAccount && isClinicalLikeClientType)" :client-id="client.id" :agency-id="client.agency_id" :account-support="canSupportClientAccount" />
-                <ClientAccountSupport v-if="canSupportClientAccount" :client-id="client.id" :agency-id="client.agency_id" @manage-contacts="goChartSub('guardians')" />
-                <ClientCareCoverageSummary v-else-if="roleNorm !== 'school_staff'" :client-id="client.id" />
+                <ClientCareCoverageSummary v-if="roleNorm !== 'school_staff'" :client-id="client.id" />
+                <button v-if="canViewClientBillingImport || canSupportClientAccount" type="button" class="btn btn-secondary" @click="setChartNav('account','billing-settings')">Open billing &amp; insurance settings</button>
                 <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Ongoing paperwork</div>
                   <div class="ov-row-value">
@@ -1563,6 +1562,8 @@
             </div>
           </div>
         </div>
+
+        <ClientBillingAccountSettings v-if="chartHub==='account' && effectiveHubSub==='billing-settings' && (canViewClientBillingImport || canSupportClientAccount)" :client-id="client.id" :agency-id="client.agency_id" :account-support="canSupportClientAccount" @manage-contacts="goChartSub('guardians')" />
 
         <!-- Learning Billing Tab -->
         <div v-if="showPanel('billing') && learningBillingEnabledForClient && !['provider', 'provider_plus'].includes(roleNorm)" class="detail-section">
@@ -2867,6 +2868,7 @@
 <script setup>
 import { guardianPortalStatus } from '../../utils/guardianPortalStatus.js';
 import { useAgencyMemberships } from '../../composables/useAgencyMemberships.js';
+import ClientBillingAccountSettings from '../billing/ClientBillingAccountSettings.vue';
 import ClientOperationalStatus from '../clients/ClientOperationalStatus.vue';
 import ClientPortalOverview from '../clients/ClientPortalOverview.vue';
 import DependentPortalSharing from './DependentPortalSharing.vue';
@@ -3048,7 +3050,8 @@ const chartSubnav = computed(() => {
   if (hub === 'account') {
     return accountSubnav({
       isSchool: isSchoolClientType.value,
-      canEditAccount: canEditAccount.value
+      canEditAccount: canEditAccount.value,
+      canViewBilling: canViewClientBillingImport.value || canSupportClientAccount.value
     });
   }
   if (hub === 'lifecycle') {

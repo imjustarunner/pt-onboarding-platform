@@ -1,7 +1,7 @@
 <template>
   <div v-if="password" class="pw-meter" aria-live="polite" aria-atomic="true">
     <!-- Strength bar -->
-    <div class="strength-bar" :aria-label="`Password strength: ${strengthLabel}`">
+    <div class="strength-bar" :aria-label="authText('Password strength: {strength}', { strength:strengthLabel })">
       <div
         class="strength-fill"
         :class="`strength-${strengthLevel}`"
@@ -11,44 +11,47 @@
     <p class="strength-label" :class="`label-${strengthLevel}`">{{ strengthLabel }}</p>
 
     <!-- Live requirements checklist -->
-    <ul class="req-list" aria-label="Password requirements">
+    <ul class="req-list" :aria-label="authText('Password requirements')">
       <li :class="{ met: hasMinLength, unmet: !hasMinLength }">
         <span class="req-icon" aria-hidden="true">{{ hasMinLength ? '✓' : '○' }}</span>
-        At least 10 characters
+        {{ authText('At least 10 characters') }}
       </li>
       <li :class="{ met: hasLetter, unmet: !hasLetter }">
         <span class="req-icon" aria-hidden="true">{{ hasLetter ? '✓' : '○' }}</span>
-        Contains a letter (a–z or A–Z)
+        {{ authText('Contains a letter (a–z or A–Z)') }}
       </li>
       <li :class="{ met: hasNumber, unmet: !hasNumber }">
         <span class="req-icon" aria-hidden="true">{{ hasNumber ? '✓' : '○' }}</span>
-        Contains a number (0–9)
+        {{ authText('Contains a number (0–9)') }}
       </li>
       <li :class="{ met: hasSymbol }">
         <span class="req-icon" aria-hidden="true">{{ hasSymbol ? '✓' : '○' }}</span>
-        Contains a symbol <span class="optional-hint">(optional, strengthens password)</span>
+        {{ authText('Contains a symbol') }} <span class="optional-hint">{{ authText('(optional, strengthens password)') }}</span>
       </li>
       <li v-if="isTooLong" class="unmet">
         <span class="req-icon" aria-hidden="true">✗</span>
-        Too long — maximum 128 characters ({{ password.length }}/128)
+        {{ authText('Too long — maximum 128 characters ({length}/128)', { length:password.length }) }}
       </li>
     </ul>
 
     <!-- Confirm-match indicator -->
     <p v-if="confirmPassword !== undefined && confirmPassword !== ''" class="confirm-status" :class="{ matched: passwordsMatch, mismatched: !passwordsMatch }">
       <span aria-hidden="true">{{ passwordsMatch ? '✓' : '✗' }}</span>
-      {{ passwordsMatch ? 'Passwords match' : 'Passwords do not match' }}
+      {{ authText(passwordsMatch ? 'Passwords match' : 'Passwords do not match') }}
     </p>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import { portalAuthText } from '../utils/portalAuthLocale.js';
 
 const props = defineProps({
   password: { type: String, default: '' },
+  locale: { type: String, default: 'en' },
   confirmPassword: { type: String, default: undefined }
 });
+const authText = (text, values) => portalAuthText(props.locale, text, values);
 
 const hasMinLength = computed(() => props.password.length >= 10);
 const hasLetter    = computed(() => /[a-zA-Z]/.test(props.password));
@@ -80,7 +83,7 @@ const score = computed(() => {
 });
 
 const strengthLevel = computed(() => ['none', 'weak', 'fair', 'strong', 'vstrong'][score.value]);
-const strengthLabel = computed(() => ['Does not meet requirements', 'Weak', 'Fair', 'Strong', 'Very strong'][score.value]);
+const strengthLabel = computed(() => authText(['Does not meet requirements', 'Weak', 'Fair', 'Strong', 'Very strong'][score.value]));
 const strengthPercent = computed(() => [0, 25, 50, 75, 100][score.value]);
 </script>
 

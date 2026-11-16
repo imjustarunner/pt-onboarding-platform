@@ -20,7 +20,8 @@ async function currentRecipient(scope,db) {
       AND cg.access_enabled=1 AND u.is_active=1 AND a.is_active=1
       AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())`,
     [scope.agency_id,scope.client_id,scope.guardian_user_id]);
-  if(!row||ClientGuardian.isNoView(parse(row.permissions_json))||familyContactHash(row.email)!==scope.recipient_hash)throw unavailable();
+  const permissions=parse(row?.permissions_json)||{};
+  if(!row||permissions.noView||permissions.noViewOtherGuardian||familyContactHash(row.email)!==scope.recipient_hash)throw unavailable();
   return row;
 }
 /** Issuance never subscribes anyone, creates accounts, sends mail or clears a prior decline. */

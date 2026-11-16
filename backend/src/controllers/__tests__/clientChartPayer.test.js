@@ -26,9 +26,9 @@ it('rechecks the exact directory ID, creates the agency catalog route, and links
 it('rejects an alias or changed directory result instead of silently linking another ID',async()=>{
  m.fetch.mockResolvedValue({payer:{payerid:'OTHER',payer_alt_names:[{alt_payerid:'00050'}]}});const next=vi.fn();await linkClientPayer(req(),res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.write).not.toHaveBeenCalled();expect(m.savePayer).not.toHaveBeenCalled();
 });
-it('requires support to add a new tenant route while allowing providers to use an existing verified route',async()=>{
+it('keeps insurance payer verification restricted to account support even for an existing route',async()=>{
  const request=req();request.user.role='provider';let next=vi.fn();await linkClientPayer(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.write).not.toHaveBeenCalled();
- m.list.mockResolvedValue([{claimmd_payer_id:'00050',directory_status:'id_match'}]);next=vi.fn();await linkClientPayer(request,res(),next);expect(next).not.toHaveBeenCalled();expect(m.write).toHaveBeenCalled();expect(m.savePayer).not.toHaveBeenCalled();
+ m.list.mockResolvedValue([{claimmd_payer_id:'00050',directory_status:'id_match'}]);next=vi.fn();await linkClientPayer(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.write).not.toHaveBeenCalled();expect(m.savePayer).not.toHaveBeenCalled();
 });
 it('does not call an unverified source ID linked just because that ID is in the tenant catalog',async()=>{
  m.read.mockResolvedValue({primary:{insurerName:'Example',payerId:'00050'},verifiedForClaims:false});m.list.mockResolvedValue([{claimmd_payer_id:'00050',directory_status:'id_match',directory_name:'Example'}]);const response=res();await getClientPayerReadiness(req(),response,vi.fn());expect(response.json.mock.calls[0][0].policies[0].linked).toBe(false);expect(response.json.mock.calls[0][0].coverageVerifiedForClaims).toBe(false);
@@ -56,6 +56,7 @@ it('rejects a policy changed during the external directory lookup',async()=>{
  m.read.mockResolvedValueOnce({primary:{insurerName:'First',payerId:''}}).mockResolvedValueOnce({primary:{insurerName:'Changed',payerId:''}});
  const next=vi.fn();await linkClientPayer(req(),res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.write).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();
 });
+
 it('shows insurance as missing for a school chart with an empty paper-policy placeholder',async()=>{
  m.read.mockResolvedValue({primary:{},secondary:null,paperReviewRequired:true});const response=res(),next=vi.fn();
  await getClientPayerReadiness(req(),response,next);

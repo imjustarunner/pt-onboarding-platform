@@ -51,7 +51,7 @@ const paperProcessingHandler = action => async (req, res, next) => {
       return res.send(buffer);
     }
     const state = action === 'complete'
-      ? await completePaperProcessing({clientId,actorId,signaturesConfirmed:req.body?.signaturesConfirmed,staffRoiConfirmed:req.body?.staffRoiConfirmed})
+      ? await completePaperProcessing({clientId,actorId,signaturesConfirmed:req.body?.signaturesConfirmed,staffRoiConfirmed:req.body?.staffRoiConfirmed,sendInvitations:false})
       : await savePaperProcessingStep({clientId,actorId,step:req.body?.step,data:req.body?.data});
     if (action === 'complete') await completePaperPacketTask({ clientId, state });
     await logAuditEvent(req,{actionType:action==='complete'?'paper_packet_processed':'paper_packet_processing_step',agencyId:access.client.agency_id,

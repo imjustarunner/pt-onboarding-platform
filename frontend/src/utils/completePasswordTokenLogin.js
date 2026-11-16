@@ -5,6 +5,7 @@ import { getDashboardRoute } from './router';
 import { getPrimarySchoolStaffPortalSlug } from './schoolStaffPortal.js';
 import { storeUserAgencies } from './loginRedirect.js';
 import { markSchoolPortalFirstLoginOnboarding } from './schoolPortalFirstLoginOnboarding.js';
+import { rememberAuthenticatedPortalLanguage, withPortalAuthLanguage } from './portalAuthLocale.js';
 
 function markJustLoggedIn() {
   try {
@@ -19,13 +20,14 @@ function markJustLoggedIn() {
  * Persist the JWT from a password-set / reset-token response and send the user
  * to their home (school portal for school staff, otherwise the usual dashboard).
  */
-export async function completePasswordTokenLogin(payload, router, { destination = null, portalSlug = null } = {}) {
+export async function completePasswordTokenLogin(payload, router, { destination = null, portalSlug = null, locale = null } = {}) {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   const user = payload?.user || null;
   const agencies = Array.isArray(payload?.agencies) ? payload.agencies : [];
 
   authStore.setAuth(payload?.token || null, user ? { ...user, agencies } : null, payload?.sessionId);
+  rememberAuthenticatedPortalLanguage(user, locale);
   markSchoolPortalFirstLoginOnboarding(user, { isFirstLogin: payload?.isFirstLogin === true });
   markJustLoggedIn();
 
@@ -56,5 +58,5 @@ export async function completePasswordTokenLogin(payload, router, { destination 
       dest = familyPortalDashboardPath(invitedOrganization);
     }
   }
-  await router.replace(destination || dest);
+  await router.replace(withPortalAuthLanguage(destination || dest, locale));
 }

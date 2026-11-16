@@ -818,6 +818,7 @@ const restrictedRecordPanel = computed(() => !isSuperadminPreview.value && selec
 
 const { ft, locale: familyLocale, setLocale: setFamilyLocale } = provideFamilyLocale({
   userId: computed(() => authStore.user?.id),
+  requestedLocale: computed(() => route.query.lang),
   enrollmentLocale: computed(() => selectedChild.value?.portal_language || allFamilyProfiles.value[0]?.portal_language)
 });
 
@@ -932,7 +933,6 @@ function displayOrganization(name) {return isQaPortal.value?String(name||'').rep
 function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:displayOrganization(school.name),logo:school.logo_url} : person?.organization_type==='school' ? {name:displayOrganization(person.organization_name),logo:person.organization_logo_url} : null; }
 const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => familyProfileHasRecordAccess(person) && profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
 const selectedSchoolRelease = computed(() => schoolReleasePeople.value.find(person => Number(person.clientId) === Number(selectedChildId.value)) || null);
-const schoolReleaseVersion=ref(0);
 function openSchoolRelease(clientId) {
   if (Number(selectedChildId.value) !== Number(clientId)) return chooseFamilyProfile(clientId, 'documents');
   navigatePortal('documents');
@@ -1025,7 +1025,8 @@ const portalGrants = ref([]);
 const selectedGuardianPermissions=computed(()=>{try{const value=selectedChild.value?.permissions_json;return typeof value==='string'?JSON.parse(value):value||{};}catch{return {canViewDocs:false,canSignDocs:false,learningOnly:true};}});
 const restrictedLearningGuardian=computed(()=>selectedGuardianPermissions.value.learningOnly===true);
 let portalGrantRequest = 0;
-const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (!standardsLearningVisible.value || selectedGuardianPermissions.value.canViewProgress!==false) && (!restrictedLearningGuardian.value || selectedGuardianPermissions.value.canViewProgress===true) && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
+const billingOnlyAccess = computed(() => selectedChild.value?.permissions_json?.billingOnly === true);
+const portalPlanAllowed = computed(() => !billingOnlyAccess.value && !isSuperadminPreview.value && !!selectedChildId.value && (!standardsLearningVisible.value || selectedGuardianPermissions.value.canViewProgress!==false) && (!restrictedLearningGuardian.value || selectedGuardianPermissions.value.canViewProgress===true) && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
   if(limitedServicePortal.value)return [{key:'overview',label:'Service status',icon:'dashboard'},{key:'past_providers',label:learningOnlySelectedProfile.value?'Past tutors':'Past providers',icon:'team'},{key:'history',label:'Session history',icon:'sessions'},{key:'billing',label:'Invoices & receipts',icon:'billing'},{key:'payment_methods',label:'Payment methods & authorizations',icon:'shield'},{key:'documents',label:'Signed copies',icon:'documents'},{key:'records',label:'Request my records',icon:'documents'},{key:'account',label:'Account settings',icon:'account'},{key:'help',label:'Billing & records help',icon:'support'},{key:'signout',label:'Sign out',icon:'account'}].map(item=>({...item,label:ft(item.label),group:ft('Limited service portal')}));
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};
@@ -1044,17 +1045,19 @@ const portalNavigation = computed(() => {
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
-  const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance'].includes(i.key))
+  const available=ordered.filter(i=>(!billingOnlyAccess.value || ['family','family_billing','billing','payment_methods','notifications','account','help','signout'].includes(i.key)) && (!learningOnlySelectedProfile.value || !['updates','assistance'].includes(i.key))
     && !(restrictedLearningGuardian.value && ['billing','payment_methods','family_billing'].includes(i.key))
     && !(selectedGuardianPermissions.value.canViewDocs===false && i.key==='documents'));
   return available.map(i=>({...i,secondary:['overview','registrations','past_providers','notification_history','billing','updates','checkins','evaluations','assistance','enroll','contact','messages','payment_methods','notifications'].includes(i.key),label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });
+watch(billingOnlyAccess,limited=>{if(limited&&!['family','family_billing','billing','payment_methods','notifications','account','help'].includes(activePanel.value))activePanel.value='billing';});
 const portalTitle = computed(() => limitedServicePortal.value ? ft(selectedServiceAccess.value.statusLabel) : activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `${familyLocale.value === 'es' ? 'Bienvenido' : 'Welcome'}${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
 const portalSubtitle = computed(() => limitedServicePortal.value ? 'Billing, receipts, records, and account support remain available.' : ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',family_messages:'Choose a family member and service from the conversations you are authorized to use.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
 function navigatePortal(key) {
   if(limitedServicePortal.value&&!LIMITED_SERVICE_PANELS.includes(key))return;
   if (key === 'signout') { authStore.logout(); return; }
   if (key === 'dependents') key = 'family';
+  if (billingOnlyAccess.value && !['family','family_billing','billing','payment_methods','notifications','account','help','signout'].includes(key)) return;
   if (key === 'records') { activePanel.value = key; router.replace({query:{...route.query,clientId:selectedChildId.value,panel:key}}); scrollPortalTop(); return; }
   if (!['onboarding','updates','overview'].includes(key) && !portalNavigation.value.some(item => item.key === key)) return;
   if (key === 'waivers') { router.push(guardianWaiversLink.value); return; }

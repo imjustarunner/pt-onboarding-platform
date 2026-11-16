@@ -3837,7 +3837,9 @@ export async function sendHubPortalInvitation({
   selectedClientIds = null,
   paperPacketProcessed = false,
   migration = false,
-  migrationClientIds = null
+  migrationClientIds = null,
+  migrationDocuments = [],
+  locale = null
 } = {}) {
   const aid = Number(agencyId);
   const actorId = Number(actorUserId);
@@ -4034,7 +4036,9 @@ export async function sendHubPortalInvitation({
   const { preparePortalInvitationAccess } = await import('./portalInvitationAccess.service.js');
   const { existingAccount, tokenResult } = await preparePortalInvitationAccess(guardian);
   const agency = portalContext.tenant;
-  const setupUrl = clientPortalInviteUrl({ portal: portalContext.portal, token: tokenResult?.token, existingAccount });
+  const {familyEnrollmentContext,portalUrlWithLocale}=await import('./familyPortalLocale.service.js');
+  const enrollmentLocale=locale || (await familyEnrollmentContext(guardian.id,inviteAgencyId)).locale;
+  const setupUrl = portalUrlWithLocale(clientPortalInviteUrl({ portal: portalContext.portal, token: tokenResult?.token, existingAccount }),enrollmentLocale);
   const setupDisplayUrl = setupUrl;
 
   let delivery = null;
@@ -4066,7 +4070,7 @@ export async function sendHubPortalInvitation({
   const built = migration
     ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
       agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
-      portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school')})
+      portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school'),locale:enrollmentLocale,documents:migrationDocuments})
     : (paperPacketProcessed ? buildPaperPacketPortalEmail : buildClientEnrollmentEmail)({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
       agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl,
       schoolName:paperPacketProcessed && client.organization_id ? (await (await import('../models/Agency.model.js')).default.findById(client.organization_id))?.name : null});

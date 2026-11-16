@@ -1,0 +1,10 @@
+import express from 'express';
+import rateLimit from 'express-rate-limit';
+import {guestInvoiceContext,prepareGuestInvoicePayment,confirmGuestInvoicePayment} from '../controllers/guestInvoice.controller.js';
+const router=express.Router();
+router.use((req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow'});next();});
+router.use(rateLimit({windowMs:60000,max:30,standardHeaders:true,legacyHeaders:false}));
+router.get('/context',guestInvoiceContext);
+router.post('/intent',rateLimit({windowMs:60000,max:6,standardHeaders:true,legacyHeaders:false}),prepareGuestInvoicePayment);
+router.post('/confirm',confirmGuestInvoicePayment);
+export default router;

@@ -1,47 +1,49 @@
 <template>
-  <div class="reset-page" :style="pageStyle">
+  <div class="reset-page" :lang="authLocale" :style="pageStyle">
     <div class="reset-content"><SchoolCareBridgeBrand v-if="isSchoolCareBridgePath(route.path)" />
       <div class="reset-card">
+<label class="portal-auth-language">Idioma / Language <select :value="authLocale" @change="setAuthLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select></label>
         <PasswordRecoveryBrand
+          :locale="authLocale"
           :tenant="tenantBrand"
           :school="schoolBrand"
           :fallback-logo-url="brandingStore.displayLogoUrl || brandingStore.logoUrl"
         />
 
         <div v-if="loading" class="loading">
-          <p>Loading…</p>
+          <p>{{ authText("Loading…") }}</p>
         </div>
 
         <div v-else-if="error" class="error">
-          <h2>Reset Error</h2>
-          <p>{{ error }}</p>
-          <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
+          <h2>{{ authText("Reset Error") }}</h2>
+          <p>{{ authText(error) }}</p>
+          <router-link :to="loginTo" class="btn btn-primary">{{ authText("Go to Login") }}</router-link>
         </div>
 
         <div v-else-if="successMessage">
-          <h2>Password saved</h2>
+          <h2>{{ authText("Password saved") }}</h2>
           <p>{{ successMessage }}</p>
-          <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
+          <router-link :to="loginTo" class="btn btn-primary">{{ authText("Go to Login") }}</router-link>
         </div>
 
         <div v-else class="reset-form">
-          <h2 v-if="firstName">Hi {{ firstName }},</h2>
-          <h2 v-else>Set your password</h2>
-          <p class="subtitle">Choose a new password for your account.</p>
+          <h2 v-if="firstName">{{ authText('Hi {name},', { name:firstName }) }}</h2>
+          <h2 v-else>{{ authText("Set your password") }}</h2>
+          <p class="subtitle">{{ authText("Choose a new password for your account.") }}</p>
 
           <form @submit.prevent="handleReset" autocomplete="on">
             <div v-if="loginUsername" class="form-group">
-              <label for="resetUsername">Your sign-in username</label>
+              <label for="resetUsername">{{ authText("Your sign-in username") }}</label>
               <input id="resetUsername" name="username" :value="loginUsername" type="text" autocomplete="username" autocapitalize="none" :spellcheck="false" readonly class="form-input" />
-              <p class="muted tiny">You will be signed in after saving. On your own device, you can save your password when your browser offers.</p>
+              <p class="muted tiny">{{ authText("You will be signed in after saving. On your own device, you can save your password when your browser offers.") }}</p>
             </div>
             <div v-if="needsJobTitle" class="form-group">
-              <label for="jobTitle">Your job title / role at the school</label>
+              <label for="jobTitle">{{ authText("Your job title / role at the school") }}</label>
               <input
                 id="jobTitle"
                 v-model="jobTitle"
                 type="text"
-                placeholder="e.g. Counselor, Assistant Principal"
+                :placeholder="authText('e.g. Counselor, Assistant Principal')"
                 required
                 class="form-input"
                 :disabled="saving"
@@ -52,14 +54,14 @@
             </div>
 
             <div class="form-group">
-              <label for="password">New Password</label>
+              <label for="password">{{ authText("New Password") }}</label>
               <div class="input-wrap">
                 <input
                   id="password"
                   name="new-password"
                   v-model="password"
                   :type="showPassword ? 'text' : 'password'"
-                  placeholder="Choose a new password"
+                  :placeholder="authText('Choose a new password')"
                   required
                   class="form-input"
                   :disabled="saving"
@@ -70,22 +72,22 @@
                   minlength="10"
                   maxlength="128"
                 />
-                <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
-                  {{ showPassword ? 'Hide' : 'Show' }}
+                <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? authText('Hide password') : authText('Show password')">
+                  {{ showPassword ? authText("Hide") : authText("Show") }}
                 </button>
               </div>
-              <PasswordStrengthMeter :password="password" :confirm-password="confirmPassword" />
+              <PasswordStrengthMeter :locale="authLocale" :password="password" :confirm-password="confirmPassword" />
             </div>
 
             <div class="form-group">
-              <label for="confirmPassword">Confirm New Password</label>
+              <label for="confirmPassword">{{ authText("Confirm New Password") }}</label>
               <div class="input-wrap">
                 <input
                   id="confirmPassword"
                   name="confirm-password"
                   v-model="confirmPassword"
                   :type="showConfirm ? 'text' : 'password'"
-                  placeholder="Re-enter your new password"
+                  :placeholder="authText('Re-enter your new password')"
                   required
                   class="form-input"
                   :disabled="saving"
@@ -96,20 +98,20 @@
                   minlength="10"
                   maxlength="128"
                 />
-                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
-                  {{ showConfirm ? 'Hide' : 'Show' }}
+                <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? authText('Hide password') : authText('Show password')">
+                  {{ showConfirm ? authText("Hide") : authText("Show") }}
                 </button>
               </div>
             </div>
 
-            <p v-if="formError" class="error-message">{{ formError }}</p>
+            <p v-if="formError" class="error-message">{{ authText(formError) }}</p>
 
             <button
               type="submit"
               class="btn btn-primary reset-submit"
               :disabled="saving || !!passwordMismatch || !password || !confirmPassword"
             >
-              {{ saving ? 'Saving and signing you in…' : 'Save password and continue' }}
+              {{ saving ? authText("Saving and signing you in…") : authText("Save password and continue") }}
             </button>
           </form>
         </div>
@@ -121,6 +123,8 @@
 </template>
 
 <script setup>
+import { usePortalAuthLocale, withPortalAuthLanguage, portalAuthError } from '../utils/portalAuthLocale.js';
+
 import SchoolCareBridgeBrand from '../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import { isSchoolCareBridgePath, schoolCareBridgePath } from '../utils/schoolCareBridge';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
@@ -139,6 +143,7 @@ const successMessage = ref('');
 
 const router = useRouter();
 const route = useRoute();
+const { locale: authLocale, setLocale: setAuthLocale, text: authText } = usePortalAuthLocale(route);
 const leavePublicAuthForm = enterPublicAuthForm();
 onUnmounted(leavePublicAuthForm);
 const brandingStore = useBrandingStore();
@@ -170,12 +175,12 @@ const loginTo = computed(() => {
     // return to a school-specific entry. Others resume email discovery.
     return schoolCareBridgePath(schoolBrand.value ? String(route.params.organizationSlug || schoolBrand.value.slug || '') : '');
   }
-  return slug ? `/${slug}/login` : '/login';
+  return withPortalAuthLanguage(slug ? `/${slug}/login` : '/login', authLocale.value);
 });
 
 const passwordMismatch = computed(() =>
   password.value && confirmPassword.value && password.value !== confirmPassword.value
-    ? 'Passwords do not match'
+    ? authText("Passwords do not match")
     : ''
 );
 
@@ -195,7 +200,7 @@ const applyBranding = async (data) => {
 
 const validateToken = async () => {
   if (!token.value) {
-    error.value = 'Invalid reset link. Token is missing.';
+    error.value = authText("Invalid reset link. Token is missing.");
     loading.value = false;
     return;
   }
@@ -210,9 +215,9 @@ const validateToken = async () => {
     loading.value = false;
   } catch (err) {
     if (err?.message?.includes('Unexpected token') || err?.message?.includes('JSON')) {
-      error.value = 'This reset link could not be validated. Please request a new password reset link.';
+      error.value = authText("This reset link could not be validated. Please request a new password reset link.");
     } else {
-      error.value = err.response?.data?.error?.message || err.message || 'Invalid or expired reset link.';
+      error.value = portalAuthError(err, authLocale.value, 'Invalid or expired reset link.');
     }
     loading.value = false;
   }
@@ -229,7 +234,7 @@ const handleReset = async () => {
   }
   const basics = checkPasswordBasics(password.value);
   if (!basics.valid) {
-    formError.value = basics.message;
+    formError.value = authText(basics.message);
     return;
   }
 
@@ -243,15 +248,16 @@ const handleReset = async () => {
     }
     const resp = await api.post(`/auth/reset-password/${encodeURIComponent(token.value)}`, payload);
     if (resp.data.requiresSignIn) {
-      successMessage.value = resp.data.message;
+      successMessage.value = authLocale.value === 'es' ? authText('Your password was saved. Sign in to continue.') : resp.data.message;
       return;
     }
     await completePasswordTokenLogin(resp.data, router, {
+      locale: authLocale.value,
       portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug,
       destination: isSchoolCareBridgePath(route.path) ? loginTo.value : null
     });
   } catch (err) {
-    formError.value = err.response?.data?.error?.message || err.message || 'Failed to reset password.';
+    formError.value = portalAuthError(err, authLocale.value, 'Failed to reset password.');
     saving.value = false;
   }
 };
@@ -266,6 +272,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.portal-auth-language { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; }
+.portal-auth-language select { padding:8px; font:inherit; }
 .reset-page {
   display: flex;
   flex-direction: column;

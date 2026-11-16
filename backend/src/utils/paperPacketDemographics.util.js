@@ -30,6 +30,23 @@ const LABEL_RULES = [
   ['guardianPreferredLanguage', /^(?:idioma\s+preferido\s+(?:del|para el)\s+(?:padre|tutor)(?:\/tutor)?|preferred language for parent\/guardian)\b/i],
   ['guardianRelationship', /^(?:parentesco(?:\s+con\s+el\s+cliente)?|relacion\s+con\s+el\s+cliente|relationship to client)\b/i],
 
+  ['fullName', /^nombre del dependiente\b/i],
+  ['dateOfBirth', /^fecha de nacimiento del dependiente\b/i],
+  ['age', /^edad del dependiente\b/i],
+  ['administrativeSex', /^sexo del dependiente\b/i],
+  ['grade', /^grado del dependiente\b/i],
+  ['addressStreet', /^(?:direcci[oó]n|domicilio) del dependiente\b/i],
+  ['addressCity', /^ciudad del dependiente\b/i],
+  ['addressState', /^estado\b/i],
+  ['addressZip', /^c[oó]digo postal\b/i],
+  ['guardianName', /^(?:su nombre|nombre del padre(?:\/madre)?(?: o tutor)?|nombre del tutor)\b/i],
+  ['contactPhone', /^(?:su (?:n[uú]mero de )?tel[eé]fono|tel[eé]fono del tutor)\b/i],
+  ['email', /^(?:su correo electr[oó]nico|correo electr[oó]nico del tutor)\b/i],
+  ['preferredLanguage', /^(?:preferred language|idioma preferido|idioma de preferencia)\b/i],
+  ['secondaryInsurance', /^seguro (?:m[eé]dico )?secundario\b/i],
+  ['primaryInsurance', /^seguro (?:m[eé]dico )?primario\b/i],
+  ['policyHolder', /^titular (?:de la p[oó]liza|del seguro)\b/i],
+  ['memberId', /^(?:id|identificaci[oó]n|n[uú]mero) (?:de|del) (?:miembro|afiliado)\b/i],
   ['fullName', /^dependent'?s?\s+name\b/i],
   ['dateOfBirth', /^dependent['’]?s?\s+date\s+of\s+birth\b/i],
   ['age', /^dependent'?s?\s+age\b/i],
@@ -62,7 +79,7 @@ const YES_NO_RULES = [
   ['custodyDocumentation', /^are you willing to provide documentation\b/i]
 ];
 
-const STOP_LINE = /^(history of|please list any necessary|please select|consent to release|sign here|authorized school|acknowledgement|how long has this|historial de|por favor (?:explique|enumere|seleccione)|autorizacion|firme aqui)/i;
+const STOP_LINE = /^(historial de|consentimiento para divulgar|firme aqu[ií]|reconocimiento y consentimiento|history of|please list any necessary|please select|consent to release|sign here|authorized school|acknowledgement|how long has this)/i;
 
 function emptyParsed() {
   return {
@@ -75,6 +92,7 @@ function emptyParsed() {
     contactPhone: null,
     email: null,
     administrativeSex: null,
+    preferredLanguage: null,
     grade: null,
     guardianName: null,
     legalCustodian: null,
@@ -146,7 +164,8 @@ function cleanSex(value) {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (!s || s.length > 40) return null;
   if (/^(yes|no|n\/a|dependent'?s?)$/i.test(s)) return null;
-  return s;
+  const normalized = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return ({ masculino: 'Male', hombre: 'Male', varon: 'Male', femenino: 'Female', mujer: 'Female', desconocido: 'Unknown' })[normalized] || s;
 }
 
 function cleanGrade(value) {
@@ -260,6 +279,7 @@ export function extractPaperPacketDemographics(rawText, {insuranceText,locale='a
     if (label.key === 'fullName' && !result.fullName) result.fullName = cleanName(value);
     else if (label.key === 'dateOfBirth' && !result.dateOfBirth) {result.sourceValues.dateOfBirth=value;result.dateOfBirth=parseDateToken(value,/^fecha\b/.test(foldPaperText(line))?'es':'en');if(!result.dateOfBirth&&value)result.dateOfBirthNeedsReview=true;}
     else if (label.key === 'administrativeSex' && !result.administrativeSex) result.administrativeSex = cleanSex(value);
+    else if (label.key === 'preferredLanguage' && !result.preferredLanguage) result.preferredLanguage = cleanShortText(value, 100);
     else if (label.key === 'grade' && !result.grade) result.grade = cleanGrade(value);
     else if (label.key === 'addressStreet' && !result.addressStreet) result.addressStreet = cleanStreet(value);
     else if (label.key === 'addressCity' && !result.addressCity) result.addressCity = cleanCity(value);
@@ -335,10 +355,8 @@ export function paperPacketDemographicFill(client, parsed) {
   if (blank(client?.address_city) && p.addressCity) patch.address_city = p.addressCity;
   if (blank(client?.address_state) && p.addressState) patch.address_state = p.addressState;
   if (blank(client?.address_zip) && p.addressZip) patch.address_zip = p.addressZip;
-  if (blank(client?.contact_phone) && p.contactPhone) patch.contact_phone = p.contactPhone;
-  if (blank(client?.email) && p.email) patch.email = p.email;
-  if (blank(client?.preferred_language) && p.preferredLanguage) patch.preferred_language=p.preferredLanguage;
-  if (blank(client?.primary_parent_language) && p.guardianPreferredLanguage) patch.primary_parent_language=p.guardianPreferredLanguage;
+  // 'Your phone/email' belongs to the parent filling the packet, not the child.
+  if (blank(client?.preferred_language) && p.preferredLanguage) patch.preferred_language = p.preferredLanguage;
   if (blank(client?.gender) && p.administrativeSex) patch.gender = p.administrativeSex;
   if (blank(client?.grade) && p.grade) patch.grade = p.grade;
   return patch;

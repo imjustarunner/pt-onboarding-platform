@@ -93,7 +93,7 @@ class ClientPhiDocument {
 
   static async findSchoolPaperPacketsForClient(clientId, documentId = null) {
     const [rows] = await pool.execute(
-      `SELECT p.*, d.id AS source_referral_draft_id
+      `SELECT p.*, d.id AS source_referral_draft_id, d.submission_date AS source_submission_date, d.submitted_at AS source_submitted_at
        FROM client_phi_documents p
        JOIN referral_packet_upload_drafts d ON d.phi_document_id = p.id
          AND d.created_client_id = p.client_id AND d.agency_id = p.agency_id

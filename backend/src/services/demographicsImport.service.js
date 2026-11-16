@@ -198,7 +198,9 @@ function collectBlock(lines, startIndex) {
  * Handles labeled TherapyNotes-style exports (Legal Name / Date of Birth / Address / …).
  */
 export function parseDemographicsPaste(rawText) {
-  const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();
+  const raw = String(rawText || '').replace(/\r\n/g, '\n')
+    .replace(/\[([^\]]+)\]\([^\n)]*\)/g, '$1')
+    .replace(/^\s*(?:Patient Information|svgEdit|svg)\s*$/gmi, '').trim();
   const empty = {
     fullName: null,
     dateOfBirth: null,
@@ -375,6 +377,21 @@ export function demographicsToClientPatch(parsed) {
   if (p.textMessagesOk === true) patch.session_sms_opt_in = 1;
   if (p.textMessagesOk === false) patch.session_sms_opt_in = 0;
   return patch;
+}
+
+/** Move a source parent's communication fields off the patient, retaining evidence for contact matching. */
+export function applyGuardianContactOwnership(parsed, patch, current = {}) {
+  parsed.sourceContact = { contactPhone: parsed.contactPhone, email: parsed.email,
+    appointmentReminderType: parsed.appointmentReminderType, textMessagesOk: parsed.textMessagesOk };
+  const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
+  const emailKey = value => String(value || '').trim().toLowerCase();
+  const samePhone = parsed.contactPhone && phoneKey(current?.contact_phone) === phoneKey(parsed.contactPhone);
+  const sameEmail = parsed.email && emailKey(current?.email) === emailKey(parsed.email);
+  for (const field of ['contact_phone','email','appointment_reminder_type','session_sms_opt_in']) delete patch[field];
+  if (samePhone) patch.contact_phone = null;
+  if (sameEmail) patch.email = null;
+  parsed.contactPhone = null; parsed.email = null; parsed.appointmentReminderType = null; parsed.textMessagesOk = null;
+  parsed.contactOwner = 'guardian';
 }
 
 /** True when the paste/review payload has chart-worthy demographics (not labels-only). */

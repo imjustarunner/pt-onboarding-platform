@@ -29,6 +29,7 @@ import {publicRouter as publicWebsiteChatRoutes,staffRouter as websiteChatStaffR
 import {redactPrivateBillingUrl} from './utils/sanitizeRequest.js';
 import { safeFamilySharingErrorDetails } from './utils/safeFamilySharingErrorDetails.js';
 import familyLedgerRoutes from './routes/familyLedger.routes.js';
+import guestInvoiceRoutes from './routes/guestInvoice.routes.js';
 import portalMigrationRoutes from './routes/portalMigration.routes.js';
 import familyCostEstimatesRoutes from './routes/familyCostEstimates.routes.js';
 import express from 'express';
@@ -405,6 +406,7 @@ app.use(cors({
     'X-Team-Meeting-Access',
     'X-Office-Visit',
     'X-Calendar-Guest',
+    'X-Guest-Invoice-Token',
     'X-Counseling-Access',
     'X-Requested-With',
     'X-Noteworthy-Request',
@@ -884,6 +886,7 @@ app.use('/api/school-visits', schoolVisitRoutes);
 app.use('/api/public/school-onboarding', publicSchoolOnboardingRoutes);
 app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
 app.use('/api/public/client-renewal', publicClientRenewalRoutes);
+app.use('/api/public/guest-invoices', guestInvoiceRoutes);
 app.use('/api/public/family-documents', publicFamilyDocumentRoutes);
 app.use('/api/public/family-introduction', publicFamilyIntroductionRoutes);
 app.use('/api/public/provider-update', publicProviderUpdateRoutes);
@@ -2966,6 +2969,9 @@ if (shouldStartServerBackgroundJobs()) {
       if (Number(result?.created || 0) > 0) {
         console.info('[session-doc-tasks] created:', result.created);
       }
+      const { openDueSessionClaims } = await import('./services/sessionClaimWindow.service.js');
+      const opened = await openDueSessionClaims();
+      if (Number(opened?.opened || 0) > 0) console.info('[session-claim] opened:', opened.opened);
     } catch (error) {
       const msg = String(error?.message || '');
       const missing =

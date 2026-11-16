@@ -44,7 +44,7 @@ import { useAuthStore } from '../../../store/auth';
 import { useModalFocus } from '../../../composables/useModalFocus';
 import api from '../../../services/api';
 import ClientEhrBringUpToDatePanel from './ClientEhrBringUpToDatePanel.vue';
-const props = defineProps({ initialClient: { type: Object, required: true }, agencyId: { type: [Number,String], default: null } });
+const props = defineProps({ initialClient: { type: Object, required: true }, agencyId: { type: [Number,String], default: null }, selectedClients: { type: Array, default: null } });
 const emit = defineEmits(['close', 'updated']);
 const auth = useAuthStore();
 const queue = ref([props.initialClient]), current = ref(props.initialClient), busy = ref(false), moving = ref(false), loading = ref(false), error = ref(''), panel = ref(null), dialog = ref(null), pickerOpen = ref(false), search = ref('');
@@ -82,11 +82,19 @@ async function leave() {
 }
 useModalFocus(dialog,leave);
 onMounted(async () => {
-  loading.value=true;
+  if (props.selectedClients) {
+    const unique = [...new Map(props.selectedClients.filter(client => Number(client?.id) > 0).map(client => [Number(client.id), client])).values()];
+    queue.value = unique.length ? unique : [props.initialClient];
+    current.value=queue.value.find(client=>Number(client.id)===Number(props.initialClient.id))||queue.value[0];
+    for(const key of Object.keys(filters))filters[key]=key==='sort'?'full_name':'';
+    search.value='';
+    return;
+  }
+  loading.value = true;
   try {
     const rows=[]; let page=1,total=Infinity;
     while (alive && rows.length<total) {
-      const params={...(props.agencyId?{agency_id:props.agencyId}:{}),...(['provider','provider_plus'].includes(auth.user?.role)?{provider_id:auth.user.id}:{}),includeArchived:true,paginate:true,page,per_page:200,sort:'full_name',order:'asc'};
+      const params={...(props.agencyId?{agency_id:props.agencyId}:{}),...(['provider','provider_plus'].includes(auth.user?.role)?{provider_id:auth.user.id}:{}),includeArchived:false,paginate:true,page,per_page:200,sort:'full_name',order:'asc'};
       const response=await api.get('/clients',{params,skipGlobalLoading:true});
       if(!alive)return;
       const payload=response.data, batch=Array.isArray(payload)?payload:payload.items||[];

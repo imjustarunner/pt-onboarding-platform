@@ -53,9 +53,7 @@ export async function ensurePaperPacketTask({ draft, clientId = null }, { db = p
 }
 
 export async function completePaperPacketTask({ clientId, state }, db = pool) {
-  if (!state?.processedAt || !state.documentId || !state.guardian1Id
-    || ![state.guardian1Id, state.guardian2Id].filter(Boolean)
-      .every(id => ['sent', 'delivered', 'redirected'].includes(state.invitations?.[id]?.status))) return false;
+  if (!state?.processedAt || !state.documentId || !state.signatureSourceDocumentId || Number(state.signatureSourceDocumentId)!==Number(state.documentId)) return false;
   // A task completion never grants consent or makes the client clinically ready.
   await db.execute(`UPDATE tasks t JOIN referral_packet_upload_drafts d
     ON t.source_ref_id=CAST(d.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci

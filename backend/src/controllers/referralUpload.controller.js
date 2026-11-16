@@ -24,6 +24,8 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { schedulePaperPacketVisionEval } from '../services/paperPacketVision.service.js';
 import { scanSessionMaterial } from '../services/sessionMaterialScan.service.js';
 
+
+
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -480,6 +482,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       status: 'submitted',
       created_client_id: client.id,
       submitted_at: new Date(),
+      submission_date: submissionDate,
       upload_note: uploadNote || null,
       first_name: firstName || null,
       last_name: lastName || null,
@@ -487,6 +490,8 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       last_error: null
     });
 
+    // Bind the committed source before starting its private file check and OCR.
+    await replacePaperProcessingSource({clientId:client.id,agencyId,schoolId:organization.id,documentId:draft.phi_document_id,draftId:draft.id,actorId:req.user?.id||uploaderId});
     let taskId = null;
     try { taskId = await ensurePaperPacketTask({ draft: { ...draft, status: 'submitted', created_client_id: client.id }, clientId: client.id }); }
     catch (error) { await ReferralPacketDraft.updateById(draft.id, { last_error: 'Support processing task needs recovery' }); }

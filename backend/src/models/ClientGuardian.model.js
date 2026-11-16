@@ -187,7 +187,7 @@ class ClientGuardian {
          c.agency_id,
          c.client_type,
          c.guardian_portal_enabled,
-         COALESCE((SELECT il.language_code FROM intake_submissions s
+         COALESCE(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(cg.permissions_json),cg.permissions_json,JSON_OBJECT()),'$.portalLanguage')),JSON_UNQUOTE(JSON_EXTRACT(c.onboarding_docs_json,'$.paperProcessing.consentReview.locale')),CASE WHEN LOWER(TRIM(c.preferred_language)) IN ('es','spanish','español') THEN 'es' WHEN LOWER(TRIM(c.preferred_language)) IN ('en','english') THEN 'en' ELSE NULL END,(SELECT il.language_code FROM intake_submissions s
            JOIN intake_links il ON il.id=s.intake_link_id
            JOIN intake_submission_clients isc ON isc.intake_submission_id=s.id
            WHERE isc.client_id=c.id AND s.guardian_user_id=cg.guardian_user_id AND s.status='submitted'
@@ -220,7 +220,10 @@ class ClientGuardian {
         const access = await clinicalAccess({agencyId:r.agency_id,clientId:r.client_id,userId:uid});
         if (!access.scopes.includes(requiredClinicalScope)) continue;
       }
-      visible.push({...r,permissions_json:this.parsePermissions(r.permissions_json)});
+      const permissions=this.parsePermissions(r.permissions_json);
+      if(permissions?.billingOnly){
+        visible.push(Object.fromEntries(['client_id','initials','full_name','agency_id','agency_name','agency_slug','agency_logo_url','client_type','guardian_portal_enabled','portal_language','relationship_type','relationship_title'].map(key=>[key,r[key]]).concat([['permissions_json',permissions]])));
+      }else visible.push({...r,permissions_json:permissions});
     }
     return visible;
   }
@@ -237,7 +240,7 @@ class ClientGuardian {
 
   static isNoView(permissions) {
     const p = this.parsePermissions(permissions) || {};
-    return p.noView === true || p.noViewOtherGuardian === true;
+    return p.noView === true || p.noViewOtherGuardian === true || p.billingOnly === true;
   }
 
   static async getLink({ clientId, guardianUserId }) {

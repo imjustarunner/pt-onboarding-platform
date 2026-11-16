@@ -21,7 +21,12 @@ export function buildPaperPacketPortalEmail(input) {
     html: `<p>${e(notice)}</p>${school ? `<p>${e(school)}</p>` : ''}${email.html}` };
 }
 
-export function buildClientEnrollmentEmail({ firstName, agencyName, clients = [], learning = false, existingAccount = false, url, username = null }) {
+export function buildClientEnrollmentEmail({ firstName, agencyName, clients = [], learning = false, existingAccount = false, url, username = null, locale = 'en' }) {
+  if(locale==='es') {
+    const action=existingAccount?'Inicie sesión en su portal':'Configure su portal';
+    const paragraphs=[`Hola ${firstName||''},`,`Bienvenido al portal de ${agencyName}. ${clients.map(clientEmailLabel).join(', ')}: la información y los servicios autorizados ya están disponibles en su cuenta.`,existingAccount?'Use su correo y contraseña actuales. No necesita otra cuenta.':'Cree su contraseña para ver citas, completar documentos y firmas, y administrar los pagos que correspondan a su acceso.',username?`Su correo para iniciar sesión es: ${username}`:'',`${action}: ${url}`,'Revise las preferencias de comunicación de cada perfil para elegir sus recordatorios. Los documentos y la información clínica solo se muestran a las cuentas autorizadas.'].filter(Boolean);
+    return {subject:`${agencyName}: bienvenido a su portal`,text:paragraphs.join('\n\n'),html:`<div lang="es">${paragraphs.map(text=>`<p>${e(text)}</p>`).join('')}${portalActionHtml(action,url)}</div>`,linkUrl:url};
+  }
   const labels = clients.map(clientEmailLabel).join(', '), count = clients.length || 1;
   const who = count === 1 ? 'Your dependent' : `Your ${count} dependents`;
   const service = learning ? 'tutoring services' : 'counseling services';
@@ -40,7 +45,12 @@ export function buildClientEnrollmentEmail({ firstName, agencyName, clients = []
     html: `<p>${e(greeting)}</p><h2 style="font-size:22px;line-height:1.3">${existingAccount ? 'Your account has new access' : 'Welcome to your portal'}</h2><p>${e(introduction)}</p><p>${e(details)}</p>${username ? `<p>Your sign-in email (username): <strong style="overflow-wrap:anywhere">${e(username)}</strong></p>` : ''}${portalActionHtml(action, url)}${nextTime ? `<p>${e(nextTime)}</p>` : ''}<p>${e(preferences)}</p>`, linkUrl: url };
 }
 
-export function buildFamilyBillingEmail({ kind, agencyName, url }) {
+export function buildFamilyBillingEmail({ kind, agencyName, url,locale='en' }) {
+  if(locale==='es'){
+    const subject=kind==='balance'?`${agencyName}: hay un nuevo pago pendiente`:kind==='payment_setup'?'Complete la configuración de su pago':'Su estado de cuenta está disponible';
+    const body=kind==='payment_setup'?'Verifique su método de pago y complete su autorización de facturación.':'Inicie sesión en su portal seguro para revisar los saldos asignados a usted, los pagos y los recibos disponibles.';
+    return {subject,text:`${agencyName}\n\n${body}\n\nAbrir Facturación:\n${url}\n\nGuardar una tarjeta o recibir este aviso no autoriza un nuevo cobro. Contacte a Facturación si necesita ayuda.`,html:`<div lang="es"><h2>${e(subject)}</h2><p>${e(body)}</p>${portalActionHtml('Abrir Facturación',url)}<p>Guardar una tarjeta o recibir este aviso no autoriza un nuevo cobro. Contacte a Facturación si necesita ayuda.</p></div>`,linkUrl:url};
+  }
   const copy = kind === 'payment_setup'
     ? { subject:'Complete your payment setup', body:'Please verify your payment method and complete your billing authorization.', action:'Complete payment setup' }
     : kind === 'balance'

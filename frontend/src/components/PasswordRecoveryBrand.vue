@@ -6,14 +6,14 @@
     </div>
     <div v-if="school?.logoUrl || school?.name" class="prb-dual">
       <div class="prb-col">
-        <span class="prb-label">{{ tenantLabel }}</span>
+        <span class="prb-label">{{ locale === 'es' && tenantLabel === 'Service partner' ? 'Proveedor de servicios' : tenantLabel }}</span>
         <img v-if="tenantLogo" :src="tenantLogo" :alt="tenantName" class="prb-logo" @error="onTenantError" />
         <div v-else class="prb-fallback">{{ tenantInitials }}</div>
         <div class="prb-name">{{ tenantName }}</div>
       </div>
       <div class="prb-divider" aria-hidden="true" />
       <div class="prb-col">
-        <span class="prb-label">School</span>
+        <span class="prb-label">{{ locale === 'es' ? 'Escuela' : 'School' }}</span>
         <img v-if="schoolLogo" :src="schoolLogo" :alt="schoolName" class="prb-logo" @error="onSchoolError" />
         <div v-else class="prb-fallback">{{ schoolInitials }}</div>
         <div class="prb-name">{{ schoolName }}</div>
@@ -32,6 +32,7 @@ import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
   tenant: { type: Object, default: null },
+  locale: { type: String, default: 'en' },
   school: { type: Object, default: null },
   fallbackLogoUrl: { type: String, default: '' },
   tenantLabel: { type: String, default: 'Service partner' }

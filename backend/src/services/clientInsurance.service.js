@@ -56,7 +56,9 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
 export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true, paperSourceDocumentId=null, paperFinalization=null, preservePaperReview=false, paperReviewRequired=false }, db = pool) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
-  const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : { ...(previous?.patient || {}) };
+  const chartPatient = !patient && [primary,secondary].some(policy => policyIsMedicaid(policy) || policy?.relationshipToSubscriber === 'self') ? await insuranceDemographics(clientId,agencyId,db) : {};
+  const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : { ...chartPatient, ...(previous?.patient || {}) };
+  for (const key of patientFields) if (!patientValue[key] && chartPatient[key]) patientValue[key] = chartPatient[key];
   if(queueEligibility && ['firstName','lastName','dateOfBirth','state'].some(key=>!patientValue[key])) {
     const demographics=await insuranceDemographics(clientId,agencyId,db);
     Object.assign(patientValue,mergePatientDefaults(patientValue,demographics));
@@ -120,7 +122,7 @@ function insuranceWithPaperSource(value,row) {
 }
 export async function readClientInsurance(clientId, agencyId, db = pool) {
   const rows=await insuranceRows(clientId,agencyId,db);
-  return rows[0] ? insuranceWithPaperSource(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),rows[0]) : null;
+  return reconcileMedicaidSubscribers(rows[0] ? insuranceWithPaperSource(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),rows[0]) : null,clientId,agencyId,db);
 }
 
 /** Called after the source-bound packet submission is saved. The durable queue
@@ -131,6 +133,14 @@ export async function finalizePaperInsurance({clientId,agencyId,documentId,actor
   const saved=await writeClientInsurance({...insurance,clientId,agencyId,confirmedBy:actorId,verifiedForClaims:false,
     paperFinalization:{documentId:Number(documentId),finalizedAt:insurance.paperFinalizedAt},queueEligibility:true},db);
   return saved.eligibilityQueueWarning ? {status:'billing_follow_up',retryRequired:true} : {...(saved.automaticEligibility || {status:'billing_follow_up'}),retryRequired:false};
+}
+/** Legacy coverage also presents Self to eligibility and claims without rewriting its source record. */
+async function reconcileMedicaidSubscribers(value,clientId,agencyId,db) {
+  if (!value || ![value.primary,value.secondary].some(policyIsMedicaid)) return value;
+  const chart = await insuranceDemographics(clientId,agencyId,db);
+  const patient = {...chart,...(value.patient || {})};
+  for (const key of Object.keys(chart)) if (!patient[key]) patient[key] = chart[key];
+  return {...value,patient,primary:policyIsMedicaid(value.primary)?selfSubscriberPolicy(normalizePolicy(value.primary),patient):value.primary,secondary:policyIsMedicaid(value.secondary)?selfSubscriberPolicy(normalizePolicy(value.secondary),patient):value.secondary};
 }
 
 /** Keep a second payer's submission available for review without replacing the
@@ -160,7 +170,7 @@ export function patientFromDemographics(row = {}) {
   const comma = full.split(',').map(s => s.trim());
   const words = full.split(/\s+/).filter(Boolean);
   const dob = row.date_of_birth instanceof Date ? row.date_of_birth.toISOString().slice(0,10) : String(row.date_of_birth || '').slice(0,10);
-  const sex = ({male:'M',female:'F',m:'M',f:'F',unknown:'U',u:'U'})[String(row.gender || '').toLowerCase()] || '';
+  const sex = ({male:'M',masculino:'M',female:'F',femenino:'F',m:'M',f:'F',unknown:'U',desconocido:'U',u:'U'})[String(row.gender || '').toLowerCase()] || '';
   return {firstName:comma.length===2?comma[1]:(words.length>1?words[0]:''),lastName:comma.length===2?comma[0]:(words.length>1?words.slice(1).join(' '):''),dateOfBirth:dob,sex,
     addressLine1:row.address_street || '',addressLine2:row.address_apt || '',city:row.address_city || '',state:row.address_state || '',postalCode:row.address_zip || ''};
 }
@@ -169,8 +179,10 @@ export async function insuranceDemographics(clientId,agencyId,db=pool) {
   return patientFromDemographics(row || {});
 }
 export function selfSubscriberPolicy(policy, patient) {
-  if(!policy || policy.relationshipToSubscriber!=='self' || !patient || !Object.keys(patient).length)return policy;
-  return {...policy,subscriberFirstName:patient.firstName,subscriberLastName:patient.lastName,subscriberDob:patient.dateOfBirth,subscriberSex:patient.sex,
+  if (!policy) return policy;
+  if (policyIsMedicaid(policy)) policy = { ...policy, relationshipToSubscriber: 'self' };
+  if (policy.relationshipToSubscriber !== 'self' || !patient || !Object.keys(patient).length) return policy;
+  return {...policy,subscriberName:[patient.firstName,patient.lastName].filter(Boolean).join(' '),subscriberFirstName:patient.firstName,subscriberLastName:patient.lastName,subscriberDob:patient.dateOfBirth,subscriberSex:patient.sex,
     subscriberAddressLine1:patient.addressLine1,subscriberAddressLine2:patient.addressLine2,subscriberCity:patient.city,subscriberState:patient.state,subscriberPostalCode:patient.postalCode};
 }
 
@@ -181,7 +193,7 @@ export async function readClientInsuranceSnapshot(clientId, agencyId, db = pool,
   const raw = rows[0].billing_insurance_payload;
   const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
   return {
-    data: insuranceWithPaperSource(decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),rows[0]),
+    data: await reconcileMedicaidSubscribers(insuranceWithPaperSource(decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),rows[0]),clientId,agencyId,db),
     fingerprint: crypto.createHash('sha256').update(JSON.stringify({ agencyId: Number(agencyId), clientId: Number(clientId), payload })).digest('hex')
   };
 }

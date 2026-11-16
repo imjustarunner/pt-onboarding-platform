@@ -1,21 +1,20 @@
 import { paperPacketLocale } from '../utils/paperPacketLocale.js';
 /**
  * Vision evaluation of signed school paper packets.
- * Extracts footer version label, two required signatures (ROI + acknowledgement),
- * and DENY checkboxes next to staff names. Applies disclosure + ROI grants when confident.
+ * Extracts the packet version, signature-area cues, dates, language and DENY marks.
+ * Human source review is required before recording consent or changing school ROI.
  */
 import pool from '../config/database.js';
-import StorageService from './storage.service.js';
 import ReferralOcrService from './referralOcr.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import { paperPacketBytes } from './paperPacketBytes.service.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { findSchoolPacketVersionByLabel } from './schoolPrintablePacketCache.service.js';
-import { recordPaperPacketDisclosure } from './paperPacketDisclosure.service.js';
 import {
   detectDenyStaffFromText,
   detectSignaturesFromText,
-  extractVersionLabelFromText
+  extractVersionLabelFromText,
+  extractPaperPacketReviewHints
 } from '../utils/paperPacketVisionParse.util.js';
 import { applyPaperPacketDemographicsFromText } from './paperPacketDemographics.service.js';
 
@@ -74,29 +73,6 @@ async function insertEvalRow(row) {
     ]
   );
   return Number(result.insertId || 0) || null;
-}
-
-async function updateEvalRow(id, patch) {
-  if (!id || !(await evalTableExists())) return;
-  const fields = [];
-  const vals = [];
-  if (patch.status != null) {
-    fields.push('status = ?');
-    vals.push(patch.status);
-  }
-  if (patch.appliedAt) {
-    fields.push('applied_at = CURRENT_TIMESTAMP');
-  }
-  if (patch.reviewReasons) {
-    fields.push('review_reasons_json = ?');
-    vals.push(JSON.stringify(patch.reviewReasons));
-  }
-  if (!fields.length) return;
-  vals.push(id);
-  await pool.execute(
-    `UPDATE client_paper_packet_vision_evals SET ${fields.join(', ')} WHERE id = ?`,
-    vals
-  );
 }
 
 /**
@@ -203,8 +179,9 @@ export async function evaluateAndApplyPaperPacketVision({
   }
 
   let buffer;
+  let packetDocument = null;
   try {
-    ({ buffer } = await paperPacketBytes({ documentId: phiId, clientId: cid, schoolOrganizationId: sid }));
+    ({ buffer, doc: packetDocument } = await paperPacketBytes({ documentId: phiId, clientId: cid, schoolOrganizationId: sid }));
   } catch (e) {
     const pending = e?.code === 'file_check_pending';
     const reviewReasons = [pending ? 'file_check_pending' : e?.code === 'packet_source_mismatch' ? 'packet_source_mismatch' : 'storage_read_failed'];
@@ -223,20 +200,22 @@ export async function evaluateAndApplyPaperPacketVision({
 
   let ocrText = '';
   let insuranceText = '';
+  let ocrPages = [];
   try {
     // Prefer full-document Vision for signed packets (not handwritten-only filter).
     const pageCount = await ReferralOcrService.getPdfPageCount(buffer).catch(() => 0);
     const pagesToScan = pageCount > 0
       ? Array.from({ length: Math.min(pageCount, 20) }, (_, i) => i + 1)
       : undefined;
-    const ocr = await ReferralOcrService.extractPdfWithVision({
+    const extracted = await ReferralOcrService.extractPdfWithVision({
       buffer,
       pagesToScan,
       languageHint: ['en','es'],
-      includePaperInsurance: true
+      includePaperInsurance: true, includePageText: true
     });
-    ocrText=typeof ocr==='string'?ocr:ocr.text;
-    insuranceText=typeof ocr==='string'?'':ocr.insuranceText;
+    ocrText = typeof extracted === 'string' ? extracted : extracted.text || '';
+    ocrPages = typeof extracted === 'object' ? extracted.pages || [] : [];
+    insuranceText=typeof extracted==='string'?'':extracted.insuranceText;
   } catch (e) {
     console.warn('[paperPacketVision] OCR failed');
     const reviewReasons = ['vision_ocr_failed'];
@@ -268,10 +247,13 @@ export async function evaluateAndApplyPaperPacketVision({
     console.warn('[paperPacketVision] demographics apply failed');
   }
 
+  const reviewHints = extractPaperPacketReviewHints(ocrText, ocrPages);
+  // The existing reader also contributes Spanish packet-language evidence.
+  reviewHints.locale ||= packetLocale || null;
   const versionHit = extractVersionLabelFromText(ocrText);
   const sigs = detectSignaturesFromText(ocrText);
   const matched = versionHit.label
-    ? await findSchoolPacketVersionByLabel(sid, packetLocale, versionHit.label)
+    ? await findSchoolPacketVersionByLabel(sid, packetLocale || locale, versionHit.label)
     : null;
 
   let staffList = parseStaffFromVersion(matched);
@@ -319,9 +301,10 @@ export async function evaluateAndApplyPaperPacketVision({
     && !deny.unmatchedDenyHints.length
     && staffList.length > 0;
   if (!matchedEvidence && !reviewReasons.some(reason => reason !== 'replacement_packet_requires_review')) reviewReasons.push('signature_matching_needs_review');
-  const canApply = !replacement && matchedEvidence;
-
-  const status = canApply ? 'applied' : (reviewReasons.includes('vision_ocr_failed') ? 'failed' : 'needs_review');
+  // A nearby date is an OCR suggestion, not proof that a person signed. This
+  // boundary also covers older packets that predate paperPacketSource metadata.
+  reviewReasons.push('human_source_review_required');
+  const status = 'needs_review';
 
   const evalId = await insertEvalRow({
     clientId: cid,
@@ -334,10 +317,14 @@ export async function evaluateAndApplyPaperPacketVision({
     roiSignatureDetected: sigs.roiSignatureDetected,
     disclosureSignatureDetected: sigs.disclosureSignatureDetected,
     denyStaffUserIds: deny.denyStaffUserIds,
-    reviewReasons: canApply ? [] : reviewReasons,
-    status: canApply ? 'pending' : status,
+    reviewReasons,
+    status,
     rawSummary: {
       versionConfidence: versionHit.confidence,
+      matchedEvidence: !!matchedEvidence,
+      reviewHints,
+      packetLocale,
+      submittedAt: packetDocument?.source_submission_date || packetDocument?.source_submitted_at || packetDocument?.uploaded_at || packetDocument?.created_at || null,
       signatureMarkerCount: sigs.signatureMarkerCount,
       staffCount: staffList.length,
       denyCount: deny.denyStaffUserIds.length,
@@ -348,53 +335,15 @@ export async function evaluateAndApplyPaperPacketVision({
     }
   });
 
-  if (!canApply) {
-    return {
-      ok: false,
-      status,
-      reviewReasons,
-      confidence,
-      detectedVersionLabel: versionHit.label,
-      matchedVersionId: matched?.id || null,
-      evalId
-    };
-  }
-
-  try {
-    await recordPaperPacketDisclosure({
-      clientId: cid,
-      schoolOrganizationId: sid,
-      packetVersionLabel: matched.version_label || versionHit.label,
-      locale:packetLocale,
-      confirmedByUserId: actorUserId
-    });
-
-    const grantResult = await applyVersionStaffRoiGrants({
-      clientId: cid,
-      schoolOrganizationId: sid,
-      staffList,
-      denyStaffUserIds: deny.denyStaffUserIds,
-      actorUserId
-    });
-
-    await updateEvalRow(evalId, { status: 'applied', appliedAt: true, reviewReasons: [] });
-
-    return {
-      ok: true,
-      status: 'applied',
-      confidence,
-      detectedVersionLabel: matched.version_label || versionHit.label,
-      matchedVersionId: matched.id,
-      denyStaffUserIds: deny.denyStaffUserIds,
-      grantResult,
-      evalId
-    };
-  } catch (e) {
-    console.warn('[paperPacketVision] apply failed');
-    const reasons = ['apply_failed', e?.message || 'unknown'];
-    await updateEvalRow(evalId, { status: 'needs_review', reviewReasons: reasons });
-    return { ok: false, status: 'needs_review', reviewReasons: reasons, evalId };
-  }
+  return {
+    ok: false,
+    status,
+    reviewReasons,
+    confidence,
+    detectedVersionLabel: versionHit.label,
+    matchedVersionId: matched?.id || null,
+    evalId
+  };
 }
 
 /**

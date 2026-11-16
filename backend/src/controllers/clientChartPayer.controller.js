@@ -9,7 +9,10 @@ import { fetchPayers } from '../services/claimMd.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
 const asList = value => Array.isArray(value) ? value : value ? [value] : [];
-const scopeOf = req => requireClientChartImportAccess(req.user, req.params.id, req.get?.('X-Agency-Id') || null);
+const scopeOf = req => {
+  if (!['super_admin','admin','support'].includes(req.user?.role)) throw Object.assign(new Error('Client account support access required for payer verification'), { status: 403 });
+  return requireClientChartImportAccess(req.user, req.params.id, req.get?.('X-Agency-Id') || null);
+};
 function positionOf(req) {
   const position = req.body?.position || req.query?.position || 'primary';
   if (!['primary','secondary'].includes(position)) throw Object.assign(new Error('Choose primary or secondary coverage'), { status: 400 });

@@ -19,7 +19,8 @@ export async function checkPaperPacketFile({ clientId, documentId, actorId, rere
   const result=doc.scan_status==='clean'?{status:'clean'}:await deps.scan(buffer);
   if(doc.scan_status!=='clean')await deps.documents.updateScanStatusById({id:doc.id,scanStatus:result.status,scanResult:result.reason||null,scannedAt:result.status==='pending'?null:new Date(),storagePath:doc.storage_path});
   const latest=result.status==='clean'?await deps.latest(clientId):null;
-  const alreadyRead=!reread&&Number(latest?.phi_document_id)===Number(doc.id)&&latest?.status==='applied';
+  let summary=latest?.raw_summary || latest?.raw_vision_summary_json || {};if(typeof summary==='string'){try{summary=JSON.parse(summary);}catch{summary={};}}
+  const alreadyRead=!reread&&Number(latest?.phi_document_id)===Number(doc.id)&&latest?.status==='applied'&&!!summary.reviewHints;
   if(result.status==='clean'&&!alreadyRead)deps.schedule({clientId,schoolOrganizationId:client.organization_id,phiDocumentId:doc.id,actorUserId:actorId});
   return {status:result.status,...(result.status==='clean'&&!alreadyRead?{readingQueued:true}:{}),message:result.status==='clean'?(alreadyRead?'File check and packet reading are complete.':'File check complete. Packet reading has been queued.'):result.status==='infected'?'This file did not pass its security check. Choose a different file.':result.reason||'The private file check is pending.'};
 }

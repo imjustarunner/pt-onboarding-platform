@@ -8,6 +8,21 @@ import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  "Responsible billing party": "Persona responsable de la facturación",
+  "Who should receive balances and billing follow-up for this client?": "¿Quién debe recibir los saldos y el seguimiento de facturación de este cliente?",
+  "Responsible party": "Persona responsable",
+  "Choose a responsible party": "Seleccione una persona responsable",
+  "Me — the person completing this enrollment": "Yo: la persona que completa esta inscripción",
+  "Someone else": "Otra persona",
+  "If this is not selected, choosing a responsible party stays on your portal to-do list.": "Si no selecciona a nadie, esta tarea quedará pendiente en su portal.",
+  "This saves a billing contact. Portal access and payment authorization are selected separately.": "Esto guarda un contacto de facturación. El acceso al portal y la autorización de pago se seleccionan por separado.",
+  "Full name": "Nombre completo",
+  "Billing email": "Correo electrónico de facturación",
+  "Phone number": "Número de teléfono",
+  "Mailing address": "Dirección postal",
+  "Enter the responsible party’s name, email, phone and complete mailing address.": "Ingrese el nombre, correo electrónico, teléfono y dirección postal completa de la persona responsable.",
+  "Enter one valid billing email address.": "Ingrese un correo electrónico válido para la facturación.",
+  "Complete the responsible party’s contact information to continue.": "Complete los datos de contacto de la persona responsable para continuar.",
   "Payment method choice": "Opción de método de pago",
   "Enter a card": "Ingresar una tarjeta",
   "Use Link (optional)": "Usar Link (opcional)",

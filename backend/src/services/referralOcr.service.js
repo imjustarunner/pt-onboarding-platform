@@ -184,7 +184,7 @@ class ReferralOcrService {
     return filteredText || text;
   }
 
-  static async extractPdfWithVision({ buffer, pagesToScan, languageHint, includePaperInsurance = false }) {
+  static async extractPdfWithVision({ buffer, pagesToScan, languageHint, includePaperInsurance = false, includePageText = false }) {
     const bucket = await StorageService.getGCSBucket();
     const prefix = `referrals_ocr_tmp/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
     const gcsUri = `gs://${bucket.name}/${prefix}`;
@@ -228,15 +228,16 @@ class ReferralOcrService {
           const responses = Array.isArray(json?.responses) ? json.responses : [];
           responses.forEach((r) => {
             const txt = r?.fullTextAnnotation?.text || r?.textAnnotations?.[0]?.description || '';
-            if (txt) chunks.push(txt);
+            if (txt) chunks.push({ text: txt, page: Number(r?.context?.pageNumber) || chunks.length + 1 });
             if(includePaperInsurance && !insuranceText)insuranceText=paperInsuranceTableText(r?.fullTextAnnotation);
           });
         } catch {
           // ignore malformed chunk
         }
       }
-      const text=chunks.join('\n').trim();
-      return includePaperInsurance ? {text,insuranceText} : text;
+      chunks.sort((a,b)=>a.page-b.page);
+      const text=chunks.map(item=>item.text).join('\n').trim();
+      return includePageText||includePaperInsurance?{text,...(includePageText?{pages:chunks}:{}),...(includePaperInsurance?{insuranceText}:{})}:text;
     } catch (error) {
       console.error('Vision PDF OCR failed.', {
         code: Number.isInteger(error?.code) ? error.code : 'vision_ocr_failed'

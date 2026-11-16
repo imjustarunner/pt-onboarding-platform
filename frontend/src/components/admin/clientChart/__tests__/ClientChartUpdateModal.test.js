@@ -21,7 +21,7 @@ it('keeps the current client open when a draft could not be saved',async()=>{
 it('loads all authorized list pages and preserves the initially selected client',async()=>{
  m.get.mockResolvedValueOnce({data:{items:[{id:11,agency_id:2,initials:'AA'}],total:3}}).mockResolvedValueOnce({data:{items:[client,{id:13,agency_id:2,initials:'CC'}],total:3}});
  const wrapper=mount(Modal,{props:{initialClient:client,agencyId:2},global:{stubs:{ClientEhrBringUpToDatePanel:Panel,Teleport:true}}});await flushPromises();
- expect(m.get).toHaveBeenCalledTimes(2);expect(m.get.mock.calls[1][1].params).toMatchObject({agency_id:2,page:2,includeArchived:true});expect(wrapper.findAll('.chart-client-option')).toHaveLength(3);expect(wrapper.get('[data-panel]').attributes('data-client')).toBe('12');wrapper.unmount();
+ expect(m.get).toHaveBeenCalledTimes(2);expect(m.get.mock.calls[1][1].params).toMatchObject({agency_id:2,page:2,includeArchived:false});expect(wrapper.findAll('.chart-client-option')).toHaveLength(3);expect(wrapper.get('[data-panel]').attributes('data-client')).toBe('12');wrapper.unmount();
 });
 
 it('filters the navigation queue by provider, school, status and demo without discarding the current draft',async()=>{
@@ -30,4 +30,11 @@ it('filters the navigation queue by provider, school, status and demo without di
  await wrapper.get('select[aria-label="Provider assignment"]').setValue('unassigned');
  expect(wrapper.findAll('.chart-client-option')).toHaveLength(1);expect(wrapper.text()).toContain('ARCHIVED');expect(wrapper.get('[data-panel]').attributes('data-client')).toBe('12');
  await wrapper.get('.chart-client-option').trigger('click');await flushPromises();expect(m.leave).toHaveBeenCalledOnce();expect(wrapper.get('[data-panel]').attributes('data-client')).toBe('13');wrapper.unmount();
+});
+it('limits the update queue to the selected clients without loading the rest of the agency',async()=>{
+ const selected=[client,{id:18,agency_id:2,full_name:'Second Selected'}];
+ const wrapper=mount(Modal,{props:{initialClient:client,agencyId:2,selectedClients:selected},global:{stubs:{ClientEhrBringUpToDatePanel:Panel,Teleport:true}}});await flushPromises();
+ expect(m.get).not.toHaveBeenCalled();expect(wrapper.findAll('.chart-client-option')).toHaveLength(2);
+ await wrapper.findAll('button').find(b=>b.text()==='Next client →').trigger('click');await flushPromises();
+ expect(m.leave).toHaveBeenCalledOnce();expect(wrapper.get('[data-panel]').attributes('data-client')).toBe('18');wrapper.unmount();
 });

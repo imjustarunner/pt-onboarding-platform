@@ -5242,6 +5242,8 @@ function isFreshLoginWindow(now = Date.now()) {
 }
 
 router.beforeEach(async (to, from, next) => {
+  // A guest payment capability does not use the visitor's application identity.
+  if (to.meta.guestPaymentSurface === true) { next(); return; }
   if(/^\/mobile(?:\/|$)/.test(to.path)){window.location.replace(to.fullPath);next(false);return;}
   // /logout (flat or under an org slug) is an action, not a page. Sign out through the
   // same path as the Sign out buttons; authStore.logout performs the hard redirect itself.

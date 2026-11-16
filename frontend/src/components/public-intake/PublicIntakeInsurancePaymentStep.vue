@@ -99,6 +99,7 @@
       </section>
 
       <section v-if="paymentEligible" class="pi-ip-section">
+      <PublicIntakeResponsibleParty ref="responsiblePartyRef" :model-value="paymentInfo.responsibleParty || null" :name="guardianName" :email="guardianEmail" :phone="guardianPhone" @update:model-value="v => emit('update:paymentInfo', { ...paymentInfo, responsibleParty: v })" />
         <h3>{{ tx('Your payment arrangement') }}</h3>
         <p>{{ tx(tutoringPayment ? 'Discuss tutoring payment arrangements with the office. Submitting this request does not require a card or authorize a charge.' : 'Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card.') }}</p>
         <label>{{ tx('I am willing to') }}
@@ -279,6 +280,7 @@ import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import PublicIntakeInsuranceStep from './PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
+import PublicIntakeResponsibleParty from './PublicIntakeResponsibleParty.vue';
 import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
 import { clearCoverageAuthorization, coverageWithAuthorization, coverageWithChoice, enrollmentCoverageFingerprint, isSelfPayCoverage } from '../../utils/enrollmentCoverage.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
@@ -296,6 +298,7 @@ const props = defineProps({
   guardianName: { type: String, default: '' },
   guardianRelationship: { type: String, default: '' },
   guardianPhone: { type: String, default: '' },
+  guardianEmail: { type: String, default: '' },
   clientNames: { type: Array, default: () => [] },
   intakeForSelf: { type: Boolean, default: false },
   agencyName: { type: String, default: '' },
@@ -323,6 +326,7 @@ function tx(key) {
 
 const insuranceRef = ref(null);
 const paymentRef = ref(null);
+const responsiblePartyRef = ref(null);
 const authAgreed = ref(!!props.insuranceInfo?.authorizationAgreed);
 const authSignature = ref(props.insuranceInfo?.authorizationSignature || '');
 const authSignatureData = ref(props.insuranceInfo?.authorizationSignatureData || '');
@@ -459,7 +463,7 @@ function onMedicaidChange(v) {
 }
 
 function onPaymentUpdate(v) {
-  emit('update:paymentInfo', { ...(v || {}), paymentChoice: paymentChoice.value });
+  emit('update:paymentInfo', { ...(props.paymentInfo || {}), ...(v || {}), paymentChoice: paymentChoice.value });
 }
 
 function onCardSaved(payload) {
@@ -530,6 +534,7 @@ function validateAuthorization() {
     authError.value = 'Please type your full name as a signature.';
     return false;
   }
+  if (responsiblePartyRef.value?.validate && !responsiblePartyRef.value.validate()) return false;
   return true;
 }
 

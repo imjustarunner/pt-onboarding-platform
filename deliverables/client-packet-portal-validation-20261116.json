@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-16",
+  "backend": {
+    "status": "passed",
+    "files": 33,
+    "tests": 290
+  },
+  "frontend": {
+    "status": "passed",
+    "files": 28,
+    "tests": 137
+  },
+  "additionalNodeParserTests": 5,
+  "backendImports": {
+    "checkedModules": 2976,
+    "problems": [],
+    "problemCount": 0
+  },
+  "frontendProductionBuild": {
+    "status": "passed",
+    "nodeHeapMiB": 8192,
+    "modulesTransformed": 6723,
+    "existingLargeChunkWarning": true
+  },
+  "requiredMigrations": [
+    "1832_client_billing_account_setup.sql",
+    "1833_guest_invoice_payments.sql"
+  ],
+  "productionActions": [],
+  "liveDatabaseOrTransportTests": false,
+  "temporaryBuildRemoved": true,
+  "taskWorktreesCreated": 0,
+  "releaseVerification": {
+    "base": "b544b0321f777f52d14c22de60cb5055523bf7e7",
+    "backend": {
+      "files": 34,
+      "tests": 339,
+      "status": "passed"
+    },
+    "frontend": {
+      "files": 28,
+      "tests": 187,
+      "status": "passed"
+    },
+    "nodeDemographicTests": 7,
+    "productionViteBuild": {
+      "status": "passed",
+      "modules": 7168,
+      "nodeHeapMiB": 8192
+    },
+    "migrationPath": "Existing bootstrap migrations before application readiness; required columns checked with LIMIT 0 queries.",
+    "manualSchemaJob": "Authentication failed; no SQL applied. Credential copy rejected; existing bootstrap path selected.",
+    "liveAppActionsExercised": false
+  }
+}

@@ -9,6 +9,8 @@ import { normalizeUpdateSelection, PORTAL_STEPS } from './clientUpdateSelection.
 import { absolutePortalPath, listOpenShareEvents } from './portalShareNotice.service.js';
 import {escapePortalHtml,portalMessageHtml} from './portalEmailBranding.service.js';
 import {schoolCareBridgeDeployment} from './schoolCareBridgeRouting.service.js';
+import Agency from '../models/Agency.model.js';
+import {buildSmartDisclosureContext} from './smartDisclosure.service.js';
 
 export const clientUpdatesEnabled=(env=process.env)=>env.CLIENT_UPDATE_WORKFLOWS_ENABLED==='true';
 function assertEnabled(){if(!clientUpdatesEnabled())throw fail(503,'Client updates are on hold while delivery and portal access are reviewed.');}
@@ -189,6 +191,7 @@ async function ensureDocumentPacket(request, items, actorUserId) {
   const reenrollment=request.purpose==='reenrollment';
   const packet=reenrollment?(typeof request.packet_config_json==='string'?JSON.parse(request.packet_config_json):request.packet_config_json):null;
   const ids = documents.map((item) => Number(item.reference_key)).filter((id) => id > 0);
+  const [[templateLocale]]=await pool.execute('SELECT language_code FROM document_templates WHERE id=?',[ids[0]]);
   const publicKey = (reenrollment?'reenroll-':'')+crypto.randomBytes(24).toString('hex');
   const client=await Client.findById(request.client_id,{includeSensitive:true});
   if(!client||Number(client.agency_id)!==Number(request.agency_id)||(!reenrollment&&['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase())))throw fail(409,'Review the current client record before requesting documents.');
@@ -206,6 +209,7 @@ async function ensureDocumentPacket(request, items, actorUserId) {
     description: 'Selected documents for an existing client. This does not start a new enrollment.',
     scopeType: schoolId?'school':'agency',
     formType: 'intake',
+    languageCode: templateLocale?.language_code==='es'?'es':'en',
     organizationId: schoolId||Number(request.agency_id),
     isActive: true,
     createClient: true,
@@ -333,13 +337,79 @@ async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } 
   const url=clientPortalInviteUrl({portal:context.portal,existingAccount:true});
   const login=new URL(url),destination=new URL(login.searchParams.get('redirect')||context.url('guardian'),login.origin);
   destination.searchParams.set('panel',reenrollment?'past_providers':'updates');if(reenrollment)destination.searchParams.set('serviceId',String(request.service_enrollment_id));destination.searchParams.set('clientId',String(request.client_id));login.searchParams.set('redirect',destination.pathname+destination.search);
-  const text=reenrollment?'A fresh enrollment package is ready in your secure portal. Sign in to review the current agreements and confirm contact, insurance/payment and communication details. Your documents will be added to your existing client file. Completing the package does not restart services or book appointments; the team will review next steps.':'Your care team has selected a few updates for your existing profile. Sign in to review only the requested items. You do not need to complete a new enrollment.';
+  const {familyEnrollmentContext,portalUrlWithLocale}=await import('./familyPortalLocale.service.js');
+  const {locale}=await familyEnrollmentContext(recipient.guardian_user_id,request.agency_id);
+  const localizedLogin=portalUrlWithLocale(login.toString(),locale),spanish=locale==='es';
+  const text=spanish?'Su equipo de atención seleccionó algunas actualizaciones para su perfil existente. Inicie sesión para revisar solo los elementos solicitados. No necesita completar una nueva inscripción.':'Your care team has selected a few updates for your existing profile. Sign in to review only the requested items. You do not need to complete a new enrollment.';
+  const action=spanish?'Revisar actualizaciones del portal':'Review portal updates';
   const delivery=await sendClientPortalEmail({agencyId:request.agency_id,clientId:request.client_id,context,to:recipient.email,userId:recipient.guardian_user_id,
-    subject:reenrollment?'Your secure enrollment package is ready':'Updates are ready in your secure portal',text:`${text}\n\nReview updates: ${login}`,html:`<p>${escapePortalHtml(text)}</p>${portalMessageHtml({text:login.toString(),linkUrl:login.toString(),linkLabel:'Review portal updates'})}`,
-    linkUrl:login.toString(),templateType:reenrollment?'care_reenrollment':'client_update',source:'manual',generatedByUserId:actorUserId||null});
-  if(delivery?.id&&!delivery.redirected)await pool.execute("UPDATE client_update_requests SET status='sent' WHERE id=? AND status='in_progress'",[request.id]);
+    subject:spanish?'Hay actualizaciones en su portal seguro':'Updates are ready in your secure portal',text:`${text}\n\n${action}: ${localizedLogin}`,html:`<div lang="${spanish?'es':'en'}"><p>${escapePortalHtml(text)}</p>${portalMessageHtml({text:localizedLogin,linkUrl:localizedLogin,linkLabel:action})}</div>`,
+    linkUrl:localizedLogin,templateType:reenrollment?'care_reenrollment':'client_update',source:'manual',generatedByUserId:actorUserId||null});
+  const sent=!!delivery?.id&&!delivery.redirected&&!delivery.queued&&!delivery.pendingApproval&&!delivery.blocked&&!delivery.skipped;
+  if(sent)await pool.execute("UPDATE client_update_requests SET status='sent' WHERE id=? AND status='in_progress'",[request.id]);
   return {request:await loadRequest(request.id),items:await loadItems(request.id),delivery,
-    deliveryStatus:delivery?.pendingApproval||delivery?.queued?'queued':delivery?.id&&!delivery.redirected?'sent':delivery?.skipped?'skipped':delivery?.redirected?'redirected':'unconfirmed'};
+    deliveryStatus:delivery?.blocked||delivery?.skipped?'skipped':delivery?.redirected?'redirected':delivery?.pendingApproval||delivery?.queued?'queued':sent?'sent':'unconfirmed'};
+}
+
+/** Attach selected updates to an authorized portal without sending a second email. */
+export async function assignClientUpdateToPortal(requestId, { actorUserId, guardianUserId } = {}) {
+  assertEnabled();
+  const request=await loadRequest(requestId);
+  if(!request||request.status!=='draft')throw fail(409,'Review this document assignment before attaching it.');
+  const links=await ClientGuardian.listForClient(request.client_id);
+  const recipient=links.find(link=>Number(link.guardian_user_id)===Number(guardianUserId));
+  if(!recipient)throw fail(403,'Select a currently authorized portal account.');
+  await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,guardianUserId});
+  const [claim]=await pool.execute("UPDATE client_update_requests SET status='in_progress',guardian_user_id=?,sent_at=UTC_TIMESTAMP() WHERE id=? AND status='draft'",[guardianUserId,requestId]);
+  if(!claim.affectedRows)throw fail(409,'This document assignment changed. Refresh before continuing.');
+  const items=await loadItems(requestId);
+  await ensureDocumentPacket(request,items,actorUserId);
+  await ensureAssessments(request,items,actorUserId);
+  return {request:await loadRequest(requestId),items:await loadItems(requestId),invitationSent:false};
+}
+
+/** Bind the current living disclosure, never a legacy PDF with a similar name. */
+export async function assignSmartDisclosureToPortal({agencyId,clientId,guardianUserId,locale,contentHash,actorUserId}) {
+  assertEnabled();
+  if(!['en','es'].includes(locale)||!/^[a-f0-9]{40}$/.test(String(contentHash||'')))throw fail(400,'Review the current disclosure and language before assigning it.');
+  const client=await Client.findById(clientId,{includeSensitive:true});
+  if(!client||Number(client.agency_id)!==Number(agencyId))throw fail(403,'The disclosure is outside this client’s agency.');
+  const [contact]= (await ClientGuardian.listForClient(clientId)).filter(row=>Number(row.guardian_user_id)===Number(guardianUserId));
+  await currentClientUpdateRecipient({agencyId,clientId,to:contact?.email,guardianUserId});
+  const agency=await Agency.findById(agencyId),organization=client.organization_id?await Agency.findById(client.organization_id):null;
+  const current=await buildSmartDisclosureContext({boundClient:client,agency,organization,locale,link:{form_type:'smart_disclosure',language_code:locale}});
+  if(!current||current.locale!==locale||current.contentHash!==contentHash)throw fail(409,'The disclosure or care team changed. Refresh the invitation preview before attaching it.');
+  const reference=`smart_disclosure:${locale}:${contentHash}`;
+  const title=locale==='es'?'Declaración de divulgación actualizada':'Updated disclosure statement';
+  const connection=await pool.getConnection();let requestId,publicKey,reused=false,superseded=[];
+  try{
+    await connection.beginTransaction();
+    await connection.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[clientId,agencyId]);
+    const [[link]]=await connection.execute('SELECT access_enabled,permissions_json FROM client_guardians WHERE client_id=? AND guardian_user_id=? FOR UPDATE',[clientId,guardianUserId]);
+    if(Number(link?.access_enabled)!==1||ClientGuardian.isNoView(link.permissions_json))throw fail(403,'This account is no longer authorized for clinical documents.');
+    const [items]=await connection.execute(`SELECT r.id AS request_id,r.packet_public_key,i.reference_key,i.title,i.item_type,i.status,
+      EXISTS(SELECT 1 FROM intake_submissions s JOIN intake_links l ON l.id=s.intake_link_id WHERE l.public_key=r.packet_public_key AND s.submitted_at IS NOT NULL) AS submitted
+      FROM client_update_requests r JOIN client_update_items i ON i.request_id=r.id WHERE r.agency_id=? AND r.client_id=? AND r.guardian_user_id=? AND r.status IN ('sent','in_progress')`,[agencyId,clientId,guardianUserId]);
+    const disclosureItem=item=>item.item_type==='document'&&(/^(smart_disclosure:)/.test(item.reference_key)||/disclosure|divulgaci[oó]n/i.test(item.title));
+    const staleRequests=new Set(items.filter(item=>disclosureItem(item)&&item.reference_key!==reference&&item.status==='pending').map(item=>Number(item.request_id)));
+    for(const id of staleRequests){const requestItems=items.filter(item=>Number(item.request_id)===id);if(requestItems.some(item=>!disclosureItem(item)||Number(item.submitted)))throw fail(409,'An earlier disclosure is part of another update or already submitted. Review that update before replacing its pending disclosure.');}
+    const existing=items.find(item=>item.reference_key===reference&&item.status==='pending');
+    if(existing){requestId=Number(existing.request_id);publicKey=existing.packet_public_key;reused=true;}
+    else{
+      const [created]=await connection.execute("INSERT INTO client_update_requests (agency_id,client_id,guardian_user_id,status,created_by_user_id) VALUES (?,?,?,'draft',?)",[agencyId,clientId,guardianUserId,actorUserId]);
+      requestId=created.insertId;publicKey=crypto.randomBytes(24).toString('hex');
+      const school=String(client.client_type||'').toLowerCase()==='school'&&Number(client.organization_id);
+      await IntakeLink.create({publicKey,title,description:'Current living disclosure for this existing client.',languageCode:locale,scopeType:school?'school':'agency',formType:'smart_disclosure',organizationId:school||Number(agencyId),isActive:true,createClient:true,createGuardian:false,requiresAssignment:false,allowedDocumentTemplateIds:[],intakeSteps:[{type:'smart_disclosure',title}],customMessages:{clientUpdateRequestId:Number(requestId),disclosureContentHash:contentHash,disclosureLocale:locale},createdByUserId:actorUserId});
+      const href=intakeUrl(publicKey);
+      await connection.execute("INSERT INTO client_update_items (request_id,item_type,reference_key,title,public_key,href) VALUES (?,'document',?,?,?,?)",[requestId,reference,title,publicKey,href]);
+      await connection.execute("UPDATE client_update_requests SET status='in_progress',packet_public_key=?,sent_at=UTC_TIMESTAMP() WHERE id=?",[publicKey,requestId]);
+    }
+    superseded=[...staleRequests];
+    for(const id of superseded)await connection.execute("UPDATE client_update_requests SET status='cancelled' WHERE id=? AND status IN ('sent','in_progress')",[id]);
+    await connection.execute(`INSERT INTO user_activity_log (action_type,user_id,agency_id,metadata) VALUES ('client_disclosure_assigned',?,?,?)`,[actorUserId,agencyId,JSON.stringify({clientId,guardianUserId,requestId,reference,locale,reused,supersededRequestIds:superseded})]);
+    await connection.commit();
+  }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+  return {requestId,publicKey,reused,locale,contentHash,invitationSent:false};
 }
 
 export function isClientUpdatePacket(link) {
@@ -364,6 +434,13 @@ export async function resolveClientUpdatePacketBinding(link) {
   if(!reenrollment&&['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'This client’s update is no longer active.');
   const expected=link.scope_type==='school'?client.organization_id:client.agency_id;
   if(Number(link.organization_id)!==Number(expected))throw fail(403,'The update packet scope has changed.');
+  if(messages.disclosureContentHash){
+    const locale=messages.disclosureLocale;
+    if(!['en','es'].includes(locale)||String(link.language_code||'en')!==locale)throw fail(409,'The disclosure language changed. Ask your care team for the current document.');
+    const agency=await Agency.findById(request.agency_id),organization=client.organization_id?await Agency.findById(client.organization_id):null;
+    const current=await buildSmartDisclosureContext({boundClient:client,agency,organization,locale,link});
+    if(!current||current.locale!==locale||current.contentHash!==messages.disclosureContentHash)throw fail(409,'The disclosure or care team changed. Ask your care team to attach the current version.');
+  }
   return {attachClientId:Number(client.id),guardianUserId:Number(recipient.guardian_user_id),attachSource:'client_update',agencyIdResolved:Number(request.agency_id),returningMatchInitials:String(client.initials||''),mergePatch:{}};
 }
 
@@ -393,6 +470,19 @@ async function signedTemplateIds(publicKey, clientId) {
   );
   const ids = new Set((signed || []).map((row) => Number(row.document_template_id)));
   return { ids, packetSubmitted: !!submitted.length };
+}
+
+async function signedSmartDisclosure(item,request){
+  const match=/^smart_disclosure:(en|es):([a-f0-9]{40})$/.exec(String(item.reference_key||''));
+  if(!match)return false;
+  const [signed]=await pool.execute(`SELECT a.id FROM client_disclosure_acknowledgements a
+    JOIN intake_submissions s ON s.id=a.intake_submission_id
+    JOIN intake_links l ON l.id=s.intake_link_id
+    JOIN intake_submission_documents d ON d.intake_submission_id=s.id AND d.client_id=a.client_id
+    WHERE l.public_key=? AND a.client_id=? AND a.agency_id=? AND a.language_code=? AND a.content_hash=?
+      AND s.client_id=a.client_id AND s.guardian_user_id=? AND a.signed_at IS NOT NULL
+      AND d.signed_at IS NOT NULL AND d.signed_pdf_path IS NOT NULL LIMIT 1`,[request.packet_public_key,request.client_id,request.agency_id,match[1],match[2],request.guardian_user_id]);
+  return !!signed.length;
 }
 
 async function assessmentCompleted(item,request) {
@@ -492,7 +582,9 @@ async function refreshItems(request, items, user) {
     let waiting = false;
     let detail = null;
     if (item.item_type === 'document') {
-      complete = complete || signed.packetSubmitted || signed.ids.has(Number(item.reference_key));
+      complete = String(item.reference_key||'').startsWith('smart_disclosure:')
+        ? await signedSmartDisclosure(item,request)
+        : complete || signed.packetSubmitted || signed.ids.has(Number(item.reference_key));
       detail = 'Open the secure form and sign this document.';
     } else if (item.item_type === 'assessment') {
       complete = complete || await assessmentCompleted(item,request);

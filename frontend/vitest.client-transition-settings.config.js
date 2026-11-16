@@ -1,0 +1,2 @@
+import {defineConfig} from 'vitest/config';import vue from '@vitejs/plugin-vue';
+export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',include:['src/components/clients/__tests__/ClientTransitionInvitation.test.js','src/components/clients/__tests__/ClientPortalAccessEditor.test.js','src/components/billing/__tests__/ResponsibleBillingParty.test.js','src/composables/__tests__/useFamilyLocale.test.js','src/components/guardian/__tests__/PortalMigrationLocale.test.js'],restoreMocks:true}});

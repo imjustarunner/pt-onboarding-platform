@@ -30,6 +30,10 @@ export async function saveReadiness({ agencyId, clientId, coverageMode, setupSta
     if (setupStatus === 'ready') {
       if (coverageMode === 'unknown' || (coverageMode === 'insured' && !covered)) throw billingError(409, 'Enter and verify insurance, or explicitly document agreed self-pay terms');
       if (coverageMode === 'self_pay' && (covered || hasMedicaidCoverage(insurance))) throw billingError(409, 'Coverage is recorded; resolve coordination of benefits before treating this client as self-pay');
+      if (coverageMode === 'self_pay') {
+        const [rates] = await db.execute('SELECT service_code FROM client_patient_service_rates WHERE agency_id=? AND client_id=? LIMIT 1', [agencyId, clientId]);
+        if (!rates.length) throw billingError(409, 'Enter the client’s explicit service rate override in Account → Billing & insurance before completing self-pay setup.');
+      }
       if (collectionPolicy !== 'manual' && (coverageMode !== 'insured' || hasMedicaidCoverage(insurance))) throw billingError(409, 'Automatic copay collection requires verified commercial coverage without Medicaid protection');
       if (collectionPolicy === 'verified_copay' && insurance?.secondary) throw billingError(409, 'Secondary coverage requires review of final payer responsibility; choose after ERA or manual collection');
       const [payers] = await db.execute("SELECT guardian_user_id FROM client_billing_payers WHERE agency_id=? AND client_id=? AND status='active'", [agencyId,clientId]);

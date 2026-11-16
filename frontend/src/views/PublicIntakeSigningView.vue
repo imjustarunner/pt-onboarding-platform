@@ -1784,6 +1784,7 @@
             :hide-heading="true"
             :insurance-info="intakeResponses.submission.insuranceInfo || {}"
             :payment-info="intakeResponses.submission.paymentInfo || {}"
+            :guardian-email="guardianEmail"
             :step-config="currentFlowStep"
             :selected-package="intakeResponses.submission.selectedPackageInfo?.selectedPackage || null"
             :insurance-on-file="useCoGuardianInsuranceOnFile"
@@ -1841,6 +1842,7 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'payment_collection'" class="payment-step">
+          <PublicIntakeResponsibleParty ref="responsiblePartyStepRef" :model-value="intakeResponses.submission.paymentInfo?.responsibleParty || null" :name="guardianDisplayNameForInsurance" :email="guardianEmail" :phone="guardianPhone" @update:model-value="v => { if (!intakeResponses.submission.paymentInfo) intakeResponses.submission.paymentInfo = {}; intakeResponses.submission.paymentInfo.responsibleParty = v; }" />
           <PublicIntakePaymentStep
             :model-value="intakeResponses.submission.paymentInfo || {}"
             :step-config="currentFlowStep"
@@ -1848,7 +1850,7 @@
             :submission-id="submissionId"
             :cost-display="paymentCostDisplay"
             :insurance-info="intakeResponses.submission.insuranceInfo || {}" :billing-email="guardianEmail" :payment-only="isPaymentOnlyEnrollmentChannel" :collection-allowed="!shouldSkipPaymentCollectionStep()"
-            @update:model-value="(v) => { intakeResponses.submission.paymentInfo = v; }"
+            @update:model-value="(v) => { intakeResponses.submission.paymentInfo = { ...(intakeResponses.submission.paymentInfo || {}), ...v }; }"
             @card-saved="onPaymentCardSaved"
             @skip-acknowledged="onPaymentSkipAcknowledged"
           />
@@ -3226,6 +3228,7 @@ import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeI
 import PublicIntakeSchoolPaymentOptions from '../components/public-intake/PublicIntakeSchoolPaymentOptions.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import PublicIntakeInsurancePaymentStep from '../components/public-intake/PublicIntakeInsurancePaymentStep.vue';
+import PublicIntakeResponsibleParty from '../components/public-intake/PublicIntakeResponsibleParty.vue';
 import PublicIntakePackageSelectionStep from '../components/public-intake/PublicIntakePackageSelectionStep.vue';
 import OfficeSkipNowSplash from '../components/public-intake/OfficeSkipNowSplash.vue';
 import { nextRetainedOfficeStepIndex } from '../utils/officeIntakeNavigation.js';
@@ -11824,6 +11827,7 @@ const completeGuardianWaiverStep = () => {
 
 const insuranceStepRef = ref(null);
 const insurancePaymentStepRef = ref(null);
+const responsiblePartyStepRef = ref(null);
 const packageSelectionStepRef = ref(null);
 // Inline error map for the insurance step. Populated by completeInsuranceStep
 // whenever Continue is blocked, then passed into PublicIntakeInsuranceStep
@@ -12133,6 +12137,7 @@ const completePackageSelectionStep = () => {
 const completePaymentStep = () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'payment_collection') return;
+  if (responsiblePartyStepRef.value?.validate && !responsiblePartyStepRef.value.validate()) { stepError.value = tx('Complete the responsible party’s contact information to continue.'); return; }
   const payInfo = intakeResponses.submission.paymentInfo;
   if (!payInfo?.cardSaved && !payInfo?.skipAcknowledged) {
     stepError.value = 'Please save a payment method, or acknowledge and continue without one.';
@@ -12241,6 +12246,7 @@ const onPaymentSkipAcknowledged = (skipModel) => {
     intakeResponses.submission.paymentInfo = {};
   }
   Object.assign(intakeResponses.submission.paymentInfo, skipModel || { skipAcknowledged: true });
+  if (responsiblePartyStepRef.value?.validate && !responsiblePartyStepRef.value.validate()) { stepError.value = tx('Complete the responsible party’s contact information to continue.'); return; }
   stepError.value = '';
   void nextFlowStep();
 };

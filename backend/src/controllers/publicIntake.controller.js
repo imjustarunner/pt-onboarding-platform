@@ -207,6 +207,7 @@ import {
 } from '../services/schoolPacketSections.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
 import {isClientUpdatePacket,resolveClientUpdatePacketBinding,assertClientUpdateSubmissionContext} from '../services/clientUpdate.service.js';
+import {assertAssignedSmartDisclosureEvidence} from '../utils/assignedSmartDisclosure.js';
 import { persistIntakeClinicianSummaries } from '../services/intakeClinicianSummary.service.js';
 import { scheduleIntakePacketBootstraps } from '../services/intakePacketBootstrap.service.js';
 
@@ -2097,6 +2098,12 @@ export const persistChildIntakeData = async ({
         const {queueInsuranceVerificationSafely}=await import('../services/insuranceVerificationTask.service.js');
         await queueInsuranceVerificationSafely({agencyId,clientId:cid,reason:'eligibility_error'});
       }
+    }
+
+    const paymentInfo = normalizedForInsurance?.responses?.submission?.paymentInfo || normalizedForInsurance?.submission?.paymentInfo;
+    if (paymentInfo?.responsibleParty && agencyId) {
+      const { recordIntakeResponsibleParty } = await import('../services/intakeResponsibleParty.service.js');
+      result.responsibleParty = await recordIntakeResponsibleParty({clientId:cid,agencyId,paymentInfo,guardianUserId,submissionId});
     }
 
     // Unified package selection from office enrollment — create pending entitlement
@@ -7940,6 +7947,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     assertIssuedRoiSessionBinding({ issuedLink: issuedRoiLink, submission, guardianUserId: issuedGuardianId,
       sessionToken: String(req.body?.sessionToken || req.headers?.['x-intake-session'] || '').trim() });
     await assertClientUpdateSubmissionContext(link,{coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
+    const boundClientUpdate=await assertClientUpdateSubmissionContext(link,{coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
     assertPortalEnrollmentIdentity(submission, req.body, req.body?.sessionToken || req.headers?.['x-intake-session']);
     const coGuardianScope = { agencyId: (coGuardianToken || submission.co_guardian_invite_id) ? await resolveAgencyIdForLink(link) : null, publicKey };
     const resumeSessionToken = String(req.body?.sessionToken || req.headers['x-intake-session'] || '').trim();
@@ -8126,6 +8134,17 @@ export const finalizePublicIntake = async (req, res, next) => {
     const now = new Date();
     let intakeData = req.body?.intakeData ? { ...req.body.intakeData } : null;
     if (intakeData) delete intakeData.guardianSubmission;
+    let assignedDisclosureMarker=link.custom_messages||{};if(typeof assignedDisclosureMarker==='string'){try{assignedDisclosureMarker=JSON.parse(assignedDisclosureMarker);}catch{assignedDisclosureMarker={};}}
+    const assignedSmartDisclosure=!!(boundClientUpdate&&isStandaloneSmartDisclosure&&assignedDisclosureMarker.disclosureContentHash);
+    if(assignedSmartDisclosure){
+      const assignedClient=await Client.findById(boundClientUpdate.attachClientId,{includeSensitive:true});
+      if(submission.client_id&&Number(submission.client_id)!==Number(boundClientUpdate.attachClientId)||req.body?.clientId&&Number(req.body.clientId)!==Number(boundClientUpdate.attachClientId))throw Object.assign(new Error('This disclosure belongs to a different client.'),{status:403});
+      const assignedOrg=await resolveIntakeOrgContext(link,{issuedRoiLink,boundClient:assignedClient});
+      const assignedContext=await buildSmartDisclosureContext({link,boundClient:assignedClient,...assignedOrg,locale:assignedDisclosureMarker.disclosureLocale});
+      intakeData=assertAssignedSmartDisclosureEvidence({link,binding:boundClientUpdate,disclosureContext:assignedContext,intakeData,clientId:boundClientUpdate.attachClientId,guardianUserId:submission.guardian_user_id});
+      const assignedValidation=validateSmartDisclosureResponse(normalizeSmartDisclosureResponse({disclosureContext:assignedContext,intakeData,signedAt:now}));
+      if(!assignedValidation.valid)throw Object.assign(new Error(`Missing required disclosure responses: ${assignedValidation.missing.join(', ')}`),{status:400});
+    }
     const hiringChoiceInput = intakeData?.applicantProfile?.hiringNotifications || intakeData?.responses?.submission?.applicantProfile?.hiringNotifications || intakeData?.submission?.applicantProfile?.hiringNotifications || {channel:'email'};
     if(isJobApplication)validateHiringChoice(hiringChoiceInput,await hiringCommunicationContext(await resolveAgencyIdForLink(link)));
     validateIntakeMatchingPreferences(intakeData);
@@ -8170,8 +8189,8 @@ export const finalizePublicIntake = async (req, res, next) => {
     const intakeDataHash = hashIntakeData(intakeData);
     let updatedSubmission = await IntakeSubmission.updateById(submissionId, {
       ...enrollmentSignerIdentity(submission, req.body?.guardian, intakeData),
-      status: 'submitted',
-      submitted_at: now,
+      status: assignedSmartDisclosure?'in_progress':'submitted',
+      submitted_at: assignedSmartDisclosure?null:now,
       intake_data: intakeData ? JSON.stringify(intakeData) : null,
       intake_data_hash: intakeDataHash,
       retention_expires_at: retentionExpiresAt,
@@ -8928,25 +8947,29 @@ export const finalizePublicIntake = async (req, res, next) => {
     // Smart Disclosure (standalone form_type) — Hogwarts-gated living disclosure.
     if (isSmartDisclosureForm(link)) {
       const boundClientId = Number(
-        issuedRoiLink?.client_id
+        boundClientUpdate?.attachClientId
+        || issuedRoiLink?.client_id
         || updatedSubmission.client_id
         || req.body?.clientId
         || 0
       );
+      if(boundClientUpdate&&((updatedSubmission.client_id&&Number(updatedSubmission.client_id)!==boundClientId)||(req.body?.clientId&&Number(req.body.clientId)!==boundClientId)))throw Object.assign(new Error('This disclosure belongs to a different client.'),{status:403});
       const boundClient = boundClientId ? await Client.findById(boundClientId, { includeSensitive: true }) : null;
+      let disclosureBinding=link.custom_messages||{};if(typeof disclosureBinding==='string'){try{disclosureBinding=JSON.parse(disclosureBinding);}catch{disclosureBinding={};}}
       const disclosureContext = await buildSmartDisclosureContext({
         link,
         boundClient,
         organization,
         agency,
-        locale: intakeData?.smartDisclosure?.locale || link.language_code || 'en'
+        locale: disclosureBinding.disclosureLocale || intakeData?.smartDisclosure?.locale || link.language_code || 'en'
       });
       if (!disclosureContext) {
         return res.status(400).json({ error: { message: 'Smart Disclosure is not enabled for this school yet.' } });
       }
+      const guardedDisclosureData=assertAssignedSmartDisclosureEvidence({link,binding:boundClientUpdate,disclosureContext,intakeData,clientId:boundClientId,guardianUserId:updatedSubmission.guardian_user_id});
       const disclosureResponse = normalizeSmartDisclosureResponse({
         disclosureContext,
-        intakeData,
+        intakeData:guardedDisclosureData,
         signedAt: now
       });
       const disclosureValidation = validateSmartDisclosureResponse(disclosureResponse);
@@ -8955,6 +8978,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           error: { message: `Missing required disclosure responses: ${disclosureValidation.missing.join(', ')}` }
         });
       }
+      if(boundClientUpdate&&(!updatedSubmission.client_id||!updatedSubmission.guardian_user_id))updatedSubmission=await IntakeSubmission.updateById(submissionId,{client_id:boundClientId,guardian_user_id:boundClientUpdate.guardianUserId});
       const html = buildSmartDisclosureHtml({
         disclosureContext,
         response: disclosureResponse,

@@ -1,5 +1,6 @@
 <template>
-  <AssistantAppShell v-if="assistantSurface"><router-view /></AssistantAppShell>
+  <router-view v-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
+  <AssistantAppShell v-else-if="assistantSurface"><router-view /></AssistantAppShell>
   <PublicWebsiteShell v-else-if="route.meta?.publicMarketingHub"><router-view /></PublicWebsiteShell>
   <router-view v-else-if="publicLoginSurface" />
   <AppWorkspace v-else />

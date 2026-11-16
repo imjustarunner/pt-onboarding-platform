@@ -31,7 +31,7 @@
       title="Returned from archive — needs full enrollment packet renewal"
     >Needs full packet</span>
   </div>
-  <span v-else-if="showEmpty" class="renewal-flags-empty">—</span>
+  <span v-else-if="showEmpty" class="renewal-flags-empty">{{ flags ? 'Up to date' : 'Needs review' }}</span>
 </template>
 
 <script setup>

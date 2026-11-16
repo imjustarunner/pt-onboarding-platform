@@ -14,11 +14,16 @@ function textOf(req) {
   return text;
 }
 const scopeOf = req => requireClientChartImportAccess(req.user, req.params.id, req.get?.('X-Agency-Id') || req.query?.agencyId || null);
+const accountSections = new Set(['insurance','payer','billingComments']);
+const canManageAccount = req => ['super_admin','admin','support'].includes(req.user?.role);
+function requireSectionAccess(req, section) {
+  if (accountSections.has(section) && !canManageAccount(req)) throw Object.assign(new Error('Client account support access required for billing information'), { status: 403 });
+}
 
 export async function getChartImportDrafts(req, res, next) {
   try {
     const scope = await scopeOf(req);
-    const entries = await Promise.all(chartSections.map(async key => [key, await readChartRecord(scope, key, Number(req.user.id))]));
+    const entries = await Promise.all(chartSections.filter(key => canManageAccount(req) || !accountSections.has(key)).map(async key => [key, await readChartRecord(scope, key, Number(req.user.id))]));
     await logAuditEvent(req, { actionType: 'client_chart_import_drafts_viewed', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId });
     res.set('Cache-Control', 'no-store').json({ drafts: Object.fromEntries(entries) });
   } catch (error) { next(error); }
@@ -27,14 +32,26 @@ export async function getChartImportDrafts(req, res, next) {
 export async function saveChartImportDraft(req, res, next) {
   try {
     const scope = await scopeOf(req), section = sectionOf(req), text = textOf(req);
+    requireSectionAccess(req, section);
     const revision = req.body?.revision;
     if (!Number.isSafeInteger(revision) || revision < 0) throw Object.assign(new Error('Draft revision is required'), { status: 400 });
     const metadata = req.body?.metadata || {};
+    let coverageDrafts;
+    if (section === 'insurance' && metadata.coverageDrafts) {
+      coverageDrafts = {};
+      for (const position of ['primary', 'secondary']) {
+        const draft = metadata.coverageDrafts[position];
+        if (!draft || typeof draft.text !== 'string' || draft.text.length > 200000) throw Object.assign(new Error('Coverage drafts must be at most 200,000 characters each'), { status: 400 });
+        coverageDrafts[position] = { text: draft.text, imported: draft.imported === true };
+      }
+    }
     const value = { text, ...(typeof metadata.sourceDate === 'string' ? { sourceDate: metadata.sourceDate.slice(0, 10) } : {}),
       ...(typeof metadata.sourceAuthor === 'string' ? { sourceAuthor: metadata.sourceAuthor.slice(0, 255) } : {}),
       imported: metadata.imported === true,
       needsReview: metadata.needsReview === true,
-      ...(metadata.position === 'secondary' ? { position: 'secondary' } : {}) };
+      ...(coverageDrafts ? { coverageDrafts } : {}),
+      ...(section === 'demographics' && ['client','guardian'].includes(metadata.contactOwner) ? { contactOwner: metadata.contactOwner } : {}),
+      ...(['primary','secondary'].includes(metadata.position) ? { position: metadata.position } : {}) };
     const saved = await saveChartRecord(scope, section, Number(req.user.id), value, Number(req.user.id), revision);
     res.set('Cache-Control', 'no-store').json({ revision: saved.revision });
   } catch (error) { next(error); }
@@ -43,10 +60,15 @@ export async function saveChartImportDraft(req, res, next) {
 export async function importChartSection(req, res, next) {
   try {
     const scope = await scopeOf(req), section = sectionOf(req), text = textOf(req).trim();
+    requireSectionAccess(req, section);
     if (!text) throw Object.assign(new Error('Paste content before importing'), { status: 400 });
     const position = req.body?.position || 'primary';
     if (!['primary','secondary'].includes(position)) throw Object.assign(new Error('Choose primary or secondary coverage'), { status: 400 });
-    const result = await importSupplementaryChartSection(scope, section, text, Number(req.user.id), { position });
+    const guardianContactNames = req.body?.guardianContactNames || [];
+    if (!Array.isArray(guardianContactNames) || guardianContactNames.length > 100 || guardianContactNames.some(name => typeof name !== 'string' || name.length > 255)) throw Object.assign(new Error('Select valid contacts for portal preparation'), { status: 400 });
+    if (section === 'contacts' && (req.body?.preparePrimaryGuardian === true || guardianContactNames.length) && !['super_admin','admin','support'].includes(req.user?.role)) throw Object.assign(new Error('Account support access is required to prepare portal accounts'), { status: 403 });
+    const result = await importSupplementaryChartSection(scope, section, text, Number(req.user.id), { position,
+      ...(section === 'contacts' ? { preparePrimaryGuardian: req.body?.preparePrimaryGuardian === true, guardianContactNames } : {}) });
     await logAuditEvent(req, { actionType: 'client_chart_section_imported', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId, metadata: { section } });
     res.set('Cache-Control', 'no-store').json({ result });
   } catch (error) { next(error); }
@@ -55,8 +77,10 @@ export async function importChartSection(req, res, next) {
 export async function getChartSupplementaryRecords(req, res, next) {
   try {
     const scope = await scopeOf(req);
-    const [contacts, comments, insurance, payer, billingComments] = await Promise.all([readChartRecord(scope, 'contacts'), readChartRecord(scope, 'comments'), readClientInsurance(scope.clientId, scope.agencyId), readChartRecord(scope, 'payer'), readChartRecord(scope, 'billingComments')]);
+    const accountAccess = canManageAccount(req);
+    const [contacts, comments, insurance, payer, billingComments] = await Promise.all([readChartRecord(scope, 'contacts'), readChartRecord(scope, 'comments'), readClientInsurance(scope.clientId, scope.agencyId), accountAccess ? readChartRecord(scope, 'payer') : null, accountAccess ? readChartRecord(scope, 'billingComments') : null]);
+    const policyForViewer = policy => !policy ? null : accountAccess ? policy : { insurerName: policy.insurerName || '', isMedicaid: policy.isMedicaid === true, programType: policy.programType || '' };
     await logAuditEvent(req, { actionType: 'client_chart_supplementary_viewed', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId });
-    res.set('Cache-Control', 'no-store').json({ contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: insurance.primary, secondary: insurance.secondary } : null, payer: payer.value, billingComments: billingComments.value?.message || '' });
+    res.set('Cache-Control', 'no-store').json({ contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: policyForViewer(insurance.primary), secondary: policyForViewer(insurance.secondary) } : null, payer: payer?.value || null, billingComments: billingComments?.value?.message || '', accountAccess });
   } catch (error) { next(error); }
 }

@@ -13,7 +13,7 @@ vi.mock('../clientOnboardingChecklist.service.js',()=>({markPaperPacketSignature
 import {compareAndSetPaperProcessingState,savePaperProcessingStep,completePaperProcessing,paperProcessingContext,paperProcessingSourceDocument,paperProcessingState,PAPER_PROCESSING_STEPS} from '../paperPacketProcessing.service.js';
 import {paperReadingSnapshot} from '../paperPacketReading.service.js';
 let client,deps,connection;
-const input={clientId:4,actorId:8,signaturesConfirmed:true,staffRoiConfirmed:true};
+const input={clientId:4,actorId:8,signaturesConfirmed:true,staffRoiConfirmed:true,sendInvitations:true};
 const ready=()=>{client.onboarding_docs_json={items:[{key:'roi',status:'missing'}],paperProcessing:{completedSteps:[...PAPER_PROCESSING_STEPS],documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes',invitations:{}}};};
 it('saves a reviewed English answer with its Spanish source and rejects a stale reading',async()=>{
  const candidate={documentId:9,sourceLocale:'es',responses:[{key:'medicalInformation',sourceText:'No tiene alergias.'}]};client.paper_packet_demo_candidate_enc=candidate;deps.encryptDraft=vi.fn(v=>v);
@@ -115,7 +115,7 @@ it('limits the support processing context to this client’s uploaded referral p
  const packet={id:9,client_id:4,agency_id:2,school_organization_id:3,referral_draft_id:3,original_name:'paper.pdf',scan_status:'clean',storage_path:'private',encryption_key_id:'private-key'};
  deps.documents.findSchoolPaperPacketsForClient.mockResolvedValue([packet,{...packet,id:10,client_id:5},{...packet,id:11,agency_id:8},{...packet,id:12,referral_draft_id:null,document_type:'clinical_note'},{...packet,id:13,removed_at:'2026-11-08'},{...packet,id:14,school_organization_id:30}]);
  const result=await paperProcessingContext(4,deps);
- expect(result.documents).toEqual([{id:9,original_name:'paper.pdf',mime_type:undefined,scan_status:'clean'}]);
+ expect(result.documents).toEqual([{id:9,original_name:'paper.pdf',mime_type:undefined,scan_status:'clean',submittedDate:null}]);
 });
 
 it.each([{client_id:5},{agency_id:7},{referral_draft_id:null},{scan_status:'pending'},{scan_status:'infected'},{removed_at:'2026-11-08'}])('rejects a foreign, clinical or unavailable source document: %j',async change=>{
@@ -227,3 +227,23 @@ it('keeps a listed other parent as a contact without requiring their own account
 });
 it('does not restore guardian access after staff pause a finalized account',async()=>{ready();const link={access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'paper_packet_entry'}};deps.guardians.getLink.mockResolvedValue(link);deps.guardians.upsertLink=vi.fn(async data=>{link.access_enabled=1;link.permissions_json=data.permissionsJson;});await completePaperProcessing(input,deps);link.access_enabled=0;client.onboarding_docs_json={paperProcessing:{...paperProcessingState(client),invitations:{}}};await completePaperProcessing(input,deps);expect(deps.guardians.upsertLink).toHaveBeenCalledTimes(1);expect(paperProcessingState(client).invitations[20].status).toBe('blocked');});
 it('retains a retryable recipient result when account activation is blocked after signed review',async()=>{ready();client.onboarding_docs_json.paperProcessing.guardian2Id=null;client.onboarding_docs_json.paperProcessing.sharedCustody='no';const link={access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}};deps.guardians.getLink.mockResolvedValue(link);deps.guardians.upsertLink=vi.fn().mockRejectedValueOnce(Error('Two guardians already have access.')).mockImplementationOnce(async data=>{link.access_enabled=1;link.permissions_json=data.permissionsJson;});const state=await completePaperProcessing(input,deps);expect(state.processedAt).toBeTruthy();expect(state.invitations[20]).toMatchObject({status:'blocked',reason:'Two guardians already have access.'});expect(deps.send).not.toHaveBeenCalled();await completePaperProcessing(input,deps);expect(deps.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20}));expect(deps.markSignatures).toHaveBeenCalledOnce();});
+
+it('marks a completed packet processed without sending invitations by default',async()=>{
+ ready();const {sendInvitations,...review}=input;
+ const state=await completePaperProcessing(review,deps);
+ expect(state.processedAt).toBeTruthy();expect(deps.send).not.toHaveBeenCalled();
+});
+it('uses detected packet language, guardian signer and source dates while keeping unknown pages optional',async()=>{
+ ready();deps.documents.findSchoolPaperPacketsForClient.mockResolvedValue([{id:9,source_submission_date:'2026-11-15'}]);
+ deps.guardians.listForClient.mockResolvedValue([{guardian_user_id:20,first_name:'Synthetic',last_name:'Parent'}]);
+ deps.vision.mockResolvedValue({id:11,phi_document_id:9,status:'needs_review',raw_summary:{packetLocale:'es',reviewHints:{locale:'es',roi:{signedDate:'2026-11-03',page:5}}}});
+ const state=await savePaperProcessingStep({clientId:4,actorId:8,step:'consents',data:{signaturesConfirmed:true,staffRoiConfirmed:true,evidenceReview:{documentId:9,evaluationId:11,versionLabel:'1.02',sourceViewed:true,denyReviewed:true,roi:{status:'present'},disclosure:{status:'present'}}}},deps);
+ expect(state.consentReview).toMatchObject({locale:'es',roi:{signerName:'Synthetic Parent',signedDate:'2026-11-03',dateSource:'paper',page:5},disclosure:{signedDate:'2026-11-15',dateSource:'submission',page:null}});
+ expect(deps.versions).toHaveBeenCalledWith(3,'es','1.02');
+});
+it('accepts a second parent as a saved contact without a portal account',async()=>{
+ ready();deps.contacts={findById:vi.fn(async()=>({id:30,client_id:4,agency_id:2,is_active:1}))};
+ await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian2',data:{contactOnly:true,affiliationId:30}},deps);
+ expect(paperProcessingState(client)).toMatchObject({guardian2Id:null,guardian2ContactId:30});
+ const state=await completePaperProcessing({...input,sendInvitations:false},deps);expect(state.processedAt).toBeTruthy();expect(deps.send).not.toHaveBeenCalled();
+});

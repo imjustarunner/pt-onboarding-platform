@@ -24,6 +24,7 @@ export async function resolveBillingTerms({userId,agencyId,clientId},db=pool) {
   return billingTermsForProfiles(profiles.filter(linkAllowsBillingView));
 }
 export const BILLING_TERMS = 'I accept financial responsibility for the clients I select. I authorize this organization to keep my payment method with Stripe and to charge my selected card for the amounts I approve. If I separately enable recurring billing for a client, I authorize charges for that client’s scheduled services and patient balances at the rates and payment schedule disclosed by the organization. A verified copay may be charged on the same day after the scheduled session ends and the provider confirms that the session occurred or signs the completed session note. A canceled or unconfirmed session does not authorize an automatic copay. Charges must stay within my selected per-charge limit and the disclosed service terms. Insurance coverage and patient responsibility must be verified first; Medicaid-protected care is excluded. Payment activity and receipts are recorded in Billing. This authorization does not permit charges for another client or use of another guardian’s card. I can revoke recurring authorization in Billing before a future charge; revocation does not cancel amounts already owed. Saving a card or signing a payment setup form alone does not enable recurring charges.';
+export const BILLING_TERMS_ES = 'Acepto la responsabilidad financiera de los clientes que seleccione. Autorizo a esta organización a guardar mi método de pago con Stripe y a cobrar a mi tarjeta seleccionada los importes que apruebe. Si activo por separado la facturación recurrente para un cliente, autorizo los cobros por sus servicios programados y saldos a cargo del paciente conforme a las tarifas y el calendario de pagos informados por la organización. Un copago verificado puede cobrarse el mismo día después de que termine la sesión programada y el profesional confirme que se realizó o firme la nota de la sesión completada. Una sesión cancelada o no confirmada no autoriza un copago automático. Los cobros deben respetar el límite por cobro que seleccioné y los términos de servicio informados. Primero deben verificarse la cobertura del seguro y la responsabilidad del paciente; se excluye la atención protegida por Medicaid. La actividad de pagos y los recibos se registran en Facturación. Esta autorización no permite cobros por otro cliente ni el uso de la tarjeta de otro tutor. Puedo revocar la autorización recurrente en Facturación antes de un cobro futuro; la revocación no cancela los importes ya adeudados. Guardar una tarjeta o firmar por sí solo un formulario de configuración de pago no activa cobros recurrentes.';
 
 export function billingError(status, message) { return Object.assign(new Error(message), { status, statusCode: status }); }
 export function positiveId(value) {
@@ -46,6 +47,7 @@ export function linkAllowsBilling(link) {
 }
 export function linkAllowsInsurance(link) {
   if(guardianLearningAccessOnly(link))return false;
+  try{const p=typeof link?.permissions_json==='string'?JSON.parse(link.permissions_json):link?.permissions_json||{};if(p.billingOnly)return false;}catch{return false;}
   if(link?.independence_status==='active'&&link.relationship_type!=='self')return parseSupportJson(link.support_scopes).includes('insurance');
   return linkAllowsBilling(link);
 }
@@ -93,10 +95,11 @@ export async function recordBillingConsent({ userId, agencyId, clientId = null, 
 /** Shared statements grant read access, never liability or permission to charge. */
 export async function requireStatementAccess(userId, clientId, agencyId, db = pool) {
   const link=await requireBillingLink(userId, clientId, agencyId, db);
-  if(link.relationship_type==='self')return;
+  if(link.relationship_type==='self')return link;
   const [rows] = await db.execute(`SELECT 1 FROM client_billing_payers WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND status='active'
     UNION ALL SELECT 1 FROM guardian_portal_policies WHERE agency_id=? AND client_id=? AND shared_billing=1
     UNION ALL SELECT 1 FROM family_statement_shares WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND active=1`,
     [agencyId,clientId,userId,agencyId,clientId,agencyId,clientId,userId]);
   if (!rows.length) throw billingError(403,'Statement access is not authorized for this client');
+  return link;
 }

@@ -5,7 +5,7 @@
 export function normalizeVersionLabel(raw) {
   const s = String(raw || '').trim();
   if (!s) return null;
-  const m = s.match(/(?:version|ver\.?|v\.?)?\s*(\d+\.\d+)\b/i);
+  const m = s.match(/(?:versi[oó]n|version|ver\.?|v\.?)?\s*(\d+\.\d+)\b/i);
   if (m) return m[1];
   const m2 = s.match(/\b(\d+\.\d+)\b/);
   return m2 ? m2[1] : null;
@@ -13,7 +13,6 @@ export function normalizeVersionLabel(raw) {
 
 export function normalizeName(s) {
   return String(s || '')
-    .normalize('NFD').replace(/\p{M}/gu,'')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -22,10 +21,10 @@ export function normalizeName(s) {
 
 /** Detect version label from OCR text (footer / acknowledgement wording). */
 export function extractVersionLabelFromText(text) {
-  const body = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/firme aqui/gi,'sign here').replace(/requerido/gi,'required').replace(/firma del cliente o parte responsable/gi,"client or responsible party signature").replace(/personal escolar autorizado/gi,'authorized school staff').replace(/resumen de reconocimiento y consentimiento/gi,'acknowledgement and consent summary');
+  const body = String(text || '');
   const patterns = [
-    /(?:packet\s+)?version(?:\s+del\s+paquete)?\s*[:=]?\s*(v\.?\s*)?(\d+\.\d+)\b/gi,
-    /\bversion\s+(\d+\.\d+)\b/gi,
+    /(?:(?:packet|paquete)\s+)?versi[oó]n\s*[:=]?\s*(v\.?\s*)?(\d+\.\d+)\b/gi,
+    /\bversi[oó]n\s+(\d+\.\d+)\b/gi,
     /\bv\.?\s*(\d+\.\d+)\b/gi
   ];
   const found = [];
@@ -44,64 +43,71 @@ export function extractVersionLabelFromText(text) {
   return { label, confidence };
 }
 
-/**
- * Signature-area date cues for review; printed ink density is not signature evidence.
- */
-export function detectSignaturesFromText(text) {
-  const body = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/firme aqui/gi,'sign here').replace(/requerido/gi,'required').replace(/firma del cliente o parte responsable/gi,"client or responsible party signature").replace(/personal escolar autorizado/gi,'authorized school staff').replace(/resumen de reconocimiento y consentimiento/gi,'acknowledgement and consent summary');
-  const lower = body.toLowerCase();
-  const markers = [];
-  const re = /sign here\s*[—\-–]?\s*required/gi;
-  let m;
-  while ((m = re.exec(body)) !== null) {
-    markers.push(m.index);
+/** The packet's printed language is independent of a family's preferred language. */
+export function detectPacketLanguage(text) {
+  const body = String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const spanish = ['sexo del dependiente', 'nombre del dependiente', 'fecha de nacimiento', 'consentimiento', 'firme aqui', 'su nombre', 'reconocimiento'].filter(label => body.includes(label)).length;
+  const english = ["dependent's name", 'date of birth', 'acknowledgement', 'authorized school staff', 'sign here', 'your name'].filter(label => body.includes(label)).length;
+  return spanish > english ? 'es' : english > spanish ? 'en' : null;
+}
+
+function calendarDate(value) {
+  const raw = String(value || '');
+  let match = raw.match(/\b(19\d{2}|20\d{2})-(\d{2})-(\d{2})\b/);
+  let date = match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+  if (!date) {
+    match = raw.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](19\d{2}|20\d{2})\b/);
+    if (match) date = `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
   }
-  if (markers.length < 2) {
-    const re2 = /client'?s?\s+or\s+responsible\s+party'?s?\s+signature/gi;
-    while ((m = re2.exec(body)) !== null) {
-      markers.push(m.index);
+  return date && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date ? date : null;
+}
+
+function signatureBlocks(text) {
+  const body = String(text || '');
+  let markers = [...body.matchAll(/(?:sign here\s*[—\-–]?\s*required|firme aqu[ií](?:\s*[—\-–]?\s*(?:obligatorio|requerido))?)/gi)];
+  if (!markers.length) markers = [...body.matchAll(/(?:client'?s?\s+or\s+responsible\s+party'?s?\s+signature|firma del (?:cliente|padre|tutor|responsable))/gi)];
+  return markers.map((marker, i) => {
+    const before = body.slice(0, marker.index).toLowerCase();
+    const roi = Math.max(before.lastIndexOf('authorized school staff'), before.lastIndexOf('consent to release'), before.lastIndexOf('consentimiento para divulgar'), before.lastIndexOf('personal escolar autorizado'));
+    const packet = Math.max(before.lastIndexOf('acknowledgement'), before.lastIndexOf('acknowledgment'), before.lastIndexOf('reconocimiento y consentimiento'), before.lastIndexOf('consentimiento del paquete'));
+    const kind = packet > roi ? 'disclosure' : roi >= 0 ? 'roi' : i === 0 ? 'roi' : 'disclosure';
+    const window = body.slice(marker.index, Math.min(marker.index + 900, markers[i + 1]?.index ?? body.length))
+      .split(/acknowledg(?:e)?ment and consent summary|reconocimiento y consentimiento|pages\s+6\s+and\s+on/i)[0];
+    return { kind, signedDate: calendarDate(window), index: marker.index };
+  });
+}
+
+/** Date cues locate source evidence; staff still confirm the signature on the PDF. */
+export function detectSignaturesFromText(text) {
+  const blocks = signatureBlocks(text);
+  return {
+    roiSignatureDetected: blocks.some(block => block.kind === 'roi' && block.signedDate),
+    disclosureSignatureDetected: blocks.some(block => block.kind === 'disclosure' && block.signedDate),
+    signatureMarkerCount: blocks.length
+  };
+}
+
+/** Never persist source OCR; retain only reviewable language/date/page suggestions. */
+export function extractPaperPacketReviewHints(text, pages = []) {
+  const hints = { locale: detectPacketLanguage(text), roi: {}, disclosure: {} };
+  const sourcePages = Array.isArray(pages) && pages.length ? pages : [{ text, page: null }];
+  for (const page of sourcePages) {
+    for (const block of signatureBlocks(page.text)) {
+      // Classify against the complete document when a continuation page has no heading.
+      const prefix = sourcePages.slice(0, sourcePages.indexOf(page)).map(item => item.text).join('\n');
+      const documentBlocks = signatureBlocks(`${prefix}\n${page.text}`);
+      const kind = documentBlocks.findLast(item => item.index <= prefix.length + 1 + block.index)?.kind || block.kind;
+      const existing = hints[kind];
+      if (existing.signedDate) continue;
+      hints[kind] = { ...(block.signedDate ? { signedDate: block.signedDate } : {}), ...(Number.isInteger(page.page) && page.page > 0 ? { page: page.page } : {}) };
     }
   }
-
-  const dateNear = (start) => {
-    const nextMarker = markers.find(index => index > start) ?? body.length;
-    // A completed two-guardian block can exceed 450 characters. Stop at the
-    // next signature/section so a later document's date cannot sign a blank ROI.
-    const slice = body.slice(start, Math.min(start + 900, nextMarker))
-      .split(/ACKNOWLEDGEMENT AND CONSENT SUMMARY|PAGES\s+6\s+AND\s+ON/i)[0];
-    return /\b(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/.test(slice)
-      || /\bdate\s*[:=]?\s*\d/i.test(slice);
-  };
-  // Printed acknowledgements contain dense words and punctuation immediately
-  // after blank signature lines. They are not evidence of a completed signature.
-  // Require a date cue in the signature area; human review is still required by
-  // paper processing before staff confirm the existing signed source.
-  const signedFlags = markers.slice(0, 4).map((idx) => dateNear(idx));
-  let roi = false;
-  let disclosure = false;
-  if (signedFlags.length >= 2) {
-    roi = !!signedFlags[0];
-    disclosure = !!signedFlags[1];
-  } else if (signedFlags.length === 1) {
-    roi = !!signedFlags[0];
-    disclosure = false;
-  } else {
-    const roiIdx = lower.indexOf('authorized school staff');
-    const ackIdx = lower.indexOf('acknowledgement and consent');
-    if (roiIdx >= 0) roi = dateNear(roiIdx);
-    if (ackIdx >= 0) disclosure = dateNear(ackIdx);
-  }
-
-  return {
-    roiSignatureDetected: roi,
-    disclosureSignatureDetected: disclosure,
-    signatureMarkerCount: markers.length
-  };
+  return hints;
 }
 
 /** Find staff with DENY checked next to their printed name. */
 export function detectDenyStaffFromText(text, staffList = []) {
-  const lines = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/denegar|denegado/gi,'Deny')
+  const lines = String(text || '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);

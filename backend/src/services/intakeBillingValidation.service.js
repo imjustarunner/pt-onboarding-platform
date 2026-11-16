@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { isTutoringIntake } from '../../../frontend/src/navigation/tutoringEnrollmentPolicy.js';
+import { normalizeIntakeResponsibleParty } from '../utils/intakeResponsibleParty.js';
 import { assertFamilyBillingEncryption } from './familyBillingEncryption.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
 import { insuranceForIntakeClient } from './clientInsurance.service.js';
@@ -10,6 +11,7 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
   const data = typeof intakeData === 'string' ? JSON.parse(intakeData) : (intakeData || {});
   const bag = data.responses?.submission || data.submission || data;
   const info = bag.insuranceInfo;
+  if (bag.paymentInfo?.responsibleParty != null) normalizeIntakeResponsibleParty(bag.paymentInfo.responsibleParty);
   if (info?.useInsuranceOnFile && (!insuranceOnFileApproved || info.useInsuranceOnFile !== true)) throw billingError(400, 'The care team must verify the insurance on file before this section can be skipped.');
   // Only the server-bound invitation may approve this path for every child.
   // Nothing new is being declared or billed: clientInsurance intentionally

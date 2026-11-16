@@ -1,33 +1,35 @@
 <template>
   <section class="update-card" aria-label="Client updates">
-    <p v-if="loading">Checking assigned updates…</p>
-    <p v-else-if="data.enabled===false" role="status">Client updates are not currently available. Your existing portal information remains available in its usual panels.</p>
-    <p v-if="error" class="update-error" role="alert">{{ error }}</p>
+    <p v-if="loading">{{ ft("Checking assigned updates…") }}</p>
+    <p v-else-if="data.enabled===false" role="status">{{ ft("Client updates are not currently available. Your existing portal information remains available in its usual panels.") }}</p>
+    <p v-if="error" class="update-error" role="alert">{{ ft(error) }}</p>
     <template v-if="data.assigned">
-      <p class="eyebrow">Updates for this profile</p>
-      <h2>Complete the items selected for you</h2>
-      <p>These are the only items requested. You do not need to complete a new enrollment.</p>
+      <p class="eyebrow">{{ ft("Updates for this profile") }}</p>
+      <h2>{{ ft("Complete the items selected for you") }}</h2>
+      <p>{{ ft("These are the only items requested. You do not need to complete a new enrollment.") }}</p>
       <article v-for="item in data.items" :key="item.id" class="update-item">
-        <h3>{{ item.title }}</h3>
+        <h3>{{ ft(item.title) }}</h3>
         <p v-if="item.waiting">{{ item.detail || 'Your care team is preparing this step. It does not block the others.' }}</p>
         <template v-else>
-          <p>{{ item.detail }}</p>
-          <a v-if="item.href && ['document','assessment'].includes(item.type)" class="update-action" :href="item.href">Open {{ item.title }}</a>
+          <p>{{ ft(item.detail) }}</p>
+          <a v-if="item.href && ['document','assessment'].includes(item.type)" class="update-action" :href="item.href">{{ ft("Open") }} {{ ft(item.title) }}</a>
           <GuardianClientDetails v-else-if="item.type === 'information'" :client-id="Number(clientId)" />
           <FamilyNotificationChoices v-else-if="item.type === 'notifications'" :agency-id="agencyId" :client-id="clientId" @saved="load" />
           <GuardianPlanProgressPanel v-else-if="item.type === 'plan'" :client-id="clientId" :agency-id="agencyId" :client-type="clientType" />
           <InsuranceCardTasks v-else-if="item.type === 'insurance'" :agency-id="agencyId" :client-id="clientId" />
           <GuardianPaymentInsuranceTab v-else-if="['authorization','payment'].includes(item.type)" :agency-id="agencyId" :client-id="clientId" :section="item.type" />
-          <label v-if="item.type === 'information'" class="confirm"><input v-model="confirmed" type="checkbox" /> I reviewed this information. It is correct, or I submitted the needed corrections.</label>
-          <button v-if="item.type === 'information'" type="button" :disabled="busy || !confirmed" @click="confirm(item)">Save confirmation</button>
-          <button v-else-if="item.type !== 'notifications'" type="button" :disabled="busy" @click="load">Check again</button>
+          <label v-if="item.type === 'information'" class="confirm"><input v-model="confirmed" type="checkbox" /> {{ ft("I reviewed this information. It is correct, or I submitted the needed corrections.") }}</label>
+          <button v-if="item.type === 'information'" type="button" :disabled="busy || !confirmed" @click="confirm(item)">{{ ft("Save confirmation") }}</button>
+          <button v-else-if="item.type !== 'notifications'" type="button" :disabled="busy" @click="load">{{ ft("Check again") }}</button>
         </template>
       </article>
     </template>
-    <p v-else-if="!loading && !error && data.enabled!==false">No pending selected updates for this profile.</p>
+    <p v-else-if="!loading && !error && data.enabled!==false">{{ ft("No pending selected updates for this profile.") }}</p>
   </section>
 </template>
 <script setup>
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import GuardianClientDetails from './GuardianClientDetails.vue';

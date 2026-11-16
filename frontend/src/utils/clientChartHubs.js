@@ -19,6 +19,7 @@ export const LEGACY_TAB_ALIASES = Object.freeze({
   portal: { hub: 'portal', sub: null },
   demographics: { hub: 'account', sub: 'demographics' },
   guardians: { hub: 'account', sub: 'guardians' },
+  'billing-settings': { hub: 'account', sub: 'billing-settings' },
   assignments: { hub: 'account', sub: 'assignments' },
   'school-years': { hub: 'account', sub: 'school-years' },
   lifecycle: { hub: 'lifecycle', sub: 'timeline' },
@@ -59,12 +60,13 @@ export function resolveChartTab(rawTab) {
   return LEGACY_TAB_ALIASES[key] || { hub: 'overview', sub: null };
 }
 
-export function accountSubnav({ isSchool = false, canEditAccount = false } = {}) {
+export function accountSubnav({ isSchool = false, canEditAccount = false, canViewBilling = false } = {}) {
   const items = [
     { id: 'profile', label: 'Profile' },
     { id: 'demographics', label: 'Demographics' },
     { id: 'guardians', label: 'Guardians' }
   ];
+  if (canViewBilling) items.push({ id: 'billing-settings', label: 'Billing & insurance' });
   if (canEditAccount) items.push({ id: 'assignments', label: 'Assignments' });
   if (isSchool) items.push({ id: 'school-years', label: 'School years' });
   return items;
@@ -195,6 +197,7 @@ export function chartNavTarget(hubId, subId = '') {
   }
   if (hub === 'portal') return {activeTab:'portal',hubSub:''};
   if (hub === 'account') {
+    if (sub === 'billing-settings') return { activeTab: 'billing-settings', hubSub: 'billing-settings' };
     if (sub === 'demographics') return { activeTab: 'demographics', hubSub: 'demographics' };
     if (sub === 'guardians') return { activeTab: 'guardians', hubSub: 'guardians' };
     if (sub === 'assignments') return { activeTab: 'assignments', hubSub: 'assignments' };

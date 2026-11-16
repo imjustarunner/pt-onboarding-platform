@@ -1,37 +1,40 @@
 <template>
   <section ref="root" class="migration-card" aria-label="Portal onboarding" tabindex="-1">
-    <p v-if="loading" role="status">Checking your onboarding steps…</p>
-    <p v-if="error" class="step-error" role="alert" tabindex="-1">{{ error }}</p>
+    <p v-if="loading" role="status">{{ ft("Checking your onboarding steps…") }}</p>
+    <p v-if="error" class="step-error" role="alert" tabindex="-1">{{ ft(error) }}</p>
     <template v-if="data.enrolled">
-      <p class="eyebrow">{{ clientType === 'learning' || clientType === 'tutoring' ? data.profile?.agencyName : 'AuricWell' }} <span>Portal onboarding</span></p>
+      <p class="eyebrow">{{ clientType === 'learning' || clientType === 'tutoring' ? data.profile?.agencyName : 'AuricWell' }} <span>{{ ft("Portal onboarding") }}</span></p>
       <h2>{{ data.profile?.name }}</h2>
-      <p v-if="!currentItem">Your available onboarding steps are complete. Thank you for making the move with us.</p>
+      <p v-if="!currentItem">{{ ft("Your available onboarding steps are complete. Thank you for making the move with us.") }}</p>
       <template v-else>
-        <p>Thank you for moving with us. Complete one section at a time so your new portal is accurate. Your progress is saved as you finish each step.</p>
-        <div class="care-context"><strong>{{ data.profile?.agencyName }}</strong><span v-if="data.profile?.school">SchoolCareBridge · {{ data.profile.school.name }}</span><span v-for="provider in data.profile?.providers || []" :key="provider.id">Your provider: {{ provider.name }}</span></div>
-        <nav class="step-track" aria-label="Onboarding progress"><button v-for="(item,index) in actionableItems" :key="item.key" type="button" :class="{current:item.key===currentKey,done:item.complete}" :aria-current="item.key===currentKey?'step':undefined" @click="selectStep(item.key)"><span>{{ item.complete ? '✓' : index+1 }}</span>{{ item.title }}</button></nav>
+        <p>{{ ft("Thank you for moving with us. Complete one section at a time so your new portal is accurate. Your progress is saved as you finish each step.") }}</p>
+        <div class="care-context"><strong>{{ data.profile?.agencyName }}</strong><span v-if="data.profile?.school">{{ ft("SchoolCareBridge ·") }} {{ data.profile.school.name }}</span><span v-for="provider in data.profile?.providers || []" :key="provider.id">{{ ft("Your provider:") }} {{ provider.name }}</span></div>
+        <nav class="step-track" aria-label="Onboarding progress"><button v-for="(item,index) in actionableItems" :key="item.key" type="button" :class="{current:item.key===currentKey,done:item.complete}" :aria-current="item.key===currentKey?'step':undefined" @click="selectStep(item.key)"><span>{{ item.complete ? '✓' : index+1 }}</span>{{ ft(item.title) }}</button></nav>
         <article :key="currentKey" ref="stepPanel" class="step-panel" tabindex="-1" @invalid.capture="highlightInvalid">
-          <p class="step-count">Step {{ currentIndex+1 }} of {{ actionableItems.length }}</p><h3>{{ currentItem.title }}</h3><p>{{ currentItem.detail }}</p>
-          <GuardianClientDetails v-if="currentKey==='information'" :client-id="Number(clientId)" />
+          <p class="step-count">{{ ft("Step") }} {{ currentIndex+1 }} {{ ft("of") }} {{ actionableItems.length }}</p><h3>{{ ft(currentItem.title) }}</h3><p>{{ ft(currentItem.detail) }}</p>
+          <template v-if="currentKey.startsWith('document-')"><a v-if="currentItem.href" :href="currentItem.href">{{ ft('Open document to review and sign') }}</a><button type="button" @click="$emit('navigate','updates')">{{ ft('Open assigned forms') }}</button></template>
+          <GuardianClientDetails v-else-if="currentKey==='information'" :client-id="Number(clientId)" />
           <FamilyNotificationChoices :profiles="profiles" v-else-if="currentKey==='notifications'" :agency-id="agencyId" :client-id="clientId" @saved="verifyAndContinue" />
           <GuardianPlanProgressPanel v-else-if="currentKey==='plan'" :client-id="clientId" :agency-id="agencyId" :client-type="clientType" />
-          <template v-else-if="data.demo && ['insurance','authorization','payment'].includes(currentKey)"><div class="demo-step"><strong>Fictional test profile</strong><p>{{ currentKey==='insurance'?'A real family securely uploads the front and back of their commercial insurance card here.':currentKey==='authorization'?'A real family reviews the payment terms and signs their authorization here.':'A real family adds a card securely or selects a saved card for this profile.' }}</p><p>This example does not upload a real insurance card, sign a financial agreement, or authorize a charge.</p><button type="button" :disabled="busy" @click="completeDemo">Complete with sample information</button></div></template>
+          <template v-else-if="data.demo && ['insurance','authorization','payment'].includes(currentKey)"><div class="demo-step"><strong>{{ ft("Fictional test profile") }}</strong><p>{{ currentKey==='insurance'?'A real family securely uploads the front and back of their commercial insurance card here.':currentKey==='authorization'?'A real family reviews the payment terms and signs their authorization here.':'A real family adds a card securely or selects a saved card for this profile.' }}</p><p>{{ ft("This example does not upload a real insurance card, sign a financial agreement, or authorize a charge.") }}</p><button type="button" :disabled="busy" @click="completeDemo">{{ ft("Complete with sample information") }}</button></div></template>
           <InsuranceCardTasks v-else-if="currentKey==='insurance'" :agency-id="agencyId" :client-id="clientId" />
           <GuardianPaymentInsuranceTab v-else-if="['authorization','payment'].includes(currentKey)" :agency-id="agencyId" :client-id="clientId" :section="currentKey" />
-          <label v-if="currentKey==='information'" class="confirmation" :class="{invalid:confirmationError}"><input ref="confirmationInput" v-model="confirmed" type="checkbox" @change="confirmationError=false"/> I reviewed this profile. Its information is correct, or I submitted the needed corrections.</label>
-          <div class="step-actions"><button v-if="currentIndex>0" type="button" @click="selectStep(actionableItems[currentIndex-1].key)">Back</button><button v-if="currentKey!=='notifications'" type="button" :disabled="busy" class="continue" @click="verifyAndContinue">{{ busy?'Checking…':'Save & continue' }}</button></div>
+          <label v-if="currentKey==='information'" class="confirmation" :class="{invalid:confirmationError}"><input ref="confirmationInput" v-model="confirmed" type="checkbox" @change="confirmationError=false"/> {{ ft("I reviewed this profile. Its information is correct, or I submitted the needed corrections.") }}</label>
+          <div class="step-actions"><button v-if="currentIndex>0" type="button" @click="selectStep(actionableItems[currentIndex-1].key)">{{ ft("Back") }}</button><button v-if="currentKey!=='notifications'" type="button" :disabled="busy" class="continue" @click="verifyAndContinue">{{ busy?'Checking…':'Save & continue' }}</button></div>
         </article>
       </template>
-      <div v-if="!currentItem" class="onboarding-done"><button type="button" @click="$emit('finished')">Open dashboard</button><button type="button" @click="currentKey=actionableItems[0]?.key || ''">Review completed steps</button></div>
-      <p v-if="waitingItems.length" class="waiting">Waiting for your care team: {{ waitingItems.map(i=>i.title).join(', ') }}. These steps do not block your portal.</p>
-      <p v-if="hasIncomplete" class="reminder-copy">If email updates are enabled, we’ll remind you every 48 hours while available steps remain. You can return through Onboarding in the menu.</p>
-      <details><summary>About your move and your information</summary><p>{{ data.historyNotice }}</p><button type="button" @click="$emit('navigate','help')">Learn about your portal</button></details>
+      <div v-if="!currentItem" class="onboarding-done"><button type="button" @click="$emit('finished')">{{ ft("Open dashboard") }}</button><button type="button" @click="currentKey=actionableItems[0]?.key || ''">{{ ft("Review completed steps") }}</button></div>
+      <p v-if="waitingItems.length" class="waiting">{{ ft("Waiting for your care team:") }} {{ waitingItems.map(i=>i.title).join(', ') }}{{ ft(". These steps do not block your portal.") }}</p>
+      <p v-if="hasIncomplete" class="reminder-copy">{{ ft("If email updates are enabled, we’ll remind you every 48 hours while available steps remain. You can return through Onboarding in the menu.") }}</p>
+      <details><summary>{{ ft("About your move and your information") }}</summary><p>{{ ft(data.historyNotice) }}</p><button type="button" @click="$emit('navigate','help')">{{ ft("Learn about your portal") }}</button></details>
     </template>
-    <p v-else-if="!loading && !error">No onboarding steps are assigned for this profile.</p>
+    <p v-else-if="!loading && !error">{{ ft("No onboarding steps are assigned for this profile.") }}</p>
   </section>
 </template>
 <script setup>
 import {computed,nextTick,ref,watch} from 'vue';import api from '../../services/api';
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
+const {ft}=useFamilyLocale();
 import GuardianClientDetails from './GuardianClientDetails.vue';import FamilyNotificationChoices from './FamilyNotificationChoices.vue';import GuardianPlanProgressPanel from './GuardianPlanProgressPanel.vue';import GuardianPaymentInsuranceTab from './GuardianPaymentInsuranceTab.vue';import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 const props=defineProps({agencyId:[Number,String],clientId:[Number,String],clientType:String,active:Boolean,profiles:{type:Array,default:()=>[]}});const emit=defineEmits(['state','navigate','finished']);
 const data=ref({}),error=ref(''),loading=ref(false),busy=ref(false),confirmed=ref(false),confirmationError=ref(false),currentKey=ref(''),root=ref(null),stepPanel=ref(null),confirmationInput=ref(null);let seq=0;

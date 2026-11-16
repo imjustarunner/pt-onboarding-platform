@@ -8,7 +8,7 @@ export function ageOn(dob,asOf=today()){if(!dob)return null;const date=dateOnly(
 export function effectiveClinicalAccess({grant,link,dob,asOf=today()}){
   const denied={level:'payer_only',scopes:[],reviewRequired:true};
   const permissions=parseJson(link?.permissions_json,{});
-  if(!link||Number(link.access_enabled)!==1||permissions.noView||permissions.noViewOtherGuardian||guardianLearningAccessOnly(link))return denied;
+  if(!link||Number(link.access_enabled)!==1||permissions.noView||permissions.noViewOtherGuardian||permissions.billingOnly||guardianLearningAccessOnly(link))return denied;
   if(link.relationship_type==='self')return {level:'self',scopes:[...CLINICAL_SCOPES],reviewRequired:false};
   if(!grant||grant.revoked_at||!grant.medical_rights_verified||!dob)return denied;
   const age=ageOn(dob,asOf);if(age===null||age<0)return denied;

@@ -47,8 +47,9 @@
           @click="identityReviewMode = 'tests'"
         >Show Tests</button>
         <PostClientToExchangeButton />
+        <button type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="refreshWorkspace">Refresh</button>
         <button v-if="canSeeRenewalFlags && activeAgencyId" type="button" class="cm-hbtn cm-hbtn--ghost" @click="clientUpdateOpen = true">Add client for selected updates</button>
-        <button v-if="canUpdateCharts && clients.length" type="button" class="cm-hbtn cm-hbtn--ghost" @click="chartUpdateClient = pagedClients[0] || clients[0]">Bring clients up to date</button>
+        <button v-if="canUpdateCharts && clients.length" type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="openChartUpdates()">Bring clients up to date{{ selectedIds.size ? ` (${selectedIds.size} selected)` : '' }}</button>
         <button v-if="canUpdateCharts" type="button" class="cm-hbtn cm-hbtn--ghost" @click="openOfficeClientModal">+ Add office client from records</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
@@ -187,6 +188,7 @@
           v-model="platformTenantFilter"
           @change="handlePlatformTenantChange"
           class="filter-select"
+          aria-label="Agency"
         >
           <option value="">All authorized agencies</option>
           <option v-for="tenant in availableTenantFilters" :key="tenant.id" :value="String(tenant.id)">
@@ -217,10 +219,11 @@
           v-model="renewalFlagFilter"
           @change="applyFilters"
           class="filter-select"
-          aria-label="Renewal need"
+          aria-label="Needs"
         >
-          <option value="">All renewal needs</option>
-          <option value="any">Any renewal flag</option>
+          <option value="">All needs</option>
+          <option value="any">Needs attention</option>
+          <option value="up_to_date">Up to date</option>
           <option value="expired_roi">Expired ROI</option>
           <option value="school_transfer">School transfer</option>
           <option value="staff_roi_gap">Staff ROI gap</option>
@@ -251,8 +254,8 @@
           </div>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <select v-model="organizationFilter" @change="applyFilters" class="filter-select">
-            <option value="">All Affiliations</option>
+          <select v-model="organizationFilter" @change="applyFilters" class="filter-select" aria-label="Affiliation">
+            <option value="">All affiliations / schools</option>
             <option v-for="org in availableAffiliations" :key="org.id" :value="org.id">
               {{ org.name }}
             </option>
@@ -266,8 +269,8 @@
             {{ selectedAffiliation.name }} Dashboard
           </button>
         </div>
-        <select v-model="providerFilter" @change="applyFilters" class="filter-select">
-          <option value="">All Providers</option>
+        <select v-model="providerFilter" @change="applyFilters" class="filter-select" aria-label="Active provider">
+          <option value="">All active providers</option>
           <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
             {{ provider.first_name }} {{ provider.last_name }}
           </option>
@@ -288,8 +291,8 @@
           <option value="submission_date-asc">Sort: Submission Date (Oldest)</option>
           <option value="initials-asc">Sort: Initials / Name (A-Z)</option>
           <option value="initials-desc">Sort: Initials / Name (Z-A)</option>
-          <option value="agency_name-asc">Sort: Tenant (A-Z)</option>
-          <option value="agency_name-desc">Sort: Tenant (Z-A)</option>
+          <option value="agency_name-asc">Sort: Agency (A-Z)</option>
+          <option value="agency_name-desc">Sort: Agency (Z-A)</option>
           <option value="organization_name-asc">Sort: Affiliation (A-Z)</option>
           <option value="organization_name-desc">Sort: Affiliation (Z-A)</option>
           <option value="client_status_label-asc">Sort: Client Status (A-Z)</option>
@@ -337,7 +340,7 @@
             </label>
             <label v-if="canSeeRenewalFlags" class="columns-item">
               <input type="checkbox" v-model="columnPrefs.renewal" />
-              <span>Renewal</span>
+              <span>Needs</span>
             </label>
           </div>
         </div>
@@ -367,6 +370,12 @@
     </div>
 
     <ClientPortalInviteDialog v-if="portalInviteClientIds.length" :client-ids="portalInviteClientIds" @close="portalInviteClientIds = []" />
+    <div v-if="canUpdateCharts && filteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="selectAllMatchingClients">
+        {{ selectingAllMatching ? 'Selecting…' : `Select all ${totalCountForDisplay} matching clients` }}
+      </button>
+      <button v-if="selectedIds.size" class="btn btn-primary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="openChartUpdates()">Bring selected clients up to date ({{ selectedIds.size }})</button>
+    </div>
     <div v-if="canInvitePortal && filteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
       <span>Portal invitations: filter by provider, school, or status, then select clients.</span>
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || filteredClients.length > 200" @click="openPortalInvites(filteredClients.map(c => c.id))">
@@ -457,7 +466,7 @@
               :disabled="bulkWorking || bulkRenewalBusy"
               @click="bulkPushRenewals"
             >
-              {{ bulkRenewalBusy ? 'Pushing…' : 'Push renewal' }}
+              {{ bulkRenewalBusy ? 'Sending…' : 'Send needed updates' }}
             </button>
             <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
               Archive
@@ -490,7 +499,7 @@
               :aria-sort="ariaSortFor('agency_name')"
               @click="toggleColumnSort('agency_name')"
             >
-              Tenant
+              Agency
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('agency_name') }}</span>
             </th>
             <th
@@ -548,7 +557,7 @@
               Last Activity
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('last_activity_at') }}</span>
             </th>
-            <th v-if="canSeeRenewalFlags && columnPrefs.renewal" class="col-renewal">Renewal</th>
+            <th v-if="canSeeRenewalFlags && columnPrefs.renewal" class="col-renewal">Needs</th>
             <th v-if="canBackofficeEdit" class="col-demo">Demo</th>
             <th class="col-actions">Actions</th>
           </tr>
@@ -636,7 +645,7 @@
                 class="btn cm-packet-btn btn-xs cm-renewal-btn"
                 @click.stop="openClientPaperProcessing(client)"
               >
-                Process packet
+                Process paper packet
               </button>
               <button
                 v-else-if="client.renewalFlags?.needsClientRenewal"
@@ -644,7 +653,7 @@
                 class="btn btn-primary btn-xs cm-renewal-btn"
                 @click.stop="openClientRenewal(client)"
               >
-                Renew
+                Review needs
               </button>
             </td>
             <td v-if="canBackofficeEdit" class="select-cell col-demo" @click.stop>
@@ -659,7 +668,7 @@
               </label>
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="closeClientPanel()">
-              <button v-if="canUpdateCharts" type="button" class="btn btn-secondary btn-xs" @click.stop="chartUpdateClient = client">Bring up to date</button>
+              <button v-if="canUpdateCharts" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client)">Bring up to date</button>
               <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
                 <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
               <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
@@ -671,10 +680,10 @@
                 v-if="canSeeRenewalFlags && !columnPrefs.renewal"
                 type="button"
                 class="btn btn-secondary btn-xs"
-                title="Client Renewal"
+                title="Client needs"
                 @click.stop="openClientRenewal(client)"
               >
-                Renew
+                Review needs
               </button>
 
                 <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
@@ -804,7 +813,7 @@
             <small v-else>Days are sourced from the provider’s schedule for this organization.</small>
           </div>
           <div v-if="newClient.provider_id" class="form-group">
-            <label for="create-client-alert">Client Alert <span class="hint">(optional)</span></label>
+            <label for="create-client-alert">Client Alert <span class="hint">(optional, for the person receiving this client)</span></label>
             <textarea
               id="create-client-alert"
               v-model="newClient.client_alert"
@@ -991,7 +1000,7 @@
       @close="showCreatedRecordsImport = false" @imported="onCreatedRecordsImported"
     />
 
-    <ClientChartUpdateModal v-if="chartUpdateClient" :initial-client="chartUpdateClient" :agency-id="effectiveAgencyScopeId" @close="chartUpdateClient = null" @updated="fetchClients" />
+    <ClientChartUpdateModal v-if="chartUpdateClient" :initial-client="chartUpdateClient" :agency-id="effectiveAgencyScopeId" :selected-clients="chartUpdateQueue" @close="closeChartUpdates" @updated="fetchClients" />
 
     <!-- Rollover Modal (extra confirmation gates) -->
     <div v-if="showRolloverModal" class="modal-overlay" @click.self="closeRolloverModal">
@@ -1347,11 +1356,13 @@ import { finishClientCreation } from '../../utils/clientCreationOutcome.js';
 import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
 import ClientUpdateModal from '../../components/admin/ClientUpdateModal.vue';
 import RenewalFlagsChips from '../../components/admin/RenewalFlagsChips.vue';
+import { clientManagementWorkspaceKey, rememberClientManagementWorkspace, readClientManagementWorkspace, isActiveClientManagementProvider } from '../../utils/clientManagementWorkspace.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
 const router = useRouter();
+const workspacePath = route.path;
 
 const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.user?.role));
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
@@ -1587,7 +1598,10 @@ watch(
 );
 
 const clients = ref([]);
-const loading = ref(true);
+const loading = ref(false);
+const workspaceReady = ref(false);
+let clientRequestSequence = 0;
+let lastClientRequestParams = '';
 const error = ref('');
 const searchQuery = ref('');
 const clientStatusFilter = ref('');
@@ -1658,6 +1672,14 @@ function clientAgencyBrand(client) {
   const rows = [...(agencyStore.userAgencies || []), ...(agencyStore.agencies || []), ...(allTenantFilters.value || []), agencyStore.currentAgency];
   return { id: client.agency_id, name: client.agency_name, ...Object.assign({}, ...rows.filter(agency => Number(agency?.id) === Number(client.agency_id))) };
 }
+
+const chartUpdateQueue = ref(null);
+function openChartUpdates(client = null) {
+  const selected = [...selectedClientRecords.value.values()].filter(row => selectedIds.value.has(row.id));
+  chartUpdateQueue.value = client ? [client] : selected.length ? selected : [...filteredClients.value];
+  chartUpdateClient.value = chartUpdateQueue.value[0] || null;
+}
+function closeChartUpdates() { chartUpdateClient.value = null; chartUpdateQueue.value = null; }
 
 
 const openCreateClientModal = async () => {
@@ -1865,6 +1887,10 @@ const applyFilters = () => {
   } else {
     parsedSearch.value = { freeText: String(searchQuery.value || '').trim() };
   }
+  if (usingServerPagination.value && currentPage.value !== 1) {
+    currentPage.value = 1;
+    return;
+  }
   currentPage.value = 1;
   fetchClients();
 };
@@ -1877,6 +1903,10 @@ const onSearchInput = () => {
       return;
     }
     parsedSearch.value = { freeText: String(searchQuery.value || '').trim() };
+    if (usingServerPagination.value && currentPage.value !== 1) {
+      currentPage.value = 1;
+      return;
+    }
     currentPage.value = 1;
     fetchClients();
   }, 250);
@@ -1893,6 +1923,8 @@ const serverTotal = ref(0);
 
 // Bulk selection + actions
 const selectedIds = ref(new Set());
+const selectedClientRecords = ref(new Map());
+const selectingAllMatching = ref(false);
 const bulkWorking = ref(false);
 const showBulkDeleteDevFillModal = ref(false);
 const bulkDeleteDevFillWorking = ref(false);
@@ -2033,6 +2065,7 @@ const effectiveAgencyScopeId = computed(() => {
   if (!canChooseListAgency.value && activeAgencyId.value) return Number(activeAgencyId.value);
   const platformTenantId = Number(platformTenantFilter.value || 0);
   if (platformTenantId > 0) return platformTenantId;
+  if (activeAgencyId.value) return Number(activeAgencyId.value);
   return null;
 });
 
@@ -2393,11 +2426,10 @@ watch(effectiveAgencyScopeId, async id => {
   if (!id) return;
   try { const { data } = await api.get('/client-referral-links/directory', { params: { agencyId: id } }); referralFilterEntries.value = data.entries || []; } catch { /* surfaced when selecting a referral filter */ }
 }, { immediate: true });
-let clientLoadGeneration = 0;
-const fetchClients = async () => {
-  const generation = ++clientLoadGeneration;
+const fetchClients = async ({ background = false } = {}) => {
+  const requestSequence = ++clientRequestSequence;
   try {
-    loading.value = true;
+    if (!background) loading.value = true;
     error.value = '';
     
     const params = new URLSearchParams();
@@ -2445,8 +2477,9 @@ const fetchClients = async () => {
       }
     }
 
+    lastClientRequestParams = params.toString();
     const response = await api.get(`/clients?${params.toString()}`, { skipGlobalLoading: true });
-    if (generation !== clientLoadGeneration) return;
+    if (requestSequence !== clientRequestSequence) return;
     const payload = response.data || [];
     const raw = Array.isArray(payload) ? payload : (payload.items || []);
     const tenantById = new Map((allTenantFilters.value || []).map((t) => [Number(t?.id), t]));
@@ -2474,11 +2507,11 @@ const fetchClients = async () => {
       serverSummary.value = null;
     }
   } catch (err) {
-    if (generation !== clientLoadGeneration) return;
+    if (requestSequence !== clientRequestSequence) return;
     console.error('Failed to fetch clients:', err);
     error.value = err.response?.data?.error?.message || 'Failed to load clients';
   } finally {
-    if (generation === clientLoadGeneration) loading.value = false;
+    if (requestSequence === clientRequestSequence) loading.value = false;
   }
 };
 
@@ -2508,7 +2541,7 @@ const fetchProviders = async () => {
       return;
     }
     if (!agencyId) { availableProviders.value=[]; return; }
-    const response = await api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true });
+    const response = await api.get('/provider-scheduling/providers', { params: { agencyId, activeProvidersOnly: true }, skipGlobalLoading: true });
     availableProviders.value = response.data || [];
   } catch (err) {
     console.error('Failed to fetch providers:', err);
@@ -2649,7 +2682,11 @@ const allPageSelected = computed(() => {
 const toggleSelected = (id) => {
   const set = new Set(selectedIds.value);
   if (set.has(id)) set.delete(id);
-  else set.add(id);
+  else {
+    set.add(id);
+    const client = clients.value.find(client => client.id === id);
+    if (client) selectedClientRecords.value.set(id, client);
+  }
   selectedIds.value = set;
 };
 
@@ -2657,17 +2694,47 @@ const toggleSelectAllPage = (evt) => {
   const checked = !!evt?.target?.checked;
   const set = new Set(selectedIds.value);
   for (const c of pagedClients.value || []) {
-    if (checked) set.add(c.id);
+    if (checked) { set.add(c.id); selectedClientRecords.value.set(c.id, c); }
     else set.delete(c.id);
   }
   selectedIds.value = set;
 };
+
+async function selectAllMatchingClients() {
+  if (selectingAllMatching.value || loading.value) return;
+  selectingAllMatching.value = true;
+  try {
+    const matches = new Map();
+    if (!usingServerPagination.value) {
+      for (const client of filteredClients.value) matches.set(client.id, client);
+    } else {
+      const params = new URLSearchParams(lastClientRequestParams);
+      params.set('paginate', 'true'); params.set('per_page', '200');
+      let page = 1, loaded = 0, total = Infinity;
+      while (loaded < total) {
+        params.set('page', String(page++));
+        const { data } = await api.get(`/clients?${params}`, { skipGlobalLoading: true });
+        const rows = Array.isArray(data) ? data : data.items || [];
+        total = Array.isArray(data) ? rows.length : Number(data.total);
+        if (!Number.isFinite(total) || (!rows.length && loaded < total)) throw new Error('The matching client list was incomplete. Please retry.');
+        loaded += rows.length;
+        for (const client of rows) {
+          if (String(client.status || '').toUpperCase() !== 'ARCHIVED' && matchesParsedSearch(client, parsedSearch.value)) matches.set(client.id, client);
+        }
+      }
+    }
+    selectedClientRecords.value = matches;
+    selectedIds.value = new Set(matches.keys());
+  } catch (err) { error.value = err.response?.data?.error?.message || err.message || 'Unable to select matching clients'; }
+  finally { selectingAllMatching.value = false; }
+}
 
 const portalInviteClientIds = ref([]);
 const canInvitePortal = computed(() => ['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant'].includes(authStore.user?.role));
 function openPortalInvites(ids) { portalInviteClientIds.value = [...ids]; }
 const clearSelection = () => {
   selectedIds.value = new Set();
+  selectedClientRecords.value = new Map();
   bulkAffiliationId.value = '';
   bulkClientStatusId.value = '';
   bulkPromoteYear.value = '';
@@ -2970,6 +3037,7 @@ const bulkSetClientStatus = async () => {
 };
 
 const handlePlatformTenantChange = async () => {
+  clearSelection();
   organizationFilter.value = '';
   providerFilter.value = '';
   clientStatusFilter.value = '';
@@ -2978,9 +3046,7 @@ const handlePlatformTenantChange = async () => {
   schoolSearchQuery.value = '';
   schoolSearchOpen.value = false;
   currentPage.value = 1;
-  await fetchLinkedOrganizations();
-  await fetchClientStatuses();
-  await fetchProviders();
+  await Promise.all([fetchLinkedOrganizations(), fetchClientStatuses(), fetchProviders()]);
   await fetchClients();
 };
 
@@ -3311,6 +3377,33 @@ function restoreListPreferences() {
 }
 watch(() => Object.fromEntries(Object.entries(listPreferences).map(([key,target]) => [key,target.value])), value => { try { localStorage.setItem(listPreferencesKey.value,JSON.stringify(value)); } catch {} }, { deep:true });
 watch(displayMode, () => { if (usingServerPagination.value && sortParts().field === 'initials') fetchClients(); });
+const workspaceState = {
+  clients, clientStatuses, availableProviders, linkedOrganizations, serverTotal, serverSummary,
+  searchQuery, parsedSearch, clientStatusFilter, workflowStatusFilter, devFillFilter,
+  organizationFilter, providerFilter, skillsOnly, sortBy, currentPage, pageSize, platformTenantFilter,
+  renewalFlagFilter, cmViewMode, pendingIntakeCount, exchangeListingCount, nameDuplicateGroupCount,
+  referralEntryFilter, referralDirectionFilter, referralFilterEntries, schoolSearchQuery
+};
+let activeWorkspaceKey = null;
+function currentWorkspaceKey() {
+  return clientManagementWorkspaceKey({ userId: authStore.user?.id, role: authStore.user?.role,
+    sessionId: localStorage.getItem('sessionId'), agencyId: activeAgencyId.value, path: workspacePath });
+}
+async function refreshWorkspace() {
+  await Promise.all([fetchLinkedOrganizations(), fetchClientStatuses(), fetchProviders()]);
+  await fetchClients();
+  loadSideCounts();
+}
+onBeforeUnmount(() => {
+  clientRequestSequence++;
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  if (!activeWorkspaceKey || !workspaceReady.value || error.value) return;
+  rememberClientManagementWorkspace(activeWorkspaceKey, {
+    state: Object.fromEntries(Object.entries(workspaceState).map(([key, value]) => [key, value.value])),
+    selectedIds: [...selectedIds.value], selectedClients: [...selectedClientRecords.value.values()],
+    duplicateIds: [...nameDuplicateClientIds.value], requestParams: lastClientRequestParams
+  });
+});
 onMounted(async () => {
   restoreListPreferences();
   loadColumnPrefs();
@@ -3320,24 +3413,39 @@ onMounted(async () => {
   if (isSuperAdmin.value) {
     // Super admins: fetchAgencies() already populates agencies + userAgencies is unused for them.
     // Calling fetchUserAgencies() would incorrectly snap currentAgency back to a default tenant.
-    await agencyStore.fetchAgencies();
+    if (!agencyStore.agencies?.length) await agencyStore.fetchAgencies();
   } else {
-    await agencyStore.fetchUserAgencies();
+    if (!agencyStore.userAgencies?.length) await agencyStore.fetchUserAgencies();
   }
+  activeWorkspaceKey = currentWorkspaceKey();
+  const savedWorkspace = readClientManagementWorkspace(activeWorkspaceKey);
+  if (savedWorkspace) {
+    for (const [key, value] of Object.entries(savedWorkspace.state)) if (workspaceState[key]) workspaceState[key].value = value;
+    selectedIds.value = new Set(savedWorkspace.selectedIds);
+    selectedClientRecords.value = new Map(savedWorkspace.selectedClients.map(client => [client.id, client]));
+    nameDuplicateClientIds.value = new Set(savedWorkspace.duplicateIds);
+    lastClientRequestParams = savedWorkspace.requestParams;
+    await nextTick();
+    workspaceReady.value = true;
+    fetchClients({ background: true });
+    await openClientFromQuery();
+    if (route.query?.new === '1') await openCreateClientModal();
+    return;
+  }
+  loadSideCounts();
   // Default the create modal agency to the resolved active agency.
   if (!createAgencyId.value && activeAgencyId.value) {
     createAgencyId.value = String(activeAgencyId.value);
   }
-  await fetchLinkedOrganizations();
-  await loadSideCounts();
-  await fetchClientStatuses();
+  await Promise.all([fetchLinkedOrganizations(), fetchClientStatuses(), fetchProviders()]);
   // Deep-link: /admin/clients?client_status_key=prospective
   const statusKeyQ = String(route.query?.client_status_key || route.query?.clientStatusKey || '').trim().toLowerCase();
   if (statusKeyQ && Array.isArray(clientStatuses.value) && clientStatuses.value.length) {
     const match = clientStatuses.value.find((s) => String(s.status_key || '').toLowerCase() === statusKeyQ);
     if (match?.id) clientStatusFilter.value = String(match.id);
   }
-  await fetchProviders();
+  await nextTick();
+  workspaceReady.value = true;
   await fetchClients();
   await openClientFromQuery();
   if (route.query?.new === '1') await openCreateClientModal();
@@ -3419,7 +3527,10 @@ watch(() => route.query?.clientId, async () => {
 
 // Refetch when active agency scope changes (route slug or header tenant selection).
 watch(() => activeAgencyId.value, (newId, oldId) => {
-  if (newId === oldId) return;
+  if (!workspaceReady.value || newId === oldId) return;
+  clearSelection();
+  platformTenantFilter.value = '';
+  activeWorkspaceKey = currentWorkspaceKey();
   currentPage.value = 1;
   if (!createAgencyId.value && newId) {
     createAgencyId.value = String(newId);
@@ -3431,7 +3542,7 @@ watch(() => activeAgencyId.value, (newId, oldId) => {
 });
 
 watch(() => pageSize.value, (newSize, oldSize) => {
-  if (!usingServerPagination.value) return;
+  if (!workspaceReady.value || !usingServerPagination.value) return;
   if (newSize === oldSize) return;
   if (currentPage.value !== 1) {
     currentPage.value = 1;
@@ -3441,7 +3552,7 @@ watch(() => pageSize.value, (newSize, oldSize) => {
 });
 
 watch(() => currentPage.value, (newPage, oldPage) => {
-  if (!usingServerPagination.value) return;
+  if (!workspaceReady.value || !usingServerPagination.value) return;
   if (newPage === oldPage) return;
   fetchClients();
 });

@@ -8,6 +8,8 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { updateLinkedGuardianContact } from '../services/linkedGuardianContact.service.js';
+import { permissionsForAccessMode } from '../utils/portalRelationshipAccess.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 
 function safeJson(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -81,6 +83,7 @@ export const upsertClientGuardian = async (req, res, next) => {
 
     if (!email) return res.status(400).json({ error: { message: 'Valid email is required' } });
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
+    if (relationshipType === 'self' && (req.body.clientOwnContactConfirmed !== true || !normalizeEmail(client.email) || normalizeEmail(client.email) !== email)) return res.status(400).json({ error: { message: 'Save and explicitly confirm the client’s own email in Demographics before preparing their portal account. A guardian’s email must not be used as the client’s email.' } });
 
     // Find or create guardian user.
     let guardian = await User.findByEmail(email);
@@ -94,6 +97,10 @@ export const upsertClientGuardian = async (req, res, next) => {
           }
         });
       }
+      if (relationshipType === 'self') {
+        const prior = await ClientGuardian.getLink({ clientId, guardianUserId: guardian.id });
+        if (prior && prior.relationship_type !== 'self') return res.status(409).json({ error: { message: 'This email belongs to an existing guardian relationship for this client. Use the client’s separate email; guardian access cannot be converted into the client’s identity.' } });
+      }
     } else {
       guardian = await User.create({
         email,
@@ -101,8 +108,8 @@ export const upsertClientGuardian = async (req, res, next) => {
         firstName,
         lastName,
         personalEmail: email,
-        phoneNumber: String(req.body.phone || '').trim() || null,
-        role: 'client_guardian',
+        role: relationshipType === 'self' ? 'client' : 'client_guardian',
+        phoneNumber: relationshipType === 'self' ? client.phone || null : null,
         status: 'PENDING_SETUP'
       });
       created = true;
@@ -123,7 +130,7 @@ export const upsertClientGuardian = async (req, res, next) => {
       relationshipType,
       relationshipTitle,
       accessEnabled,
-      permissionsJson,
+      permissionsJson: req.body.permissionsJson === undefined && priorLink ? priorLink.permissions_json : permissionsJson,
       createdByUserId: req.user?.id || null
     });
 
@@ -141,7 +148,7 @@ export const upsertClientGuardian = async (req, res, next) => {
     const invitationDeferred = deferGuardianInvitation({ ...client, organization_type: organization?.organization_type });
     let passwordlessTokenLink = null;
     let setupEmailSent = false;
-    if (!invitationDeferred && accessEnabled && (created || !Number(priorLink?.access_enabled))) {
+    if (req.body.sendInvitation !== false && relationshipType !== 'self' && !invitationDeferred && accessEnabled && (created || !Number(priorLink?.access_enabled))) {
       try {
         const {sendHubPortalInvitation}=await import('../services/messagesHub.service.js');
         const invitation=await sendHubPortalInvitation({agencyId:Number(client.agency_id),actorUserId:req.user.id,
@@ -181,11 +188,19 @@ export const updateClientGuardian = async (req, res, next) => {
 
     const relationshipTitle = req.body.relationshipTitle !== undefined ? String(req.body.relationshipTitle || '').trim() : undefined;
     const relationshipType = req.body.relationshipType !== undefined ? normalizeRelationshipType(req.body.relationshipType) : undefined;
-    const accessEnabled = req.body.accessEnabled !== undefined ? (req.body.accessEnabled !== false) : undefined;
+    let accessEnabled = req.body.accessEnabled !== undefined ? (req.body.accessEnabled !== false) : undefined;
     let permissionsJson = req.body.permissionsJson !== undefined ? safeJson(req.body.permissionsJson, null) : undefined;
 
     const existing = (await ClientGuardian.listForClient(clientId)).find((g) => Number(g.guardian_user_id) === guardianUserId);
     if (!existing) return res.status(404).json({ error: { message: 'Guardian link not found' } });
+    if (relationshipType === 'self' && existing.relationship_type !== 'self') return res.status(409).json({ error: { message: 'A guardian link cannot be converted into the client’s own identity. Prepare the client’s separate account using their own saved email.' } });
+
+    if (req.body.accessMode !== undefined) {
+      if (!String(req.body.accessReason || '').trim()) return res.status(400).json({ error: { message: 'Record the reason for this portal access change.' } });
+      if (existing.relationship_type === 'self' && ['payment_only', 'payer_plus'].includes(req.body.accessMode)) return res.status(400).json({ error: { message: 'Payment-only access applies to a responsible payer. Keep the client’s own account separate.' } });
+      permissionsJson = permissionsForAccessMode(existing.permissions_json, req.body.accessMode);
+      accessEnabled = req.body.accessMode !== 'none';
+    }
 
     const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
@@ -207,6 +222,8 @@ export const updateClientGuardian = async (req, res, next) => {
       createdByUserId: req.user?.id || null
     });
 
+    await logAuditEvent(req, { actionType: 'client_portal_access_updated', agencyId: req.agencyId || null,
+      metadata: { clientId, guardianUserId, accessMode: req.body.accessMode || null, accessEnabled: accessEnabled ?? Number(existing.access_enabled) === 1, reason: String(req.body.accessReason || '').slice(0, 1000) } });
     res.json({ ok: true });
   } catch (e) {
     next(e);

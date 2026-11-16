@@ -55,6 +55,22 @@ function toBool(value) {
   return value === true || value === 1 || value === '1';
 }
 
+function packetEvaluationProcessed(row) {
+  let docs = row.onboarding_docs_json;
+  if (typeof docs === 'string') {
+    try { docs = JSON.parse(docs); } catch { return false; }
+  }
+  const state = docs?.paperProcessing, review = state?.consentReview;
+  const documentId = Number(row.phi_document_id), evaluationId = Number(row.id);
+  return documentId > 0 && evaluationId > 0 && !!state?.processedAt
+    && Number(state.documentId) === documentId
+    && Number(docs?.paperPacketSource?.documentId || state.documentId) === documentId
+    && Number(state.signatureSourceDocumentId) === documentId
+    && Number(state.packetEvaluationId) === evaluationId
+    && review?.kind === 'human_source_review'
+    && Number(review.documentId) === documentId && Number(review.evaluationId) === evaluationId;
+}
+
 function emptyFlags() {
   return {
     expiredRoi: false,
@@ -109,6 +125,7 @@ function matchesRenewalFlagFilter(flags, filterRaw) {
   const filter = String(filterRaw || '').trim().toLowerCase().replace(/-/g, '_');
   if (!filter || filter === 'all' || filter === 'none') return true;
   if (filter === 'any') return !!flags?.any;
+  if (filter === 'up_to_date') return !!flags && !flags.any;
   if (filter === 'expired_roi' || filter === 'expired') return !!flags?.expiredRoi;
   if (filter === 'school_transfer' || filter === 'transfer') return !!flags?.schoolTransfer;
   if (filter === 'staff_roi_gap' || filter === 'staff_gap') return !!flags?.staffRoiGap;
@@ -166,8 +183,9 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
   try {
     const placeholdersVision = ids.map(() => '?').join(',');
     const [evalRows] = await pool.execute(
-      `SELECT e.client_id, e.status
+      `SELECT e.client_id, e.id, e.phi_document_id, e.status, c.onboarding_docs_json
        FROM client_paper_packet_vision_evals e
+       INNER JOIN clients c ON c.id = e.client_id
        INNER JOIN (
          SELECT client_id, MAX(id) AS max_id
          FROM client_paper_packet_vision_evals
@@ -180,7 +198,12 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
       const cid = Number(r.client_id);
       const status = String(r.status || '').toLowerCase();
       if (!result.has(cid) || !schoolAffiliatedIds.has(cid)) continue;
-      if (status === 'needs_review' || status === 'failed') {
+      if (packetEvaluationProcessed(r)) {
+        // A source-bound, completed staff review resolves the need while the
+        // original Vision evaluation remains unchanged as incident evidence.
+        result.get(cid).paperPacketRoiSetup = false;
+        result.get(cid).paperPacketVisionReview = false;
+      } else if (status === 'needs_review' || status === 'failed') {
         result.get(cid).paperPacketVisionReview = true;
         // Prefer vision-review chip over generic setup when Vision already ran
         result.get(cid).paperPacketRoiSetup = false;

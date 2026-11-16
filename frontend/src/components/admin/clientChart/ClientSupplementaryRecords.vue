@@ -36,7 +36,7 @@
         <h3 class="cc-hub-section__title">Payer information</h3>
         <article v-for="(payer, position) in records.payer" :key="position" class="supplement-card"><h4>{{ position === 'primary' ? 'Primary' : 'Secondary' }}</h4><dl><template v-for="field in payerFields.filter(field => payer[field.key])" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ payer[field.key] }}</dd></template></dl></article>
       </section>
-      <section aria-label="Billing comments"><h3 class="cc-hub-section__title">Billing comments</h3><p class="supplement-note">{{ records.billingComments || 'No billing comments on file.' }}</p></section>
+      <section v-if="records.accountAccess !== false" aria-label="Billing comments"><h3 class="cc-hub-section__title">Billing comments</h3><p class="supplement-note">{{ records.billingComments || 'No billing comments on file.' }}</p></section>
     </template>
   </div>
 </template>

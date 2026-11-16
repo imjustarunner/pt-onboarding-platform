@@ -48,13 +48,14 @@ import api from '../../services/api';
 const props=defineProps({agencyId:[Number,String],clients:{type:Array,default:()=>[]},links:{type:Array,default:()=>[]},tasks:{type:Array,default:()=>[]}});
 const emit=defineEmits(['changed','task-created']);
 const visits=ref([]),visitsLoading=ref(false);let visitGeneration=0;
-const rates=ref([]),busy=ref(false),error=ref(''),message=ref('');let generation=0;
+const rates=ref([]),clientRates=ref([]),busy=ref(false),error=ref(''),message=ref('');let generation=0,clientRateGeneration=0;
 const rateCode=ref(''),rateAmount=ref(''),rateBasis=ref('visit'),rateRevision=ref(0),rateReason=ref('');
 const clientId=ref(''),payerId=ref(''),code=ref(''),basis=ref('self_pay'),copay=ref(''),units=ref(1),from=ref(new Date().toISOString().slice(0,10)),through=ref(''),evidence=ref(''),additionalTerms=ref(''),requireCard=ref(true),selection=ref(''),visitId=ref('');
 const money=v=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(v/100);
-const selectedRate=computed(()=>rates.value.find(r=>r.serviceCode===code.value.trim().toUpperCase()));
+const selectedRate=computed(()=>(basis.value==='self_pay'?clientRates.value:rates.value).find(r=>r.serviceCode===code.value.trim().toUpperCase()));
 const clientLinks=computed(()=>props.links.filter(l=>Number(l.clientId)===Number(clientId.value)));
-const quote=computed(()=>{if(basis.value==='copay')return copay.value?`${money(Math.round(Number(copay.value)*100))} copay per completed visit`:'Enter the verified copay.';const r=selectedRate.value;if(r?.amountCents==null)return 'No self-pay price is set for this service.';return `${money(r.amountCents)} per ${r.priceBasis} · ${money(Number(r.amountCents)*(r.priceBasis==='unit'?Number(units.value):1))} total per matching visit`;});
+const quote=computed(()=>{if(basis.value==='copay')return copay.value?`${money(Math.round(Number(copay.value)*100))} copay per completed visit`:'Enter the verified copay.';const r=selectedRate.value;if(r?.amountCents==null)return 'Enter this client’s explicit service rate under Account → Billing & insurance first.';return `${money(r.amountCents)} per ${r.priceBasis} · ${money(Number(r.amountCents)*(r.priceBasis==='unit'?Number(units.value):1))} total per matching visit`;});
+watch(clientId,async id=>{const own=++clientRateGeneration;clientRates.value=[];if(!id)return;try{const {data}=await api.get(`/family-billing/account/clients/${id}/settings`,{params:{agencyId:props.agencyId}});if(own===clientRateGeneration)clientRates.value=data.rates||[];}catch(e){if(own===clientRateGeneration)error.value=e.response?.data?.error?.message||'Client service prices could not be loaded.';}});
 const signedOptions=computed(()=>props.tasks.filter(t=>t.status==='completed').flatMap(t=>(t.serviceTerms||[]).map(term=>({key:`${t.id}:${term.clientId}:${term.serviceCode}`,taskId:t.id,...term,label:`${props.clients.find(c=>Number(c.id)===Number(term.clientId))?.name||'Client'} · ${term.serviceCode} · ${money(term.totalCents)} · Task ${t.id}`}))));
 const selectedTerm=computed(()=>signedOptions.value.find(o=>o.key===selection.value));
 function editRate(r){rateCode.value=r.serviceCode;rateAmount.value=r.amountCents==null?'':(r.amountCents/100).toFixed(2);rateBasis.value=r.priceBasis;rateRevision.value=r.revision;rateReason.value='';}

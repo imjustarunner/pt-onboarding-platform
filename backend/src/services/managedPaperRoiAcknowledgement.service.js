@@ -12,7 +12,7 @@ export async function acknowledgeReviewedPaperRoi({client,actorUserId=null,roiEx
   if(review.kind!=='human_source_review'||Number(state.documentId)!==documentId||Number(review.documentId)!==documentId
     ||![review.evaluationId,review.versionId,review.reviewedByUserId].every(positive)||!review.reviewedAt
     ||review.sourceViewed!==true||review.denyReviewed!==true||!state.completedSteps?.includes('consents')
-    ||!/^\d{4}-\d{2}-\d{2}$/.test(expiry)||!['roi','disclosure'].every(key=>review[key]?.status==='present'&&review[key]?.signerName&&review[key]?.signedDate)
+    ||!/^\d{4}-\d{2}-\d{2}$/.test(expiry)||!['roi','disclosure'].every(key=>review[key]?.status==='present'&&review[key]?.signedDate)
     ||(roiExpiresAt!==undefined&&String(roiExpiresAt||'').slice(0,10)!==expiry))throw invalid();
   const [saved]=await db.execute(`UPDATE clients c
     JOIN client_phi_documents d ON d.id=? AND d.client_id=c.id AND d.agency_id=c.agency_id AND d.school_organization_id=c.organization_id

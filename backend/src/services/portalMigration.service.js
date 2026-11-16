@@ -15,6 +15,7 @@ import {decodeInsuranceProfile} from '../models/GuardianInsuranceProfile.model.j
 import {cardProgress} from './insuranceCards/policy.js';
 import {isGuardianTestAccount,guardianTestAccessAllowed} from './guardianTestAccess.service.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
+import {relationshipAccessMode} from '../utils/portalRelationshipAccess.js';
 
 export function usableMigrationCard(card,now=new Date(),connectedAccountId=null){
  return !!card?.stripe_payment_method_id&&!!card.connected_account_id&&!card.legacyRequiresReview&&Number(card.is_active)===1
@@ -38,6 +39,7 @@ async function migrationAccess({user,agencyId,clientId},db=pool){
 export async function portalMigrationOverview(input){
  const {link,enrollment}=await migrationAccess(input);if(!enrollment)return {enrolled:false};
  const {agencyId,clientId,user}=input;
+ const billingOnly=['payment_only','payer_plus'].includes(relationshipAccessMode({...link,access_enabled:1}));
  let demographic=null,plan=null,billingAllowed=false;
  try{demographic=await guardianDemographics.read({user,clientId});}catch(e){if(e.status!==403)throw e;}
  try{plan=await guardianPlanProgress({userId:user.id,clientId,agencyId});}catch(e){if(e.status!==403)throw e;}
@@ -49,13 +51,16 @@ export async function portalMigrationOverview(input){
  let insuranceCardMissing=billingAllowed&&!!insurance,insuranceWaiting=false;
  if(billingAllowed&&insurance?.profileId){const [[row]]=await pool.execute('SELECT * FROM guardian_insurance_profiles WHERE id=? AND agency_id=?',[insurance.profileId,agencyId]);if(row){const [[followup]]=await pool.execute('SELECT * FROM insurance_card_followups WHERE profile_id=? AND agency_id=?',[insurance.profileId,agencyId]);const progress=cardProgress(decodeInsuranceProfile(row),followup||{});insuranceCardMissing=progress.missingSlots.length>0&&!['waived','not_required'].includes(progress.state);insuranceWaiting=progress.state==='help'||Number(row.guardian_user_id)!==Number(user.id);}}
  const [[choices]]=await pool.execute('SELECT updated_at FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,user.id]);
- const [providers]=await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.title FROM users u WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND (u.id=(SELECT provider_id FROM clients WHERE id=? AND agency_id=?) OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id=? AND is_active=1))`,[clientId,agencyId,clientId]);
+ const [providers]=billingOnly?[[]]:await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.title FROM users u WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND (u.id=(SELECT provider_id FROM clients WHERE id=? AND agency_id=?) OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id=? AND is_active=1))`,[clientId,agencyId,clientId]);
  const learning=['learning','tutoring'].includes(link.client_type);
  const items=migrationChecklist({self:link.relationship_type==='self',notificationsConfirmed:!!choices&&new Date(choices.updated_at)>=new Date(enrollment.created_at),insurance:learning?null:insurance,coverageKnown:learning||billingAllowed&&(!!insurance?.primary?.memberId||readiness.coverage_mode==='self_pay'),paymentReady,authorizationReady:!!consent,insuranceCardMissing:!learning&&insuranceCardMissing,demographicsConfirmed:!!demographic&&enrollment.information_revision===demographic.revision,planAvailable:!!plan?.hasActivePlan,planAcknowledged:!!plan?.acknowledgments?.some(a=>a.status==='signed')});
  const [[account]]=await pool.execute('SELECT email,role,is_demo,is_active,status_expires_at FROM users WHERE id=?',[user.id]);const demo=isGuardianTestAccount(account);
  const [demoRows]=demo?await pool.execute('SELECT step_key FROM family_portal_onboarding_demo_steps WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,user.id]):[[]];
  const [paymentAccounts]=billingAllowed?await pool.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id=? AND stripe_connect_status='active'",[agencyId]):[[]];
  const availableItems=items.filter(i=>(i.key!=='information'||demographic)&&(i.key!=='plan'||plan));
+ if(!['payment_only','payer_plus'].includes(relationshipAccessMode({...link,access_enabled:1}))){
+   try{const {guardianClientUpdate}=await import('./clientUpdate.service.js');const updates=await guardianClientUpdate(input);for(const item of updates.items||[])if(item.type==='document')availableItems.push({key:`document-${item.id}`,title:item.title,detail:item.detail||'Review and sign this document in your portal.',complete:!!item.complete,waiting:!!item.waiting,panel:'updates',href:item.href||null});}catch(error){if(error.status!==403)throw error;}
+ }
  for(const item of availableItems){
    if(learning&&item.key==='plan'){item.title='Review your learning plan';item.detail='Review the learning goals shared by your tutor and acknowledge them when available.';}
    if(item.key==='plan'&&!item.complete&&!plan?.acknowledgments?.some(a=>a.status!=='signed')){item.waiting=true;item.detail='Your care team will let you know when a plan is ready for your acknowledgment.';}
@@ -63,7 +68,7 @@ export async function portalMigrationOverview(input){
    if(item.key==='payment'&&!item.complete&&!demo&&!paymentAccounts.length){item.waiting=true;item.detail='Your billing team is preparing secure payment setup. You can finish the other steps now.';}
    if(demo&&demoRows.some(r=>r.step_key===item.key)){item.complete=true;item.demoComplete=true;}
  }
- return {enrolled:true,demo,complete:availableItems.every(i=>i.complete||i.waiting),profile:{name:link.full_name||link.initials,relationship:link.relationship_type,agencyName:link.agency_name,agencyLogo:link.agency_logo_url,school:link.organization_type==='school'?{name:link.organization_name,logo:link.organization_logo_url}:null,providers:providers.map(p=>({id:p.id,name:[p.first_name,p.last_name].filter(Boolean).join(' '),title:p.title||null}))},cohort:enrollment.cohort_label,informationRevision:demographic?.revision||null,items:availableItems,historyNotice:'Payment cards and earlier billing history do not transfer automatically. Request prior receipts or balances in Billing.'};
+ return {enrolled:true,demo,locale:link.portal_language||'en',complete:availableItems.every(i=>i.complete||i.waiting),profile:{name:link.full_name||link.initials,relationship:link.relationship_type,agencyName:link.agency_name,agencyLogo:link.agency_logo_url,school:!billingOnly&&link.organization_type==='school'?{name:link.organization_name,logo:link.organization_logo_url}:null,providers:providers.map(p=>({id:p.id,name:[p.first_name,p.last_name].filter(Boolean).join(' '),title:p.title||null}))},cohort:enrollment.cohort_label,informationRevision:demographic?.revision||null,items:availableItems,historyNotice:'Payment cards and earlier billing history do not transfer automatically. Request prior receipts or balances in Billing.'};
 }
 export async function confirmMigrationInformation(input){
  const {enrollment}=await migrationAccess(input);if(!enrollment)throw billingError(404,'Portal onboarding is not assigned');
@@ -110,8 +115,8 @@ export async function inviteMigrationFamily(input){
    await pool.execute('INSERT INTO family_portal_migration_enrollments (agency_id,client_id,guardian_user_id,cohort_label,created_by_user_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE cohort_label=VALUES(cohort_label)',[recipient.agencyId,client.clientId,recipient.guardianUserId,preview.cohortLabel,input.actor.id]);
   }
   await pool.execute("UPDATE family_portal_migration_deliveries SET status='sending' WHERE id=?",[claim.insertId]);
-  const result=await sendHubPortalInvitation({agencyId:recipient.agencyId,actorUserId:input.actor.id,clientId:recipient.clients[0].clientId,guardianUserId:recipient.guardianUserId,existingLinkOnly:true,migration:true,migrationClientIds:recipient.clients.map(client=>client.clientId)});
-  const delivery=result?.delivery,status=delivery?.id&&!delivery.queued&&!delivery.blocked&&!delivery.skipped?'sent':'held';
+  const result=await sendHubPortalInvitation({agencyId:recipient.agencyId,actorUserId:input.actor.id,clientId:recipient.clients[0].clientId,guardianUserId:recipient.guardianUserId,existingLinkOnly:true,migration:true,migrationClientIds:recipient.clients.map(client=>client.clientId),migrationDocuments:input.migrationDocuments||[],locale:input.locale||null});
+  const delivery=result?.delivery,status=delivery?.id&&!delivery.queued&&!delivery.pendingApproval&&!delivery.blocked&&!delivery.skipped&&!delivery.redirected?'sent':'held';
   await pool.execute('UPDATE family_portal_migration_deliveries SET status=?,reason=? WHERE id=?',[status,delivery?.reason||null,claim.insertId]);
   return {key:recipient.key,delivery};
  }catch(error){

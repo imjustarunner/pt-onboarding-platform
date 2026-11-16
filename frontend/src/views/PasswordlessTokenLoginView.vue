@@ -1,36 +1,37 @@
 <template>
-  <div class="passwordless-login-container" :style="{ background: loginBackground }">
+  <div class="passwordless-login-container" :lang="authLocale" :style="{ background: loginBackground }">
     <div class="passwordless-content">
       <div class="login-card">
+<label class="portal-auth-language">Idioma / Language <select :value="authLocale" @change="setAuthLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select></label>
         <div v-if="needsIdentityVerification" class="identity-verification">
-          <h2>Identity Verification</h2>
-          <p>Please enter your last name to continue:</p>
+          <h2>{{ authText("Identity Verification") }}</h2>
+          <p>{{ authText("Please enter your last name to continue:") }}</p>
           <form @submit.prevent="verifyAndLogin">
             <input
               v-model="lastName"
               type="text"
-              placeholder="Last Name"
+              :placeholder="authText('Last Name')"
               required
               class="form-input"
               :disabled="verifying"
             />
             <button type="submit" class="btn btn-primary" :disabled="verifying || !lastName.trim()">
-              {{ verifying ? 'Verifying...' : 'Continue' }}
+              {{ verifying ? authText("Verifying...") : authText("Continue") }}
             </button>
           </form>
           <p v-if="verificationError" class="error-message">{{ verificationError }}</p>
         </div>
         <div v-else-if="loading" class="loading">
-          <p>Logging you in...</p>
+          <p>{{ authText("Logging you in...") }}</p>
         </div>
         <div v-else-if="error" class="error">
-          <h2>Login Failed</h2>
-          <p>{{ error }}</p>
-          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+          <h2>{{ authText("Login Failed") }}</h2>
+          <p>{{ authText(error) }}</p>
+          <router-link :to="withPortalAuthLanguage('/login', authLocale)" class="btn btn-primary">{{ authText("Go to Login") }}</router-link>
         </div>
         <div v-else class="success">
-          <h2>Login Successful</h2>
-          <p>Redirecting...</p>
+          <h2>{{ authText("Login Successful") }}</h2>
+          <p>{{ authText("Redirecting...") }}</p>
         </div>
       </div>
     </div>
@@ -40,6 +41,8 @@
 </template>
 
 <script setup>
+import { usePortalAuthLocale, withPortalAuthLanguage, rememberAuthenticatedPortalLanguage, portalAuthError } from '../utils/portalAuthLocale.js';
+
 import { ref, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -50,7 +53,9 @@ import PoweredByFooter from '../components/PoweredByFooter.vue';
 
 const router = useRouter();
 const route = useRoute();
+const { locale: authLocale, setLocale: setAuthLocale, text: authText } = usePortalAuthLocale(route);
 const authStore = useAuthStore();
+const pushLocalized = target => router.push(withPortalAuthLanguage(target, authLocale.value));
 const brandingStore = useBrandingStore();
 
 const loading = ref(true);
@@ -66,7 +71,7 @@ const attemptLogin = async (lastNameValue = null) => {
   const token = route.params.token;
   
   if (!token) {
-    error.value = 'Invalid login link. Token is missing.';
+    error.value = authText("Invalid login link. Token is missing.");
     loading.value = false;
     return;
   }
@@ -74,7 +79,7 @@ const attemptLogin = async (lastNameValue = null) => {
   // Trim and ensure token is a valid string
   const cleanToken = token.trim();
   if (!cleanToken || cleanToken.length < 10) {
-    error.value = 'Invalid login link. Token format is invalid.';
+    error.value = authText("Invalid login link. Token format is invalid.");
     loading.value = false;
     return;
   }
@@ -87,6 +92,7 @@ const attemptLogin = async (lastNameValue = null) => {
     
     // Set auth user (token is in HttpOnly cookie, set by backend)
     authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId);
+    rememberAuthenticatedPortalLanguage(response.data.user, authLocale.value);
     try {
       const { markSchoolPortalFirstLoginOnboarding } = await import('../utils/schoolPortalFirstLoginOnboarding.js');
       markSchoolPortalFirstLoginOnboarding(response.data.user, {
@@ -135,12 +141,12 @@ const attemptLogin = async (lastNameValue = null) => {
     setTimeout(() => {
       // If backend indicates they should change password, route to change-password page
       if (response.data.requiresPasswordChange) {
-        router.push('/change-password?token=' + cleanToken + '&requireChange=true');
+        pushLocalized('/change-password?token=' + cleanToken + '&requireChange=true');
         return;
       }
 
       // Default: go to role-aware dashboard
-      router.push(getDashboardRoute());
+      pushLocalized(getDashboardRoute());
     }, 1500);
   } catch (err) {
     // If the backend returned a non-JSON body (or axios couldn't parse it), fall back to a deterministic check:
@@ -152,9 +158,9 @@ const attemptLogin = async (lastNameValue = null) => {
       try {
         await api.get(`/auth/validate-reset-token/${encodeURIComponent(cleanToken)}`);
         if (route.params.organizationSlug) {
-          router.push(`/${route.params.organizationSlug}/reset-password/${cleanToken}`);
+          pushLocalized(`/${route.params.organizationSlug}/reset-password/${cleanToken}`);
         } else {
-          router.push(`/reset-password/${cleanToken}`);
+          pushLocalized(`/reset-password/${cleanToken}`);
         }
         return;
       } catch {
@@ -166,11 +172,11 @@ const attemptLogin = async (lastNameValue = null) => {
     if (err.response?.data?.error?.requiresPasswordReset) {
       const portalSlug = err.response.data.error.portalSlug;
       if (route.params.organizationSlug) {
-        router.push(`/${route.params.organizationSlug}/reset-password/${cleanToken}`);
+        pushLocalized(`/${route.params.organizationSlug}/reset-password/${cleanToken}`);
       } else if (portalSlug) {
-        router.push(`/${portalSlug}/reset-password/${cleanToken}`);
+        pushLocalized(`/${portalSlug}/reset-password/${cleanToken}`);
       } else {
-        router.push(`/reset-password/${cleanToken}`);
+        pushLocalized(`/reset-password/${cleanToken}`);
       }
       return;
     }
@@ -178,7 +184,7 @@ const attemptLogin = async (lastNameValue = null) => {
     // Check if setup is required (no password set)
     if (err.response?.data?.error?.requiresSetup) {
       const slug = route.params.organizationSlug;
-      router.push(slug ? `/${slug}/new_account/${cleanToken}` : `/initial-setup/${cleanToken}`);
+      pushLocalized(slug ? `/${slug}/new_account/${cleanToken}` : `/initial-setup/${cleanToken}`);
       return;
     }
     
@@ -187,7 +193,7 @@ const attemptLogin = async (lastNameValue = null) => {
       needsIdentityVerification.value = true;
       loading.value = false;
     } else {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Invalid or expired login link. Please contact your administrator.';
+      const errorMessage = portalAuthError(err, authLocale.value, 'Invalid or expired login link. Please contact your administrator.');
       console.error('[PasswordlessTokenLoginView] Setting error message:', errorMessage);
       error.value = errorMessage;
       loading.value = false;
@@ -197,7 +203,7 @@ const attemptLogin = async (lastNameValue = null) => {
 
 const verifyAndLogin = async () => {
   if (!lastName.value.trim()) {
-    verificationError.value = 'Please enter your last name';
+    verificationError.value = authText("Please enter your last name");
     return;
   }
   

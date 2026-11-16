@@ -1,4 +1,6 @@
 export const familyBillingRoutes = [
+  {path:'/billing/guest',name:'GuestInvoicePayment',component:()=>import('../views/GuestInvoicePaymentView.vue'),meta:{public:true,publicPage:true,guestPaymentSurface:true}},
+  {path:'/:organizationSlug/billing/guest',name:'OrganizationGuestInvoicePayment',component:()=>import('../views/GuestInvoicePaymentView.vue'),meta:{public:true,publicPage:true,guestPaymentSurface:true,organizationSlug:true}},
   {path:'/billing/receipts/:paymentId',name:'PaymentReceipt',component:()=>import('../views/PaymentReceiptView.vue'),meta:{requiresAuth:true}},
   {path:'/:organizationSlug/billing/receipts/:paymentId',name:'OrganizationPaymentReceipt',component:()=>import('../views/PaymentReceiptView.vue'),meta:{requiresAuth:true,organizationSlug:true}},
   {path:'/admin/family-billing',name:'UnscopedFamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},

@@ -78,7 +78,7 @@
 </template>
 <script setup>
 import {useFamilyLocale} from '../../composables/useFamilyLocale';
-const {ft}=useFamilyLocale();
+const {ft,locale:familyLocale}=useFamilyLocale();
 import InsuranceCardReader from '../billing/InsuranceCardReader.vue';
 import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 import { ref, computed, watch, nextTick } from 'vue';
@@ -111,7 +111,7 @@ async function perform(fn, message) { if (busy.value) return; busy.value = true;
 function openAuthorization(client,purpose) { authorization.value = {client,purpose}; signature.value=''; accepted.value=false; limitDollars.value=''; }
 async function authorize() {
   const a = authorization.value;
-  const consent = {accepted:accepted.value,version:data.value.termsVersion,signatureName:signature.value};
+  const consent = {accepted:accepted.value,version:data.value.termsVersion,signatureName:signature.value,locale:familyLocale.value};
   await perform(async () => { await api.post(`/guardian-billing/clients/${a.client.clientId}/${a.purpose === 'recurring' ? 'payment-method' : 'responsibility'}`,{agencyId:props.agencyId,consent,...(a.purpose === 'recurring' ? {cardId:a.client.paymentCardId,recurring:true,limitCents:Math.round(Number(limitDollars.value)*100)} : {})}); authorization.value=null; },'Authorization saved.');
 }
 function assign(client) { return perform(() => api.post(`/guardian-billing/clients/${client.clientId}/payment-method`,{agencyId:props.agencyId,cardId:cardSelections.value[client.clientId],recurring:false}),'Card assigned. Recurring billing requires separate authorization.'); }

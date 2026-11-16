@@ -20,6 +20,10 @@ export async function listServiceRates(agencyId, db = pool) {
   const [rows] = await db.execute('SELECT service_code AS serviceCode,amount_cents AS amountCents,price_basis AS priceBasis,revision FROM agency_patient_service_rates WHERE agency_id=? ORDER BY service_code', [positiveId(agencyId)]);
   return rows;
 }
+export async function listClientServiceRates(agencyId, clientId, db = pool) {
+  const [rows] = await db.execute('SELECT service_code AS serviceCode,amount_cents AS amountCents,price_basis AS priceBasis,revision FROM client_patient_service_rates WHERE agency_id=? AND client_id=? ORDER BY service_code', [positiveId(agencyId), positiveId(clientId)]);
+  return rows;
+}
 export async function saveServiceRate({ agencyId, serviceCode: code, amountCents, priceBasis, revision = 0, reason, actorUserId }) {
   code = serviceCode(code);
   const amount = amountCents === null ? null : cents(amountCents);
@@ -51,8 +55,10 @@ export async function snapshotServiceTerms({ agencyId, clientIds, serviceTerms =
     if (hasMedicaidCoverage(insurance)) throw billingError(409, 'Do not assign patient service charges to Medicaid-protected care');
     if (input.paymentBasis === 'self_pay' && (insurance?.primary?.memberId || insurance?.secondary?.memberId)) throw billingError(409, 'Resolve recorded coverage before assigning self-pay terms');
     if (input.paymentBasis === 'copay' && (!insurance?.primary?.memberId || insurance?.secondary)) throw billingError(409, 'Verify primary benefits; secondary coverage requires final payer responsibility review');
-    const rate = rates.find(r => r.serviceCode === code);
-    if (input.paymentBasis === 'self_pay' && rate?.amountCents == null) throw billingError(409, `Set an explicit self-pay rate for ${code} first`);
+    const rate = input.paymentBasis === 'self_pay'
+      ? (await listClientServiceRates(agencyId, clientId, db)).find(r => r.serviceCode === code)
+      : rates.find(r => r.serviceCode === code);
+    if (input.paymentBasis === 'self_pay' && rate?.amountCents == null) throw billingError(409, `Enter this client’s explicit self-pay override for ${code} in Account → Billing & insurance first`);
     if (input.paymentBasis === 'self_pay' && Number(input.rateRevision) !== Number(rate.revision)) throw billingError(409, 'The service price changed. Refresh and review it before creating the task.');
     if (!String(input.evidence || '').trim()) throw billingError(400, 'Document the agreed self-pay terms or verified copay benefit');
     const amount = input.paymentBasis === 'self_pay' ? Number(rate.amountCents) : cents(input.amountCents);

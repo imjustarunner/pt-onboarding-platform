@@ -46,6 +46,7 @@ export const requestLoggingMiddleware = (req, res, next) => {
   if(/^\/(?:api\/)?(?:chat|chats|messages|guardian-portal\/(?:messages|emails)|dependent-portal\/messages|quick-view\/messages)(?:\/|$)/.test(req.path)) {req.sanitizedBody='[PRIVATE MESSAGING REQUEST]';return next();}
   // Typed addresses and form/context capabilities must never enter request-body logs.
   if (/^\/(?:api\/)?(?:family\/)?address-lookup(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE ADDRESS LOOKUP]'; return next(); }
+  if (/^(?:\/api)?\/clients\/\d+\/paper-packet-processing(?:\/|$)/.test(req.path)) { req.sanitizedBody='[PRIVATE PAPER PACKET REVIEW]'; return next(); }
   if (/^\/api\/communications\/client-texts(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE CLIENT TEXT REQUEST]'; return next(); }
   if (/\/(?:safety-plans|clinical-forms)(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE CLINICAL FORM]'; return next(); }
   if (/\/handbook\/answer\/?$/.test(req.path)) { req.sanitizedBody = { question: '[REDACTED]', history: '[REDACTED]' }; return next(); }
