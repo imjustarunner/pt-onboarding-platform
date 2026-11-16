@@ -77,6 +77,17 @@
           <p>This records an existing carrier approval. It does not submit a campaign or grant recipient consent. Support can record verbal consent from the client’s contact screen; STOP remains in force.</p>
         </template>
         <label><input v-model="registration.allowRestart" type="checkbox" /> START / UNSTOP reactivation is documented in the registered message flow</label>
+        <fieldset v-if="registration.provider === 'notifyre' && registration.startEnrollment">
+          <legend>First-time family START enrollment</legend>
+          <label><input v-model="registration.startEnrollment.enabled" type="checkbox" /> I verified carrier approval for this number’s first-time text-to-join flow</label>
+          <template v-if="registration.startEnrollment.enabled">
+            <label>Disclosure version <input v-model="registration.startEnrollment.version" required maxlength="100" /></label>
+            <label>Carrier approval reference <input v-model="registration.startEnrollment.approvalReference" required maxlength="500" /></label>
+            <label>Exact approved disclosure <textarea v-model="registration.startEnrollment.disclosure" required maxlength="4000" rows="4" /></label>
+            <label v-for="purpose in purposes.filter(p => ['care','reminders','billing'].includes(p.value) && registration.purposes.includes(p.value))" :key="purpose.value"><input v-model="registration.startEnrollment.purposes" type="checkbox" :value="purpose.value" /> {{ purpose.label }}</label>
+          </template>
+          <p>Configure each intended receiving number after approval. START evidence is retained before account creation; identity review is still required. This does not submit a campaign or enroll existing phone lists.</p>
+        </fieldset>
         <label><input v-model="registration.approved" type="checkbox" /> I verified carrier approval for this program</label>
         <label><input v-model="registration.numberLinked" type="checkbox" /> I verified this number is linked and active on this campaign</label>
         <button :disabled="busy">Save registration status</button>
@@ -101,6 +112,7 @@
         <button :disabled="busy">{{ consent.status === 'opted_in' ? 'Record consent and send confirmation' : 'Record opt-out' }}</button>
       </form>
     </details>
+    <SmsPhoneEnrollmentQueue :agency-id="agencyId" />
     <SmsCampaignPacketBuilder :agency-id="agencyId" @use-profile="usePublishedProfile" />
   </section>
 </template>
@@ -109,6 +121,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import SmsCampaignPacketBuilder from './SmsCampaignPacketBuilder.vue';
+import SmsPhoneEnrollmentQueue from './SmsPhoneEnrollmentQueue.vue';
 const props = defineProps({ agencyId: { type: [String, Number], required: true } });
 const rows = ref([]), numberId = ref(''), error = ref(''), notice = ref(''), busy = ref(false), collectedAt = ref('');
 const requests = ref([]), signaturePhone = ref(''), signerRole = ref('client'), signingUrl = ref('');
@@ -122,13 +135,14 @@ const registrationFields = [
   ['supportContact', 'Public support phone or email'], ['website', 'Practice website', true],
   ['privacyUrl', 'Public privacy policy', true], ['termsUrl', 'Public SMS terms', true], ['evidenceUrl', 'Public opt-in proof (no client data)', true]
 ].map(([key, label, url]) => ({ key, label, url }));
-const blankRegistration = () => ({ purposes: [], keywordOwner: 'application', approved: false, numberLinked: false, allowRestart: false });
+const blankRegistration = () => ({ purposes: [], keywordOwner: 'application', approved: false, numberLinked: false, allowRestart: false, startEnrollment: { enabled: false, version: '', approvalReference: '', disclosure: '', purposes: [] } });
 const registration = ref(blankRegistration());
 const publicEvidenceUrl = computed(() => { try { const url = new URL(registration.value.evidenceUrl); return url.protocol === 'https:' && !url.username && !url.password ? url.href : null; } catch { return null; } });
 function usePublishedProfile(profile) {
   if (!numberId.value) { error.value = 'Select a sending number first.'; return; }
   if (registration.value.campaignId) { error.value = 'This number already has a campaign. Select a new number; existing campaign details are preserved.'; return; }
   registration.value = JSON.parse(JSON.stringify(profile));
+  registration.value.startEnrollment ||= { enabled: false, version: '', approvalReference: '', disclosure: '', purposes: [] };
   notice.value = 'Details copied. Enter the real campaign ID after approval; approval and number linkage remain unchecked.';
 }
 const VERBAL_REMINDER_CONSENT_VERSION = '2026-11-01.1';
@@ -196,6 +210,7 @@ function selectNumber() {
   intakeEvidenceSelected.value = false;
   consent.value.evidence.signerVerified = false;
   registration.value = JSON.parse(JSON.stringify(rows.value.find((r) => r.numberId === Number(numberId.value))?.registration || blankRegistration()));
+  registration.value.startEnrollment ||= { enabled: false, version: '', approvalReference: '', disclosure: '', purposes: [] };
   notice.value = '';
 }
 async function saveRegistration() {

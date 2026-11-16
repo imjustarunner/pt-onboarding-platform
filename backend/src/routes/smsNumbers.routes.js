@@ -2,6 +2,8 @@ import { postPhoneFollowup } from '../controllers/phoneFollowupTicket.controller
 import { requirePhoneWorkflowAdmin, getPhoneWorkflow, savePhoneWorkflow, previewPhoneWorkflowRoute } from '../controllers/phoneWorkflow.controller.js';
 import { requireCommunicationReviewer, listReview, updateReview } from '../controllers/communicationReview.controller.js';
 import express from 'express';
+import { requireTransitionManager } from '../controllers/transitionWeek.controller.js';
+import { listPhoneEnrollmentQueue, getPhoneEnrollmentEvidence, linkPhoneEnrollment } from '../controllers/smsPhoneEnrollment.controller.js';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
   addManualNumber,
@@ -35,6 +37,9 @@ import { getIntakeConsentAudit, getIntakeConsentEvidence, listConsentRequests, c
 const router = express.Router();
 
 router.use(authenticate);
+router.get('/agency/:agencyId/phone-enrollments', requireTransitionManager, listPhoneEnrollmentQueue);
+router.get('/agency/:agencyId/phone-enrollments/:id/evidence', requireTransitionManager, getPhoneEnrollmentEvidence);
+router.post('/agency/:agencyId/phone-enrollments/:id/review', requireTransitionManager, linkPhoneEnrollment);
 router.post('/agency/:agencyId/phone-followups', postPhoneFollowup);
 router.get('/agency/:agencyId/phone-workflow', requirePhoneWorkflowAdmin, getPhoneWorkflow);
 router.put('/agency/:agencyId/phone-workflow', requirePhoneWorkflowAdmin, savePhoneWorkflow);

@@ -1,0 +1,13 @@
+{
+  "week": "2026-11-16",
+  "timezone": "America/Denver",
+  "packetStatus": "prepared_for_review",
+  "liveProviderUpdatesSent": false,
+  "clinicalRecordsExported": false,
+  "driveBackupsCreated": false,
+  "accountsSuspended": false,
+  "subscriptionsCancelled": false,
+  "payerRoutesChanged": false,
+  "carrierEnrollmentFlowEnabled": false,
+  "reason": "Live actions require established scoped access and the recorded readiness gates; source defaults grant no completion or activation."
+}

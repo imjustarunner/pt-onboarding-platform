@@ -1,0 +1,7 @@
+TEAM BRIEF — NOVEMBER 16–20, 2026
+
+This week, NLU provider updates come first. We are moving providers into the app with scheduled training and hands-on support. Each provider will have a checklist, a transition date, and a named support contact. ITSCO will transition five providers at a time, starting with the lowest weekly session volume. We will track problems openly and resolve them before removing access that someone still needs.
+
+Monday: name each lead and backup, protect work blocks, confirm rosters/counts and review the packet before sending. Wednesday noon: NLU required update sections/signatures complete or individually assigned blocker. Friday: publish reconciled counts and closure decisions. ERA transfers and old-message monitoring may continue beyond Friday.
+
+Use the app transition board for durable assignments/evidence. CSV manifests belong only in the approved restricted workspace. No completed work, sent invitation, vendor transfer or account cancellation is asserted by this packet.
