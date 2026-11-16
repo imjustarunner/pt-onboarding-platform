@@ -29,42 +29,44 @@
 
     <label v-if="agencies.length > 1 || !agencyId">
       Agency
-      <select :value="agencyId || ''" @change="selectedAgency = $event.target.value">
+      <select :value="selectedAgency === 'all' ? 'all' : agencyId || ''" @change="selectedAgency = $event.target.value">
+        <option v-if="canBrowseAll" value="all">All authorized agencies</option>
         <option value="">Select an agency…</option>
         <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
       </select>
     </label>
 
+    <p v-if="selectedAgency === 'all' && canBrowseAll" class="cep-scope-note">Browsing {{ browseAgencyIds.length }} authorized agencies. Select an agency to create a new referral.</p>
     <!-- Stats row -->
     <div class="cep-stats">
-      <div class="cep-stat">
+      <button type="button" class="cep-stat" :aria-pressed="activeTab === 'open'" @click="activeTab = 'open'">
         <div class="cep-stat-icon cep-stat-icon--blue">⇄</div>
         <div>
           <div class="cep-stat-value">{{ openListings.length }}</div>
           <div class="cep-stat-label">Open listings</div>
         </div>
-      </div>
-      <div class="cep-stat">
+      </button>
+      <button type="button" class="cep-stat" :aria-pressed="activeTab === 'closed'" @click="activeTab = 'closed'">
         <div class="cep-stat-icon cep-stat-icon--green">✓</div>
         <div>
           <div class="cep-stat-value">{{ closedListings.length }}</div>
           <div class="cep-stat-label">Closed / assigned</div>
         </div>
-      </div>
-      <div class="cep-stat">
+      </button>
+      <button type="button" class="cep-stat" :aria-pressed="activeTab === 'requests'" @click="activeTab = 'requests'">
         <div class="cep-stat-icon cep-stat-icon--purple">⏳</div>
         <div>
           <div class="cep-stat-value">{{ pendingRequestCount }}</div>
           <div class="cep-stat-label">Pending requests</div>
         </div>
-      </div>
-      <div class="cep-stat">
+      </button>
+      <button type="button" class="cep-stat" :aria-pressed="activeTab === 'mine'" @click="activeTab = 'mine'">
         <div class="cep-stat-icon cep-stat-icon--amber">👥</div>
         <div>
           <div class="cep-stat-value">{{ myListings.length }}</div>
           <div class="cep-stat-label">My activity</div>
         </div>
-      </div>
+      </button>
     </div>
 
     <!-- Tabs + search -->
@@ -88,6 +90,7 @@
 
 
 
+      <select v-model="sortOrder" aria-label="Sort exchange listings"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="agency">Agency A–Z</option></select>
       <div v-if="activeTab !== 'schools'" class="cep-search-wrap">
         <span class="cep-search-icon" aria-hidden="true">⌕</span>
         <input
@@ -142,7 +145,7 @@
             You haven't posted any clients to the exchange.
           </div>
           <ListingCard
-            v-for="listing in myListings"
+            v-for="listing in visibleMine"
             :key="listing.id"
             :listing="listing"
             :current-user-id="currentUserId"
@@ -183,7 +186,7 @@
         <template v-else>
           <div v-if="!loading && closedListings.length === 0" class="cep-empty">Nothing here yet.</div>
           <ListingCard
-            v-for="listing in closedListings"
+            v-for="listing in visibleClosed"
             :key="listing.id"
             :listing="listing"
             :current-user-id="currentUserId"
@@ -360,7 +363,7 @@ import NewReferralModal from './NewReferralModal.vue';
 const showNewReferral = ref(false);
 
 const route = useRoute();
-const { agencyId, agencies, selected: selectedAgency } = useClientExchangeAgency();
+const { agencyId, agencies, selected: selectedAgency, canBrowseAll, browseAgencyIds } = useClientExchangeAgency({allowAll:true});
 const authStore = useAuthStore();
 
 const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
@@ -379,6 +382,11 @@ const detailRequestVersions = new Map();
 const showPostModal = ref(false);
 const selectedListingId = ref(null);
 const searchQuery = ref('');
+const sortOrder=ref('newest');
+const viewPreferenceKey=`exchange-view-v2:${authStore.user?.id || 'anon'}`;
+try{const saved=JSON.parse(localStorage.getItem(viewPreferenceKey)||'{}');if(['newest','oldest','agency'].includes(saved.sort))sortOrder.value=saved.sort;if(['open','closed','requests','mine'].includes(saved.tab))activeTab.value=saved.tab;}catch{}
+watch([activeTab,sortOrder],()=>{try{localStorage.setItem(viewPreferenceKey,JSON.stringify({tab:activeTab.value,sort:sortOrder.value}));}catch{}});
+const sortedListings=computed(()=>[...listings.value].sort((a,b)=>sortOrder.value==='agency' ? String(agencies.value.find(row=>Number(row.id)===Number(a.agencyId))?.name||'').localeCompare(String(agencies.value.find(row=>Number(row.id)===Number(b.agencyId))?.name||'')) || Number(b.id)-Number(a.id) : (sortOrder.value==='oldest'?1:-1)*(Number(a.id)-Number(b.id))));
 const actionPending = ref(false);
 const postingReceipt = ref('');
 const auditRevision = ref(0);
@@ -389,15 +397,17 @@ const selectedListing = computed(() => {
   return listings.value.find((l) => l.id === selectedListingId.value) || null;
 });
 
-const openListings = computed(() => listings.value.filter((l) => l.status === 'open' || l.status === 'requested'));
-const closedListings = computed(() => listings.value.filter((l) => ['approved', 'withdrawn', 'closed'].includes(l.status)));
+const openListings = computed(() => sortedListings.value.filter((l) => l.status === 'open' || l.status === 'requested'));
+const closedListings = computed(() => sortedListings.value.filter((l) => ['approved', 'withdrawn', 'closed'].includes(l.status)));
 const myListings = computed(() =>
-  listings.value.filter(
+  sortedListings.value.filter(
     (l) => Number(l.postedByUserId) === currentUserId.value || Number(l.currentProviderUserId) === currentUserId.value
   )
 );
 const pendingRequestCount = computed(() => openListings.value.reduce((s, l) => s + (l.pendingRequestCount || 0), 0));
 
+const visibleMine=computed(()=>myListings.value.filter(matchSearch));
+const visibleClosed=computed(()=>closedListings.value.filter(matchSearch));
 const currentTabList = computed(() => {
   if (activeTab.value === 'open' || activeTab.value === 'requests') return visibleOpen.value;
   if (activeTab.value === 'mine') return myListings.value;
@@ -482,17 +492,24 @@ function onCardRequest(listing) {
 let loadVersion = 0;
 async function load() {
   const version = ++loadVersion;
-  if (!agencyId.value) return;
+  const ids=[...browseAgencyIds.value];
+  if (!ids.length) { loading.value=false; return; }
   loading.value = true;
   error.value = '';
   try {
-    const [listingsRes, myRequestsRes] = await Promise.all([
-      api.get('/client-exchange/listings', { params: { agencyId: agencyId.value } }),
-      api.get('/client-exchange/my-requests', { params: { agencyId: agencyId.value } })
-    ]);
-    if (version !== loadVersion) return;
-    listings.value = listingsRes.data?.listings || [];
-    myRequests.value = myRequestsRes.data?.requests || [];
+    const results=await Promise.allSettled(ids.map(async id=>{
+      const [listingResponse,requestResponse]=await Promise.all([
+        api.get('/client-exchange/listings',{params:{agencyId:id}}),
+        api.get('/client-exchange/my-requests',{params:{agencyId:id}})
+      ]);
+      return {listings:listingResponse.data?.listings||[],requests:requestResponse.data?.requests||[]};
+    }));
+    if(version!==loadVersion)return;
+    const successful=results.filter(result=>result.status==='fulfilled').map(result=>result.value);
+    listings.value=[...new Map(successful.flatMap(result=>result.listings).map(row=>[row.id,row])).values()];
+    myRequests.value=[...new Map(successful.flatMap(result=>result.requests).map(row=>[row.id,row])).values()];
+    const missing=ids.filter((id,index)=>results[index].status==='rejected');
+    if(missing.length)error.value=`Some agencies could not be loaded: ${missing.map(id=>agencies.value.find(a=>Number(a.id)===id)?.name||id).join(', ')}. Refresh to retry.`;
     const linked = listings.value.find(l => l.id === Number(route.query?.listingId));
     if (linked && !selectedListingId.value) {
       activeTab.value = ['open', 'requested'].includes(linked.status) ? 'open' : 'closed';
@@ -511,18 +528,19 @@ async function onPreferencesSaved(listingId) {
 
 async function onExpand(listingId, { preferencesSaved = false } = {}) {
   const requestedAgencyId = agencyId.value;
+  const requestedLoadVersion=loadVersion;
   const version=(detailRequestVersions.get(listingId)||0)+1;
   detailRequestVersions.set(listingId,version);
   requestsLoadingId.value = listingId;
   try {
     const res = await api.get(`/client-exchange/listings/${listingId}`);
-    if(agencyId.value!==requestedAgencyId||detailRequestVersions.get(listingId)!==version)return false;
+    if(loadVersion!==requestedLoadVersion||agencyId.value!==requestedAgencyId||detailRequestVersions.get(listingId)!==version)return false;
     requestsByListing.value = { ...requestsByListing.value, [listingId]: res.data?.requests || [] };
     if (res.data?.listing) listings.value = listings.value.map(l => l.id === listingId ? res.data.listing : l);
     if(selectedListingId.value===listingId)error.value = '';
     return true;
   } catch (e) {
-    if(agencyId.value!==requestedAgencyId||detailRequestVersions.get(listingId)!==version||selectedListingId.value!==listingId)return false;
+    if(loadVersion!==requestedLoadVersion||agencyId.value!==requestedAgencyId||detailRequestVersions.get(listingId)!==version||selectedListingId.value!==listingId)return false;
     const retry = Number(e?.response?.status) === 429
       ? ` Please wait until ${new Date(rateLimitRetryAt(e)).toLocaleTimeString()} before refreshing.` : ' Please refresh to see the current details.';
     error.value = preferencesSaved
@@ -635,7 +653,7 @@ watch(() => route.query?.listingId, (id) => {
   }
 });
 
-watch(agencyId, () => {
+watch(() => browseAgencyIds.value.join(','), () => {
   listings.value = [];
   myRequests.value = [];
   requestsByListing.value = {};
@@ -1056,4 +1074,6 @@ watch(agencyId, () => {
   border-color: var(--primary, #2d6a4f);
 }
 .cep-btn--ghost:not(:disabled):hover { background: #f0fdf4; }
+
+.cep-stats { gap:8px; }.cep-stat { padding:10px 12px; font:inherit; text-align:left; cursor:pointer; min-height:0; }.cep-stat:hover,.cep-stat[aria-pressed="true"] { border-color:#b8cbe2; background:#f3f7fc; }.cep-stat-icon { width:30px; height:30px; }.cep-stat-value { font-size:1.25rem; }.cep-stat-label { font-size:12px; }.cep-scope-note { color:#60718a; font-size:13px; }.cep-toolbar select { border:1px solid #d4dfec; border-radius:8px; padding:8px; font:inherit; color:#17345c; background:#fff; }
 </style>

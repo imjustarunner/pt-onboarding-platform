@@ -6,7 +6,7 @@ vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.post}}));
 vi.mock('../../store/auth',()=>({useAuthStore:()=>mocks.auth}));
 import Notice from '../AccountSecurityNotice.vue';
 let wrapper;
-const mountNotice=()=>{wrapper=mount(Notice,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});return wrapper;};
+const mountNotice=()=>{wrapper=mount(Notice,{global:{stubs:{Teleport:true,RouterLink:{template:'<a><slot /></a>'}}}});return wrapper;};
 beforeEach(()=>{vi.clearAllMocks();mocks.auth=reactive({user:{id:10}});mocks.get.mockImplementation(async url=>({data:url.endsWith('/activity-protection')?{holds:[{kind:'client_file'}]}:{enabled:true,verified:true}}));});
 afterEach(()=>wrapper?.unmount());
 it('restores the persisted hold on initial load and after remount without a failed file request',async()=>{
@@ -48,4 +48,9 @@ it('refreshes a timedown read failure after verified resume without clearing a r
  mocks.get.mockRejectedValue({response:{status:423,data:{error:{code:'SESSION_LOCKED'}}}});window.dispatchEvent(new Event('account-security-changed'));await flushPromises();expect(wrapper.text()).toContain('could not be checked');
  mocks.get.mockImplementation(async url=>({data:url.endsWith('/activity-protection')?{holds:[{kind:'client_file'}],unlimitedFileViews:true}:{verified:true}}));
  window.dispatchEvent(new Event('pt:session-resumed'));await flushPromises();expect(wrapper.text()).not.toContain('could not be checked');expect(wrapper.text()).toContain('Download, export, and print access is paused');
+});
+
+it('keeps routine security details in a closed dropdown and opens it on demand',async()=>{
+ mocks.get.mockImplementation(async url=>({data:url.endsWith('/activity-protection')?{holds:[]}:{verified:true}}));mountNotice();await flushPromises();
+ expect(wrapper.get('.account-security-notice').attributes('style')).toContain('display: none');await wrapper.get('.security-trigger').trigger('click');await flushPromises();expect(wrapper.get('.security-trigger').attributes('aria-expanded')).toBe('true');expect(wrapper.text()).toContain('They do not mean an account owner acted maliciously');
 });

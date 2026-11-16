@@ -1,6 +1,6 @@
 <template>
   <div class="modal-backdrop" @click.self="$emit('close')">
-    <div class="modal-card" data-exchange-form>
+    <div ref="dialog" class="modal-card" role="dialog" aria-modal="true" aria-label="Internal referral" tabindex="-1" data-exchange-form>
       <div class="modal-header">
         <h3 style="margin: 0;">Internal referral</h3>
         <button type="button" class="btn-link" @click="$emit('close')">Close</button>
@@ -135,6 +135,7 @@
 </template>
 
 <script setup>
+import { useModalFocus } from '../../composables/useModalFocus';
 import { normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
 import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials, missingExchangeEssentials } from '../../navigation/clientExchangeEssentials.js';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
@@ -154,6 +155,8 @@ const props = defineProps({
   presetClientLabel: { type: String, default: '' }
 });
 const emit = defineEmits(['close', 'posted']);
+const dialog=ref(null);
+useModalFocus(dialog,()=>emit('close'));
 
 const authStore = useAuthStore();
 
@@ -333,7 +336,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10050;
+  z-index: 10200;
   padding: 16px;
 }
 .modal-card {
@@ -341,7 +344,7 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 20px;
   width: 100%;
-  max-width: 520px;
+  max-width: 880px;
   max-height: 90vh;
   overflow-y: auto;
   display: grid;

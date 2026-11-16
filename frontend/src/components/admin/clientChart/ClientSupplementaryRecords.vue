@@ -3,6 +3,7 @@
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="loading" class="muted" role="status">Loading insurance, contacts, and administrative note…</p>
     <template v-else-if="records">
+      <ClientMedicalHistory :client-id="clientId" :agency-id="agencyId" />
       <section aria-label="Insurance">
         <h3 class="cc-hub-section__title">Insurance</h3>
         <p v-if="!records.insurance" class="muted">No imported insurance on file.</p>
@@ -43,6 +44,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../../services/api';
+import ClientMedicalHistory from './ClientMedicalHistory.vue';
 const props = defineProps({ clientId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, refreshKey: { default: null } });
 const records = ref(null), allowed = ref(true), loading = ref(false), error = ref(''), editing = ref(false), noteDraft = ref(''), saving = ref(false);
 let generation = 0;

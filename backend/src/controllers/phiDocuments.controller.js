@@ -267,6 +267,7 @@ export const uploadClientPhiDocument = [
       if(['provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(String(req.user.role||'')))await clinicalClientAccess(req.user,clientId,{write:true});
       const documentTitle = req.body?.documentTitle ? String(req.body.documentTitle).trim().slice(0, 255) : req.body?.documentType==='full_paper_enrollment'?'Full paper enrollment':null;
       const documentType = req.body?.documentType ? String(req.body.documentType).trim().slice(0, 80) : isSchoolStaff?'school_staff_attachment':null;
+      if(documentType==='private_client_medical_history')return res.status(403).json({error:{message:'Use the private client chart history upload.'}});
       return await withMedicalArchiveUpload({ agencyId: client.agency_id, clientId, documentTitle, documentType, file: req.file }, async (archiveDescriptor, existingDocument) => {
         if (existingDocument) {let followup=null;try{followup=await handleSchoolChartAttachment({client,document:existingDocument,user:req.user});}catch{followup={operationalFollowupPending:true};}return res.status(200).json({ document: existingDocument, reused: true,...followup });}
         const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
@@ -388,7 +389,7 @@ export const listClientPhiDocuments = async (req, res, next) => {
     }
     // Supporting materials stay grouped beneath their clinical session. Explicit
     // recipient shares remain available through the separate family Documents API.
-    docs = (docs || []).filter(doc => doc.document_type !== 'session_supporting_material');
+    docs = (docs || []).filter(doc => !['session_supporting_material','private_client_medical_history'].includes(doc.document_type));
     res.json(docs);
   } catch (e) {
     next(e);
@@ -734,7 +735,8 @@ export const viewPhiDocument = async (req, res, next) => {
       throw e;
     }
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
-    if (doc.document_type === 'session_supporting_material') {
+    if (doc.document_type === 'private_client_medical_history') return res.status(403).json({error:{message:'Open private medical history from the client chart.'}});
+    if (['session_supporting_material','private_client_medical_history'].includes(doc.document_type)) {
       return res.status(403).json({ error: { message: 'Open supporting materials from the clinical session, or the recipient’s shared Documents.' } });
     }
     if (doc.removed_at) {
@@ -1053,7 +1055,7 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
       : (limitedScope
         ? (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0))
         : (docs || []));
-    const statements = visibleDocs.map(doc => {
+    const statements = visibleDocs.filter(doc=>doc.document_type!=='private_client_medical_history').map(doc => {
       const docLogs = logsByDoc.get(doc.id) || [];
       const uploaded = docLogs.find(l => l.action === 'uploaded') || null;
       const viewed = docLogs.find(l => ['viewed', 'view_link_issued'].includes(l.action)) || null;
@@ -1092,6 +1094,7 @@ export const markPhiDocumentExported = async (req, res, next) => {
 
     const doc = await ClientPhiDocument.findById(docId);
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
+    if (doc.document_type === 'private_client_medical_history') return res.status(403).json({error:{message:'Open private medical history from the client chart.'}});
     if (doc.removed_at) {
       return res.status(410).json({ error: { message: 'Document has been removed from the system.' } });
     }
@@ -1160,6 +1163,7 @@ export const removePhiDocument = async (req, res, next) => {
 
     const doc = await ClientPhiDocument.findById(docId);
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
+    if (doc.document_type === 'private_client_medical_history') return res.status(403).json({error:{message:'Open private medical history from the client chart.'}});
     if (doc.removed_at) {
       return res.json({ document: doc });
     }

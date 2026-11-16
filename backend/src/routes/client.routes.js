@@ -1,3 +1,7 @@
+import { getClientCreationDraft,saveClientCreationDraft } from '../controllers/clientCreationDraft.controller.js';
+import { requireClinicalStaffSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
+import { receiveClientDocument } from '../middleware/clientDocumentUpload.middleware.js';
+import { chartHistoryAccess,listClientChartHistory,uploadClientChartHistory,viewClientChartHistory,checkClientChartHistory } from '../controllers/clientChartHistory.controller.js';
 import {
   createClientAlertHandler,
   dismissClientAlertHandler,
@@ -178,6 +182,8 @@ router.post('/portal-invites/send', clientPortalInvites.send);
 
 // List clients (agency view)
 router.get('/', getClients);
+router.get('/creation-draft',requireActiveStatus,getClientCreationDraft);
+router.put('/creation-draft',requireActiveStatus,saveClientCreationDraft);
 router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
 router.get('/name-duplicates', getClientNameDuplicates);
@@ -293,6 +299,10 @@ router.post('/:id/demographic-updates/:requestId/review', guardianDemographics.r
 router.post('/:id/demographics/parse', parseClientDemographicsImport);
 router.post('/:id/demographics/import', importClientDemographics);
 router.get('/:id/chart-setup', getClientChartSetup);
+router.get('/:id/chart-import/medical-history',requireActiveStatus,requireClinicalStaffSecurity,chartHistoryAccess,listClientChartHistory);
+router.post('/:id/chart-import/medical-history',requireActiveStatus,requireClinicalStaffSecurity,chartHistoryAccess,receiveClientDocument,uploadClientChartHistory);
+router.get('/:id/chart-import/medical-history/:documentId/view',requireActiveStatus,requireClinicalStaffSecurity,chartHistoryAccess,viewClientChartHistory);
+router.post('/:id/chart-import/medical-history/:documentId/check',requireActiveStatus,requireClinicalStaffSecurity,chartHistoryAccess,checkClientChartHistory);
 router.get('/:id/chart-import/drafts', requireActiveStatus, getChartImportDrafts);
 router.put('/:id/chart-import/drafts/:section', requireActiveStatus, saveChartImportDraft);
 router.post('/:id/chart-import/sections/:section', requireActiveStatus, importChartSection);

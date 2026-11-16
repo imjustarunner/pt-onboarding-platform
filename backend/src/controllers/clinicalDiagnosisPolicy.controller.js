@@ -14,7 +14,7 @@ async function scope(req) {
 export async function getDiagnosisReview(req,res,next) {
   try {const context=await scope(req);if(!context.clientId)throw Object.assign(new Error('clientId is required.'),{status:400});
     const diagnoses=await loadClientDiagnosesWithReviews(context),alerts=await listClientDiagnosisAlerts(context);
-    const [documents]=await pool.execute('SELECT id,original_name,mime_type,uploaded_at FROM client_phi_documents WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 100',[context.agencyId,context.clientId]);
+    const [documents]=await pool.execute('SELECT id,original_name,mime_type,uploaded_at FROM client_phi_documents WHERE agency_id=? AND client_id=? AND COALESCE(document_type,\'\') <> \'private_client_medical_history\' ORDER BY id DESC LIMIT 100',[context.agencyId,context.clientId]);
     res.json({diagnoses,alerts,documents});
   } catch(error){next(error);}
 }

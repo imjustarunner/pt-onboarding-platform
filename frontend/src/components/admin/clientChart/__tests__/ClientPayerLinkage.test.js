@@ -7,16 +7,22 @@ const policy={position:'primary',hasInsurance:true,insurerName:'Example carrier'
 beforeEach(()=>{vi.resetAllMocks();m.get.mockResolvedValue({data:{policies:[policy],coverageVerifiedForClaims:false}});});
 it('shows unresolved linkage separately from eligibility and never selects a search result automatically',async()=>{
  m.post.mockResolvedValue({data:{payers:[{payerId:'00050',name:'Directory carrier',claims:'yes',eligibility:'yes'}]}});
- const wrapper=mount(Linkage,{props:{clientId:12,agencyId:2}});await flushPromises();expect(wrapper.text()).toContain('Payer needs verification and linking');expect(wrapper.text()).toContain('Member eligibility and claim verification still require billing review');
- await wrapper.findAll('button').find(b=>b.text()==='Search payer directory').trigger('click');await flushPromises();expect(wrapper.get('input[type=radio]').element.checked).toBe(false);expect(wrapper.findAll('button').find(b=>b.text()==='Confirm match and link payer').attributes('disabled')).toBeDefined();wrapper.unmount();
+ const wrapper=mount(Linkage,{props:{clientId:12,agencyId:2}});await flushPromises();expect(wrapper.text()).toContain('Choose and verify the billing payer');expect(wrapper.text()).toContain('Payer linking does not verify member eligibility or approve a claim.');
+ expect(wrapper.get('input[type=radio]').element.checked).toBe(false);expect(wrapper.findAll('button').find(b=>b.text()==='Verify and link selected payer').attributes('disabled')).toBeDefined();wrapper.unmount();
 });
 it('confirms only the chosen directory ID and refreshes readiness after linking',async()=>{
  m.post.mockResolvedValueOnce({data:{payers:[{payerId:'00050',name:'Directory carrier'}]}}).mockResolvedValueOnce({data:{linked:true}});
- const wrapper=mount(Linkage,{props:{clientId:12,agencyId:2}});await flushPromises();await wrapper.findAll('button').find(b=>b.text()==='Search payer directory').trigger('click');await flushPromises();await wrapper.get('input[type=radio]').setValue();
+ const wrapper=mount(Linkage,{props:{clientId:12,agencyId:2}});await flushPromises();await wrapper.get('input[type=radio]').setValue();
  m.get.mockResolvedValue({data:{policies:[{...policy,linked:true,payerId:'00050',directoryName:'Directory carrier'}]}});
- await wrapper.findAll('button').find(b=>b.text()==='Confirm match and link payer').trigger('click');await flushPromises();
- expect(m.post).toHaveBeenLastCalledWith('/clients/12/chart-import/payer-link',{position:'primary',payerId:'00050',confirmed:true},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));expect(wrapper.emitted('ready-change').at(-1)).toEqual([true]);expect(wrapper.text()).toContain('Payer linked');wrapper.unmount();
+ await wrapper.findAll('button').find(b=>b.text()==='Verify and link selected payer').trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/clients/12/chart-import/payer-link',{position:'primary',payerId:'00050',confirmed:true},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));expect(wrapper.emitted('ready-change').at(-1)).toEqual([true]);expect(wrapper.text()).toContain('Payer linked');wrapper.unmount();
 });
 it('does not report ready after directory connection errors',async()=>{
  m.get.mockRejectedValue({response:{status:409,data:{error:{message:'Configure the agency directory'}}}});const wrapper=mount(Linkage,{props:{clientId:12,agencyId:2}});await flushPromises();expect(wrapper.text()).toContain('Configure the agency directory');expect(wrapper.emitted('ready-change').flat()).not.toContain(true);wrapper.unmount();
+});
+
+it('shows saved agency aliases before directory entries and searches while typing',async()=>{
+ vi.useFakeTimers();m.post.mockResolvedValue({data:{payers:[{payerId:'43324',name:'Kaiser Colorado',directoryName:'Beacon',source:'agency',verified:true},{payerId:'999',name:'Other Kaiser',source:'directory'}]}});
+ const wrapper=mount(Linkage,{props:{clientId:12,agencyId:2}});await flushPromises();expect(wrapper.text()).toContain('Agency payers');expect(wrapper.text()).toContain('Bills through Beacon');
+ await wrapper.get('input:not([type=radio])').setValue('beac');await vi.advanceTimersByTimeAsync(350);await flushPromises();expect(m.post).toHaveBeenCalledWith('/clients/12/chart-import/payer-search',{position:'primary',search:'beac'},expect.anything());wrapper.unmount();vi.useRealTimers();
 });

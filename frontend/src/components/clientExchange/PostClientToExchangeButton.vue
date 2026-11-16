@@ -1,6 +1,6 @@
 <template>
   <span v-if="canPost">
-    <button type="button" class="btn btn-secondary" @click="open = true">Post to Client Exchange</button>
+    <button type="button" class="btn exchange-post-button" @click="open = true">Post to Client Exchange</button>
     <Teleport to="body">
       <div v-if="open && !agencyId" class="exchange-agency-picker">
         <label>Choose an agency
@@ -30,5 +30,6 @@ const isBackoffice = computed(() => ['admin', 'super_admin', 'support', 'staff']
 function onPosted() { open.value = false; emit('posted'); }
 </script>
 <style scoped>
+.exchange-post-button { background:#fce8f1; color:#9c245b; border:1px solid #edbbd0; border-radius:8px; padding:8px 12px; font:inherit; font-weight:650; cursor:pointer; }
 .exchange-agency-picker { position: fixed; inset: 30% 20% auto; z-index: 10050; padding: 24px; background: var(--bg, white); border: 1px solid var(--border, #ddd); border-radius: 12px; box-shadow: 0 10px 60px #0004; }
 </style>
