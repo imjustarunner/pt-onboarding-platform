@@ -295,7 +295,7 @@
               <div><dt>Created</dt><dd>{{ previewRow.created_at ? shortCreated(previewRow.created_at) : '—' }}</dd></div>
             </dl>
             <div class="cnl-detail-actions">
-              <button v-if="allowCreate" type="button" class="cnl-new" @click="openPreviewed">Open note</button>
+              <button type="button" class="cnl-new" @click="openPreviewed">Open note</button>
               <button
                 v-if="canDeleteRow(previewRow)"
                 type="button"

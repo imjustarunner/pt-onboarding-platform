@@ -3,13 +3,13 @@ import { DOMWrapper, flushPromises, shallowMount, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), user: null }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), user: null, agency: null }));
 vi.mock('../../../services/api', () => ({ default: { get: mocks.get, post: mocks.post, patch: mocks.patch }, isApiRateLimited: () => false }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/innerstrength/dashboard', params: { organizationSlug: 'innerstrength' }, query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: mocks.user, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({
-  currentAgency: { id: 2, name: 'The Inner Strength Institute', slug: 'innerstrength', organization_type: 'agency', feature_flags: { hasClinicalOrg: true, medicalBillingEnabled: true }, logo_url: '/assets/branding/innerstrength-mark.png' },
-  agencies: [{ id: 377, name: 'The Inner Strength Institute', slug: 'tisi', organization_type: 'agency', feature_flags: { hasClinicalOrg: true, medicalBillingEnabled: true } }], userAgencies: []
+  currentAgency: mocks.agency || { id: 2, name: 'The Inner Strength Institute', slug: 'innerstrength', organization_type: 'agency', feature_flags: { hasClinicalOrg: true, medicalBillingEnabled: true }, logo_url: '/assets/branding/innerstrength-mark.png' },
+  hydrateAgencyById:vi.fn(), agencies: [{ id: 377, name: 'The Inner Strength Institute', slug: 'tisi', organization_type: 'agency', feature_flags: { hasClinicalOrg: true, medicalBillingEnabled: true } }], userAgencies: []
 }) }));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import Header from '../AppointmentHeaderFields.vue';
@@ -25,7 +25,7 @@ const serviceLocations = [
 let wrapper;
 beforeEach(() => {
   setActivePinia(createPinia()); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks();
-  mocks.user = { id: 7, role: 'super_admin' };
+  mocks.user = { id: 7, role: 'super_admin' };mocks.agency=null;
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-12T21:00:00Z'));
   mocks.get.mockImplementation(async url => ({ data:
     url.includes('/booking-access') ? { enabled: true } :
@@ -264,4 +264,19 @@ it('shows a saved office client appointment when the room-reservation layer is h
  const item={...s.summary.scheduleEvents[0],eventId:-18510,eventKind:'PERSONAL_EVENT'};expect(s.isEditableScheduleStackItem(item)).toBe(true);expect(s.isClientSessionScheduleEvent(item)).toBe(true);
  await s.openAppointmentEditInScheduleModal({item,dayName:'Thursday',hour:15});await flushPromises();expect(s.editorAppointmentId).toBe(264);
  expect(mocks.get.mock.calls.some(([url])=>String(url).includes('/schedule-events/-18510'))).toBe(false);
+});
+
+
+it('offers tutoring booking and both new/current-student openings without a clinical transition',async()=>{
+ mocks.user={id:1496,role:'provider',workspaceServiceContext:{agencyId:453,canTutor:true,canClinical:false,learningOnly:true}};mocks.agency={id:453,slug:'nlu-qa-demo',organization_type:'agency',feature_flags:{qaSandbox:{program:'tutoring'}}};
+ wrapper=shallowMount(Grid,{props:{userId:1496,agencyId:453},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ expect(mocks.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:expect.objectContaining({agencyId:453,providerUserId:1496,businessType:'tutoring'})}));
+ s.openAppointmentEditor({kind:'portal_intake',defaults:{availableForIntake:true}});await flushPromises();expect(s.editorOpeningServiceType).toBe('tutoring');expect(s.editorAvailableForIntake).toBe(true);expect(s.editorAvailableForSession).toBe(true);
+ s.editingOpenSlot={virtualHoursId:246};s.openAppointmentEditor({mode:'edit',kind:'portal_intake',defaults:{serviceType:'tutoring',availableForIntake:true,availableForSession:false}});await flushPromises();expect(s.editorAvailableForSession).toBe(false);
+ s.editorPracticeCategory='tutoring';s.editorTenantServices=[{id:320,businessType:'tutoring',serviceCode:'TUTORING',name:'Tutoring session',enrollmentLabel:'Tutoring — Math',defaultDurationMinutes:60}];await nextTick();expect(s.editorHeaderServiceOptions[0]).toMatchObject({id:320,name:'Tutoring — Math'});expect(s.editorHeaderServiceOptions[0].label).toContain('TUTORING');
+});
+it('requests an agency scheduling capability for the scoped admin instead of requiring the admin to be a provider',async()=>{
+ mocks.user={id:1807,role:'admin'};mocks.agency={id:453,slug:'nlu-qa-demo',organization_type:'agency',feature_flags:{}};
+ wrapper=shallowMount(Grid,{props:{userId:1807,agencyId:453},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
+ expect(mocks.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:expect.objectContaining({agencyId:453,providerUserId:1807,businessType:'any',scope:'agency'})}));expect(wrapper.vm.$.setupState.clientSessionBookingEnabled).toBe(true);
 });

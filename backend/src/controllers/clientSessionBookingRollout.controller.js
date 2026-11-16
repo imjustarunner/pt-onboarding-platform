@@ -11,6 +11,13 @@ async function scope(req, manage = false) {
 export async function getClientSessionBookingAccess(req, res, next) {
   try {
     const agencyId = await scope(req);
+    if(req.query.scope==='agency') {
+      if(!managers.has(req.user.role))throw Object.assign(new Error('Administrator scheduling access is required.'),{status:403});
+      const providers=await sessionBookingProviders(agencyId);
+      const capabilities=await Promise.all(providers.map(provider=>clientSessionBookingAccess(agencyId,provider.id,undefined,{businessType:'any'})));
+      const availableBusinessTypes=[...new Set(capabilities.flatMap(c=>c.availableBusinessTypes||[]))];
+      return res.json({enabled:availableBusinessTypes.length>0,availableBusinessTypes,reason:availableBusinessTypes.length?null:'No eligible employee has an assigned service available for scheduling.'});
+    }
     const providerUserId = Number(req.query?.providerUserId || req.user.id);
     if (!Number.isSafeInteger(providerUserId) || providerUserId < 1) return res.status(400).json({ error: { message: 'Choose a provider.' } });
     // This response contains only a booking capability, never private provider data.

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import {createPinia} from 'pinia';
 const m = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../../../services/api', () => ({ default: { get: m.get } }));
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }), useRoute: () => ({ params: { organizationSlug: 'synthetic' } }) }));
@@ -19,7 +20,7 @@ it('labels an unscheduled 90791 as a draft with no service date beside a separat
   m.get.mockResolvedValue({ data: { notes: [{ id: 1, note_type: 'PROGRESS', title: 'Progress note', clinical_session_id: 7, created_at: '2026-11-15T19:00:00Z' }],
     sessions: [{ id: 7, agency_id: 2, service_code: '90837', scheduled_start_at: '2026-11-15T17:00:00Z' }],
     intakeNotes: [{ id: 2, service_code: '90791', status: 'DIAGNOSIS_PENDING', created_at: '2026-10-15T17:00:00Z', updated_at: '2026-11-15T18:00:00Z' }] } });
-  wrapper = mount(Feed, { props: { clientId: 4, agencyId: 2 }, global: { stubs: { ClientChartCompletedNote: true, ClientManualNoteForm: true, AppointmentChangeWizard: true } } });
+  wrapper = mount(Feed, { props: { clientId: 4, agencyId: 2 }, global: { plugins:[createPinia()], stubs: { ClientChartCompletedNote: true, ClientManualNoteForm: true, AppointmentChangeWizard: true } } });
   await flushPromises();
   expect(wrapper.text()).toContain('Intake draft (90791)');
   expect(wrapper.text()).toContain('Date of service not set · Added Oct 15, 2026');

@@ -9,8 +9,8 @@ import FamilySharingNotice from '../session-comments/FamilySharingNotice.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import {downloadAttachment} from '../../utils/communicationAttachments';
 
-const props=defineProps({threads:{type:Array,default:()=>[]},clientId:[Number,String],initialThreadId:[Number,String],initialMessageId:[Number,String],loading:Boolean,learning:Boolean,unavailable:Boolean});
-const emit=defineEmits(['refresh']);
+const props=defineProps({threads:{type:Array,default:()=>[]},clientId:[Number,String],initialThreadId:[Number,String],initialMessageId:[Number,String],loading:Boolean,learning:Boolean,unavailable:Boolean,familyWide:Boolean});
+const emit=defineEmits(['refresh','context-change']);
 const auth=useAuthStore(),careApi=usePortalCareApi();
 const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
 const contexts=computed(()=>{
@@ -38,6 +38,7 @@ let loadIntent=0,openIntent=0,sendIntent=0;
 let consumedNotification='';
 const drafts=new Map();
 const context=computed(()=>contexts.value.find(c=>c.key===contextKey.value)||null);
+watch(context,current=>emit('context-change',current?{clientId:current.client_id,agencyId:current.agency_id,serviceId:current.service_id,serviceKind:current.service_kind}:null),{immediate:true});
 const contextThreads=computed(()=>props.threads.filter(t=>context.value&&Number(t.client_id)===Number(context.value.client_id)&&Number(t.agency_id)===Number(context.value.agency_id)&&(!Number(t.service_id)||Number(t.service_id)===Number(context.value.service_id))&&t.thread_id));
 const currentThread=computed(()=>contextThreads.value.find(t=>!t.readOnly&&t.service_label!=='Previous secure conversation')||contextThreads.value.find(t=>!t.readOnly)||(openedThread.value?.contextKey===contextKey.value?openedThread.value:null));
 const learning=computed(()=>context.value?.service_kind ? context.value.service_kind==='tutoring' : props.learning);
@@ -206,12 +207,12 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
 <template>
   <section v-if="!unavailable" class="secure-conversations" aria-label="Secure conversations by subject">
     <div class="conversation-tools">
-      <label v-if="contexts.length>1">{{ ft("Client and service") }}<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
+      <label v-if="contexts.length>1 || familyWide">{{ ft("Client and service") }}<select :value="contextKey" @change="changeContext"><option v-for="c in contexts" :key="c.key" :value="c.key">{{ c.client_label }} · {{ c.agency_name || c.organization_name }} · {{ c.service_label || (learning ? 'Learning team' : 'Care team') }}</option></select></label>
       <strong v-else-if="context">{{ context.client_label }}</strong>
       <button type="button" class="new-subject gmsg-row" :disabled="loading||busy||sending||(unavailable||context?.unavailable_reason==='provider_unassigned'||(!currentThread&&!context?.provider?.id))" @click="startSubject">{{ ft("+ New secure subject") }}</button>
     </div>
     <p class="conversation-explanation">{{ ft("Each subject keeps its message and replies together. Everyone listed as eligible can receive new messages; earlier messages retain their original audience.") }}</p>
-    <div v-if="context?.participants?.length && !newSubject && !selected" class="current-conversation-audience conversation-audience">
+    <div v-if="context?.participants?.length && !newSubject && !selected" class="current-conversation-audience conversation-audience" role="region" aria-label="Current conversation participants" tabindex="0" aria-live="polite">
       <strong>{{ ft("Who can read and reply to new subjects") }}</strong><ul><li v-for="p in context.participants" :key="p.id">{{ p.name }} · {{ ft(participantRole(p)) }}{{ Number(p.id)===Number(auth.user?.id)?' (you)':'' }}</li></ul>
       <p>{{ ft("Earlier messages retain their original audience.") }}</p>
     </div>
@@ -259,3 +260,5 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
 .conversation-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.conversation-tools label{display:grid;gap:4px}.conversation-tools select,.subject-composer input,.subject-composer textarea{width:100%;border:1px solid #b8c9db;border-radius:8px;padding:10px;font:inherit;box-sizing:border-box}.new-subject,.subject-composer button[type=submit]{border:0;border-radius:9px;padding:11px 16px;background:#064783;color:white;font-weight:700;cursor:pointer}.new-subject:disabled,button:disabled{opacity:.55;cursor:default}.conversation-explanation,.conversation-audience p,.retained{font-size:13px;line-height:1.6;color:#526980}.conversation-layout{display:grid;grid-template-columns:minmax(190px,32%) minmax(0,1fr);border:1px solid #d6e1ec;border-radius:12px;overflow:hidden;min-height:320px}.subjects{background:#f5f8fc;border-right:1px solid #d6e1ec}.subject-row{display:grid;gap:6px;width:100%;text-align:left;padding:16px;border:0;border-bottom:1px solid #d6e1ec;background:transparent;color:#173653;cursor:pointer;overflow-wrap:anywhere}.subject-row.active{background:#e0ecf9}.subject-row span,.subject-row small,.message-meta{font-size:12px;color:#5a7084}.conversation-pane{padding:20px;min-width:0}.subject-messages{display:flex;flex-direction:column;gap:14px;max-height:55vh;overflow:auto}.gmsg-bubble{background:#eef4fa;border-radius:10px;padding:12px}.gmsg-bubble.mine{background:#e4effc}.gmsg-message-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65}.subject-composer{display:grid;gap:14px;margin-top:20px}.subject-composer label{display:grid;gap:6px;font-weight:650;font-size:14px}.conversation-audience{border:1px solid #d6e1ec;border-radius:8px;padding:12px}.conversation-audience ul{padding-left:20px;font-size:13px}.empty-subjects{padding:16px;color:#5a7084;font-size:14px;line-height:1.6}.back-subjects{display:none}details{margin-top:20px;font-size:13px}@media(max-width:700px){.conversation-layout{display:block}.subjects{border-right:0}.is-open .subjects{display:none}.conversation-layout:not(.is-open) .conversation-pane{display:none}.back-subjects{display:block;border:0;background:none;color:#064783;padding:0 0 12px}.conversation-pane{padding:14px}.new-subject{width:auto}.subject-messages{max-height:48vh}}
 .gmsg-bubble.is-notified{outline:2px solid #126fb5;outline-offset:2px}
 </style>
+
+<style scoped>.current-conversation-audience:focus-visible{outline:3px solid #2467a7;outline-offset:3px}</style>

@@ -1,6 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
-const mock=vi.hoisted(()=>({execute:vi.fn()}));
+const mock=vi.hoisted(()=>({execute:vi.fn(),service:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:mock}));
+vi.mock('../../models/TenantService.model.js',()=>({default:{findById:mock.service}}));
 import {serviceDayBounds,sameDayServiceWarnings,confirmSameDayServiceWarnings} from '../sameDayServiceWarning.service.js';
 const input={agencyId:2,user:{id:10,role:'provider'},participants:[{role:'client',clientId:3}],occurrences:[{startAt:'2026-10-01T17:00:00Z'}],timeZone:'America/Denver'};
 beforeEach(()=>mock.execute.mockReset());
@@ -28,4 +29,14 @@ describe('same-day service warnings',()=>{
   expect(res.status).toHaveBeenCalledWith(409);
   expect(res.json.mock.calls[0][0].error.code).toBe('SAME_DAY_SERVICE_WARNING');
  });
+});
+
+
+it('accepts an assigned tutoring enrollment without querying or disclosing clinical same-day services',async()=>{
+ mock.service.mockResolvedValue({businessType:'tutoring'});mock.execute.mockResolvedValue([[{id:3}]]);
+ expect(await sameDayServiceWarnings({...input,tenantServiceId:320})).toEqual([]);expect(mock.service).toHaveBeenCalledWith(320,2);expect(mock.execute).toHaveBeenCalledTimes(1);
+ const [sql,args]=mock.execute.mock.calls[0];expect(sql).toContain('client_service_enrollments');expect(sql).toContain('client_agency_assignments');expect(args.slice(-3)).toEqual([2,10,'tutoring']);
+});
+it('still denies unrelated students before any tutoring or clinical details are read',async()=>{
+ mock.service.mockResolvedValue({businessType:'tutoring'});mock.execute.mockResolvedValue([[]]);await expect(sameDayServiceWarnings({...input,tenantServiceId:320})).rejects.toMatchObject({status:403});expect(mock.execute).toHaveBeenCalledTimes(1);
 });

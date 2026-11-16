@@ -3,7 +3,7 @@
     <QaRecipientEmailInbox />
     <div class="panel-head">
       <h2>{{ ft("Secure messages") }}</h2>
-      <div class="panel-subtitle">{{ ft(learning ? "Learning conversations are group messages for the selected student. Authorized guardians and the learning team can read and reply." : "Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.") }}</div>
+      <div class="panel-subtitle">{{ ft(familyWide ? "Messages across your authorized family profiles. Choose the client and service below; each conversation keeps its own recipients." : learning ? "Learning conversations are group messages for the selected student. Authorized guardians and the learning team can read and reply." : "Care conversations are group messages for the selected client. Authorized guardians and the care team can read and reply.") }}</div>
     </div>
 
     <div class="gmsg-tabs">
@@ -17,10 +17,11 @@
 
     </div>
 
-    <div v-if="error" class="error">{{ ft(error) }}</div>
+    <div v-if="error" class="error" role="alert" tabindex="0">{{ ft(error) }}</div>
     <p v-if="ticketCreationStatus" class="muted" role="status">{{ ft(ticketCreationStatus) }}</p>
 
-    <GuardianSecureConversations v-if="mode === 'provider'" :threads="threads" :learning="learning" :unavailable="!!error" :client-id="clientId" :initial-thread-id="initialThreadId" :initial-message-id="initialMessageId" :loading="loading" @refresh="loadThreads" />
+    <p v-if="loading && mode==='provider'" role="status">Loading messages…</p>
+    <GuardianSecureConversations v-if="mode === 'provider'" @context-change="emit('context-change',$event)" :threads="threads" :learning="learning" :family-wide="familyWide" :unavailable="!!error || !threadsLoaded || loading" :client-id="clientId" :initial-thread-id="initialThreadId" :initial-message-id="initialMessageId" :loading="loading" @refresh="loadThreads" />
 
     <template v-else>
       <div v-if="ticketsLoading" class="muted">{{ ft("Loading support tickets…") }}</div>
@@ -146,11 +147,12 @@ import baseApi from '../../services/api';
 import {GUARDIAN_TICKET_TOPICS,ticketTopicLabel} from '../../utils/ticketTopics';
 import {useAuthStore} from '../../store/auth';
 const {ft}=useFamilyLocale();
-const props=defineProps({initialThreadId:[Number,String],initialMessageId:[Number,String],clientId:[Number,String],learning:Boolean});
+const props=defineProps({initialThreadId:[Number,String],initialMessageId:[Number,String],clientId:[Number,String],learning:Boolean,familyWide:Boolean,serviceKind:String});
+const emit=defineEmits(['context-change']);
 const careApi=usePortalCareApi();
 const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
 const guardianTopics=GUARDIAN_TICKET_TOPICS;
-const mode=ref('provider'),threads=ref([]),emails=ref([]),loading=ref(false),error=ref('');
+const mode=ref('provider'),threads=ref([]),emails=ref([]),loading=ref(false),error=ref(''),threadsLoaded=ref(false);
 let threadLoadIntent=0;
 const auth=useAuthStore(),meId=computed(()=>auth.user?.id);
 let ticketRequest=0,ticketSendIntent=0;
@@ -180,11 +182,11 @@ async function loadThreads() {
     emails.value = Array.isArray(r.data?.emails) ? r.data.emails : [];
   } catch (e) {
     if(intent!==threadLoadIntent||clientId!==props.clientId)return;
-    error.value = e?.response?.status === 403 ? 'Your account does not have permission to view messages for this service. Use Support if you believe access is missing.' : 'Messages could not be loaded. Please try again or use Support.';
+    error.value = e?.response?.status === 403 ? (props.serviceKind==='counseling'?'Your account does not have permission to view clinical messages for this counseling service. Use Support if you believe access is missing.':'Your account does not have permission to view messages for this service. Use Support if you believe access is missing.') : 'Messages could not be loaded. Please try again or use Support.';
     threads.value = [];
     emails.value = [];
   } finally {
-    if(intent===threadLoadIntent)loading.value = false;
+    if(intent===threadLoadIntent){loading.value = false;threadsLoaded.value=true;}
   }
 }
 
@@ -471,3 +473,5 @@ onBeforeUnmount(()=>{++threadLoadIntent;++ticketRequest;++ticketSendIntent;ticke
 }
 .group-label{display:block;font-size:12px;margin-top:6px;color:#526784}.conversation-audience{padding:14px;background:#eef4fb;border-bottom:1px solid #c9d8e7}.conversation-audience ul{list-style:none;padding:0;margin:8px 0}.conversation-audience li{padding:4px 0;font-size:14px}.conversation-audience p{font-size:13px;line-height:1.5;margin:8px 0 0}.conversation-audience span{color:#526784}
 </style>
+
+<style scoped>.error:focus-visible{outline:3px solid #2467a7;outline-offset:3px}</style>
