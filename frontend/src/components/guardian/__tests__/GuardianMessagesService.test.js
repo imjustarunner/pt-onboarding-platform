@@ -18,3 +18,10 @@ it('distinguishes a clinical access denial from a successful empty inbox and a t
  api.get.mockRejectedValue({response:{status:403,data:{error:{message:'Clinical scope is restricted'}}}});
  const w=mount(Messages,{...options,props:{clientId:2271,learning:false}});await flushPromises();expect(w.text()).toContain('does not have permission to view messages for this service');expect(w.text()).not.toContain('No care conversations');expect(w.text()).not.toContain('learning team');expect(w.find('.new-subject').exists()).toBe(false);expect(w.text()).not.toContain('No secure subjects yet');w.unmount();
 });
+
+
+it('never flashes a composer while clinical access is unresolved, then announces the exact denial',async()=>{
+ let reject;api.get.mockImplementationOnce(()=>new Promise((_,fail)=>reject=fail));
+ const w=mount(Messages,{...options,props:{clientId:2271,learning:false,serviceKind:'counseling'}});await flushPromises();expect(w.find('.new-subject').exists()).toBe(false);expect(w.get('[role=status]').text()).toContain('Loading messages');
+ reject({response:{status:403}});await flushPromises();expect(w.get('[role=alert]').text()).toContain('clinical messages for this counseling service');expect(w.get('[role=alert]').attributes('tabindex')).toBe('0');expect(w.find('.new-subject').exists()).toBe(false);w.unmount();
+});

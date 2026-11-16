@@ -10,11 +10,11 @@ export async function readClientServiceContext({ agencyId, clientId, providerId 
     (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`,
   [clientId, agencyId, agencyId]);
   if (!client) throw Object.assign(new Error('Client not found for this agency.'), { status: 404 });
-  const [rows] = await db.execute('SELECT service_kind,provider_user_id,is_active,service_status FROM client_service_enrollments WHERE client_id=? AND agency_id=?', [clientId, agencyId]);
+  const [rows] = await db.execute('SELECT id,label,service_kind,provider_user_id,is_active,service_status FROM client_service_enrollments WHERE client_id=? AND agency_id=?', [clientId, agencyId]);
   const active = rows.filter(row => isActive(row) && (!providerId || !Number(row.provider_user_id) || Number(row.provider_user_id) === Number(providerId)));
   const legacyKind = ({ clinical: 'counseling', school: 'counseling', learning: 'tutoring', tutoring: 'tutoring' })[client.client_type];
   return { clientId: Number(clientId), agencyId: Number(agencyId), explicit: rows.length > 0,
-    serviceKinds: rows.length ? [...new Set(active.map(row => row.service_kind))] : (legacyKind ? [legacyKind] : []) };
+    serviceEnrollments: active, serviceKinds: rows.length ? [...new Set(active.map(row => row.service_kind))] : (legacyKind ? [legacyKind] : []) };
 }
 
 export async function requireClientServiceKind({ agencyId, clientIds = [], providerId, serviceKind }, db = pool) {
@@ -39,7 +39,12 @@ export async function assertAppointmentServiceContext({ agencyId, clientIds, pro
 export async function filterBookingServicesForClient(services, input, db = pool) {
   if (!input.clientId) return services;
   const context = await readClientServiceContext(input, db);
-  return services.filter(service => context.serviceKinds.includes(appointmentServiceKind({ businessType: service.businessType })));
+  return services.filter(service => context.serviceKinds.includes(appointmentServiceKind({ businessType: service.businessType }))).map(service=>{
+    if(service.businessType!=='tutoring')return service;
+    const enrollments=context.serviceEnrollments.filter(row=>row.service_kind==='tutoring'&&(!input.providerId||Number(row.provider_user_id)===Number(input.providerId)));
+    const labels=[...new Set(enrollments.map(row=>String(row.label||'').trim()).filter(Boolean))];
+    return labels.length?{...service,enrollmentLabel:labels.join(' / ')}:service;
+  });
 }
 
 export async function clinicalCodesForClientContext(codes, { agencyId, providerId, clientIds = [], businessType }, db = pool) {

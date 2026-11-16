@@ -5,7 +5,8 @@
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
         <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select>
       </label>
-      <div v-if="allFamilyProfiles.length" class="family-context">
+      <p v-if="activePanel==='family_messages'" class="family-message-context" role="status">All authorized family profiles · Choose a client and service in Messages below.</p>
+      <div v-else-if="allFamilyProfiles.length" class="family-context">
         <PortalContextPicker v-if="familyAgencies.length > 1" :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
         <PortalContextPicker v-if="allFamilyProfiles.length > 1 || familyAgencies.length > 1" class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('Choose a family member and organization. Each service keeps its own information.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
         <div v-if="allFamilyProfiles.length===1 && familyAgencies.length<=1" class="single-profile family-current-profile"><small>{{ ft('Viewing') }}</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
@@ -433,7 +434,7 @@
 
             <template v-else-if="['messages','family_messages'].includes(activePanel)">
               <SecureSessionCommentHistory v-if="!isSuperadminPreview" :client-id="activePanel === 'family_messages' ? null : selectedChildId" family />
-              <GuardianMessagesPanel :learning="activePanel !== 'family_messages' && learningOnlySelectedProfile" v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
+              <GuardianMessagesPanel @context-change="context => {if(activePanel==='family_messages')familyMessageServiceKind=context?.serviceKind||'';}" :family-wide="activePanel==='family_messages'" :service-kind="activePanel==='family_messages'?'':selectedService?.service_kind" :learning="activePanel !== 'family_messages' && learningOnlySelectedProfile" v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 
@@ -595,7 +596,7 @@
         </div>
       </div>
     </div>
-    <template #footer><ServiceUseNotice v-if="!loading" :organization-slug="guardianPathSlug" :service-type="learningOnlyPortalContext ? 'tutoring' : selectedService?.service_kind || ''" /></template>
+    <template #footer><ServiceUseNotice v-if="!loading" :organization-slug="guardianPathSlug" :service-type="activePanel==='family_messages' ? (familyMessageServiceKind==='counseling'?'counseling':'tutoring') : learningOnlyPortalContext ? 'tutoring' : selectedService?.service_kind || ''" /></template>
   </FamilyPortalShell>
 
   </ClinicalWorkspaceFrame>
@@ -794,6 +795,8 @@ const parseFeatureFlags = (raw) => {
 };
 
 const selectedServiceId=ref(Number(route.query.serviceId)||null);
+const familyMessageServiceKind=ref('');
+const rememberedServiceByProfile=new Map();
 const selectedServices=computed(()=>children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value))?.services||[]);
 const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||selectedServices.value[0]||null);
 // The saved active child can differ from a deep link's child while overview
@@ -958,10 +961,13 @@ async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId 
   const aid=agencyId||(contexts.some(c=>Number(c.agency_id)===currentAgencyId.value)?currentAgencyId.value:profile?.agency_id);
   const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(aid));
   if (!profile || !agency?.slug) return;
+  if(selectedChildId.value&&selectedServiceId.value)rememberedServiceByProfile.set(`${currentAgencyId.value}:${selectedChildId.value}`,selectedServiceId.value);
   selectedPortalAgency.value = agency; agencyStore.setCurrentAgency(agency); selectedChildId.value = Number(profile.client_id);
-  selectedServiceId.value=Number(serviceId)||null;
+  const remembered=rememberedServiceByProfile.get(`${aid}:${profile.client_id}`);
+  const wanted=Number(serviceId)||remembered;
   const services=contexts.find(c=>Number(c.agency_id)===Number(aid))?.services||[];
-  const service=services.find(s=>Number(s.id)===Number(serviceId))||services[0];selectedServiceId.value=Number(service?.id)||null;
+  const service=services.find(s=>Number(s.id)===Number(wanted))||services[0];selectedServiceId.value=Number(service?.id)||null;
+  if(selectedServiceId.value)rememberedServiceByProfile.set(`${aid}:${profile.client_id}`,selectedServiceId.value);
   activePanel.value = panel || ((service?service.service_kind==='tutoring':['learning','tutoring'].includes(profile.client_type)) ? 'tutoring' : 'overview');
   await router.replace({path:`/${encodeURIComponent(agency.slug)}/guardian`,query:{portal:agency.slug,clientId:profile.client_id,serviceId:selectedServiceId.value||undefined,panel:activePanel.value}});
   scrollPortalTop();
@@ -1060,7 +1066,7 @@ const portalNavigation = computed(() => {
   return available.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });
 const portalTitle = computed(() => limitedServicePortal.value ? ft(selectedServiceAccess.value.statusLabel) : activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `${familyLocale.value === 'es' ? 'Bienvenido' : 'Welcome'}${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
-const portalSubtitle = computed(() => limitedServicePortal.value ? 'Billing, receipts, records, and account support remain available.' : ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
+const portalSubtitle = computed(() => limitedServicePortal.value ? 'Billing, receipts, records, and account support remain available.' : ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',family_messages:'Choose a family member and service from the conversations you are authorized to use.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
 function navigatePortal(key) {
   if(limitedServicePortal.value&&!LIMITED_SERVICE_PANELS.includes(key))return;
   if (key === 'signout') { authStore.logout(); return; }
@@ -1072,8 +1078,11 @@ function navigatePortal(key) {
   if (onboardingBillingNotice.value) key = 'onboarding';
   if (key === 'overview' && standardsLearningVisible.value && !limitedServicePortal.value) key = 'tutoring';
   activePanel.value = key; selectedInlineEvent.value = null;
-  router.replace({query:{...route.query,clientId:selectedChildId.value,panel:key}}); scrollPortalTop();
+  const query={...route.query,panel:key};
+  if(key==='family_messages'){delete query.clientId;delete query.serviceId;}else{query.clientId=selectedChildId.value;query.serviceId=selectedServiceId.value||undefined;}
+  router.replace({query}); scrollPortalTop();
 }
+watch(()=>[route.query.panel,route.query.clientId,route.query.serviceId],([panel,clientId,serviceId])=>{if(panel==='family_messages'&&(clientId||serviceId)){const query={...route.query};delete query.clientId;delete query.serviceId;void router.replace({query});}},{immediate:true});
 watch(() => route.query.panel, key => { if ((!limitedServicePortal.value||LIMITED_SERVICE_PANELS.includes(key))&&(['onboarding','updates','family','help','overview'].includes(key) || portalNavigation.value.some(item => item.key === key))) { if(key==='billing' && onboardingRequired.value)navigatePortal('billing');else activePanel.value=key; } });
 watch(() => [currentAgencyId.value,selectedChildId.value,isSuperadminPreview.value], async () => {
   const request=++portalGrantRequest;portalGrants.value=[];

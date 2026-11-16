@@ -408,7 +408,7 @@ it('uses the chosen action agency and provider, and ignores an earlier providerâ
   state.bookingTargetUserId=8;expect(state.clientSessionBookingEnabled).toBe(false);await flushPromises();
   resolveOld({data:{enabled:true}});await flushPromises();expect(state.clientSessionBookingEnabled).toBe(false);
   state.selectedActionAgencyId=3;await flushPromises();
-  expect(m.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:{agencyId:3,providerUserId:8}}));
+  expect(m.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:{agencyId:3,providerUserId:8,businessType:'any'}}));
   expect(state.clientSessionBookingEnabled).toBe(true);
   state.bookingTargetUserId=9;expect(state.clientSessionBookingEnabled).toBe(false);await flushPromises();
 });

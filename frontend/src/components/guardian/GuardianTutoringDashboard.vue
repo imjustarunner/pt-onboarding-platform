@@ -41,7 +41,8 @@
     <TutorOfficeStatus v-if="progressAllowed" :key="clientId" :client-id="clientId" />
     <div class="gtd-grid">
       <section class="gtd-card gtd-packages">
-        <h3>Your packages</h3>
+        <h3>{{ assignmentPending ? 'Student package balances' : 'Your packages' }}</h3>
+        <p v-if="assignmentPending" class="gtd-muted" role="note">Package balances stay with the student. An assigned tutor and an eligible booking are required to use a package.</p>
         <div v-if="packageTotals.activePackages">
           <p>
             <strong>{{ packageTotals.sessionsRemaining }}</strong> sessions remaining
@@ -294,6 +295,7 @@ const nextSessionLabel = computed(() => {
   return formatWhen(s.starts_at);
 });
 
+const assignmentPending=computed(()=>!loading.value&&Object.prototype.hasOwnProperty.call(dashboard.value,'assignedTutor')&&!dashboard.value.assignedTutor);
 const nextTutorLabel = computed(() => dashboard.value.nextSession?.provider_name || dashboard.value.upcomingSessions?.[0]?.provider_name || dashboard.value.assignedTutor || 'Not assigned');
 
 const encouragement = computed(() => {

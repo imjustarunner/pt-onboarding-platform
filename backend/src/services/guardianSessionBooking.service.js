@@ -1,3 +1,4 @@
+import { utcMysqlToZonedWallMysql,clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { listClientServices } from './clientServiceEnrollment.service.js';
 import { guardianServiceAllowed } from '../utils/guardianServiceRestrictions.js';
 import { readProviderServices } from './providerServiceOfferings.service.js';
@@ -45,7 +46,7 @@ async function context(input) {
   return { client, agency, providers, learning };
 }
 export async function guardianBookingOptions(input) {
-  const {agency,providers,learning}=await context(input);
+  const {client,agency,providers,learning}=await context(input);
   const packages=learning ? await BookingPackage.listEntitlementsForClient(agency.id,input.clientId,{businessType:'tutoring'}) : [];
   const services=(await TenantService.listForAgency(agency.id)).filter(s=>s.isActive&&s.isPubliclyBookable&&s.billingMethod==='self_pay'&&s.businessType===(learning?'tutoring':'mental_health')&&(!learning||String(s.serviceCode||'').toUpperCase()==='TUTORING'));
   const choices=[];
@@ -74,7 +75,7 @@ export async function guardianBookingOptions(input) {
         if(pkg.pricingSnapshot?.mode==='provider-discount'&&Number(pkg.pricingSnapshot.minutes)!==Number(service.defaultDurationMinutes))return false;
         try{assertPackageExpiration(pkg.pricingSnapshot,pkg.activatedAt,input.startAt||new Date().toISOString());assertPackageProviderBinding(pkg.pricingSnapshot,{providerUserId:provider.id,tenantServiceId:service.id,modality,participantMode:'single'});return true;}catch{return false;}
       }).map(pkg=>({id:pkg.id,name:pkg.packageName||'Tutoring package',sessionsAvailable:Number(pkg.sessionsRemaining),sessionsReserved:Number(pkg.sessionsReserved||0),freeMissesRemaining:Number(pkg.freeMissesRemaining||0)}));
-      choices.push({packages:eligiblePackages,businessType:learning?'tutoring':'mental_health',providerId:provider.id,providerName:provider.name,serviceId:service.id,serviceName:service.name,
+      choices.push({packages:eligiblePackages,businessType:learning?'tutoring':'mental_health',providerId:provider.id,providerName:provider.name,serviceId:service.id,serviceName:learning&&client.service?.label?client.service.label:service.name,
         durationMinutes:service.defaultDurationMinutes,modality:learning?format:service.modality,minNoticeHours:service.minNoticeHours??0,maxAdvanceDays:service.maxAdvanceDays??90,
         terms:{policyId:policy.id,noticeHours:policy.noticeHours,lateFeeCents:policy.lateFeeCents,noShowFeeCents:policy.noShowFeeCents,sessionFeeCents:quote.amountCents}});
       }
@@ -99,13 +100,16 @@ export async function guardianBookingSlots(input) {
 async function bookGuardianSessionLocked(input) {
   const start=new Date(input.startAt);
   if(!Number.isFinite(+start))throw fail('Choose an available time.');
-  const available=await guardianBookingSlots({...input,weekStart:start.toISOString().slice(0,10)});
-  const slot=available.slots.find(s=>s.startAt===start.toISOString()&&s.endAt===input.endAt&&s.modality===input.modality
+  const client=await authorizedAppointmentClient(input.userId,input.clientId,input);
+  const timeZone=await ProviderAvailability.resolveAgencyTimeZone({agencyId:client.agency_id});
+  // Sunday evening in Denver is already Monday UTC; recheck the offered local week.
+  const weekStart=utcMysqlToZonedWallMysql(clientScheduleInstantToUtcMysql(start.toISOString(),timeZone),timeZone).slice(0,10);
+  const available=await guardianBookingSlots({...input,weekStart});
+  const slot=available.slots.find(s=>+new Date(s.startAt)===+start&&+new Date(s.endAt)===+new Date(input.endAt)&&s.modality===input.modality
     &&Number(s.roomId||0)===Number(input.roomId||0));
   if(!slot)throw fail('That time is no longer available. Choose another opening.',409);
   const terms=available.choice.terms;
   if(input.confirmed!==true||Object.keys(terms).some(key=>input.acknowledgedTerms?.[key]!==terms[key]))throw fail('Review and acknowledge the current session price and attendance policy.',409);
-  const client=await authorizedAppointmentClient(input.userId,input.clientId,input);
   const packageEntitlementId=input.packageEntitlementId==null?null:Number(input.packageEntitlementId);
   if(packageEntitlementId!==null&&(!Number.isSafeInteger(packageEntitlementId)||!available.choice.packages?.some(pkg=>pkg.id===packageEntitlementId)))throw fail('This package is not available for this student, payer, tutor and format. Refresh before booking.',409);
   const appointment=await createAppointment({agencyId:client.agency_id,tenantServiceId:available.choice.serviceId,providerUserId:available.choice.providerId,
