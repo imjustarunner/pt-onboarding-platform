@@ -22,6 +22,13 @@ it.each([
 it('a human activity cannot supply an automation classification',async()=>{
  await UserActivityLog.logActivity({actionType:'view',userId:501,metadata:{clientId:2562,automationActor:{kind:'qa_automation'}}});expect(JSON.parse(execute.mock.calls[0][1][6])).toEqual({clientId:2562});
 });
+it('attributes new Sora actions to the school QA account without relabeling its old history',async()=>{
+ await UserActivityLog.logActivity({actionType:'login',userId:1782,agencyId:450,metadata:{automationActor:{kind:'human',actorUserId:501}}});
+ const insert=execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO'));const metadata=JSON.parse(insert[1][6]);
+ expect(metadata.automationActor).toMatchObject({kind:'qa_automation',actorUserId:1782,fixture:'Sora',qaAgencyBoundary:[450,451],authorizationRef:'owner-reserved-sora-school-qa-2026-11-15-v1'});
+ expect(execute.mock.calls.some(([sql])=>/^(UPDATE|DELETE)/.test(sql))).toBe(false);
+ expect(projectAuditRowForSupport({user_id:1782,metadata:{clientId:2555}}).metadata).toEqual({clientId:2555});
+});
 it('append-only security evidence identifies automation and retains its facts',async()=>{
  const event={userId:1433,requestId:'qa',phase:'clinical',method:'GET',route:'/clinical-session',clientIp:null,ipSource:'test',peerIp:null,action:'view',outcome:'succeeded',details:{sessionId:314}};
  await appendSecurityEvidence(event,{execute},{mirror:false});const meta=JSON.parse(execute.mock.calls[0][1][19]);expect(meta.sessionId).toBe(314);expect(meta.automationActor.actorUserId).toBe(1433);expect(event.details).toEqual({sessionId:314});
