@@ -201,7 +201,7 @@
               class="mb-ready"
               title="Individual session code"
             >Indiv</span>
-            </td><td class="service-description" :title="[c.description,c.inventory?.compensationBasis,c.inventory?.claimTiming].filter(Boolean).join(' · ')">{{ c.description || '' }} <span v-if="c.inventory" class="muted">{{ c.inventory.payLabel }}<span v-if="c.inventory.baseCode"> · Add-on to {{ c.inventory.baseCode }}</span></span></td>
+            </td><td class="service-description" :title="[c.description,c.inventory?.compensationBasis,c.inventory?.claimTiming].filter(Boolean).join(' · ')">{{ c.description || '' }} <span v-if="c.inventory" class="muted">{{ c.inventory.payLabel }}<span v-if="c.inventory.compensationBasis"> · {{ c.inventory.compensationBasis }}</span><span v-if="c.inventory.requiredRole"> · Testing role required<span v-if="c.inventory.medicaidOnly"> · Medicaid only</span></span><span v-if="c.inventory.claimTiming"> · {{ c.inventory.claimTiming }}</span><span v-if="c.inventory.baseCode"> · Add-on to {{ c.inventory.baseCode }}</span></span></td>
             <td><span>{{ serviceUnitLabel(c) }}</span>
             <span v-if="c.min_minutes != null">min {{ c.min_minutes }}m</span>
             <span v-if="c.max_minutes != null">max {{ c.max_minutes }}m</span>
