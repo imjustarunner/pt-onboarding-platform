@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../services/ownedOfficeSession.service.js',()=>({bookSessionInOwnedOffice:vi.fn(async()=>null)}));
 vi.mock('../../services/ownedOfficeSessionJobs.service.js',()=>({queueOwnedOfficeSession:vi.fn(async()=>null)}));
-const m=vi.hoisted(()=>({execute:vi.fn(),agencies:vi.fn(),officeAgencies:vi.fn(),office:vi.fn(),provider:vi.fn(),create:vi.fn(),selection:vi.fn(),rollout:vi.fn(),locations:vi.fn(),room:vi.fn(),access:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),agencies:vi.fn(),officeAgencies:vi.fn(),office:vi.fn(),provider:vi.fn(),create:vi.fn(),selection:vi.fn(),rollout:vi.fn(),locations:vi.fn(),room:vi.fn(),access:vi.fn(),warnings:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies,findById:m.provider}}));
 vi.mock('../../models/OfficeLocation.model.js',()=>({default:{findById:m.office}}));
@@ -12,17 +12,34 @@ vi.mock('../../models/UserComplianceDocument.model.js',()=>({default:{findByUser
 vi.mock('../../models/AgencyServiceLocation.model.js',()=>({default:{listByAgency:m.locations}}));
 vi.mock('../../services/schedulingTaxonomy.service.js',()=>({getSchedulingBookingMetadata:vi.fn(),validateSchedulingSelection:m.selection}));
 vi.mock('../../services/clientSessionBookingRollout.service.js',()=>({requireClientSessionBooking:m.rollout}));
-vi.mock('../../services/sameDayServiceWarning.service.js',()=>({confirmSameDayServiceWarnings:async()=>true}));
+vi.mock('../../services/sameDayServiceWarning.service.js',()=>({confirmSameDayServiceWarnings:m.warnings}));
 vi.mock('../../services/officeBillingSites.service.js',()=>({filterServiceLocationsForProvider:rows=>rows,listUserOfficeIds:async()=>[1],listUserSchoolIds:async()=>[]}));
 import { bookSessionInOwnedOffice } from '../../services/ownedOfficeSession.service.js';
 import { queueOwnedOfficeSession } from '../../services/ownedOfficeSessionJobs.service.js';
 import { createOfficeBookingRequest, getBookingLocations } from '../officeSchedule.controller.js';
 beforeEach(()=>{
  vi.clearAllMocks();m.execute.mockResolvedValue([[]]);m.room.mockResolvedValue({id:10,location_id:1});m.access.mockResolvedValue(true);
+ m.warnings.mockResolvedValue(true);m.rollout.mockResolvedValue({enabled:true});
  m.agencies.mockResolvedValue([{id:2},{id:377}]);m.officeAgencies.mockResolvedValue([{id:2},{id:377}]);
  m.office.mockResolvedValue({id:1,timezone:'America/Denver'});m.provider.mockResolvedValue({id:501,role:'super_admin'});
  m.create.mockResolvedValue({id:9});m.selection.mockResolvedValue({appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'90837'});
  m.locations.mockResolvedValue([{id:44,agency_id:377}]);
+});
+it('uses active tutoring eligibility for an ordinary tutor office request and retains the exact service',async()=>{
+ m.agencies.mockResolvedValue([{id:453}]);m.officeAgencies.mockResolvedValue([{id:453}]);
+ m.provider.mockResolvedValue({id:1496,role:'provider'});
+ m.selection.mockResolvedValue({appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'TUTORING'});
+ m.rollout.mockImplementation(async(_agency,_provider,_db,options)=>{
+  if(options?.businessType!=='tutoring')throw Object.assign(new Error('Clinical transition not enabled'),{status:403});
+  return {enabled:true};
+ });
+ const req={user:{id:1496,role:'provider'},body:{agencyId:453,officeLocationId:1,clientId:2547,tenantServiceId:320,
+  startAt:'2026-11-26T13:00:00',endAt:'2026-11-26T14:00:00',appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'TUTORING'}};
+ const res=response(),next=vi.fn();await createOfficeBookingRequest(req,res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
+ expect(m.warnings).toHaveBeenCalledWith(req,res,expect.objectContaining({agencyId:453,tenantServiceId:320}));
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({roomType:'tutoring',serviceCode:'TUTORING',
+  sessionContext:expect.objectContaining({agencyId:453,tenantServiceId:320})}));
 });
 const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
 it('validates and persists the selected tenant when a clinical session uses another tenant’s shared office',async()=>{

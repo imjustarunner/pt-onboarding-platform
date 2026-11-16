@@ -69,8 +69,10 @@ it('opens the practice for new eligible providers, preserves explicit pauses and
 it('keeps tutoring capability independent of the clinical transition and checks the exact assignment',async()=>{
  m.offered.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true}]});
  expect((await clientSessionBookingAccess(453,1496,undefined,{businessType:'tutoring'})).enabled).toBe(true);
+ await expect(requireClientSessionBooking(453,1496,undefined,{businessType:'tutoring'})).resolves.toMatchObject({enabled:true,businessType:'tutoring'});
  m.offered.mockResolvedValue({careEligibility:{canProvideCare:false},services:[{serviceType:'tutoring',offered:true}]});
  expect((await clientSessionBookingAccess(453,1496,undefined,{businessType:'tutoring'})).enabled).toBe(false);
+ await expect(requireClientSessionBooking(453,1496,undefined,{businessType:'tutoring'})).rejects.toMatchObject({status:403});
  await expect(requireClientSessionBooking(453,1496)).rejects.toMatchObject({status:403});
 });
 

@@ -284,9 +284,9 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   const supplementalEffective = !rateProfile?.supplementalRatesEffectiveOn || String(status?.asOfDate || new Date().toISOString()).slice(0,10) >= String(rateProfile.supplementalRatesEffectiveOn).slice(0,10);
   const tutoring = supplementalEffective && (String(rule?.category || payrollDefaultsForCode(code)?.category || '').toLowerCase() === 'tutoring' || /^TUTORING(?: |$)/.test(code)) && rateProfile?.tutoringRate != null;
   const program = programRateForProfile(rateProfile, status, code, rule?.category || payrollDefaultsForCode(code)?.category);
-  if (!program && programServiceForCode(code,rule?.category) === 'homework_help') throw Object.assign(new Error('Homework Help requires an approved, effective program compensation schedule; the general clinical rate cannot be substituted.'), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  if (!program && programServiceForCode(code,rule?.category) === 'homework_help') throw Object.assign(new Error('Homework Help requires an approved, effective program compensation schedule; the general clinical rate cannot be substituted.'), {status:409,code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
   const programPending = rateProfile?.programRatesVersion && !program && programServiceForCode(code, rule?.category);
-  if (programPending) throw Object.assign(new Error('Review the service date and historical program rate before applying the new program schedule.'), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  if (programPending) throw Object.assign(new Error('Review the service date and historical program rate before applying the new program schedule.'), {status:409,code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
   const specialRate = program?.rate ?? (tutoring ? Number(rateProfile.tutoringRate) : supplementalEffective && code === 'H2014' && rateProfile?.h2014Rate != null ? Number(rateProfile.h2014Rate) : null);
   // Tutoring and the NLU H2014 override use the same unit/indirect path as H0004.
   // Null fields preserve all other agencies' existing calculations.
