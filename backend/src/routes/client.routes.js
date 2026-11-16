@@ -5,6 +5,8 @@ import {
   listPendingClientAlertsHandler
 } from '../controllers/clientAlerts.controller.js';
 import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
+import { getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords } from '../controllers/clientChartImport.controller.js';
+import { getClientPayerReadiness, searchClientPayers, linkClientPayer } from '../controllers/clientChartPayer.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
 import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
@@ -291,6 +293,13 @@ router.post('/:id/demographic-updates/:requestId/review', guardianDemographics.r
 router.post('/:id/demographics/parse', parseClientDemographicsImport);
 router.post('/:id/demographics/import', importClientDemographics);
 router.get('/:id/chart-setup', getClientChartSetup);
+router.get('/:id/chart-import/drafts', requireActiveStatus, getChartImportDrafts);
+router.put('/:id/chart-import/drafts/:section', requireActiveStatus, saveChartImportDraft);
+router.post('/:id/chart-import/sections/:section', requireActiveStatus, importChartSection);
+router.get('/:id/chart-import/records', requireActiveStatus, getChartSupplementaryRecords);
+router.get('/:id/chart-import/payer-readiness', requireActiveStatus, getClientPayerReadiness);
+router.post('/:id/chart-import/payer-search', requireActiveStatus, searchClientPayers);
+router.post('/:id/chart-import/payer-link', requireActiveStatus, linkClientPayer);
 
 // Copy-ready chart blocks (demographics + scrubbed clinical text)
 router.get('/:id/records-copy-blocks', getClientRecordsCopyBlocks);

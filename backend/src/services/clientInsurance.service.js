@@ -15,6 +15,7 @@ export function mergePatientDefaults(patient = {}, demographics = {}) {
   for(const [key,value] of Object.entries(demographics))if(!merged[key]&&value)merged[key]=value;
   return merged;
 }
+POLICY_TEXT_FIELDS.push('copay', 'lastEligibilityCheck', 'subscriberPhone', 'sourcePayerId');
 export function normalizePolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw billingError(400, 'Insurance policy must be an object');
   const out = {};

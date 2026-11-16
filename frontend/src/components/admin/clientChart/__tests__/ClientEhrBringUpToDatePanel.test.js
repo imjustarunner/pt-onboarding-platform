@@ -1,10 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-const mocks = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), get: vi.fn(), put: vi.fn() }));
 vi.mock('../../../../services/api', () => ({ default: mocks }));
 import Panel from '../ClientEhrBringUpToDatePanel.vue';
-const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialTexts }, global: { stubs: { NoteAidTreatmentPlanImportReview: true, Teleport: true } } });
-beforeEach(() => { vi.clearAllMocks(); mocks.patch.mockResolvedValue({ data: {} }); });
+const stubs = { NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, Teleport:true };
+const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialTexts }, global: { stubs: { NoteAidTreatmentPlanImportReview: true, ClientPayerLinkage: true, Teleport: true } } });
+beforeEach(() => { vi.clearAllMocks(); mocks.patch.mockResolvedValue({ data: {} }); mocks.get.mockResolvedValue({ data: { drafts: {} } }); mocks.put.mockResolvedValue({ data: { revision: 1 } }); });
 it('imports supplied demographics and signals completion for the saved client', async () => {
   mocks.post.mockResolvedValue({ data: { parsed: { fullName: 'Synthetic Client' } } });
   const wrapper = mountPanel({ demographics: 'Legal Name: Synthetic Client' }); await flushPromises();
@@ -28,7 +29,7 @@ it('does not finish or import a plan when intake fails, and retries without repe
   await flushPromises(); expect(wrapper.emitted('imported')).toBeUndefined();
   expect(mocks.post.mock.calls.some(([url]) => url === '/medical-billing/treatment-plans/parse')).toBe(false);
   failIntake = false;
-  await wrapper.findAll('button').find(b => b.text() === 'Import pasted chart content').trigger('click'); await flushPromises();
+  await wrapper.findAll('button').find(b => b.text() === 'Import all filled sections').trigger('click'); await flushPromises();
   expect(mocks.post.mock.calls.filter(([url]) => url.endsWith('/demographics/import'))).toHaveLength(1);
   expect(wrapper.emitted('imported')).toBeUndefined();
   const review = wrapper.findComponent({ name: 'NoteAidTreatmentPlanImportReview' });
@@ -46,7 +47,7 @@ it('reuses an imported intake draft when finalization needs a retry', async () =
   });
   const wrapper = mountPanel({ intake: 'Presenting Problem: Concern' }); await flushPromises();
   expect(wrapper.emitted('imported')).toBeUndefined(); failFinalize = false;
-  await wrapper.findAll('button').find(b => b.text() === 'Import pasted chart content').trigger('click'); await flushPromises();
+  await wrapper.findAll('button').find(b => b.text() === 'Import all filled sections').trigger('click'); await flushPromises();
   expect(mocks.post.mock.calls.filter(([url]) => url.endsWith('/intake-note/import'))).toHaveLength(1);
   expect(wrapper.emitted('imported')).toHaveLength(1); wrapper.unmount();
 });
@@ -77,6 +78,7 @@ it('retains historical source dates and authors as unsigned intake/plan drafts w
     return {data:{plan:{id:6,status:'draft'}}};
   });
   const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,historicalImport:true,hideDemographics:true,sourceSystem:'Prior EHR',initialTexts:{intake:'Original intake',plan:'Original plan'}},global:{stubs:{NoteAidTreatmentPlanImportReview:true,Teleport:true}}});
+  await flushPromises();
   const dates=wrapper.findAll('input[type=date]');await dates[0].setValue('2020-03-04');await dates[1].setValue('2021-05-06');
   const authors=wrapper.findAll('.ehr-source-fields input:not([type=date])');await authors[0].setValue('Original Intake Author');await authors[1].setValue('Original Plan Author');
   await wrapper.get('input[type=checkbox]').setValue(true);
@@ -86,4 +88,30 @@ it('retains historical source dates and authors as unsigned intake/plan drafts w
   expect(mocks.patch).not.toHaveBeenCalled();
   expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/note-aid-setup-complete'))).toBe(false);
   expect(wrapper.text()).toContain('clinical review remains pending');expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+});
+
+it('imports a single new section while retaining the other pasted drafts', async () => {
+  mocks.post.mockResolvedValue({data:{result:{primary:{}}}});
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,initialTexts:{insurance:'Example (00050): Primary',contacts:'Name\nPat Example',intake:'Intake draft'}},global:{stubs}});await flushPromises();
+  await wrapper.findAll('button').find(b=>b.text()==='Import insurance').trigger('click');await flushPromises();
+  expect(mocks.post.mock.calls.map(([url])=>url)).toEqual(['/clients/12/chart-import/sections/insurance']);
+  expect(wrapper.get('textarea[data-section=contacts]').element.value).toBe('Name\nPat Example');expect(wrapper.get('textarea[data-section=intake]').element.value).toBe('Intake draft');expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+});
+it('restores saved drafts and successful section imports, and preserves edits during status refresh', async () => {
+  mocks.get.mockResolvedValue({data:{drafts:{comments:{revision:3,value:{text:'Private saved draft',imported:true}}}}});
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
+  expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('Private saved draft');expect(wrapper.text()).toContain('Patient comments · imported');
+  await wrapper.get('textarea[data-section=comments]').setValue('New private draft');await wrapper.setProps({recordStatus:{demographics:'done'}});
+  expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('New private draft');await wrapper.vm.prepareLeave();
+  expect(mocks.put).toHaveBeenCalledWith('/clients/12/chart-import/drafts/comments',expect.objectContaining({text:'New private draft',revision:3,metadata:expect.objectContaining({imported:false})}),expect.anything());wrapper.unmount();
+});
+it('does not finish new client creation until insurance payer linkage is confirmed', async () => {
+  mocks.post.mockResolvedValue({data:{result:{primary:{}}}});
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialTexts:{insurance:'Example (00050): Primary'}},global:{stubs}});await flushPromises();
+  expect(wrapper.emitted('imported')).toBeUndefined();const finish=()=>wrapper.findAll('button').find(b=>b.text()==='Finish client import');expect(finish().attributes('disabled')).toBeDefined();
+  wrapper.findComponent({name:'ClientPayerLinkage'}).vm.$emit('ready-change',true);await flushPromises();await finish().trigger('click');await flushPromises();expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+});
+it('blocks next-client navigation when a private draft save fails',async()=>{
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();mocks.put.mockRejectedValue({response:{status:409,data:{error:{message:'Draft changed in another window'}}}});
+  await wrapper.get('textarea[data-section=comments]').setValue('Keep this draft');await expect(wrapper.vm.prepareLeave()).resolves.toBe(false);expect(wrapper.text()).toContain('Draft changed in another window');expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('Keep this draft');wrapper.unmount();
 });

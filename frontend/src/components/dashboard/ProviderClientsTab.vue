@@ -233,23 +233,8 @@
               >
                 <td>
                   <div class="pct-client-cell">
-                    <div class="pct-agency-logos" aria-hidden="true">
-                      <img
-                        v-for="b in c.agencyBrands"
-                        :key="`logo-${c.id}-${b.agencyId}`"
-                        v-show="b.logoUrl"
-                        class="pct-agency-logo"
-                        :src="b.logoUrl"
-                        :alt="b.agencyName || ''"
-                        :title="b.agencyName || ''"
-                      />
-                      <span
-                        v-for="b in (c.agencyBrands || []).filter((x) => !x.logoUrl)"
-                        :key="`dot-${c.id}-${b.agencyId}`"
-                        class="pct-agency-dot"
-                        :style="{ background: b.primaryColor }"
-                        :title="b.agencyName || ''"
-                      />
+                    <div v-if="(c.agencyBrands || []).length" class="pct-agency-logos">
+                      <ClientAgencyLogo v-for="b in c.agencyBrands" :key="`logo-${c.id}-${b.agencyId}`" :agency="b" class="pct-agency-logo" />
                     </div>
                     <button
                       type="button"
@@ -539,6 +524,8 @@ import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
 import EhrPatientListImportModal from '../admin/EhrPatientListImportModal.vue';
 import NewReferralModal from '../clientExchange/NewReferralModal.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
+import ClientAgencyLogo from '../clients/ClientAgencyLogo.vue';
+import { resolveMembershipLogoUrl } from '../../utils/peerTenantBrand';
 import { hasSchoolRosterContext, rosterServiceLabel, rosterOrganizationLabel, rosterStatusLabel } from '../../utils/clientRosterContext.js';
 
 const props = defineProps({
@@ -635,11 +622,7 @@ function parseAgencyPrimary(agency) {
 }
 
 function agencyLogoUrl(agency) {
-  const path = agency?.logo_url || agency?.logoUrl || agency?.logo_path || agency?.logoPath || '';
-  if (!path) return '';
-  if (String(path).startsWith('http') || String(path).startsWith('/assets/')) return String(path);
-  if (String(path).startsWith('/uploads/') || String(path).startsWith('/')) return String(path);
-  return `/uploads/${path}`;
+  return resolveMembershipLogoUrl(agency) || '';
 }
 
 function agencyBrandMeta(agencyIdVal) {
@@ -648,6 +631,7 @@ function agencyBrandMeta(agencyIdVal) {
     || (Number(agencyStore.currentAgency?.id) === id ? agencyStore.currentAgency : null);
   if (!hit) return { agencyId: id, agencyName: '', primaryColor: '#2d6a4f', logoUrl: '' };
   return {
+    ...hit,
     agencyId: id,
     agencyName: String(hit.name || '').trim(),
     primaryColor: parseAgencyPrimary(hit),
