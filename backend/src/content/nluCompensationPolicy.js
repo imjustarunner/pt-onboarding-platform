@@ -1,5 +1,5 @@
 /** Prospective NLU terms. Never reinterpret a previously signed three-category schedule. */
-import {programProbationApplies} from './programServiceRates.js';
+import {programProbationApplies,PROGRAM_RATE_SCHEDULES} from './programServiceRates.js';
 export const NLU_COMPENSATION_POLICY_VERSION = 'nlu-four-category-2026-11-21';
 export const NLU_COMPENSATION_CATEGORIES = Object.freeze({
   1: {label:'Foundational Provider',description:'No bachelor’s degree; approved nonclinical childcare, tutoring and educational activities only'},
@@ -18,6 +18,10 @@ export const NLU_FOUNDATIONAL_RATES = Object.freeze([17,18,19,20,20]);
 export const NLU_BACHELOR_CHILDCARE_RATES = Object.freeze([22,23,24,24,24]);
 export const NLU_BACHELOR_TUTORING_VIRTUAL_RATES = Object.freeze([18,20,21,25,30]);
 export const NLU_BACHELOR_TUTORING_IN_PERSON_RATES = Object.freeze([19,21,23,27,33]);
+// Owner-confirmed prospective placements, retaining the existing program amounts
+// under the four-category numbering. Never infer an unsigned historical rate.
+export const NLU_ADVANCED_TUTORING_RATES = Object.freeze({3:PROGRAM_RATE_SCHEDULES.tutoring.rates[2],4:PROGRAM_RATE_SCHEDULES.tutoring.rates[3]});
+export const NLU_TUTORING_PLACEMENT_VERSION = 'nlu-category-tutoring-2026-11-16';
 const childAdditions = [0,4,6,8];
 const error = (message,code='NLU_COMPENSATION_REVIEW_REQUIRED') => Object.assign(new Error(message),{code,status:409});
 const placement = (category,level) => {
@@ -53,13 +57,16 @@ export function nluChildcareRate({category,level,children=1,caregivers=1,minimum
   return {rate:Math.max(agreed,Number(minimumHourlyRate)),baseRate:base,childrenPerCaregiver:band,autoIndirectMinutesPerHour:0,rateSource:selected!=null?'individual_band_override':individualHourlyRate!=null?'legacy_individual_flat_override':'category_level',agreedRate:agreed};
 }
 
-export function nluTutoringRate({category,level,format='virtual',individualHourlyRate=null}) {
+export function nluTutoringRate({category,level,format='virtual',individualHourlyRate=null,useCategorySchedule=false}) {
   placement(category,level);
   if (individualHourlyRate!=null) {
     if(!Number.isFinite(Number(individualHourlyRate))||Number(individualHourlyRate)<=0)throw error('Confirm the approved individual tutoring rate.');
     return Number(individualHourlyRate);
   }
-  if(Number(category)>2)throw error('Categories 3 and 4 need a separately approved tutoring placement; childcare caps do not determine tutoring pay.');
+  if(Number(category)>2) {
+    if(useCategorySchedule)return NLU_ADVANCED_TUTORING_RATES[Number(category)][Number(level)-1];
+    throw error('Categories 3 and 4 need a separately approved tutoring placement; childcare caps do not determine tutoring pay.');
+  }
   if(Number(category)===1)return NLU_FOUNDATIONAL_RATES[Number(level)-1];
   if(!['virtual','in_person','in-person'].includes(format))throw error('Choose the approved tutoring delivery format.');
   return (format==='virtual'?NLU_BACHELOR_TUTORING_VIRTUAL_RATES:NLU_BACHELOR_TUTORING_IN_PERSON_RATES)[Number(level)-1];

@@ -109,3 +109,13 @@ describe('selected service clauses in the full contract preview',()=>{
   expect(contractCompensationLevels).toHaveBeenCalled();
  });
 });
+
+it('prepares a standard NLU testing/childcare agreement without inventing a testing assignment',async()=>{
+ const profile={nluCompensationPolicyVersion:'nlu-four-category-2026-11-21',category:3,level:4,childcareLevel:4,testingAuthorized:false};
+ mocks.terms.mockReturnValue({compensation:'<p>Approved pay</p>',schedule:profile,version:'nlu-test',serviceCompensationTerms:{childcare:'One through four child-count rates.',psychological_testing:'Actual-time testing rates.'}});
+ const result=await render({CONTRACT_SERVICE_ROLES:['childcare','psychological_testing']});
+ expect(result.unresolvedTokens).not.toContain('CHILDCARE_PAY_LEVEL');
+ expect(result.unresolvedTokens).not.toContain('PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS');
+ expect(result.html).toContain('Actual-time testing rates.');
+ expect(result.tokens.COMPENSATION_SCHEDULE.testingAuthorized).toBe(false);
+});

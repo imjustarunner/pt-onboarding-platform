@@ -127,3 +127,18 @@ describe('prospective NLU four-category and service-specific compensation',()=>{
     expect(agreementRateProfile(profile,signed)).toMatchObject({category:4,nluCompensationPolicyVersion:NLU_COMPENSATION_POLICY_VERSION,nluCompensationEffectiveOn:'2026-11-23'});
   });
 });
+
+it('carries H2014’s distinct category/level schedule from a new agreement through actual payroll calculation',async()=>{
+ const {nluEmploymentCategoryTerms}=await import('../../content/nluEmploymentCategoryTerms.js');
+ const terms=nluEmploymentCategoryTerms({row:{category:2,level:1,paySystem:{...profile,category:2,level:1,creditRate:24,hcodeRate:24,indirectRate:18}},tokens:{PROBATION_APPLIES:'no',CONTRACT_SERVICE_ROLES:['bachelors_counseling','tutoring']}});
+ expect(terms.schedule).toMatchObject({homeworkHelpRate:16,h2014Rate:18,tutoringVirtualRate:18,tutoringInPersonRate:19,hcodeRate:24});
+ const h2014=line('H2014',{rateProfile:terms.schedule,quantity:4,actualMinutes:60});
+ const homework=line('HOMEWORK HELP',{rateProfile:terms.schedule,quantity:4,actualMinutes:60});
+ const tutoring=line('TUTORING',{rateProfile:terms.schedule,actualMinutes:60,serviceContext:{format:'in_person'}});
+ expect(h2014).toMatchObject({rate:18,amount:18,autoIndirectHours:1/6});
+ expect(homework).toMatchObject({rate:16,amount:16,autoIndirectHours:0});
+ expect(tutoring).toMatchObject({rate:19,amount:19,autoIndirectHours:1/6});
+});
+it('does not retroactively infer Category 3/4 tutoring rates for an old profile missing individual terms',()=>{
+ expect(()=>line('TUTORING',{rateProfile:{...profile,tutoringLevel:3},serviceContext:{format:'virtual'}})).toThrow('separately approved');
+});

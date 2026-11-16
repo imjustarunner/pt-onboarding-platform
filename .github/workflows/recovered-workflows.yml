@@ -74,6 +74,10 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.brief-1109.config.js
           node --test backend/src/services/__tests__/noteAidImportParsers.test.js backend/src/services/__tests__/noteAidDemographicsAndPlanParsers.test.js backend/src/services/__tests__/treatmentPlanContext.test.js
           NODE_ENV=test node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js backend/src/services/__tests__/guardianSchoolRoi.service.test.js
+      - name: NLU hiring form, placement and service pay
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-hiring-form-ci.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.nlu-hiring-cleanup.config.js
       - name: People Operations, collective contracts and service eligibility
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.collective-release.config.js

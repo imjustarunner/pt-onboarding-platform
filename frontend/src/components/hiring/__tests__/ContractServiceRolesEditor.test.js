@@ -86,3 +86,40 @@ describe('contract role clause selections',()=>{
     wrapper.unmount();
   });
 });
+
+describe('NLU employee category and level',()=>{
+ const policy={tutoring:{category1:[17,18,19,20,20],category2Virtual:[18,20,21,25,30],category2InPerson:[19,21,23,27,33],category3:[24,24,24,26,26],category4:[28,28,28,30,30]},childcare:{category1:[17,18,19,20,20],category2AndAbove:[22,23,24,24,24],additionalChildAmounts:[0,4,6,8]}};
+ it('resolves tutoring and childcare from one employee placement and updates when that level changes',async()=>{
+  const wrapper=mount(Roles,{props:{categoryPlacement:true,compensationCategory:2,compensationLevel:3,serviceCompensation:policy,modelValue:{serviceRoles:['tutoring','childcare']}}});
+  expect(wrapper.text()).toContain('Virtual: $21.00/hour · In person: $23.00/hour');
+  expect(wrapper.get('[data-testid="childcare-resolved-4"]').text()).toBe('$32.00');
+  expect(wrapper.find('select[aria-label="Approved tutoring pay level"]').exists()).toBe(false);
+  await wrapper.setProps({compensationLevel:4});
+  expect(wrapper.text()).toContain('Virtual: $25.00/hour · In person: $27.00/hour');
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined();wrapper.unmount();
+ });
+ it.each([[3,26],[4,30]])('resolves approved Category %i tutoring without a separate rate selection', (category,rate)=>{
+  const wrapper=mount(Roles,{props:{categoryPlacement:true,compensationCategory:category,compensationLevel:4,serviceCompensation:policy,modelValue:{serviceRoles:['tutoring']}}});
+  expect(wrapper.text()).toContain(`Virtual: $${rate}.00/hour · In person: $${rate}.00/hour`);
+  expect(wrapper.get('details').attributes('open')).toBeUndefined();wrapper.unmount();
+ });
+ it('retains existing per-service placements and all four individual childcare overrides',()=>{
+  const wrapper=mount(Roles,{props:{categoryPlacement:true,compensationCategory:2,compensationLevel:5,serviceCompensation:policy,modelValue:{serviceRoles:['tutoring','childcare'],serviceRoleDetails:{tutoring:{payLevel:2,hourlyRate:34.5},childcare:{payLevel:1,ratesByBand:{1:29,2:33,3:35,4:37}}}}}});
+  expect(wrapper.text()).toContain('Virtual: $34.50/hour · In person: $34.50/hour');
+  expect(wrapper.get('[data-testid="childcare-resolved-4"]').text()).toBe('$37.00');
+  expect(wrapper.findAll('details')[0].attributes()).toHaveProperty('open');wrapper.unmount();
+ });
+ it('shows resolved testing rates and keeps optional individual narratives collapsed',()=>{
+  const wrapper=mount(Roles,{props:{categoryPlacement:true,compensationCategory:3,compensationLevel:2,payProfile:{creditRate:44,hcodeRate:32,indirectRate:22},modelValue:{serviceRoles:['psychological_testing']}}});
+  expect(wrapper.get('table').text()).toContain('$44.00');expect(wrapper.get('table').text()).toContain('$32.00');
+  expect(wrapper.text()).not.toContain('Approved testing assignment and supervision — required');
+  expect(wrapper.text()).toContain('verified separately before testing work');
+  expect(wrapper.get('details').attributes('open')).toBeUndefined();wrapper.unmount();
+ });
+ it('selects a supervisor by ID independently of the countersigner and existing contract text',async()=>{
+  const wrapper=mount(Editor,{props:{categoryPlacement:true,supervisorUserId:null,supervisorOptions:[{id:17,first_name:'QA',last_name:'Supervisor'}],modelValue:{schedule:'Tuesdays',supervisorName:'Old free text'}}});
+  await wrapper.get('#prehire-supervisor select').setValue('17');
+  expect(wrapper.emitted('update:supervisorUserId').at(-1)).toEqual([17]);
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined();expect(wrapper.text()).toContain('does not make them a supervisor');wrapper.unmount();
+ });
+});

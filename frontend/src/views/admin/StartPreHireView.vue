@@ -27,7 +27,7 @@
         <p v-if="currentPortalLink"><a :href="currentPortalLink" target="_blank" rel="noopener">Open {{ candidateName }}’s current portal ↗</a></p>
       </section>
 
-      <section v-show="setupStep === 1" class="sph-card">
+      <section v-show="setupStep === 1" id="prehire-workflow" class="sph-card" tabindex="-1">
         <h2>Choose the pre-hire steps</h2>
         <p class="muted">A saved setup combines your agency and job defaults. A document collection adds reusable documents. Review the actual contents below; changes here apply to this person.</p>
         <label>Saved pre-hire setup<select v-model="packetTemplateId" @change="applyPacketTemplate"><option value="">Agency and job defaults</option><option v-for="p in settings.hire_packet_templates || []" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
@@ -69,27 +69,27 @@
           <label>Start date <input v-model="contract.startDate" type="date" /></label>
           <label>Execution date <input v-model="contract.executionDate" type="date" /></label>
           <label>Expiration date <input v-model="contract.expirationDate" type="date" /></label>
-          <label class="sph-check">
+          <label v-if="contractTenant!=='nlu'" class="sph-check">
             <input v-model="includeSupervisor" type="checkbox" />
             Include supervisor on the employment agreement
           </label>
-          <label v-if="includeSupervisor">Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
+          <label v-if="contractTenant!=='nlu' && includeSupervisor">Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
           <label v-if="!agreementBuilder || agreementVariant === 'provider'">License required by <input v-model="contract.licenseBy" type="date" /></label>
           <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" step="any" /><span v-if="contract.minHours !== '' && Number.isFinite(Number(contract.minHours)) && Number(contract.minHours) >= 0" class="muted small">Required available-to-book time: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week. Expected to schedule: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week (25% more, rounded up, to account for no-shows and rescheduling).</span></label>
           <label v-if="!usesIndividualAgreement">Pay category
-            <select v-model="contract.compensationCategory">
+            <select id="prehire-category" v-model="contract.compensationCategory">
               <option value="">Choose a category</option>
               <option v-for="(category, id) in compensationCategories" :key="id" :value="String(id)">{{ id }} — {{ category.label }}</option>
             </select>
           </label>
         </div>
         <div class="sph-grid">
-          <label v-if="!usesIndividualAgreement">Pay level<select v-model="contract.compensationLevel"><option value="">Choose a level</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{ level }} — {{PROVIDER_DESIGNATION_LABELS[level-1]}}{{ levelLabel(level) }}</option></select></label>
+          <label v-if="!usesIndividualAgreement">Pay level<select id="prehire-level" v-model="contract.compensationLevel"><option value="">Choose a level</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{ level }} — {{PROVIDER_DESIGNATION_LABELS[level-1]}}{{ levelLabel(level) }}</option></select></label>
           <label v-if="usesIndividualAgreement">Provider designation — optional<select v-model="contract.providerDesignationLevel"><option value="">Not assigned</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{level}} — {{PROVIDER_DESIGNATION_LABELS[level-1]}}</option></select></label>
-          <label>Assigned office<select v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><optgroup v-for="group in officeGroups" :key="group.city" :label="group.city"><option v-for="office in group.offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></optgroup></select></label>
+          <label>Assigned office<select id="prehire-office" v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><optgroup v-for="group in officeGroups" :key="group.city" :label="group.city"><option v-for="office in group.offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></optgroup></select></label>
         </div>
         <p v-if="officeSource" class="muted">{{ officeSource }}</p>
-        <ContractProbationChoice v-if="probationRequired" v-model="contract.probationChoice" v-model:terms="contract.probationTerms" :individual="contractTenant==='isi'" />
+        <ContractProbationChoice id="prehire-probation" tabindex="-1" v-if="probationRequired" v-model="contract.probationChoice" v-model:terms="contract.probationTerms" :individual="contractTenant==='isi'" />
         <template v-if="!usesIndividualAgreement">
           <template v-if="selectedCompensation && categoryServicePay">
             <p>Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Compensation follows the service performed and its approved schedule.</p>
@@ -107,26 +107,27 @@
           </table>
         </template>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
-        <ContractExpectationsEditor v-if="contractTenant" :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="wizardTokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="contract.compensationCategory" :service-compensation="serviceCompensation" title="Assigned services and compensation" description="Review the job-based role selections and each service’s approved pay and authorization terms before preparing the agreement." />
-        <label v-if="contractTenant==='nlu' && Number(contract.compensationCategory)>=3">Placement exception approval<input v-model="contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Written approval reference, when required" /></label>
+        <div v-if="contractTenant==='nlu' && nluProgramRates.length" class="sph-program-rates"><table><caption>Separate program compensation — when assigned and authorized</caption><thead><tr><th>Service</th><th>Regular rate / hour-equivalent</th><th>Rate with selected probation choice</th><th>Automatic indirect time</th></tr></thead><tbody><tr v-for="row in nluProgramRates" :key="row.service"><th>{{row.service==='h2014'?'H2014 — Therapy + Tutoring':'Homework Help'}}</th><td>{{money(row.rate)}}</td><td>{{money(row.selectedRate)}}</td><td>{{row.indirectMinutesPerHour}} minutes per direct hour</td></tr></tbody></table></div>
+        <ContractExpectationsEditor id="prehire-services" tabindex="-1" v-if="contractTenant" :category-placement="contractTenant==='nlu'" :compensation-level="contract.compensationLevel" :pay-profile="selectedCompensation?.paySystem" :supervisor-options="eligibleSupervisors" v-model:supervisor-user-id="portalWorkflow.supervisorUserId" :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="wizardTokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="contract.compensationCategory" :service-compensation="serviceCompensation" title="Assigned services and compensation" description="Review the job-based role selections and each service’s approved pay and authorization terms before preparing the agreement." />
+        <details v-if="contractTenant==='nlu' && (Number(contract.compensationCategory)>=3 || contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE)"><summary>Existing individual placement notes — optional</summary><label>Existing placement reference<input v-model="contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Preserve any recorded individual placement notes" /></label><p class="muted">The selected pay category and level determine compensation. Credential suggestions do not replace that selection or grant clinical authority.</p></details>
         <h3>Contract details</h3>
         <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
         <div class="sph-grid">
           <template v-for="field in visibleContractFields" :key="field.key">
             <ContractServiceFocusSelect v-if="field.key === 'SERVICE_FOCUS'" v-model="contractOverrides.SERVICE_FOCUS" :options="serviceFocusOptions" />
-            <div v-else-if="field.key === 'LICENSE_TYPE'"><span>{{ field.label }}</span><CredentialPicker v-model="contractCredential" /><span class="muted">Uses the app’s credential list. Select the recorded degree and any license or candidate registration.</span></div>
+            <div v-else-if="field.key === 'LICENSE_TYPE'" id="prehire-credentials" tabindex="-1"><span>{{ field.label }}</span><CredentialPicker v-model="contractCredential" /><span class="muted">Uses the app’s credential list. Select the recorded degree and any license or candidate registration.</span></div>
             <label v-else>{{ field.label }}<input v-model="contractOverrides[field.key]" :readonly="['COMPANY_ADDRESS', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS'].includes(field.key) || (agreementBuilder && field.key === 'ROLE_LABEL')" /></label>
           </template>
-          <label v-if="showSchoolDays">Expected school days / week <input v-model="contract.minDays" type="number" min="1" max="7" step="1" /><span class="muted small">Expected days present in the school. Each school day is approximately 8:00 a.m.–3:00 p.m., with roughly seven clients. Applies when school is all or part of the service focus.</span></label>
+          <label v-if="showSchoolDays">Expected school days / week <input id="prehire-school-days" v-model="contract.minDays" type="number" min="1" max="7" step="1" /><span class="muted small">Expected days present in the school. Each school day is approximately 8:00 a.m.–3:00 p.m., with roughly seven clients. Applies when school is all or part of the service focus.</span></label>
           <label v-if="agreementBuilder && agreementVariant === 'student'">University / training institution<input v-model="contractOverrides.UNIVERSITY_NAME" /></label>
           <label v-if="agreementBuilder && agreementVariant === 'student'">Starting training phase<select v-model="contractOverrides.TRAINING_START_PHASE"><option value="practicum">Practicum → internship</option><option value="internship">Direct-entry internship</option></select><span class="muted">One agreement covers both phases. Practicum continues into internship unless either party gives written notice of non-continuation, subject to academic requirements and the practicum review.</span></label>
         </div>
         <p v-if="!contractOverrides.COMPANY_ADDRESS" class="sph-warn">The agency’s place-of-business address is missing. Set it in agency settings, then refresh contract settings.</p>
         <p class="muted">Confirm these values against the candidate and your agency records.</p>
-        <button type="button" class="btn btn-primary" :disabled="previewBusy || !contractConfigId || !probationChosen" @click="previewContract">{{ previewBusy ? 'Preparing preview…' : 'Update contract preview' }}</button>
-        <p v-if="previewError" role="alert" class="error">{{ previewError }}</p>
-        <p v-if="contractPreview?.unresolvedTokens?.length" class="error">Complete these fields: {{ contractPreview.unresolvedTokens.map(key => CONTRACT_SERVICE_ROLE_FIELD_LABELS[key] || key.replaceAll('_', ' ')).join('; ') }}</p>
-        <div v-if="contractPreview?.unresolvedTokens?.length" class="sph-grid"><label v-for="key in additionalContractFields" :key="key">{{ key.replaceAll('_', ' ') }}<input :value="contractOverrides[key]" @input="setAdditionalContractField(key, $event.target.value)" /></label></div>
+        <button id="prehire-preview-button" type="button" class="btn btn-primary" :disabled="previewBusy || (contractTenant!=='nlu' && (!contractConfigId || !probationChosen))" @click="previewContract">{{ previewBusy ? 'Preparing preview…' : 'Update contract preview' }}</button>
+        <div v-if="previewError" id="prehire-preview-error" role="alert" class="error"><p>{{ previewError }}</p><button v-if="contractTenant==='nlu'" type="button" @click="resolveSetupIssue(previewError)">{{ prehireIssueDestination(previewError).label }}</button></div>
+        <div v-if="contractPreview?.unresolvedTokens?.length" role="alert" class="error">Complete these fields:<ul><li v-for="key in contractPreview.unresolvedTokens" :key="key">{{ CONTRACT_SERVICE_ROLE_FIELD_LABELS[key] || key.replaceAll('_', ' ') }} <button v-if="contractTenant==='nlu'" type="button" @click="resolveSetupIssue(CONTRACT_SERVICE_ROLE_FIELD_LABELS[key] || key,key)">Go to field</button></li></ul></div>
+        <div v-if="contractPreview?.unresolvedTokens?.length" class="sph-grid"><label v-for="key in additionalContractFields" :id="`prehire-field-${key}`" :key="key">{{ key.replaceAll('_', ' ') }}<input :value="contractOverrides[key]" @input="setAdditionalContractField(key, $event.target.value)" /></label></div>
         <p v-if="contractPreview && !previewMatches" class="sph-warn">Values changed. Update the preview before reviewing it.</p>
         <iframe v-if="contractPreview" ref="contractPreviewFrame" class="sph-preview" :srcdoc="contractHandbookSrcdoc(contractPreview.html)" sandbox="allow-scripts" title="Candidate employment agreement preview" />
         <StandardAgreementApproval v-if="requiresActivation" :agency-id="agencyId" :config-id="Number(contractConfigId)" :agency-name="contractOverrides.COMPANY_NAME || wizardTokens.COMPANY_NAME || 'this organization'" :preview-ready="!!contractPreview?.html?.trim() && previewMatches && !contractPreview.unresolvedTokens?.length" :library-url="contractsPath" @approved="refreshContractLibrary" />
@@ -218,7 +219,7 @@
         <p v-if="currentPortalLink"><a :href="currentPortalLink" target="_blank" rel="noopener">View the current candidate portal ↗</a></p>
         <p class="muted">The final action prepares their documents and sends their agency portal invitation. Onboarding is prepared separately after pre-hire review.</p>
       </section>
-      <p v-if="sendError" class="error">{{ sendError }}</p>
+      <div v-if="sendError" role="alert" class="error">{{ sendError }} <button v-if="contractTenant==='nlu'" type="button" @click="resolveSetupIssue(sendError)">{{ prehireIssueDestination(sendError).label }}</button></div>
       <p v-if="contractWarning" class="sph-warn">{{ contractWarning }}</p>
       <div class="sph-actions">
         <button type="button" class="btn btn-secondary" @click="setupStep ? setupStep-- : goBack()">{{ setupStep ? 'Back' : 'Cancel' }}</button>
@@ -238,6 +239,7 @@
 </template>
 
 <script setup>
+import { prehireIssueDestination } from '../../utils/nluPrehireForm.js';
 import CredentialPicker from '../../components/CredentialPicker.vue';
 import { isSupervisor } from '../../utils/helpers.js';
 import HirePackageContents from '../../components/hiring/HirePackageContents.vue';
@@ -304,6 +306,14 @@ function applyAgreementVariant() {
   if (option?.roleLabel && (!['nlu', 'isi'].includes(contractTenant.value) || !contractOverrides.ROLE_LABEL)) contractOverrides.ROLE_LABEL = option.roleLabel;
 }
 const selectedCompensation = computed(() => compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === Number(contract.compensationLevel)));
+const nluProgramRates = computed(() => {
+  if(contractTenant.value!=='nlu' || !contract.compensationLevel)return [];
+  return Object.entries(serviceCompensation.value?.programs || {}).flatMap(([service,definition])=>{
+    const rate=definition.rates?.[contract.compensationCategory]?.[Number(contract.compensationLevel)-1];
+    if(!(Number(rate)>0))return [];
+    return [{service,rate:Number(rate),selectedRate:contract.probationChoice==='yes' && Number(contract.compensationCategory)>=3?Math.round(Number(rate)*85)/100:Number(rate),indirectMinutesPerHour:definition.indirectMinutesPerHour}];
+  });
+});
 const money = value => value == null ? 'Not configured' : new Intl.NumberFormat('en-US', { style:'currency', currency:'USD' }).format(value);
 function levelLabel(level) { const row = compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === level); return row ? ` — ${row.label || money(row.ffs_rate ?? row.direct_rate)}` : ' — not configured'; }
 function applyOffice() { contractOverrides.ASSIGNED_OFFICE_ID = officeLocationId.value || ''; const office = offices.value.find(o => Number(o.id) === Number(officeLocationId.value)); contractOverrides.ASSIGNED_OFFICE_NAME = office?.name || ''; contractOverrides.ASSIGNED_OFFICE_ADDRESS = office?.address || ''; officeSource.value = office ? 'Selected office' : ''; }
@@ -588,7 +598,7 @@ const initiate = async () => {
         contractPreviewHash: contractPreview.value?.previewHash,
         contractBuilderTemplateId: null,
         libraryContractTemplateId: libraryContractTemplateId.value,
-        includeSupervisor: includeSupervisor.value,
+        includeSupervisor: effectiveIncludeSupervisor.value,
         msgSubject: settings.value.invite_email_subject || null,
         msgBody: settings.value.invite_email_body || null
       },
@@ -629,6 +639,9 @@ watch(showSchoolDays, visible => { if (!visible) contract.minDays = ''; });
 const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}&tab=library`));
 const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId.value}&category=workflow&item=packages`));
 const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agencyId.value}`));
+const eligibleSupervisors = computed(() => staffUsers.value.filter(u => Number(u.id) !== Number(userId.value) && isSupervisor(u)));
+const nluSupervisionIncluded = computed(() => individualExpectations.value.includeSupervision ?? (includeSupervisor.value || !!portalWorkflow.value.supervisorUserId));
+const effectiveIncludeSupervisor = computed(() => contractTenant.value==='nlu' ? nluSupervisionIncluded.value : includeSupervisor.value);
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
 const contractCredential = computed({
   get: () => contractOverrides.CREDENTIAL ?? wizardTokens.value.CREDENTIAL ?? detail.value?.profile?.credential ?? '',
@@ -647,7 +660,7 @@ const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverr
   COMPENSATION_CATEGORY: usesIndividualAgreement.value ? '' : contract.compensationCategory, COMPENSATION_LEVEL: usesIndividualAgreement.value ? '' : contract.compensationLevel,
   START_DATE: contract.startDate, EXECUTION_DATE: contract.executionDate, EXPIRATION_DATE: contract.expirationDate,
   CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value,
-  SUPERVISOR_NAME: includeSupervisor.value ? (assignedSupervisorName.value || contract.supervisor) : '', INCLUDE_SUPERVISION: includeSupervisor.value ? '1' : '0',
+  SUPERVISOR_NAME: effectiveIncludeSupervisor.value ? (assignedSupervisorName.value || (contractTenant.value==='nlu'?'':contract.supervisor)) : '', INCLUDE_SUPERVISION: effectiveIncludeSupervisor.value ? '1' : '0',
   LICENSURE_DEADLINE: contract.licenseBy, MIN_DAYS_PER_WEEK: showSchoolDays.value ? contract.minDays : '', MIN_HOURS: contract.minHours,
   IS_SUPERVISOR: portalWorkflow.value.supervisorRole ? '1' : '0', SUPERVISOR_DUTIES: portalWorkflow.value.supervisorClause || '' }));
 const contractFieldKeys = computed(() => ['START_DATE', 'EXECUTION_DATE', 'EXPIRATION_DATE', 'SUPERVISOR_NAME', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', ...(agreementBuilder.value && agreementVariant.value === 'student' ? ['UNIVERSITY_NAME', 'UNIVERSITY', 'TRAINING_START_PHASE'] : []), ...contractFields.map(f => f.key)]);
@@ -667,17 +680,38 @@ const probationRequired = computed(() => !!contractTenant.value && !/amendment|a
 const probationChosen = computed(() => !probationRequired.value || ['yes','no'].includes(contract.probationChoice) && (contractTenant.value!=='isi' || contract.probationChoice!=='yes' || !!contract.probationTerms.trim()));
 const readyToSend = computed(() => probationChosen.value && !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && !requiresActivation.value && compensationChosen.value && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
+async function resolveSetupIssue(message, tokenKey) {
+  const destination=prehireIssueDestination(message);
+  if (destination.settings) {
+    await flushDraft();
+    if (draftSaveError.value) return;
+    const path=destination.settings==='agency' ? orgPath(`/admin/settings?agencyId=${agencyId.value}&category=general&item=business-details&agencyTab=address&settingField=street-address`) : destination.settings==='staff' ? orgPath(`/admin/users?agencyId=${agencyId.value}`) : contractsPath.value;
+    window.open(path, '_blank', 'noopener');
+    return;
+  }
+  setupStep.value=destination.step ?? 2;
+  await nextTick();
+  const element=(tokenKey && document.getElementById(`prehire-field-${tokenKey}`)) || document.getElementById(destination.id);
+  if (!element) return;
+  element.scrollIntoView?.({block:'center',behavior:'smooth'});
+  (element.matches('input,select,textarea,button') ? element : element.querySelector('input,select,textarea,button') || element).focus({preventScroll:true});
+}
+function reportPreviewError(message) {
+  previewError.value=message;
+  if(contractTenant.value==='nlu') void resolveSetupIssue(message);
+}
 async function previewContract() {
-  if(!probationChosen.value){previewError.value='Select Yes or No for new-hire probation and complete any required individual terms.';return;}
-  if (!compensationChosen.value) { previewError.value = 'Choose a pay category and level before previewing.'; return; }
-  if (!contractConfigId.value) { previewError.value = 'The employment agreement terms are not configured. Refresh contract settings.'; return; }
-  if (!officeLocationId.value || !offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) { previewError.value = 'Select the assigned office before previewing.'; return; }
-  if (!contractOverrides.COMPANY_ADDRESS) { previewError.value = 'Set the agency’s place-of-business address in agency settings, then refresh contract settings.'; return; }
-  if (showSchoolDays.value && (!Number.isInteger(Number(contract.minDays)) || Number(contract.minDays) < 1 || Number(contract.minDays) > 7)) { previewError.value = 'Enter expected school days per week (1–7).'; return; }
+  if(!probationChosen.value){reportPreviewError('Select Yes or No for new-hire probation and complete any required individual terms.');return;}
+  if (!compensationChosen.value) { reportPreviewError(contract.compensationCategory?'Choose a pay level before previewing.':'Choose a pay category before previewing.'); return; }
+  if (!contractConfigId.value) { reportPreviewError('The employment agreement terms are not configured. Refresh contract settings.'); return; }
+  if (!officeLocationId.value || !offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) { reportPreviewError('Select the assigned office before previewing.'); return; }
+  if (!contractOverrides.COMPANY_ADDRESS) { reportPreviewError('Set the agency’s place-of-business address in agency settings, then refresh contract settings.'); return; }
+  if (showSchoolDays.value && (!Number.isInteger(Number(contract.minDays)) || Number(contract.minDays) < 1 || Number(contract.minDays) > 7)) { reportPreviewError('Enter expected school days per week (1–7).'); return; }
+  if(contractTenant.value==='nlu' && effectiveIncludeSupervisor.value && !eligibleSupervisors.value.some(u=>Number(u.id)===Number(portalWorkflow.value.supervisorUserId))){reportPreviewError('Choose an eligible assigned clinical supervisor, or select no clinical supervision for a nonclinical agreement.');return;}
   previewBusy.value = true; previewError.value = ''; contractReviewed.value = false;
   const input = JSON.stringify(previewInput.value);
   try { const { data } = await api.post(`/contracts/candidates/${userId.value}/preview`, JSON.parse(input), { params: { agencyId: agencyId.value } }); if (input === JSON.stringify(previewInput.value)) { contractPreview.value = data; lastPreviewInput.value = input; } }
-  catch (e) { previewError.value = e.response?.data?.error?.message || 'Could not prepare the contract preview.'; }
+  catch (e) { reportPreviewError(e.response?.data?.error?.message || 'Could not prepare the contract preview.'); }
   finally { previewBusy.value = false; }
 }
 async function refreshContractLibrary() {
@@ -702,7 +736,7 @@ watch(contractCredential, async credential => {
   try { const { data } = await api.get('/contracts/infer-compensation', { params: { agencyId: agencyId.value, credential, jobTitle: jobTitle.value } });
     if (credential !== contractCredential.value) return;
     inferredCategory.value = data.compensationCategory; inferredPayLabel.value = data.payCategoryLabel;
-    contract.compensationCategory = String(data.compensationCategory || ''); contract.compensationLevel = '';
+    if(contractTenant.value!=='nlu' || !contract.compensationCategory){contract.compensationCategory = String(data.compensationCategory || ''); if(contractTenant.value!=='nlu')contract.compensationLevel = '';}
   } catch { previewError.value = 'Could not infer compensation. Select the category and level explicitly.'; }
 });
 
@@ -761,6 +795,8 @@ onMounted(load);
 </script>
 
 <style scoped>
+.sph-program-rates{max-width:100%;overflow-x:auto;margin:16px 0}.sph-program-rates table{width:100%;min-width:500px;border-collapse:collapse}.sph-program-rates th,.sph-program-rates td{text-align:left;padding:9px;border-bottom:1px solid #d9e4de}.sph-program-rates caption{text-align:left;font-weight:700;padding:9px 0}
+
 .sph { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
 .sph-head h1 { margin: 6px 0 4px; }
 .sph-back { background: none; border: 0; color: #1a8c54; font-weight: 700; cursor: pointer; padding: 0; }
