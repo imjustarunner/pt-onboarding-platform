@@ -136,7 +136,7 @@ export async function loadBillingWorkItems(agencyIds, deps) {
   let drafts = [], appointments = [], draftsAvailable = true, appointmentsAvailable = true;
   try { [drafts] = await deps.main.execute(`SELECT d.id AS draft_id,d.agency_id,d.client_id,d.user_id AS provider_user_id,d.clinical_session_id,d.office_event_id,d.service_code,d.date_of_service,d.updated_at
     FROM clinical_note_drafts d JOIN clients c ON c.id=d.client_id AND c.agency_id=d.agency_id
-    WHERE d.agency_id IN (${scope}) AND d.archived_at IS NULL AND d.client_id IS NOT NULL`, agencyIds); }
+    WHERE d.agency_id IN (${scope}) AND d.archived_at IS NULL AND d.client_id IS NOT NULL AND (d.clinical_session_id IS NOT NULL OR d.office_event_id IS NOT NULL)`, agencyIds); }
   catch (error) { if (!missing(error)) throw error; draftsAvailable = false; }
   try { [appointments] = await deps.main.execute(`SELECT a.id AS appointment_id,a.agency_id,ap.client_id,a.clinical_session_id,a.office_event_id,a.provider_user_id,a.service_code,a.start_at AS scheduled_start_at,a.source_timezone,a.updated_at
     FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.role='client' JOIN clients c ON c.id=ap.client_id AND c.agency_id=a.agency_id

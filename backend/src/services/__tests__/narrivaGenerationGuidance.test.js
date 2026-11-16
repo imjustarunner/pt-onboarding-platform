@@ -14,6 +14,8 @@ vi.mock('../clinicalAppointmentAlerts.service.js',()=>({default:{assertReviewed:
 vi.mock('../clinicalDraftSessionContext.service.js',()=>({resolveClinicalDraftSessionContext:m.context}));
 vi.mock('../staffCareEligibility.service.js',()=>({readStaffCareEligibility:m.care,requireStaffCareEligibility:m.care}));
 vi.mock('../../utils/noteAidClientAgency.js',()=>({coerceNoteAidAgencyForClient:async()=>({agencyId:2,memberships:[2]}),canRemapDraftAgency:()=>false,listClientAgencyMembershipIds:async()=>[2]}));
+vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:vi.fn(async()=>({ok:true}))}));
+vi.mock('../clientPayerServiceEligibility.service.js',()=>({clientPayerServiceEligibility:vi.fn(async({codes})=>({serviceCodes:[...(codes || []),'PRO-BONO SERVICE']}))}));
 vi.mock('../billingPolicy.service.js',()=>({listEligiblePolicyServiceCodes:async()=>[],resolvePolicyRuleForServiceCode:async()=>({enabledForAgency:true,allowedForCredentialTier:true})}));
 vi.mock('../billingRules.service.js',async importOriginal=>({...await importOriginal(),loadCredentialOverrides:async()=>new Map(),grantedServiceCodesForProvider:async()=>[]}));
 vi.mock('../clinicalKnowledgeBase.service.js',()=>({getKnowledgeBaseContext:m.knowledge,getKnowledgeBaseEvidence:m.knowledge,noteAidKnowledgeBaseOptions:value=>value}));

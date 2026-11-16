@@ -114,7 +114,7 @@ describe('insurance enrollment', () => {
   it('renders subscriber fields in the intake language without changing stored policy values',async()=>{
     const w=mount(PolicyFields,{props:{modelValue:{relationshipToSubscriber:'child',memberId:'TEST-123'}},global:{provide:{intakeLocale:ref('es')}}});
     expect(w.text()).toContain('Compañía de seguros');expect(w.text()).toContain('ID de miembro');
-    expect(w.find('select').element.value).toBe('child');
+    expect(w.find('select[aria-label="Relationship to subscriber"]').element.value).toBe('child');
     expect(w.findAll('input').some(i=>i.element.value==='TEST-123')).toBe(true);w.unmount();
   });
   it('settles controlled parent updates without a render loop or lost secondary coverage', async () => {

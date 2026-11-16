@@ -48,7 +48,7 @@ it.each([
 ])('blocks an unconfigured Testing reference before creating a claim even for an otherwise approved provider',async(catalog,status,code)=>{
   const testingSession={id:5,agency_id:2,client_id:3,provider_user_id:7,service_code:'96136',duration_minutes:30,place_of_service:'11'};
   const testingNote={...approved,metadata_json:{...approved.metadata_json,serviceCode:'96136',billingPrimaryUnits:1,structuredChart:{durationMinutes:30,placeOfService:'11'}}};
-  m.session.mockResolvedValue(testingSession);m.approved.mockResolvedValue({note:testingNote,session:testingSession});MedicalCodes.findByAgencyAndCode.mockResolvedValue(catalog);
+  m.session.mockResolvedValue(testingSession);m.approved.mockResolvedValue({note:testingNote,session:testingSession});MedicalCodes.findByAgencyAndCode.mockResolvedValue({service_code:'96136',...catalog});
   const next=vi.fn();await createMedicalClaim(request({primaryProcedureCode:'96136'}),response(),next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({status,code}));expect(m.create).not.toHaveBeenCalled();expect(m.begin).not.toHaveBeenCalled();
   expect(testingSession.service_code).toBe('96136');expect(testingNote.metadata_json.serviceCode).toBe('96136');

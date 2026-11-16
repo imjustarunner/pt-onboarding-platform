@@ -17131,7 +17131,7 @@ const loadBookingMetadataForProvider = async () => {
   }
 };
 
-watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIdSet.value].sort().join(','),editorDateYmd],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
+
 
 const modalOfficeRoomOptions = computed(() => {
   const g = officeGrid.value;
@@ -18646,6 +18646,7 @@ const isVirtualTelehealthSession = computed(() => (
 const virtualSessionSelectedClientIdSet = computed(
   () => new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
+watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIds.value].sort().join(','),editorDateYmd],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
 const virtualSessionSelectedGuardianKeySet = computed(
   () => new Set((virtualSessionSelectedGuardianKeys.value || []).map((k) => String(k || '').trim()).filter(Boolean))
 );

@@ -15,7 +15,8 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
  try{
   await db.query(`CREATE DATABASE ${schema}`);await db.query(`USE ${schema}`);
   for(const ddl of [
-   `CREATE TABLE clinical_sessions(id INT PRIMARY KEY,agency_id INT,client_id INT,appointment_id INT,office_event_id INT,provider_user_id INT,service_code VARCHAR(10),place_of_service VARCHAR(3),updated_at DATETIME,scheduled_start_at DATETIME,scheduled_end_at DATETIME,source_timezone VARCHAR(64),metadata_json JSON,encounter_status VARCHAR(20))`,
+   `CREATE TABLE clinical_sessions(id INT PRIMARY KEY,agency_id INT,client_id INT,appointment_id INT,office_event_id INT,provider_user_id INT,service_code VARCHAR(10),place_of_service VARCHAR(3),duration_minutes INT,service_location_id INT,updated_at DATETIME,scheduled_start_at DATETIME,scheduled_end_at DATETIME,source_timezone VARCHAR(64),metadata_json JSON,encounter_status VARCHAR(20))`,
+   `CREATE TABLE clinical_claim_sessions(agency_id INT,clinical_session_id INT)`,
    `CREATE TABLE clinical_notes(id INT PRIMARY KEY,agency_id INT,client_id INT,clinical_session_id INT,is_deleted INT DEFAULT 0,provider_signed_at DATETIME,supervisor_cosigned_at DATETIME,supervisor_cosigned_by_user_id INT,is_billable INT,metadata_json JSON,note_type VARCHAR(30))`,
    `CREATE TABLE clinical_note_revision_heads(clinical_note_id INT,agency_id INT,effective_revision_id INT,pending_revision_id INT)`,
    `CREATE TABLE clinical_note_revisions(id INT,agency_id INT,requires_supervisor_cosign INT,responsible_supervisor_user_id INT,snapshot_json JSON,origin VARCHAR(20))`,
@@ -41,8 +42,8 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   await db.query(`INSERT INTO clinical_note_revisions VALUES(101,1,1,91,'{"isBillable":true,"encounterContext":{"dateOfService":"2025-01-02","serviceCode":"H0002","placeOfService":"10","billingPrimaryUnits":1}}','original'),(104,2,1,91,'{}','original')`);
   await db.query(`INSERT INTO clinical_note_drafts(id,agency_id,client_id,user_id,clinical_session_id,service_code,date_of_service) VALUES(21,1,10,90,2,'90834','2025-01-03'),(22,1,10,90,NULL,'90791','2025-01-04')`);
   const deps={clinical:db,main:db};let result=await loadBillingWorkItems([1],deps);
-  expect(result.items).toHaveLength(3);expect(result.items.find(r=>r.clinical_note_id===11)).toMatchObject({stage:'ready_to_submit',canPrepareClaim:true,client_name:'DEMO One',supervisor_name:'DEMO Supervisor',place_of_service:'10'});
-  expect(result.items.filter(r=>r.stage==='draft')).toHaveLength(2);expect(result.items.some(r=>r.clinical_session_id===3)).toBe(false);
+  expect(result.items).toHaveLength(2);expect(result.items.find(r=>r.clinical_note_id===11)).toMatchObject({stage:'ready_to_submit',canPrepareClaim:true,client_name:'DEMO One',supervisor_name:'DEMO Supervisor',place_of_service:'10'});
+  expect(result.items.filter(r=>r.stage==='draft')).toHaveLength(1);expect(result.items.some(r=>r.clinical_session_id===3)).toBe(false);expect(result.items.some(r=>r.draft_id===22)).toBe(false);
   // Recovery and the queue must agree on a legacy-observed, author-only H0002.
   await db.query(`INSERT INTO clinical_sessions(id,agency_id,client_id,provider_user_id,service_code,encounter_status) VALUES(5,1,10,90,'H0002','completed')`);
   await db.query(`INSERT INTO clinical_notes(id,agency_id,client_id,clinical_session_id,provider_signed_at,is_billable) VALUES(15,1,10,5,'2025-01-03',1)`);
