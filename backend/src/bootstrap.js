@@ -140,6 +140,9 @@ server.listen(PORT, HOST, () => {
       const {requireClientCreationDraftSchema}=await import('./services/clientCreationDraftReadiness.service.js');
       await requireClientCreationDraftSchema();
       console.log('[startup:clients] Encrypted client-creation draft schema verified');
+      const {requireTransitionWeekReadiness}=await import('./services/transitionWeekReadiness.service.js');
+      const transitionReadiness=await requireTransitionWeekReadiness();
+      console.log(`[startup:transition] Rollout and phone-consent schema verified (${transitionReadiness.tables} tables; ${transitionReadiness.migration})`);
       const {requireNoteworthyTrialSchema}=await import('./services/noteworthyReleaseReadiness.service.js');
       await requireNoteworthyTrialSchema();
       console.log('[startup:noteworthy] Trial, encrypted inquiry and durable deletion schema verified');

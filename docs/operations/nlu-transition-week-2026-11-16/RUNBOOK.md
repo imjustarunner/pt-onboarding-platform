@@ -36,7 +36,10 @@ Do not mark `era_monitor` passed merely because an enrollment request was accept
    (`node database/run-migrations.js --migration 1830`). The earlier 1828 prefix was
    changed before release because main now has a different 1828 migration.
    It adds evidence tables; it does not activate users, campaigns, appointments or claims.
-3. Deploy the paired frontend/backend change through normal workflows. Preserve current
+3. Deploy the paired frontend/backend change through normal workflows. Backend startup
+   applies pending migrations and now blocks readiness unless all four rollout/consent
+   tables, required columns and the successful migration-1830 log entry are present.
+   A failed candidate remains unready. Preserve current
    Secret Manager references and encryption material. No new secret is introduced.
 4. Run the synthetic acceptance checks, current-role access checks and production build-ID checks.
 5. Have a currently active practice administrator open and assign each board. A broad legacy

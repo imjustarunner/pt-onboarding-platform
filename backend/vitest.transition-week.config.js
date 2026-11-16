@@ -5,6 +5,7 @@ export default {
     'src/utils/__tests__/transitionWeekPolicy.test.js',
     'src/utils/__tests__/transitionWeekVideo.test.js',
     'src/services/__tests__/transitionWeek.test.js',
+    'src/services/__tests__/transitionWeekReadiness.test.js',
     'src/services/__tests__/smsPhoneEnrollment.test.js',
     'src/controllers/__tests__/transitionWeekAccess.test.js',
     'src/services/__tests__/scheduling.clientSessionBookingRollout.test.js',

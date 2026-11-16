@@ -79,3 +79,13 @@ the additive SQL/table definitions are unchanged from the previous six native ch
 The current focused suites pass 139 backend and 16 frontend tests, and the updated fictional
 browser rehearsal verifies all-workstream visibility and saved video creator/status fields.
 Earlier carrier/native results above remain historical supporting evidence.
+
+## Authorized live-release preparation
+
+The user explicitly authorized live deployment. A fresh Cloud SQL backup was requested
+before release (operation d1958dc4-5b64-4eeb-997e-d84400000043). A fail-closed startup
+readiness check now verifies all four new tables, their required columns, existing chat
+encryption configuration and the successful migration-1830 log entry before app startup.
+Focused validation after this change: 143 backend checks and 16 frontend checks passed.
+Normal Git authentication and the established Google Cloud login are the deployment paths;
+no application user identity, JWT or session is used for release verification.
