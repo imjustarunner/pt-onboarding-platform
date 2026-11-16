@@ -1311,9 +1311,13 @@ export const generateClinicalNote = async (req, res, next) => {
     if(clientId && (!requestedToolId || serviceCode)){
       const access=await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId});
       if(!access.ok || !(await listClientAgencyMembershipIds(clientId)).includes(Number(agencyId)))return res.status(403).json({error:{message:'This client is not available in the selected practice.'}});
-      const eligibility=await clientPayerServiceEligibility({agencyId,clientId,providerUserId:req.user.id,dateOfService,codes:allowedCodes});
-      allowedCodes=eligibility.serviceCodes;
-      if(!allowedCodes.length || (serviceCode && !allowedCodes.includes(serviceCode)))return res.status(403).json({error:{message:eligibility.message || 'This service is not enabled for the client’s payer and coverage category.'}});
+      // Pro bono is a funding choice. Its underlying clinical service still
+      // passes the credential and documentation checks below, independently of insurance.
+      if(!isProBonoServiceCode(serviceCode)){
+        const eligibility=await clientPayerServiceEligibility({agencyId,clientId,providerUserId:req.user.id,dateOfService,codes:allowedCodes});
+        allowedCodes=eligibility.serviceCodes;
+        if(!allowedCodes.length || (serviceCode && !allowedCodes.includes(serviceCode)))return res.status(403).json({error:{message:eligibility.message || 'This service is not enabled for the client’s payer and coverage category.'}});
+      }
     }
     const effectiveAutoSelect = !narrivaWorkflow && !requestedToolId && (autoSelectCode || tier === 'unknown');
     // Billing code optional when an explicit Note Workspace tool (gem) is selected (plans / termination / diagnosis).

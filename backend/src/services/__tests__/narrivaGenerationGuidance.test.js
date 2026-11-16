@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn(),agencies:vi.fn(),care:vi.fn(),client:vi.fn(),guardians:vi.fn(),
-  context:vi.fn(),findDraft:vi.fn(),createDraft:vi.fn(),updateDraft:vi.fn(),knowledge:vi.fn(),model:vi.fn(),custom:vi.fn(),customAccess:vi.fn(),audit:vi.fn()}));
+  context:vi.fn(),findDraft:vi.fn(),createDraft:vi.fn(),updateDraft:vi.fn(),knowledge:vi.fn(),model:vi.fn(),custom:vi.fn(),customAccess:vi.fn(),audit:vi.fn(),payerEligibility:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
@@ -15,7 +15,7 @@ vi.mock('../clinicalDraftSessionContext.service.js',()=>({resolveClinicalDraftSe
 vi.mock('../staffCareEligibility.service.js',()=>({readStaffCareEligibility:m.care,requireStaffCareEligibility:m.care}));
 vi.mock('../../utils/noteAidClientAgency.js',()=>({coerceNoteAidAgencyForClient:async()=>({agencyId:2,memberships:[2]}),canRemapDraftAgency:()=>false,listClientAgencyMembershipIds:async()=>[2]}));
 vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:vi.fn(async()=>({ok:true}))}));
-vi.mock('../clientPayerServiceEligibility.service.js',()=>({clientPayerServiceEligibility:vi.fn(async({codes})=>({serviceCodes:[...(codes || []),'PRO-BONO SERVICE']}))}));
+vi.mock('../clientPayerServiceEligibility.service.js',()=>({clientPayerServiceEligibility:m.payerEligibility}));
 vi.mock('../billingPolicy.service.js',()=>({listEligiblePolicyServiceCodes:async()=>[],resolvePolicyRuleForServiceCode:async()=>({enabledForAgency:true,allowedForCredentialTier:true})}));
 vi.mock('../billingRules.service.js',async importOriginal=>({...await importOriginal(),loadCredentialOverrides:async()=>new Map(),grantedServiceCodesForProvider:async()=>[]}));
 vi.mock('../clinicalKnowledgeBase.service.js',()=>({getKnowledgeBaseContext:m.knowledge,getKnowledgeBaseEvidence:m.knowledge,noteAidKnowledgeBaseOptions:value=>value}));
@@ -37,7 +37,7 @@ const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
 const invoke=async body=>{const req=request(body),res=response(),next=vi.fn();await generateClinicalNote(req,res,next);return {req,res,next};};
 let saved,care;
 beforeEach(()=>{
- vi.clearAllMocks();vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
+ vi.clearAllMocks();m.payerEligibility.mockImplementation(async({codes})=>({serviceCodes:codes || []}));vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
  saved={id:55,user_id:7,agency_id:2,client_id:10,clinical_session_id:20,service_code:'H0004',input_text:'Original saved Session Narrative.',output_json:JSON.stringify({sections:{Subjective:'Original saved note.'},meta:{serviceCode:'H0004'}})};
  care={credential:'BA',credentialTier:'bachelors',agencyRole:'provider',canProvideCare:true};
  m.care.mockImplementation(async()=>care);m.agencies.mockResolvedValue([{id:2}]);
@@ -75,6 +75,11 @@ describe('actual clinical generator shared service guidance boundary',()=>{
   expect(output.meta.guidanceSnapshot).toMatchObject({serviceCode:'H0004',supportCoverageComplete:true,supportingDocumentCount:2,guidanceHash:expect.stringMatching(/^[a-f0-9]{64}$/),serviceReferenceHash:expect.stringMatching(/^[a-f0-9]{64}$/)});
   expect(JSON.parse(maybeDecryptNotePayload(saved.output_json)).meta.guidanceSnapshot).toEqual(output.meta.guidanceSnapshot);
  });
+ it('blocks a payer-disallowed insured service before generation or draft mutation',async()=>{
+  m.payerEligibility.mockResolvedValue({serviceCodes:[],message:'Service not enabled for this coverage'});
+  const before=structuredClone(saved),{res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(403);expect(m.model).not.toHaveBeenCalled();expect(m.updateDraft).not.toHaveBeenCalled();expect(saved).toEqual(before);
+  expect(m.payerEligibility).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:10,providerUserId:7}));
+ });
  it('includes authorized custom owner training through the same complete guidance path',async()=>{
   m.custom.mockResolvedValue({enabled:1,system_prompt:'CUSTOM_SYSTEM_CANARY',training_notes:'CUSTOM_TRAINING_CANARY',guidance:'CUSTOM_EXAMPLE_CANARY',kbFolders:['custom_examples']});
   const {res,next}=await invoke({aidId:'custom_9'});expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
@@ -99,7 +104,7 @@ describe('actual clinical generator shared service guidance boundary',()=>{
   expect(prompt).toContain(underlying.serviceDescription);expect(prompt).toContain(funding.serviceDescription);expect(prompt).toContain('Keep clinical service and pro bono funding separate');
   expect(m.context.mock.calls.every(([context])=>context.serviceCode==='PRO-BONO SERVICE')).toBe(true);
   expect(m.updateDraft).toHaveBeenCalledWith(expect.objectContaining({patch:expect.objectContaining({serviceCode:'PRO-BONO SERVICE'})}));
-  expect(saved.service_code).toBe('PRO-BONO SERVICE');
+  expect(saved.service_code).toBe('PRO-BONO SERVICE');expect(m.payerEligibility).not.toHaveBeenCalled();
   expect(res.json.mock.calls[0][0].outputJson.meta).toMatchObject({serviceCode:'PRO-BONO SERVICE',underlyingServiceCode:'H0004',guidanceSnapshot:{serviceCode:'H0004'}});
   expect(m.knowledge).toHaveBeenCalledWith(expect.objectContaining({query:'H0004'}));
  });
