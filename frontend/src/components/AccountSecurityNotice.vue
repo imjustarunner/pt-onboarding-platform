@@ -1,24 +1,25 @@
 <template>
   <span v-if="auth.user?.id && !auth.user?.demoMode" ref="anchor" class="security-menu" @keydown.esc.stop="menuOpen = false">
-    <button ref="trigger" class="security-trigger" type="button" :aria-expanded="menuOpen" aria-controls="workspace-security-menu" @click="toggleMenu">Security <span v-if="needsVerification || protectionRequired" class="security-status">Action needed</span><span v-else-if="summary.requests" class="security-status">{{ summary.requests }}</span> ▾</button>
-    <Teleport to="body"><aside v-show="menuOpen" id="workspace-security-menu" ref="menu" class="account-security-notice" :style="menuStyle" aria-label="Security" @keydown.esc.stop="menuOpen = false; trigger?.focus()">
-    <strong>Security</strong>
-    <p class="security-explainer">Blocked requests are actions the system stopped for review, including repeated retries and sign-in limits. They do not mean an account owner acted maliciously.</p>
-    <p v-if="needsVerification">{{ state?.enabled ? 'Verify your sign-in to open protected client information.' : 'Protect client privacy: set up two-step verification to view full names and open client documents.' }}</p>
-    <p v-else-if="state?.guardianAccount && !state?.enabled">Protect your family’s portal with a passkey, authenticator, or email verification. Each parent sets up their own sign-in protection.</p>
-    <p v-if="protectionRequired">{{ protectionMessage }} <button type="button" class="request-toggle" :aria-expanded="showRequest" :disabled="requestBusy" @click="requestAccess">{{ requestBusy ? 'Sending request…' : 'Request access' }}</button></p>
-    <p v-if="requestMessage" role="status">{{ requestMessage }}</p>
-    <p v-if="requestError" role="alert">{{ requestError }}</p>
+    <button ref="trigger" class="security-trigger" type="button" :aria-expanded="menuOpen" aria-controls="workspace-security-menu" @click="toggleMenu">{{ ft("Security") }} <span v-if="needsVerification || protectionRequired" class="security-status">{{ ft("Action needed") }}</span><span v-else-if="summary.requests" class="security-status">{{ summary.requests }}</span> ▾</button>
+    <Teleport to="body"><aside v-show="menuOpen" id="workspace-security-menu" ref="menu" class="account-security-notice" :style="menuStyle" :aria-label="ft('Security')" @keydown.esc.stop="menuOpen = false; trigger?.focus()">
+    <strong>{{ ft("Security") }}</strong>
+    <p class="security-explainer">{{ ft('Blocked requests are actions the system stopped for review, including repeated retries and sign-in limits. They do not mean an account owner acted maliciously.') }}</p>
+    <p v-if="needsVerification">{{ ft(state?.enabled ? 'Verify your sign-in to open protected client information.' : 'Protect client privacy: set up two-step verification to view full names and open client documents.') }}</p>
+    <p v-else-if="state?.guardianAccount && !state?.enabled">{{ ft('Protect your family’s portal with a passkey, authenticator, or email verification. Each parent sets up their own sign-in protection.') }}</p>
+    <p v-if="protectionRequired">{{ ft(protectionMessage) }} <button type="button" class="request-toggle" :aria-expanded="showRequest" :disabled="requestBusy" @click="requestAccess">{{ ft(requestBusy ? 'Sending request…' : 'Request access') }}</button></p>
+    <p v-if="requestMessage" role="status">{{ ft(requestMessage) }}</p>
+    <p v-if="requestError" role="alert">{{ ft(requestError) }}</p>
     <ActivityProtectionPanel v-if="protectionRequired && showRequest" />
-    <p v-if="protectionUnavailable">Access-review status could not be checked. Open Security &amp; sign-in activity for the current status.</p>
-    <p v-if="summaryUnavailable">Security alert counts are unavailable. Open Privacy review to check the queue.</p>
+    <p v-if="protectionUnavailable">{{ ft('Access-review status could not be checked. Open Security & sign-in activity for the current status.') }}</p>
+    <p v-if="summaryUnavailable">{{ ft('Security alert counts are unavailable. Open Privacy review to check the queue.') }}</p>
     <p v-if="summary.alerts || summary.requests"><router-link to="/privacy-review" @click="menuOpen = false">Review security activity: {{ summary.alerts }} unreviewed blocked requests<template v-if="Number.isFinite(summary.accounts)"> affecting {{ summary.accounts }} accounts</template><template v-if="summary.unidentified"> · {{ summary.unidentified }} unidentified attempts</template> · {{ summary.requests }} file-access requests</router-link></p>
-    <p v-if="state?.canReviewPrivacy"><router-link to="/privacy-review" @click="menuOpen = false">Privacy review queue</router-link></p>
-    <router-link to="/account-security" @click="menuOpen = false">{{ needsVerification ? (state?.passkeyEnabled ? 'Verify with a passkey or recover access' : state?.method === 'email' ? 'Verify with an email code' : 'Set up or verify two-step verification') : 'Security & sign-in activity' }}</router-link>
+    <p v-if="state?.canReviewPrivacy"><router-link to="/privacy-review" @click="menuOpen = false">{{ ft('Privacy review queue') }}</router-link></p>
+    <router-link to="/account-security" @click="menuOpen = false">{{ ft(needsVerification ? (state?.passkeyEnabled ? 'Verify with a passkey or recover access' : state?.method === 'email' ? 'Verify with an email code' : 'Set up or verify two-step verification') : 'Security & sign-in activity') }}</router-link>
   </aside></Teleport></span>
   <FileAccessReviewToasts v-if="auth.user?.id && state?.canReviewPrivacy && !needsVerification" :key="auth.user?.id" :user-id="auth.user.id" />
 </template>
 <script setup>
+import {familyTranslator,useActiveFamilyLocale} from '../composables/useFamilyLocale';
 import {canPollWorkspace,useSessionPolling} from '../composables/useSessionPolling';
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -27,6 +28,7 @@ import api from '../services/api';
 import ActivityProtectionPanel from './ActivityProtectionPanel.vue';
 import FileAccessReviewToasts from './FileAccessReviewToasts.vue';
 const auth = useAuthStore(), state = ref(null), protectionRequired = ref(false), summary = ref({}), summaryUnavailable = ref(false);
+const ft=familyTranslator(useActiveFamilyLocale(computed(()=>auth.user?.id)));
 const anchor = ref(null), trigger = ref(null), menu = ref(null), menuOpen = ref(false), menuStyle = ref({});
 function positionMenu() {
   const bounds = trigger.value?.getBoundingClientRect();
