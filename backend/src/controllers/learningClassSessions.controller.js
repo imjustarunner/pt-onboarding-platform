@@ -1,6 +1,7 @@
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import { createTutoringPayrollDraft } from '../services/tutoringPayroll.service.js';
 import { learningServiceMetadata } from '../services/learningServiceCompensation.js';
+import { linkedTutoringBilling, requireLinkedTutoringCompletion, settleLinkedTutoringCompletion } from '../services/tutoringAppointmentSettlement.service.js';
 import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
 import pool from '../config/database.js';
 import multer from 'multer';
@@ -348,6 +349,10 @@ export async function triggerPostSessionCharge(session) {
     if (students.length !== 1) return;
     const clientId = Number(students[0].client_id);
     if (!clientId || (session.client_id && Number(session.client_id) !== clientId)) return;
+    const linked=await linkedTutoringBilling(session);
+    if(linked && (linked.noAutomaticPayment || linked.appointment.status!=='completed'
+      || linked.appointment.packageEntitlementId || linked.billing?.settlementMode==='package'
+      || linked.billing?.paymentStatus!=='fee_pending')) return;
     // Only charge if the tutor has POST_SESSION policy
     const [profileRows] = await pool.execute(
       `SELECT p.session_rate_cents, p.payment_policy, p.user_id AS provider_user_id
@@ -358,7 +363,7 @@ export async function triggerPostSessionCharge(session) {
     );
     const profile = profileRows?.[0];
     if (!profile || String(profile.payment_policy || '').toUpperCase() !== 'POST_SESSION') return;
-    const rateCents = Number(profile.session_rate_cents || 0);
+    const rateCents = Number(linked ? linked.billing?.amountCents : profile.session_rate_cents || 0);
     if (!Number.isSafeInteger(rateCents) || rateCents <= 0) return;
 
     // Only a specific, active payer/card authorization can trigger a charge.
@@ -376,6 +381,12 @@ export async function triggerPostSessionCharge(session) {
       (agency_id, client_id, guardian_user_id, amount_cents, total_cents, currency, charge_status, idempotency_key, learning_class_session_id)
       VALUES (?, ?, ?, ?, ?, 'USD', 'PENDING', ?, ?)
       ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, [agencyId, clientId, payers[0].guardian_user_id, rateCents, rateCents, key, sessionId]);
+    if(linked){
+      const [[charge]]=await pool.execute('SELECT amount_cents,total_cents,client_id,agency_id FROM learning_session_charges WHERE id=?',[created.insertId]);
+      if(!charge || Number(charge.amount_cents)!==rateCents || Number(charge.total_cents)!==rateCents
+          || Number(charge.client_id)!==clientId || Number(charge.agency_id)!==agencyId)
+        throw Object.assign(new Error('The existing payment attempt differs from the booked price. Review it before retrying.'),{status:409});
+    }
     await payFamilyCharge({ agencyId, userId: payers[0].guardian_user_id, chargeId: created.insertId, automatic: true });
   } catch (err) {
     // Non-fatal: log but do not disrupt the session-end flow
@@ -391,9 +402,12 @@ async function prepareSessionPayroll(sessionId, actorUserId) {
 export async function completeLearningSession(sessionId,actorUserId,transcript=null) {
     const session=await LearningClassSession.findById(sessionId);
     if(!session)throw Object.assign(new Error('Session not found'),{status:404});
-    // A finished visit keeps its original time, transcript and billing action.
-    // Retrying repairs only a missing payroll draft; the draft creator is idempotent.
-    if(session.status==='ended')return {session,...await prepareSessionPayroll(sessionId,actorUserId),message:'Session ended.'};
+    const linked=await linkedTutoringBilling(session);
+    await requireLinkedTutoringCompletion(linked,session);
+    // A retry keeps the original time/transcript and repairs only idempotent
+    // appointment settlement and payroll drafts. It never repeats an auto-charge.
+    const endedResult=async saved=>{const billing=await settleLinkedTutoringCompletion(linked,actorUserId);return {session:saved,...billing,...await prepareSessionPayroll(sessionId,actorUserId),message:billing.billingWarning||'Session ended.'};};
+    if(session.status==='ended')return endedResult(session);
     // Support optional transcript submission from frontend or Vonage webhook
     let transcriptText = transcript || null;
     if (!transcriptText && String(session?.delivery_context || '').toLowerCase() === 'in_person') {
@@ -408,9 +422,10 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
     if (!freshSession) throw Object.assign(new Error('Session not found'), {status:404});
     if (!completed) {
       if (freshSession.status !== 'ended') throw Object.assign(new Error('This session cannot be completed in its current status.'), {status:409});
-      return {session:freshSession,...await prepareSessionPayroll(sessionId,actorUserId),message:'Session ended.'};
+      return endedResult(freshSession);
     }
 
+    const billingResult=await settleLinkedTutoringCompletion(linked,actorUserId);
     // If this is a tutoring session, trigger AI transcript analysis for strengths/needs, standards mapping,
     // progress update, and guardian homework generation (non-blocking)
     if (freshSession?.session_subtype === 'tutoring' || String(freshSession?.mode || '').toLowerCase() === 'individual') {
@@ -420,7 +435,7 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
       });
       // Homework Help has its own service price and authorization; the tutoring
       // profile price does not authorize charging for that separate service.
-      if (String(learningServiceMetadata(freshSession).learningServiceCode || 'TUTORING').toUpperCase() === 'TUTORING') {
+      if (!billingResult.billingWarning && String(learningServiceMetadata(freshSession).learningServiceCode || 'TUTORING').toUpperCase() === 'TUTORING') {
         setImmediate(() => {
           triggerPostSessionCharge(freshSession)
             .catch(err => console.error('Background post-session charge failed:', err));
@@ -431,12 +446,12 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
     const { payrollDraft, payrollWarning } = await prepareSessionPayroll(sessionId, actorUserId);
     await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: actorUserId });
     return {
-      session: freshSession, payrollDraft, payrollWarning,
-      message: freshSession?.session_subtype === 'tutoring'
+      session: freshSession, payrollDraft, payrollWarning, ...billingResult,
+      message: billingResult.billingWarning || (freshSession?.session_subtype === 'tutoring'
         ? (String(freshSession?.delivery_context || '').toLowerCase() === 'in_person'
             ? 'In-person tutoring session ended. AI is analyzing tutor notes and saved responses for the progress summary and homework.'
             : 'Tutoring session ended. AI analyzing transcript for progress summary, strengths, needs work, and standards alignment. Guardian portal updated with homework.')
-        : 'Session ended successfully.' 
+        : 'Session ended successfully.')
     };
 }
 

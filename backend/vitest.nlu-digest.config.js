@@ -3,6 +3,8 @@ export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{vites
 'src/services/__tests__/familyLedger.tutoringServiceScope.test.js',
 'src/services/__tests__/tutoringSessionPrice.test.js',
 'src/services/__tests__/qaAppointmentBilling.test.js',
+'src/services/__tests__/tutoringAppointmentSettlement.test.js',
+'src/services/__tests__/learningSessionCompletion.test.js',
 'src/services/__tests__/qaSessionNotificationWorker.test.js',
 'src/controllers/__tests__/bookingOptions.tutoringQuote.test.js',
 'src/controllers/__tests__/availability.tutoringFinder.test.js',

@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ find:vi.fn(), update:vi.fn(), complete:vi.fn(), transcript:vi.fn(), payroll:vi.fn(), telemetry:vi.fn(), access:vi.fn(), database:vi.fn(), summary:vi.fn(), pay:vi.fn() }));
+const m = vi.hoisted(() => ({ find:vi.fn(), update:vi.fn(), complete:vi.fn(), transcript:vi.fn(), payroll:vi.fn(), telemetry:vi.fn(), access:vi.fn(), database:vi.fn(), summary:vi.fn(), pay:vi.fn(),linked:vi.fn(),requireCompletion:vi.fn(),settle:vi.fn() }));
+vi.mock('../tutoringAppointmentSettlement.service.js',()=>({linkedTutoringBilling:m.linked,requireLinkedTutoringCompletion:m.requireCompletion,settleLinkedTutoringCompletion:m.settle}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.database}}));
 vi.mock('../../models/LearningClassSession.model.js',()=>({default:{findById:m.find,update:m.update,completeOnce:m.complete,updateWithJson:m.transcript}}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:value=>`encrypted:${value}`,maybeDecryptNotePayload:value=>value}));
@@ -22,6 +23,7 @@ const ended={id:90,status:'ended',ends_at:'2026-10-29 20:00:00',session_subtype:
 let queued;
 beforeEach(()=>{
  vi.clearAllMocks();queued=[];
+ m.linked.mockResolvedValue(null);m.requireCompletion.mockResolvedValue();m.settle.mockResolvedValue({});
  vi.spyOn(globalThis,'setImmediate').mockImplementation(callback=>{queued.push(callback);return 0;});
  m.find.mockResolvedValue(ended);
  m.update.mockResolvedValue(ended);
@@ -32,12 +34,13 @@ beforeEach(()=>{
  m.pay.mockResolvedValue({paid:true});
 });
 const billableSession={...ended,organization_id:6,provider_user_id:20};
-function billingRows({students=[{client_id:40}],profile={payment_policy:'POST_SESSION',session_rate_cents:4500},payers=[{guardian_user_id:50}]}={}) {
+function billingRows({students=[{client_id:40}],profile={payment_policy:'POST_SESSION',session_rate_cents:4500},payers=[{guardian_user_id:50}],charge={amount_cents:100,total_cents:100,client_id:40,agency_id:6}}={}) {
  m.database.mockImplementation(async sql=>{
   if(sql.includes('FROM learning_class_sessions'))return [students];
   if(sql.includes('FROM provider_tutoring_profiles'))return [[profile]];
   if(sql.includes('FROM client_billing_payers'))return [payers];
   if(sql.includes('INSERT INTO learning_session_charges'))return [{insertId:100}];
+  if(sql.startsWith('SELECT amount_cents,total_cents'))return [[charge]];
   throw new Error('Unexpected billing query');
  });
 }
@@ -47,6 +50,18 @@ it('resolves the verified session agency/student and preserves the existing cons
  expect(m.database.mock.calls.find(([q])=>q.includes('FROM client_billing_payers'))[1]).toEqual([40,6,4500]);
  expect(m.database.mock.calls.find(([q])=>q.includes('INSERT INTO learning_session_charges'))[1]).toEqual([6,40,50,4500,4500,'post_session:6:90',90]);
  expect(m.pay).toHaveBeenCalledWith({agencyId:6,userId:50,chargeId:100,automatic:true});
+});
+it('uses the immutable booked one-dollar price instead of a later flat profile rate',async()=>{
+ billingRows();m.linked.mockResolvedValue({appointment:{id:331,status:'completed'},billing:{amountCents:100,paymentStatus:'fee_pending'}});
+ await triggerPostSessionCharge(billableSession);
+ expect(m.database.mock.calls.find(([q])=>q.includes('INSERT INTO learning_session_charges'))[1]).toEqual([6,40,50,100,100,'post_session:6:90',90]);
+ expect(m.database.mock.calls.find(([q])=>q.includes('FROM client_billing_payers'))[1]).toEqual([40,6,100]);expect(m.pay).toHaveBeenCalledTimes(1);
+});
+it.each([{noAutomaticPayment:true},{appointment:{status:'completed',packageEntitlementId:77}},{billing:{amountCents:100,paymentStatus:'package_consumed'}},{billing:{amountCents:0,paymentStatus:'waived'}}])('does not automatically charge a QA or covered canonical visit: %j',async patch=>{
+ billingRows();m.linked.mockResolvedValue({appointment:{id:331,status:'completed'},billing:{amountCents:100,paymentStatus:'fee_pending'},...patch});await triggerPostSessionCharge(billableSession);expect(m.pay).not.toHaveBeenCalled();expect(m.database.mock.calls.some(([q])=>q.includes('INSERT INTO learning_session_charges'))).toBe(false);
+});
+it('does not retry an existing payment attempt at a different amount',async()=>{
+ const error=vi.spyOn(console,'error').mockImplementation(()=>{});billingRows({charge:{amount_cents:4500,total_cents:4500,client_id:40,agency_id:6}});m.linked.mockResolvedValue({appointment:{id:331,status:'completed'},billing:{amountCents:100,paymentStatus:'fee_pending'}});await triggerPostSessionCharge(billableSession);expect(m.pay).not.toHaveBeenCalled();expect(error).toHaveBeenCalledWith(expect.any(String),expect.stringContaining('differs from the booked price'));
 });
 it.each([{payers:[]},{payers:[{guardian_user_id:50},{guardian_user_id:51}]},{profile:{payment_policy:'MANUAL',session_rate_cents:4500}},{profile:{payment_policy:'POST_SESSION',session_rate_cents:0}},{students:[]},{students:[{client_id:40},{client_id:41}]}])('does not create or collect a charge without one authorized student, payer and price: %j',async rows=>{
  billingRows(rows);await triggerPostSessionCharge(billableSession);
@@ -87,6 +102,13 @@ it('preserves the existing tutoring completion tasks and reports payroll review 
  expect(await completeLearningSession(90,20)).toMatchObject({session:ended,payrollWarning:'Confirm actual time'});
  expect(queued).toHaveLength(2);
 });
+it('settles the linked appointment before returning completed learning attendance',async()=>{
+ const session={...ended,status:'live',actual_started_at:'2026-10-29 19:00:00',metadata_json:{learningServiceCode:'TUTORING'}};const linked={appointment:{id:331}};
+ m.find.mockResolvedValueOnce(session).mockResolvedValueOnce({...session,status:'ended'});m.linked.mockResolvedValue(linked);m.settle.mockResolvedValue({billingSettlement:{paymentStatus:'package_consumed'}});
+ expect(await completeLearningSession(90,20)).toMatchObject({billingSettlement:{paymentStatus:'package_consumed'}});expect(m.requireCompletion).toHaveBeenCalledWith(linked,session);expect(m.settle).toHaveBeenCalledWith(linked,20);
+});
+it('rejects early QA completion before changing the learning record',async()=>{m.requireCompletion.mockRejectedValueOnce(Object.assign(new Error('Wait for actual end'),{status:409}));await expect(completeLearningSession(90,20)).rejects.toMatchObject({status:409});expect(m.complete).not.toHaveBeenCalled();expect(m.pay).not.toHaveBeenCalled();});
+it('returns billing review separately without repeating an automatic charge',async()=>{const session={...ended,status:'live',metadata_json:{learningServiceCode:'TUTORING'}};m.find.mockResolvedValueOnce(session).mockResolvedValueOnce({...session,status:'ended'});m.settle.mockResolvedValue({billingWarning:'Review package credit with the office.'});expect(await completeLearningSession(90,20)).toMatchObject({billingWarning:'Review package credit with the office.',message:'Review package credit with the office.'});expect(queued).toHaveLength(1);});
 it('does not restart a completed visit and change the basis of an existing payroll submission',async()=>{
  m.access.mockResolvedValue({session:ended,canModerate:true});
  const response={status:vi.fn().mockReturnThis(),json:vi.fn()};
