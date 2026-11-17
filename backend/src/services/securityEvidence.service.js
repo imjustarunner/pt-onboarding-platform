@@ -40,7 +40,7 @@ export async function assertEvidenceStorage() {
     ['counseling_session_visits', '1560', 'client_id,entry_method,office_visit_id'],
     ['therapy_session_artifacts', '1530', 'session_kind,session_id,generation,agency_id,payload_envelope'],
     ['tutoring_session_visits', '1838', 'session_id,user_id,client_id,actor,status,admitted_at,ended_at'],
-    ['learning_class_sessions', '1838', 'actual_ended_at']
+    ['learning_class_sessions', '1838', 'actual_ended_at,booked_media_id']
   ];
   for (const [component, requiredMigration, columns] of probes) {
     try { await pool.execute(`SELECT ${columns} FROM ${component} LIMIT 0`); }

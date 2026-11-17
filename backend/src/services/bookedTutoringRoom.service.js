@@ -86,7 +86,7 @@ export async function tutoringRoomStatus(ctx) {
  const safe={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,providerId:ctx.appointment.providerUserId,host:ctx.host,title:String(ctx.appointment.title||'General tutoring').replace(/\bTUTORING\b/g,'Tutoring').replace(/Clinical session/gi,'Tutoring session'),timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),...window,unavailableReason:terminal.has(ctx.appointment.status)?'This appointment was canceled or changed. Open the current booking from your calendar.':null,sessionId:session?.id||null,status:terminal.has(ctx.appointment.status)?ctx.appointment.status:session?.status||ctx.appointment.status,startedAt:utcMysqlToIso(session?.actual_started_at),endedAt:utcMysqlToIso(session?.actual_ended_at),branding:await buildPublicFormBrandingForAgencyId(ctx.appointment.agencyId)};
  if (!session)return {...safe,visits:[],visit:null};
  const [visits]=await pool.execute(`SELECT v.id,v.user_id AS userId,v.status,v.admitted_at AS admittedAt,v.ended_at AS endedAt,v.duration_seconds AS durationSeconds,CONCAT_WS(' ',u.first_name,u.last_name) AS displayName FROM tutoring_session_visits v JOIN users u ON u.id=v.user_id WHERE v.session_id=? ${ctx.host?'':'AND v.user_id=?'} ORDER BY v.id`,ctx.host?[session.id]:[session.id,ctx.req.user.id]);
- const room=session.twilio_room_sid?await media.clinicalMedia(session.twilio_room_sid):null;
+ const room=session.booked_media_id?await media.clinicalMedia(session.booked_media_id):null;
  if(ctx.host){const durations=await media.clinicalAttendance('tutoring',session.id);return {...safe,roomState:room?.state||'idle',visits:visits.map(v=>({...v,mediaDurationSeconds:durations.get(Number(v.id))??null}))};}
  const visit=visits.at(-1)||null;
  if(visit&&['waiting','admitted'].includes(visit.status))await pool.execute('UPDATE tutoring_session_visits SET last_seen_at=UTC_TIMESTAMP() WHERE id=?',[visit.id]);
@@ -99,12 +99,12 @@ export async function openBookedTutoringRoom(ctx) {
   await lockAppointment(ctx,db);requireOpen(ctx);
   const session=await prepareSession(ctx,db);
   if(session.status==='ended')throw fail(410,'This tutoring session has ended.');
-  let mediaId=session.twilio_room_sid;
+  let mediaId=session.booked_media_id;
   if(mediaId){const current=await media.clinicalMedia(mediaId,db,true);if(!current||current.session_kind!=='tutoring')throw fail(409,'This older visit uses the previous room. Ask Support to close it; its evidence will be kept.');await media.requireActiveClinicalMedia(mediaId,db);}
   else {
    mediaId=await Video.createSession();
    await media.registerClinicalMedia(mediaId,{kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,req:ctx.req},db);
-   await db.execute('UPDATE learning_class_sessions SET twilio_room_sid=?,twilio_room_unique_name=? WHERE id=?',[mediaId,`tutoring-appointment-${ctx.appointment.id}`,session.id]);
+   await db.execute('UPDATE learning_class_sessions SET booked_media_id=? WHERE id=?',[mediaId,session.id]);
    await audit(ctx,session,'tutoring_room_opened',{},db);
   }
   return {sessionId:mediaId,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(mediaId,{actor:ctx.actor,role:'provider',req:ctx.req},db),participantRole:'provider'};
@@ -128,8 +128,8 @@ export async function admitBookedTutoringParticipant(ctx,visitId) {
  return transact(async db=>{
   await lockAppointment(ctx,db);requireOpen(ctx);
   const session=await linkedSession(ctx,db,true);
-  if(!session?.twilio_room_sid||session.status==='ended')throw fail(409,'Open this tutoring room first.');
-  await media.requireMonitoredProvider(session.twilio_room_sid,db);
+  if(!session?.booked_media_id||session.status==='ended')throw fail(409,'Open this tutoring room first.');
+  await media.requireMonitoredProvider(session.booked_media_id,db);
   const [[visit]]=await db.execute("SELECT * FROM tutoring_session_visits WHERE id=? AND session_id=? AND client_id=? AND status='waiting' FOR UPDATE",[Number(visitId),session.id,ctx.clientId]);
   if(!visit)throw fail(409,'This participant is no longer waiting for this appointment.');
   // Recheck family authorization at admission, not only when entering the lobby.
@@ -147,16 +147,16 @@ export async function bookedTutoringToken(ctx) {
  return transact(async db=>{
   await lockAppointment(ctx,db);requireOpen(ctx);
   const session=await linkedSession(ctx,db,true);
-  if(!session?.twilio_room_sid||session.status==='ended')throw fail(409,'Wait for your tutor to open this session.');
+  if(!session?.booked_media_id||session.status==='ended')throw fail(409,'Wait for your tutor to open this session.');
   const [[visit]]=await db.execute("SELECT id FROM tutoring_session_visits WHERE session_id=? AND user_id=? AND client_id=? AND status='admitted' ORDER BY id DESC LIMIT 1",[session.id,ctx.req.user.id,ctx.clientId]);
   if(!visit)throw fail(403,'Wait for your tutor to admit you to this appointment.');
-  return {sessionId:session.twilio_room_sid,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(session.twilio_room_sid,{actor:ctx.actor,role:'client',visitId:visit.id,req:ctx.req},db),participantRole:'client'};
+  return {sessionId:session.booked_media_id,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(session.booked_media_id,{actor:ctx.actor,role:'client',visitId:visit.id,req:ctx.req},db),participantRole:'client'};
  });
 }
 export async function leaveBookedTutoringRoom(ctx) {
  await transact(async db=>{
   await lockAppointment(ctx,db);const session=await linkedSession(ctx,db,true);if(!session)return;
-  if(session.twilio_room_sid)await media.revokeClinicalActor(session.twilio_room_sid,ctx.actor,db);
+  if(session.booked_media_id)await media.revokeClinicalActor(session.booked_media_id,ctx.actor,db);
   await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND user_id=? AND status IN ('waiting','admitted')",[session.id,ctx.req.user.id]);
   await audit(ctx,session,'tutoring_participant_left',{},db);
  });
@@ -168,12 +168,12 @@ export async function endBookedTutoringRoom(ctx) {
  await transact(async db=>{
   await lockAppointment(ctx,db);session=await linkedSession(ctx,db,true);
   if(!session)throw fail(409,'This appointment has no opened tutoring room.');
-  if(session.twilio_room_sid)await media.requestClinicalEnd(session.twilio_room_sid,ctx.req,db);
+  if(session.booked_media_id)await media.requestClinicalEnd(session.booked_media_id,ctx.req,db);
   await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND status IN ('waiting','admitted')",[session.id]);
   await db.execute("UPDATE learning_class_sessions SET status=IF(actual_started_at IS NULL,'ended',status),ends_at=COALESCE(actual_ended_at,UTC_TIMESTAMP()),actual_ended_at=COALESCE(actual_ended_at,UTC_TIMESTAMP()),ended_by_user_id=COALESCE(ended_by_user_id,?) WHERE id=?",[ctx.req.user.id,session.id]);
   await audit(ctx,session,'tutoring_room_ended',{},db);
  });
- const disconnected=session.twilio_room_sid?await media.finishClinicalEnd(session.twilio_room_sid):{state:'ended'};
+ const disconnected=session.booked_media_id?await media.finishClinicalEnd(session.booked_media_id):{state:'ended'};
  let billingWarning=null;
  if(session.actual_started_at){try{const {completeLearningSession}=await import('../controllers/learningClassSessions.controller.js');const result=await completeLearningSession(session.id,ctx.req.user.id);billingWarning=result?.billingWarning||null;}catch(error){await pool.execute("UPDATE learning_class_sessions SET status='ended' WHERE id=? AND actual_ended_at IS NOT NULL",[session.id]);billingWarning=`The session is closed and attendance was kept. Billing needs office review: ${error.message}`;}}
  return {...disconnected,appointmentId:ctx.appointment.id,learningSessionId:session.id,billingWarning};
@@ -198,10 +198,10 @@ export async function closeChangedBookedTutoringRoom(appointment,actorUserId){
  await transact(async db=>{
   const ctx={appointment};await lockAppointment(ctx,db);
   const [[session]]=await db.execute(`SELECT s.* FROM tutoring_appointment_sessions b JOIN learning_class_sessions s ON s.id=b.session_id WHERE b.appointment_id=? FOR UPDATE`,[appointment.id]);
-  if(!session?.twilio_room_sid)return;
-  const current=await media.clinicalMedia(session.twilio_room_sid,db,true);
+  if(!session?.booked_media_id)return;
+  const current=await media.clinicalMedia(session.booked_media_id,db,true);
   if(current?.session_kind!=='tutoring')return; // Preserve older office evidence.
-  mediaId=session.twilio_room_sid;await media.requestClinicalEnd(mediaId,null,db);
+  mediaId=session.booked_media_id;await media.requestClinicalEnd(mediaId,null,db);
   await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND status IN ('waiting','admitted')",[session.id]);
   await db.execute("UPDATE learning_class_sessions SET status='ended',actual_ended_at=IF(actual_started_at IS NULL,actual_ended_at,COALESCE(actual_ended_at,UTC_TIMESTAMP())),ends_at=IF(actual_started_at IS NULL,ends_at,COALESCE(actual_ended_at,UTC_TIMESTAMP())) WHERE id=?",[session.id]);
   await clinicalAudit({kind:'tutoring',sessionId:session.id,agencyId:appointment.agencyId,actor:'scheduling-system'},'tutoring_booking_room_closed',{appointmentId:appointment.id,cancellationActorUserId:actorUserId||null},db);
