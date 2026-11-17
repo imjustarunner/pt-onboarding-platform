@@ -39,6 +39,17 @@ describe('professional staff directory',()=>{
   expect(m.execute.mock.calls.some(([sql])=>sql.includes('office_standing_assignments'))).toBe(false);
   expect(JSON.stringify(staff)).not.toMatch(/private@|personal@|555-999|personal_phone/);
  });
+ it.each([[453,'nlu-qa-demo'],[454,'nlu-qa-learning']])('includes active retained QA staff in exact NLU organization %s',async(id,slug)=>{
+  req.query.agencyId=id;m.agencies.mockResolvedValue([{id}]);const previous=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,params)=>sql.startsWith('SELECT id,slug')?[[{id,slug,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}}]]:previous(sql,params));
+  await getStaffDirectory(req,res,next);expect(next).not.toHaveBeenCalled();
+  const [sql,args]=m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'));expect(args.slice(0,3)).toEqual([id,1,1]);expect(sql).toContain('ua.is_active=1');expect(sql).toContain('COALESCE(u.is_archived,0)=0');
+ });
+ it.each([[6,'nlu',{qaSandbox:{syntheticOnly:true,program:'tutoring'}}],[453,'other',{qaSandbox:{syntheticOnly:true,program:'tutoring'}}],[453,'nlu-qa-demo',{}]])('keeps fixture exceptions out of live/mismatched/unverified organizations (%s/%s)',async(id,slug,feature_flags)=>{
+  req.query.agencyId=id;m.agencies.mockResolvedValue([{id}]);const previous=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,params)=>sql.startsWith('SELECT id,slug')?[[{id,slug,feature_flags}]]:previous(sql,params));
+  await getStaffDirectory(req,res,next);expect(m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'))[1].slice(0,3)).toEqual([id,0,0]);
+ });
  it.each(['client_guardian','school_staff','kiosk'])('denies %s accounts before querying directory data',async role=>{
   req.user.role=role;await getStaffDirectory(req,res,next);expect(res.status).toHaveBeenCalledWith(403);expect(m.execute).not.toHaveBeenCalled();
  });
