@@ -14,7 +14,7 @@ export async function readSchoolWeekdays(providerId, agencyId, database = pool) 
       OR EXISTS(SELECT 1 FROM agency_schools legacy WHERE legacy.school_organization_id=school.id AND legacy.agency_id=? AND legacy.is_active=1))`, [providerId, agencyId, agencyId]);
   return schoolWeekdayContext(person, providerSchoolPlacementSummary(rows, providerId).schoolAssignments, agencyId);
 }
-export async function writeSchoolWeekdays({ providerId, agencyId, days, actorId }, database = pool) {
+export async function writeSchoolWeekdays({ providerId, agencyId, days, actorId, confirmationVersion, confirmedDays }, database = pool) {
   if (!days || typeof days !== 'object' || Array.isArray(days) || Object.keys(days).length !== 5 ||
     SCHOOL_WEEKDAYS.some(day => typeof days[day] !== 'boolean')) {
     throw Object.assign(new Error('Choose availability for all five weekdays.'), { status: 400 });
@@ -28,9 +28,14 @@ export async function writeSchoolWeekdays({ providerId, agencyId, days, actorId 
     if (context.days.some(day => day.status === 'assigned' && !days[day.day])) {
       throw Object.assign(new Error('Assigned school days stay reserved. Request a schedule change to adjust an assignment.'), { status: 409 });
     }
+    const unassigned = context.days.filter(day=>day.status!=='assigned').map(day=>day.day);
+    if (confirmationVersion!==2 || !Array.isArray(confirmedDays) || confirmedDays.length!==unassigned.length || new Set(confirmedDays).size!==confirmedDays.length || unassigned.some(day=>!confirmedDays.includes(day))) {
+      throw Object.assign(new Error('Review and choose Available or Not available for every unassigned weekday. Reload the form if needed.'),{status:400});
+    }
+    const savedAt=new Date().toISOString();
     await db.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
       ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
-    [providerId, JSON.stringify({ schoolWeekdaysByAgency: { [agencyId]: { days, updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), updatedBy: actorId } } })]);
+    [providerId, JSON.stringify({ schoolWeekdaysByAgency: { [agencyId]: { days, updatedAt:savedAt, completedAt:savedAt, updatedBy:actorId,confirmationVersion:2,confirmedAt:savedAt } } })]);
     await db.commit();
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
   return readSchoolWeekdays(providerId, agencyId, database);
@@ -46,7 +51,7 @@ export async function markSchoolWeekdaysOpened({ providerId, agencyId, actorId }
     await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
     const context = await readSchoolWeekdays(providerId,agencyId,db);
     if (!context.eligible) throw Object.assign(new Error('School availability is not enabled for this provider.'),{status:409});
-    const openedAt = context.openedAt || new Date().toISOString();
+    const openedAt = context.reconfirmationPending && (!context.openedAt || context.openedAt<context.reconfirmationRequestedAt) ? new Date().toISOString() : context.openedAt || new Date().toISOString();
     await db.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
       ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
       [providerId,JSON.stringify({schoolWeekdaysByAgency:{[agencyId]:{openedAt}}})]);
@@ -65,7 +70,7 @@ export async function requestSchoolWeekdayUpdates({ agencyId, providerId = null,
       AND (u.role IN ('provider','provider_plus','supervisor') OR u.has_provider_access=1 OR u.sees_clients=1)
       ${providerId ? 'AND u.id=?' : ''}`, providerId ? [agencyId, providerId] : [agencyId]);
   const results = { requested: [], failed: [], skipped: [], outcomes: [] };
-  const skipReason = context => !context.eligible ? 'not_eligible'
+  const skipReason = context => !context.eligible ? 'not_eligible' : context.reconfirmationPending ? 'already_pending'
     : context.days.every(day => day.status === 'assigned' || day.answered === true) ? 'already_complete'
       : !context.needsResponse ? 'no_school_assignment' : 'already_pending';
   const skip = (id, context) => {

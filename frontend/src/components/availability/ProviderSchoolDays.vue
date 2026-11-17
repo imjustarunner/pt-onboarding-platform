@@ -7,7 +7,7 @@
     </header>
     <SchoolWeekdayResponseTracker v-if="showResponses&&canRequest" :agency-id="agencyId" />
     <template v-else>
-    <p>Green means available for a school, gray shows an assigned school, and red means not available. Providers can update their usual five-day school availability.</p>
+    <p>Green means saved as available for a school, gray shows an assigned school, red means not available, and yellow needs confirmation. Providers can update their usual five-day school availability.</p>
     <p v-if="canRequest && responseCounts" class="response-summary">{{ responseCounts.completed }} complete · {{ responseCounts.opened }} opened and unfinished · {{ responseCounts.pending }} pending. <button type="button" class="btn btn-secondary btn-sm" @click="showResponses=true">View delivery and responses</button></p>
     <p v-if="canRequest" class="muted">Request update saves an in-app prompt. Enabled email follow-ups run automatically. Existing emails are not resent by repeated clicks; providers who have accounted for all five weekdays need no update.</p>
     <button v-if="canRequest" type="button" class="btn btn-primary" :disabled="requesting || loading" @click="requestUpdate()">{{ requesting ? 'Requesting…' : 'Request update from all school providers' }}</button>
@@ -32,13 +32,14 @@
           <tbody>
             <tr v-for="person in filtered" :key="person.id">
               <th scope="row"><strong><SchoolAvailabilityIcon v-if="person.schoolWeekdays?.eligible" /> {{ name(person) }}</strong><small>{{ person.title || 'Provider' }}</small><small v-if="person.preferences?.school === false">School-based care is off</small><small v-if="!person.schoolAssignments?.length">No school assignments</small></th>
-              <td v-for="day in weekdays" :key="day" :class="{ available: available(person, day), assigned: schoolsOn(person, day).length, unavailable: !available(person, day) && !schoolsOn(person, day).length, selected: selectedDay === day }">
+              <td v-for="day in weekdays" :key="day" :class="{ available: available(person, day), assigned: schoolsOn(person, day).length, unavailable: !available(person, day) && !schoolsOn(person, day).length && !needsConfirmation(person,day), unconfirmed:needsConfirmation(person,day), selected: selectedDay === day }">
                 <button v-if="person.schoolWeekdays?.eligible && canRequest" type="button" class="school-status-button" :aria-label="`Update school availability for ${name(person)} on ${day}`" @click="editing = person"><SchoolAvailabilityIcon /></button>
                 <template v-if="schoolsOn(person, day).length"><span v-for="school in schoolsOn(person, day)" :key="school.schoolOrganizationId" class="school-name">{{ school.schoolName }}</span></template>
                 <span v-else-if="available(person, day)" class="available-label">Available</span>
+                <span v-else-if="needsConfirmation(person,day)">Needs confirmation</span>
                 <span v-else>{{ person.schoolWeekdays?.eligible ? 'Not available' : Array.isArray(person.schoolAssignments) ? 'School care off' : 'Not checked' }}</span>
               </td>
-              <td><div class="row-actions"><button v-if="canRequest && person.schoolWeekdays?.eligible" type="button" class="btn btn-secondary btn-sm" :disabled="requesting" :aria-label="`Request update from ${name(person)}`" @click="requestUpdate(person)">{{ requestingTarget===person.id ? 'Requesting…' : 'Request update' }}</button><router-link class="btn btn-primary btn-sm" :to="messageLink(person)" :aria-label="`Message ${name(person)}`">Message</router-link><router-link class="btn btn-secondary btn-sm" :to="scheduleLink(person)" :aria-label="`View schedule for ${name(person)}`">View schedule</router-link></div><SchoolWeekdayRequestReceipt v-if="canRequest" :progress="progressById[person.id]" :outcome="outcomesById[person.id]" :requesting="requestingTarget===person.id" /></td>
+              <td><div class="row-actions"><button v-if="canRequest && person.schoolWeekdays?.eligible" type="button" class="btn btn-secondary btn-sm" :disabled="requesting" :aria-label="`Request update from ${name(person)}`" @click="requestUpdate(person)">{{ requestingTarget===person.id ? 'Requesting…' : 'Request update' }}</button><router-link class="btn btn-primary btn-sm" :to="messageLink(person)" :aria-label="`Message ${name(person)}`">Message</router-link><router-link class="btn btn-secondary btn-sm" :to="scheduleLink(person)" :aria-label="`View schedule for ${name(person)}`">View schedule</router-link></div><SchoolWeekdayRequestReceipt v-if="canRequest" :progress="progressById[person.id]" :outcome="outcomesById[person.id]" :requesting="requestingTarget===person.id" /><SchoolWeekdayCompletionEvidence v-if="canRequest && progressById[person.id]" :progress="progressById[person.id]" /><SchoolWeekdayReminderButton v-if="canRequest && progressById[person.id]" :agency-id="agencyId" :provider-id="person.id" :provider-name="name(person)" :progress="progressById[person.id]" @queued="reminderQueued(person)" /></td>
             </tr>
           </tbody>
         </table>
@@ -56,6 +57,8 @@ import api from '../../services/api';
 import SchoolProviderFocusEditor from './SchoolProviderFocusEditor.vue';
 import SchoolWeekdayResponseTracker from './SchoolWeekdayResponseTracker.vue';
 import SchoolWeekdayRequestReceipt from './SchoolWeekdayRequestReceipt.vue';
+import SchoolWeekdayReminderButton from './SchoolWeekdayReminderButton.vue';
+import SchoolWeekdayCompletionEvidence from './SchoolWeekdayCompletionEvidence.vue';
 import { useAuthStore } from '../../store/auth';
 import SchoolAvailabilityIcon from './SchoolAvailabilityIcon.vue';
 import SchoolWeekdayEditor from './SchoolWeekdayEditor.vue';
@@ -70,7 +73,7 @@ const editingFocus = ref(false);
 const editing = ref(null), requesting = ref(false), requestNotice = ref('');
 const requestingTarget = ref(null), noticeElement = ref(null), outcomesById = ref({});
 const progressById = ref({}), responseCounts = ref(null), progressError = ref('');
-let requestGeneration = 0, progressGeneration = 0, progressTimer;
+let requestGeneration = 0, progressGeneration = 0, progressTimer, lastProgressAt=0;
 async function loadProgress() {
   if (!canRequest.value) return;
   const current = ++progressGeneration;
@@ -78,7 +81,7 @@ async function loadProgress() {
     const { data } = await api.get('/availability/admin/school-weekdays/progress', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
     if (current !== progressGeneration) return;
     progressById.value = Object.fromEntries((data.providers || []).map(person => [person.providerId, person]));
-    responseCounts.value = data.counts || null; progressError.value = '';
+    responseCounts.value = data.counts || null; progressError.value = ''; lastProgressAt=Date.now();
   } catch (e) { if (current === progressGeneration) progressError.value = e.response?.data?.error?.message || 'Delivery status could not be refreshed. Last known status is shown; use Track responses before retrying.'; }
 }
 async function requestUpdate(person = null) {
@@ -105,7 +108,9 @@ const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const providers = ref([]), search = ref(''), selectedDay = ref(''), loading = ref(false), error = ref('');
 const name = person => [person.first_name, person.last_name].filter(Boolean).join(' ');
 const schoolsOn = (person, day) => (person.schoolAssignments || []).filter(school => school.days?.includes(day));
-const available = (person, day) => person.schoolWeekdays ? person.schoolWeekdays.days.some(item => item.day === day && item.status === 'available') : Array.isArray(person.schoolAssignments) && person.preferences?.school !== false && !schoolsOn(person, day).length;
+const needsConfirmation = (person,day) => !schoolsOn(person,day).length && (progressById.value[person.id]?.reconfirmationPending || person.schoolWeekdays?.days.some(item=>item.day===day&&item.status==='unconfirmed'));
+const reminderQueued = async person => { requestNotice.value=`${name(person)}’s email request is recorded. Delivery status is shown beside the provider and in Track responses.`; if(progressById.value[person.id]?.status==='completed')selectedDay.value=''; await loadProgress(); };
+const available = (person, day) => needsConfirmation(person,day) ? false : person.schoolWeekdays ? person.schoolWeekdays.days.some(item => item.day === day && item.status === 'available') : Array.isArray(person.schoolAssignments) && person.preferences?.school !== false && !schoolsOn(person, day).length;
 const searchable = computed(() => providers.value.filter(person => {
   if (person.schoolRosterExcluded || [true,1,'1'].includes(person.is_demo) || !person.schoolWeekdays?.eligible) return false;
   const text = [name(person), person.title, ...(person.schoolAssignments || []).map(school => school.schoolName)].join(' ').toLowerCase();
@@ -134,7 +139,7 @@ async function load() {
   await delivery;
 }
 watch(() => props.agencyId, () => { ++requestGeneration; ++progressGeneration; providers.value=[]; progressById.value={}; outcomesById.value={}; responseCounts.value=null; progressError.value=''; requesting.value=false; requestingTarget.value=null; search.value = ''; selectedDay.value = ''; editingFocus.value = false; editing.value = null; requestNotice.value = ''; load(); }, { immediate: true });
-onMounted(() => { progressTimer=setInterval(() => { if (document.visibilityState!=='hidden' && !showResponses.value) loadProgress(); },30000); });
+onMounted(() => { progressTimer=setInterval(() => { if (document.visibilityState!=='hidden' && !showResponses.value && (Date.now()-lastProgressAt>=30000 || Object.values(progressById.value).some(person=>['pending','sending'].includes(person.reminder?.status)))) loadProgress(); },5000); });
 onBeforeUnmount(() => { ++generation; ++requestGeneration; ++progressGeneration; clearInterval(progressTimer); });
 </script>
 
@@ -156,6 +161,7 @@ small,.school-name { display:block; margin-top:4px; }
 small,.muted { color:var(--text-secondary, #5b7066); }
 .available { background:rgba(16,185,129,.07); }
 .assigned { background:#f1f5f9; color:#64748b; }
+.unconfirmed { background:#fffbea; color:#854d0e; }
 .unavailable { background:#fff1f2; color:#b91c1c; }
 .school-status-button { display:inline-flex; border:0; border-radius:5px; background:transparent; color:inherit; padding:3px; cursor:pointer; }
 .available-label { color:#176745; font-weight:700; }

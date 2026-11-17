@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 vi.mock('../../services/schoolWeekdayAvailability.service.js', () => ({ readSchoolWeekdays: vi.fn(), writeSchoolWeekdays: vi.fn(), requestSchoolWeekdayUpdates: vi.fn(), updateSchoolProviderFocus: vi.fn(), markSchoolWeekdaysOpened:vi.fn() }));
-vi.mock('../../services/schoolWeekdayFollowups.service.js',()=>({readSchoolWeekdayProgress:vi.fn()}));
+vi.mock('../../services/schoolWeekdayFollowups.service.js',()=>({readSchoolWeekdayProgress:vi.fn(),requestSchoolWeekdayEmailReminder:vi.fn()}));
 import User from '../../models/User.model.js';
 import { readSchoolWeekdays, writeSchoolWeekdays, requestSchoolWeekdayUpdates, updateSchoolProviderFocus, markSchoolWeekdaysOpened } from '../../services/schoolWeekdayAvailability.service.js';
-import {readSchoolWeekdayProgress} from '../../services/schoolWeekdayFollowups.service.js';
-import { getSchoolWeekdays, putSchoolWeekdays, pushSchoolWeekdays, putSchoolProviderFocus,postSchoolWeekdaysOpened,getSchoolWeekdayProgress } from '../schoolWeekdayAvailability.controller.js';
+import {readSchoolWeekdayProgress,requestSchoolWeekdayEmailReminder} from '../../services/schoolWeekdayFollowups.service.js';
+import { getSchoolWeekdays, putSchoolWeekdays, pushSchoolWeekdays, putSchoolProviderFocus,postSchoolWeekdaysOpened,getSchoolWeekdayProgress,postSchoolWeekdayEmailReminder } from '../schoolWeekdayAvailability.controller.js';
 let req, res, next;
 beforeEach(() => {
   vi.resetAllMocks(); User.getAgencies.mockResolvedValue([{ id: 2 }]);
@@ -45,4 +45,12 @@ it('restricts progress details to managers with membership in the requested agen
  req.params={};await getSchoolWeekdayProgress(req,res,next);expect(res.status).toHaveBeenLastCalledWith(403);
  req.user.role='admin';readSchoolWeekdayProgress.mockResolvedValue({providers:[],counts:{}});await getSchoolWeekdayProgress(req,res,next);expect(readSchoolWeekdayProgress).toHaveBeenCalledWith(2);
  readSchoolWeekdayProgress.mockClear();req.query.agencyId='3';await getSchoolWeekdayProgress(req,res,next);expect(readSchoolWeekdayProgress).not.toHaveBeenCalled();
+});
+
+it('allows only agency-authorized managers to request one email reminder and forwards an idempotency key',async()=>{
+ req.params={providerId:'8'};req.body={requestKey:'a-reminder-request-key',mode:'reminder'};
+ await postSchoolWeekdayEmailReminder(req,res,next);expect(res.status).toHaveBeenLastCalledWith(403);expect(requestSchoolWeekdayEmailReminder).not.toHaveBeenCalled();
+ req.user.role='admin';requestSchoolWeekdayEmailReminder.mockResolvedValue({deduplicated:false,reminder:{status:'pending'}});
+ await postSchoolWeekdayEmailReminder(req,res,next);expect(res.status).toHaveBeenLastCalledWith(201);expect(requestSchoolWeekdayEmailReminder).toHaveBeenCalledWith({agencyId:2,providerId:8,actorId:7,requestKey:'a-reminder-request-key',mode:'reminder'});
+ requestSchoolWeekdayEmailReminder.mockClear();req.query.agencyId='6';await postSchoolWeekdayEmailReminder(req,res,next);expect(requestSchoolWeekdayEmailReminder).not.toHaveBeenCalled();
 });

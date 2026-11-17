@@ -14,13 +14,18 @@ export function schoolWeekdayRecord(details, agencyId) {
 export function schoolWeekdayContext(person, assignments, agencyId) {
   const record = schoolWeekdayRecord(person.public_details_json, agencyId);
   const eligible = schoolBasedFocus(person.service_focus) && !excludedFromSchoolRoster(person);
-  const needsResponse = eligible && assignments.some(s => s.days?.some(day => SCHOOL_WEEKDAYS.includes(day))) && SCHOOL_WEEKDAYS.some(day => !assignments.some(s => s.days?.includes(day)) && typeof record.days?.[day] !== 'boolean');
-  return { eligible, needsResponse, requestedAt: record.requestedAt || null, updatedAt: record.updatedAt || null,
+  const reconfirmationPending = !!record.reconfirmationRequestedAt && (!record.confirmedAt || record.confirmedAt < record.reconfirmationRequestedAt);
+  const needsResponse = eligible && assignments.some(s => s.days?.some(day => SCHOOL_WEEKDAYS.includes(day))) && (reconfirmationPending || SCHOOL_WEEKDAYS.some(day => !assignments.some(s => s.days?.includes(day)) && typeof record.days?.[day] !== 'boolean'));
+  return { eligible, needsResponse, providerId:Number(person.id)||null, updatedBy:Number(record.updatedBy)||null,
+    confirmationVersion:Number(record.confirmationVersion)||1, confirmedAt:record.confirmedAt||null,
+    reconfirmationRequestedAt:record.reconfirmationRequestedAt||null, reconfirmationPending,
+    requestedAt: record.requestedAt || null, updatedAt: record.updatedAt || null,
     openedAt: record.openedAt || null, completedAt: record.completedAt || null,
-    pending: !!record.requestedAt && (!record.updatedAt || record.requestedAt > record.updatedAt),
+    pending: reconfirmationPending || !!record.requestedAt && (!record.updatedAt || record.requestedAt > record.updatedAt),
     days: SCHOOL_WEEKDAYS.map(day => {
       const schools = assignments.filter(s => s.days?.includes(day));
       const available = record.days?.[day] !== false;
-      return { day, answered: typeof record.days?.[day] === 'boolean', available: schools.length ? true : available, status: schools.length ? 'assigned' : eligible && available ? 'available' : 'unavailable', schools };
+      const answered=typeof record.days?.[day] === 'boolean';
+      return { day, answered, available: schools.length ? true : available, status: schools.length ? 'assigned' : eligible && (!answered || reconfirmationPending) ? 'unconfirmed' : eligible && available ? 'available' : 'unavailable', schools };
     }) };
 }

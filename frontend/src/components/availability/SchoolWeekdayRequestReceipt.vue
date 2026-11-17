@@ -2,11 +2,13 @@
 import { computed } from 'vue';
 const props = defineProps({ progress: { type: Object, default: null }, outcome: { type: Object, default: null }, requesting: Boolean });
 const when = value => value ? new Date(value).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' Mountain' : '';
-const complete = computed(() => props.progress?.status === 'completed' || props.outcome?.reason === 'already_complete');
+const complete = computed(() => props.progress ? props.progress.status === 'completed' : props.outcome?.reason === 'already_complete');
 const message = computed(() => {
   if (props.requesting) return 'Requesting update…';
   const outcome = props.outcome;
   if (outcome?.outcome === 'failed') return 'Could not confirm the request. Check delivery status before retrying.';
+  if(props.progress?.reconfirmationPending)return 'Re-confirmation requested. Saved answers need a fresh review.';
+  if(complete.value&&props.progress?.explicitlyConfirmed===false)return 'All five weekdays are accounted for. Review the saved answers below and request re-confirmation if they are disputed.';
   if (complete.value) return 'Complete · all five weekdays are accounted for. No update is needed.';
   if (outcome?.reason === 'no_school_assignment') return 'No request sent: this provider has no assigned school days.';
   if (outcome?.reason === 'not_eligible') return 'No request sent: this provider is not eligible for school availability updates.';

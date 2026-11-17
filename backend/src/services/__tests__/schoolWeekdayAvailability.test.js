@@ -34,17 +34,17 @@ describe('school weekday availability', () => {
     expect(schoolBasedFocus('School and Office Based Counseling')).toBe(true);
     expect(schoolBasedFocus('Office-Based Counseling')).toBe(false);
   });
-  it('defaults school providers to available, reserves assigned days even over a saved refusal, and scopes records by agency', () => {
+  it('keeps unanswered days unconfirmed, reserves assigned days, and scopes records by agency', () => {
     const person = { service_focus: 'School-Based Counseling', public_details_json: { schoolWeekdaysByAgency: { 2: { days: { Monday: false, Tuesday: false } }, 3: { days: { Friday: false } } } } };
     const context = schoolWeekdayContext(person, [{ schoolName: 'Cedar', days: ['Monday'] }], 2);
-    expect(context.days.map(day => day.status)).toEqual(['assigned', 'unavailable', 'available', 'available', 'available']);
+    expect(context.days.map(day => day.status)).toEqual(['assigned', 'unavailable', 'unconfirmed', 'unconfirmed', 'unconfirmed']);
     expect(context.days[0].available).toBe(true);
     expect(schoolWeekdayContext({ service_focus: 'Office-Based Counseling' }, [{days:['Monday']}], 2).eligible).toBe(false);
     expect(schoolWeekdayContext({ service_focus: 'School-Based Counseling', is_demo: 1 }, [], 2).eligible).toBe(false);
     expect(schoolWeekdayContext({ service_focus: 'School-Based Counseling', agency_feature_flags: {qaSandbox:{syntheticOnly:true}} }, [], 450).eligible).toBe(false);
   });
   it('persists school choices without altering other agency records or profile features', async () => {
-    const result = await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, days: { ...choices(), Tuesday: false } }, db);
+    const result = await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, confirmationVersion:2, confirmedDays:SCHOOL_WEEKDAYS.slice(1), days: { ...choices(), Tuesday: false } }, db);
     expect(result.days[1].status).toBe('unavailable');
     expect(details.anotherFeature).toBe('keep');
     expect(details.schoolWeekdaysByAgency[3].days.Tuesday).toBe(false);
@@ -52,7 +52,7 @@ describe('school weekday availability', () => {
     expect((await readSchoolWeekdays(7, 2, db)).days[0].schools[0].schoolName).toBe('Cedar');
   });
   it('rejects unavailable assigned days and malformed choices before writing', async () => {
-    await expect(writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, days: { ...choices(), Monday: false } }, db)).rejects.toThrow('Assigned school days');
+    await expect(writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, confirmationVersion:2, confirmedDays:SCHOOL_WEEKDAYS.slice(1), days: { ...choices(), Monday: false } }, db)).rejects.toThrow('Assigned school days');
     expect(db.rollback).toHaveBeenCalledOnce();
     expect(details.schoolWeekdaysByAgency[2]).toBeUndefined();
     await expect(writeSchoolWeekdays({ days: { Monday: 'true' } }, db)).rejects.toThrow('all five weekdays');
@@ -63,7 +63,7 @@ describe('school weekday availability', () => {
     expect(events).toHaveLength(1); expect(Dispatcher.dispatchPushForNotification).toHaveBeenCalledOnce();
     expect((await readSchoolWeekdays(7, 2, db)).pending).toBe(true);
     expect((await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db)).skipped).toEqual([7]);
-    await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, days: choices() }, db);
+    await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, confirmationVersion:2, confirmedDays:SCHOOL_WEEKDAYS.slice(1), days: choices() }, db);
     expect((await readSchoolWeekdays(7, 2, db)).pending).toBe(false);
   });
   it('reports partial failure so retries can finish without duplicating successful recipients', async () => {
@@ -74,7 +74,7 @@ describe('school weekday availability', () => {
     await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
     const duplicate = await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
     expect(duplicate.outcomes).toEqual([{ providerId: 7, outcome: 'skipped', reason: 'already_pending', requestedAt: expect.any(String) }]);
-    await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, days: choices() }, db);
+    await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, confirmationVersion:2, confirmedDays:SCHOOL_WEEKDAYS.slice(1), days: choices() }, db);
     const complete = await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
     expect(complete.outcomes[0]).toMatchObject({ providerId: 7, outcome: 'skipped', reason: 'already_complete' });
     expect(events).toHaveLength(1);
@@ -126,4 +126,17 @@ it('commits the follow-up job with the in-app request so immediate completion ca
  });
  const result=await requestSchoolWeekdayUpdates({agencyId:2,actorId:99},db);expect(result.requested).toEqual([7]);expect(events).toContain('followup_queued');
  const queued=db.execute.mock.invocationCallOrder[db.execute.mock.calls.findIndex(([sql])=>sql.includes('INSERT IGNORE INTO school_weekday_followups'))];expect(queued).toBeLessThan(db.commit.mock.invocationCallOrder[0]);
+});
+
+it('rejects saves that have not explicitly reviewed all unassigned weekdays',async()=>{
+ await expect(writeSchoolWeekdays({providerId:7,agencyId:2,actorId:7,days:choices()},db)).rejects.toThrow('Review and choose');
+ await expect(writeSchoolWeekdays({providerId:7,agencyId:2,actorId:7,days:choices(),confirmationVersion:2,confirmedDays:['Tuesday']},db)).rejects.toThrow('Review and choose');
+ expect(details.schoolWeekdaysByAgency[2]).toBeUndefined();
+});
+it('preserves earlier answers while re-confirmation is pending, and clears that state only after an explicit save',async()=>{
+ details.schoolWeekdaysByAgency[2]={days:choices(),updatedAt:'2026-11-10T22:33:00Z',updatedBy:7,openedAt:'2026-11-10T22:32:00Z',reconfirmationRequestedAt:'2026-11-16T21:00:00Z'};
+ const pending=await readSchoolWeekdays(7,2,db);expect(pending.needsResponse).toBe(true);expect(pending.reconfirmationPending).toBe(true);expect(pending.days[1].status).toBe('unconfirmed');
+ await markSchoolWeekdaysOpened({providerId:7,agencyId:2,actorId:7},db);expect(details.schoolWeekdaysByAgency[2].openedAt>'2026-11-16T21:00:00Z').toBe(true);
+ const saved=await writeSchoolWeekdays({providerId:7,agencyId:2,actorId:7,days:{...choices(),Wednesday:false},confirmationVersion:2,confirmedDays:SCHOOL_WEEKDAYS.slice(1)},db);
+ expect(saved.reconfirmationPending).toBe(false);expect(saved.days[2].status).toBe('unavailable');expect(saved.confirmationVersion).toBe(2);
 });

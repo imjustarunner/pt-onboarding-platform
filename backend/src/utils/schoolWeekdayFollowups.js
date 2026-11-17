@@ -14,14 +14,20 @@ export function schoolWeekdayEmailRecipient(person,senderEmail) {
 }
 export function schoolWeekdayCompletion(context) {
   const accounted = (context.days || []).filter(day => day.status === 'assigned' || day.answered === true).length;
-  return { accounted, complete: context.eligible === true && context.days?.length === 5 && accounted === 5 };
+  return { accounted, complete: context.eligible === true && !context.reconfirmationPending && context.days?.length === 5 && accounted === 5 };
 }
 export function schoolWeekdayProgress(context, tracking = {}) {
   const { accounted, complete } = schoolWeekdayCompletion(context);
-  const openedAt = tracking.opened_at || context.openedAt || null;
+  const priorOpened = context.openedAt || tracking.opened_at || null;
+  const openedAt = context.reconfirmationPending && (!priorOpened || new Date(priorOpened)<new Date(context.reconfirmationRequestedAt)) ? null : priorOpened;
   return { accounted, total: 5, status: complete ? 'completed' : openedAt ? 'opened' : 'pending', openedAt,
     completedAt: complete ? context.completedAt || tracking.completed_at || context.updatedAt || null : null,
-    requestedAt: context.requestedAt || null,
+    requestedAt: context.requestedAt || null, savedAt:context.updatedAt||null,
+    savedByProvider:!!context.updatedBy&&Number(context.updatedBy)===Number(context.providerId),
+    savedByUserId:context.updatedBy||null, explicitlyConfirmed:context.confirmationVersion===2,
+    reconfirmationPending:!!context.reconfirmationPending,
+    completionBasis:complete ? context.updatedAt ? context.updatedBy&&Number(context.updatedBy)===Number(context.providerId) ? 'provider_saved' : 'saved' : 'assignments' : null,
+    dayEvidence:(context.days||[]).map(day=>({day:day.day,status:day.status,answered:day.answered===true,savedAvailable:day.answered===true?day.available:null})),
     invitationStatus: tracking.invitation_status || 'not_sent', invitationSentAt: tracking.invitation_sent_at || null,
     smsStatus: complete && ['waiting','sending'].includes(tracking.sms_status) ? 'cancelled' : tracking.sms_status || 'not_scheduled', smsDueAt: complete ? null : tracking.sms_due_at || null,
     smsReason: tracking.sms_reason || null, smsSentAt: tracking.sms_sent_at || null,
@@ -38,12 +44,12 @@ export function schoolWeekdayEmail({ person, agency, owner, kind = 'invitation' 
     return { subject: 'Thank you—your school availability is complete', text: `${greeting}\n\n${message}`, html: `<p>${esc(greeting)}</p><p>${esc(message)}</p>` };
   }
   const url = schoolWeekdayUrl(agency);
-  const intro = `Please finish your Monday–Friday school availability for ${agency.name}.`;
+  const intro = kind==='reconfirm' ? `Please review and re-confirm your Monday–Friday school availability for ${agency.name}. Your previously saved answers may need correction.` : `Please finish your Monday–Friday school availability for ${agency.name}.`;
   const steps = ['Open the link and sign in with your work account. The School availability form opens from My Schedule.',
     'Keep assigned school days as shown. For each other weekday, choose Available or Not available.',
     'Check that all five days are accounted for, then select Save availability.'];
   const reply = `Questions? Reply to this email to reach ${owner.first_name || 'your school coordinator'}.`;
-  return { subject: 'Please complete your school availability', linkUrl: url,
+  return { subject: kind==='reminder'?'Reminder: please complete your school availability':kind==='reconfirm'?'Please review and re-confirm your school availability':'Please complete your school availability', linkUrl: url,
     text: `${greeting}\n\n${intro}\n\n${steps.map((step,index)=>`${index+1}. ${step}`).join('\n')}\n\nComplete your school availability: ${url}\n\n${reply}`,
     html: `<p>${esc(greeting)}</p><p>${esc(intro)}</p><ol>${steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>${emailActionButton('Complete school availability',url,true)}<p>${esc(reply)}</p>` };
 }
