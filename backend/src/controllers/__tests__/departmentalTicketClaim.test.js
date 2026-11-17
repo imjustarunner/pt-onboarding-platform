@@ -15,6 +15,9 @@ import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import Agency from '../../models/Agency.model.js';
 import { claimSupportTicket } from '../supportTickets.controller.js';
+import { closeSupportTicket } from '../supportTickets.controller.js';
+vi.mock('../../services/closeTicketWithoutReply.service.js', () => ({ closeTicketWithoutReply: vi.fn() }));
+import { closeTicketWithoutReply } from '../../services/closeTicketWithoutReply.service.js';
 
 let ticket;
 let affectedRows;
@@ -48,4 +51,17 @@ it('returns a conflict when another claim wins the atomic update', async () => {
   const res = response();
   const next=vi.fn();await claimSupportTicket({...request(),user:{id:5,role:'support'}}, res, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));
+});
+it('uses the no-reply transaction only after checking the caller’s department and agency', async () => {
+  const req = request(); req.body = { reason: 'no_reply_needed', expectedLastMessageId: 12 };
+  const res = response(), next = vi.fn();
+  await closeSupportTicket(req, res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(closeTicketWithoutReply).toHaveBeenCalledWith({ ticket, user: req.user, expectedLastMessageId: 12 });
+  expect(res.json).toHaveBeenCalledWith(ticket);
+});
+it('does not use no-reply closure to bypass another department’s ticket restriction', async () => {
+  ticket.topic = 'billing'; const req = request(); req.body = { reason: 'no_reply_needed' };
+  const res = response(); await closeSupportTicket(req, res, vi.fn());
+  expect(res.status).toHaveBeenCalledWith(403); expect(closeTicketWithoutReply).not.toHaveBeenCalled();
 });

@@ -4,6 +4,7 @@ import { isSchoolWelcomeSupportReply, isTechnologyIdentity, ingestTechnologyEmai
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
 import pool from '../../config/database.js';
+import { googleAuthenticationResults } from '../schoolGmailOwnership.service.js';
 import { isExternalTestingMailHeaders } from '../../utils/externalTestingEmail.js';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { ensureLabelId } from './gmailLabels.js';
@@ -1039,6 +1040,19 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     }
     // Human inboxes receive receipts, notifications and staff mail too. Suppress
     // automated *responses*, not delivery. Each recipient has an inbox-scoped receipt.
+    const routedIdentity = Number(routed.senderIdentityId) === Number(outreachIdentity?.id) ? outreachIdentity
+      : (routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null);
+    if (routedIdentity) {
+      const { captureGroupOperationalNotice } = await import('../groupOperationalNotices.service.js');
+      const notice = await captureGroupOperationalNotice({ identity: routedIdentity, fromEmail, fromDisplayName, subject,
+        messageId: hdrs.get('message-id') || `gmail:${id}`, threadId: full.data?.threadId || null,
+        receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), bodyText: pickBodyText(payload), to: routed.to, cc: routed.cc, gmail, gmailMessageId: id, payload });
+      if (notice.ingested) {
+        await gmail.users.messages.modify({ userId: 'me', id, requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
+        results.inboxDeliveries += 1;
+        continue;
+      }
+    }
     let personalRecipients;
     try {
       personalRecipients = await resolvePersonalMailRecipients([
@@ -1064,8 +1078,6 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     } catch (e) {
       throw e; // Never acknowledge partial fan-out; outer retry preserves successful copies.
     }
-    const routedIdentity = Number(routed.senderIdentityId) === Number(outreachIdentity?.id) ? outreachIdentity
-      : (routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null);
     if(routedIdentity?.agency_id && (automated || !/^\s*(?:re|fw|fwd):/i.test(subject) && / - (?:Paper Enrollment Packet Uploaded|Digital Enrollment Packet)$/i.test(subject))){
       const {recordSchoolGroupEmail}=await import('../schoolGroupEmailInbox.service.js');
       const packetEmail=await recordSchoolGroupEmail({agencyId:routedIdentity.agency_id,fromEmail,subject,automated,gmail,gmailMessageId:id,payload,
@@ -1173,6 +1185,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             listId: String(hdrs.get('list-id') || '').slice(0, 200), listUnsubscribe: !!hdrs.get('list-unsubscribe') },
           receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),
           staffCopy, staffUserId: staffCopy ? staffSender?.id || null : null,
+          authenticationResults: googleAuthenticationResults(payload?.headers),
           createdByUserId: !staffCopy ? staffSender?.id || null : null, generateDraft: !staffCopy, autoPacketIntake: !staffCopy });
         if (saved.handled) {
           results.draftedToTickets += staffCopy ? 0 : 1;

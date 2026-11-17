@@ -111,3 +111,20 @@ test('group members can follow claimed tickets while Assigned retains the claima
     assert.match(assignedWhere, /THEN t.claimed_by_user_id ELSE c.owner_user_id END\) = \?/);
   } finally { pool.execute = original; }
 });
+
+test('historical outbound notices share the review badge rule even without an inbound message', async () => {
+  const original = pool.execute;
+  let query;
+  pool.execute = async (sql, params) => {
+    query = sql;
+    assert.equal((sql.replace(/'[^']*'/g, "''").match(/\?/g) || []).length, params.length);
+    return [[{ id: 22, message_category: 'enrollment_packets', last_message_at: '2026-11-17T17:00:00Z', last_inbound_at: null, is_unknown_sender: 1 }]];
+  };
+  try {
+    const rows = await CommunicationConversation.list({ agencyId: 2, userId: 8, category: 'enrollment_packets', filter: 'unread' });
+    assert.equal(rows[0].is_review_notice, true); assert.equal(rows[0].is_unread, true);
+    assert.match(query, /nr.last_read_at>=COALESCE\(c.last_message_at,c.created_at\)/);
+    const where = query.slice(query.indexOf('WHERE c.archived_at'));
+    assert.doesNotMatch(where, /COALESCE\(c.is_unknown_sender, 0\) = 0/);
+  } finally { pool.execute = original; }
+});

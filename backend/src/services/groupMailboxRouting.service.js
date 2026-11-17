@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
 import { getImpersonatedUser } from './unifiedEmail/gmailClient.js';
 import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
+import { inferredMailboxOwnerSql, individualMailboxSql } from './privateMailboxPolicy.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 // Explicit Workspace configuration takes precedence over shared fallback senders.
@@ -72,12 +73,13 @@ export async function expandMailboxRecipients(addresses, mailboxes, listMembers,
 }
 
 export async function resolvePersonalMailRecipients(addresses, { sentFromEmail = null, bccAddresses = [] } = {}) {
-  const [boxes] = await pool.execute(`SELECT esi.*, i.id AS inbox_id, i.owner_user_id, a.organization_type FROM email_sender_identities esi
+  const owner = `COALESCE(i.owner_user_id,${inferredMailboxOwnerSql('i')})`;
+  const [boxes] = await pool.execute(`SELECT esi.*, i.id AS inbox_id, ${owner} AS owner_user_id, a.organization_type FROM email_sender_identities esi
     JOIN communication_inboxes i ON i.sender_identity_id=esi.id
     JOIN agencies a ON a.id=i.agency_id
-    JOIN users u ON u.id=i.owner_user_id
+    JOIN users u ON u.id=${owner}
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=i.agency_id AND ua.is_active=1
-    WHERE i.kind='personal' AND i.is_active=1 AND esi.is_active=1
+    WHERE ${individualMailboxSql('i')} AND i.is_active=1 AND esi.is_active=1
       AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
       AND u.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED','TERMINATED_PENDING','COMPLETED','COMPLETED_PENDING')`);
   if (!boxes.length) return [];

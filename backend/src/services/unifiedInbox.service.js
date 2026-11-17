@@ -26,6 +26,7 @@ import { sendSupportTicketEmailReply } from './supportTicketEmail.service.js';
 import { encryptSupportEmailText } from './supportEmailEncryption.js';
 import { supportEmailError } from './supportTicketEmailPolicy.js';
 import { groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
+import { INBOX_REVIEW_CATEGORIES } from './messageInboxPolicy.js';
 
 export async function loadGroupEmailInboxScope({ agencyId, userId }) {
   const [inboxes, keys, [managedGroups], [memberGroups]] = await Promise.all([
@@ -34,7 +35,7 @@ export async function loadGroupEmailInboxScope({ agencyId, userId }) {
     pool.execute('SELECT g.* FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=? WHERE g.agency_id=?',[userId,agencyId])
   ]);
   const groups = inboxes.filter(inbox=>groupEmailIdentity(inbox,managedGroups));
-  return { groups, managedGroups, groupInboxIds: groups.map((i) => Number(i.id)),
+  return { groups, managedGroups, schoolGroupInboxIds: groups.filter(i => ['schools','school_groups'].includes(groupKeyForIdentity(i)) || groupEmailIdentity(i,managedGroups)?.groupKey === 'school_groups').map(i => Number(i.id)), groupInboxIds: groups.map((i) => Number(i.id)),
     allowedGroupInboxIds: groups.filter(i=>{const key=groupKeyForIdentity(i);return key?keys.includes(key):!!groupEmailIdentity(i,memberGroups);}).map(i=>Number(i.id)) };
 }
 
@@ -259,7 +260,9 @@ export async function getConversationDetail(conversationId, { userId, markRead =
 export async function updateConversation(conversationId, patch, { userId } = {}) {
   const existing = await CommunicationConversation.findById(conversationId);
   if (existing && withGroupEmailMetadata(existing, userId).is_ticketed_group) {
-    throw supportEmailError('Manage this group message in its linked ticket.', 409, 'GROUP_EMAIL_READ_ONLY');
+    if (Object.keys(patch).some(key => !['markRead', 'markUnread'].includes(key))) {
+      throw supportEmailError('Manage this group message in its linked ticket.', 409, 'GROUP_EMAIL_READ_ONLY');
+    }
   }
   const updates = {};
   if (patch.status !== undefined) updates.status = patch.status;
@@ -306,6 +309,28 @@ export async function updateConversation(conversationId, patch, { userId } = {})
     await CommunicationConversation.markRead(conversationId, userId);
   }
   return CommunicationConversation.update(conversationId, updates);
+}
+
+export async function reviewInboxNotices({ agencyId, userId, category, conversationIds = [] }) {
+  if (!INBOX_REVIEW_CATEGORIES.includes(category)) throw supportEmailError('Choose a review category.', 400);
+  const requested = new Set(conversationIds.map(Number).filter(Number.isSafeInteger));
+  const reviewed = [];
+  const reviewBefore = new Date();
+  // Query each page after marking it read. No offset can skip rows as the queue shrinks.
+  for (;;) {
+    const rows = await listConversations({ agencyId, userId, scopeToUserId: userId,
+      category, filter: 'unread', syncTickets: false, limit: 200, reviewBefore });
+    const batch = rows.filter(row => !requested.size || requested.has(Number(row.id)));
+    if (!batch.length) break;
+    for (const row of batch) {
+      await pool.execute(`INSERT INTO communication_conversation_reads (conversation_id,user_id,last_read_at,forced_unread)
+        SELECT id,?,LEAST(COALESCE(last_message_at,created_at),?),0 FROM communication_conversations WHERE id=? AND agency_id=?
+        ON DUPLICATE KEY UPDATE last_read_at=GREATEST(last_read_at,VALUES(last_read_at)),forced_unread=0`, [userId, reviewBefore, row.id, agencyId]);
+      reviewed.push(Number(row.id));
+    }
+    if (requested.size || rows.length < 200) break;
+  }
+  return { reviewed: reviewed.length };
 }
 
 function normalizeAddressList(list) {

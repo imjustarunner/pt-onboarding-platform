@@ -1,4 +1,5 @@
 import { firstLoginDedupSql } from '../utils/notificationFirstLoginDedup.js';
+import { notificationInboxVisibilitySql } from '../services/notificationInboxPolicy.js';
 import Notification from '../models/Notification.model.js';
 import NotificationService from '../services/notification.service.js';
 import User from '../models/User.model.js';
@@ -1407,7 +1408,7 @@ async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'in
 
 function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, includeAfterId = false }) {
   const params = [];
-  const clauses = ['n.is_resolved = FALSE'];
+  const clauses = ['n.is_resolved = FALSE', notificationInboxVisibilitySql('n')];
   const hiringIds = [...(req._feedHiringAgencyIds || [])];
   clauses.push(hiringIds.length ? `(n.type <> 'new_job_application_submitted' OR n.agency_id IN (${hiringIds.map(() => '?').join(',')}))`
     : "n.type <> 'new_job_application_submitted'");

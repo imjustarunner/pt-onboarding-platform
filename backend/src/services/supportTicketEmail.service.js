@@ -2,6 +2,7 @@ import { recordTicketAssignment } from './ticketAssignment.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import { groupKeyForIdentity, canAccessDepartmentalGroup } from './departmentalGroupAccess.service.js';
+import { RACHEL_SCHOOL_EMAIL } from './messageInboxPolicy.js';
 import { ticketDepartmentKeys, canWorkDepartmentTicket } from './supportTicketDepartmentAccess.service.js';
 import { encryptSupportEmailText as prepareEncryptedTicketText } from './supportEmailEncryption.js';
 import { chooseCanonicalSupportTicket, classifySupportEmailResult, emailHash, emailKey, isManagedSupportIdentity, supportEmailError,
@@ -46,6 +47,7 @@ async function senderOptions({ ticket, actorUserId }, db) {
   const options = permitted.filter((i) => ownWork(i) || i.sender_agency_name || isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
     schoolAddresses: schools.map((s) => s.itsco_email) })).filter((i) => !seen.has(i.id) && seen.add(i.id)).map((i) => ({
     id: Number(i.id), agencyId:Number(i.agency_id), agencyName:i.sender_agency_name || agencyName, replyToEmail:Number(i.agency_id)!==Number(ticket.agency_id)?receivingGroup?.from_email:null, identityKey: i.identity_key, fromEmail: emailKey(i.from_email), senderKind:ownWork(i)?'staff':'group',
+    schoolGroup: ['schools','school_groups'].includes(groupKeyForIdentity(receivingGroup || i)) || schools.some(school => emailKey(school.itsco_email) === emailKey(i.from_email)),
     teamDisplayName: String(i.display_name || i.sender_agency_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
     staffDisplayName: [staffName, i.sender_agency_name || agencyName].filter(Boolean).join(' · ').replace(/[\r\n<>]/g, ' ').trim()
   }));
@@ -192,7 +194,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
       if(!ticket.claimed_by_user_id)await recordTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId,assigneeUserId:actorUserId,kind:'claimed',reason:'Replying to ticket'},db);
       await db.execute('UPDATE support_tickets SET claimed_by_user_id=?,claimed_at=COALESCE(claimed_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?', [actorUserId, ticketId]);
       delivery = { id: saved.insertId, ticket_message_id: created.insertId, sender_identity_id: selected.id,
-        from_email: selected.fromEmail, from_name: name, to_json: [to], internet_message_id: internetId, send_status: 'sending' };
+        from_email: selected.fromEmail, from_name: name, to_json: [to], internet_message_id: internetId, send_status: 'sending', is_school_group: selected.schoolGroup };
       await db.commit();
     }
   } catch (error) {
@@ -220,6 +222,8 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
   let sent, sendError;
   try {
     sent = await send({ senderIdentityId: delivery.sender_identity_id, to: delivery.to_json[0],
+      bcc: delivery.is_school_group && /@(itsco[.]health)$/i.test(delivery.from_email || '')
+        && String(delivery.to_json[0]).toLowerCase() !== RACHEL_SCHOOL_EMAIL ? [RACHEL_SCHOOL_EMAIL] : null,
       subject: headers.subject, text: body, source: 'manual', generatedByUserId: actorUserId,
       fromDisplayNameOverride: delivery.from_name, replyToOverride: replyToEmail || delivery.from_email,
       templateType: senderMode === 'team' ? 'support_ticket_reply_team' : 'support_ticket_reply',

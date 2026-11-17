@@ -1057,7 +1057,9 @@ export const getMessagesHubUnread = async (req, res, next) => {
       userId: req.user.id,
       limit,
       channel: String(req.query.channel || 'all'),
-      sort
+      sort,
+      inboxId: Number(req.query.inboxId) || null,
+      category: String(req.query.category || '') || null
     });
     res.json(data);
   } catch (e) {
@@ -1082,7 +1084,9 @@ export const getMessagesHubInbox = async (req, res, next) => {
       userId: req.user.id,
       limit,
       channel: String(req.query.channel || 'all'),
-      sort
+      sort,
+      inboxId: Number(req.query.inboxId) || null,
+      category: String(req.query.category || '') || null
     });
     res.json(data);
   } catch (e) {

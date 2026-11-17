@@ -1,9 +1,10 @@
 import pool from '../config/database.js';
+import { privateMailboxProjectionSql, privateMailboxVisibilitySql } from '../services/privateMailboxPolicy.js';
 
 class CommunicationInbox {
   static async findById(id) {
     const [rows] = await pool.execute(
-      `SELECT i.*, esi.signature_image_url, esi.signature_image_path, esi.reply_to, esi.display_name AS identity_display_name
+      `SELECT i.*, ${privateMailboxProjectionSql('i')}, esi.signature_image_url, esi.signature_image_path, esi.reply_to, esi.display_name AS identity_display_name
        FROM communication_inboxes i
        LEFT JOIN email_sender_identities esi ON esi.id = i.sender_identity_id
        WHERE i.id = ?
@@ -25,6 +26,7 @@ class CommunicationInbox {
     }
     // Personal inboxes: only owner / members. Shared: all (controller role-gates).
     if (userId) {
+      where += ` AND ${privateMailboxVisibilitySql(userId, 'i')}`;
       where += ` AND (
         i.kind = 'shared'
         OR i.owner_user_id = ?
@@ -38,7 +40,7 @@ class CommunicationInbox {
       where += ` AND i.kind = 'shared'`;
     }
     const [rows] = await pool.execute(
-      `SELECT i.*,
+      `SELECT i.*, ${privateMailboxProjectionSql('i')},
               esi.signature_image_url,
               esi.reply_to,
               (SELECT COUNT(*) FROM communication_inbox_members m WHERE m.inbox_id = i.id) AS member_count
@@ -90,7 +92,7 @@ class CommunicationInbox {
 
   static async findBySenderIdentityId(senderIdentityId) {
     const [rows] = await pool.execute(
-      `SELECT * FROM communication_inboxes WHERE sender_identity_id = ? LIMIT 1`,
+      `SELECT i.*, ${privateMailboxProjectionSql('i')} FROM communication_inboxes i WHERE sender_identity_id = ? LIMIT 1`,
       [senderIdentityId]
     );
     return rows[0] || null;
@@ -100,7 +102,7 @@ class CommunicationInbox {
     const addr = String(email || '').trim().toLowerCase();
     if (!addr) return null;
     const params = [addr];
-    let sql = `SELECT * FROM communication_inboxes WHERE LOWER(from_email) = ? AND is_active = 1`;
+    let sql = `SELECT i.*, ${privateMailboxProjectionSql('i')} FROM communication_inboxes i WHERE LOWER(from_email) = ? AND is_active = 1`;
     if (agencyId != null) {
       sql += ' AND agency_id = ?';
       params.push(agencyId);
@@ -113,6 +115,7 @@ class CommunicationInbox {
   static async userHasAccess(inboxId, userId) {
     const inbox = await this.findById(inboxId);
     if (!inbox) return false;
+    if (inbox.kind === 'personal' || inbox.owner_user_id != null) return Number(inbox.owner_user_id) === Number(userId);
     if (inbox.kind === 'shared') return true; // Phase 1: backoffice roles gate at controller
     const [rows] = await pool.execute(
       `SELECT 1 FROM communication_inbox_members WHERE inbox_id = ? AND user_id = ? LIMIT 1`,

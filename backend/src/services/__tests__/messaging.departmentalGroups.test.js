@@ -11,7 +11,8 @@ beforeEach(() => vi.clearAllMocks());
 describe('departmental identities and permissions', () => {
   it('preserves administrator mailboxes until a sensitive category is explicitly turned off',()=>{
     const admin={...staff,role:'admin',agencyAccess:{sources:{has_billing_access:'preserved_agency_access'},permissions:{has_billing_access:false}}};
-    expect(departmentalGroupKeysForUser(admin)).toContain('billing');
+    expect(departmentalGroupKeysForUser(admin)).not.toContain('billing');
+    expect(departmentalGroupKeysForUser({...admin,has_billing_access:1})).toContain('billing');
     expect(departmentalGroupKeysForUser({...admin,agencyAccess:{sources:{has_billing_access:'agency_override'},permissions:{has_billing_access:false}}})).not.toContain('billing');
     expect(departmentalGroupKeysForUser({...admin,agencyAccess:{sources:{has_payroll_access:'platform_default'},permissions:{has_payroll_access:false}}})).not.toContain('payroll');
   });
@@ -43,7 +44,7 @@ describe('departmental identities and permissions', () => {
     await expect(assertDepartmentalGroupAccess({ agencyId: 3, userId: 12, groupKey: 'payroll' })).rejects.toMatchObject({ status: 403 });
   });
   it('gives agency administrators access without relying on Google delivery preferences', () => {
-    expect(departmentalGroupKeysForUser({ ...staff, role: 'admin' })).toEqual(Object.keys(DEPARTMENTAL_GROUPS));
+    expect(departmentalGroupKeysForUser({ ...staff, role: 'admin', has_billing_access: 1 })).toEqual(Object.keys(DEPARTMENTAL_GROUPS));
   });
   it('adds only granted staff to the departmental plan', () => {
     const plans = buildManagedGroupPlan({ domain: 'agency.test', rows: [{ ...staff, has_payroll_access: 1 }, { ...staff, id: 13 }] });

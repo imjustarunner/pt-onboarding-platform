@@ -523,7 +523,7 @@ export async function ingestPersonalMailboxInbound({
   const aid = Number(agencyId || identity?.agency_id || 0);
   const key = String(identity?.identity_key || '').trim().toLowerCase();
   const ownerMatch = /^personal_(\d+)$/.exec(key);
-  const ownerUserId = ownerMatch ? Number(ownerMatch[1]) : null;
+  const ownerUserId = Number(identity?.owner_user_id) || (ownerMatch ? Number(ownerMatch[1]) : null);
   if (!aid || !identity?.id) return { ingested: false, reason: 'missing_identity' };
   // Explicitly routed replies to an existing app thread/reminder remain app
   // conversations. Ordinary addressed Gmail is imported only for Group inboxes.

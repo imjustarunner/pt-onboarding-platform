@@ -12,7 +12,7 @@
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
         <button
-          v-if="disclosureViewKey"
+          v-if="disclosureViewKey && roleNorm !== 'support'"
           type="button"
           class="btn btn-primary btn-sm"
           @click="emit('view-artifact', disclosureViewKey)"

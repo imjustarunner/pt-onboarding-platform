@@ -6,6 +6,7 @@ vi.mock('../email.service.js',()=>({default:{sendEmail:m.send}}));
 vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolvePreferredSenderIdentityForAgency:async()=>null}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 vi.mock('../schoolOnboarding.service.js',()=>({buildOnboardingLink:token=>`https://app.example.test/school-onboarding/${token}`}));
+vi.mock('../schoolOnboardingWorkflowTickets.service.js',()=>({syncSchoolOnboardingWorkflowTicket:vi.fn(async()=>({ticketId:90}))}));
 import { deliverOnboardingEmail, runSchoolOnboardingReminders } from '../schoolOnboardingReminder.service.js';
 import { onboardingReminderDue, onboardingReminderKey, onboardingEmailStatus } from '../../utils/schoolOnboardingReminder.js';
 const invite={id:18,agency_id:2,primary_user_id:44,status:'invited',contact_email:'school@district.test',contact_first_name:'School',school_name:'Example School',agency_name:'Agency',token:'saved-link',invite_email_sent_at:'2026-10-01T16:00:00Z'};

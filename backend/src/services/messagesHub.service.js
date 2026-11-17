@@ -7,6 +7,8 @@ import { messageSender } from '../utils/messageSender.js';
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
 import pool from '../config/database.js';
+import { chatInboxVisibilitySql } from './messageInboxPolicy.js';
+import { privateMailboxVisibilitySql } from './privateMailboxPolicy.js';
 import { hubClientScope, hubContactScope, scopeHubPeople, canAccessHubClient, canAccessHubContact, ownEmailCorrespondent } from './hubPeopleAccess.service.js';
 import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
 import { listMessageReactions } from './hubMessageReactions.service.js';
@@ -2186,7 +2188,8 @@ async function hubDepartmentEmailScope({ agencyId, userId }) {
   const [{ loadGroupEmailInboxScope }, { groupEmailConversationSql }] = await Promise.all([
     import('./unifiedInbox.service.js'), import('./groupEmailConversationPolicy.js')
   ]);
-  return groupEmailConversationSql(await loadGroupEmailInboxScope({ agencyId, userId }));
+  const scope = groupEmailConversationSql(await loadGroupEmailInboxScope({ agencyId, userId }));
+  return { ...scope, access: `(${scope.access} AND (c.inbox_id IS NULL OR EXISTS (SELECT 1 FROM communication_inboxes private_i WHERE private_i.id=c.inbox_id AND ${privateMailboxVisibilitySql(userId, 'private_i')})))` };
 }
 
 /**
@@ -2471,6 +2474,7 @@ export async function markHubPersonRead({ agencyId, userId, person, includeEmail
          FROM communication_conversations c
          WHERE c.channel = 'email'
            AND NOT (${groupScope.isGroup})
+           AND ${groupScope.access}
            AND c.archived_at IS NULL
            AND EXISTS (
              SELECT 1 FROM communication_participants p
@@ -2567,6 +2571,7 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
          FROM communication_conversations c
          WHERE c.channel = 'email'
            AND NOT (${groupScope.isGroup})
+           AND ${groupScope.access}
            AND c.archived_at IS NULL
            AND EXISTS (
              SELECT 1 FROM communication_participants p
@@ -3285,11 +3290,17 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
   try {
     const ph = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT t.id, t.name, t.agency_id, t.thread_type, COUNT(DISTINCT p.user_id) AS member_count
+      `SELECT t.id, t.name, t.agency_id, t.thread_type, COUNT(DISTINCT p.user_id) AS member_count,
+       (SELECT COUNT(*) FROM chat_messages gm LEFT JOIN chat_thread_reads gr ON gr.thread_id=gm.thread_id AND gr.user_id=${Number(userId) || 0}
+         WHERE gm.thread_id=t.id AND gm.sender_user_id<>${Number(userId) || 0} AND gm.id>COALESCE(gr.last_read_message_id,0)
+           AND NOT EXISTS (SELECT 1 FROM chat_message_deletes gd WHERE gd.message_id=gm.id AND gd.user_id=${Number(userId) || 0})) AS unread_count
        FROM chat_threads t
        INNER JOIN chat_thread_participants me ON me.thread_id = t.id AND me.user_id = ?
        LEFT JOIN chat_thread_participants p ON p.thread_id = t.id
+       LEFT JOIN chat_thread_deletes td ON td.thread_id=t.id AND td.user_id=${Number(userId) || 0}
        WHERE t.thread_type IN ('group', 'channel', 'team')
+         AND ${chatInboxVisibilitySql(userId)}
+         AND td.deleted_at IS NULL
          AND t.archived_at IS NULL
          AND (t.agency_id IN (${ph}) OR t.agency_id IS NULL OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))
          ${like ? 'AND t.name LIKE ?' : ''}
@@ -3304,6 +3315,7 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
       kinds: r.thread_type === 'channel' ? ['group', 'channel'] : ['group'],
       threadType: r.thread_type,
       groupId: Number(r.id),
+      unreadCount: Number(r.unread_count || 0),
       agencyId: Number(r.agency_id) || ids[0],
       relationshipMeta: `${r.thread_type === 'channel' ? '# Channel' : 'Group chat'} · ${Number(r.member_count) || 0} members`,
       methods: [],
@@ -3333,6 +3345,7 @@ export async function getStartConversationDirectory({
   }
   const query = String(q || '').trim();
   const n = Math.min(Math.max(Number(perSection) || 3, 1), 12);
+  const groupLimit = Math.min(Math.max(Number(perSection) || 3, 1), 40);
   const recentN = Math.min(Math.max(Number(recentLimit) || 8, 1), 24);
   const fillN = Math.max(n * 4, 16);
   const common = { agencyId: ids[0], agencyIds: ids, userId, viewerRole, q: query };
@@ -3368,7 +3381,7 @@ export async function getStartConversationDirectory({
   if (query.length >= 2) {
     const [people, groups] = await Promise.all([
       searchHubPeople({ ...common, limit: 40 }),
-      listHubChatGroups({ agencyIds: ids, userId, limit: 12, q: query })
+      listHubChatGroups({ agencyIds: ids, userId, limit: groupLimit, q: query })
     ]);
     return {
       query,
@@ -3379,7 +3392,7 @@ export async function getStartConversationDirectory({
         guardians: people.filter(isGuardian).slice(0, n),
         staff: people.filter(isStaff).slice(0, n),
         school_staff: people.filter(isSchoolStaff).slice(0, n),
-        groups: groups.slice(0, n),
+        groups: groups.slice(0, groupLimit),
         matches: people.slice(0, 25)
       },
       externalHint: looksLikeEmail(query)
@@ -3397,7 +3410,7 @@ export async function getStartConversationDirectory({
     browseHubPeople({ ...common, browse: 'staff', limit: fillN }),
     browseHubPeople({ ...common, browse: 'school_staff', limit: fillN }),
     browseHubPeople({ ...common, browse: 'contacts', limit: fillN }),
-    listHubChatGroups({ agencyIds: ids, userId, limit: Math.max(n, 12) })
+    listHubChatGroups({ agencyIds: ids, userId, limit: Math.max(groupLimit, 12) })
   ]);
 
   const recentList = recent || [];
@@ -3412,7 +3425,7 @@ export async function getStartConversationDirectory({
       staff: mergeRecentFirst(recentList, staff, isStaff, n),
       school_staff: mergeRecentFirst(recentList, schoolStaff, isSchoolStaff, n),
       contacts: contacts.slice(0, n),
-      groups: (groups || []).slice(0, n)
+      groups: (groups || []).slice(0, groupLimit)
     },
     externalHint: null
   };
@@ -4101,7 +4114,7 @@ export async function listHubConversationFeed({
   limit = 60,
   sort = 'newest',
   channel: channelFilter = 'all',
-  mode = 'inbox'
+  mode = 'inbox', inboxId = null, category = null
 } = {}) {
   const aid = Number(agencyId || 0) || null;
   const uid = Number(userId || 0);
@@ -4130,11 +4143,12 @@ export async function listHubConversationFeed({
       agencyId: aid,
       filter: assignedOnly ? 'assigned' : unreadOnly ? 'unread' : 'all',
       channel: channelFilter === 'calls' ? 'call' : ['group','groups','email'].includes(channelFilter) ? 'email' : channelFilter === 'sms' ? 'sms' : null,
-      groupOnly: ['group','groups'].includes(channelFilter),
+      groupOnly: ['group','groups'].includes(channelFilter) && !category,
       excludeGroup: channelFilter === 'email',
       syncTickets: false,
       userId: uid,
       scopeToUserId: uid,
+      inboxId, category, sort,
       limit: lim,
       offset: 0,
       isAdminViewer: false
@@ -4212,6 +4226,8 @@ export async function listHubConversationFeed({
         unreadCount: isUnread ? 1 : 0,
         is_unread: isUnread,
         conversationId: Number(c.id),
+        inbox_id: c.inbox_id || null,
+        message_category: c.message_category || 'correspondence', is_review_notice: !!c.is_review_notice,
         subject: c.subject || null,
         preview: unreadOnly
           ? c.last_inbound_preview || c.last_message_preview || c.subject || ''
@@ -4327,9 +4343,10 @@ export async function listHubConversationFeed({
          LIMIT 1
        )
        WHERE td.deleted_at IS NULL
+         AND ${inboxId || category ? '0=1' : chatInboxVisibilitySql(uid)}
          ${agencyClause}
        ${havingClause}
-       ORDER BY COALESCE(last_message_at, t.updated_at) DESC
+       ORDER BY COALESCE(last_message_at, t.updated_at) ${sortNewest ? 'DESC' : 'ASC'},t.id ${sortNewest ? 'DESC' : 'ASC'}
        LIMIT ${Number(lim)}`,
       params
     );
@@ -4475,7 +4492,7 @@ export async function listHubConversationFeed({
   });
 
   const sliced = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
-    || (['group','groups'].includes(channelFilter) ? item.is_ticketed_group || ['group','channel'].includes(item.channel)
+    || (['group','groups'].includes(channelFilter) ? (category ? item.is_review_notice : item.is_ticketed_group || ['group','channel'].includes(item.channel))
       : channelFilter === 'email' ? item.channel === 'email' && !item.is_ticketed_group
       : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect)))).slice(0, lim);
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
@@ -4546,7 +4563,7 @@ export async function countHubChatUnreadThreads({ agencyId, userId, byChannel = 
          JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
          LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
          LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
-         WHERE td.deleted_at IS NULL AND ${secureAccessSql}
+         WHERE td.deleted_at IS NULL AND ${secureAccessSql} AND ${chatInboxVisibilitySql(userId)}
            ${agencyClause}
          HAVING unread_count > 0
        ) x GROUP BY channel`,

@@ -2,6 +2,7 @@
   <ClientChartShell
     @contextmenu="followUpTask?.openContextMenu($event, client)"
     :full-page="props.fullPage"
+    :header-collapsed="headerCollapsed"
     :clinical-branding="showClinicalChartSurfaces" :workspace-mode="clinicalWorkspaceMode"
     :tenant-id="selectedAgencyId || client.agency_id" :tenant-name="primaryAgencyDisplayName"
     :return-label="props.schoolOrganizationId ? 'Back to school portal' : ''"
@@ -21,16 +22,16 @@
       <ClientQuickActions :actions="profileQuickActions" @action="onProfileQuickAction" />
     </template>
     <template #header>
-      <div class="modal-header cdp-header">
+      <div class="modal-header cdp-header" :class="{ 'cdp-header--collapsed': headerCollapsed }">
         <div class="cdp-header-main">
-          <div class="cdp-avatar" :style="avatarColor" aria-hidden="true">
+          <div v-show="!headerCollapsed" class="cdp-avatar" :style="avatarColor" aria-hidden="true">
             {{ avatarText }}
           </div>
           <div class="cdp-header-info">
             <div class="cdp-header-row">
               <h2 class="cdp-title">
                 <button
-                  v-if="!props.fullPage && props.client?.id"
+                  v-if="!headerCollapsed && !props.fullPage && props.client?.id"
                   type="button"
                   class="cdp-title-link"
                   title="Open full client profile"
@@ -48,7 +49,8 @@
                 </template>
                 <template v-else>{{ client.initials || '—' }}</template>
               </h2>
-              <div class="cdp-identity-line">
+              <span v-if="headerCollapsed" class="mono cdp-compact-id">ID {{ client.identifier_code || client.id }}</span>
+              <div v-show="!headerCollapsed" class="cdp-identity-line">
                 <span v-if="client.initials">Initials {{ client.initials }}</span>
                 <span v-if="clientAgeLabel">Age {{ clientAgeLabel }}</span>
                 <span v-if="client.identifier_code" class="mono">Client code {{ client.identifier_code }}</span>
@@ -59,7 +61,7 @@
                 <span v-else-if="intakeSexLabel">Sex {{ intakeSexLabel }} · intake</span>
                 <span v-if="guardianIntakeName">{{ intakeContactLabel }}: {{ guardianIntakeName }}</span>
               </div>
-              <div class="cdp-tenant-line">
+              <div v-show="!headerCollapsed" class="cdp-tenant-line">
                 <span
                   v-for="t in tenantMembershipPills"
                   :key="`tenant-${t.id}`"
@@ -78,7 +80,7 @@
                   <template v-if="p.typeLabel">{{ p.typeLabel }} · </template>{{ p.name }}
                 </span>
               </div>
-              <div class="cdp-meta-row">
+              <div v-show="!headerCollapsed" class="cdp-meta-row">
                 <span
                   class="cdp-pill"
                   :class="statusPillClass"
@@ -106,6 +108,7 @@
               </div>
               <details
                 v-if="canEditClientType || (isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote))"
+                v-show="!headerCollapsed"
                 ref="adminDetailsEl"
                 class="cdp-admin-details"
               >
@@ -151,8 +154,9 @@
         </div>
 
         <div class="cdp-header-actions">
-          <router-link v-if="canViewMedicalRecord && isClinicalLikeClientType && router.hasRoute?.('AssistantHumanReviews')" class="btn btn-secondary" :to="{path:'/assistant-reviews',query:{agencyId:selectedAgencyId || client.agency_id,sourceKind:'clinical_chart',sourceId:client.id}}">Assistant review</router-link>
-          <button v-if="canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Refer through Client Exchange</button>
+          <button type="button" class="cdp-header-toggle" :aria-expanded="!headerCollapsed" @click="headerCollapsed = !headerCollapsed">{{ headerCollapsed ? 'Expand header' : 'Collapse header' }}</button>
+          <router-link v-if="!headerCollapsed && canViewMedicalRecord && isClinicalLikeClientType && router.hasRoute?.('AssistantHumanReviews')" class="btn btn-secondary" :to="{path:'/assistant-reviews',query:{agencyId:selectedAgencyId || client.agency_id,sourceKind:'clinical_chart',sourceId:client.id}}">Assistant review</router-link>
+          <button v-if="!headerCollapsed && canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Refer through Client Exchange</button>
           <button
             v-if="!props.fullPage && props.client?.id"
             class="cdp-btn-primary cdp-open-full"
@@ -1614,6 +1618,24 @@
           />
         </div>
 
+        <section v-if="chartHub === 'portal' && canViewGuardians && showSchoolGlance" class="detail-section cdp-school-portal" aria-label="School information and documents">
+          <h3>School information</h3>
+          <dl class="cdp-school-portal__facts">
+            <div><dt>School</dt><dd>{{ schoolGlanceLabel }}</dd></div>
+            <div><dt>Grade</dt><dd>{{ formatGradeDisplay(client.grade) || '—' }}</dd></div>
+            <div><dt>School year</dt><dd>{{ client.school_year || '—' }}</dd></div>
+            <div><dt>Assigned day</dt><dd>{{ assignedDayGlanceLabel }}</dd></div>
+            <div><dt>School ROI</dt><dd>{{ schoolRoiStatusLabel }}</dd></div>
+          </dl>
+          <details v-if="canManageSchoolRoi" class="cdp-school-portal__documents">
+            <summary>School ROI · Send a link and manage school access</summary>
+            <ClientSchoolRoiAccessTab :key="`portal-roi-${client.id}`" :client="client" @updated="refreshClient" />
+          </details>
+          <details v-if="canManageSchoolRoi" class="cdp-school-portal__documents">
+            <summary>School disclosure · View and send</summary>
+            <ClientDisclosurePanel :key="`portal-disclosure-${client.id}`" :client-id="client.id" :client="client" @view-artifact="openChartDocument" />
+          </details>
+        </section>
         <ClientPortalOverview ref="portalOverviewRef" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" :personal-login-available="clientIsMinor" />
 
         <!-- Guardians Tab -->
@@ -2856,6 +2878,7 @@
 </template>
 
 <script setup>
+import ClientDisclosurePanel from './clientChart/ClientDisclosurePanel.vue';
 import { guardianPortalStatus } from '../../utils/guardianPortalStatus.js';
 import { useAgencyMemberships } from '../../composables/useAgencyMemberships.js';
 import ClientBillingAccountSettings from '../billing/ClientBillingAccountSettings.vue';
@@ -3032,6 +3055,7 @@ function changeClinicalWorkspaceMode(mode) {
 watch(() => props.client?.id, () => { clinicalWorkspaceMode.value = 'clinical'; });
 const activeTab = ref('overview');
 const hubSub = ref('');
+const headerCollapsed = ref(false);
 const pendingChartViewKey = ref('');
 const documentsTabRef = ref(null);
 const portalOverviewRef = ref(null);
@@ -4100,10 +4124,7 @@ const displayStatusLabel = computed(() => {
   if (isClientArchived.value) return 'Archived';
   return displaySchoolClientStatusLabel(props.client);
 });
-const showSchoolGlance = computed(() =>
-  isSchoolClientType.value
-  || isSchoolPortalContext.value
-);
+const showSchoolGlance = computed(() => isSchoolClientType.value || isSchoolPortalContext.value || String(props.client?.organization_type || '').toLowerCase() === 'school' || affiliations.value.some(row => String(row.organization_type || '').toLowerCase() === 'school'));
 const schoolGlanceLabel = computed(() => {
   const fromAssignments = [...new Set(
     (effectiveOverviewProviders.value || [])
@@ -4124,10 +4145,7 @@ const clientTypeOptions = computed(() => {
     value,
     label: CLIENT_TYPE_LABELS[value] || value
   }));
-  if (isSuperAdmin.value) return all;
-  const currentIndex = CLIENT_TYPE_ORDER.indexOf(effectiveClientType.value);
-  if (currentIndex < 0) return all;
-  return all.filter((opt) => CLIENT_TYPE_ORDER.indexOf(opt.value) >= currentIndex);
+  return all;
 });
 
 const canSeeClientFullName = computed(() => {
@@ -4168,7 +4186,7 @@ const statusPillClass = computed(() => {
   return 'cdp-pill--neutral';
 });
 const canEditClientType = computed(
-  () => hasAgencyAccess.value && (isSuperAdmin.value || roleNorm.value === 'admin')
+  () => hasAgencyAccess.value && ['super_admin', 'admin', 'support'].includes(roleNorm.value)
 );
 const clientTypeDraft = ref('basic_nonclinical');
 const savingClientType = ref(false);
@@ -4188,11 +4206,7 @@ const clientHasSchoolLikeOrgAffiliation = computed(() =>
   (affiliations.value || []).some((a) => isSchoolLikeOrgType(a?.organization_type))
 );
 
-const clientQualifiesForSchoolRoiTab = computed(
-  // Strict rule: school ROI for school-type clients.
-  // Legacy fallback: if type is missing, allow school-like org affiliation.
-  () => isSchoolClientType.value || (!hasExplicitClientType.value && (isSchoolClientByPrimaryOrg.value || clientHasSchoolLikeOrgAffiliation.value))
-);
+const clientQualifiesForSchoolRoiTab = computed(() => isSchoolClientType.value || String(props.client?.organization_type || '').toLowerCase() === 'school' || (!hasExplicitClientType.value && clientHasSchoolLikeOrgAffiliation.value));
 
 const canManageSchoolRoi = computed(
   () => isBackofficeRole.value && hasAgencyAccess.value && clientQualifiesForSchoolRoiTab.value
@@ -5209,13 +5223,8 @@ const saveClientType = async () => {
     savingClientType.value = true;
     const payload = {
       client_type: nextType,
-      reason: isSuperAdmin.value
-        ? `Super admin changed client type to ${nextType}`
-        : `Admin changed client type to ${nextType}`
+      reason: `${roleNorm.value === 'support' ? 'Support' : isSuperAdmin.value ? 'Super admin' : 'Admin'} changed client type to ${nextType}`
     };
-    if (isSuperAdmin.value) {
-      payload.allow_downgrade_override = true;
-    }
     await api.post(`/clients/${props.client.id}/client-type`, payload);
     const refreshed = await api.get(`/clients/${props.client.id}`);
     emit('updated', { keepOpen: true, client: refreshed.data || null });
@@ -6658,6 +6667,7 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
   const seq = ++chartContextSeq;
   if (!id) return;
   if (id !== prev) {
+    headerCollapsed.value = false;
     providerAssignmentOpen.value = false;
     servicesByAgency.value = {};
     clientActionsOpen.value = false;
@@ -7369,6 +7379,26 @@ watch(
 }
 
 /* ───────────── Clinical chart shell (soft SaaS + PlotTwist accents) ───────────── */
+.cdp-header-toggle {
+  padding: 7px 10px;
+  border: 1px solid var(--border, #d6e2ef);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-primary, #173c62);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cdp-header-toggle:focus-visible { outline: 2px solid var(--primary, #166534); outline-offset: 2px; }
+.cdp-compact-id { font-size: 12px; color: var(--text-secondary, #526d89); }
+.modal-header.cdp-header.cdp-header--collapsed { padding-top: 8px; padding-bottom: 8px; }
+.cdp-school-portal__facts { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 24px; }
+.detail-section.cdp-school-portal { min-height: 0; margin-bottom: 24px; }
+.cdp-school-portal__facts dt { font-size: 12px; color: var(--text-secondary, #526d89); }
+.cdp-school-portal__facts dd { margin: 4px 0 0; font-weight: 600; }
+.cdp-school-portal__documents { margin: 12px 0; border: 1px solid var(--border, #d6e2ef); border-radius: 10px; padding: 12px; background: #fff; }
+.cdp-school-portal__documents > summary { cursor: pointer; font-weight: 600; }
+.cdp-school-portal__documents[open] > summary { margin-bottom: 16px; }
 .modal-header.cdp-header {
   display: flex;
   justify-content: space-between;

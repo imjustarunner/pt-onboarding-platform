@@ -56,6 +56,7 @@ function normalizeClientType(value) {
 }
 
 function resolveEffectiveClientTypeForRules(client) {
+  if (String(client?.organization_type || '').trim().toLowerCase() === 'school') return 'school';
   const explicit = normalizeClientType(client?.client_type);
   if (explicit) return explicit;
   const orgType = String(client?.organization_type || '').trim().toLowerCase();

@@ -2,21 +2,26 @@ import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { groupKeyForIdentity, canAccessDepartmentalGroup } from './departmentalGroupAccess.service.js';
+import { individualMailboxSql, inferredMailboxOwnerSql, privateMailboxVisibilitySql } from './privateMailboxPolicy.js';
 
 export async function requireConversationAccess(user, conversationId) {
   const id = Number(conversationId);
   if (!Number.isSafeInteger(id) || id <= 0) throw Object.assign(new Error('Conversation not found'), { status: 404 });
   const [rows] = await pool.execute(
-    `SELECT c.*, i.kind AS inbox_kind, i.owner_user_id AS inbox_owner_user_id,
+    `SELECT c.*, CASE WHEN ${individualMailboxSql('i')} THEN 'personal' ELSE i.kind END AS inbox_kind,
+      COALESCE(i.owner_user_id,${inferredMailboxOwnerSql('i')}) AS inbox_owner_user_id,
       i.identity_key AS inbox_identity_key,i.from_email AS inbox_from_email
      FROM communication_conversations c LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
-     WHERE c.id = ? LIMIT 1`, [id]
+     WHERE c.id = ? AND ${privateMailboxVisibilitySql(user?.id, 'i')} LIMIT 1`, [id]
   );
   const c = rows[0];
   const uid = Number(user?.id);
   const role = String(user?.role || '').toLowerCase();
   if (!c || !uid) throw Object.assign(new Error('Conversation not found'), { status: 404 });
   if(user?.mobileDevice){const {readAgencyAccess}=await import('./agencyAccessProfiles.service.js');if(!await readAgencyAccess(uid,c.agency_id))throw Object.assign(new Error('Conversation not found'),{status:404});}
+  if (c.inbox_kind === 'personal' && Number(c.inbox_owner_user_id) !== uid) {
+    throw Object.assign(new Error('Conversation not found'), { status: 404 });
+  }
   const groupKey = groupKeyForIdentity({ kind: c.inbox_kind, identity_key: c.inbox_identity_key,
     from_email: c.inbox_from_email, owner_user_id: c.inbox_owner_user_id });
   if (groupKey) {

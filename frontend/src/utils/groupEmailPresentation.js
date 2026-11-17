@@ -9,6 +9,7 @@ export function isGroupEmail(mailbox){return !!mailbox && !['personal','virtual'
 
 const departments = {
   schools: {label:'Schools',icon:'Mail',ink:'#296c57',shade:'#edf6f0'},
+  school_groups: { label: 'School groups', icon: 'UsersRound', ink: '#276749', shade: '#e8f5ee' },
   payroll: { label: 'Payroll', icon: 'Banknote', ink: '#276749', shade: '#e8f5ee' },
   billing: { label: 'Billing', icon: 'ReceiptText', ink: '#945c14', shade: '#fff4de' },
   credentialing: { label: 'Credentialing', icon: 'BadgeCheck', ink: '#6941a5', shade: '#f1eafa' },

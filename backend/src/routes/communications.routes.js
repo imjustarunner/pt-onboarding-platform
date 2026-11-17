@@ -21,6 +21,7 @@ import {
 import { getCommunicationsCenterSummary } from '../controllers/messagesDashboard.controller.js';
 import {
   getUnifiedInboxes,
+  postReviewInboxNotices,
   getUnifiedAttentionSummary,
   getUnifiedConversations,
   getUnifiedConversation,
@@ -85,6 +86,7 @@ router.get('/client-filing-options',async(req,res,next)=>{try{res.set('Cache-Con
 router.get('/inboxes', getUnifiedInboxes);
 router.post('/inboxes/personal/ensure', postEnsurePersonalInbox);
 router.get('/attention-summary', getUnifiedAttentionSummary);
+router.post('/review-notices', postReviewInboxNotices);
 router.get('/prefs', getUnifiedPrefs);
 router.patch('/prefs', patchUnifiedPrefs);
 router.get('/directory', getUnifiedDirectory);

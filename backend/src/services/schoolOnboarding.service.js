@@ -117,6 +117,11 @@ export async function getSchoolOnboardingPhase(schoolOrganizationId) {
 async function notifySchoolPortalOnboardingCompleted(invite) {
   if (!invite?.agency_id || !invite?.id) return;
   try {
+    try {
+      const { syncSchoolOnboardingWorkflowTicket } = await import('./schoolOnboardingWorkflowTickets.service.js');
+      const workflow = await syncSchoolOnboardingWorkflowTicket({ inviteId: invite.id, stage: 'completed', stageKey: 'completed' });
+      if (workflow.ticketId) return;
+    } catch (error) { console.warn('[school-onboarding-ticket]', error.code || 'assignment_pending'); }
     const Notification = (await import('../models/Notification.model.js')).default;
     const schoolName = String(invite.school_org_name || invite.school_name || 'School').trim();
     await Notification.create({

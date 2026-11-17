@@ -107,6 +107,9 @@ class NotificationDispatcherService {
    * Create an in-app notification and (optionally) dispatch SMS based on preferences/gatekeeper.
    */
   static async createNotificationAndDispatch(notificationData, { context = {} } = {}) {
+    if (notificationData.type === 'new_packet_uploaded') {
+      return { ...notificationData, id: null, suppressed: true, reason: 'message_review_queue' };
+    }
     const created = await Notification.create(notificationData);
     await this.dispatchForNotification(created, { context }).catch(() => {});
     await this.dispatchPushForNotification(created).catch(() => {});
@@ -299,6 +302,7 @@ class NotificationDispatcherService {
    */
   static async dispatchPushForNotification(notification) {
     if (!notification?.user_id) return { dispatched: false };
+    if (notification.type === 'new_packet_uploaded') return { dispatched: false, reason: 'review_in_messages' };
     if(notification.related_entity_type==='client_exchange_listing' && await isDemoExchangeListing({listingId:notification.related_entity_id,agencyId:notification.agency_id}))return {dispatched:false,reason:'demo_exchange_provider_notifications_suppressed'};
     const prefs = await UserPreferences.findByUserId(notification.user_id);
     if (!prefs?.push_notifications_enabled) return { dispatched: false };

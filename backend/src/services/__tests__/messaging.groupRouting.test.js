@@ -8,6 +8,15 @@ import pool from '../../config/database.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
 import { expandMailboxRecipients, resolvePersonalMailRecipients, mailboxDomainOwners } from '../groupMailboxRouting.service.js';
 const boxes=[{id:1,from_email:'eden@itsco.health'},{id:2,from_email:'alex@itsco.health'}];
+it('includes legacy individual Groups through a unique tenant account owner without expanding their delegates',async()=>{
+ const legacy={id:3,inbox_id:30,agency_id:2,from_email:'paige@itsco.health',owner_user_id:8,identity_key:'paige'};
+ pool.execute.mockImplementation(async sql=>[sql.startsWith('SELECT esi.*')?[legacy]:[]]);
+ Directory.getClient.mockResolvedValue({members:{list:vi.fn()}});
+ expect(await resolvePersonalMailRecipients(['paige@itsco.health'])).toEqual([legacy]);
+ const query=pool.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT esi.*'))[0];
+ expect(query).toContain('poa.agency_id=i.agency_id');
+ expect(query).toContain('HAVING COUNT(DISTINCT po.id)=1');
+});
 it('delivers nested group mail to every addressed staff inbox exactly once',async()=>{
   const graph={'staff@itsco.health':[{type:'GROUP',email:'team@itsco.health'},{type:'GROUP',email:'eden@itsco.health'}],'team@itsco.health':[{type:'GROUP',email:'eden@itsco.health'},{type:'USER',email:'alex@itsco.health'},{type:'GROUP',email:'staff@itsco.health'}]};
   expect((await expandMailboxRecipients(['staff@itsco.health','eden@itsco.health'],boxes,async e=>graph[e]||[])).map(b=>b.id).sort()).toEqual([1,2]);

@@ -22,6 +22,11 @@ it('preserves branded HTML for a verified Group mailbox',async()=>{
  expect(await ingestPersonalMailboxInbound(args)).toMatchObject({ingested:true});
  expect(persistInboundEmail).toHaveBeenCalledWith(expect.objectContaining({bodyHtml:'<h1>Hello</h1>',bodyText:'Hello',inboxId:3}));
 });
+it('keeps a legacy individual Group delivery with its inferred owner',async()=>{
+ pool.execute.mockImplementation(async sql=>[sql.includes('SELECT * FROM communication_inboxes')?[{id:3,owner_user_id:null}]:[]]);
+ await ingestPersonalMailboxInbound({...args,identity:{...args.identity,identity_key:'paige',owner_user_id:8}});
+ expect(persistInboundEmail).toHaveBeenCalledWith(expect.objectContaining({inboxId:3,ownerUserId:8}));
+});
 it('retains explicitly matched replies to app conversations without enabling general Gmail import',async()=>{
  workspaceMailboxType.mockResolvedValue('user');
  expect(await ingestPersonalMailboxInbound({...args,conversationId:9})).toMatchObject({ingested:true});

@@ -1,6 +1,7 @@
 import { emailHash, emailKey, isManagedSupportIdentity, isSupportEmailResponderRole } from './supportTicketEmailPolicy.js';
 import { ingestSupportTicketEmail, verifySupportTicketHistoryThread } from './supportTicketEmailInbound.service.js';
 import { resolveSupportTicketEmailThread } from './supportTicketEmail.service.js';
+import { googleAuthenticationResults } from './schoolGmailOwnership.service.js';
 
 const addresses = (value) => [...new Set((String(value || '').match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map(emailKey))];
 function plainBody(payload) {
@@ -36,11 +37,13 @@ export function parseSupportGmailMessage(message, { ownAddresses = [], staff = [
     recipients: addresses(h.get('to')), cc: addresses(h.get('cc')), payload: message.payload,
     receivedAt: new Date(Number(message.internalDate) || Date.now()), staffCopy,
     staffUserId: staffCopy ? sender?.id || null : null,
+    authenticationResults: googleAuthenticationResults(message.payload?.headers),
     createdByUserId: !staffCopy ? sender?.id || null : null,
     automated: (h.get('auto-submitted') && h.get('auto-submitted').toLowerCase() !== 'no') || /^(mailer-daemon|postmaster)@/i.test(from) };
 }
 
-/** No provider sends, no status changes, no ownership changes, no generation.
+/** No provider sends, status changes, or generated replies. Applied staff copies
+ * can claim an unassigned school ticket under the verified Rachel Gmail policy.
  * Default operation is a metadata-only dry run. */
 export async function reconcileSupportTicketThreadFromGmail({ agencyId, ticketId, threadId, gmail,
   ownAddresses = [], staff = [], since = null, apply = false, outboundOnly = false }, dependencies = {}) {

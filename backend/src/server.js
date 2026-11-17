@@ -2517,6 +2517,24 @@ if (shouldStartServerBackgroundJobs()) {
   scheduleSchoolOnboardingReminders();
   setInterval(scheduleSchoolOnboardingReminders,60 * 60 * 1000).unref();
 
+  let ticketAssignmentEmailTickRunning = false;
+  const scheduleTicketAssignmentEmails = async () => {
+    if (ticketAssignmentEmailTickRunning) return;
+    ticketAssignmentEmailTickRunning = true;
+    try {
+      try {
+        const { runSchoolOnboardingWorkflowTickets } = await import('./services/schoolOnboardingWorkflowTickets.service.js');
+        await runSchoolOnboardingWorkflowTickets();
+      } catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') console.warn('[school-onboarding-tickets]', error.code || 'worker_failed'); }
+      try {
+        const { runTicketAssignmentEmails } = await import('./services/ticketAssignmentEmail.service.js');
+        await runTicketAssignmentEmails();
+      } catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') console.warn('[ticket-assignment-email]', error.code || 'worker_failed'); }
+    } finally { ticketAssignmentEmailTickRunning = false; }
+  };
+  scheduleTicketAssignmentEmails();
+  setInterval(scheduleTicketAssignmentEmails, 5 * 60 * 1000).unref();
+
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {
     try {

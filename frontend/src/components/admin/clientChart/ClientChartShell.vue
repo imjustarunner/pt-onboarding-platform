@@ -5,13 +5,13 @@
   >
     <ClinicalWorkspaceFrame
       :enabled="clinicalBranding" :mode="workspaceMode" :tenant-id="tenantId" :tenant-name="tenantName"
-      :immersive="fullPage" switchable context-label="Client record" :return-label="returnLabel"
+      :hide-header="headerCollapsed" :immersive="fullPage" switchable context-label="Client record" :return-label="returnLabel"
       @back="$emit('close')" @update:mode="$emit('workspace-mode', $event)"
       class="client-chart"
       :class="fullPage ? 'cdp-page-body' : 'modal-content large'"
       @click.stop
     >
-      <div class="cc-surface">
+      <div class="cc-surface" :class="{ 'cc-surface--collapsed': headerCollapsed }">
         <slot name="header" />
 
         <div class="cc-tab-rail">
@@ -51,10 +51,10 @@
           </button>
         </div>
 
-        <slot name="quick-actions" />
+        <div v-show="!headerCollapsed"><slot name="quick-actions" /></div>
 
         <div
-          v-if="alertItems.length"
+          v-if="alertItems.length && !headerCollapsed"
           class="cc-alert-bar cdp-alert-bar"
           role="status"
         >
@@ -89,6 +89,7 @@ defineProps({
   tenantId: { type: [Number, String], default: null }, tenantName: { type: String, default: '' },
   returnLabel: { type: String, default: '' },
   fullPage: { type: Boolean, default: false },
+  headerCollapsed: Boolean,
   tabs: { type: Array, default: () => [] },
   activeTab: { type: String, default: 'overview' },
   subnav: { type: Array, default: () => [] },
@@ -137,4 +138,6 @@ defineEmits(['close', 'update:activeTab', 'update:activeSub', 'alert-click', 'wo
 }
 .cc-subnav__btn:focus-visible { outline:2px solid var(--primary,#166534); outline-offset:2px; }
 @media(max-width:600px) { .cc-subnav { padding:10px 12px; } .cc-subnav__label { width:100%; } .cc-tab-description { display:none; } }
+.cc-surface--collapsed .cc-tab-description { display: none; }
+.cc-surface--collapsed .tab-button { padding-top: 9px; padding-bottom: 9px; }
 </style>

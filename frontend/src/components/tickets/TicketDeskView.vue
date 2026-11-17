@@ -316,6 +316,7 @@
               >
                 Mark closed
               </button>
+              <button v-if="canClose && selected.source_channel === 'email'" type="button" class="btn btn-secondary btn-sm" :disabled="busy || selected.status === 'closed'" @click="closeTicket(true)">No reply needed, close ticket</button>
             </div>
           </div>
 
@@ -2509,15 +2510,16 @@ async function unclaim() {
   }
 }
 
-async function closeTicket() {
+async function closeTicket(noReplyNeeded = false) {
+  noReplyNeeded = noReplyNeeded === true;
   if (!selected.value?.id) return;
-  if (!window.confirm('Mark this ticket closed?')) return;
+  if (!noReplyNeeded && !window.confirm('Mark this ticket closed?')) return;
   const closedId = selected.value.id;
   const prevOrder = tickets.value.map((t) => t.id);
   const idx = prevOrder.findIndex((id) => Number(id) === Number(closedId));
   busy.value = true;
   try {
-    await api.post(`/support-tickets/${closedId}/close`);
+    await api.post(`/support-tickets/${closedId}/close`, noReplyNeeded ? { reason: 'no_reply_needed' } : undefined);
     clearDraftForTicket(closedId);
     await loadAll();
     if (props.embedded) {
@@ -2874,7 +2876,7 @@ watch(
     const found = tickets.value.find((t) => t.id === n);
     if (found) selectTicket(found);
     else {
-      selectTicket({ id: n, agency_id: agencyStore.currentAgency?.id || null });
+      selectTicket({ id: n, agency_id: Number(agencyIdInput.value) || agencyStore.currentAgency?.id || null });
     }
   }
 );
@@ -2921,6 +2923,10 @@ onMounted(async () => {
   } else if (agencyOptions.value.length === 1) {
     agencyIdInput.value = Number(agencyOptions.value[0].id);
   }
+  const linkedAgencyId = Number(route.query?.agencyId);
+  if (linkedAgencyId > 0 && agencyOptions.value.some(a => Number(a.id) === linkedAgencyId)) {
+    agencyIdInput.value = linkedAgencyId;
+  }
   if (props.syncRoute && String(route.query?.targetScope || '').toLowerCase() === 'platform') {
     agencyIdInput.value = 'platform';
   }
@@ -2939,7 +2945,7 @@ onMounted(async () => {
     const found = tickets.value.find((t) => t.id === qid);
     if (found) selectTicket(found);
     else {
-      selectTicket({ id: qid, agency_id: agencyStore.currentAgency?.id || null });
+      selectTicket({ id: qid, agency_id: Number(agencyIdInput.value) || agencyStore.currentAgency?.id || null });
     }
   }
 });

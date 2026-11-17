@@ -14,7 +14,7 @@ export const DEPARTMENTAL_GROUPS = Object.freeze({
   medical_records: { label: 'Medical Records', topic: 'general', localPart: 'medicalrecords' }
 });
 
-const aliases = { schoolreply: 'schools', school_reply: 'schools', medicalrecords: 'medical_records', records: 'medical_records', administration: 'admin', it: 'technology' };
+const aliases = { school_groups: 'schools', schools: 'schools', school_support: 'schools', schoolreply: 'schools', school_reply: 'schools', medicalrecords: 'medical_records', records: 'medical_records', administration: 'admin', it: 'technology' };
 export function normalizeDepartmentalGroupKey(value) {
   const key = norm(value);
   return Object.hasOwn(DEPARTMENTAL_GROUPS, key) ? key : aliases[key] || null;
@@ -25,6 +25,7 @@ export function groupKeyForIdentity(identity) {
   if (!identity || norm(identity.kind) === 'personal' || identity.owner_user_id != null) return null;
   const identityKey = norm(identity.identity_key);
   if (/^(personal_|login_|hire_)/.test(identityKey)) return null;
+  if (['schoolreply', 'school_reply', 'schools', 'school_support', 'school_groups'].includes(identityKey)) return 'schools';
   const explicit = normalizeDepartmentalGroupKey(identity.group_key || identityKey);
   if (explicit) return explicit;
   // Restrict address fallback to explicitly shared identities. A person's group
@@ -44,7 +45,7 @@ export function activeDepartmentalStaff(row) {
 export function departmentalGroupKeysForUser(row) {
   if (!activeDepartmentalStaff(row)) return [];
   const role = norm(row.agency_role || row.role);
-  const keys = new Set(['admin', 'super_admin'].includes(role) ? Object.keys(DEPARTMENTAL_GROUPS) : []);
+  const keys = new Set(['admin', 'super_admin'].includes(role) ? Object.keys(DEPARTMENTAL_GROUPS).filter(key => key !== 'billing' || role === 'super_admin' || enabled(row.has_billing_access)) : []);
   if (enabled(row.has_payroll_access)) keys.add('payroll');
   if (enabled(row.has_billing_access)) keys.add('billing');
   if (enabled(row.can_manage_credentialing)) keys.add('credentialing');

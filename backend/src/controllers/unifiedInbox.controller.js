@@ -5,6 +5,7 @@ import {
   getAttentionSummary,
   getConversationDetail,
   updateConversation,
+  reviewInboxNotices,
   replyToConversation,
   composeNewEmail,
   undoOutboundMessage,
@@ -60,6 +61,16 @@ function isBackofficeRole(user) {
 
 function deny(res) {
   return res.status(403).json({ error: { message: 'Communications inbox access required' } });
+}
+
+export async function postReviewInboxNotices(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    res.json(await reviewInboxNotices({ agencyId, userId: req.user.id, category: req.body?.category,
+      conversationIds: Array.isArray(req.body?.conversationIds) ? req.body.conversationIds : [] }));
+  } catch (error) { next(error); }
 }
 
 /**
@@ -187,8 +198,9 @@ export async function getUnifiedConversations(req, res, next) {
 
     const conversations = await listConversations({
       agencyId,
-      inboxId: Number.isFinite(inboxId) ? inboxId : null,
-      channel: req.query.channel || null,
+      inboxId: Number(req.query.groupInboxId) > 0 ? Number(req.query.groupInboxId) : Number.isFinite(inboxId) ? inboxId : null,
+      channel: ['group','groups'].includes(req.query.channel) ? 'email' : req.query.channel || null,
+      category: String(req.query.category || '') || null, sort: req.query.sort,
       status: req.query.status || null,
       filter,
       ownerUserId,
@@ -206,7 +218,8 @@ export async function getUnifiedConversations(req, res, next) {
       syncTickets: req.query.sync !== '0' && adminViewer && !hubScope,
       isAdminViewer: adminViewer && !hubScope,
       scopeToUserId,
-      groupOnly: rawInbox === 'group_email',
+      groupOnly: rawInbox === 'group_email' || (['group','groups'].includes(req.query.channel) && !req.query.category),
+      excludeGroup: req.query.channel === 'email' && hubScope,
       schoolGroupsOnly: rawInbox === 'school_groups',
       unknownOnly: filter === 'unknown' || req.query.unknown === '1',
       includeHeld: req.query.includeHeld === '1' && adminViewer && !hubScope

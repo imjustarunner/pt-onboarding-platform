@@ -336,13 +336,13 @@ function isValidSchoolInitials(value) {
   return /^[A-Z]{6}$/.test(cleaned);
 }
 
-function getClientTypeTransitionError({ fromType, toType }) {
+function getClientTypeTransitionError({ fromType, toType, role }) {
   const fromIndex = CLIENT_TYPE_ORDER.indexOf(fromType);
   const toIndex = CLIENT_TYPE_ORDER.indexOf(toType);
   if (fromIndex < 0 || toIndex < 0) {
     return 'Invalid client type. Allowed values: school, learning, clinical.';
   }
-  if (toIndex < fromIndex) {
+  if (toIndex < fromIndex && !['admin','support','super_admin'].includes(String(role || '').toLowerCase())) {
     return 'Client type cannot be downgraded.';
   }
   return null;
@@ -3023,7 +3023,7 @@ export const updateClient = async (req, res, next) => {
       }
       const transitionError = getClientTypeTransitionError({
         fromType: currentClientType,
-        toType: requestedClientType
+        toType: requestedClientType, role: userRole
       });
       if (transitionError) {
         return res.status(400).json({ error: { message: transitionError } });
@@ -3590,7 +3590,7 @@ export const graduateClientType = async (req, res, next) => {
         }
       });
     }
-    const transitionError = getClientTypeTransitionError({ fromType: currentType, toType: targetClientType });
+    const transitionError = getClientTypeTransitionError({ fromType: currentType, toType: targetClientType, role });
     const isDowngradeError = transitionError === 'Client type cannot be downgraded.';
     if (transitionError && !(superAdminOverrideDowngrade && isDowngradeError)) {
       return res.status(400).json({ error: { message: transitionError } });
@@ -3605,7 +3605,7 @@ export const graduateClientType = async (req, res, next) => {
       if (superAdminOverrideDowngrade && CLIENT_TYPE_ORDER.indexOf(targetClientType) < CLIENT_TYPE_ORDER.indexOf(currentType)) {
         return `Super admin override: changed client type from ${currentType} to ${targetClientType}`;
       }
-      return `Graduated client type from ${currentType} to ${targetClientType}`;
+      return `Changed client type from ${currentType} to ${targetClientType}`;
     })();
     const updated = await Client.update(
       clientId,

@@ -1,3 +1,4 @@
+import { notificationInboxVisibilitySql } from '../services/notificationInboxPolicy.js';
 import pool from '../config/database.js';
 import { NOTIFICATION_TYPES } from '../services/notificationCatalog.service.js';
 
@@ -193,7 +194,7 @@ class Notification {
   static async findByAgency(agencyId, filters = {}) {
     const { type, isRead, isResolved, limit, offset } = filters;
     
-    let query = 'SELECT * FROM notifications WHERE agency_id = ?';
+    let query = `SELECT * FROM notifications WHERE agency_id = ? AND ${notificationInboxVisibilitySql('notifications')}`;
     const params = [agencyId];
 
     if (type) {
@@ -663,7 +664,7 @@ class Notification {
     const uid = Number(userId);
     const [personal] = await pool.execute(
       `SELECT COUNT(*) AS c FROM notifications
-       WHERE agency_id = ? AND user_id = ? AND is_read = FALSE AND is_resolved = FALSE
+       WHERE agency_id = ? AND user_id = ? AND is_read = FALSE AND is_resolved = FALSE AND ${notificationInboxVisibilitySql('notifications')}
        AND (muted_until IS NULL OR muted_until <= NOW())`,
       [agencyId, uid]
     );
@@ -672,7 +673,7 @@ class Notification {
     const [agencyWide] = await pool.execute(
       `SELECT n.id FROM notifications n
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
-       WHERE n.agency_id = ? AND n.user_id IS NULL AND n.is_resolved = FALSE
+       WHERE n.agency_id = ? AND n.user_id IS NULL AND n.is_resolved = FALSE AND ${notificationInboxVisibilitySql('n')}
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
       [uid, agencyId]
     );
@@ -683,7 +684,7 @@ class Notification {
        LEFT JOIN notification_user_reads nur ON n.id = nur.notification_id AND nur.user_id = ?
        WHERE n.agency_id = ? AND n.user_id IS NOT NULL AND n.user_id != ?
        AND n.type NOT IN ('chat_message','inbound_client_message','support_safety_net_alert')
-       AND n.is_resolved = FALSE
+       AND n.is_resolved = FALSE AND ${notificationInboxVisibilitySql('n')}
        AND (nur.notification_id IS NULL OR (nur.is_read = FALSE AND (nur.muted_until IS NULL OR nur.muted_until <= NOW())))`,
       [uid, agencyId, uid]
     );
@@ -708,7 +709,7 @@ class Notification {
   static async findByUser(userId, filters = {}) {
     const { type, isRead, isResolved } = filters;
     
-    let query = 'SELECT * FROM notifications WHERE user_id = ?';
+    let query = `SELECT * FROM notifications WHERE user_id = ? AND ${notificationInboxVisibilitySql('notifications')}`;
     const params = [userId];
 
     if (type) {

@@ -15,6 +15,11 @@ export default {
     'src/services/__tests__/departmentalSenderReadiness.test.js',
     'src/services/__tests__/workspaceRelay.test.js',
     'src/services/__tests__/workspaceRelayProvisioning.test.js',
-    'src/services/__tests__/technologySupport.test.js'
+    'src/services/__tests__/technologySupport.test.js',
+    'src/services/__tests__/privateMailboxAccess.test.js',
+    'src/services/__tests__/schoolOnboardingReminders.test.js',
+    'src/services/__tests__/messaging.groupRouting.test.js',
+    'src/services/__tests__/messaging.agentDelivery.test.js',
+    'src/services/__tests__/messaging.personalImport.test.js'
   ], restoreMocks: true }
 };

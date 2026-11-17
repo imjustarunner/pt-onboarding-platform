@@ -59,6 +59,15 @@ async function render(props = {}, stubs = {}) {
 }
 
 describe('TicketDeskView queue navigation', () => {
+  it('uses the permitted agency in an assignment email link before loading the ticket queue', async () => {
+    mocks.agency.agencies.push({ id: 3, name: 'Other agency', organization_type: 'agency' });
+    mocks.agency.userAgencies = [...mocks.agency.agencies];
+    mocks.route.query = { ticketId: '101', agencyId: '3' };
+    await render();
+    expect(queueCalls()[0][1].params.agencyId).toBe(3);
+    expect(wrapper.find('.detail-id').text()).toBe('Ticket #101');
+  });
+
   it('opens an embedded ticket without fetching a queue or changing the Messages URL', async () => {
     mocks.route.query = { channel: 'groups', conversationId: '500' };
     await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false });

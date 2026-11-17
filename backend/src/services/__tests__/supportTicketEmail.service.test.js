@@ -6,11 +6,12 @@ import { decryptTicketMessageRow } from '../../utils/supportTicketCrypto.js';
 import pool from '../../config/database.js';
 test.after(() => pool.end());
 
-function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [], schoolAccess = true, workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
+function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [], schoolAccess = true, workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, fromEmail = 'schools@agency.test', claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
   const statements = [], captures = [], sends = [];
   let delivery = null;
   const db = { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async execute(sql, values = []) {
     statements.push({ sql, values });
+    if (sql.startsWith('SELECT u.*,ua.')) return [[{ role: 'admin', status: 'ACTIVE', is_active: 1, membership_active: 1 }]];
     assert.equal((sql.match(/\?/g) || []).length, values.length, `SQL binds: ${sql}`);
     if (sql.startsWith('SELECT id FROM credentialing_email_tickets')) return [credentialingCase ? [{id:9}] : []];
     if (sql.startsWith('SELECT * FROM support_tickets')) return [[{ id: 1, agency_id: 2, school_organization_id: 7,
@@ -26,7 +27,7 @@ function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [],
     if (sql.includes('SELECT m.id FROM support_ticket_messages')) return [[{ id: 10 }]];
     if(sql.includes('sender_agency_name'))return [crossSenders];
     if (sql.includes('FROM email_sender_identities')) return [[{ id: 22, agency_id: 2, is_active: 1,
-      identity_key: 'schools', from_email: 'schools@agency.test', display_name: 'Agency Schools' },
+      identity_key: 'schools', from_email: fromEmail, display_name: 'Agency Schools' },
     { id: 99, agency_id: 2, is_active: 1, identity_key: 'personal_5', owner_user_id: workOwner, from_email: workFrom || 'hannah@agency.test' }]];
     if (sql.startsWith('SELECT itsco_email')) return [[{ itsco_email: 'school-group@agency.test' }]];
     if (sql.includes('u.first_name,u.last_name')) return [[{ id: 5, first_name: 'Hannah', last_name: 'Human', work_email: actorWorkEmail, role:actorRole, agency_name: 'Agency' }]];
@@ -47,6 +48,18 @@ function harness({ sourceChannel = 'email', actorRole = null, crossSenders = [],
     dependencies: { database, review, notifySchoolReply: async () => {}, syncInbox: async () => {}, sendEmail: async (input) => { sends.push(input); if (failure) throw failure; return result; } } };
 }
 const input = { ticketId: 1, actorUserId: 5, body: 'Hello', clientRequestId: 'browser-request-1', expectedLastMessageId: 10 };
+
+test('ITSCO school ticket replies copy Rachel, while other agency replies do not', async () => {
+  const oldKey = process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;
+  process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 8).toString('base64');
+  try {
+  const f = harness({ fromEmail: 'schools@itsco.health' });
+  await sendSupportTicketEmailReply(input, f.dependencies);
+  assert.deepEqual(f.sends[0].bcc, ['rachel@itsco.health']);
+  const other = harness(); await sendSupportTicketEmailReply(input, other.dependencies);
+  assert.equal(other.sends[0].bcc, null);
+  } finally { if (oldKey == null) delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64; else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 = oldKey; }
+});
 
 test('sends one human reply using shared From/Reply-To, RFC headers, encrypted canonical signed body and immutable draft link', async () => {
   const oldKey = process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;

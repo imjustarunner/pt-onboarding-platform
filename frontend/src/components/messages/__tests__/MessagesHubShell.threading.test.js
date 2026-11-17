@@ -355,6 +355,48 @@ describe('channel and group entry points', () => {
 });
 
 describe('reading layout and unread navigation', () => {
+  it('loads a selected mailbox before pagination and retains its id for the visible group filter', async () => {
+    state.selected = null; state.inboxChannel = 'group'; state.selectedGroupInboxId = 7; state.navId = 'unread';
+    api.get.mockImplementation(async url => ({ data: url === '/messages/hub/unread'
+      ? { items: [{ id: 'email-20', kind: 'email', channel: 'email', conversationId: 20, inbox_id: 7, is_ticketed_group: true, is_unread: true }] }
+      : { summary: { unread: 3, unreadByChannel: { group: 3 }, unreadByInbox: { 7: 3 } } } }));
+    await state.loadConversations();
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/unread', expect.objectContaining({ params: expect.objectContaining({ channel: 'group', inboxId: 7 }) }));
+    expect(state.filteredConversations).toHaveLength(1);
+    expect(state.inboxBadgeCount('unread')).toBe(3);
+  });
+  it('keeps notices in separate green review categories and submits a scoped bulk review', async () => {
+    state.selected = null; state.inboxChannel = 'group'; state.navId = 'unread';
+    state.selectedReviewCategory = 'enrollment_packets';
+    state.inboxCounts = { unread: 4, unreadByChannel: { email: 4 }, reviewByCategory: { enrollment_packets: 2 } };
+    state.conversations = [{ id: 20, channel: 'email', message_category: 'enrollment_packets', is_review_notice: true, is_unread: true }];
+    await nextTick();
+    expect(state.filteredConversations).toHaveLength(1);
+    expect(wrapper.text()).toContain('2 to review');
+    expect(state.inboxBadgeCount('unread')).toBe(0);
+    expect(wrapper.findAll('.msg-hub-review-count').some(item => item.text() === 'To review')).toBe(true);
+    await state.reviewAllNotices();
+    expect(api.post).toHaveBeenCalledWith('/communications/review-notices', { agencyId: 2, category: 'enrollment_packets' }, expect.objectContaining({ skipGlobalLoading: true }));
+  });
+  it('closes a linked ticket without replying and leaves the open reader on its closed state', async () => {
+    state.selected = null;
+    state.conversationPreview = { conversation: { id: 20, agency_id: 2, channel: 'email', support_ticket_id: 793, ticket_status: 'open' }, messages: [] };
+    await state.closePreviewTicketWithoutReply();
+    expect(api.post).toHaveBeenCalledWith('/support-tickets/793/close', { reason: 'no_reply_needed' }, expect.objectContaining({ skipGlobalLoading: true }));
+    expect(api.post.mock.calls.some(([url]) => /reply|send/.test(url))).toBe(false);
+    expect(state.conversationPreview.conversation.ticket_status).toBe('closed');
+  });
+  it.each([false, true])('keeps full-screen navigation history after updating read state (keep unread: %s)', async keepUnread => {
+    state.selected = null; state.navId = 'unread'; state.inboxChannel = 'email';
+    const rows = [10, 20].map(id => ({ id, channel: 'email', conversationId: id, is_unread: true }));
+    state.conversations = rows;
+    api.get.mockImplementation(async url => ({ data: url.startsWith('/communications/conversations/') ? { conversation: { id: Number(url.split('/').at(-1)), channel: 'email' }, messages: [] } : {} }));
+    await state.pickConversation(rows[0]); state.readerFullscreen = true;
+    await state.reviewAndNext(keepUnread);
+    expect(api.patch).toHaveBeenCalledWith('/communications/conversations/10', keepUnread ? { markUnread: true } : { markRead: true }, expect.objectContaining({ skipGlobalLoading: true }));
+    expect(state.selectedConversation.id).toBe(20); expect(state.readerFullscreen).toBe(true);
+    await state.navigateReader(-1); expect(state.selectedConversation.id).toBe(10);
+  });
   it('collapses folders, list, and details independently', async () => {
     expect(state.detailsCollapsed).toBe(true);
     for (const label of ['Hide folders', 'Hide message list', 'Show details']) {
@@ -425,7 +467,7 @@ describe('reading layout and unread navigation', () => {
     } } });
     await state.loadInboxCounts();
     await nextTick();
-    for (const [channel, count] of Object.entries({ all: 14, email: 3, internal: 2, secure: 1, sms: 2, calls: 3, channel: 1, group: 2 })) {
+    for (const [channel, count] of Object.entries({ all: 14, email: 3, internal: 2, secure: 1, sms: 2, calls: 3, channel: 1, group: 3 })) {
       const badge = wrapper.find(`[data-channel="${channel}"] .msg-hub-channel-count`);
       expect(badge.text()).toBe(String(count));
       expect(badge.attributes('aria-label')).toBe(`${count} unread conversations`);

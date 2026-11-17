@@ -16,6 +16,12 @@ export async function deliverOnboardingEmail({ invite, kind = 'invite', delivery
     await database.execute(`UPDATE school_onboarding_email_deliveries SET delivery_status=?,communication_id=?,sent_at=IF(?='sent',UTC_TIMESTAMP(),NULL) WHERE id=?`,
       [status,result?.communicationId || null,status,claim.insertId]);
     if (status === 'sent' && kind === 'invite') await database.execute('UPDATE school_onboarding_invites SET invite_email_sent_at=UTC_TIMESTAMP() WHERE id=?', [invite.id]);
+    if (status === 'sent') {
+      try {
+        const { syncSchoolOnboardingWorkflowTicket } = await import('./schoolOnboardingWorkflowTickets.service.js');
+        await syncSchoolOnboardingWorkflowTicket({ inviteId: invite.id, stage: kind, stageKey: `${kind}:${claim.insertId}` }, { database });
+      } catch (error) { console.warn('[school-onboarding-ticket]', error.code || 'assignment_pending'); }
+    }
     return { deliveryId:claim.insertId, communicationId:result?.communicationId || null, messageId:result?.id || null, sent:status==='sent', status, reason:status==='sent'?null:result?.reason || status };
   } catch (error) {
     await database.execute("UPDATE school_onboarding_email_deliveries SET delivery_status='review' WHERE id=?", [claim.insertId]);

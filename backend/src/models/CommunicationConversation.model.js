@@ -2,6 +2,8 @@ import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { groupEmailConversationSql, schoolGroupConversationSql, personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
+import { messageInboxPolicySql, INBOX_REVIEW_CATEGORIES } from '../services/messageInboxPolicy.js';
+import { inferredMailboxOwnerSql, privateMailboxVisibilitySql } from '../services/privateMailboxPolicy.js';
 
 async function hydrateTicketMessageBodies(messages) {
   const ids = [...new Set(messages.map((m) => Number(m?.support_ticket_message_id)).filter(Boolean))];
@@ -172,11 +174,17 @@ class CommunicationConversation {
     isAdminViewer = false,
     /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
     scopeToUserId = null,
-    groupInboxIds = [], allowedGroupInboxIds = [], groupOnly = false, excludeGroup = false, schoolGroupsOnly = false
+    groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], groupOnly = false, excludeGroup = false,
+    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     const params = [];
-    const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds });
+    const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
+    const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
+    if (userId) where.push(privateMailboxVisibilitySql(userId, 'i'));
+    const reviewCategory = INBOX_REVIEW_CATEGORIES.includes(category) ? category : null;
+    where.push(reviewCategory ? `${policy.category}='${reviewCategory}'` : policy.correspondence);
+    if (reviewCategory && reviewBefore) { where.push('COALESCE(c.last_message_at,c.created_at) <= ?'); params.push(reviewBefore); }
     where.push(groupSql.access);
     if (groupOnly) where.push(groupSql.isGroup);
     if (schoolGroupsOnly) where.push(schoolGroupConversationSql);
@@ -189,7 +197,7 @@ class CommunicationConversation {
     // Already-received mail stays readable, including legacy availability holds.
     if (unknownOnly) {
       where.push('COALESCE(c.is_unknown_sender, 0) = 1');
-    } else if (!isAdminViewer && filter !== 'unknown') {
+    } else if (!isAdminViewer && filter !== 'unknown' && !reviewCategory) {
       // Default feed hides unknown senders (they live in Unknown Sender box)
       where.push('COALESCE(c.is_unknown_sender, 0) = 0');
     }
@@ -205,8 +213,7 @@ class CommunicationConversation {
         OR EXISTS (
           SELECT 1 FROM communication_inboxes pi
           WHERE pi.id = c.inbox_id
-            AND pi.kind = 'personal'
-            AND pi.owner_user_id = ?
+            AND COALESCE(pi.owner_user_id,${inferredMailboxOwnerSql('pi')}) = ?
         )
       )`);
       where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id <> ?))`);
@@ -326,7 +333,15 @@ class CommunicationConversation {
       where.push(`c.status IN ('new', 'needs_reply')`);
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
       params.push(now);
+    } else if (filter === 'unread' && userId && reviewCategory) {
+      // Review is attached to the notice itself, including historical app sends
+      // that have no inbound copy. It is independent of email unread/snooze.
+      where.push(`NOT EXISTS (SELECT 1 FROM communication_conversation_reads nr
+        WHERE nr.conversation_id=c.id AND nr.user_id=?
+          AND nr.last_read_at>=COALESCE(c.last_message_at,c.created_at) AND COALESCE(nr.forced_unread,0)=0)`);
+      params.push(userId);
     } else if (filter === 'unread' && userId) {
+      if (!reviewCategory) where.push(`NOT (${policy.schoolAutoRead})`);
       // Unread = inbound you haven't seen, OR explicitly Mark unread (forced_unread).
       where.push(personalConversationUnreadSql(userId));
       // Actively snoozed mail leaves Unread until it wakes
@@ -368,6 +383,7 @@ class CommunicationConversation {
 
     const [rows] = await pool.execute(
       `SELECT c.*,
+              ${policy.category} AS message_category, (${policy.schoolAutoRead}) AS school_auto_read,
               (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) AS owner_user_id,
               t.status AS ticket_status, t.claimed_by_user_id AS ticket_claimed_by_user_id,
               (${groupSql.unread}) AS group_ticket_unread,
@@ -442,7 +458,7 @@ class CommunicationConversation {
        LEFT JOIN support_tickets t ON t.id = c.support_ticket_id
        LEFT JOIN users u ON u.id = (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)
        WHERE ${where.join(' AND ')}
-       ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
+       ORDER BY COALESCE(c.last_message_at, c.updated_at) ${sort === 'oldest' ? 'ASC' : 'DESC'}, c.id ${sort === 'oldest' ? 'ASC' : 'DESC'}
        LIMIT ${lim} OFFSET ${off}`,
       params
     );
@@ -456,7 +472,10 @@ class CommunicationConversation {
         is_spam: !!r.is_spam,
         is_snoozed: isSnoozed,
         snoozed_until: r.snoozed_until || null,
-        is_unread: userId
+        is_review_notice: INBOX_REVIEW_CATEGORIES.includes(r.message_category),
+        is_unread: INBOX_REVIEW_CATEGORIES.includes(r.message_category)
+          ? !!userId && (Number(r.forced_unread || 0) === 1 || !r.last_read_at || new Date(r.last_read_at) < new Date(r.last_message_at || r.created_at))
+          : Number(r.school_auto_read) ? false : userId
           ? !!(
               !isSnoozed &&
               (Number(r.forced_unread || 0) === 1 ||
@@ -520,21 +539,24 @@ class CommunicationConversation {
     return rows.length;
   }
 
-  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [] } = {}) {
-    const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds });
-    const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access];
+  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [] } = {}) {
+    const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
+    const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
+    const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access, privateMailboxVisibilitySql(userId, 'i')];
     const params = [];
     if (agencyId != null) { where.push('(c.agency_id=? OR c.agency_id IS NULL)'); params.push(agencyId); }
     if (scopeToUserId) {
       where.push(`((CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)=?
         ${groupSql.personalScopeExtension} OR ${assignedSmsConversationSql}
-        OR EXISTS (SELECT 1 FROM communication_inboxes pi WHERE pi.id=c.inbox_id AND pi.kind='personal' AND pi.owner_user_id=?))`);
+        OR EXISTS (SELECT 1 FROM communication_inboxes pi WHERE pi.id=c.inbox_id AND COALESCE(pi.owner_user_id,${inferredMailboxOwnerSql('pi')})=?))`);
       where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id<>?))`);
       params.push(scopeToUserId,scopeToUserId,scopeToUserId,scopeToUserId,scopeToUserId,scopeToUserId);
     }
+    const noticeWhere = [...where];
+    where.push(policy.correspondence);
     const uid = Number.isSafeInteger(Number(userId)) && Number(userId) > 0 ? Number(userId) : 0;
     const [rows] = await pool.execute(`SELECT inbox_id,channel,COUNT(*) AS total,
-      SUM(is_unread) AS unread_count,SUM(is_unread AND is_group) AS group_unread,
+      SUM(is_unread AND NOT unknown_sender) AS unread_count,SUM(is_unread AND is_group AND NOT unknown_sender) AS group_unread,
       SUM(is_unread AND is_school) AS school_unread,SUM(needs_reply) AS needs_reply,
       SUM(waiting) AS waiting,SUM(follow_up) AS follow_up,SUM(assigned AND status<>'resolved') AS assigned,
       SUM(unknown_sender) AS unknown_sender,SUM(snoozed) AS snoozed,
@@ -542,7 +564,7 @@ class CommunicationConversation {
       SUM(is_unread AND needs_reply) AS unread_needs_reply,SUM(is_unread AND waiting) AS unread_waiting,
       SUM(is_unread AND follow_up) AS unread_follow_up,SUM(is_unread AND unknown_sender) AS unread_unknown,
       SUM(is_unread AND open_ticket) AS unread_tickets
-      FROM (SELECT c.inbox_id,c.channel,c.status,COALESCE(c.starred,0) AS starred,
+      FROM (SELECT c.inbox_id,CASE WHEN ${groupSql.isGroup} THEN 'group' ELSE c.channel END AS channel,c.status,COALESCE(c.starred,0) AS starred,
         (${groupSql.isGroup}) AS is_group,(${schoolGroupConversationSql}) AS is_school,
         (c.snoozed_until IS NOT NULL AND c.snoozed_until>NOW()) AS snoozed,
         (COALESCE(c.is_unknown_sender,0)=1) AS unknown_sender,
@@ -551,7 +573,7 @@ class CommunicationConversation {
         (c.status='waiting_on_them') AS waiting,
         ((c.status='follow_up' OR (c.due_at IS NOT NULL AND c.due_at<=NOW())) AND c.status<>'resolved' AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS follow_up,
         (t.id IS NOT NULL AND t.status NOT IN ('closed','resolved','done')) AS open_ticket,
-        ((${personalConversationUnreadSql(userId)}) AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS is_unread
+        ((${personalConversationUnreadSql(userId)}) AND NOT (${policy.schoolAutoRead}) AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS is_unread
         FROM communication_conversations c
         LEFT JOIN communication_inboxes i ON i.id=c.inbox_id
         LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
@@ -571,7 +593,16 @@ class CommunicationConversation {
       summary.unreadViews.group_email += n('group_unread'); summary.unreadViews.school_groups += n('school_unread');
     }
     summary.unreadViews.all=summary.unread;
-    summary.unreadViews.unread=summary.unread-summary.unreadViews.unknown;
+    summary.unreadViews.unread=summary.unread;
+    const [noticeRows] = await pool.execute(`SELECT ${policy.category} AS category,COUNT(*) AS n
+      FROM communication_conversations c LEFT JOIN communication_inboxes i ON i.id=c.inbox_id
+      LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
+      WHERE ${noticeWhere.join(' AND ')} AND ${policy.category} IN ('provider_assignments','enrollment_packets')
+        AND NOT EXISTS (SELECT 1 FROM communication_conversation_reads nr WHERE nr.conversation_id=c.id AND nr.user_id=${uid}
+          AND nr.last_read_at>=COALESCE(c.last_message_at,c.created_at) AND COALESCE(nr.forced_unread,0)=0)
+      GROUP BY category`, params);
+    summary.reviewByCategory = Object.fromEntries(INBOX_REVIEW_CATEGORIES.map(category => [category, 0]));
+    for (const row of noticeRows) if (INBOX_REVIEW_CATEGORIES.includes(row.category)) summary.reviewByCategory[row.category] = Number(row.n || 0);
     return summary;
   }
 

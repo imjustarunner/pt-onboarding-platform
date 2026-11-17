@@ -14,6 +14,9 @@ import { loadSchoolSupportDraftGrounding, schoolSupportRecordReply, validateScho
 import { loadLinkedSupportClientDraftFacts } from '../services/supportTicketEmailInbound.service.js';
 import { recordDraftSnapshot } from '../services/supportReplyReview.service.js';
 import { assignTechnologyTicket } from '../services/technologySupport.service.js';
+import { closeTicketWithoutReply } from '../services/closeTicketWithoutReply.service.js';
+import { sendTicketAssignmentEmail } from '../services/ticketAssignmentEmail.service.js';
+import { ticketMailVisibilitySql } from '../services/messageInboxPolicy.js';
 import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -714,6 +717,12 @@ async function createSupportTicketAssignmentNotification({ ticket, assigneeUser,
     const assigneeId = Number(assigneeUser?.id || 0);
     const actorId = Number(assignedByUserId || 0);
     if (!assigneeId || !actorId) return;
+    try {
+      const email = await sendTicketAssignmentEmail({ ticketId: ticket.id });
+      if (email.sent || email.status === 'queued' || email.status === 'sending') return;
+    } catch {
+      // Preserve the in-app fallback when assignment mail cannot be confirmed.
+    }
     if (assigneeId === actorId) return;
 
     let actor = assignedByUser || null;
@@ -1106,6 +1115,7 @@ async function getAccessibleTicketScopeForUser(userId, role, req) {
  * even with no tenant memberships; tenant admins see their own platform filings.
  */
 async function applyTicketVisibilityScope({ req, role, where, params, targetScopeFilter = null, agencyIdFilter = null }) {
+  where.push(ticketMailVisibilitySql('t'));
   const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
   if (role === 'school_staff') {
     // Client history must disappear from every queue when its ROI expires.
@@ -3616,11 +3626,15 @@ export const closeSupportTicket = async (req, res, next) => {
     if (!(await actorCanAccessTicketTopic(req, ticket))) {
       return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
     }
-    await pool.execute("UPDATE support_tickets SET status = 'closed' WHERE id = ?", [ticketId]);
-    if (await hasSupportTicketMessagesTable()) {
-      await insertTicketMessageRow({ ticketId, parentId: null, authorUserId: req.user.id,
-        authorRole: String(req.user.role || ''), body: 'Ticket closed', isInternal: true,
-        requireEncryption: ticket.source_channel === 'email' });
+    if (req.body?.reason === 'no_reply_needed') {
+      await closeTicketWithoutReply({ ticket, user: req.user, expectedLastMessageId: req.body.expectedLastMessageId });
+    } else {
+      await pool.execute("UPDATE support_tickets SET status = 'closed' WHERE id = ?", [ticketId]);
+      if (await hasSupportTicketMessagesTable()) {
+        await insertTicketMessageRow({ ticketId, parentId: null, authorUserId: req.user.id,
+          authorRole: String(req.user.role || ''), body: 'Ticket closed', isInternal: true,
+          requireEncryption: ticket.source_channel === 'email' });
+      }
     }
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);

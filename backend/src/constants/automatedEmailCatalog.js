@@ -28,6 +28,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   school_onboarding_welcome: ['notifications'],
   school_onboarding_invite: ['school_onboarding', 'system', 'default', 'notifications', 'login_recovery'],
   school_onboarding_reminder: ['school_onboarding', 'schoolreply', 'system', 'default', 'notifications'],
+  support_ticket_assigned: ['support', 'schoolreply', 'notifications', 'system'],
   school_onboarding_staff_portal_access: ['technology', 'login_recovery', 'notifications'],
   school_onboarding_login_recovery_nudge: ['technology', 'login_recovery', 'notifications'],
   school_roi_signing: ['schools'],

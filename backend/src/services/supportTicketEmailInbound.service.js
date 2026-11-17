@@ -1,3 +1,4 @@
+import { applySchoolGmailOwnership } from './schoolGmailOwnership.service.js';
 import pool from '../config/database.js';
 import { decryptTicketRow, decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { encryptSupportEmailText as prepareEncryptedTicketText } from './supportEmailEncryption.js';
@@ -183,6 +184,7 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
       if (!caseEmail) throw supportEmailError('Credentialing case no longer exists.', 409);
       await notifyCredentialingTeam(db, { agencyId, type: 'credentialing_email', title: 'New credentialing email', kind: 'provider', recordId: caseEmail.credential_id });
     }
+    if (staffCopy && ticket) await applySchoolGmailOwnership({ input, ticket, appOriginReceipt, database: db });
     await db.commit();
   } catch (error) {
     await db.rollback();
