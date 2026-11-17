@@ -170,12 +170,12 @@ export async function endBookedTutoringRoom(ctx) {
   if(!session)throw fail(409,'This appointment has no opened tutoring room.');
   if(session.twilio_room_sid)await media.requestClinicalEnd(session.twilio_room_sid,ctx.req,db);
   await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND status IN ('waiting','admitted')",[session.id]);
-  await db.execute("UPDATE learning_class_sessions SET status='ended',ends_at=COALESCE(actual_ended_at,UTC_TIMESTAMP()),actual_ended_at=COALESCE(actual_ended_at,UTC_TIMESTAMP()),ended_by_user_id=COALESCE(ended_by_user_id,?) WHERE id=?",[ctx.req.user.id,session.id]);
+  await db.execute("UPDATE learning_class_sessions SET status=IF(actual_started_at IS NULL,'ended',status),ends_at=COALESCE(actual_ended_at,UTC_TIMESTAMP()),actual_ended_at=COALESCE(actual_ended_at,UTC_TIMESTAMP()),ended_by_user_id=COALESCE(ended_by_user_id,?) WHERE id=?",[ctx.req.user.id,session.id]);
   await audit(ctx,session,'tutoring_room_ended',{},db);
  });
  const disconnected=session.twilio_room_sid?await media.finishClinicalEnd(session.twilio_room_sid):{state:'ended'};
  let billingWarning=null;
- if(session.actual_started_at){try{const {completeLearningSession}=await import('../controllers/learningClassSessions.controller.js');const result=await completeLearningSession(session.id,ctx.req.user.id);billingWarning=result?.billingWarning||null;}catch(error){billingWarning=`The session is closed and attendance was kept. Billing needs office review: ${error.message}`;}}
+ if(session.actual_started_at){try{const {completeLearningSession}=await import('../controllers/learningClassSessions.controller.js');const result=await completeLearningSession(session.id,ctx.req.user.id);billingWarning=result?.billingWarning||null;}catch(error){await pool.execute("UPDATE learning_class_sessions SET status='ended' WHERE id=? AND actual_ended_at IS NOT NULL",[session.id]);billingWarning=`The session is closed and attendance was kept. Billing needs office review: ${error.message}`;}}
  return {...disconnected,appointmentId:ctx.appointment.id,learningSessionId:session.id,billingWarning};
 }
 export async function bookedTutoringWorkspace(ctx,operation,input={}) {

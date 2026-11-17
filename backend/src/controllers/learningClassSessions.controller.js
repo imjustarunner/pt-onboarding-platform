@@ -416,7 +416,7 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
       transcriptText = await buildInPersonTranscriptSummaryText(sessionId);
     }
     const completed = await LearningClassSession.completeOnce(sessionId, {
-      endedAt: new Date(),
+      endedAt: session.actual_ended_at || new Date(),
       endedByUserId: actorUserId,
       transcriptText
     });
