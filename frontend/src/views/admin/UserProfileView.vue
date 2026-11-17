@@ -1459,6 +1459,7 @@
                                   </div>
             
                                   <div class="aa-section">
+                                    <AgencyClientCareToggle v-if="['agency','life_coach','consultant','clubwebapp'].includes(agency.organization_type || agency.organizationType || 'agency')" :provider-id="Number(userId)" :agency-id="Number(agency.id)" :agency-name="agency.name" :can-edit="canEditUser" />
                                     <h4 class="aa-section__title"><span>1</span> Agency role &amp; identity</h4>
                                     <p class="aa-hint">The position and working role below apply to this agency. Superadmin access remains platform-wide.</p>
                                     <div class="aa-section__grid">
@@ -2803,6 +2804,7 @@ import SupervisorAssignmentManager from '../../components/admin/SupervisorAssign
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
+import AgencyClientCareToggle from '../../components/availability/AgencyClientCareToggle.vue';
 import ProviderAvailabilitySettings from '../../components/availability/ProviderAvailabilitySettings.vue';
 import TenantRelationshipTools from '../../components/admin/TenantRelationshipTools.vue';
 import TypicalAvailabilityInput from '../../components/publicServices/TypicalAvailabilityInput.vue';

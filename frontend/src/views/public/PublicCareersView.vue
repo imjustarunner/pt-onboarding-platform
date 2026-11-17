@@ -355,7 +355,7 @@
 
     <div v-if="loading" class="cr-status">Loading open positions…</div>
     <div v-else-if="error" class="cr-status cr-status--error">{{ error }}</div>
-    <div v-else-if="!jobs.length" id="jobs" class="cr-status">No open positions right now.</div>
+    <div v-else-if="!jobs.length" id="jobs" class="cr-status">No current openings.</div>
 
     <template v-else>
       <div v-if="!filteredJobs.length" id="jobs" class="cr-status">No roles match the selected filters.</div>

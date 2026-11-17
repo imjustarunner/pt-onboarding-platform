@@ -67,14 +67,14 @@
         </template>
         <template v-else>
           <p class="tf-eyebrow">Real people. A personal connection.</p><h1 class="tf-hero-title">{{ displayTitle }}</h1>
-          <p class="tf-hero-blurb">{{ introBlurb || "Find support that fits your needs, then explore current openings and get to know your provider." }}</p>
+          <p class="tf-hero-blurb">{{ introBlurb || (directoryOnly ? "Meet our providers and explore their profiles." : "Find support that fits your needs, then explore current openings and get to know your provider.") }}</p>
         </template>
       </div>
     </section>
 
     <div class="tf-shell">
       <aside class="tf-rail">
-        <fieldset class="tf-avail"><legend>Start your search</legend><button class="tf-avail-btn" :class="{active:searchMode==='needs'}" @click="searchMode='needs'">Find the right fit</button><button class="tf-avail-btn" :class="{active:searchMode==='availability'}" @click="searchMode='availability';sortBy='soonest'">Find the earliest time</button></fieldset>
+        <fieldset v-if="!directoryOnly" class="tf-avail"><legend>Start your search</legend><button class="tf-avail-btn" :class="{active:searchMode==='needs'}" @click="searchMode='needs'">Find the right fit</button><button class="tf-avail-btn" :class="{active:searchMode==='availability'}" @click="searchMode='availability';sortBy='soonest'">Find the earliest time</button></fieldset>
         <label v-if="serviceType !== 'tutoring'" class="tf-field"><span>Insurance</span><select v-model="insurance"><option value="">All published insurance</option><option v-for="value in insuranceOptions" :key="value">{{value}}</option></select></label>
 
         <PublicOfficeLocations v-if="filters.programType==='IN_PERSON'" :offices="locations" :model-value="location" required @update:model-value="chooseOffice"/>
@@ -116,7 +116,7 @@
           </select>
         </label>
 
-        <fieldset class="tf-avail">
+        <fieldset v-if="!directoryOnly" class="tf-avail">
           <legend>Availability</legend>
           <button
             v-for="tab in availTabs"
@@ -153,7 +153,7 @@
           <label class="tf-sort">
             Sort by
             <select v-model="sortBy">
-              <option value="soonest">{{searchMode==='needs'?'Highlighted fit, then availability':'First available'}}</option>
+              <option v-if="!directoryOnly" value="soonest">{{searchMode==='needs'?'Highlighted fit, then availability':'First available'}}</option>
               <option value="name">Name A–Z</option>
             </select>
           </label>
@@ -208,6 +208,7 @@ import {
 import { isPractitionerOrgType } from '../../utils/practitionerVertical.js';
 
 const props = defineProps({
+  directoryOnly: { type: Boolean, default: false },
   serviceType: { type: String, required: true },
   pageTitle: { type: String, default: 'Find care' },
   providerNoun: { type: String, default: 'providers' },
@@ -246,7 +247,7 @@ const loading = ref(false);
 const error = ref('');
 const providers = ref([]);
 const activeTab = ref('first');
-const sortBy = ref('soonest');
+const sortBy = ref(props.directoryOnly ? 'name' : 'soonest');
 const searchMode = ref('needs');
 const insurance = ref('');
 const location = ref(String(route.query.officeId||'')), language = ref(''), timeOfDay = ref('');
@@ -479,7 +480,8 @@ async function loadHubMeta() {
   if (!slug.value) return;
   try {
     const hubRes = await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}`, {
-      skipAuthRedirect: true
+      skipAuthRedirect: true,
+      params: props.directoryOnly ? { view: 'directory' } : {}
     });
     enabledServices.value = (hubRes.data?.serviceTypes || []).map(s => s.serviceType);
     agencyId.value = hubRes.data?.agency?.id || null;
@@ -510,7 +512,8 @@ async function load() {
       officeId:filters.value.programType==='IN_PERSON'?location.value||undefined:undefined,
       programType: filters.value.programType,
       weekStart: filters.value.weekStart,
-      bookingMode: 'NEW_CLIENT'
+      bookingMode: 'NEW_CLIENT',
+      ...(props.directoryOnly ? { view: 'directory' } : {})
     };
     if (props.serviceType==='tutoring') params.learningProgram=filters.value.learningProgram;
     if (filters.value.search) params.search = filters.value.search;

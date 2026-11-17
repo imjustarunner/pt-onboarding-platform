@@ -207,6 +207,8 @@ export function defaultTisiLandingConfig() {
       { label: 'Athletes', href: '/p/tisi/athletes' },
       { label: 'About', href: '/p/tisi/about' },
       { label: 'Resources', href: '/p/tisi/resources' },
+      { label: 'Providers', href: '/tisi/providers' },
+      { label: 'Careers', href: '/careers/tisi' },
       { label: 'Contact', href: '/p/tisi/contact' }
     ],
     legalFooterLinks: [
@@ -294,6 +296,10 @@ export function resolveTisiLandingConfig({ pageMeta, branding } = {}) {
   const audienceIndex = primaryNav.findIndex(item => item.href === '/p/tisi/who-we-help');
   const contactIndex = primaryNav.findIndex(item => item.href === '/p/tisi/contact');
   if(primaryNavRaw.length)primaryNav.splice(audienceIndex >= 0 ? audienceIndex + 1 : contactIndex >= 0 ? contactIndex : primaryNav.length, 0, ...missingAudiences);
+
+  for (const item of d.primaryNav.filter(link => ['/tisi/providers', '/careers/tisi'].includes(link.href))) {
+    if (!primaryNav.some(link => link.href.replace(/\/$/, '') === item.href)) primaryNav.push({ ...item });
+  }
 
   const legalRaw =
     Array.isArray(b.legalFooterLinks) ? b.legalFooterLinks : d.legalFooterLinks;

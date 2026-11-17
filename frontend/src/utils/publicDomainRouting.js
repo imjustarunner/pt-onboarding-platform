@@ -65,6 +65,8 @@ export function publicSitePaths(host) {
  return {
   clean(value) {
    const path = String(value);
+   if (slug === 'tisi' && /^\/tisi\/providers(?:[/?#]|$)/.test(path)) return path.replace(/^\/tisi\/providers/, '/providers');
+   if (slug === 'tisi' && /^\/careers\/tisi(?:[/?#]|$)/.test(path)) return path.replace(/^\/careers\/tisi/, '/careers');
    if (slug === 'nlu' && /^\/careers\/nlu(?:[/?#]|$)/.test(path)) {
     return path.replace(/^\/careers\/nlu/, '/careers');
    }
@@ -77,6 +79,8 @@ export function publicSitePaths(host) {
   },
   internal(value) {
    const path = String(value);
+   if (slug === 'tisi' && /^\/providers\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/providers/, '/tisi/providers');
+   if (slug === 'tisi' && /^\/careers(?:\/jobs\/[^/?#]+)?\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/careers/, '/careers/tisi');
    if (slug === 'nlu' && /^\/careers(?:\/jobs\/[^/?#]+)?\/?(?:[?#]|$)/.test(path)) {
     return path.replace(/^\/careers/, '/careers/nlu');
    }

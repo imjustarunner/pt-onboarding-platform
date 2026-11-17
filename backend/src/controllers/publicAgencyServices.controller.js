@@ -711,7 +711,7 @@ function normalizeSlots({ result, bookingMode, profile }) {
 
 export const getAgencyServicesHub = async (req, res, next) => {
   try {
-    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug, { directoryOnly: req.query?.view === 'directory' });
     if (!agency) return;
 
     const serviceTypes = await getAgencyServiceTypes(agency.id);

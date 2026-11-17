@@ -70,3 +70,25 @@ it('retains both counselors on the office roster inside one counseling service',
  const {clients}=await listOfficeClients({agencyIds:[6]});
  expect(clients[0].services).toHaveLength(1);expect(clients[0].providers.map(provider=>provider.providerId).sort()).toEqual([20,21]);
 });
+
+it('retains a clinician with admin access when optional provider details fail to load',async()=>{
+ const person={id:501,first_name:'Michael',last_name:'Mendez',agency_ids:'377'};
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.includes('u.title, u.credential'))throw Object.assign(new Error('Optional field unavailable'),{code:'ER_BAD_FIELD_ERROR'});
+  if(sql.includes('GROUP_CONCAT(DISTINCT ua.agency_id'))return [[person]];
+  return [[]];
+ });
+ const people=await listHubProviders({agencyIds:[377]});expect(people).toMatchObject([{id:501,name:'Michael Mendez',agencyIds:[377]}]);
+ const [fallback,params]=pool.execute.mock.calls.find(([sql])=>sql.includes('profile.user_id=u.id'));
+ expect(fallback).toContain('availabilityByAgency');expect(fallback).toContain('u.has_provider_access');expect(params).toEqual([377]);
+});
+it('preserves agency-specific care decisions and every authorized agency in its fallback',async()=>{
+ pool.execute.mockImplementation(async sql=>{if(sql.includes('u.title, u.credential'))throw Object.assign(new Error('Optional field unavailable'),{code:'ER_BAD_FIELD_ERROR'});return [[{id:20,first_name:'Care',last_name:'Provider',agency_ids:'2,6'}]];});
+ const people=await listHubProviders({agencyIds:[2,6]});expect(people[0].agencyIds).toEqual([2,6]);
+ const [sql,params]=pool.execute.mock.calls.find(([sql])=>sql.includes('profile.user_id=u.id'));
+ expect(sql).toContain("IN ('false','0') THEN FALSE");expect(sql).toContain("IN ('true','1') THEN TRUE");expect(params).toEqual([2,6]);
+});
+it('reports a provider lookup failure instead of presenting an incomplete successful picker',async()=>{
+ pool.execute.mockRejectedValue(Object.assign(new Error('Database unavailable'),{code:'ER_ACCESS_DENIED_ERROR'}));
+ await expect(listHubProviders({agencyIds:[6]})).rejects.toThrow('Database unavailable');
+});

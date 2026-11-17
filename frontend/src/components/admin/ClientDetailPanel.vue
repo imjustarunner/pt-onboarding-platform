@@ -1933,7 +1933,6 @@
           <div class="casg-head">
             <div>
               <h3 class="casg-title">Assignments</h3>
-              <button v-if="canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-btn-soft" @click="openProviderAssignment">Assign provider</button>
               <p class="casg-subtitle">
                 Each agency’s services and providers, scheduling defaults, and available school or program links.
               </p>

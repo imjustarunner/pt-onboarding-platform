@@ -27,7 +27,9 @@ it('includes the chart agency and active agency affiliations in provider scope',
   expect(values).toEqual([20, 2, 6]);
   expect(sql).toContain('COALESCE(ua.is_active, 1) = 1');
   expect(sql).toContain('COALESCE(u.has_provider_access, 0) = 1');
-  expect(sql).not.toContain("'admin'");
+  expect(sql).toContain('availabilityByAgency');
+  expect(sql).toContain('care.agency_id=ua.agency_id AND care.is_active=1');
+  expect(sql).toContain("IN ('admin','super_admin') AND u.sees_clients=1");
 });
 
 it('rejects a service provider at an agency unrelated to the client', async () => {

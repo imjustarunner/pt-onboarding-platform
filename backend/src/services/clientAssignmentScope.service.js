@@ -7,6 +7,18 @@ export const PROVIDER_ROLE_SQL = `(LOWER(COALESCE(u.role, '')) IN
   ('provider', 'provider_plus', 'clinician', 'therapist', 'counselor', 'supervisor', 'intern', 'intern_plus', 'clinical_practice_assistant')
   OR COALESCE(u.has_provider_access, 0) = 1)`;
 
+/** Availability overrides are agency-specific care assignments, not application role grants. */
+export function agencyAssignableProviderSql() {
+  const choice = `JSON_UNQUOTE(JSON_EXTRACT(profile.public_details_json, CONCAT('$.availabilityByAgency."', ua.agency_id, '".seesClients')))`;
+  return `(CASE WHEN ${choice} IN ('false','0') THEN FALSE
+    WHEN ${choice} IN ('true','1') THEN TRUE
+    ELSE COALESCE(u.sees_clients,1)=1 AND (${PROVIDER_ROLE_SQL}
+      OR (LOWER(COALESCE(NULLIF(ua.agency_role,''),u.role,'')) IN ('admin','super_admin') AND u.sees_clients=1)
+      OR LOWER(COALESCE(ua.agency_role,'')) IN ('provider','provider_plus','clinician','therapist','counselor','supervisor','intern','intern_plus','clinical_practice_assistant','tutor','coach','consultant')
+      OR EXISTS(SELECT 1 FROM provider_public_service_enrollments care WHERE care.user_id=u.id AND care.agency_id=ua.agency_id AND care.is_active=1)
+      OR EXISTS(SELECT 1 FROM client_service_enrollments care WHERE care.provider_user_id=u.id AND care.agency_id=ua.agency_id AND care.is_active=1)) END)`;
+}
+
 export async function clientAgencyIds(clientId, db = pool) {
   const [[client]] = await db.execute('SELECT agency_id FROM clients WHERE id = ? LIMIT 1', [clientId]);
   if (!client) throw fail(404, 'Client not found');
@@ -30,9 +42,10 @@ export async function assertAssignableProvider({ clientId, providerUserId, agenc
   const [[provider]] = await db.execute(
     `SELECT u.id FROM users u
      INNER JOIN user_agencies ua ON ua.user_id = u.id
+     LEFT JOIN provider_public_profiles profile ON profile.user_id = u.id
      WHERE u.id = ? AND ua.agency_id IN (${agencyIds.map(() => '?').join(',')})
        AND COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
-       AND ${PROVIDER_ROLE_SQL}
+       AND ${agencyAssignableProviderSql()}
      LIMIT 1`,
     [providerUserId, ...agencyIds]
   );

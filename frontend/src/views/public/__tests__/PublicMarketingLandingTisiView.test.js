@@ -11,6 +11,8 @@ describe('public landing', () => {
     await router.push('/p/tisi');
     const wrapper = mount(Landing, { props: { previewPage: { slug: 'tisi', branding: { primaryNav: [{ label: 'Home', href: '/p/tisi' }, { label: 'Services', href: '/p/tisi/services' }, { label: 'Who We Help', href: '/p/tisi/who-we-help' }, { label: 'Contact', href: '/p/tisi/contact' }], contactPhone: 'Phone — coming soon', landing: { testimonials: [{ text: 'Invented praise', attribution: 'Client' }] } } } }, global: { plugins: [router] } });
     expect(wrapper.find('.tisi-header-cta').attributes('href')).toBe('/join/tisi');
+    expect(wrapper.find('.tisi-nav a[href="/tisi/providers"]').exists()).toBe(true);
+    expect(wrapper.find('.tisi-nav a[href="/careers/tisi"]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain('Invented praise');
     expect(wrapper.text()).not.toContain('coming soon');
     expect(wrapper.find('[aria-label="5 out of 5 stars"]').exists()).toBe(false);

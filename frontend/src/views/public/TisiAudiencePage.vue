@@ -6,7 +6,7 @@
       <button class="menu" type="button" :aria-expanded="menuOpen" aria-controls="audience-nav" @click="menuOpen = !menuOpen">Menu <span aria-hidden="true">☰</span></button>
       <nav id="audience-nav" :class="{ open: menuOpen }" aria-label="Primary" @keydown.esc="menuOpen = false">
         <router-link to="/join/tisi" @click="menuOpen = false">Join us</router-link>
-        <router-link v-for="item in navigation.filter(item => item.slug !== 'resources')" :key="item.slug" :to="`/p/tisi${item.slug ? '/' + item.slug : ''}`" :aria-current="item.slug === slug ? 'page' : undefined" @click="menuOpen = false">{{ item.label }}</router-link>
+        <router-link v-for="item in navigation.filter(item => item.slug !== 'resources')" :key="item.href || item.slug" :to="item.href || `/p/tisi${item.slug ? '/' + item.slug : ''}`" :aria-current="item.slug === slug ? 'page' : undefined" @click="menuOpen = false">{{ item.label }}</router-link>
       <PublicResourcesMenu resources-path="/p/tisi/resources" /></nav>
       <a class="button header-portal" :href="portalLoginUrl">Portal Login</a>
       <a class="button header-cta" :href="cta">{{ config.ctaButtonLabel }} <span aria-hidden="true">→</span></a>
@@ -28,7 +28,7 @@
       <section v-if="bodyHtml" class="wrap agency-copy"><h2>{{ contentPage.title || 'More about our care' }}</h2><div v-html="bodyHtml" /></section>
       <section class="wrap faq"><div><p class="eyebrow">Frequently asked questions</p><h2>Your questions.<br />Answered.</h2></div><div class="questions"><details v-for="[question, answer] in page.faq" :key="question"><summary>{{ question }}</summary><p>{{ answer }}</p></details></div></section>
     </main>
-    <footer><div class="wrap footer-top"><router-link class="brand" to="/p/tisi"><img :src="config.logoUrl" alt="" /><span>{{ config.siteName }}<small>{{ config.tagline }}</small></span></router-link><p>Ready to take the next step?</p><a class="button" :href="cta">Get Started <span aria-hidden="true">→</span></a></div><div class="wrap footer-bottom"><nav aria-label="Footer"><router-link v-for="item in navigation" :key="item.slug" :to="`/p/tisi${item.slug ? '/' + item.slug : ''}`">{{ item.label }}</router-link><a v-for="link in legalLinks" :key="link.href" :href="link.href">{{ link.label }}</a></nav><AuricWellPartnerBadge partner="tisi" name="The Inner Strength Institute" /><small>© {{ new Date().getFullYear() }} {{ config.siteName }}</small></div></footer>
+    <footer><div class="wrap footer-top"><router-link class="brand" to="/p/tisi"><img :src="config.logoUrl" alt="" /><span>{{ config.siteName }}<small>{{ config.tagline }}</small></span></router-link><p>Ready to take the next step?</p><a class="button" :href="cta">Get Started <span aria-hidden="true">→</span></a></div><div class="wrap footer-bottom"><nav aria-label="Footer"><router-link v-for="item in navigation" :key="item.href || item.slug" :to="item.href || `/p/tisi${item.slug ? '/' + item.slug : ''}`">{{ item.label }}</router-link><a v-for="link in legalLinks" :key="link.href" :href="link.href">{{ link.label }}</a></nav><AuricWellPartnerBadge partner="tisi" name="The Inner Strength Institute" /><small>© {{ new Date().getFullYear() }} {{ config.siteName }}</small></div></footer>
   </div>
 </template>
 <script setup>
@@ -64,7 +64,7 @@ const bodyHtml = computed(() => {
   return isPlaceholderCopy(text) ? '' : DOMPurify.sanitize(marked.parse(text, { async: false }));
 });
 const photo = (url, hero = false) => ({ backgroundImage: `${hero ? 'linear-gradient(90deg, rgba(0,22,36,.93), rgba(0,22,36,.52) 42%, rgba(0,22,36,.04) 75%)' : 'linear-gradient(90deg, #001624 0%, rgba(0,22,36,.98) 36%, rgba(0,22,36,.4) 60%, rgba(0,22,36,.04) 80%)'}, url(${JSON.stringify(url)})`, '--photo-position': page.value.heroPosition || 'center', '--photo-mobile-position': page.value.heroMobilePosition || '75% center', backgroundSize: !hero ? 'cover' : undefined });
-const navigation = [{ label: 'Home', slug: '' }, { label: 'For Men', slug: 'men' }, { label: 'For Boys', slug: 'boys' }, { label: 'For Athletes', slug: 'athletes' }];
+const navigation = [{ label: 'Home', slug: '' }, { label: 'For Men', slug: 'men' }, { label: 'For Boys', slug: 'boys' }, { label: 'For Athletes', slug: 'athletes' }, { label: 'Providers', href: '/tisi/providers' }, { label: 'Careers', href: '/careers/tisi' }];
 const steps = [{ title: 'Connect', body: 'Share your needs and questions through the online intake.' }, { title: 'Get matched', body: 'Discuss the right support for your goals and needs.' }, { title: 'Build skills', body: 'Work with your provider on practical tools for everyday life.' }, { title: 'Grow stronger', body: 'Review your progress and next steps together.' }];
 </script>
 <style scoped>

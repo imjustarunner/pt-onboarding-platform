@@ -15,7 +15,7 @@ import {
 } from './clientLifecycleStatus.service.js';
 import { listPendingOfficeClients } from './clientExchange.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
-import { PROVIDER_ROLE_SQL } from './clientAssignmentScope.service.js';
+import { agencyAssignableProviderSql } from './clientAssignmentScope.service.js';
 import { clientServiceAssignments } from '../utils/clientServiceAssignments.js';
 
 export const OFFICE_CLIENT_TYPES = ['clinical', 'learning', 'basic_nonclinical'];
@@ -1065,8 +1065,9 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
               GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id) AS agency_ids
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
+       LEFT JOIN provider_public_profiles profile ON profile.user_id = u.id
        WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
-         AND ${PROVIDER_ROLE_SQL}
+         AND ${agencyAssignableProviderSql()}
        GROUP BY u.id, u.first_name, u.last_name, u.title, u.credential, u.provider_accepting_new_clients
        ORDER BY u.last_name ASC, u.first_name ASC
        `,
@@ -1091,17 +1092,19 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
         agencies: providerAgencyIds.map((id) => agencyLookup.get(id)).filter(Boolean)
       };
     });
-  } catch {
+  } catch (error) {
+    console.warn('[officeProviderCatalog] Using basic provider details', { code: error?.code || 'LOOKUP_FAILED' });
     try {
-      const aid = aids[0];
       const [rows] = await pool.execute(
-        `SELECT u.id, u.first_name, u.last_name
+        `SELECT u.id, u.first_name, u.last_name, GROUP_CONCAT(DISTINCT ua.agency_id ORDER BY ua.agency_id) AS agency_ids
          FROM users u
-         INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
+         LEFT JOIN provider_public_profiles profile ON profile.user_id=u.id
          WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
-           AND LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus')
+           AND ${agencyAssignableProviderSql()}
+         GROUP BY u.id,u.first_name,u.last_name
          ORDER BY u.last_name ASC`,
-        [aid]
+        aids
       );
       return (rows || []).map((r) => ({
         id: Number(r.id),
@@ -1112,11 +1115,11 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
         credentials: null,
         acceptingNewClients: true,
         caseload: 0,
-        agencyIds: [aid],
+        agencyIds: String(r.agency_ids || '').split(',').map(Number).filter(Boolean),
         agencies: []
       }));
-    } catch {
-      return [];
+    } catch (fallbackError) {
+      throw fallbackError;
     }
   }
 }

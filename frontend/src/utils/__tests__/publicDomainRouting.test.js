@@ -1,3 +1,4 @@
+import { publicSitePaths } from '../publicDomainRouting.js';
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { createRouter, createWebHistory } from 'vue-router';
@@ -161,4 +162,11 @@ it('serves internship recruitment pages on ITSCO’s public domain',()=>{
   expect(response.noindex).toBe(false);
   expect(itscoSitemap()).toContain(`https://www.itsco.health/${section}`);
  }
+});
+
+it('keeps Inner Strength provider and careers pages scoped through direct visits and clean links',()=>{
+ const paths=publicSitePaths('theinnerstrengthinstitute.com');
+ expect(paths.internal('/providers')).toBe('/tisi/providers');expect(paths.clean('/tisi/providers')).toBe('/providers');
+ expect(paths.internal('/careers')).toBe('/careers/tisi');expect(paths.clean('/careers/tisi')).toBe('/careers');
+ expect(paths.internal('/careers/jobs/17')).toBe('/careers/tisi/jobs/17');
 });

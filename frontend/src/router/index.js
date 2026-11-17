@@ -1428,6 +1428,13 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/providers',
+    name: 'PublicAgencyProviderDirectory',
+    component: () => import('../views/public/PublicCounselorFinderView.vue'),
+    props: { directoryOnly: true },
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/find-counselor',
     name: 'PublicCounselorFinder',
     component: () => import('../views/public/PublicCounselorFinderView.vue'),
