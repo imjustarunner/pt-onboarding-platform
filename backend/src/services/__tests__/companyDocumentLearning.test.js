@@ -49,6 +49,33 @@ beforeEach(() => {
     throw new Error('Unhandled SQL: ' + sql);
   });
 });
+
+it('offers the reviewed provider practice for the current attendance edition', async () => {
+  const course = await documentTrainingCourse(state.agency, 'provider-guide');
+  expect(course.status).toBe('ready');
+  expect(course.definition.questions.find(q => q.id === 'missed').prompt).toContain('Medicaid-only');
+  expect(def.previousEditions[0].questions.find(q => q.id === 'missed').prompt).not.toContain('Medicaid-only');
+});
+
+it('uses the exact matching supplied definition when a saved training review is stale', async () => {
+  state.review = { definition_json: def.previousEditions[0] };
+  expect((await documentTrainingCourse(state.agency, 'provider-guide')).status).toBe('ready');
+  await expect(start()).resolves.toBe(1);
+});
+
+it('also restores supplied beta practice when its saved review predates the attendance revision', async () => {
+  state.published = false;
+  state.review = { definition_json: def.previousEditions[0] };
+  expect((await documentTrainingCourse(state.agency, 'provider-guide')).status).toBe('beta');
+});
+
+it('still blocks practice when a later attendance change has not been reviewed', async () => {
+  state.review = { definition_json: def.previousEditions[0] };
+  state.version.sections_json = structuredClone(source.sections);
+  state.version.sections_json.find(s => s.slug === 'medicaid-attendance-standards').body_html += '<p>Unreviewed change.</p>';
+  expect((await documentTrainingCourse(state.agency, 'provider-guide')).status).toBe('needs_review');
+  await expect(start()).rejects.toThrow('Review the questions');
+});
 async function start(purpose = 'assigned', requestKey = 'start-request-0001') { return (await startGuideLearning(2, 7, 'provider-guide', { purpose, requestKey, expectedVersionId: 14 }, purpose === 'assigned' ? 9 : null)).id; }
 async function readAll(id) { for (const slug of def.requiredSections) await markGuideReading(2, 7, id, slug); }
 describe('saved edition and reading/quiz progression', () => {

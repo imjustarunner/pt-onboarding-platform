@@ -1,6 +1,7 @@
 import { isEmploymentContract, addContractSignatureFields, signContractField } from '../utils/contractSignatureFields.js';
 import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
+import { loadSigningPdf } from '../utils/signingPdf.js';
 import { fitPdfFieldText } from '../utils/pdfFormFields.js';
 import { validateHireDocumentFields } from '../utils/hireDocumentFields.js';
 import { schoolRoiCalendarDates, schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
@@ -249,7 +250,7 @@ ${originalStyles}
           templateBuffer = await StorageService.readTemplate(filename);
         }
         
-        pdfDoc = await PDFDocument.load(templateBuffer);
+        pdfDoc = await loadSigningPdf(templateBuffer);
         // Final copies must not retain blank editable widgets over the saved answers.
         pdfDoc.getForm().flatten();
         console.log(`DocumentSigningService.generateFinalizedPDF: PDF template loaded successfully`);

@@ -53,6 +53,13 @@ function registered(agency, key) {
   if (!definition || !referenceAllowed(agency, key)) fail('Training is not available for this company.', 404);
   return definition;
 }
+function definitionForBook(template, book, reviewed) {
+  const supplied = trainingTemplateForEdition(template, book);
+  // A stale saved review must not hide supplied questions explicitly reviewed
+  // for this exact edition. Unknown content changes still require review.
+  return reviewed && trainingMatchesEdition(reviewed, book) ? reviewed
+    : trainingMatchesEdition(supplied, book) ? supplied : reviewed || supplied;
+}
 export async function documentTrainingCourse(agency, key, db = pool) {
   const template = registered(agency, key);
   const [[row]] = await db.execute(`SELECT v.* FROM company_reference_documents d JOIN company_reference_versions v
@@ -65,12 +72,13 @@ export async function documentTrainingCourse(agency, key, db = pool) {
     // It never points at or publishes a mutable company draft.
     const betaBook = { metadata: { ...referenceMetadata(source), beta: true }, sections: source.sections, version: { id: 0, version_number: 0, beta: true } };
     const [[review]] = await db.execute('SELECT * FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ?', [agency.id, key, 0]);
-    const definition = review ? json(review.definition_json) : trainingTemplateForEdition(template, betaBook);
+    const definition = definitionForBook(template, betaBook, review ? json(review.definition_json) : null);
     return { key, title: definition.title, status: trainingMatchesEdition(definition, betaBook) ? 'beta' : 'needs_review', definition, book: betaBook, sourceRevision: trainingHash(betaBook), revision: trainingHash({ definition, betaBook }) };
   }
   const [[review]] = await db.execute('SELECT * FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? AND version_id = ?', [agency.id, key, row.id]);
   const [[previousReview]] = !review ? await db.execute('SELECT definition_json FROM company_document_training_reviews WHERE agency_id = ? AND document_key = ? ORDER BY reviewed_at DESC, version_id DESC LIMIT 1', [agency.id, key]) : [[]];
-  const definition = review ? json(review.definition_json) : previousReview ? json(previousReview.definition_json) : trainingTemplateForEdition(template, book);
+  const reviewed = review ? json(review.definition_json) : previousReview ? json(previousReview.definition_json) : null;
+  const definition = definitionForBook(template, book, reviewed);
   const ready = trainingMatchesEdition(definition, book);
   return { key, title: definition.title, status: ready ? 'ready' : 'needs_review', definition, book, revision: trainingHash(definition) };
 }
