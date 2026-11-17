@@ -2100,6 +2100,7 @@ if (shouldStartServerBackgroundJobs()) {
   // aligned with current credentialing permissions. The DB lock covers all replicas.
   const scheduleProviderNpiFollowups = async () => {
     try {
+      if (!await canRunServerBackgroundTick()) return;
       const { reconcileProviderNpiFollowups } = await import('./services/providerNpiFollowup.service.js');
       await reconcileProviderNpiFollowups();
     } catch (error) {
