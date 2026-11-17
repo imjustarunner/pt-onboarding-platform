@@ -59,7 +59,7 @@ describe('school weekday availability', () => {
   });
   it('keeps a request pending until a successful save and skips duplicate requests', async () => {
     const first = await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
-    expect(first).toEqual({ requested: [7], failed: [], skipped: [] });
+    expect(first).toMatchObject({ requested: [7], failed: [], skipped: [], outcomes: [{ providerId: 7, outcome: 'requested', emailFollowupEnabled: false }] });
     expect(events).toHaveLength(1); expect(Dispatcher.dispatchPushForNotification).toHaveBeenCalledOnce();
     expect((await readSchoolWeekdays(7, 2, db)).pending).toBe(true);
     expect((await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db)).skipped).toEqual([7]);
@@ -69,6 +69,15 @@ describe('school weekday availability', () => {
   it('reports partial failure so retries can finish without duplicating successful recipients', async () => {
     db.execute.mockRejectedValueOnce(new Error('offline'));
     await expect(requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db)).rejects.toThrow('offline');
+  });
+  it('explains completed and duplicate requests without implying another email was sent', async () => {
+    await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
+    const duplicate = await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
+    expect(duplicate.outcomes).toEqual([{ providerId: 7, outcome: 'skipped', reason: 'already_pending', requestedAt: expect.any(String) }]);
+    await writeSchoolWeekdays({ providerId: 7, agencyId: 2, actorId: 7, days: choices() }, db);
+    const complete = await requestSchoolWeekdayUpdates({ agencyId: 2, actorId: 99 }, db);
+    expect(complete.outcomes[0]).toMatchObject({ providerId: 7, outcome: 'skipped', reason: 'already_complete' });
+    expect(events).toHaveLength(1);
   });
 });
 

@@ -50,6 +50,8 @@ describe('school weekday follow-ups',()=>{
   await service.process({now});await service.process({now});
   expect(sendEmail).toHaveBeenCalledTimes(1);
   expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:6,to:'avery@itsco.health',cc:'rachel@itsco.health',replyToOverride:'rachel@itsco.health',source:'auto',templateType:'school_weekday_invitation',existingCommunicationId:500,preloggedReceipt:true}));
+  expect(sendEmail.mock.calls[0][0].generatedByUserId).toBeNull();
+  expect(createCommunication).toHaveBeenCalledWith(expect.objectContaining({generatedByUserId:null,metadata:expect.objectContaining({actorType:'automation',actorKey:'school_weekday_followups',coordinatorUserId:507,senderIdentityId:6})}));
   const mail=sendEmail.mock.calls[0][0];expect(mail.text).toContain('Save availability');expect(mail.linkUrl).toBe('https://app.itsco.health/my-schedule?schoolAvailability=1&agencyId=2');
   expect(new Date(rows[0].sms_due_at.replace(' ','T')+'Z').getTime()-now.getTime()).toBe(86400000);
  });
