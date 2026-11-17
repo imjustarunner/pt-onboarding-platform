@@ -39,6 +39,10 @@ it('books an Inner Strength series into the provider’s ITSCO-tagged reservatio
  expect(events.map(e=>[e.assigned_provider_id,e.standing_assignment_id,e.booking_plan_id,e.session_context_json.agencyId])).toEqual([[501,283,350,377],[501,283,350,377]]);
  expect(m.execute.mock.calls.some(([sql])=>/UPDATE office_standing_assignments|INSERT INTO office_booking_requests|UPDATE office_booking_plans/.test(sql))).toBe(false);
 });
+it('keeps the already-authorized one-dollar price in the canonical in-person booking',async()=>{
+ await bookSessionInOwnedOffice({...input,serviceCode:'TUTORING',billing:{amountCents:100,notes:'Approved synthetic customer price'}});
+ for(const [data] of m.create.mock.calls)expect(data).toMatchObject({billing:{amountCents:100},serviceCode:'TUTORING',modality:'IN_PERSON'});
+});
 it('validates the entire series before changing any date if a later room belongs to someone else',async()=>{
  events[1].assigned_provider_id=999;events[1].booked_provider_id=999;
  await expect(bookSessionInOwnedOffice(input)).rejects.toMatchObject({status:409,blockedDate:'2026-12-10'});

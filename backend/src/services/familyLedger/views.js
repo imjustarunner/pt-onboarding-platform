@@ -15,7 +15,13 @@ export async function billingServiceFilter({agencyId,userId,clientId,serviceId})
   const context=await guardianServiceContext({userId,clientId,agencyId,serviceId,scope:null,allowEndedServices:true});
   const domains={tutoring:['tutoring','learning'],counseling:['mental_health','clinical','counseling'],coaching:['coaching'],consultation:['consulting','consultation']}[context.service?.service_kind];
   if(!domains)throw billingError(403,'Select an authorized service to view its balances.');
-  return {serviceKind:context.service.service_kind,sql:` AND r.service_domain IN (${domains.map(()=>'?').join(',')})`,args:domains};
+  // Synthetic appointment examples retain the exact service team's boundary too.
+  // An unassigned tutoring enrollment must not inherit a different tutor's balance.
+  const providerId=Number(context.service.provider_user_id||0);
+  const qaScope=providerId
+    ? " AND (r.source_type<>'qa_appointment' OR EXISTS(SELECT 1 FROM appointments scoped_ap WHERE scoped_ap.id=CAST(r.source_key AS UNSIGNED) AND scoped_ap.agency_id=r.agency_id AND scoped_ap.provider_user_id=?))"
+    : " AND r.source_type<>'qa_appointment'";
+  return {serviceKind:context.service.service_kind,sql:` AND r.service_domain IN (${domains.map(()=>'?').join(',')})${qaScope}`,args:[...domains,...(providerId?[providerId]:[])]};
 }
 
 export async function listBalances({agencyId,userId,clientId=null,serviceId=null,staff=false,overdueOnly=false,allForStatement=false}) {

@@ -7,6 +7,7 @@ import {requireTestingEligibility} from '../services/testingEligibility.service.
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { resolveSelfPayQuote } from '../services/selfPayRates.service.js';
+import { canSetTutoringSessionPrice } from '../services/tutoringSessionPrice.service.js';
 import { resolveBookingOptions } from '../services/appointment.service.js';
 import {
   buildCapabilitiesPayload,
@@ -307,6 +308,8 @@ export const getBookingOptions = async (req, res, next) => {
       }
     }
     const response=await schedulingResponseForUser(req.user, agencyId, { ok: true, ...options });
+    response.canSetTutoringSessionPrice = Number(req.query.providerId)>0
+      && await canSetTutoringSessionPrice(req.user, agencyId, Number(req.query.providerId));
     // A bookable customer quote is needed to schedule tutoring. It does not
     // confer billing access or expose employee pay, claims, or account balances.
     if(req.query.quote==='1' && Number(req.query.providerId)>0) {
@@ -314,7 +317,7 @@ export const getBookingOptions = async (req, res, next) => {
         const quoted=(options.services||[]).find(item=>item.id===service.id&&item.businessType==='tutoring');
         if(!quoted?.quotes)continue;
         service.quotes=Object.fromEntries(Object.entries(quoted.quotes).map(([format,quote])=>[format,quote?{
-          amountCents:quote.amountCents,rateCents:quote.rateCents,rateUnit:quote.rateUnit
+          amountCents:quote.amountCents,rateCents:quote.rateCents,rateUnit:quote.rateUnit,...(quote.source?{source:quote.source}:{})
         }:null]));
       }
     }

@@ -1,15 +1,18 @@
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
+import { isNluTutoringQaAgency } from '../utils/nluTutoringQaPolicy.js';
 import { createReceivable } from './familyLedger/receivables.js';
 import { transaction } from './familyLedger/policy.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 
 async function enabled(appointment) {
-  if (Number(appointment?.agencyId) !== 450) return false;
-  const [[agency]] = await pool.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=450');
-  return isAuricwellQaAgency(agency);
+  const agencyId = Number(appointment?.agencyId);
+  if (![450,453,454].includes(agencyId)) return false;
+  const [[agency]] = await pool.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=?', [agencyId]);
+  return agencyId === 450 ? isAuricwellQaAgency(agency)
+    : isNluTutoringQaAgency(agency) && appointment.businessType === 'tutoring' && appointment.serviceCode === 'TUTORING';
 }
 
 
@@ -23,19 +26,19 @@ export async function requireQaOutcomeElapsed(appointment, outcome) {
 export async function recordQaAttendanceTerms(appointment, policy, actorUserId) {
   if (!policy || !await enabled(appointment)) return;
   await transaction(async db => {
-    await db.execute('SELECT id FROM appointments WHERE id=? AND agency_id=450 FOR UPDATE', [appointment.id]);
-    const [existing] = await db.execute("SELECT id FROM appointment_communications WHERE appointment_id=? AND agency_id=450 AND kind='attendance_terms' LIMIT 1", [appointment.id]);
+    await db.execute('SELECT id FROM appointments WHERE id=? AND agency_id=? FOR UPDATE', [appointment.id,appointment.agencyId]);
+    const [existing] = await db.execute("SELECT id FROM appointment_communications WHERE appointment_id=? AND agency_id=? AND kind='attendance_terms' LIMIT 1", [appointment.id,appointment.agencyId]);
     if (existing.length) return;
     await db.execute(`INSERT INTO appointment_communications
       (appointment_id,agency_id,direction,channel,kind,body_preview,metadata_json,created_by_user_id)
-      VALUES (?,450,'system','in_app','attendance_terms','Attendance policy retained at booking',?,?)`,
-      [appointment.id, JSON.stringify({ policy, recordedAt: new Date().toISOString(), syntheticOnly: true }), actorUserId || null]);
+      VALUES (?,?,'system','in_app','attendance_terms','Attendance policy retained at booking',?,?)`,
+      [appointment.id, appointment.agencyId, JSON.stringify({ policy, recordedAt: new Date().toISOString(), syntheticOnly: true }), actorUserId || null]);
   });
 }
 
 export async function qaAttendancePolicy(appointment) {
   if (!await enabled(appointment)) return null;
-  const [rows] = await pool.execute("SELECT metadata_json FROM appointment_communications WHERE appointment_id=? AND agency_id=450 AND kind='attendance_terms' ORDER BY id LIMIT 1", [appointment.id]);
+  const [rows] = await pool.execute("SELECT metadata_json FROM appointment_communications WHERE appointment_id=? AND agency_id=? AND kind='attendance_terms' ORDER BY id LIMIT 1", [appointment.id,appointment.agencyId]);
   return rows[0] ? parse(rows[0].metadata_json)?.policy || null : null;
 }
 
@@ -44,7 +47,9 @@ export async function qaAttendancePolicy(appointment) {
 export async function syncQaAppointmentBalance(appointment, actorUserId) {
   if (!await enabled(appointment)) return null;
   const billing = await Appointment.getBilling(appointment.id);
-  if (billing?.settlementMode !== 'self_pay_only' || appointment.packageEntitlementId) return null;
+  const tutoring = appointment.businessType === 'tutoring';
+  if (!(tutoring ? ['self_pay','self_pay_only'].includes(billing?.settlementMode) : billing?.settlementMode === 'self_pay_only')
+      || appointment.packageEntitlementId || ['package_consumed','free_rebook','waived','paid'].includes(billing?.paymentStatus)) return null;
   const outcome = String(appointment.status || '').toLowerCase();
   let amountCents;
   if (['completed', 'no_show'].includes(outcome)) {
@@ -61,9 +66,9 @@ export async function syncQaAppointmentBalance(appointment, actorUserId) {
   const participants = await Appointment.listParticipants(appointment.id);
   const clientId = participants.find(p => p.isBillingResponsible && p.clientId)?.clientId || participants.find(p => p.clientId)?.clientId;
   if (!clientId) throw new Error('Synthetic appointment needs a billing client');
-  const label = outcome === 'no_show' ? 'Missed appointment' : outcome === 'completed' ? 'Counseling session' : 'Late cancellation';
-  return createReceivable({ agencyId: 450, clientId, sourceType: 'qa_appointment', sourceKey: String(appointment.id),
-    serviceDomain: 'mental_health', serviceLabel: label, serviceDate: String(utcMysqlToIso(appointment.startAt) || appointment.startAt).slice(0, 10),
+  const label = outcome === 'no_show' ? 'Missed appointment' : outcome === 'completed' ? (tutoring ? 'Tutoring session' : 'Counseling session') : 'Late cancellation';
+  return createReceivable({ agencyId: appointment.agencyId, clientId, sourceType: 'qa_appointment', sourceKey: String(appointment.id),
+    serviceDomain: tutoring ? 'tutoring' : 'mental_health', serviceLabel: label, serviceDate: String(utcMysqlToIso(appointment.startAt) || appointment.startAt).slice(0, 10),
     amountCents, reviewRequired: true, actorUserId,
     payload: { appointmentId: appointment.id, outcome, syntheticOnly: true, noCollection: true, policy: await qaAttendancePolicy(appointment) } });
 }

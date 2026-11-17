@@ -1,4 +1,5 @@
 import {prepareAvailabilityServices} from '../services/availabilityServiceScope.service.js';
+import { readProviderServices } from '../services/providerServiceOfferings.service.js';
 import { allocateOfficeRoom,lockOfficeRequests,unlockOfficeRequests } from '../services/officeRoomAllocation.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import {resolveOfficeRequestPreferences,readPreferredRooms} from '../services/officeRequestPreferences.service.js';
@@ -4105,6 +4106,8 @@ export const listProvidersForAvailability = async (req, res, next) => {
 
 export const listIntakeAvailabilityCards = async (req, res, next) => {
   try {
+    const serviceType = String(req.query.serviceType || 'counseling').toLowerCase();
+    if (!['tutoring','counseling'].includes(serviceType)) return res.status(400).json({error:{message:'Choose Tutoring or Counseling.'}});
     const requestedAgencyIds = String(req.query.agencyIds || '')
       .split(',')
       .map((v) => parseIntSafe(v))
@@ -4236,6 +4239,10 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
         const pair = pairQueue.shift();
         if (!pair) break;
         try {
+          if (serviceType === 'tutoring') {
+            const offered = await readProviderServices(pair.providerId,pair.agencyId);
+            if (!offered.careEligibility.canProvideCare || !offered.services.some(service=>service.serviceType==='tutoring'&&service.offered)) continue;
+          }
           // eslint-disable-next-line no-await-in-loop
           const avail = await ProviderAvailabilityService.computeWeekAvailability({
             agencyId: Number(pair.agencyId),
@@ -4245,7 +4252,8 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
             includeExternalBusy: false,
             externalCalendarIds: [],
             slotMinutes: 60,
-            intakeOnly: true,
+            intakeOnly: serviceType !== 'tutoring',
+            serviceType,
             materializeOfficeEvents: false
           });
           const inPersonSlots = Array.isArray(avail?.inPersonSlots) ? avail.inPersonSlots : [];

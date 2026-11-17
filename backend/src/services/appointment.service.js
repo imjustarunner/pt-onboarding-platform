@@ -276,6 +276,11 @@ async function createLockedAppointment({
   const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
     || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));
   const proBono=isProBonoFunding({serviceCode,billing});
+  if (businessType === 'tutoring' && billing?.amountCents != null
+      && (!Number.isSafeInteger(billing.amountCents) || billing.amountCents < 0 || billing.amountCents > 2147483647))
+    throw Object.assign(new Error('The tutoring session price must be a nonnegative whole number of cents.'), {status:400});
+  if (businessType === 'tutoring' && packageEntitlementId && billing?.amountCents != null)
+    throw Object.assign(new Error('Choose either a package credit or a custom session price.'), {status:400});
   if(proBono&&packageEntitlementId)throw Object.assign(new Error('A pro bono service must not consume a client-paid package. Rebook it without the package.'),{status:409});
   if (clinicalBooking && !selfPayOnly && !serviceCode) throw Object.assign(new Error('A service code is required for a clinical session'), { status: 400 });
   if (providerUserId) {
@@ -845,7 +850,7 @@ export async function upsertAppointmentForOfficeBook({
   packageEntitlementId = null,
   strict = false,
   preserveParticipants = false,
-  notificationMode, customReminders, notes
+  notificationMode, customReminders, notes, billing = null
 } = {}) {
   let linkageLock;
   let linkageLockName;
@@ -908,7 +913,7 @@ export async function upsertAppointmentForOfficeBook({
       ensureContext: false,
       source: 'office_book',
       title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Session'),
-      notificationMode, customReminders, notes,
+      notificationMode, customReminders, notes, billing,
       createdByUserId: actorUserId,
       participants
     });

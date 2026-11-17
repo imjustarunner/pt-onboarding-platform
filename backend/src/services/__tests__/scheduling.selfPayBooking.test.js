@@ -43,6 +43,22 @@ beforeEach(() => {
   Appointment.listParticipants.mockResolvedValue(args.participants); Appointment.getBilling.mockResolvedValue({});
 });
 describe('self-pay booking integration', () => {
+  it('books tutoring without the clinical transition gate and snapshots its custom price',async()=>{
+    TenantService.findById.mockResolvedValue({id:10,isActive:true,businessType:'tutoring',serviceCode:'TUTORING',allowsIndividual:true,billingMethod:'self_pay'});
+    getAgencySelfPayOnly.mockResolvedValue(false);
+    await createAppointment({...args,serviceCode:'TUTORING',billing:{amountCents:100,notes:'QA individual session price'}});
+    expect(requireClientSessionBooking).not.toHaveBeenCalled();expect(Appointment.create).toHaveBeenCalledWith(expect.objectContaining({businessType:'tutoring',tenantServiceId:10,serviceCode:'TUTORING'}));
+    expect(Appointment.upsertBilling).toHaveBeenCalledWith(20,expect.objectContaining({amountCents:100,settlementMode:'self_pay'}));
+  });
+  it('retains the provider-specific quote rather than substituting the catalog price',async()=>{
+    TenantService.findById.mockResolvedValue({id:10,isActive:true,businessType:'tutoring',serviceCode:'TUTORING',allowsIndividual:true,billingMethod:'self_pay',priceCents:5000});
+    getAgencySelfPayOnly.mockResolvedValue(false);resolveSelfPayQuote.mockResolvedValue({amountCents:5700,rateCents:5700,rateUnit:'hour',source:'provider'});
+    await createAppointment({...args,serviceCode:'TUTORING'});expect(Appointment.upsertBilling).toHaveBeenCalledWith(20,expect.objectContaining({amountCents:5700}));
+  });
+  it.each([-1,1.5,'100'])('rejects malformed tutoring amounts before creating records (%s)',async amountCents=>{
+    TenantService.findById.mockResolvedValue({id:10,isActive:true,businessType:'tutoring',serviceCode:'TUTORING',allowsIndividual:true});
+    await expect(createAppointment({...args,billing:{amountCents}})).rejects.toMatchObject({status:400});expect(Appointment.create).not.toHaveBeenCalled();
+  });
   it('uses the saved office timezone instead of the browser or platform default',async()=>{
     pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT l.timezone')?[[{timezone:'America/New_York'}]]:[[]]);
     const reconcile=vi.spyOn(afterHours,'reconcileClinicalAfterHours').mockResolvedValueOnce({addonServiceCodes:['99051']});

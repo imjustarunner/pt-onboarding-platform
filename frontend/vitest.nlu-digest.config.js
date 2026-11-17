@@ -1,6 +1,7 @@
 import {defineConfig}from'vitest/config';import vue from'@vitejs/plugin-vue';
 export default defineConfig({plugins:[vue()],resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},test:{environment:'jsdom',include:[
 'src/composables/__tests__/portalCareApi.test.js',
+'src/components/schedule/__tests__/TutoringSessionPrice.test.js',
 'src/components/schedule/__tests__/RecurrenceControls.test.js',
 'src/components/guardian/__tests__/GuardianBookingPackage.test.js',
 'src/components/guardian/__tests__/FamilyPortalNavigation.test.js',
