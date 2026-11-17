@@ -32,6 +32,8 @@ export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allo
       (learning_class_id,title,mode,session_subtype,delivery_context,starts_at,ends_at,provider_user_id,created_by_user_id,metadata_json)
       VALUES (?,?,?,'tutoring',?,?,?,?,?,?)`, [classId, visit.title || 'Tutoring appointment', visit.participants.length===1?'individual':'group', deliveryContext, visit.starts_at, visit.ends_at, room.userId, actorUserId, JSON.stringify({ learningServiceCode: serviceCode })]);
     sessionId = created.insertId;
+    const selected=typeof visit.learning_context_json==='string'?JSON.parse(visit.learning_context_json):visit.learning_context_json;
+    if(selected?.studentSubjectId)await db.execute('UPDATE learning_class_sessions SET student_subject_id=? WHERE id=?',[selected.studentSubjectId,sessionId]);
     for (const student of visit.participants) {
       await db.execute('INSERT INTO tutoring_session_clients(session_id,client_id) VALUES (?,?)', [sessionId, student.id]);
     }
@@ -40,8 +42,11 @@ export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allo
   const actual = students.map(s => Number(s.client_id)).sort((a,b)=>a-b);
   const expected = visit.participants.map(s => s.id).sort((a,b)=>a-b);
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw Object.assign(new Error('The learning visit has a different student roster. Review the appointment before opening it.'), { status: 409 });
-  const [[session]] = await db.execute('SELECT s.status,s.provider_user_id,c.organization_id,s.metadata_json,s.delivery_context FROM learning_class_sessions s JOIN learning_program_classes c ON c.id=s.learning_class_id WHERE s.id=?', [sessionId]);
+  const [[session]] = await db.execute('SELECT s.status,s.provider_user_id,c.organization_id,s.metadata_json,s.delivery_context,s.student_subject_id FROM learning_class_sessions s JOIN learning_program_classes c ON c.id=s.learning_class_id WHERE s.id=?', [sessionId]);
   if(!session || Number(session.provider_user_id)!==Number(room.userId) || Number(session.organization_id)!==Number(room.agencyId) || !['scheduled','live',...(allowEnded?['ended']:[])].includes(session.status)) throw Object.assign(new Error('This learning visit is no longer available in this office.'), {status:409});
+  const selectedLearning=typeof visit.learning_context_json==='string'?JSON.parse(visit.learning_context_json):visit.learning_context_json;
+  if(selectedLearning?.studentSubjectId&&session.student_subject_id&&Number(selectedLearning.studentSubjectId)!==Number(session.student_subject_id))throw Object.assign(new Error('The linked learning visit has a different subject. Review that visit before opening this booking.'),{status:409});
+  if(selectedLearning?.studentSubjectId&&!session.student_subject_id){if(session.status!=='scheduled')throw Object.assign(new Error('This started learning visit has no matching subject. Review its original record before changing it.'),{status:409});await db.execute('UPDATE learning_class_sessions SET student_subject_id=? WHERE id=?',[selectedLearning.studentSubjectId,sessionId]);}
   const metadata = learningServiceMetadata(session);
   const existingContext = ['online','telehealth','video'].includes(String(session.delivery_context).toLowerCase()) ? 'virtual' : session.delivery_context;
   if (existingContext && existingContext !== deliveryContext) throw Object.assign(new Error('The appointment delivery format differs from its learning visit. Review the session before opening it.'), { status: 409 });

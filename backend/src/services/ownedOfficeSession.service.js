@@ -44,7 +44,8 @@ export async function findOwnedOfficeSessionReservation(input) {
   if (!input.roomId || !input.clientId || input.appointmentId || input.appointmentSeriesId) return null;
   const occurrences = ownedOfficeSessionOccurrences({ ...input, timeZone: input.office.timezone || 'America/Denver' });
   const first = await reservationFor(pool, input, occurrences[0]);
-  return owned(first, input.providerId) ? first : null;
+  // Immediate bookings have their own retry identity; do not reinterpret them as standing reservations.
+  return owned(first, input.providerId) && !parse(first.session_context_json).immediateBookingKey ? first : null;
 }
 
 /** Scheduling a client uses the provider's room reservation; it does not request or reassign the room. */
@@ -124,7 +125,7 @@ export async function bookSessionInOwnedOffice(input) {
           modality: input.modality, serviceCode: input.serviceCode, serviceLocationId: input.serviceLocationId,
           addonServiceCodes: input.addonServiceCodes || [], tenantServiceId: input.tenantServiceId, packageEntitlementId: input.packageEntitlementId,
           title: 'Client session', notes: input.notes, notificationMode: input.notificationMode || 'default', customReminders,
-          source: bookingSource, createdByUserId: input.actorUserId, billing: input.billing || null,
+          source: bookingSource, createdByUserId: input.actorUserId, learningSubjectKey:input.learningSubjectKey ?? null, billing: input.billing || null,
           participants: [{ role: 'client', clientId: input.clientId, isBillingResponsible: true, receivesReminders: true }],
           ensureContext: false, deferScheduleNotice: true });
         linked.push(appointment);

@@ -21,6 +21,7 @@ import { resolveSelfPayQuote, getAgencySelfPayOnly } from '../selfPayRates.servi
 import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import BookingPackage from '../../models/BookingPackage.model.js';
+import Appointment from '../../models/Appointment.model.js';
 import ClinicalClaim from '../../models/clinical/ClinicalClaim.model.js';
 import { applyMissedSessionPolicy } from '../practitionerPackage.service.js';
 import { queueAppointmentWaiver, decideAppointmentWaiver, listAppointmentWaivers } from '../appointmentWaiver.service.js';
@@ -118,7 +119,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     [migratedMonthly] = await pool.query('SELECT id,assigned_frequency,legacy_monthly_four_weeks FROM office_standing_assignments ORDER BY id');
     await clinicalPool.query(`CREATE TABLE clinical_notes (id INT AUTO_INCREMENT PRIMARY KEY, clinical_session_id INT, agency_id INT, client_id INT, title VARCHAR(255), note_payload LONGTEXT, metadata_json JSON, created_by_user_id INT, note_type VARCHAR(80), content_hash VARCHAR(128), provider_signed_by_user_id INT, is_billable BOOLEAN DEFAULT FALSE, is_deleted BOOLEAN DEFAULT FALSE, provider_signed_at DATETIME)`);
     await clinicalPool.query(`CREATE TABLE clinical_claims (id INT AUTO_INCREMENT PRIMARY KEY, clinical_session_id INT, agency_id INT, client_id INT, claim_number VARCHAR(120), claim_status VARCHAR(60), amount_cents INT, currency_code VARCHAR(8), claim_payload LONGTEXT, metadata_json JSON, created_by_user_id INT)`);
-    for (const [db, path] of [[pool, '../../../../database/migrations/1429_self_pay_service_rates.sql'], [pool, '../../../../database/migrations/1424_appointment_change_workflows.sql'], [pool, '../../../../database/migrations/1425_appointment_waivers_and_package_credits.sql'], [pool, '../../../../database/migrations/1419_recurring_session_context.sql'], [clinicalPool, '../../../../database/clinical_migrations/015_appointment_clinical_sessions.sql']]) {
+    for (const [db, path] of [[pool, '../../../../database/migrations/1839_tutoring_booking_learning_context.sql'], [pool, '../../../../database/migrations/1429_self_pay_service_rates.sql'], [pool, '../../../../database/migrations/1424_appointment_change_workflows.sql'], [pool, '../../../../database/migrations/1425_appointment_waivers_and_package_credits.sql'], [pool, '../../../../database/migrations/1419_recurring_session_context.sql'], [clinicalPool, '../../../../database/clinical_migrations/015_appointment_clinical_sessions.sql']]) {
       const sql = await readFile(new URL(path, import.meta.url), 'utf8');
       for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await db.query(statement);
     }
@@ -163,6 +164,17 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   const move = () => moveOfficeSessionOccurrence({ eventId: 20, newRoomId: 5, startAt: '2099-01-06 17:00:00', endAt: '2099-01-06 18:00:00', timeZone: 'America/Denver', actorUserId: 9 });
   it('applies both migrations and enforces appointment/client clinical uniqueness', async () => {
     await expect(clinicalPool.query(`INSERT INTO clinical_sessions (id, agency_id, client_id, appointment_id) VALUES (31, 1, 8, 10)`)).rejects.toMatchObject({ code: 'ER_DUP_ENTRY' });
+  });
+  it('round-trips the additive tutoring context without relabeling prior appointments or changing price', async () => {
+    const context={version:1,subjectLabel:"Math's practice",serviceEnrollmentId:1038,studentSubjectId:71,generalSupport:false};
+    const [[original]]=await pool.execute('SELECT * FROM appointments WHERE id=10');
+    expect(Appointment.mapRow(original).learningContext).toBeNull();
+    await pool.execute('UPDATE appointments SET learning_context_json=? WHERE id=10',[JSON.stringify(context)]);
+    const [[stored]]=await pool.execute('SELECT * FROM appointments WHERE id=10');
+    expect(Appointment.mapRow(stored).learningContext).toEqual(context);
+    expect(stored.title).toBe(original.title);
+    expect(stored.cancellation_fee_cents).toBe(original.cancellation_fee_cents);
+    expect(stored.start_at).toEqual(original.start_at);
   });
   it('isolates provider rates by agency and restores inheritance when an override is cleared', async () => {
     await pool.execute(`INSERT INTO self_pay_service_rates (agency_id, tenant_service_id, provider_user_id, rate_cents, rate_unit, updated_by_user_id)

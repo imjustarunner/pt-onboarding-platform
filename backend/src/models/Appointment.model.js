@@ -87,6 +87,7 @@ class Appointment {
       locationLabel: r.location_label || null,
       title: r.title != null ? String(r.title) : null,
       notes: r.notes != null ? String(r.notes) : null,
+      ...(r.learning_context_json!==undefined?{learningContext:parseJsonSafe(r.learning_context_json,null)}:{}),
       othersPresentNames: r.others_present_names != null ? String(r.others_present_names) : null,
       videoRoomMode: normalizeVideoRoomMode(r.video_room_mode, 'unique_session'),
       notificationMode: normalizeNotificationMode(r.notification_mode, 'default'),
@@ -249,6 +250,9 @@ class Appointment {
       : null;
     const videoRoomMode = normalizeVideoRoomMode(row.videoRoomMode, 'unique_session');
     const notificationMode = normalizeNotificationMode(row.notificationMode, 'default');
+    const learningColumns=row.learningContext?', learning_context_json':'';
+    const learningValues=row.learningContext?', ?':'';
+    const learningParams=row.learningContext?[JSON.stringify(row.learningContext)]:[];
     const baseParams = [
       Number(row.agencyId),
       row.parentAgencyId || null,
@@ -283,15 +287,16 @@ class Appointment {
            office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
            cancellation_policy_id, cancel_deadline_at,
            source, title, notes, others_present_names, video_room_mode, notification_mode,
-           created_by_user_id, updated_by_user_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           created_by_user_id, updated_by_user_id${learningColumns}
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues})`,
         [
           ...baseParams.slice(0, 22),
           othersPresentNames,
           videoRoomMode,
           notificationMode,
           baseParams[22],
-          baseParams[23]
+          baseParams[23],
+          ...learningParams
         ]
       );
       return this.findById(result.insertId, { executor });
@@ -303,9 +308,9 @@ class Appointment {
            start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
            office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
            cancellation_policy_id, cancel_deadline_at,
-           source, title, notes, created_by_user_id, updated_by_user_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        baseParams
+           source, title, notes, created_by_user_id, updated_by_user_id${learningColumns}
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues})`,
+        [...baseParams,...learningParams]
       );
       return this.findById(result.insertId, { executor });
     }

@@ -168,6 +168,7 @@ export const createAppointmentHandler = async (req, res, next) => {
           deferScheduleNotice: !!recurrenceSeriesId,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
+          learningSubjectKey:req.body?.learningSubjectKey ?? null,
           tenantServiceId: req.body?.tenantServiceId || null,
           providerUserId,
           startAt: occurrence.startAt,
