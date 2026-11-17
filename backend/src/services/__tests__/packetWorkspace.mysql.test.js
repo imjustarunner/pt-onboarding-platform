@@ -54,4 +54,6 @@ it.skipIf(!enabled)('uses the chart setup evidence for Needs in MySQL, including
  await db.query("UPDATE clients SET source='ADMIN_CREATED',client_type='clinical',onboarding_docs_json=NULL,demographics_phi_enc=NULL,date_of_birth=NULL,address_street=NULL WHERE id IN(101,102,103)");
  await db.query("UPDATE clients SET demographics_phi_enc=JSON_OBJECT('ciphertext','synthetic') WHERE id=102;UPDATE clients SET date_of_birth='2010-01-02',address_street='123 Synthetic Street' WHERE id=103;INSERT INTO client_intake_note_drafts VALUES(102,'final'),(103,'final');INSERT INTO clinical_treatment_plans VALUES(102,2,'active','Intake Treatment Plan (placeholder)'),(103,2,'active','Reviewed treatment plan')");
  expect(Object.fromEntries(await clientChartSetupNeeds([101,102,103],{db,clinicalDb:db}))).toEqual({101:true,102:true,103:false});
+ await db.execute("UPDATE clients SET onboarding_docs_json=JSON_OBJECT('recordsImport',JSON_OBJECT('status','complete')) WHERE id=102");
+ expect((await clientChartSetupNeeds([102],{db,clinicalDb:db})).get(102)).toBe(false);
 });

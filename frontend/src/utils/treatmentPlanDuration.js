@@ -78,6 +78,13 @@ export const DEFAULT_MEASUREMENT_METHOD = '1–10 scale (client self-report)';
 export function parseScalePair(text) {
   const s = String(text || '');
 
+  const narrativeCurrent = s.match(/\bcurrently\s+(?:functioning|functions|performing|operating)\s+at\s+(?:an?\s+)?(\d{1,2})\b/i);
+  const narrativeTarget = s.match(/\b(?:goal|target)\s+is\s+to\s+(?:achieve|reach|attain)\s+(?:an?\s+)?(\d{1,2})\b/i);
+  if (/\bscale\s+(?:of\s+)?1\s*[-–—]\s*10\b/i.test(s) && narrativeCurrent && narrativeTarget) {
+    const current = Number(narrativeCurrent[1]), target = Number(narrativeTarget[1]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) return { scaleCurrent: current, scaleTarget: target };
+  }
+
   // Bind numbers to rating language before considering durations, frequencies or scale anchors.
   const currentLabel = s.match(/\b(?:current(?:\s+baseline)?|baseline)(?:\s+(?:self[- ]rated|level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:an?\s+)?[:=]?\s*(\d{1,2})\b/i)
     || s.match(/\bcurrently\s+(?:self[- ]rates?|rates?)\b[^\d.!?]{0,180}?\b(?:as|at)\s+(?:an?\s+)?(\d{1,2})\b/i);

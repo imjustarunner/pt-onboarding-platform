@@ -9,6 +9,8 @@ export default defineConfig({
     'src/components/admin/clientChart/__tests__/ClientSupplementaryRecords.test.js',
     'src/components/admin/clientChart/__tests__/ClientPayerLinkage.test.js',
     'src/components/admin/clientChart/__tests__/ClientSchoolChartSetup.test.js',
+    'src/components/clinical/__tests__/NoteAidGeneratedPlan.test.js',
+    'src/components/admin/clientChart/__tests__/ClientIntakeNotePanel.review.test.js',
     'src/components/clients/__tests__/ClientAgencyLogo.test.js', 'src/composables/__tests__/useChartImportDrafts.test.js',
     'src/services/__tests__/api.chartAgencyContext.test.js'
   ] }

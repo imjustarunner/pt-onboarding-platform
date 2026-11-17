@@ -46,6 +46,10 @@ beforeEach(()=>{
  });
 });
 function request(){return {params:{id:'2304',draftId:'1'},query:{},user:{id:1433,role:'super_admin'},body:{sourceReview:{fingerprint:intakeDraftReview(row,JSON.parse(row.note_sections_json_enc)).fingerprint,sectionKeys:['mse'],sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true}}};}
+it('keeps imported source intakes nonbillable without appointment or treatment-plan finalization side effects',async()=>{
+ row.session_context_enc=JSON.stringify({source:'client_records_import',nonBillable:true});const res=response(),next=vi.fn();await finalizeClientIntakeNote(request(),res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);expect(res.json).toHaveBeenCalledWith({error:expect.objectContaining({code:'IMPORTED_INTAKE_NONBILLABLE'})});expect(writeCalls).toHaveLength(0);expect(mocks.plan).not.toHaveBeenCalled();expect(mocks.clinical).not.toHaveBeenCalled();
+});
 it('serializes an interleaved section/regeneration write behind the real finalizer and rejects it after finalization',async()=>{
  const lookup=deferred(),entered=deferred();mocks.clinical.mockImplementation(async()=>{entered.resolve();return lookup.promise});
  const res=response(),next=vi.fn();const finalize=finalizeClientIntakeNote(request(),res,next);await entered.promise;

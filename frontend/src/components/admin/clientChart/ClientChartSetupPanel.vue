@@ -1,5 +1,6 @@
 <template>
-  <section v-if="visible" class="chart-setup" aria-label="Chart setup">
+  <section v-if="visible || status?.planReviewPending" class="chart-setup" aria-label="Chart setup">
+    <p v-if="status?.planReviewPending" class="chart-setup__note">The imported treatment plan is on file as a draft. The provider must review and finalize it in Treatment plans. Records import can be marked done separately.</p>
     <header v-if="!showWorkspaceUpdater" class="chart-setup__head">
       <div>
         <h3>{{ heading }}</h3>

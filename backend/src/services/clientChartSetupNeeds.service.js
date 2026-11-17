@@ -17,7 +17,9 @@ export async function clientChartSetupNeeds(ids,{db=pool,clinicalDb=clinicalPool
   const clinicalSetup=row.source==='ADMIN_CREATED'&&row.client_type==='clinical';
   const hasDemographics=[true,1,'1'].includes(row.has_demographics);
   result.set(Number(row.id),pending||(clinicalSetup&&!hasDemographics));
-  if(clinicalSetup&&hasDemographics&&!pending)candidates.push(row);
+  // Finished records imports can retain a provider's unsigned plan draft.
+  // Clinical finalization is tracked in the clinical chart, separately from import work.
+  if(clinicalSetup&&hasDemographics&&!pending&&row.records_import_status!=='complete')candidates.push(row);
  }
  if(!candidates.length)return result;
  // Stay pending if clinical setup cannot be checked; never report an unknown

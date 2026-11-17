@@ -17,3 +17,7 @@ it('avoids clinical lookups for a pending import or empty demographics and keeps
  db.execute.mockResolvedValueOnce([[{...row,has_demographics:1}]]).mockResolvedValueOnce([[{client_id:12}]]);clinicalDb.execute.mockRejectedValue(Error('Unavailable'));
  expect((await clientChartSetupNeeds([12],{db,clinicalDb})).get(12)).toBe(true);
 });
+it('clears finished records import work without requiring the provider to finalize a plan first',async()=>{
+ const db={execute:vi.fn().mockResolvedValue([[{id:2579,agency_id:2,source:'ADMIN_CREATED',client_type:'clinical',has_demographics:1,records_import_status:'complete'}]])},clinicalDb={execute:vi.fn()};
+ expect((await clientChartSetupNeeds([2579],{db,clinicalDb})).get(2579)).toBe(false);expect(db.execute).toHaveBeenCalledOnce();expect(clinicalDb.execute).not.toHaveBeenCalled();
+});

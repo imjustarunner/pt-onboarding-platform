@@ -10,7 +10,12 @@ async function scopeOf(req){
  return{agencyId,userId,context:`client_creation:${agencyId}:${userId}`};
 }
 function unpack(row,scope){if(!row)return{value:null,revision:0};const envelope=decryptDemographicsPayload(row.payload_enc);if(envelope.context!==scope.context)throw Error('Client draft context mismatch');return{value:envelope.value,revision:Number(row.revision)};}
-export async function getClientCreationDraft(req,res,next){try{const scope=await scopeOf(req);const[rows]=await pool.execute('SELECT payload_enc,revision FROM client_creation_drafts WHERE agency_id=? AND owner_user_id=?',[scope.agencyId,scope.userId]);await logAuditEvent(req,{actionType:'client_creation_draft_viewed',agencyId:scope.agencyId,targetType:'agency',targetId:scope.agencyId});res.set('Cache-Control','no-store').json(unpack(rows[0],scope));}catch(error){next(error);}}
+export async function getClientCreationDraft(req,res,next){try{const scope=await scopeOf(req);const[rows]=await pool.execute('SELECT payload_enc,revision FROM client_creation_drafts WHERE agency_id=? AND owner_user_id=?',[scope.agencyId,scope.userId]);await logAuditEvent(req,{actionType:'client_creation_draft_viewed',agencyId:scope.agencyId,targetType:'agency',targetId:scope.agencyId});const saved=unpack(rows[0],scope);
+ if(saved.value?.created?.id){
+  const [[chart]]=await pool.execute("SELECT JSON_UNQUOTE(JSON_EXTRACT(onboarding_docs_json,'$.recordsImport.status')) AS records_import_status FROM clients WHERE id=? AND agency_id=?",[saved.value.created.id,scope.agencyId]);
+  if(chart?.records_import_status==='complete')saved.value={...saved.value,completed:true};
+ }
+ res.set('Cache-Control','no-store').json(saved);}catch(error){next(error);}}
 export async function saveClientCreationDraft(req,res,next){let db;try{
  const scope=await scopeOf(req),revision=req.body?.revision,value=req.body?.value;
  if(!Number.isSafeInteger(revision)||revision<0||!value||typeof value!=='object'||Array.isArray(value)||JSON.stringify(value).length>1800000)throw fail(400,'A valid client draft and revision are required.');

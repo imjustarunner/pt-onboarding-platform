@@ -742,6 +742,8 @@ function formatDraftResponse(row) {
     sourceReview: intakeDraftReview(row, sections),
     intakeSubmissionId: row.intake_submission_id || null,
     treatmentPlanId: row.treatment_plan_id || null,
+    recordsImport: intakeDraftContext(row).source === 'client_records_import',
+    nonBillable: intakeDraftContext(row).nonBillable === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     finalizedAt: row.finalized_at || null
@@ -1138,6 +1140,9 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
     return await withIntakeDraftMutationLock(draftId, async () => {
       const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
       if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+      if (intakeDraftContext(draft).source === 'client_records_import') {
+        return res.status(409).json({ error: { code: 'IMPORTED_INTAKE_NONBILLABLE', message: 'This is an imported source record, retained without an appointment or billing link. Create a separate current-care note for a new service.' } });
+      }
       const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
         || req.query?.replace === '1' || req.query?.forceReplace === '1';
       let reviewedContext;
@@ -1517,6 +1522,13 @@ const importClientIntakeNoteUnlocked = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
     const { parseIntakeSections, parseIntakeDiagnoses } = await import('../services/intakeImport.service.js');
+    if (req.body?.recordsImport != null) {
+      const { importRecordsIntake } = await import('../services/clientClinicalRecordsImport.service.js');
+      const result = await importRecordsIntake({ agencyId, clientId, actorId: req.user.id, input: req.body });
+      await logNoteAidChartEvent(req, { agencyId, clientId, action: 'note_aid_intake_draft_created', metadata: { draftId: result.draft.id, recordsImport: true, nonBillable: true, reused: result.reused } });
+      res.set('Cache-Control', 'no-store');
+      return res.status(result.reused ? 200 : 201).json({ ...result, draft: formatDraftResponse(result.draft) });
+    }
     const rawText = String(req.body?.text || req.body?.intakeText || '').trim();
     const historical = historicalImportDetails(req.body?.historicalImport, rawText);
     if (historical) {

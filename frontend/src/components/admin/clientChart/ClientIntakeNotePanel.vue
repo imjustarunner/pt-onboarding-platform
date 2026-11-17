@@ -95,6 +95,7 @@
     </div>
 
     <div v-if="loading" class="muted cin-loading">Loading intake note…</div>
+    <p v-if="draft?.recordsImport" class="hint">Imported intake record · nonbillable · no appointment link. The original source is retained here; use a separate note for a new service.</p>
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <template v-else>
@@ -301,7 +302,7 @@
               Copy All
             </button>
 
-            <template v-if="draft.status !== 'final' && !isHistoricalView">
+            <template v-if="draft.status !== 'final' && !isHistoricalView && !draft.recordsImport">
               <label class="cin-sidebar__context-label">Intake appointment</label>
               <p v-if="appointmentOptionsUnavailable" class="error">Appointment information could not be loaded. Your draft is available to review; refresh before finalizing.</p>
               <select v-else-if="appointmentOptions.length" v-model="selectedClinicalSessionId" class="filters-input" :disabled="busy">
@@ -441,6 +442,7 @@ const GENDER_LABELS = {
 };
 
 const statusLabel = computed(() => {
+  if (draft.value?.recordsImport) return 'Imported · nonbillable';
   const s = String(draft.value?.status || 'none');
   const map = {
     none: 'Not started',

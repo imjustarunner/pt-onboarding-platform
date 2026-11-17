@@ -24,7 +24,7 @@
        <dl class="cr-identity"><dt>Client</dt><dd>{{ form.fullName || 'Paste demographics to read the name' }}</dd><dt>Date of birth</dt><dd>{{ form.dateOfBirth || 'Not provided' }}</dd><dt>Generated initials</dt><dd>{{ initials || 'Generated from the name' }}</dd></dl>
        <label>The phone and email in this patient information belong to<select v-model="form.contactOwner"><option value="guardian">Parent / guardian — use their contact card and portal account</option><option value="client">Client — use the client’s own contact details</option></select></label>
        <dl v-if="demographicPreview.length" class="cr-identity" aria-label="Demographics preview"><template v-for="field in demographicPreview" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></template></dl>
-       <section v-for="section in otherSections" :key="section.key" class="cr-record-section"><label>{{ section.label }} paste<textarea v-model="form.records[section.key]" :data-section="section.key" :rows="section.rows || 5" :placeholder="section.placeholder" /></label><p v-if="section.hint" class="cr-private">{{ section.hint }}</p></section>
+       <section v-for="section in otherSections" :key="section.key" class="cr-record-section"><label>{{ section.label }} paste<textarea v-model="form.records[section.key]" :data-section="section.key" :rows="section.rows || 5" :placeholder="section.placeholder" /></label><label v-if="section.key==='intake'">Intake type<select v-model="form.intakeServiceCode" data-intake-service><option value="">Choose H0031 or 90791</option><option value="H0031">H0031</option><option value="90791">90791</option></select></label><p v-if="section.hint" class="cr-private">{{ section.hint }}</p></section>
        <p class="cr-private">Pasted records stay in your encrypted agency draft. They are imported into the client chart only when you choose an import action.</p>
        <button type="button" class="cr-button cr-primary" :disabled="!canCreate || parsing" @click="create">{{ working ? 'Creating chart…' : 'Create chart and import sections →' }}</button>
       </fieldset>
@@ -34,7 +34,8 @@
       <section v-if="assignmentError" class="cr-assignment-retry" aria-label="Provider assignment needs attention"><p class="cr-error" role="alert">{{ assignmentError }} Your chart and pasted records are saved; the other sections can still import.</p><label>Provider<select v-model="form.providerId" :disabled="busy || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label><button type="button" class="cr-button" :disabled="busy" @click="retryProvider">{{ form.providerId ? 'Retry provider assignment' : 'Continue unassigned' }}</button></section>
       <p v-if="!startImport && !initializing">The saved pastes have not been imported automatically. Continue this same chart below.</p><button v-if="!startImport && !initializing" type="button" class="cr-button cr-primary" :disabled="busy" @click="resumeImport">Resume saved import</button>
       <p v-if="initializing" role="status">Preparing the shared records workflow…</p>
-      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner" @busy="panelBusy=$event" @imported="finish" />
+      <ClientEhrBringUpToDatePanel v-if="!initializing" :key="created.id" ref="panel" embedded open creation-flow require-verified-payers :auto-import="startImport" :pending-provider-assignment="!!assignmentError" :client-id="created.id" :agency-id="agencyId" :client-label="form.fullName" :initial-texts="recordPastes" :initial-contact-owner="form.contactOwner" :initial-intake-service-code="form.intakeServiceCode" @busy="panelBusy=$event" @drafts-saved="chartDraftsSaved=true" @imported="finish" />
+      <button type="button" class="cr-button" :disabled="busy" @click="leaveImportForNextClient">Save this import and add a different client</button>
      </template>
      <section v-else class="cr-complete"><h3>Client saved{{ form.providerId ? ' and assigned' : '' }}</h3><p>{{ form.fullName }} · {{ providerName || 'Unassigned' }} · Chart #{{ created.id }}</p><button type="button" class="cr-button cr-primary" :disabled="busy" @click="nextClient">Add next client{{ providerName ? ` for ${providerName}` : '' }}</button><button type="button" class="cr-button" @click="leave">Close</button></section>
     </div>
@@ -62,7 +63,8 @@ const isBackoffice=computed(()=>['super_admin','admin','support'].includes(auth.
 const dialog=ref(null),panel=ref(null),agencyId=ref(''),organizations=ref([]),providers=ref([]),created=ref(null),completed=ref(false),working=ref(false),panelBusy=ref(false),parsing=ref(false),error=ref('');
 const initializing=ref(false),startImport=ref(false);
 const assignmentError=ref('');
-const defaults=()=>({records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'guardian',kind:'clinical',organizationId:'',providerId:isBackoffice.value?null:auth.user?.id,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
+const chartDraftsSaved=ref(false);
+const defaults=()=>({intakeServiceCode:'',records:Object.fromEntries(CLIENT_RECORD_SECTIONS.map(section=>[section.key,''])),parsedDemographics:null,contactOwner:'guardian',kind:'clinical',organizationId:'',providerId:isBackoffice.value?null:auth.user?.id,schoolYear:'',grade:'',manual:false,demographics:'',fullName:'',dateOfBirth:''});
 const form=reactive(defaults()),drafts=useClientCreationDrafts(),grades=STANDARD_GRADE_SELECT_OPTIONS.filter(g=>g.value);
 let generation=0,hydrating=false,parseTimer,parseVersion=0;
 const busy=computed(()=>working.value||panelBusy.value||drafts.state.loading);
@@ -77,7 +79,7 @@ const filteredOrganizations=computed(()=>organizations.value.filter(org=>{
 }));
 const providerName=computed(()=>{const p=providers.value.find(row=>Number(row.id)===Number(form.providerId));return p?[p.first_name,p.last_name].filter(Boolean).join(' '):'';});
 const canCreate=computed(()=>!!agencyId.value&&!!form.organizationId&&!!form.fullName.trim()&&!!initials.value&&!drafts.state.error&&!busy.value);
-function snapshot(){return{form:{...form},created:created.value?{id:created.value.id,agency_id:Number(agencyId.value)}:null,completed:completed.value};}
+function snapshot(){return{form:{...form,...(created.value&&chartDraftsSaved.value?{records:defaults().records,demographics:''}:{})},created:created.value?{id:created.value.id,agency_id:Number(agencyId.value)}:null,completed:completed.value};}
 function save(){if(!hydrating&&agencyId.value)drafts.schedule(snapshot());}
 watch(form,save,{deep:true});watch([created,completed],save);
 watch(()=>form.kind,()=>{if(hydrating)return;form.organizationId=form.kind==='clinical'&&filteredOrganizations.value.some(row=>Number(row.id)===Number(agencyId.value))?Number(agencyId.value):filteredOrganizations.value.length===1?filteredOrganizations.value[0].id:'';if(form.kind!=='school'){form.schoolYear='';form.grade='';}});
@@ -88,6 +90,7 @@ async function readDemographics(){
  catch(e){if(context===generation)error.value=e.response?.data?.error?.message||'Demographics could not be read.';return false;}finally{if(version===parseVersion)parsing.value=false;}
 }
 async function changeAgency(value){
+ chartDraftsSaved.value=false;
  if(created.value||working.value)return;if(agencyId.value&&!(await drafts.flush()))return;
  const version=++generation;parseVersion++;clearTimeout(parseTimer);hydrating=true;agencyId.value=String(value||'');Object.assign(form,defaults());created.value=null;completed.value=false;error.value='';organizations.value=[];providers.value=[];
  if(!agencyId.value){hydrating=false;return;}
@@ -132,7 +135,8 @@ async function finish(){
  try{const[record,enrollments]=await Promise.all([api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${created.value.id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);const data=record.data;form.providerId=primaryAssignmentProvider(data,enrollments.data?.services||[])||null;form.fullName=data.full_name||form.fullName;completed.value=true;save();await drafts.flush();try{localStorage.setItem(`client-entry-context:${auth.user.id}:${agencyId.value}`,JSON.stringify({providerId:form.providerId}));}catch{}emit('created',created.value);}
  catch(e){error.value=e.response?.data?.error?.message||e.message||'The chart is saved. Provider assignment needs attention; retry for this same client.';}finally{working.value=false;}
 }
-async function nextClient(){const context={kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;assignmentError.value='';hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
+async function nextClient(){chartDraftsSaved.value=false;const context={kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;assignmentError.value='';hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
+async function leaveImportForNextClient(){if(await panel.value?.prepareLeave()===false)return;await nextClient();chartDraftsSaved.value=false;}
 async function prepareLeave(){if(busy.value)return false;clearTimeout(parseTimer);if(await panel.value?.prepareLeave()===false)return false;save();return drafts.flush();}
 async function leave(){if(await prepareLeave())emit('close');}
 useModalFocus(dialog,leave);

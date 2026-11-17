@@ -59,6 +59,7 @@
       </template>
 
       <p v-if="loadingPlan" class="muted">Loading plan…</p>
+      <details v-if="importedSourceText" class="hint hint-block"><summary>Original imported treatment plan</summary><pre style="white-space:pre-wrap">{{ importedSourceText }}</pre></details>
 
       <template v-if="model">
         <label class="na-label">
@@ -384,6 +385,7 @@ const pasteText = ref('');
 const providerNarrative = ref('');
 const changeSummary = ref('');
 const model = ref(null);
+const importedSourceText = ref('');
 const parsing = ref(false);
 const proposingUpdate = ref(false);
 const saving = ref(false);
@@ -398,6 +400,7 @@ const rewriteKey = ref('');
 const suggestingDischarge = ref(false);
 const durationPresets = DURATION_PRESETS;
 const loadedPlanId = ref(null);
+const importedDraftId = ref(null);
 const aiContentUsed = ref(false);
 const attestAiReviewed = ref(false);
 const renewalPolicy = ref(null), renewalPolicyError = ref('');
@@ -554,7 +557,11 @@ function mapGoal(g, effectiveDate) {
 
 function applyPlanRecord(plan) {
   if (!plan) return;
+  importedSourceText.value = plan.recordsImportSource?.text || '';
+  const sourceParsed = plan.recordsImportSource?.parsed || {};
+  const sourceDiagnoses = plan.diagnoses?.length ? plan.diagnoses : sourceParsed.diagnoses || [];
   loadedPlanId.value = plan.id || null;
+  importedDraftId.value = plan.status === 'draft' && String(plan.source_tool_id || '').startsWith('client_records_import:') ? plan.id : null;
   const dxFromLinks = (plan.planDiagnoses || plan.plan_diagnoses || []).map((d, i) => ({
     icd10Code: d.icd10_code || d.icd10Code || '',
     description: d.description || '',
@@ -576,8 +583,8 @@ function applyPlanRecord(plan) {
     diagnosticJustification: String(plan.diagnostic_justification || plan.diagnosticJustification || '').trim(),
     diagnoses: dxFromLinks.length
       ? dxFromLinks
-      : (Array.isArray(plan.diagnoses) && plan.diagnoses.length
-        ? plan.diagnoses.map((d, i) => ({
+      : (sourceDiagnoses.length
+        ? sourceDiagnoses.map((d, i) => ({
           icd10Code: d.icd10Code || d.icd10_code || '',
           description: d.description || '',
           isPrimary: !!(d.isPrimary ?? d.is_primary) || i === 0
@@ -874,7 +881,7 @@ async function regenerateFromAddendum() {
 }
 
 async function loadPlan() {
-  if (props.initialPlan?.goals) {
+  if (props.initialPlan?.goals && (!String(props.initialPlan.source_tool_id || '').startsWith('client_records_import:') || props.initialPlan.recordsImportSource)) {
     applyPlanRecord(props.initialPlan);
     return;
   }
@@ -906,11 +913,13 @@ watch(
     providerNarrative.value = props.renewalReason || '';
     changeSummary.value = '';
     model.value = null;
+    importedSourceText.value = '';
     error.value = '';
     addendum.value = '';
     bulkDurationMonths.value = 0;
     rewriteKey.value = '';
     loadedPlanId.value = null;
+    importedDraftId.value = null;
     aiContentUsed.value = !!props.initialPlan?.aiGenerated;
     attestAiReviewed.value = false;
     if (isUpdaterMode.value || isDraftEditor.value) {
@@ -948,7 +957,7 @@ async function save({ finalize = true } = {}) {
     for (const g of model.value.goals || []) {
       syncGoalCompletion(g);
       for (const o of g.objectives || []) {
-        if ((finalize || !props.allowImportedDraft) && !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
+        if (finalize && !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
           throw new Error('Each objective needs a valid 1–10 current and target before saving.');
         }
       }
@@ -974,6 +983,7 @@ async function save({ finalize = true } = {}) {
       title: props.mode === 'generated' ? `${props.initialPlan?.title || 'Generated Treatment Plan'}${asDraft ? ' Draft' : ''}` : (asDraft ? 'Treatment Plan Draft' : (isDraftEditor.value ? 'Treatment Plan' : 'Imported Treatment Plan')),
       status: asDraft ? 'draft' : 'active',
       finalize: !asDraft,
+      ...(importedDraftId.value && !asDraft ? {sourceDraftPlanId:importedDraftId.value} : {}),
       effectiveDate: model.value.effectiveDate || null,
       dischargePlan: model.value.dischargePlan || null,
       presentingProblem: model.value.presentingProblem || null,

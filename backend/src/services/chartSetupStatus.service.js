@@ -7,20 +7,20 @@ import { clientHasDemographicsOnFile } from './demographicsImport.service.js';
 import { isAppNativeOfficeClient, isPaperPacketClient, isSchoolRegistrationClient } from '../utils/paperPacketClient.js';
 import { readPaperPacketDemographicCandidate } from './paperPacketDemographics.service.js';
 import { isIntakeAutoTreatmentPlan } from './treatmentPlanPrecedence.service.js';
+import { intakeDraftContext } from './intakeDraftReview.service.js';
 import {
   getLatestPaperPacketVisionEval,
   schedulePaperPacketVisionEval
 } from './paperPacketVision.service.js';
 
-async function intakeOnFile(clientId) {
+async function intakeOnFile(clientId, agencyId) {
   try {
     const [rows] = await pool.execute(
-      `SELECT id FROM client_intake_note_drafts
-       WHERE client_id = ? AND status = 'final'
-       LIMIT 1`,
-      [clientId]
+      `SELECT id,status,session_context_enc FROM client_intake_note_drafts
+       WHERE client_id = ? AND agency_id = ? AND status IN ('final','draft')`,
+      [clientId,agencyId]
     );
-    return rows.length > 0;
+    return rows.some(row => !row.status || row.status === 'final' || intakeDraftContext(row).source === 'client_records_import');
   } catch (error) {
     if (error?.code === 'ER_NO_SUCH_TABLE') return false;
     throw error;
@@ -31,16 +31,17 @@ async function planOnFile(agencyId, clientId) {
   if (!agencyId || !clientId) return false;
   try {
     const [rows] = await clinicalPool.execute(
-      `SELECT p.id, p.title
+      `SELECT p.id, p.title, p.status, p.source_tool_id
        FROM clinical_treatment_plans p
-       WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active'
+       WHERE p.agency_id = ? AND p.client_id = ? AND (p.status = 'active' OR (p.status = 'draft' AND p.source_tool_id LIKE 'client_records_import:%'))
        ORDER BY p.id DESC`,
       [agencyId, clientId]
     );
     // The chart excludes the automatically generated enrollment placeholder.
     // Use the same rule here so setup cannot claim a clinical plan is complete
     // while Records correctly shows no authored treatment plan.
-    return rows.some(plan => !isIntakeAutoTreatmentPlan(plan));
+    const authored = rows.filter(plan => !isIntakeAutoTreatmentPlan(plan));
+    return { onFile: authored.length > 0, reviewPending: authored.length > 0 && !authored.some(plan => !plan.status || plan.status === 'active') };
   } catch (error) {
     if (error?.code === 'ER_NO_SUCH_TABLE' || error?.code === 'ER_BAD_FIELD_ERROR') return false;
     console.warn('[chartSetup] treatment plan lookup failed', error?.message || error);
@@ -54,7 +55,7 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
   const schoolClient = isSchoolRegistrationClient(client);
   const demographicsOnFile = clientHasDemographicsOnFile(client);
   const [intakeDone, planDone] = await Promise.all([
-    intakeOnFile(clientId),
+    intakeOnFile(clientId,agencyId),
     planOnFile(agencyId, clientId)
   ]);
   const paperPacket = isPaperPacketClient(client);
@@ -81,8 +82,9 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
     requiresRecordImport: !isAppNativeOfficeClient(client),
     demographicsOnFile,
     intakeOnFile: intakeDone,
-    planOnFile: planDone,
-    setupComplete: demographicsOnFile && intakeDone && planDone,
+    planOnFile: !!planDone?.onFile,
+    planReviewPending: !!planDone?.reviewPending,
+    setupComplete: demographicsOnFile && intakeDone && !!planDone?.onFile,
     schoolClient,
     paperPacket,
     packetReadPending,

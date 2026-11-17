@@ -17,3 +17,9 @@ it('blocks a stale revision instead of overwriting another window',async()=>{
 it('refuses an encrypted draft copied from another agency or user',async()=>{
  m.execute.mockResolvedValueOnce([[{id:2}]]).mockResolvedValueOnce([[{payload_enc:'cipher',revision:1}]]);m.decrypt.mockReturnValue({context:'client_creation:99:10',value:{}});const next=vi.fn();await getClientCreationDraft(req(),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({message:'Client draft context mismatch'}));
 });
+it('recognizes an import completed from the client profile when reopening the old creation draft',async()=>{
+ m.execute.mockResolvedValueOnce([[{id:2}]]).mockResolvedValueOnce([[{payload_enc:'cipher',revision:4}]]).mockResolvedValueOnce([[{records_import_status:'complete'}]]);
+ m.decrypt.mockReturnValue({context:'client_creation:2:10',value:{created:{id:2579},completed:false,form:{fullName:'Synthetic'}}});
+ const next=vi.fn(),res=response();await getClientCreationDraft(req(),res,next);expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({value:expect.objectContaining({completed:true,created:{id:2579}})}));
+ expect(m.execute.mock.calls[2][1]).toEqual([2579,2]);expect(m.encrypt).not.toHaveBeenCalled();
+});

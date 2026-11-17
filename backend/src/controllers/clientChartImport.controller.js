@@ -63,6 +63,7 @@ export async function saveChartImportDraft(req, res, next) {
       ...(typeof metadata.sourceAuthor === 'string' ? { sourceAuthor: metadata.sourceAuthor.slice(0, 255) } : {}),
       imported: metadata.imported === true,
       needsReview: metadata.needsReview === true,
+      ...(section === 'intake' && ['H0031','90791'].includes(metadata.serviceCode) ? { serviceCode: metadata.serviceCode } : {}),
       ...(coverageDrafts ? { coverageDrafts } : {}),
       ...(section === 'demographics' && ['client','guardian'].includes(metadata.contactOwner) ? { contactOwner: metadata.contactOwner } : {}),
       ...(['primary','secondary'].includes(metadata.position) ? { position: metadata.position } : {}) };

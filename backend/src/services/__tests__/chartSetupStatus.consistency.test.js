@@ -18,3 +18,7 @@ it('counts an actual active clinician plan even with a newer automatic placehold
  expect(m.clinical).toHaveBeenCalledWith(expect.stringContaining("p.status = 'active'"),[450,2271]);
 });
 it('does not invent completed care for an empty chart',async()=>{const s=await loadChartSetupStatus({client});expect(s.planOnFile).toBe(false);expect(s.intakeOnFile).toBe(false);});
+it('counts imported source records on file while keeping provider plan finalization visibly pending',async()=>{
+ m.main.mockResolvedValue([[{id:351,status:'draft',session_context_enc:JSON.stringify({source:'client_records_import'})}]]);m.clinical.mockResolvedValue([[{id:52,title:'Imported Treatment Plan',status:'draft',source_tool_id:'client_records_import:source'}]]);
+ const status=await loadChartSetupStatus({client});expect(status).toMatchObject({intakeOnFile:true,planOnFile:true,planReviewPending:true,setupComplete:true});
+});

@@ -317,6 +317,10 @@ export const getTreatmentPlanById = async (req, res, next) => {
     if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== clientId) {
       return res.status(404).json({ error: { message: 'Treatment plan not found' } });
     }
+    if (String(plan.source_tool_id || '').startsWith('client_records_import:')) {
+      const { readChartRecord } = await import('../services/clientChartImport.service.js');
+      plan.recordsImportSource = (await readChartRecord({ agencyId,clientId }, `plan_source_${plan.id}`, 0)).value;
+    }
     await logNoteAidChartEvent(req, { clientId, agencyId, action: 'clinical_treatment_plan_viewed', metadata: { treatmentPlanId: plan.id } });
     return res.json({ plan });
   } catch (e) {
@@ -339,6 +343,15 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
+    if (req.body.recordsImport != null) {
+      const { clientAccess } = await import('../services/safetyPlans/access.js');
+      const client = await clientAccess(req.user, clientId, { write: !['admin','super_admin'].includes(req.user.role) });
+      if (Number(client.agency_id) !== agencyId) return res.status(403).json({ error: { message: 'Client not found in this agency.' } });
+      const { importRecordsTreatmentPlan } = await import('../services/clientClinicalRecordsImport.service.js');
+      const result = await importRecordsTreatmentPlan({ agencyId, clientId, actorId: req.user.id, input: req.body });
+      await logNoteAidChartEvent(req, { clientId, agencyId, action: 'treatment_plan_saved', metadata: { planId: result.plan?.id, recordsImport: true, reused: result.reused } });
+      return res.set('Cache-Control','no-store').status(result.reused ? 200 : 201).json(result);
+    }
     if (req.body.historicalImport != null) {
       const { importHistoricalPlan } = await import('../services/ehrHistoricalPlanImport.service.js');
       const result = await importHistoricalPlan({ user: req.user, agencyId, clientId, input: req.body });
@@ -349,11 +362,19 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     const requestedStatus = String(req.body.status || 'active').trim().toLowerCase();
     const finalizeRequested = req.body.finalize === true || req.body.finalize === 1
       || requestedStatus === 'active' || requestedStatus === 'final';
+    const sourceDraftPlanId = parseIntValue(req.body.sourceDraftPlanId);
+    if (sourceDraftPlanId) {
+      assertClinicalSigner(req.user);
+      const { clientAccess } = await import('../services/safetyPlans/access.js');
+      const client = await clientAccess(req.user, clientId, {write: !['admin','super_admin'].includes(req.user.role)});
+      if (Number(client.agency_id) !== agencyId) return res.status(403).json({error:{message:'Client not found in this agency.'}});
+    }
     // A reviewed, individualized starter plan can precede the full intake.
     if (finalizeRequested && !isReviewedStarterPlan(req.body)) {
       const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
       const hasFinalIntake = await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId })
-        || await ClinicalNote.hasSignedIntakeForClient({ clientId, agencyId });
+        || await ClinicalNote.hasSignedIntakeForClient({ clientId, agencyId })
+        || (await ClientIntakeNoteDraft.listForClient({ clientId, agencyId })).some(row => row.status !== 'failed' && intakeDraftChartSummary(row).records_import);
       if (!hasFinalIntake) {
         return res.status(409).json({
           error: {
@@ -433,6 +454,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       createdByUserId: req.user.id,
       primaryDiagnosisId,
       diagnosticJustification,
+      supersedesImportedDraftId: finalizeRequested ? sourceDraftPlanId : null,
       goals: goals.map((g, i) => ({
         goalIndex: g.goalIndex || i + 1,
         goalText: String(g.goalText || g.text || ''),
@@ -907,12 +929,8 @@ export const listClientChart = async (req, res, next) => {
     let intakeNotes = [];
     try {
       const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
-      const latest = await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
-      if (latest) {
-        intakeNotes = [
-          intakeDraftChartSummary(latest, sessions)
-        ];
-      }
+      const rows = await ClientIntakeNoteDraft.listForClient({ clientId, agencyId });
+      intakeNotes = rows.filter(row => row.status !== 'failed').map(row => intakeDraftChartSummary(row, sessions));
     } catch {
       intakeNotes = [];
     }

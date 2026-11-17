@@ -109,6 +109,14 @@ class ClientIntakeNoteDraft {
     return rows || [];
   }
 
+  static async listForClient({ clientId, agencyId }) {
+    const [rows] = await intakeDraftDatabase().execute(
+      'SELECT * FROM client_intake_note_drafts WHERE client_id = ? AND agency_id = ? ORDER BY created_at DESC, id DESC',
+      [safeInt(clientId), safeInt(agencyId)]
+    );
+    return rows || [];
+  }
+
   static async hasFinalizedForClient({ clientId, agencyId }) {
     const cid = safeInt(clientId);
     const aid = safeInt(agencyId);
@@ -243,7 +251,9 @@ class ClientIntakeNoteDraft {
     confirmedDxJson = undefined,
     status = undefined,
     scrubbedInputEnc = undefined,
-    diagnosisAction = undefined
+    diagnosisAction = undefined,
+    serviceCode = undefined,
+    toolId = undefined
   }) {
     return withIntakeDraftMutationLock(draftId, async () => {
       const iid = safeInt(draftId);
@@ -254,6 +264,11 @@ class ClientIntakeNoteDraft {
       }
       const sets = [];
       const vals = [];
+      if (serviceCode !== undefined) {
+        if (!VALID_SERVICE_CODES.has(serviceCode)) throw new Error('Invalid intake service code');
+        sets.push('service_code = ?'); vals.push(serviceCode);
+      }
+      if (toolId !== undefined) { sets.push('tool_id = ?'); vals.push(String(toolId)); }
       if (noteBodyEnc !== undefined) {
         sets.push('note_body_enc = ?');
         vals.push(noteBodyEnc ?? '');

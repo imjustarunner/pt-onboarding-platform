@@ -46,11 +46,18 @@ class ClinicalTreatmentPlan {
     goals = [],
     primaryDiagnosisId = null,
     diagnosticJustification = null,
-    effectiveDate = null
+    effectiveDate = null,
+    supersedesImportedDraftId = null
   }) {
     const conn = await clinicalPool.getConnection();
     try {
       await conn.beginTransaction();
+      if (supersedesImportedDraftId) {
+        const [[source]] = await conn.execute('SELECT status,source_tool_id FROM clinical_treatment_plans WHERE id = ? AND agency_id = ? AND client_id = ? FOR UPDATE', [supersedesImportedDraftId,agencyId,clientId]);
+        if (!source || source.status !== 'draft' || !String(source.source_tool_id || '').startsWith('client_records_import:')) {
+          throw Object.assign(new Error('This imported draft changed or was already finalized. Reload the treatment plans before continuing.'), {status:409});
+        }
+      }
       let planId;
       try {
         const [result] = await conn.execute(
@@ -202,6 +209,7 @@ class ClinicalTreatmentPlan {
           await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
         }
       }
+      if (supersedesImportedDraftId) await conn.execute("UPDATE clinical_treatment_plans SET status = 'superseded', updated_at = NOW() WHERE id = ? AND agency_id = ? AND client_id = ? AND status = 'draft'", [supersedesImportedDraftId,agencyId,clientId]);
       await conn.commit();
       return this.findById(planId);
     } catch (e) {

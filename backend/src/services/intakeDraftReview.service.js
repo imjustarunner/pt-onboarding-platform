@@ -10,11 +10,13 @@ export function intakeDraftContext(row) {
 /** Chart metadata only: document timestamps never establish a date of service. */
 export function intakeDraftChartSummary(row, sessions = []) {
   const context = intakeDraftContext(row);
-  const session = sessions.find(s => Number(s.id) === Number(context.clinicalSessionId)
+  const imported = context.source === 'client_records_import';
+  const session = !imported && sessions.find(s => Number(s.id) === Number(context.clinicalSessionId)
     && Number(s.agency_id) === Number(row.agency_id)
     && String(s.service_code || '').toUpperCase() === String(row.service_code || '').toUpperCase());
   return {
     id: row.id, status: row.status, service_code: row.service_code,
+    records_import: imported, non_billable: imported || context.nonBillable === true,
     created_at: row.created_at, updated_at: row.updated_at, finalized_at: row.finalized_at || null,
     clinical_session_id: session?.id || null,
     scheduled_start_at: session?.scheduled_start_at || null,

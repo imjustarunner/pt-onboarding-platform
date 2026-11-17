@@ -4,6 +4,14 @@ import Review from '../NoteAidTreatmentPlanImportReview.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
 beforeEach(() => vi.resetAllMocks());
+it('loads the imported source once, preloads its diagnoses, allows incomplete drafts and identifies the source when finalized',async()=>{
+ const original={id:44,status:'draft',source_tool_id:'client_records_import:source',effective_date:'2026-01-02',discharge_plan:'Discharge after goals met.',recordsImportSource:{text:'Complete original source',parsed:{diagnoses:[{icd10Code:'F41.1',description:'Source diagnosis'}]}},goals:[{goalText:'Improve coping',objectives:[{objectiveText:'Progress on a scale of 1–10. The client is currently functioning at a 3. The goal is to achieve a 7.'}]}]};
+ api.get.mockImplementation(async url=>({data:url.endsWith('/44')?{plan:original}:{policy:{renewAfterDays:90}}}));api.post.mockResolvedValue({data:{plan:{id:55}}});
+ const w=shallowMount(Review,{props:{open:false,agencyId:2,clientId:42,mode:'draft',planId:44}});await w.setProps({open:true});await flushPromises();const state=w.vm.$.setupState;
+ expect(w.text()).toContain('Complete original source');expect(state.model.diagnoses[0].icd10Code).toBe('F41.1');expect(state.model.goals[0].objectives[0]).toMatchObject({scaleCurrent:3,scaleTarget:7});expect(api.post).not.toHaveBeenCalled();
+ state.model.goals[0].objectives[0].scaleTarget=null;await state.save({finalize:false});expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans',expect.objectContaining({status:'draft',finalize:false}));
+ state.model.goals[0].objectives[0].scaleTarget=7;state.model.goals[0].durationMonths=6;await state.save({finalize:true});expect(api.post).toHaveBeenLastCalledWith('/medical-billing/treatment-plans',expect.objectContaining({sourceDraftPlanId:44,status:'active',finalize:true}));w.unmount();
+});
 it('shows the agency review schedule, keeps imported scheduling text separate and rejects a blank goal first', async () => {
   api.get.mockResolvedValue({ data: { policy: { renewAfterDays: 90, flagAfterDays: 75, flagEnabled: true } } });
   const plan = { effectiveDate: '2026-11-09', dischargePlan: '', goals: [{ goalText: '', objectives: [{ objectiveText: 'Practice a skill.', scaleCurrent: 3, scaleTarget: 7 }] }] };

@@ -12,6 +12,10 @@ let wrapper;
 const mountPanel=()=>{wrapper=mount(Panel,{props:{clientId:2304,assignedProvider:true,client:{full_name:'QA',date_of_birth:'2015-05-18T00:00:00.000Z',gender:'F'}}});return wrapper;};
 beforeEach(()=>{vi.clearAllMocks();mocks.get.mockResolvedValue({data:{draft:structuredClone(draft),history:[],appointmentOptions:[{clinicalSessionId:77,appointmentId:135,startsAt:'2026-11-03T23:00:00Z',timeZone:'America/Denver',serviceCode:'90791'}]}});mocks.post.mockResolvedValue({data:{draft:{...draft,status:'final'}}});});
 afterEach(()=>wrapper?.unmount());
+it('shows the imported note as nonbillable without appointment or finalization controls',async()=>{
+ mocks.get.mockResolvedValue({data:{draft:{...draft,status:'draft',recordsImport:true,nonBillable:true},history:[],appointmentOptions:[]}});mountPanel();await flushPromises();
+ expect(wrapper.text()).toContain('Imported · nonbillable');expect(wrapper.findAll('button').some(button=>button.text()==='Finalize intake only'||button.text()==='Finalize & edit treatment plan')).toBe(false);expect(wrapper.text()).not.toContain('Intake appointment');
+});
 it('does not label long unreviewed sections complete or enable finalization on diagnosis alone',async()=>{
  mountPanel();await flushPromises();expect(wrapper.text()).toContain('Needs source review');expect(wrapper.text()).not.toContain('Ready to finalize');expect(wrapper.text()).toContain('May 18, 2015');expect(wrapper.text()).toContain('Female');expect(wrapper.findAll('button').find(button=>button.text()==='Finalize intake only').attributes('disabled')).toBeDefined();
 });

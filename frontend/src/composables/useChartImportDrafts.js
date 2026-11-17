@@ -32,7 +32,7 @@ export function useChartImportDrafts() {
     if (!section) return;
     const comparable = draft => {
       const metadata = draft?.metadata || draft || {};
-      return { text: draft?.text || '', imported: metadata.imported === true, needsReview: metadata.needsReview === true, sourceDate: metadata.sourceDate || '', sourceAuthor: metadata.sourceAuthor || '', position: metadata.position || 'primary', coverageDrafts: metadata.coverageDrafts || null, contactOwner: metadata.contactOwner || 'guardian' };
+      return { text: draft?.text || '', imported: metadata.imported === true, needsReview: metadata.needsReview === true, serviceCode: metadata.serviceCode || '', sourceDate: metadata.sourceDate || '', sourceAuthor: metadata.sourceAuthor || '', position: metadata.position || 'primary', coverageDrafts: metadata.coverageDrafts || null, contactOwner: metadata.contactOwner || 'guardian' };
     };
     if (JSON.stringify(comparable(value)) === JSON.stringify(comparable(section.value)) && !section.pending) return;
     section.pending = structuredClone(value);
