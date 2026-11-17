@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { groupEmailConversationSql, schoolGroupConversationSql, personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
 import { messageInboxPolicySql, INBOX_REVIEW_CATEGORIES } from '../services/messageInboxPolicy.js';
-import { inferredMailboxOwnerSql, privateMailboxVisibilitySql } from '../services/privateMailboxPolicy.js';
+import { mailboxAccessCteSql, resolvedMailboxVisibilitySql } from '../services/privateMailboxPolicy.js';
 
 async function hydrateTicketMessageBodies(messages) {
   const ids = [...new Set(messages.map((m) => Number(m?.support_ticket_message_id)).filter(Boolean))];
@@ -181,9 +181,10 @@ class CommunicationConversation {
     const params = [];
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
-    if (userId) where.push(privateMailboxVisibilitySql(userId, 'i'));
+    if (userId) where.push(resolvedMailboxVisibilitySql(userId, 'i'));
     const reviewCategory = INBOX_REVIEW_CATEGORIES.includes(category) ? category : null;
-    where.push(reviewCategory ? `${policy.category}='${reviewCategory}'` : policy.correspondence);
+    const categoryPredicate = reviewCategory ? `${policy.category}='${reviewCategory}'` : policy.correspondence;
+    where.push(categoryPredicate);
     if (reviewCategory && reviewBefore) { where.push('COALESCE(c.last_message_at,c.created_at) <= ?'); params.push(reviewBefore); }
     where.push(groupSql.access);
     if (groupOnly) where.push(groupSql.isGroup);
@@ -211,9 +212,9 @@ class CommunicationConversation {
         ${groupSql.personalScopeExtension}
         OR ${assignedSmsConversationSql}
         OR EXISTS (
-          SELECT 1 FROM communication_inboxes pi
+          SELECT 1 FROM mailbox_access pi
           WHERE pi.id = c.inbox_id
-            AND COALESCE(pi.owner_user_id,${inferredMailboxOwnerSql('pi')}) = ?
+            AND COALESCE(pi.owner_user_id,pi.inferred_owner_user_id) = ?
         )
       )`);
       where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id <> ?))`);
@@ -239,6 +240,11 @@ class CommunicationConversation {
       where.push('(CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ?');
       params.push(ownerUserId);
     }
+
+    // Materialize access before classification; MySQL otherwise evaluates the
+    // expensive category subqueries for conversations the viewer cannot access.
+    const accessWhere = where.filter(condition => condition !== categoryPredicate);
+    const accessParams = [...params];
 
     const from = String(fromEmail || '').trim().toLowerCase();
     if (from) {
@@ -382,7 +388,8 @@ class CommunicationConversation {
     const off = Math.max(Number(offset) || 0, 0);
 
     const [rows] = await pool.execute(
-      `SELECT c.*,
+      `WITH ${mailboxAccessCteSql()}
+       SELECT /*+ MAX_EXECUTION_TIME(12000) */ c.*,
               ${policy.category} AS message_category, (${policy.schoolAutoRead}) AS school_auto_read,
               (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) AS owner_user_id,
               t.status AS ticket_status, t.claimed_by_user_id AS ticket_claimed_by_user_id,
@@ -453,14 +460,18 @@ class CommunicationConversation {
                 ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
                 LIMIT 1
               ) AS last_inbound_preview` : ''}
-       FROM communication_conversations c
-       LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
+       FROM (SELECT c.* FROM communication_conversations c
+         LEFT JOIN mailbox_access i ON i.id=c.inbox_id
+         LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
+         WHERE ${accessWhere.join(' AND ')}
+         LIMIT 18446744073709551615) c
+       LEFT JOIN mailbox_access i ON i.id = c.inbox_id
        LEFT JOIN support_tickets t ON t.id = c.support_ticket_id
        LEFT JOIN users u ON u.id = (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)
        WHERE ${where.join(' AND ')}
        ORDER BY COALESCE(c.last_message_at, c.updated_at) ${sort === 'oldest' ? 'ASC' : 'DESC'}, c.id ${sort === 'oldest' ? 'ASC' : 'DESC'}
        LIMIT ${lim} OFFSET ${off}`,
-      params
+      [...accessParams, ...params]
     );
 
     return rows.map((r) => {
@@ -542,20 +553,25 @@ class CommunicationConversation {
   static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [] } = {}) {
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
-    const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access, privateMailboxVisibilitySql(userId, 'i')];
+    const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access, resolvedMailboxVisibilitySql(userId, 'i')];
     const params = [];
     if (agencyId != null) { where.push('(c.agency_id=? OR c.agency_id IS NULL)'); params.push(agencyId); }
     if (scopeToUserId) {
       where.push(`((CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)=?
         ${groupSql.personalScopeExtension} OR ${assignedSmsConversationSql}
-        OR EXISTS (SELECT 1 FROM communication_inboxes pi WHERE pi.id=c.inbox_id AND COALESCE(pi.owner_user_id,${inferredMailboxOwnerSql('pi')})=?))`);
+        OR EXISTS (SELECT 1 FROM mailbox_access pi WHERE pi.id=c.inbox_id AND COALESCE(pi.owner_user_id,pi.inferred_owner_user_id)=?))`);
       where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id<>?))`);
       params.push(scopeToUserId,scopeToUserId,scopeToUserId,scopeToUserId,scopeToUserId,scopeToUserId);
     }
     const noticeWhere = [...where];
+    const accessible = `(SELECT c.* FROM communication_conversations c
+      LEFT JOIN mailbox_access i ON i.id=c.inbox_id
+      LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
+      WHERE ${noticeWhere.join(' AND ')} LIMIT 18446744073709551615)`;
     where.push(policy.correspondence);
     const uid = Number.isSafeInteger(Number(userId)) && Number(userId) > 0 ? Number(userId) : 0;
-    const [rows] = await pool.execute(`SELECT inbox_id,channel,COUNT(*) AS total,
+    const [rows] = await pool.execute(`WITH ${mailboxAccessCteSql()}
+      SELECT /*+ MAX_EXECUTION_TIME(12000) */ inbox_id,channel,COUNT(*) AS total,
       SUM(is_unread AND NOT unknown_sender) AS unread_count,SUM(is_unread AND is_group AND NOT unknown_sender) AS group_unread,
       SUM(is_unread AND is_school) AS school_unread,SUM(needs_reply) AS needs_reply,
       SUM(waiting) AS waiting,SUM(follow_up) AS follow_up,SUM(assigned AND status<>'resolved') AS assigned,
@@ -574,11 +590,11 @@ class CommunicationConversation {
         ((c.status='follow_up' OR (c.due_at IS NOT NULL AND c.due_at<=NOW())) AND c.status<>'resolved' AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS follow_up,
         (t.id IS NOT NULL AND t.status NOT IN ('closed','resolved','done')) AS open_ticket,
         ((${personalConversationUnreadSql(userId)}) AND NOT (${policy.schoolAutoRead}) AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS is_unread
-        FROM communication_conversations c
-        LEFT JOIN communication_inboxes i ON i.id=c.inbox_id
+        FROM ${accessible} c
+        LEFT JOIN mailbox_access i ON i.id=c.inbox_id
         LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
         WHERE ${where.join(' AND ')}) visible
-      GROUP BY inbox_id,channel`,params);
+      GROUP BY inbox_id,channel`,[...params,...params]);
     const summary = { needsAttention:0,waitingOnOthers:0,followUpsDue:0,assignedToYou:0,unknownSenders:0,snoozed:0,unread:0,
       unreadByInbox:{},unreadByChannel:{},unreadViews:{all:0,unread:0,assigned:0,starred:0,snoozed:0,needs_reply:0,waiting:0,follow_up:0,unknown:0,tickets:0,group_email:0,school_groups:0},channels:{all:0} };
     for (const row of rows) {
@@ -594,13 +610,14 @@ class CommunicationConversation {
     }
     summary.unreadViews.all=summary.unread;
     summary.unreadViews.unread=summary.unread;
-    const [noticeRows] = await pool.execute(`SELECT ${policy.category} AS category,COUNT(*) AS n
-      FROM communication_conversations c LEFT JOIN communication_inboxes i ON i.id=c.inbox_id
+    const [noticeRows] = await pool.execute(`WITH ${mailboxAccessCteSql()}
+      SELECT /*+ MAX_EXECUTION_TIME(12000) */ ${policy.category} AS category,COUNT(*) AS n
+      FROM ${accessible} c LEFT JOIN mailbox_access i ON i.id=c.inbox_id
       LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
       WHERE ${noticeWhere.join(' AND ')} AND ${policy.category} IN ('provider_assignments','enrollment_packets')
         AND NOT EXISTS (SELECT 1 FROM communication_conversation_reads nr WHERE nr.conversation_id=c.id AND nr.user_id=${uid}
           AND nr.last_read_at>=COALESCE(c.last_message_at,c.created_at) AND COALESCE(nr.forced_unread,0)=0)
-      GROUP BY category`, params);
+      GROUP BY category`, [...params,...params]);
     summary.reviewByCategory = Object.fromEntries(INBOX_REVIEW_CATEGORIES.map(category => [category, 0]));
     for (const row of noticeRows) if (INBOX_REVIEW_CATEGORIES.includes(row.category)) summary.reviewByCategory[row.category] = Number(row.n || 0);
     return summary;
