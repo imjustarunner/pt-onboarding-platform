@@ -1241,6 +1241,9 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   }
 
   if(!includeRelatedQueues)return results;
+  let noShowReviews;
+  try {noShowReviews=await (await import('./appointmentNoShowReview.service.js')).processDueAppointmentNoShows({limit:20,agencyId});}
+  catch(error){noShowReviews={failed:1,coverage:'incomplete',code:'NO_SHOW_SOURCE_UNAVAILABLE'};console.warn('[no-show] Attendance outcome processing needs review.',error.code||'NO_SHOW_SOURCE_UNAVAILABLE');}
   // Also drain change buffer
   const bufferResult = await processDueChangeNotifications({ limit: 20, agencyId });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');
@@ -1255,7 +1258,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   let replacementOutcomes;
   try { replacementOutcomes = await (await import('./replacementOfferEvents.service.js')).replacementOfferEvents.processDue({ limit: 20, agencyId }); }
   catch (e) { replacementOutcomes = { failed: 1 }; console.warn('[replacement-offers] Outcome processing needs attention:', e.message); }
-  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates, plannedOutCancellations, replacementBookings, replacementOutcomes };
+  return { ...results, processed: (rows || []).length, noShowReviews, changeBuffer: bufferResult, cancellations, scheduleUpdates, plannedOutCancellations, replacementBookings, replacementOutcomes };
 }
 
 // ── Provider-pushed buffered updates ─────────────────────────────────────────

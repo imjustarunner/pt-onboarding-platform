@@ -50,7 +50,7 @@
         :agency-id="agencyId"
         @update:collapsed="focusCollapsed = $event"
         @view-momentum="navigate('checklist')"
-        @add-sticky="navigate('checklist')"
+        @add-sticky="addSticky"
         @open-item="onOpenFocusItem"
       />
 
@@ -220,6 +220,7 @@ import FundthredBalances from './FundthredBalances.vue';
 import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useMomentumStickiesStore } from '../../store/momentumStickies';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
 import DashboardOverviewSection from './DashboardOverviewSection.vue';
 import DashboardCardEditor from './DashboardCardEditor.vue';
@@ -281,6 +282,11 @@ const emit = defineEmits([
 ]);
 
 const authStore = useAuthStore();
+const addSticky = () => {
+  const stickies = useMomentumStickiesStore();
+  stickies.requestExpandOverlay();
+  stickies.requestCreateNewSticky();
+};
 const showTip = ref(true);
 const balancesOpen = ref(false);
 const focusCollapsed = ref(true);

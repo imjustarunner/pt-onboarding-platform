@@ -166,10 +166,13 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
       communications = [];
     }
   }
-  return { ...appt, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
+  const noShowReview=appt.status==='no_show_pending'?await (await import('./appointmentNoShowReview.service.js')).getAppointmentNoShowReview(appt.id):null;
+  return { ...appt, noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment(input) {
+  const {assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
+  assertNoShowUsesSignedWorkflow(null,input.status);
   return withClientSchedulingLock((input.participants || []).map(p => p.clientId || p.client_id), () => createLockedAppointment(input));
 }
 async function createLockedAppointment({
@@ -335,7 +338,7 @@ async function createLockedAppointment({
       businessType,
       tenantServiceId,
       packageEntitlementId,
-      cancellationPolicyId
+      cancellationPolicyId,clientId:participants?.[0]?.clientId||null,serviceCode:service?.serviceCode,providerUserId,modality:modality||service?.modality,startAt:start,timeZone:timeZone||'America/Denver',payerType:selfPayOnly||businessType==='tutoring'||String(billing?.settlementMode||service?.billingMethod||'').startsWith('self_pay')?'self_pay':'insurance'
     });
     bookedAttendancePolicy = resolved.policy;
     if (resolved.policy?.id) cancellationPolicyId = resolved.policy.id;
@@ -460,7 +463,7 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
     return updateLockedAppointment(appointmentId, patch, options);
   });
 }
-async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false } = {}) {
+async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false, allowPendingNoShow = false } = {}) {
   if (patch.customReminders !== undefined) patch.customReminders = normalizeCustomSessionReminders(patch.customReminders);
   const existing = await Appointment.findById(appointmentId);
   if (existing && patch.customReminders !== undefined) {
@@ -468,6 +471,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
+  if(existing.status==='no_show_pending'&&!allowPendingNoShow)throw Object.assign(new Error('Undo the pending no-show before editing this appointment.'),{status:409});
   const persistedSourceTimezone=Object.hasOwn(existing,'persistedSourceTimezone')?existing.persistedSourceTimezone:existing.sourceTimezone||null;
   const sourceZoneForEdit=existing.officeEventId&&['serviceCode','addonServiceCodes','providerUserId','startAt','endAt','timeZone','modality','serviceLocationId'].some(key=>patch[key]!==undefined)
     ?await savedOfficeBookingTimezone(existing.officeEventId,existing.agencyId):patch.timeZone||persistedSourceTimezone;
@@ -480,7 +484,8 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     }
   }
 
-  const {assertAppointmentOutcomePreserved}=await import('../utils/appointmentOutcomeGuard.js');
+  const {assertAppointmentOutcomePreserved,assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
+  assertNoShowUsesSignedWorkflow(existing,patch.status,{trustedFinalization:allowPendingNoShow});
   assertAppointmentOutcomePreserved(existing,patch);
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
     await requireClientSessionBooking(existing.agencyId, patch.providerUserId);
@@ -956,6 +961,9 @@ export async function settleAppointment(appointmentId, {
   if (!existing) return null;
   if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR billing workflow for this appointment.'), { status: 409 });
   const status = String(outcome || existing.status || '').toLowerCase();
+  if(existing.status==='no_show_pending')throw Object.assign(new Error('Undo the pending no-show before recording an attended outcome. Missed-session settlement runs after its correction deadline.'),{status:409});
+  const {assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
+  assertNoShowUsesSignedWorkflow(existing,status);
   await requireQaOutcomeElapsed(existing, status);
   if (status === 'completed' || status === 'no_show') {
     if (String(existing.status || '').toLowerCase() !== status) {

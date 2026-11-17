@@ -45,6 +45,7 @@ async function assertBillingMutationAccess(req, agencyId) {
     const service=!existing&&req.body?.tenantServiceId?await (await import('../models/TenantService.model.js')).default.findById(Number(req.body.tenantServiceId),agencyId):null;
     if((existing?.businessType==='tutoring'||service?.businessType==='tutoring')&&!await canSetTutoringSessionPrice(req.user,agencyId,existing?.providerUserId||req.body?.providerUserId))throw Object.assign(new Error('Only authorized booking staff can change tutoring prices or discounts.'),{status:403});
   }
+  if(req.body?.cancellationPolicyId!=null&&!await canSetTutoringSessionPrice(req.user,agencyId,req.body?.providerUserId))throw Object.assign(new Error('Only authorized booking staff can select individual price or fee policy overrides.'),{status:403});
   if(req.params?.id&&req.body?.tutoringSessionPrice!=null)throw Object.assign(new Error('Set a custom price with a reason when booking. Use the billing adjustment workflow for an existing visit.'),{status:409});
 }
 

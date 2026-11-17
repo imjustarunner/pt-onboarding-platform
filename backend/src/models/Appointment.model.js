@@ -16,6 +16,7 @@ const LIVE_STATUSES = new Set([
   'canceled_by_organization',
   'late_canceled',
   'no_show',
+  'no_show_pending',
   'rescheduled',
   'reschedule_requested',
   'cancellation_requested',

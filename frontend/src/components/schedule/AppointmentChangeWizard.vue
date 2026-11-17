@@ -58,7 +58,7 @@
             <p>{{ change.seriesOperation.value.completed }} of {{ change.seriesOperation.value.count }} appointments completed.</p>
             <progress v-if="['queued','processing'].includes(change.seriesOperation.value.status)" :value="change.seriesOperation.value.completed" :max="change.seriesOperation.value.count" aria-label="Recurring appointment cancellations"></progress>
             <p>{{ change.seriesOperation.value.officeReservationDisposition === 'keep' ? 'Your office reservations are being kept for reuse.' : 'The corresponding office time is being released for other bookings.' }} Other client series and other office bookings stay unchanged.</p>
-            <p>Each canceled visit keeps its own signed, nonbillable note and history. No insurance claim is created. You can return to the calendar while this finishes.</p>
+            <p>Each canceled visit keeps its own signed, nonbillable note and history. {{ isLearning ? 'No tutoring fee is created by signing alone.' : 'No insurance claim is created.' }} You can return to the calendar while this finishes.</p>
             <p v-if="change.seriesOperation.value.error" role="alert">{{ change.seriesOperation.value.error }}</p>
             <div v-if="change.seriesOperation.value.status === 'failed'" class="acw-chips"><button type="button" class="acw-btn" :disabled="change.saving.value" @click="change.retrySeriesOperation()">Resume the saved request</button><button type="button" class="acw-btn" @click="change.reviewRemainingSeries()">Review remaining visits</button></div>
           </section>
@@ -105,7 +105,7 @@
               </template>
 
               <template v-else-if="change.facts.eventType === 'no_show'">
-                <h4 class="acw-h4">Outreach</h4>
+                <p v-if="change.preview.value?.appointment?.noShowTiming" class="acw-info">You can undo this no-show until {{new Date(change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'})}} if the client arrives. After that time, the client will be notified and the provider will receive a copy.</p><h4 class="acw-h4">Outreach</h4>
                 <div class="acw-chips">
                   <button
                     v-for="o in OUTREACH_OPTIONS"
@@ -125,7 +125,7 @@
                   <h4 class="acw-h4">Why?</h4>
                   <div class="acw-chips">
                     <button
-                      v-for="r in CANCEL_REASONS"
+                      v-for="r in visibleCancelReasons"
                       :key="r.id"
                       type="button"
                       class="acw-chip"
@@ -151,7 +151,7 @@
                 <h4 class="acw-h4">Why?</h4>
                 <div class="acw-chips">
                   <button
-                    v-for="r in CANCEL_REASONS"
+                    v-for="r in visibleCancelReasons"
                     :key="r.id"
                     type="button"
                     class="acw-chip"
@@ -186,16 +186,16 @@
               <fieldset v-if="!change.retrospective?.value && ['canceled', 'rescheduled', 'no_show'].includes(change.facts.eventType)" class="acw-client-notice">
                 <legend>Client notification</legend>
                 <label class="acw-field"><span>{{ change.facts.eventType === 'no_show' ? 'Send a missed-appointment notification?' : 'Send a cancellation notification?' }}</span>
-                  <select v-model="change.facts.notificationMode" class="acw-input" @change="onNotificationModeChange">
+                  <select v-model="change.facts.notificationMode" :disabled="change.facts.eventType==='no_show'" class="acw-input" @change="onNotificationModeChange">
                     <option value="send">Send email and any permitted text notification</option>
-                    <option value="none">Do not send email or text</option>
+                    <option v-if="change.facts.eventType!=='no_show'" value="none">Do not send email or text</option>
                   </select>
                 </label>
-                <label v-if="change.facts.notificationMode === 'none'" class="acw-field"><span>Why no notification? (internal record)</span>
+                <label v-if="change.facts.notificationMode === 'none'" class="acw-field"><span>Notification note (optional, internal record)</span>
                   <textarea v-model="change.facts.suppressionReason" class="acw-textarea" rows="2" maxlength="500" placeholder="For example: I already spoke with the client." />
                   <span class="muted">The outcome still appears in the client portal and session history. No outcome email or text will be sent.</span>
                 </label>
-                <p class="muted">Keep personal or clinical details in the internal note. The reason below is saved with the cancellation and can be seen by the client.</p>
+                <p class="muted">Keep private details in the internal note. The reason below is saved with the cancellation and can be seen by the client.</p>
                 <label class="acw-field">
                   <span>{{ change.facts.eventType === 'no_show' ? 'Message to share with the client' : 'Reason to share with the client (required)' }}</span>
                   <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500" placeholder="Your provider is unavailable due to illness." />
@@ -310,7 +310,7 @@
                 <p>Notice: {{ change.preview.value.evaluation.noticeHours }} hours · Late cancellation: {{ money(change.preview.value.evaluation.lateFeeCents) }} · No-show: {{ money(change.preview.value.evaluation.noShowFeeCents) }}.</p>
                 <p>Recorded policy terms; the signed agreement is not verified here.</p>
               </div>
-              <div class="acw-info" style="margin-top:0;">
+              <div v-if="!isLearning" class="acw-info" style="margin-top:0;">
                 <strong>Insurance claim:</strong>
                 {{ change.preview.value?.insuranceClaim?.reason || 'Not-occurring appointments do not create insurance claims by default.' }}
 
@@ -430,7 +430,7 @@
                 <h3 class="acw-h">System-generated note</h3>
                 <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? 'Signed · Nonbillable' : 'Ready for review' }}</span>
               </div>
-              <p class="muted">This note is attached to the session and is nonbillable. Signing does not create an insurance claim.</p>
+              <p class="muted">This note is attached to the session and is nonbillable. {{ isLearning ? 'Signing does not itself create a tutoring charge.' : 'Signing does not create an insurance claim.' }}</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
               <div v-if="change.preview.value?.seriesChange" class="acw-client-notice" data-series-cancellation-review>
                 <h4 class="acw-h4">{{ change.preview.value.seriesChange.count }} visits in this series</h4>
@@ -487,6 +487,7 @@
 
         <p v-if="change.error.value" class="acw-error">{{ change.error.value }}</p>
 
+        <AppointmentNoShowStatus v-if="change.workflow.value?.result?.noShowReview" :appointment-id="Number(change.appointmentId.value)" />
         <footer class="acw-footer">
           <button v-if="!change.seriesOperation?.value && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
           <span v-else class="muted">{{ change.seriesOperation?.value ? 'Signed series request saved.' : change.workflow.value?.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
@@ -523,6 +524,7 @@
 const cancellationClassification = value => ({advance_cancel:'Advance cancellation',late_cancel:'Late cancellation',canceled:'Canceled',late_cancel_reschedule:'Late cancellation / reschedule'})[value] || 'Cancellation';
 const money = cents => cents == null ? 'Not set' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(Number(cents) / 100);
 import { computed, watch } from 'vue';
+import AppointmentNoShowStatus from './AppointmentNoShowStatus.vue';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import SchoolSupportCancellationBenefit from './SchoolSupportCancellationBenefit.vue';
 import {
@@ -538,6 +540,9 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['closed', 'completed']);
+watch(()=>props.change.facts.eventType,eventType=>{if(eventType==='no_show')props.change.facts.notificationMode='send';});
+const visibleCancelReasons = computed(() => isLearning.value ? CANCEL_REASONS.filter(reason => reason.id !== 'authorization') : CANCEL_REASONS);
+const isLearning = computed(() => String(props.change.preview.value?.appointment?.serviceCode || '').toUpperCase() === 'TUTORING' || ['learning','tutoring'].includes(props.change.preview.value?.appointment?.businessType));
 
 const steps = [
   { n: 1, label: 'Event' },
@@ -650,6 +655,11 @@ async function onSaveDraft() {
 }
 
 async function onSign() {
+  if(props.change.facts.eventType==='no_show'&&props.change.preview.value?.appointment?.noShowTiming?.earlyConfirmationRequired&&!props.change.facts.earlyNoShowConfirmed){
+    const until=new Date(props.change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:props.change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'});
+    if(!window.confirm(`Are you sure? It is suggested that you allow the client at least ${props.change.preview.value.appointment.noShowTiming.suggestedWaitMinutes ?? 15} minutes after the scheduled start to arrive. You can undo this no-show until ${until} if they arrive. After that time, the client will be notified and you will receive a copy.`))return;
+    props.change.facts.earlyNoShowConfirmed=true;
+  }
   const result = await props.change.complete();
   if (result?.ok) {
     emit('completed', result);

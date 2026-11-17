@@ -34,6 +34,7 @@ export async function linkedTutoringBilling(session, db = pool) {
 
 export async function requireLinkedTutoringCompletion(binding,session) {
   if (!binding) return;
+  if(binding.appointment.status==='no_show_pending')throw fail('Undo the pending no-show before starting or completing an attended tutoring session.');
   if (!session.actual_started_at) throw fail(session.status==='ended'
     ? 'This ended visit has no recorded start. Ask the office to review attendance and billing; the existing records were kept.'
     : 'Start this tutoring session before completing it. No new charge or package credit has been posted.');

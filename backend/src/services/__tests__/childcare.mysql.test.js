@@ -30,6 +30,8 @@ describe.runIf(process.env.CHILDCARE_MYSQL_TESTS === '1')('childcare SQL and pay
     for (const statement of migration.split(';').map(s => s.trim()).filter(Boolean)) await state.connection.query(statement);
     const workReviewMigration=await fs.readFile(new URL('../../../../database/migrations/1827_childcare_work_review.sql',import.meta.url),'utf8');
     for(const statement of workReviewMigration.split(';').filter(s=>s.trim()))await state.connection.query(statement);
+    const locationsMigration=await fs.readFile(new URL('../../../../database/migrations/1840_childcare_work_locations.sql',import.meta.url),'utf8');
+    for(const statement of locationsMigration.split(';').filter(s=>s.trim()))await state.connection.query(statement);
     await state.connection.execute('INSERT INTO agencies(id,name,slug,is_active,feature_flags) VALUES (453,?,?,1,JSON_OBJECT())', ['NLU TEMPORARY TEST ONLY', 'nlu-qa-demo']);
     for (const [id, role] of [[900001, 'admin'], [900002, 'staff']]) {
       await state.connection.execute('INSERT INTO users(id,email,first_name,last_name,role,status,is_active) VALUES (?,?,?,?,?,\'ACTIVE_EMPLOYEE\',1)', [id, `temporary-${id}@example.com`, 'Temporary', 'QA', role]);

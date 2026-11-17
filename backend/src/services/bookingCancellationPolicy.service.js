@@ -1,4 +1,5 @@
 import { qaAttendancePolicy } from './qaAppointmentBilling.service.js';
+import {attendanceFeeRuleMatches,attendanceFeeSpecificity,providerAttendanceFeeContext,attendanceFundingType} from './attendanceFeeRuleContext.service.js';
 /**
  * Resolve and evaluate cancellation policies.
  * Hierarchy (most specific wins):
@@ -14,11 +15,14 @@ import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
 
 const SCOPE_RANK = {
   appointment: 100,
+  rate_category:70,
+  payer:50,
   package: 80,
   service: 60,
   business_type: 40,
   tenant: 20,
-  affiliation: 10
+  affiliation: 10,
+  platform:0
 };
 
 function parseStartAt(startAt) {
@@ -41,11 +45,12 @@ export async function listCandidatePolicies(agencyId, {
   businessType = null,
   tenantServiceId = null,
   bookingPackageId = null,
-  appointmentPolicyId = null
+  appointmentPolicyId = null,
+  serviceCode=null,payerType=null,providerUserId=null,modality=null,startAt=null,timeZone='America/Denver',clientId=null,policyAsOf=null
 } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
-  const agencyPolicies = await BookingCancellationPolicy.listForAgency(aid, { includeInactive: false });
+  const agencyPolicies = await BookingCancellationPolicy.listForAgency(aid, { includeInactive: false, includePlatform:true });
   let affiliationPolicies = [];
   const parentId = Number(parentAgencyId || 0);
   if (parentId && parentId !== aid) {
@@ -55,8 +60,21 @@ export async function listCandidatePolicies(agencyId, {
   }
 
   const all = [...agencyPolicies, ...affiliationPolicies];
+  if(appointmentPolicyId&&!all.some(policy=>Number(policy.id)===Number(appointmentPolicyId))){
+    const retained=await BookingCancellationPolicy.findById(appointmentPolicyId);
+    if(retained&&(retained.agencyId==null||Number(retained.agencyId)===aid||(Number(retained.agencyId)===parentId&&['tenant','affiliation'].includes(retained.scopeLevel))))all.push(retained);
+  }
+  const placement=providerUserId&&all.some(rule=>rule.providerCategory||rule.providerLevel||rule.customerTierId)
+    ?await providerAttendanceFeeContext({agencyId:aid,providerUserId,startAt,timeZone}):{};
+  const funding=all.some(rule=>rule.payerType)?await attendanceFundingType({payerType,clientId,businessType}):payerType;
+  const feeContext={...placement,businessType,serviceCode,payerType:funding,modality:modality==='VIRTUAL'?'TELEHEALTH':modality};
   return all.filter((p) => {
     if (appointmentPolicyId && Number(p.id) === Number(appointmentPolicyId)) return true;
+    // Newly configured rules do not attach new penalties to older bookings
+    // that had no policy snapshot. Explicit historical policy IDs stay valid.
+    if(policyAsOf&&p.createdAt&&+parseStartAt(p.createdAt)>+parseStartAt(policyAsOf))return false;
+    if(!attendanceFeeRuleMatches(p,feeContext))return false;
+    if(['platform','payer','rate_category'].includes(p.scopeLevel))return true;
     if (p.scopeLevel === 'appointment') {
       return appointmentPolicyId && Number(p.id) === Number(appointmentPolicyId);
     }
@@ -82,7 +100,7 @@ export function pickWinningPolicy(candidates = [], { appointmentPolicyId = null 
   let best = null;
   let bestRank = -1;
   for (const p of candidates) {
-    const rank = SCOPE_RANK[p.scopeLevel] ?? 0;
+    const rank = (SCOPE_RANK[p.scopeLevel] ?? 0)+attendanceFeeSpecificity(p)/10;
     if (rank > bestRank) {
       best = p;
       bestRank = rank;
@@ -97,7 +115,8 @@ export async function resolvePolicyForAppointmentContext({
   businessType = null,
   tenantServiceId = null,
   packageEntitlementId = null,
-  cancellationPolicyId = null
+  cancellationPolicyId = null,
+  serviceCode=null,payerType=null,providerUserId=null,modality=null,startAt=null,timeZone='America/Denver',clientId=null,policyAsOf=null
 } = {}) {
   let bookingPackageId = null;
   let catalogPackage = null;
@@ -125,13 +144,14 @@ export async function resolvePolicyForAppointmentContext({
     tenantServiceId,
     bookingPackageId,
     appointmentPolicyId: cancellationPolicyId
+    ,serviceCode,payerType,providerUserId,modality,startAt,timeZone,clientId,policyAsOf
   });
   let policy = pickWinningPolicy(candidates, { appointmentPolicyId: cancellationPolicyId });
   const terms = purchasedTerms || catalogPackage?.policies;
   if (terms && (!policy || (!cancellationPolicyId && (SCOPE_RANK[policy.scopeLevel] || 0) < SCOPE_RANK.package))) {
     const fee = Number(terms.missedFeeCents || 0);
     const action = (v) => ['release', 'free_rebook'].includes(v) ? 'release' : v === 'fee' ? (fee > 0 ? 'release' : 'review') : v === 'review' ? 'review' : 'forfeit';
-    policy = { id: null, name: `${catalogPackage.name} package policy`, scopeLevel: 'package',
+    policy = { id: null, name: `${catalogPackage?.name||'Purchased'} package policy`, scopeLevel: 'package',
       noticeHours: Number(terms.cancellationNoticeHours ?? 24), lateFeeCents: terms.lateCancelPolicy === 'fee' ? fee : 0,
       noShowFeeCents: terms.noShowPolicy === 'fee' ? fee : 0,
       latePackageAction: action(terms.lateCancelPolicy), noShowPackageAction: action(terms.noShowPolicy),
@@ -159,6 +179,8 @@ export async function evaluateCancel({
     tenantServiceId: appt.tenantServiceId,
     packageEntitlementId: appt.packageEntitlementId,
     cancellationPolicyId: appt.cancellationPolicyId
+    ,serviceCode:appt.serviceCode,providerUserId:appt.providerUserId,modality:appt.modality,startAt:appt.startAt,timeZone:appt.sourceTimezone||'America/Denver',clientId,policyAsOf:appt.createdAt||null,
+    payerType:String(appt.billing?.settlementMode||appt.settlementMode||'').startsWith('self_pay')?'self_pay':appt.businessType==='tutoring'?'self_pay':null
   });
 
   const retained = await qaAttendancePolicy(appt);
@@ -253,6 +275,8 @@ export async function ensureDefaultTenantPolicy(agencyId, createdByUserId = null
   if (!aid) return null;
   const existing = await BookingCancellationPolicy.listForAgency(aid, { includeInactive: false });
   if (existing.some((p) => p.scopeLevel === 'tenant')) return existing.find((p) => p.scopeLevel === 'tenant');
+  const platform=await BookingCancellationPolicy.listForAgency(null,{includeInactive:false});
+  if(platform.length)return null;
   const agency = await Agency.findById(aid).catch(() => null);
   return BookingCancellationPolicy.create(aid, {
     name: `${agency?.name || 'Tenant'} default cancellation`,

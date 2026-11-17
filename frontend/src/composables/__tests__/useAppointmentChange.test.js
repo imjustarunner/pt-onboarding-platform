@@ -174,10 +174,10 @@ describe('inline replacement booking through the canonical appointment API', () 
 });
 
 
-it('reviews a new no-show notification separately from historical cancellation suppression and never offers rescheduling',async()=>{
+it('keeps the delayed new no-show notice mandatory while preserving historical cancellation suppression and no rescheduling',async()=>{
  const change=useAppointmentChange();await change.openWizard({appointmentId:4});change.facts.eventType='no_show';change.replacementOptions.value={retrospective:true};change.facts.reasonKnown=false;change.facts.outreach=['called'];
- expect(change.retrospective.value).toBe(false);change.facts.notificationMode='none';expect(change.canContinueFromStep(2)).toBe(false);change.facts.suppressionReason='Spoke with guardian';expect(change.canContinueFromStep(2)).toBe(true);
- api.put.mockResolvedValue({data:{ok:true}});change.facts.notificationMode='send';await change.saveDraft();expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({notificationMode:'send',followUpAction:'none',offeredSlots:[]}),expect.anything());
+ expect(change.retrospective.value).toBe(false);change.facts.notificationMode='none';expect(change.canContinueFromStep(2)).toBe(true);
+ api.put.mockResolvedValue({data:{ok:true}});await change.saveDraft();expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({notificationMode:'send',followUpAction:'none',offeredSlots:[]}),expect.anything());
  change.facts.eventType='canceled';expect(change.retrospective.value).toBe(true);
 });
 

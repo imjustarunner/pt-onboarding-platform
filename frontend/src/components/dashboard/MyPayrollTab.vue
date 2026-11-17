@@ -601,10 +601,10 @@
                     @click="openEditMileageClaim(c)"
                     style="margin-right: 8px;"
                   >
-                    Edit &amp; resubmit
+                    {{ c.claim_type === 'childcare_shift' ? 'Review / correct shift' : 'Edit & resubmit' }}
                   </button>
                   <button
-                    v-if="!c.event_travel_report_id && ['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    v-if="c.claim_type !== 'childcare_shift' && !c.event_travel_report_id && ['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-danger btn-sm"
                     type="button"
                     @click="withdrawMileageClaim(c)"
@@ -670,7 +670,7 @@
                     @click="openEditMedcancelClaim(c)"
                     style="margin-right: 8px;"
                   >
-                    Edit &amp; resubmit
+                    {{ c.claim_type === 'childcare_shift' ? 'Review / correct shift' : 'Edit & resubmit' }}
                   </button>
                   <button
                     v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
@@ -737,7 +737,7 @@
                     @click="openEditReimbursementModal(c)"
                     style="margin-right: 8px;"
                   >
-                    Edit &amp; resubmit
+                    {{ c.claim_type === 'childcare_shift' ? 'Review / correct shift' : 'Edit & resubmit' }}
                   </button>
                   <button
                     v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
@@ -809,7 +809,7 @@
                     @click="openEditCompanyCardExpenseModal(c)"
                     style="margin-right: 8px;"
                   >
-                    Edit &amp; resubmit
+                    {{ c.claim_type === 'childcare_shift' ? 'Review / correct shift' : 'Edit & resubmit' }}
                   </button>
                   <button
                     v-if="['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
@@ -855,7 +855,7 @@
                 <td>{{ fmtShortDate(c.created_at) }}</td>
                 <td>{{ submitterLabel(c) }}</td>
                 <td>{{ fmtShortDate(c.claim_date) }}</td>
-                <td>{{ timeClaimTypeLabel(c) }}<div v-if="c.payload?.totalMinutes != null"><strong>{{ c.payload.totalMinutes }} minutes</strong></div><details><summary>View details</summary><p>{{ c.payload?.description || c.payload?.summary || c.payload?.eventSummary }}</p><p>{{ c.payload?.purpose }}</p><p v-for="(a,index) in c.payload?.allocations || []" :key="index">{{ a.serviceTypeLabel }}: {{ a.minutes }} minutes. {{ a.note }}</p><p v-if="c.rejection_reason"><strong>Payroll note:</strong> {{ c.rejection_reason }}</p></details></td>
+                <td>{{ timeClaimTypeLabel(c) }}<div v-if="c.payload?.totalMinutes != null"><strong>{{ Number(c.payload.totalMinutes).toFixed(2) }} minutes</strong></div><details><summary>View details</summary><ChildcareClaimDetails v-if="c.claim_type === 'childcare_shift'" :claim="c" :employee-name="submitterLabel(c)" /><p v-else>{{ c.payload?.description || c.payload?.summary || c.payload?.eventSummary }}</p><p>{{ c.payload?.purpose }}</p><p v-for="(a,index) in c.payload?.allocations || []" :key="index">{{ a.serviceTypeLabel }}: {{ a.minutes }} minutes. {{ a.note }}</p><p v-if="c.rejection_reason"><strong>Payroll note:</strong> {{ c.rejection_reason }}</p></details></td>
                 <td>
                   <div>{{ employeeTimeStatusLabel(c) }}</div>
                   <div
@@ -896,7 +896,7 @@
                     Withdrawn — edit and resubmit when ready. Not in payroll review until resubmitted.
                   </div>
                 </td>
-              <td class="right"><template v-if="isTimeAppliedToPayroll(c)">{{ fmtMoney(c.applied_amount) }}</template><template v-else-if="c.compensation"><strong>{{ c.compensation.estimatedAmount == null ? 'Rate needs review' : fmtMoney(c.compensation.estimatedAmount) }}</strong><div class="muted">Estimate · {{ c.compensation.rateLabel }}<br />Pending payroll review</div></template><template v-else>—</template></td>
+              <td class="right"><template v-if="isTimeAppliedToPayroll(c)">{{ fmtMoney(c.applied_amount) }}</template><template v-else-if="c.compensation"><strong>{{ c.compensation.estimatedAmount == null ? 'Review required' : fmtMoney(c.compensation.estimatedAmount) }}</strong><div class="muted">Estimate · {{ c.compensation.rateLabel }}<br /><span v-if="c.compensation.reviewRequired">{{ (c.compensation.reasons || []).join('; ') }}</span><span v-else>Pending payroll review</span></div></template><template v-else>—</template></td>
                 <td class="right">
                   <button type="button" class="btn btn-secondary btn-sm" @click="archiveTimeClaim(c)">{{ c.employee_archived_at?'Restore':'Archive' }}</button>
                   <button
@@ -906,10 +906,10 @@
                     @click="openEditTimeClaim(c)"
                     style="margin-right: 8px;"
                   >
-                    Edit &amp; resubmit
+                    {{ c.claim_type === 'childcare_shift' ? 'Review / correct shift' : 'Edit & resubmit' }}
                   </button>
                   <button
-                    v-if="!c.event_travel_report_id && ['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    v-if="c.claim_type !== 'childcare_shift' && !c.event_travel_report_id && ['submitted','deferred','rejected'].includes(String(c.status||'').toLowerCase())"
                     class="btn btn-secondary btn-sm"
                     type="button"
                     @click="withdrawTimeClaim(c)"
@@ -2483,6 +2483,7 @@ import { automaticClaimLabel } from '../../utils/payrollClaimDisplay';
 import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import ChildcareClaimDetails from '../payroll/ChildcareClaimDetails.vue';
 import { useSubmitApi, useSubmitContext, useSubmitUser } from '../../composables/useSubmitContext';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -4503,6 +4504,7 @@ const canEditTimeClaim = (c) => {
 };
 
 const canHardDeleteTimeClaim = (c) => {
+  if (c?.claim_type === 'childcare_shift') return false;
   if (c?.event_travel_report_id) return false;
   const s = String(c?.status || '').toLowerCase();
   return ['withdrawn', 'deferred', 'rejected'].includes(s);
@@ -4749,6 +4751,14 @@ const submitJuryDuty = async () => {
 const openEditTimeClaim = (c) => {
   if (!c?.id) return;
   submitTimeClaimError.value = '';
+  if (c.claim_type === 'childcare_shift') {
+    editingTimeClaimId.value = null;
+    const shiftId = Number(c.payload?.childcareShiftId);
+    const slug = route.params.organizationSlug || agencyStore.currentAgency?.slug;
+    if (!shiftId || !slug) { timeClaimsError.value = 'Choose this claim’s organization and open its childcare shift to request a correction.'; return; }
+    router.push({path:`/${slug}/childcare`,query:{shiftId:String(shiftId),focus:'time-correction',claimId:String(c.id)}});
+    return;
+  }
   editingTimeClaimId.value = c.id; // track so we can auto-withdraw on successful resubmit
   const type = String(c.claim_type || '').toLowerCase();
   const payload = c.payload || {};

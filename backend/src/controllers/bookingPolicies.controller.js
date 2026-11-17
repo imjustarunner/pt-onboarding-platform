@@ -1,5 +1,10 @@
 import BookingCancellationPolicy from '../models/BookingCancellationPolicy.model.js';
 import User from '../models/User.model.js';
+import pool from '../config/database.js';
+import TenantService from '../models/TenantService.model.js';
+import BookingPackage from '../models/BookingPackage.model.js';
+import {resolveSelfPayQuote} from '../services/selfPayRates.service.js';
+import {providerAttendanceFeeContext} from '../services/attendanceFeeRuleContext.service.js';
 import {
   ensureDefaultTenantPolicy,
   evaluateCancel,
@@ -18,6 +23,7 @@ import { canceledSessionSummary } from '../services/canceledSessionSummary.servi
 import { sessionCommunicationTimeline } from '../services/sessionCommunicationTimeline.js';
 
 async function assertAgencyAccess(req, agencyId) {
+  if(agencyId===null)return ['super_admin','superadmin'].includes(String(req.user?.role||'').toLowerCase());
   const aid = Number(agencyId || 0);
   if (!aid) return false;
   const role = String(req.user?.role || '').toLowerCase();
@@ -35,19 +41,42 @@ function canManage(role) {
   return ['super_admin', 'superadmin', 'admin', 'agency_admin', 'backoffice_admin'].includes(r);
 }
 
+async function assertPolicyTargets(agencyId, body) {
+  for(const [key,alias,model] of [['tenantServiceId','tenant_service_id',TenantService],['bookingPackageId','booking_package_id',BookingPackage]]) {
+    const id=body?.[key]??body?.[alias];
+    if(id!=null&&id!==''&&(!agencyId||!Number.isSafeInteger(Number(id))||Number(id)<1||!await model.findById(Number(id),agencyId)))throw Object.assign(new Error('Choose a service or package belonging to this organization.'),{status:400});
+  }
+}
+
+export async function cancellationPriceReference(req,res,next) {
+  try {
+    const agencyId=Number(req.params.agencyId);
+    if(!await assertAgencyAccess(req,agencyId)||!canManage(req.user?.role))return res.status(403).json({error:{message:'Organization pricing administration is required.'}});
+    const [providers]=await pool.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name FROM users u JOIN user_agencies a ON a.user_id=u.id
+      WHERE a.agency_id=? AND COALESCE(a.is_active,1)=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.role IN ('provider','provider_plus') ORDER BY u.first_name,u.last_name`,[agencyId]);
+    const providerId=Number(req.query.providerId)||null;
+    if(providerId&&!providers.some(provider=>Number(provider.id)===providerId))return res.status(403).json({error:{message:'Choose an active provider in this organization.'}});
+    const services=await TenantService.listForAgency(agencyId,{includeInactive:false});
+    const selected=services.filter(service=>service.isActive&&(!req.query.serviceId||Number(service.id)===Number(req.query.serviceId))).slice(0,100);
+    const references=[];
+    for(const service of selected){const quotes={};for(const modality of ['TELEHEALTH','IN_PERSON'])if(service.modality==='EITHER'||service.modality===modality){quotes[modality]=await resolveSelfPayQuote({agencyId,providerId,service,modality,durationMinutes:service.defaultDurationMinutes||60});}references.push({serviceId:service.id,name:service.name,serviceCode:service.serviceCode,businessType:service.businessType,durationMinutes:service.defaultDurationMinutes||60,quotes});}
+    res.json({providers,references,placement:providerId?await providerAttendanceFeeContext({agencyId,providerUserId:providerId}):null});
+  }catch(error){next(error);}
+}
+
 export const listCancellationPolicies = async (req, res, next) => {
   try {
-    const agencyId = parseInt(req.params.agencyId, 10);
+    const agencyId = req.params.agencyId==='platform'?null:parseInt(req.params.agencyId, 10);
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (String(req.query.ensureDefault || '') === 'true') {
+    if (agencyId!==null && String(req.query.ensureDefault || '') === 'true') {
       await ensureDefaultTenantPolicy(agencyId, req.user?.id || null);
     }
     const policies = await BookingCancellationPolicy.listForAgency(agencyId, {
       includeInactive: String(req.query.includeInactive || '') === 'true'
     });
-    res.json({ ok: true, policies });
+    res.json({ ok: true, policies, ...(agencyId!==null?{platformDefaults:await BookingCancellationPolicy.listForAgency(null)}:{}) });
   } catch (e) {
     next(e);
   }
@@ -55,14 +84,16 @@ export const listCancellationPolicies = async (req, res, next) => {
 
 export const createCancellationPolicy = async (req, res, next) => {
   try {
-    const agencyId = parseInt(req.params.agencyId, 10);
+    const agencyId = req.params.agencyId==='platform'?null:parseInt(req.params.agencyId, 10);
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     if (!canManage(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Only admins can create policies' } });
     }
-    const policy = await BookingCancellationPolicy.create(agencyId, req.body || {}, req.user?.id || null);
+    if(agencyId!==null&&String(req.body?.scopeLevel||req.body?.scope_level||'').toLowerCase()==='platform')return res.status(403).json({error:{message:'Platform fee defaults require platform administration.'}});
+    await assertPolicyTargets(agencyId,req.body);
+    const policy = await BookingCancellationPolicy.create(agencyId, agencyId===null?{...req.body,scopeLevel:'platform'}:req.body || {}, req.user?.id || null);
     res.status(201).json({ ok: true, policy });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -72,7 +103,7 @@ export const createCancellationPolicy = async (req, res, next) => {
 
 export const updateCancellationPolicy = async (req, res, next) => {
   try {
-    const agencyId = parseInt(req.params.agencyId, 10);
+    const agencyId = req.params.agencyId==='platform'?null:parseInt(req.params.agencyId, 10);
     const policyId = parseInt(req.params.policyId, 10);
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -80,7 +111,9 @@ export const updateCancellationPolicy = async (req, res, next) => {
     if (!canManage(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Only admins can update policies' } });
     }
-    const policy = await BookingCancellationPolicy.update(policyId, agencyId, req.body || {});
+    if(agencyId!==null&&String(req.body?.scopeLevel||req.body?.scope_level||'').toLowerCase()==='platform')return res.status(403).json({error:{message:'Platform fee defaults require platform administration.'}});
+    await assertPolicyTargets(agencyId,req.body);
+    const policy = await BookingCancellationPolicy.update(policyId, agencyId, agencyId===null?{...req.body,scopeLevel:'platform'}:req.body || {},req.user.id);
     if (!policy) return res.status(404).json({ error: { message: 'Policy not found' } });
     res.json({ ok: true, policy });
   } catch (e) {

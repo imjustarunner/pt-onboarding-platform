@@ -1,10 +1,13 @@
 import express from 'express';
 import {authenticate} from '../middleware/auth.middleware.js';
-import {childcareWorkReview,childcareContext,listChildcareStaff,saveChildcareGrant,getChildcareStaffRates,listChildcareShifts,getChildcareShift,createChildcareShift,updateChildcareShift,recordChildcareAction,previewChildcarePay} from '../services/childcare.service.js';
+import {listChildcareLocations,listOwnActiveChildcareClocks,recordChildcareClockReminderChoice,childcareWorkReview,childcareContext,listChildcareStaff,saveChildcareGrant,getChildcareStaffRates,listChildcareShifts,getChildcareShift,createChildcareShift,updateChildcareShift,recordChildcareAction,previewChildcarePay} from '../services/childcare.service.js';
 
 const router=express.Router();router.use(authenticate);
 const run=work=>async(req,res,next)=>{try{res.json(await work(req));}catch(error){next(error);}};
 const actor=req=>({userId:req.user.id,agencyId:req.query.agencyId});
+router.get('/active-clocks',run(req=>listOwnActiveChildcareClocks({userId:req.user.id})));
+router.get('/locations',run(req=>listChildcareLocations(actor(req))));
+router.post('/shifts/:shiftId/clock-reminder-choice',run(req=>recordChildcareClockReminderChoice({shiftId:req.params.shiftId,userId:req.user.id,choice:req.body.choice})));
 router.get('/context',run(req=>childcareContext(actor(req))));
 router.get('/staff',run(req=>listChildcareStaff(actor(req))));
 router.get('/staff/:userId/rates',run(req=>getChildcareStaffRates({...actor(req),targetUserId:req.params.userId,asOfDate:req.query.asOfDate})));

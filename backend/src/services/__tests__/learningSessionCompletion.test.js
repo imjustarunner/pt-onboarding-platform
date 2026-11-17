@@ -166,3 +166,17 @@ it('keeps a booked room actual closure time while running its first completion a
 it.each([startClassSession,getClassSessionVideoToken])('prevents legacy entry endpoints from bypassing booked room admission',async handler=>{m.access.mockResolvedValue({session:{...ended,status:'scheduled',delivery_context:'virtual'},canModerate:true,actorRole:'presenter'});m.database.mockResolvedValue([[{appointment_id:331,business_type:'tutoring',service_code:'TUTORING'} ]]);const response={status:vi.fn().mockReturnThis(),json:vi.fn()},next=vi.fn();await handler({params:{sessionId:'90'},user:{id:20}},response,next);expect(response.status).toHaveBeenCalledWith(409);expect(response.json).toHaveBeenCalledWith({error:expect.objectContaining({destination:'/tutoring-session/appointment/331'})});expect(m.update).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();});
 
 it.each(['HOMEWORK_HELP','H2014','90791'])('keeps the distinct %s appointment outside the booked TUTORING video entry boundary',async code=>{m.database.mockResolvedValue([[{appointment_id:332,business_type:code==='90791'?'clinical':'tutoring',service_code:code}]]);expect(await bookedTutoringEntry({...ended,status:'scheduled',delivery_context:'virtual'})).toBeNull();});
+
+it('synchronizes a verified attended room completion through the shared completion path, including retries',async()=>{
+ m.linked.mockResolvedValue({appointment:{id:360},clientId:2545});
+ m.find.mockResolvedValue({...ended,actual_started_at:'2026-10-29 19:00:00',actual_ended_at:'2026-10-29 19:12:00'});
+ m.database.mockResolvedValue([{affectedRows:1}]);
+ await completeLearningSession(90,20);await completeLearningSession(90,20);
+ const writes=m.database.mock.calls.filter(([sql])=>sql.includes("SET a.status='completed'"));
+ expect(writes).toHaveLength(2);expect(writes[0][1]).toEqual([20,90]);expect(writes[0][0]).toContain('s.actual_ended_at>s.actual_started_at');expect(m.complete).not.toHaveBeenCalled();
+});
+it('does not manufacture canonical completion for an ended room with no recorded attended interval',async()=>{
+ m.linked.mockResolvedValue({appointment:{id:360},clientId:2545});
+ m.find.mockResolvedValue(ended);await completeLearningSession(90,20);
+ expect(m.database.mock.calls.some(([sql])=>sql.includes("SET a.status='completed'"))).toBe(false);
+});

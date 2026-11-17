@@ -8,6 +8,7 @@ import express from 'express';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
   listAppointments,
+  assertAppointmentChangeAccess,
   getAppointment,
   getAppointmentContext,
   createAppointmentHandler,
@@ -115,6 +116,9 @@ router.post('/:id/change/replacement-options/office-request', requestReplacement
 router.put('/:id/change/draft', saveAppointmentChangeDraftHandler);
 router.post('/:id/change/preview', previewAppointmentChangeHandler);
 router.post('/:id/change/complete', completeAppointmentChangeHandler);
+router.get('/:id/no-show-review',async(req,res,next)=>{try{const appointment=await Appointment.findById(Number(req.params.id));if(!appointment)return res.status(404).json({error:{message:'Appointment not found'}});await assertAppointmentChangeAccess(req,appointment);const {getAppointmentNoShowReview}=await import('../services/appointmentNoShowReview.service.js');res.json({review:await getAppointmentNoShowReview(appointment.id)});}catch(error){next(error);}});
+router.post('/:id/no-show-review/undo',async(req,res,next)=>{try{const appointment=await Appointment.findById(Number(req.params.id));if(!appointment)return res.status(404).json({error:{message:'Appointment not found'}});await assertAppointmentChangeAccess(req,appointment);const {undoAppointmentNoShow}=await import('../services/appointmentNoShowReview.service.js');res.json(await undoAppointmentNoShow(appointment.id,req.user.id));}catch(error){next(error);}});
+
 router.post('/:id/cancellation-notifications/:deliveryId/retry', retryCancellationNotificationHandler);
 router.post('/:id/evaluate-cancel', evaluateAppointmentCancel);
 router.get('/:id/timeline', getAppointmentTimeline);

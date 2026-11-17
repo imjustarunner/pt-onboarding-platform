@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {employeeCompensationCountersignerAccess} from './employeeCompensationCountersignerAccess.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import {readAgencyAccess} from './agencyAccessProfiles.service.js';
@@ -81,7 +82,7 @@ export async function employeeCompensationDraftOptions(agencyId,actorUserId,{db=
  FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND ua.is_active=1 ORDER BY u.last_name,u.first_name,u.id`,[agencyId,agencyId]);
  const employees=people.filter(user=>eligible(user,agency)).map(user=>({id:user.id,name:name(user),role:user.role,hasSignedAgreement:!!Number(user.has_signed_agreement)}));
  const countersigners=[];
- for(const user of people.filter(user=>eligible(user,agency)&&['admin','super_admin'].includes(user.role))){const access=await readAgencyAccess(user.id,agencyId,db);if(['admin','super_admin'].includes(access?.role))countersigners.push({id:user.id,name:name(user),role:access.role});}
+ for(const user of people.filter(user=>eligible(user,agency))){if(await employeeCompensationCountersignerAccess(user,agencyId,db)){const access=await readAgencyAccess(user.id,agencyId,db);countersigners.push({id:user.id,name:name(user),role:access.role});}}
  const [updates]=await db.execute(`SELECT p.id,p.title,p.section_config_json,p.amendment_plan_json FROM provider_update_pushes p WHERE p.agency_id=? AND p.status IN ('draft','sent','active') AND p.title NOT LIKE '[PREVIEW]%' AND NOT EXISTS(SELECT 1 FROM provider_update_recipients r WHERE r.push_id=p.id AND LEFT(r.token,8)='preview_') ORDER BY p.id DESC`,[agencyId]);
  const pushes=updates.filter(push=>enabledSectionKeys(parse(push.section_config_json)).includes('amendments')&&(!push.amendment_plan_json||parse(push.amendment_plan_json).mode==='compensation')).map(push=>({id:push.id,title:push.title}));
  return {enabled:true,employees,countersigners,pushes,minimumEffectiveDate:[today(now),policy.nluCompensationEffectiveOn].sort().at(-1),categories:policy.categories,serviceCompensation:policy.serviceCompensation};
@@ -105,7 +106,7 @@ export async function createEmployeeCompensationDraft(agencyId,input,actorUserId
   if(effectiveDate<policy.nluCompensationEffectiveOn)throw fail('The proposed date precedes this organization’s approved prospective policy date. Preserve its existing terms.',409);
   const employee=await assertEmployeeCompensationTarget(agencyId,userId,agency,connection);
   const [[counter]]=await connection.execute(`SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE u.id=? AND ua.agency_id=? AND ua.is_active=1`,[counterId,agencyId]);
-  if(!counter||!eligible(counter,agency)||!['admin','super_admin'].includes((await readAgencyAccess(counterId,agencyId,connection))?.role))throw fail('Choose an active authorized employer countersigner in this organization.',409);
+  if(!counter||!eligible(counter,agency)||!await employeeCompensationCountersignerAccess(counter,agencyId,connection))throw fail('Choose an active employer countersigner with hiring authority in this organization.',409);
   await assertEmployeeCompensationPush(agencyId,pushId,connection);
   const [[existing]]=await connection.execute(`SELECT id,token_values_json,rendered_html FROM contract_generations WHERE agency_id=? AND candidate_user_id=? AND task_id IS NULL AND user_specific_document_id IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(token_values_json,'$.draftKind'))=? ORDER BY id DESC LIMIT 1 FOR UPDATE`,[agencyId,userId,KIND]);
   if(existing){const data=parse(existing.token_values_json);await connection.commit();return {id:existing.id,data,html:existing.rendered_html,issues:amendmentIssues(data),reused:true};}

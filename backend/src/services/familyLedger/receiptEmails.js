@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import {receiptTimestamp} from './receiptTimestamp.js';
 import { receiptFor, renderReceiptPdf } from './views.js';
 import { paymentCreditState } from './copayCredits.js';
 import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.service.js';
@@ -19,7 +20,7 @@ export function buildReceiptEmail({receipt,kind='payment',url,refundUrl,credit})
   const normalHeading=kind==='refund'?'Your refund is confirmed':kind==='credit_available'?'Your canceled-session copay is available as credit':kind==='credit_applied'?'Your copay credit has been applied':'Payment received';
   const heading=receipt.simulated?`QA simulation · ${normalHeading}`:normalHeading;
   const status=kind==='refund'?`Refunded to date: ${money(receipt.refundedCents)}.`:kind==='credit_available'||kind==='credit_applied'?`Available credit: ${money(credit?.availableCents||0)}. Applied to later visits: ${money(credit?.appliedCents||0)}.${credit?.refundRequested?' Your refund request is under review; the related credit is on hold.':''}`:`Amount received: ${money(receipt.amountCents)}.`;
-  const details=[receipt.simulated?'SIMULATED QA RECORD — no money moved; Stripe and banks were not contacted.':null,`${receipt.agencyName} · Receipt ${receipt.receiptNumber}`,`Payment date: ${String(receipt.receivedAt).slice(0,10)}`,status,receipt.method?`Payment method: ${receipt.method}`:null].filter(Boolean);
+  const details=[receipt.simulated?'SIMULATED QA RECORD — no money moved; Stripe and banks were not contacted.':null,`${receipt.agencyName} · Receipt ${receipt.receiptNumber}`,`Payment received: ${receiptTimestamp(receipt.receivedAt,receipt.timeZone)}`,status,receipt.method?`Payment method: ${receipt.method}`:null].filter(Boolean);
   const intro='Your receipt is attached as a PDF and summarized below. Sign in to view the current payment, refund and credit history.';
   const action=kind==='payment'?'View your payment and receipt':'View your payment, refund and credit history';
   const notice=copay?`\n\n${COPAY_CANCELLATION_NOTICE}\n\nRequest a refund for this payment:\n${refundUrl}`:'';

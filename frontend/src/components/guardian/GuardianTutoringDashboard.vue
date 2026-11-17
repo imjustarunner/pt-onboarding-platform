@@ -51,8 +51,8 @@
           <ul class="gtd-list">
             <li v-for="e in entitlements" :key="e.id">
               <div>
-                <strong>{{ e.packageName || 'Package' }}</strong>
-                <div class="gtd-muted">{{ e.sessionsRemaining }} of {{ e.sessionsPurchased }} left</div>
+                <strong>{{ e.packageName || 'Package' }}</strong><p>{{ e.freeMissesRemaining || 0 }} free misses remaining · {{ e.bonusSessionsRemaining || 0 }} bonus visits available</p>
+                <div class="gtd-muted">{{ e.sessionsRemaining }} available · {{ e.sessionsReserved || 0 }} reserved · {{ e.sessionsPurchased }} purchased</div>
               </div>
             </li>
           </ul>

@@ -228,60 +228,7 @@
       </section>
 
       <section class="tsa-section">
-        <div class="tsa-row">
-          <h4>Cancellation policies</h4>
-          <button type="button" class="btn btn-primary btn-sm" @click="startPolicy">Add policy</button>
-        </div>
-        <p class="hint">
-          Hierarchy: appointment override → package → service → business type → tenant → affiliation.
-          Most specific matching policy wins.
-        </p>
-        <div v-if="editingPolicy" class="tsa-form">
-          <label>
-            Name
-            <input v-model="policyForm.name" class="input" maxlength="200" />
-          </label>
-          <label>
-            Scope
-            <select v-model="policyForm.scopeLevel" class="input">
-              <option value="tenant">Tenant default</option>
-              <option value="business_type">Business type</option>
-              <option value="service">Service</option>
-              <option value="package">Package</option>
-              <option value="affiliation">Affiliation</option>
-            </select>
-          </label>
-          <label v-if="policyForm.scopeLevel === 'business_type'">
-            Business type
-            <select v-model="policyForm.businessType" class="input">
-              <option v-for="code in enabledTypesOrAll" :key="`pol-${code}`" :value="code">{{ labelType(code) }}</option>
-            </select>
-          </label>
-          <label>
-            Notice hours
-            <input v-model.number="policyForm.noticeHours" class="input" type="number" min="0" max="720" />
-          </label>
-          <label>
-            Late fee (cents)
-            <input v-model.number="policyForm.lateFeeCents" class="input" type="number" min="0" />
-          </label>
-          <label>
-            Late package action
-            <select v-model="policyForm.latePackageAction" class="input">
-              <option value="forfeit">Forfeit credit</option>
-              <option value="release">Release credit</option>
-              <option value="review">Staff review</option>
-            </select>
-          </label>
-          <label class="check"><input v-model="policyForm.allowClientCancel" type="checkbox" /> Allow client cancel</label>
-          <label class="check"><input v-model="policyForm.requireReason" type="checkbox" /> Require reason</label>
-          <div class="tsa-actions">
-            <button type="button" class="btn btn-secondary btn-sm" @click="editingPolicy = false">Cancel</button>
-            <button type="button" class="btn btn-primary btn-sm" :disabled="savingPolicy" @click="savePolicy">
-              {{ savingPolicy ? 'Saving…' : (policyForm.id ? 'Update' : 'Create') }}
-            </button>
-          </div>
-        </div>
+        <AttendanceFeePolicies :agency-id="agencyId" :reference-services="services" :packages="packages" />
         <div class="tsa-strike-policy">
           <label class="check">
             <input v-model="medicaidStrikeEnabled" type="checkbox" @change="saveMedicaidStrikePolicy" />
@@ -289,21 +236,6 @@
           </label>
           <span v-if="savingStrikePolicy" class="muted">Saving…</span>
         </div>
-        <ul class="tsa-list">
-          <li v-for="pol in policies" :key="pol.id" class="tsa-item">
-            <div>
-              <strong>{{ pol.name }}</strong>
-              <span class="muted">
-                · {{ pol.scopeLevel }} · {{ pol.noticeHours }}h notice
-                · late {{ pol.latePackageAction }}
-                <template v-if="pol.lateFeeCents"> · fee {{ pol.lateFeeCents }}¢</template>
-              </span>
-            </div>
-            <div class="tsa-item-actions">
-              <button type="button" class="btn btn-secondary btn-xs" @click="editPolicy(pol)">Edit</button>
-            </div>
-          </li>
-        </ul>
       </section>
     </template>
   </div>
@@ -316,6 +248,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { buildCapabilitiesPayload } from '../../config/businessTypeCapabilities.js';
 import SessionNotificationsAdmin from './SessionNotificationsAdmin.vue';
+import AttendanceFeePolicies from './AttendanceFeePolicies.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true }

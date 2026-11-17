@@ -50,7 +50,11 @@ export async function bookImmediateTutoringOffice(input){
       await conn.execute("UPDATE office_events SET status='CANCELLED' WHERE id=?",[row.id]);
       for(const [from,to] of [[sql(row.start_at),start],[end,sql(row.end_at)]])if(from<to)await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:from,endAt:to,status:'AVAILABLE',slotState:'UNASSIGNED_AVAILABLE',source:'PROVIDER_REQUEST',notes:row.notes||null,createdByUserId:input.actorUserId,executor:conn});
      }
-     const id=await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:start,endAt:end,status:'BOOKED',slotState:'ASSIGNED_BOOKED',assignedProviderId:input.providerId,bookedProviderId:input.providerId,clientId:input.clientId,source:'PROVIDER_REQUEST',appointmentTypeCode:'SESSION',serviceCode:'TUTORING',modality:'IN_PERSON',notes:input.notes||null,createdByUserId:input.actorUserId,approvedByUserId:null,executor:conn});
+     const created=await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:start,endAt:end,status:'BOOKED',slotState:'ASSIGNED_BOOKED',assignedProviderId:input.providerId,bookedProviderId:input.providerId,clientId:input.clientId,source:'PROVIDER_REQUEST',appointmentTypeCode:'SESSION',serviceCode:'TUTORING',modality:'IN_PERSON',notes:input.notes||null,createdByUserId:input.actorUserId,approvedByUserId:null,executor:conn});
+     // OfficeEvent.create returns the persisted row, not its insert ID. Keep
+     // the room transaction and canonical appointment bound to that exact row.
+     const id=Number(created?.id);
+     if(!Number.isSafeInteger(id)||id<1)throw new Error('The saved office event could not be identified.');
      await conn.execute('UPDATE office_events SET session_context_json=? WHERE id=?',[JSON.stringify(context),id]);
      return {...context,id,room_id:allocation.roomId,session_context_json:JSON.stringify(context)};
     });

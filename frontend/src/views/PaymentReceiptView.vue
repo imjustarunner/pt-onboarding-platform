@@ -4,7 +4,7 @@
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="data">
       <p v-if="data.receipt.simulated" role="status">SIMULATED QA RECORD — no money moved. Stripe and banks were not contacted.</p>
-      <header><p>{{ data.receipt.agencyName }}</p><h1>Payment receipt</h1><p>{{ data.receipt.receiptNumber }} · {{ date(data.receipt.receivedAt) }}</p></header>
+      <header><p>{{ data.receipt.agencyName }}</p><h1>Payment receipt</h1><p>{{ data.receipt.receiptNumber }} · {{ paymentDateTime(data.receipt.receivedAt) }}</p></header>
       <section class="receipt-card" aria-label="Payment details">
         <h2>{{ money(data.receipt.amountCents) }} received</h2>
         <p>{{ data.receipt.payerName }}<span v-if="data.receipt.method"> · {{ data.receipt.method }}</span></p>
@@ -27,6 +27,7 @@
   </main>
 </template>
 <script setup>
+import { paymentDateTime } from '../utils/paymentDateTime';
 import {ref,computed,watch,nextTick} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../services/api';

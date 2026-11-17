@@ -66,7 +66,7 @@ it.each([{agencyId:6},{businessType:'mental_health'},{serviceCode:'90837'}])('ke
  pool.execute.mockResolvedValue([[nlu]]);await syncQaAppointmentBalance({...tutoring,...patch},1496);expect(createReceivable).not.toHaveBeenCalled();
 });
 it('keeps future tutoring completion and no-show blocked',async()=>{
- pool.execute.mockResolvedValue([[nlu]]);await expect(requireQaOutcomeElapsed({...tutoring,endAt:new Date(Date.now()+3600000).toISOString()},'completed')).rejects.toMatchObject({status:409});
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[nlu]]:[[]]);await expect(requireQaOutcomeElapsed({...tutoring,endAt:new Date(Date.now()+3600000).toISOString()},'completed')).rejects.toMatchObject({status:409});
 });
 
 it('dates an evening tutoring service in its booked Denver zone rather than the UTC calendar day',async()=>{
@@ -74,4 +74,13 @@ it('dates an evening tutoring service in its booked Denver zone rather than the 
  Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay',amountCents:100});
  await syncQaAppointmentBalance({...appointment,agencyId:453,providerUserId:1496,businessType:'tutoring',serviceCode:'TUTORING',status:'completed',sourceTimezone:'America/Denver',startAt:'2026-11-17 03:00:00',endAt:'2026-11-17 04:00:00'},1496);
  expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({serviceDate:'2026-11-16',serviceLabel:'Math tutoring'}));
+});
+
+it('permits an actually ended, exactly linked QA tutoring visit to complete early, without allowing an early no-show',async()=>{
+ const future={...tutoring,id:360,agencyId:453,providerUserId:1496,endAt:'2099-11-17 16:00:00'};
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[nlu]]:sql.includes('FROM tutoring_appointment_sessions')?[[{id:600}]]:[[]]);
+ await expect(requireQaOutcomeElapsed(future,'completed')).resolves.toBeUndefined();
+ await expect(requireQaOutcomeElapsed(future,'no_show')).rejects.toMatchObject({status:409});
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[nlu]]:[[]]);
+ await expect(requireQaOutcomeElapsed(future,'completed')).rejects.toMatchObject({status:409});
 });

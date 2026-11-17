@@ -233,9 +233,13 @@ export function createCancellationNotificationService({ database = pool, appoint
 }
 export const notifyAppointmentCancellation = async (appointmentId, facts, actorUserId = null) => {
   if (!['canceled', 'rescheduled', 'no_show'].includes(facts.eventType)) return null;
+  if(facts.eventType==='no_show'&&facts.noShowReviewActive===true&&facts.noShowReviewFinalized!==true){
+    const review=await(await import('./appointmentNoShowReview.service.js')).getAppointmentNoShowReview(appointmentId);
+    return {pending:review?.state==='pending'?1:0,sent:0,deliveries:[],queuedUntil:review?.notifyAt||null,noShowReview:review};
+  }
   if (facts.eventType === 'no_show' && facts.reviewedAttendanceOutcome !== true) return null;
   const notices = (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices;
-  const queued = await notices.queue(appointmentId, { eventType: facts.eventType, facts, actorUserId, sendImmediately: !!facts.absenceSource });
+  const queued = await notices.queue(appointmentId, { eventType: facts.eventType, facts, actorUserId, sendImmediately: !!facts.absenceSource || facts.noShowReviewFinalized===true });
   if (facts.absenceSource && facts.notificationMode !== 'none') { await notices.processDue({ appointmentId }); return notices.summary(appointmentId); }
   return queued;
 };

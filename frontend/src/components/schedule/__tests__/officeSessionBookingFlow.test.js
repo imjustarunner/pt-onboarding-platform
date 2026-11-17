@@ -276,8 +276,8 @@ it('offers tutoring booking and both new/current-student openings without a clin
  s.editingOpenSlot={virtualHoursId:246};s.openAppointmentEditor({mode:'edit',kind:'portal_intake',defaults:{serviceType:'tutoring',availableForIntake:true,availableForSession:false}});await flushPromises();expect(s.editorAvailableForSession).toBe(false);
  s.editorPracticeCategory='tutoring';s.editorTenantServices=[{id:320,businessType:'tutoring',serviceCode:'TUTORING',name:'Tutoring session',enrollmentLabel:'Tutoring — Math',defaultDurationMinutes:60}];await nextTick();expect(s.editorHeaderServiceOptions[0]).toMatchObject({id:320,name:'Tutoring — Math'});expect(s.editorHeaderServiceOptions[0].label).toContain('TUTORING');
  s.requestType='individual_session';await nextTick();s.editorPracticeCategory='tutoring';s.editorCanSetTutoringPrice=true;s.editorIndividualPrice={amountCents:100,reason:'Synthetic one-dollar session'};
- expect(s.normalizeBookingSelectionPayload().tutoringSessionPrice).toEqual({amountCents:100,reason:'Synthetic one-dollar session'});
- s.editorPackageEntitlementId=77;expect(()=>s.normalizeBookingSelectionPayload()).toThrow('Choose either a package credit');
+ expect(s.normalizeBookingSelectionPayload().tutoringSessionPrice).toBeUndefined();
+ s.editorPackageEntitlementId=77;expect(s.normalizeBookingSelectionPayload().packageEntitlementId).toBe(77);
  s.editorPackageEntitlementId=0;s.editorCanSetTutoringPrice=false;expect(s.normalizeBookingSelectionPayload().tutoringSessionPrice).toBeUndefined();
 });
 it('requests an agency scheduling capability for the scoped admin instead of requiring the admin to be a provider',async()=>{

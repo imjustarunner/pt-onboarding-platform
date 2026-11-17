@@ -1,6 +1,6 @@
 <template>
   <main class="childcare-page">
-    <header><div><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><button type="button" :disabled="loading || busy" @click="load">Refresh</button></header>
+    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><button type="button" :disabled="loading || busy" @click="load">Refresh</button></header>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading childcare shifts…</p>
@@ -14,7 +14,9 @@
         <label>Time zone<select v-model="draft.timezone" required><optgroup v-for="group in TIMEZONE_GROUPS" :key="group.label" :label="group.label"><option v-for="zone in group.zones" :key="zone.value" :value="zone.value">{{ zone.label }}</option></optgroup></select></label>
         <div class="columns"><label>Starts<input v-model="draft.startLocal" type="datetime-local" required /></label><label>Ends<input v-model="draft.endLocal" type="datetime-local" required /></label></div>
         <label>Planned number of children<input v-model="draft.plannedChildren" type="number" min="0" step="1" required /></label>
-        <label>Location<input v-model="draft.locationName" maxlength="200" placeholder="Approved childcare location" /></label>
+        <label>Building / childcare location<select v-model="draft.officeLocationId" @change="draft.roomId = null; draft.locationName = ''"><option :value="null">Choose a building (optional)</option><option v-for="site in locations" :key="site.id" :value="site.id">{{ site.name }}</option></select></label>
+        <label v-if="draft.officeLocationId">Room (optional)<select v-model="draft.roomId"><option :value="null">No specific room</option><option v-for="room in locationRooms" :key="room.id" :value="room.id">{{ room.number ? `Room ${room.number} — ` : '' }}{{ room.name }}</option></select></label>
+        <p v-if="!draft.officeLocationId && draft.locationName">Retained work location: {{ draft.locationName }}</p><p>Choose the building first; a room is optional. This records the worksite. It does not reserve an office.</p>
         <div v-if="context.canManagePay" class="columns"><label>Approved work-location minimum hourly rate<input v-model="draft.minimumHourlyRate" type="number" min="0.01" step="0.01" inputmode="decimal" /></label><label>Work-location jurisdiction<input v-model="draft.wageFloorJurisdiction" maxlength="200" placeholder="Approved jurisdiction for this location" /></label></div>
         <fieldset v-if="context.canManage"><legend>Caregivers and co-caregivers</legend><label v-for="person in eligibleStaff" :key="person.userId" class="check"><input v-model="draft.providerUserIds" type="checkbox" :value="person.userId" />{{ person.firstName }} {{ person.lastName }}</label><p v-if="!eligibleStaff.length">No active childcare assignments. Review the employee’s service permissions first.</p></fieldset>
         <p v-else>You are scheduling your own childcare shift. An authorized scheduler can add eligible co-caregivers; only staff actually working share the child-count pay band.</p>
@@ -42,7 +44,7 @@
               <p>Your submission: {{ownWorkReview?.status || 'Not submitted'}}</p><p v-if="ownWorkReview?.status==='draft'">The recorded work changed. Review and submit the current intervals again.</p>
               <label v-if="!clockedIn" class="check"><input v-model="confirmWork" type="checkbox" />I confirm this is my actual recorded work and attendance.</label>
               <button v-if="!clockedIn && !['submitted','approved'].includes(ownWorkReview?.status)" type="button" :disabled="busy||!confirmWork" @click="perform('submit-work',{confirmed:confirmWork},'Work submitted for childcare review.')">Submit work for review</button>
-              <details><summary>Request an actual time correction / record missed time</summary><p>Enter actual work only. Original clock punches remain in history. The correction needs separate review before it affects pay.</p>
+              <details :open="route.query.focus === 'time-correction'"><summary>Request an actual time correction / record missed time</summary><p>Enter actual work only. Original clock punches remain in history. The correction needs separate review before it affects pay.</p>
                 <div v-for="(interval,index) in correctionIntervals" :key="index" class="columns"><label>Actual start ({{selected.timezone}})<input v-model="interval.startLocal" type="datetime-local" step="1" /></label><label>Actual end<input v-model="interval.endLocal" type="datetime-local" step="1" /></label><button v-if="correctionIntervals.length>1" type="button" @click="correctionIntervals.splice(index,1)">Remove interval</button></div>
                 <button type="button" :disabled="correctionIntervals.length>=12" @click="correctionIntervals.push({startLocal:'',endLocal:''})">Add work interval</button>
                 <label>Children present at the beginning of this work<input v-model="correctionChildren" type="number" min="0" step="1" /></label><label>Why does the recorded time need correction?<textarea v-model="correctionReason" maxlength="2000" /></label><button type="button" :disabled="busy" @click="requestTimeCorrection">Send correction for review</button>
@@ -56,7 +58,7 @@
             </article>
             <details v-if="selected.attendanceHistory?.length"><summary>Recorded child-count timeline</summary><p v-for="(observation,i) in selected.attendanceHistory" :key="i">{{instant(observation.effectiveAt,selected.timezone)}} · {{observation.actualChildren}} children<span v-if="observation.reviewRequired"> · observation flagged for review</span></p></details>
           </section>
-          <section v-if="pay"><h3>Your childcare pay</h3><p v-if="pay.claimStatus==='deferred'" class="review" role="status">Pay held for review. Pending corrections or work sign-off must be resolved before this work can proceed to payroll review.</p><p v-if="pay.reviewRequired" class="review" role="status">Review required: {{ (pay.reasons || []).join('; ') }}</p><p v-if="pay.correctionReviewRequired">Previously approved: {{ childcareMoney(pay.approvedAmount) }}. Revised estimate awaiting correction review: {{ childcareMoney(pay.estimatedUnapprovedAmount) }}.</p><p>{{ Number(pay.totalMinutes || 0).toFixed(1) }} actual minutes · {{ childcareMoney(pay.totalAmount) }}</p><div class="table-wrap"><table v-if="pay.segments?.length"><thead><tr><th>Work interval</th><th>Children / caregivers</th><th>Band</th><th>Rate / hour</th><th>Amount</th></tr></thead><tbody><tr v-for="(segment, i) in pay.segments" :key="i"><td>{{ instant(segment.startedAt, selected.timezone) }} – {{ instant(segment.endedAt, selected.timezone) }}</td><td>{{ segment.children }} / {{ segment.caregivers }}</td><td>{{ segment.band }}</td><td>{{ childcareMoney(segment.rate) }}</td><td>{{ childcareMoney(segment.amount) }}</td></tr></tbody></table></div><p>Calculated from recorded attendance, active caregivers, actual time, and your effective approved rates.</p></section>
+          <section v-if="pay"><h3>Your childcare pay</h3><p v-if="pay.claimStatus==='deferred'" class="review" role="status">Pay held for review. Pending corrections or work sign-off must be resolved before this work can proceed to payroll review.</p><p v-if="pay.reviewRequired" class="review" role="status">Review required: {{ (pay.reasons || []).join('; ') }}</p><p v-if="pay.correctionReviewRequired">Previously approved: {{ childcareMoney(pay.approvedAmount) }}. Revised estimate awaiting correction review: {{ childcareMoney(pay.estimatedUnapprovedAmount) }}.</p><p>{{ Number(pay.totalMinutes || 0).toFixed(2) }} actual minutes · <strong>Estimated gross pay: {{ childcareMoney(pay.totalAmount) }}</strong></p><p>Each interval uses children divided by caregivers actually clocked in, rounded up. Zero-child required work uses the one-child base. Gross amounts are rounded to cents per interval.</p><div class="table-wrap"><table v-if="pay.segments?.length"><thead><tr><th>Work interval</th><th>Children / caregivers</th><th>Band</th><th>Rate / hour</th><th>Amount</th></tr></thead><tbody><tr v-for="(segment, i) in pay.segments" :key="i"><td>{{ instant(segment.startedAt, selected.timezone) }} – {{ instant(segment.endedAt, selected.timezone) }}</td><td>{{ segment.children }} / {{ segment.caregivers }}</td><td>{{ segment.band }}</td><td>{{ childcareMoney(segment.rate) }}</td><td>{{ childcareMoney(segment.amount) }}</td></tr></tbody></table></div><p>Calculated from recorded attendance, active caregivers, actual time, and your effective approved rates.</p></section>
         </article>
       </section>
     </template>
@@ -77,7 +79,8 @@ const route = useRoute(), router = useRouter(), agencyStore = useAgencyStore(), 
 const http = computed(() => props.http || api);
 const agencyId = computed(() => Number(props.agencyId || agencyStore.currentAgency?.id) || null);
 const context = ref(null), shifts = ref([]), selected = ref(null), pay = ref(null), eligibleStaff = ref([]);
-const ownRates = ref(null);
+const ownRates = ref(null), locations = ref([]);
+const locationRooms = computed(() => locations.value.find(site => Number(site.id) === Number(draft.value.officeLocationId))?.rooms || []);
 const loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), editing = ref(false), editId = ref(null);
 const confirmWork=ref(false),correctionIntervals=ref([{startLocal:'',endLocal:''}]),correctionChildren=ref(''),correctionReason=ref('');
 const workNotes=reactive({}),workConfirmed=reactive({}),timeNotes=reactive({});let correctionKey=null,correctionPending=null;
@@ -117,6 +120,9 @@ async function load() {
     const listed = unwrap(await http.value.get('/childcare/shifts', { params: { agencyId: aid } }));
     if (token !== generation) return;
     shifts.value = listed.shifts || [];
+    const sites = unwrap(await http.value.get('/childcare/locations', {params:{agencyId:aid}}));
+    if (token !== generation) return;
+    locations.value = sites.locations || [];
     if (data.canManage) {
       const people = unwrap(await http.value.get('/childcare/staff', { params: { agencyId: aid } }));
       if (token !== generation) return;
@@ -134,7 +140,7 @@ async function openShift(id, expectedGeneration = generation) {
     const data = unwrap(await http.value.get(`/childcare/shifts/${id}`, { params: { agencyId: agencyId.value } }));
     if (expectedGeneration !== generation || selectionToken !== selectionGeneration) return;
     selected.value = data.shift || data; confirmWork.value=false;correctionKey=null;correctionPending=null; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
-    correctionIntervals.value=(ownWorkReview.value?.intervals||[]).map(row=>({startLocal:isoToZonedDatetimeLocal(row.startedAt,selected.value.timezone,{includeSeconds:true}),endLocal:isoToZonedDatetimeLocal(row.endedAt,selected.value.timezone,{includeSeconds:true})}));if(!correctionIntervals.value.length)correctionIntervals.value=[{startLocal:'',endLocal:''}];
+    correctionIntervals.value=(ownWorkReview.value?.intervals?.length?ownWorkReview.value.intervals:selected.value.myParticipation?.intervals||[]).map(row=>({startLocal:isoToZonedDatetimeLocal(row.startedAt,selected.value.timezone,{includeSeconds:true}),endLocal:isoToZonedDatetimeLocal(row.endedAt,selected.value.timezone,{includeSeconds:true})}));if(!correctionIntervals.value.length)correctionIntervals.value=[{startLocal:'',endLocal:''}];
     if (!props.http && Number(route.query.shiftId) !== Number(id)) router.replace({ query: { ...route.query, shiftId: String(id) } });
     if (isAssigned.value) {
       const result = unwrap(await http.value.get(`/childcare/shifts/${id}/pay-preview`, { params: { agencyId: agencyId.value } }));
@@ -143,11 +149,11 @@ async function openShift(id, expectedGeneration = generation) {
   } catch (e) { if (expectedGeneration === generation && selectionToken === selectionGeneration) error.value = message(e); }
 }
 function newShift() {
-  editId.value = null; draft.value = { title: 'Childcare shift', timezone: agencyStore.currentAgency?.timezone || 'America/Denver', startLocal: '', endLocal: '', plannedChildren: '', providerUserIds: context.value.canManage ? [] : [myId.value], note: '', locationName: '', minimumHourlyRate: '', wageFloorJurisdiction: '' }; editing.value = true;
+  editId.value = null; draft.value = { title: 'Childcare shift', timezone: agencyStore.currentAgency?.timezone || 'America/Denver', startLocal: '', endLocal: '', plannedChildren: '', providerUserIds: context.value.canManage ? [] : [myId.value], note: '', locationName: '', officeLocationId: null, roomId: null, minimumHourlyRate: '', wageFloorJurisdiction: '' }; editing.value = true;
 }
 function editShift() {
   const shift = selected.value; editId.value = shift.id;
-  draft.value = { title: shift.title, timezone: shift.timezone, startLocal: isoToZonedDatetimeLocal(shift.startsAt, shift.timezone), endLocal: isoToZonedDatetimeLocal(shift.endsAt, shift.timezone), plannedChildren: shift.plannedChildren, providerUserIds: (shift.providers || []).map(p => p.userId), note: shift.note || '', locationName: shift.locationName || '', minimumHourlyRate: shift.minimumHourlyRate ?? '', wageFloorJurisdiction: shift.wageFloorJurisdiction || '' }; editing.value = true;
+  draft.value = { title: shift.title, timezone: shift.timezone, startLocal: isoToZonedDatetimeLocal(shift.startsAt, shift.timezone), endLocal: isoToZonedDatetimeLocal(shift.endsAt, shift.timezone), plannedChildren: shift.plannedChildren, providerUserIds: (shift.providers || []).map(p => p.userId), note: shift.note || '', locationName: shift.locationName || '', officeLocationId: shift.officeLocationId || null, roomId: shift.roomId || null, minimumHourlyRate: shift.minimumHourlyRate ?? '', wageFloorJurisdiction: shift.wageFloorJurisdiction || '' }; editing.value = true;
 }
 async function saveShift() {
   if (busy.value) return;
@@ -157,7 +163,7 @@ async function saveShift() {
     if (!startsAt || !endsAt || new Date(endsAt) <= new Date(startsAt)) throw new Error('Choose a valid start and later end time in the shift time zone.');
     if (String(draft.value.plannedChildren).trim() === '' || !Number.isSafeInteger(Number(draft.value.plannedChildren)) || Number(draft.value.plannedChildren) < 0) throw new Error('Enter the planned number of children.');
     busy.value = true; error.value = '';
-    const body = { agencyId: aid, title: draft.value.title, startsAt, endsAt, timezone: draft.value.timezone, plannedChildren: Number(draft.value.plannedChildren), providerUserIds: context.value.canManage ? draft.value.providerUserIds : [myId.value], note: draft.value.note, locationName: draft.value.locationName, ...(context.value.canManagePay ? { minimumHourlyRate: draft.value.minimumHourlyRate === '' ? null : Number(draft.value.minimumHourlyRate), wageFloorJurisdiction: draft.value.wageFloorJurisdiction } : {}) };
+    const body = { agencyId: aid, title: draft.value.title, startsAt, endsAt, timezone: draft.value.timezone, plannedChildren: Number(draft.value.plannedChildren), providerUserIds: context.value.canManage ? draft.value.providerUserIds : [myId.value], note: draft.value.note, locationName: draft.value.locationName, officeLocationId: draft.value.officeLocationId, roomId: draft.value.roomId, ...(context.value.canManagePay ? { minimumHourlyRate: draft.value.minimumHourlyRate === '' ? null : Number(draft.value.minimumHourlyRate), wageFloorJurisdiction: draft.value.wageFloorJurisdiction } : {}) };
     const result = unwrap(await (editId.value ? http.value.patch(`/childcare/shifts/${editId.value}`, body) : http.value.post('/childcare/shifts', body)));
     if (aid !== agencyId.value) return;
     editing.value = false; notice.value = 'Childcare shift saved.';
@@ -173,7 +179,7 @@ async function perform(action, body, success) {
     await http.value.post(`/childcare/shifts/${id}/${action}`, { agencyId: aid, ...body });
     actionKey = null; pendingPunch = null;
     if (aid !== agencyId.value) return;
-    notice.value = success; await openShift(id);
+    notice.value = success; window.dispatchEvent(new Event('childcare-clock-changed')); await openShift(id);
   } catch (e) { if (aid === agencyId.value) error.value = message(e); }
   finally { busy.value = false; }
 }

@@ -27,6 +27,7 @@ export function useAppointmentChange({identity}={}) {
     clientFacingReason: '',
     followUpAction: 'client_contact_support',
     followUpMessage: '',
+    earlyNoShowConfirmed:false,
     notificationMode: 'send',
     suppressionReason: '',
     offeredSlots: [],
@@ -104,6 +105,7 @@ export function useAppointmentChange({identity}={}) {
 
   const localNarrative = computed(() => {
     if (workflow.value?.status === 'completed') return workflow.value.narrative;
+    if(facts.eventType==='no_show'&&preview.value?.noShowReviewNarrative)return preview.value.noShowReviewNarrative+(String(facts.additionalComments||'').trim()?` Additional comments: ${String(facts.additionalComments).trim()}`:'');
     if (preview.value?.narrative) return preview.value.narrative;
     return assembleLocalNarrative({
       eventType: facts.eventType,
@@ -129,7 +131,7 @@ export function useAppointmentChange({identity}={}) {
     facts.clientFacingReason = '';
     facts.followUpAction = 'client_contact_support';
     facts.followUpMessage = '';
-    facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
+    facts.earlyNoShowConfirmed=false; facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
     replacementBase.value = null; Object.assign(inlineReplacement, { localStart: '', busy: false, error: '', createdId: null, uncertain: false, source: '', partial: false });
     replacementOptions.value = null; Object.assign(customOffer,{localStart:'',modality:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
     facts.outreach = [];
@@ -229,7 +231,8 @@ export function useAppointmentChange({identity}={}) {
       clientFacingReason: facts.clientFacingReason || null,
       followUpAction: retrospective.value || facts.eventType === 'no_show' ? 'none' : facts.followUpAction || 'client_contact_support',
       followUpMessage: facts.followUpMessage || null,
-      notificationMode: retrospective.value ? 'none' : facts.notificationMode,
+      earlyNoShowConfirmed:facts.earlyNoShowConfirmed===true,
+      notificationMode: retrospective.value ? 'none' : facts.eventType==='no_show'?'send':facts.notificationMode,
       suppressionReason: retrospective.value ? 'Retrospective record correction.' : facts.notificationMode === 'none' ? facts.suppressionReason : null,
       offeredSlots: facts.eventType === 'canceled' && facts.followUpAction === 'private_slots' ? facts.offeredSlots : [],
       offerDays: facts.offerDays, pendingOfficeRequests: facts.pendingOfficeRequests,
@@ -291,6 +294,7 @@ export function useAppointmentChange({identity}={}) {
       preview.value = r.data?.preview || null;
       if(preview.value?.seriesChange){lastSeriesPreviewKey=previewKey;lastSeriesPreviewAt=Date.now();}
       if (preview.value?.appointment) {
+        context.serviceLabel = context.serviceLabel || preview.value.appointment.title || preview.value.appointment.serviceCode || '';
         if (!context.whenLabel && preview.value.appointment.displayWhen) {
           context.whenLabel = preview.value.appointment.displayWhen;
         }
@@ -324,7 +328,6 @@ export function useAppointmentChange({identity}={}) {
       if (facts.eventType === 'rescheduled' && !Number(facts.replacementAppointmentId)) return false;
       if (!retrospective.value && ['canceled', 'rescheduled'].includes(facts.eventType) && !String(facts.clientFacingReason || '').trim()) return false;
       if (facts.followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) return false;
-      if (!retrospective.value && facts.notificationMode === 'none' && !facts.suppressionReason.trim()) return false;
       if (!retrospective.value && ['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
         if (facts.eventType !== 'canceled' || facts.notificationMode === 'none') return false;
         if (facts.followUpAction === 'private_slots' && (!facts.offeredSlots.length || facts.offeredSlots.length > 24)) return false;
