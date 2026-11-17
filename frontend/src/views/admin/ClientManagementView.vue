@@ -568,6 +568,7 @@
             v-for="client in pagedClients" 
             :key="client.id"
             @click="pinClientPanel(client)"
+            @contextmenu="followUpTask?.openContextMenu($event, client)"
             class="client-row cm-client-row"
             :class="{ 'cm-client-row--active': quickViewClient?.id === client.id, 'cm-client-row--pinned': quickViewClient?.id === client.id && quickViewPinned }"
             :style="getClientRowStyle(client)"
@@ -672,6 +673,7 @@
               </label>
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="closeClientPanel()">
+              <button type="button" class="btn btn-secondary btn-xs" @click.stop="followUpTask?.open(client)">Follow-up task</button>
               <button v-if="canUpdateCharts && requiresClientRecordImport(client)" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client)">Bring up to date</button>
               <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
                 <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
@@ -1278,9 +1280,11 @@
     </template><!-- /v-else cmViewMode=clients -->
 
     <!-- Shared with the public demo; hover/pin behavior stays in the shared composable. -->
-    <ClientQuickLook :client="quickViewClient" :pinned="quickViewPinned" :can-edit="canBackofficeEdit" :can-assign="canBackofficeEdit"
+    <ClientFollowUpTask ref="followUpTask" :agency-id="effectiveAgencyScopeId" />
+    <ClientQuickLook can-follow-up :client="quickViewClient" :pinned="quickViewPinned" :can-edit="canBackofficeEdit" :can-assign="canBackofficeEdit"
       :presentation="{ getInitialsStyle, getClientDisplay, getStatusPillStyle, formatClientStatus, affiliationDisplayLabel, formatDate, getDocumentStatusTone, getDocumentStatusIcon, formatDocumentStatusSummary, roiExpiryClass }"
       @enter="cancelQuickViewClose" @leave="scheduleQuickViewClose" @close="closeClientPanel"
+      @follow-up="followUpTask?.open($event)" @client-contextmenu="(event, client) => followUpTask?.openContextMenu(event, client)"
       @open="openClientDetail" @edit-status="startEditStatus" @assign-provider="openDirectoryAssignment" />
 
     <div v-if="directoryAssignmentClient && canBackofficeEdit" class="modal-overlay cm-provider-assign-overlay" @click.self="closeDirectoryAssignment" @keydown.esc.stop.prevent="closeDirectoryAssignment">
@@ -1322,6 +1326,7 @@
 
 <script setup>
 import ClientQuickLook from '../../components/clients/ClientQuickLook.vue';
+import ClientFollowUpTask from '../../components/clients/ClientFollowUpTask.vue';
 import ClientServiceEnrollments from '../../components/admin/ClientServiceEnrollments.vue';
 import { useClientQuickLook } from '../../composables/useClientQuickLook.js';
 import ClientPortalInviteDialog from '../../components/clients/ClientPortalInviteDialog.vue';
@@ -1968,6 +1973,7 @@ const serverTotal = ref(0);
 
 // Bulk selection + actions
 const selectedIds = ref(new Set());
+const followUpTask = ref(null);
 const selectedClientRecords = ref(new Map());
 const selectingAllMatching = ref(false);
 const bulkWorking = ref(false);

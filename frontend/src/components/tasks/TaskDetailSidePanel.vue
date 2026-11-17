@@ -40,6 +40,10 @@
           <p v-if="reportError" role="alert">{{reportError}}</p>
         </section>
         <TaskClaimButton :task="item" @claimed="onTaskClaimed" />
+        <section v-if="followUpClientLocation" class="client-action-banner">
+          <p>Follow up with this client using the note and due date on this task.</p>
+          <router-link class="btn btn-primary btn-sm" :to="followUpClientLocation">Open client profile</router-link>
+        </section>
         <PaperPacketTaskAction :key="item.source_ref_id" v-if="item.source_ref_type === 'paper_packet_processing'" :draft-id="item.source_ref_id" :metadata="parseTaskMetadata(item)" :client-record-url="parseTaskMetadata(item).clientId ? `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients/${parseTaskMetadata(item).clientId}?tab=records` : ''" />
         <section v-if="item.document_action_type === 'countersignature'" class="client-action-banner">
           <p>Review the employee’s signed document and add your agency signature. This task closes automatically after countersigning.</p>
@@ -388,6 +392,7 @@ import H0002ScreeningReview from '../clinical/H0002ScreeningReview.vue';
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
+import { clientFollowUpLocation } from '../../utils/clientFollowUpTask.js';
 import TaskClaimButton from './TaskClaimButton.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import { formatDate } from '../../utils/formatDate';
@@ -476,6 +481,7 @@ function parseTaskMetadata(item) {
 }
 
 const route = useRoute();
+const followUpClientLocation = computed(() => clientFollowUpLocation(props.item, route.params.organizationSlug));
 const showExchangeImport = ref(false);
 const exchangeRecordsImported = ref(false);
 const exchangeEhrReference = ref('');

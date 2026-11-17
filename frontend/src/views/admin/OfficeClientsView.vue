@@ -120,6 +120,7 @@
                 :key="c.id"
                 :class="{ 'is-active': selectedId === c.id }"
                 @click="selectedId = c.id"
+                @contextmenu="followUpTask?.openContextMenu($event, c)"
               >
                 <td>
                   <div class="ocm-client-cell">
@@ -178,6 +179,7 @@
                 <td>{{ c.nextStep?.label || '—' }}</td>
                 <td>{{ formatRelativeTime(c.createdAt) }}</td>
                 <td class="ocm-row-actions" @click.stop>
+                  <button type="button" class="ocm-link" @click="followUpTask?.open(c)">Follow-up task</button>
                   <QuickPostClientToExchange :client="c" />
                   <button type="button" class="ocm-link" @click="selectedId = c.id">Review</button>
                   <router-link :to="clientProfilePath(c.id)">Client record</router-link>
@@ -216,7 +218,7 @@
       </div>
 
       <aside v-if="selected" class="ocm-rail">
-        <div v-if="selected" ref="officeReviewDrawer" class="ocm-drawer" tabindex="-1">
+        <div v-if="selected" ref="officeReviewDrawer" class="ocm-drawer" tabindex="-1" @contextmenu="followUpTask?.openContextMenu($event, selected)">
           <div class="ocm-drawer-head">
             <h3>
               {{ selected.fullName }}
@@ -303,6 +305,7 @@
             </div>
           </div>
 
+          <button type="button" class="ocm-btn ocm-btn--ghost ocm-btn--block" @click="followUpTask?.open(selected)">Follow-up task</button>
           <a class="ocm-btn ocm-btn--ghost ocm-btn--block" :href="`${clientProfilePath(selected.id)}?tab=assignments`">
             Review assignments
           </a>
@@ -312,6 +315,7 @@
         </div>
       </aside>
     </div>
+    <ClientFollowUpTask ref="followUpTask" :agency-id="agencyId" />
   </div>
 </template>
 
@@ -320,6 +324,7 @@ import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
 import '../../styles/auricwellClients.css';
 import SendCareInvitation from '../../components/admin/SendCareInvitation.vue';
 import ProviderEnrollmentWaitlist from '../../components/provider/ProviderEnrollmentWaitlist.vue';
+import ClientFollowUpTask from '../../components/clients/ClientFollowUpTask.vue';
 import ProviderSearchSelect from '../../components/clients/ProviderSearchSelect.vue';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
@@ -336,6 +341,7 @@ import { buildOfficeQuickNavLinks } from '../../utils/officeQuickNav.js';
 import '../../styles/officeQuickNav.css';
 
 const route = useRoute();
+const followUpTask = ref(null);
 const {
   agencyId,
   accessibleAgencies,

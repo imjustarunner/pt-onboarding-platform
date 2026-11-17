@@ -1,5 +1,6 @@
 <template>
   <ClientChartShell
+    @contextmenu="followUpTask?.openContextMenu($event, client)"
     :full-page="props.fullPage"
     :clinical-branding="showClinicalChartSurfaces" :workspace-mode="clinicalWorkspaceMode"
     :tenant-id="selectedAgencyId || client.agency_id" :tenant-name="primaryAgencyDisplayName"
@@ -16,6 +17,7 @@
     @alert-click="onOverviewAlertClick"
   >
     <template #quick-actions>
+      <ClientFollowUpTask ref="followUpTask" :agency-id="selectedAgencyId || client.agency_id" />
       <ClientQuickActions :actions="profileQuickActions" @action="onProfileQuickAction" />
     </template>
     <template #header>
@@ -2919,6 +2921,7 @@ import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
 import ClientQuickActions from './clientChart/ClientQuickActions.vue';
+import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { clientProfileActions } from '../../utils/clientProfileActions.js';
 import ClientChartSetupPanel from './clientChart/ClientChartSetupPanel.vue';
@@ -4499,7 +4502,8 @@ async function onAgencyServicesUpdated(agencyId, payload) {
   onAgencyServicesLoaded(agencyId, payload);
   await onServiceEnrollmentUpdated();
 }
-const profileQuickActions = computed(() => clientProfileActions({
+const followUpTask = ref(null);
+const profileQuickActions = computed(() => [...clientProfileActions({
   hub: chartHub.value, sub: effectiveHubSub.value, canEdit: canEditAccount.value,
   canPortal: canViewGuardians.value, canInvite: canManageGuardians.value,
   canClinical: canViewMedicalRecord.value, canBilling: canViewClientBillingImport.value,
@@ -4509,8 +4513,9 @@ const profileQuickActions = computed(() => clientProfileActions({
   canSecureMessage: canOpenClientSecureMessage.value,
   canUpload: canEditPaperwork.value && (paperProcessingAvailable.value || roleNorm.value !== 'support'),
   canProcessPaper: paperProcessingAvailable.value
-}));
+}), { id: 'follow-up', label: 'Follow-up task', icon: 'calendar' }]);
 function onProfileQuickAction(action) {
+  if (action.id === 'follow-up') { followUpTask.value?.open(props.client); return; }
   if (action.id === 'secure-message') return openClientSecureMessage();
   if (action.id === 'upload') return openDocumentUpload();
   if (action.id === 'process-paper') return openClientActions('process');

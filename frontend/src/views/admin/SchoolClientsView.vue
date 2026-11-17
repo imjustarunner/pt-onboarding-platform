@@ -189,6 +189,7 @@
                 v-for="r in g.rows"
                 v-show="groupBySchool ? isSchoolExpanded(g.organizationId) : true"
                 :key="`${r.client_id}-${r.provider_user_id}-${r.organization_id}`"
+                @contextmenu="followUpTask?.openContextMenu($event, r)"
                 :class="viewMode === 'roi' ? roiRowClass(r.days_until_expiration) : ''"
               >
                 <td v-if="viewMode === 'roi' && canSeeRenewalFlags">
@@ -209,6 +210,7 @@
                     {{ formatClient(r) }}
                   </button>
                   <span v-else>{{ formatClient(r) }}</span>
+                  <button v-if="r.client_id" type="button" class="btn btn-secondary btn-sm" @click="followUpTask?.open(r)">Follow-up task</button>
                 </td>
                 <td>{{ formatProvider(r) }}</td>
                 <td v-if="viewMode === 'pending'">{{ formatDate(r.pending_added_at) }}</td>
@@ -372,6 +374,7 @@
       </div>
     </div>
 
+    <ClientFollowUpTask ref="followUpTask" :agency-id="activeAgencyId" />
     <ClientDetailPanel
       v-if="selectedClient"
       :key="String(selectedClient?.id || '')"
@@ -403,11 +406,13 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
+import ClientFollowUpTask from '../../components/clients/ClientFollowUpTask.vue';
 import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
 import RenewalFlagsChips from '../../components/admin/RenewalFlagsChips.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const followUpTask = ref(null);
 
 const canSeeRenewalFlags = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();

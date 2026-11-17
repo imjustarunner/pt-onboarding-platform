@@ -13,6 +13,7 @@
         aria-label="Client detail panel"
         @mouseenter="$emit('enter')"
         @mouseleave="$emit('leave')"
+        @contextmenu="canFollowUp && $emit('client-contextmenu', $event, client)"
       >
           <div class="cm-drawer-header">
             <div class="cm-drawer-avatar" :style="presentation.getInitialsStyle(client)">
@@ -139,6 +140,7 @@
           </div>
           <!-- Quick actions footer -->
           <div class="cm-drawer-footer">
+            <button v-if="canFollowUp" class="cm-drawer-footer-btn" type="button" @click="$emit('follow-up', client)">Follow-up task</button>
             <button
               class="cm-drawer-footer-btn cm-drawer-footer-btn--primary"
               type="button"
@@ -156,8 +158,8 @@
     </transition>
 </template>
 <script setup>
-defineProps({client:{type:Object,default:null},pinned:{type:Boolean,default:false},canEdit:{type:Boolean,default:false},canAssign:{type:Boolean,default:false},analyticsArea:{type:String,default:null},presentation:{type:Object,required:true}});
-defineEmits(['open','close','edit-status','assign-provider','enter','leave']);
+defineProps({client:{type:Object,default:null},pinned:{type:Boolean,default:false},canEdit:{type:Boolean,default:false},canFollowUp:{type:Boolean,default:false},canAssign:{type:Boolean,default:false},analyticsArea:{type:String,default:null},presentation:{type:Object,required:true}});
+defineEmits(['open','close','edit-status','assign-provider','enter','leave','follow-up','client-contextmenu']);
 </script>
 <style scoped>
 /* Quick-view / pinned side panel */
