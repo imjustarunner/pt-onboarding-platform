@@ -7,6 +7,7 @@ import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNote
 import { intakeDraftContext } from './intakeDraftReview.service.js';
 import { withHistoricalImportLock } from './ehrHistoricalImportLock.service.js';
 import { saveChartRecord } from './clientChartImport.service.js';
+import {importedClinicalSourceDate} from '../utils/importedClinicalSourceDate.js';
 
 const fail = message => Object.assign(new Error(message), { status: 400 });
 const fingerprint = text => createHash('sha256').update(text).digest('hex');
@@ -43,7 +44,7 @@ export async function importRecordsIntake({ agencyId, clientId, actorId, input }
       key: section.key || `section_${index + 1}`, label: section.title || section.label || section.key,
       body: section.content || section.body || '', order: index + 1
     }));
-    const context = { source: 'client_records_import', nonBillable: true, clinicalSessionId: null, officeEventId: null,
+    const context = { source: 'client_records_import', nonBillable: true, clinicalSessionId: null, officeEventId: null,dateOfService:importedClinicalSourceDate(text),
       recordsImport: { fingerprint: sourceHash, importedByUserId: actorId, importedAt: new Date().toISOString(), sourceText: text } };
     const content = { status: 'draft', serviceCode,
       toolId: serviceCode === 'H0031' ? 'clinical_h0031_intake' : 'clinical_90791_intake_plan',

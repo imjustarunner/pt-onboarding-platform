@@ -169,7 +169,7 @@ class ClientIntakeNoteDraft {
     }
     const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts
-       WHERE client_id = ? AND agency_id = ?${codeSql}
+       WHERE client_id = ? AND agency_id = ? AND status != 'failed'${codeSql}
        ORDER BY created_at DESC
        LIMIT 1`,
       params

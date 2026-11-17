@@ -36,6 +36,7 @@
         </div>
       </div>
 
+<p v-if="planSummary?.client_ack_status==='awaiting_portal'" role="status">Ready for portal review. Sharing and email delivery will resume automatically when an authorized account and email are available. Existing access and communication preferences still apply.</p>
       <div class="tp-ack-actions">
         <article class="tp-ack-action-card">
           <h5>Share to dashboard</h5>

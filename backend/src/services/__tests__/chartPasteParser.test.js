@@ -74,3 +74,29 @@ it('routes unlabelled coverage to its selected slot and refuses a conflicting so
   expect(parseChartInsurance('Insurance carrier\nExample Secondary\nMember ID\nSECOND', { position:'secondary' })).toMatchObject({ secondary:{ insurerName:'Example Secondary', memberId:'SECOND' } });
   expect(() => parseChartInsurance('Example (43324): Primary\nMember ID\nPRIMARY', { position:'secondary' })).toThrow('labeled primary');
 });
+it('accepts copied contact cards with heading names, joined labels, age suffixes and SMS/email reminders',()=>{
+ const contacts=parseChartContacts(`Contacts
++ New Contact
+svg Edit
+### Dr. Morgan Lee Example
+Mobile Phone(303) 555-0101Email[morgan@example.test](mailto:morgan@example.test)Address
+12 Sample Blvd
+Denver, CO 80207 USA
+Time Zone
+MT - Mountain Time, UTC-7 with DST
+Contact TypeEmergency ContactRelationshipStepmotherROI SignedNot signed by patient/guardianDate of Birth
+3/20/1980Age: 46y, 7m, 28d
+Appt RemindersNo Reminders
+svgEdit
+### Pat Jo Example
+Mobile Phone(720) 555-0102Email[pat@example.test](mailto:pat@example.test)Address
+22 Sample Loop
+Colorado Springs, CO 80927 USA
+Time Zone
+MT - Mountain Time, UTC-7 with DST
+Contact TypeGuardianRelationshipMotherROI SignedNot signed by patient/guardianDate of Birth
+9/16/1986Age: 40y, 2m, 1d
+Appt RemindersText (SMS) and Email`);
+ expect(contacts).toHaveLength(2);expect(contacts[0]).toMatchObject({fullName:'Dr. Morgan Lee Example',relationshipType:'Stepmother',dateOfBirth:'1980-03-20'});
+ expect(contacts[1]).toMatchObject({fullName:'Pat Jo Example',contactType:'Guardian',relationshipType:'Mother',email:'pat@example.test',dateOfBirth:'1986-09-16',appointmentReminders:'Text (SMS) and Email'});
+});

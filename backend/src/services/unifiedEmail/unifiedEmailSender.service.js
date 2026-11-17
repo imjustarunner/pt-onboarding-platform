@@ -235,7 +235,8 @@ export async function finalizeOutboundContent({
     const { createMisdirectedEmailReportLink } = await import('../misdirectedEmailReport.service.js');
     if(!previewOnly)misdirectedReportUrl = await createMisdirectedEmailReportLink({
       agencyId: aid,
-      senderUserId: generatedByUserId || userId || null,
+      // The recipient userId is not the author of an automated notice.
+      senderUserId: generatedByUserId || (String(source || '').toLowerCase()==='auto' ? null : userId) || null,
       toEmail: to
     });
   } catch (e) {

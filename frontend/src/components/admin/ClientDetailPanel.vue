@@ -188,18 +188,14 @@
           <ClientServiceEnrollments :key="`${client.id}:${selectedAgencyId || client.agency_id}`" :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliationsForActiveAgency" start-assigning @loaded="onAgencyServicesLoaded(selectedAgencyId || client.agency_id, $event)" @updated="onAgencyServicesUpdated(selectedAgencyId || client.agency_id, $event)" />
         </section>
 
+        <section v-if="chartHub==='bring-up-to-date' && showRecordsImportTab" class="detail-section">
+          <ClientEhrBringUpToDatePanel ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
+        </section>
+
         <div
           v-if="chartHub === 'overview' && effectiveHubSub !== 'skill-builders'"
           class="detail-section cdp-overview"
         >
-          <ClientChartSetupPanel
-            v-if="canFinishChartSetup"
-            scope="all"
-            :client="client"
-            :client-id="client.id"
-            :agency-id="client.agency_id"
-            @updated="onChartSetupUpdated"
-          />
           <ClientOverviewHub :show-quick-actions="false" :key="`overview-${client.id}`"
             :client-id="client.id"
             :client="client"
@@ -1425,14 +1421,6 @@
 
         <!-- Demographics Tab -->
         <div v-if="showPanel('demographics')" class="detail-section">
-          <ClientChartSetupPanel
-            v-if="canFinishChartSetup"
-            scope="demographics"
-            :client="client"
-            :client-id="client.id"
-            :agency-id="client.agency_id"
-            @updated="onChartSetupUpdated"
-          />
           <GuardianDemographicReview v-if="canEditAccount" :client-id="Number(client.id)" />
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
@@ -2682,14 +2670,6 @@
         </div>
 
         <div v-if="showPanel('intake-note')" class="detail-section">
-          <ClientChartSetupPanel
-            v-if="canFinishChartSetup"
-            scope="intake"
-            :client="client"
-            :client-id="client.id"
-            :agency-id="client.agency_id"
-            @updated="onChartSetupUpdated"
-          />
           <h3 style="margin-top: 0;">{{ ['learning', 'school'].includes(effectiveClientType) ? 'Enrollment note' : 'Intake note' }}</h3>
           <p class="hint">
             {{
@@ -2713,14 +2693,6 @@
         </div>
 
         <div v-if="showPanel('treatment-plans')" class="detail-section">
-          <ClientChartSetupPanel
-            v-if="canFinishChartSetup"
-            scope="plan"
-            :client="client"
-            :client-id="client.id"
-            :agency-id="client.agency_id"
-            @updated="onChartSetupUpdated"
-          />
           <ClientTreatmentPlansPanel
             :client-id="client.id"
             :agency-id="selectedAgencyId || client.agency_id"
@@ -2893,7 +2865,7 @@ import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide, defineAsyncComponent } from 'vue';
 const ClientOnboardingChecklistPanel = defineAsyncComponent(() => import('../clients/ClientOnboardingChecklistPanel.vue'));
-import { useRoute, useRouter } from 'vue-router';
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import { openEnrollmentReceipt, openOperationalDocument } from '../../utils/openEnrollmentReceipt.js';
@@ -2924,7 +2896,7 @@ import ClientQuickActions from './clientChart/ClientQuickActions.vue';
 import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { clientProfileActions } from '../../utils/clientProfileActions.js';
-import ClientChartSetupPanel from './clientChart/ClientChartSetupPanel.vue';
+import ClientEhrBringUpToDatePanel from './clientChart/ClientEhrBringUpToDatePanel.vue';
 import { formatAuditTimestamp, formatDate as formatCalendarDate } from '../../utils/formatDate';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
@@ -3161,7 +3133,8 @@ function setChartNav(hubId, subId = '') {
   activeTab.value = target.activeTab;
   hubSub.value = target.hubSub;
 }
-function onHubChange(hubId) {
+async function onHubChange(hubId) {
+  if(chartHub.value==='bring-up-to-date'&&hubId!==chartHub.value&&await recordsImportPanel.value?.prepareLeave?.()===false)return;
   if (hubId !== 'overview') clinicalWorkspaceMode.value = 'clinical';
   setChartNav(hubId, '');
 }
@@ -3169,7 +3142,8 @@ function onHubSubChange(subId) {
   setChartNav(chartHub.value, subId);
 }
 
-function goChartSub(subOrLegacy) {
+async function goChartSub(subOrLegacy) {
+  if(chartHub.value==='bring-up-to-date'&&await recordsImportPanel.value?.prepareLeave?.()===false)return;
   const key = String(subOrLegacy || '');
   if (LEGACY_TAB_ALIASES[key]) {
     const resolved = resolveChartTab(key);
@@ -3738,8 +3712,8 @@ const clientAgenciesNote = computed(() => {
   return 'Note: client has agency membership elsewhere.';
 });
 
-const openFullClientRecord = () => {
-  if (!props.client?.id) return;
+const openFullClientRecord = async () => {
+  if (!props.client?.id || await recordsImportPanel.value?.prepareLeave?.()===false) return;
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const tab = String(activeTab.value || 'overview');
   const path = orgSlug
@@ -4379,12 +4353,26 @@ const overviewAlertItems = computed(() => {
     });
   }
   if (canViewMedicalRecord.value && isClinicalLikeClientType.value && !billingDiagnoses.value.length && !billingDiagnosesLoading.value) {
-    items.push({ id: 'no-dx', label: 'No billing diagnoses on file', tone: 'info', tab: 'clinical' });
+    items.push({ id: 'no-dx', label: careSummary.value?.importedDiagnoses?.length ? 'Imported diagnoses await clinician confirmation' : 'No billing diagnoses on file', tone: 'info', tab: 'clinical' });
   }
   return items.slice(0, 6);
 });
 
+const recordsImportPanel=ref(null);
+const recordsImportSetup=ref(null);
+const showRecordsImportTab=computed(()=>canFinishChartSetup.value && recordsImportSetup.value?.requiresRecordImport && recordsImportSetup.value?.recordsImportStatus!=='complete' && (recordsImportSetup.value?.recordsImportStatus==='pending'||!recordsImportSetup.value?.setupComplete));
+const recordsImportSectionStatus=computed(()=>({demographics:recordsImportSetup.value?.demographicsOnFile?'done':'missing',intake:recordsImportSetup.value?.intakeOnFile?'done':'missing',plan:recordsImportSetup.value?.planOnFile?'done':'missing'}));
+let recordsImportLoad=0;
+async function loadRecordsImportSetup(selectFirst=false){
+ const cid=Number(props.client?.id),run=++recordsImportLoad;
+ if(!cid||!canFinishChartSetup.value){recordsImportSetup.value=null;return;}
+ try{const {data}=await api.get(`/clients/${cid}/chart-setup`,{skipGlobalLoading:true});if(run!==recordsImportLoad||cid!==Number(props.client?.id))return;recordsImportSetup.value=data;
+ if(selectFirst&&showRecordsImportTab.value&&(!props.initialTab||props.initialTab==='overview'))setChartNav('bring-up-to-date');
+ }catch{if(run===recordsImportLoad)recordsImportSetup.value=null;}
+}
+async function onRecordsImportDone(){await loadRecordsImportSetup();setChartNav('overview');await onChartSetupUpdated();}
 const tabs = computed(() => ([
+  ...(showRecordsImportTab.value?[{id:'bring-up-to-date',label:'Bring up to date',description:'Import records · Mark done'}]:[]),
   { id: 'overview', label: 'Overview', description: 'Summary · Quick actions' },
   { id: 'account', label: 'Account', description: canEditAccount.value ? 'Profile · Assignments' : 'Profile · Relationships' },
   ...(canViewGuardians.value ? [{id:'portal',label:'Portal',description:'Access · Sharing · Activity'}] : []),
@@ -6554,7 +6542,9 @@ const makePrimaryProvider = async (pa) => {
 };
 
 
-const handleClose = () => {
+onBeforeRouteLeave(async()=>await recordsImportPanel.value?.prepareLeave?.()!==false);
+const handleClose = async () => {
+  if(await recordsImportPanel.value?.prepareLeave?.()===false)return;
   emit('close');
 };
 
@@ -6673,6 +6663,8 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
     clientCodeDraft.value = '';
     clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
   }
+  recordsImportSetup.value=null;
+  void loadRecordsImportSetup(true);
   syncOpenClientForm();
   await Promise.all([
     loadOverviewOptions(),

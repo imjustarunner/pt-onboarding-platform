@@ -12,7 +12,7 @@
         Review AI suggestions from recent sessions, add narrative changes, or paste a full plan as a rewrite source (no section parsing). Confirm and sign — do not trust AI without review.
       </p>
       <p v-else-if="isDraftEditor" class="hint hint-block">
-        Edit goals, objectives, and 1–10 scales. Add information below to regenerate, then finalize once intake is final.
+        Edit goals, objectives, and 1–10 scales. Add information below to regenerate, then finalize after reviewing the intake on file.
       </p>
 
       <template v-if="isUpdaterMode">
@@ -62,9 +62,12 @@
       <details v-if="importedSourceText" class="hint hint-block"><summary>Original imported treatment plan</summary><pre style="white-space:pre-wrap">{{ importedSourceText }}</pre></details>
 
       <template v-if="model">
+        <p v-if="goalsMissingDuration.length" class="na-required-callout" role="alert">Required before finalizing: choose a duration for goals {{ goalsMissingDuration.join(', ') }}. Use “Apply duration to all” below or select each highlighted duration.</p>
+        <p class="hint">After provider finalization, portal review and approval are prepared automatically. If an authorized recipient or email is not ready, delivery remains pending and resumes when available.</p>
         <label class="na-label">
           Effective date
           <input v-model="model.effectiveDate" type="date" class="na-input" />
+          <span v-if="importedDraftId || importedSourceText" class="hint">Choose the effective date for the plan being finalized. <button type="button" class="na-btn-outline" @click="model.effectiveDate=todayIsoDate()">Use today</button><button v-if="sourceEffectiveDate" type="button" class="na-btn-outline" @click="model.effectiveDate=sourceEffectiveDate">Keep source date ({{ sourceEffectiveDate }})</button></span>
         </label>
         <p v-if="renewalPolicy" class="hint hint-block" data-plan-review-policy>
           Agency review interval: {{ renewalPolicy.renewAfterDays }} days.
@@ -167,11 +170,12 @@
             <div class="na-import-row na-import-row--goal-meta">
               <label class="na-label na-label--inline">
                 Duration
-                <select v-model.number="g.durationMonths" class="na-input na-input--duration" @change="onGoalDurationChange(g)">
+                <select v-model.number="g.durationMonths" :class="['na-input na-input--duration',{'na-duration-required':!g.durationMonths}]" :aria-invalid="!g.durationMonths" :aria-label="`Required duration for goal ${gi+1}`" @change="onGoalDurationChange(g)">
                   <option :value="null">Select…</option>
                   <option v-for="m in durationPresets" :key="`g-${gi}-d-${m}`" :value="m">{{ durationLabel(m) }}</option>
                 </select>
               </label>
+              <strong v-if="!g.durationMonths" class="na-required-text">Duration required</strong>
               <span v-if="g.durationMonths" class="na-duration-preview">
                 Target date: {{ formatDurationPreview(g.durationMonths, model.effectiveDate) }}
               </span>
@@ -555,8 +559,10 @@ function mapGoal(g, effectiveDate) {
   };
 }
 
+const sourceEffectiveDate=ref('');
 function applyPlanRecord(plan) {
   if (!plan) return;
+  sourceEffectiveDate.value=(plan.effective_date||plan.effectiveDate||'').toString().slice(0,10);
   importedSourceText.value = plan.recordsImportSource?.text || '';
   const sourceParsed = plan.recordsImportSource?.parsed || {};
   const sourceDiagnoses = plan.diagnoses?.length ? plan.diagnoses : sourceParsed.diagnoses || [];
@@ -573,7 +579,7 @@ function applyPlanRecord(plan) {
   const discMatch = discharge.match(/Discharge Criteria\s*\/\s*Planning\n([\s\S]*)$/i)
     || discharge.match(/Discharge Plan\n([\s\S]*)$/i);
   model.value = reactive({
-    effectiveDate: (plan.effective_date || plan.effectiveDate || '').toString().slice(0, 10) || todayIsoDate(),
+    effectiveDate: String(plan.source_tool_id||'').startsWith('client_records_import:') ? todayIsoDate() : (plan.effective_date || plan.effectiveDate || '').toString().slice(0, 10) || todayIsoDate(),
     presentingProblem: plan.presenting_problem || presentMatch?.[1]?.trim() || plan.presentingProblem || '',
     prescribedFrequency: freqMatch?.[1]?.trim() || plan.prescribedFrequency || plan.prescribed_frequency || '',
     dischargePlan: discMatch?.[1]?.trim()
@@ -1054,6 +1060,7 @@ async function discardDraft() {
 </script>
 
 <style scoped>
+.na-required-callout{background:#fff5df;border:2px solid #bd6700;padding:14px;border-radius:8px;color:#783c00;font-weight:600}.na-duration-required{border:2px solid #bd6700!important;background:#fff5df}.na-required-text{color:#8a4500;font-size:.85rem}
 .na-modal-backdrop {
   position: fixed;
   inset: 0;

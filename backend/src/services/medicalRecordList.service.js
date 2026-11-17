@@ -1,3 +1,4 @@
+import { intakeDraftChartSummary } from './intakeDraftReview.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { listBillingEncountersForClient } from './billingReportIngest.service.js';
@@ -251,7 +252,14 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     claims = [];
   }
 
-  return mergeMedicalRecordSources({
+  const [intakeRows] = await pool.execute(`SELECT id,client_id,agency_id,status,service_code,session_context_enc,scrubbed_input_enc,created_at,updated_at,finalized_at FROM client_intake_note_drafts WHERE client_id IN (${clientIn}) AND agency_id IN (${inList}) AND status!='failed' ORDER BY created_at DESC LIMIT ${lim}`, [...clientIds,...agencyIds]);
+  const importedIntakes=(intakeRows||[]).map(row=>({...row,...intakeDraftChartSummary(row)})).filter(row=>row.records_import).map(row=>({
+    id:`intake:${row.id}`,record_key:`intake:${row.id}`,intake_draft_id:row.id,source_client_id:row.client_id,agency_id:row.agency_id,
+    service_date:row.date_of_service,created_at:row.created_at,service_code:row.service_code,
+    note_status:'imported',display_state:'imported',records_import:true,non_billable:true,billing_attached:false,
+    clinical_session_id:null,clinical_note_id:null
+  }));
+  const encounters=mergeMedicalRecordSources({
     timeZone,
     billing,
     sessions,
@@ -260,7 +268,8 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     scheduleEvents,
     notes,
     claims
-  }).slice(0, lim);
+  });
+  return [...encounters,...importedIntakes].sort((a,b)=>new Date(b.service_date||b.created_at||0)-new Date(a.service_date||a.created_at||0)).slice(0,lim);
 }
 
 export default { listClientMedicalRecordRows };

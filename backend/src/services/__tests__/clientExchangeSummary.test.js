@@ -5,6 +5,7 @@ vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.c
 vi.mock('../billingReportIngest.service.js', () => ({ listBillingDiagnosesForClient: mocks.billing }));
 vi.mock('../intakeResponsesEncryption.service.js', () => ({ decryptIntakeSubmissionRows: mocks.decrypt }));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:mocks.insurance}));
+vi.mock('../clientChartImport.service.js',()=>({readChartRecord:vi.fn(async()=>({value:{parsed:{diagnoses:[{icd10Code:'R69',description:'Source concern'}]}}}))}));
 import { loadClientExchangeSummary } from '../clientExchangeSummary.service.js';
 beforeEach(() => { vi.clearAllMocks(); mocks.insurance.mockResolvedValue(null); mocks.execute.mockResolvedValue([[]]); mocks.clinical.mockResolvedValue([[]]); mocks.billing.mockResolvedValue([]); });
 it('uses active clinical diagnoses and latest plan over older intake', async () => {
@@ -72,4 +73,9 @@ it('uses a prepared matching concern without changing or publishing the source i
  const summary=await loadClientExchangeSummary({client});
  expect(summary.presentingProblems).toEqual(['Stress management']);expect(summary.presentingProblemSource).toBe('Matching concern');expect(summary.preferences.sharedMatchingConcern).toBe('Stress management');expect(summary.preferences.sharedSchedulingNotes).toBe('After work');
  expect(client.intake_preferences_json.presentingConcern).toBe('Private intake narrative');expect(JSON.stringify(summary)).not.toContain('Private intake narrative');
+});
+
+it('shows new records-import concerns and suggested diagnoses without converting them to confirmed billing diagnoses',async()=>{
+ mocks.execute.mockImplementation(async sql=>[sql.includes('client_intake_note_drafts')?[{status:'draft',session_context_enc:JSON.stringify({source:'client_records_import'}),note_sections_json_enc:JSON.stringify([{key:'presentingProblem',body:'Imported concern'}]),suggested_dx_json:JSON.stringify({diagnoses:[{code:'R69',description:'Source concern'}]}),created_at:'2026-11-17'}]:[]]);
+ const summary=await loadClientExchangeSummary({client:{id:3,agency_id:2}});expect(summary).toMatchObject({presentingProblems:['Imported concern'],diagnoses:[],importedDiagnoses:['R69 — Source concern']});
 });

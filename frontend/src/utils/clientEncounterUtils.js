@@ -29,6 +29,7 @@ export function formatPlaceOfService(pos) {
 }
 
 export function isUnsignedEncounter(row) {
+  if(row?.records_import)return false;
   const status = String(row?.note_status || '').toLowerCase();
   return !['planned', 'not_held'].includes(row?.display_state)
     && ['draft', 'unsigned', 'awaiting_signature'].includes(status);
@@ -45,6 +46,7 @@ export function isUnsignedClinicalNote(note, sessions = [], now = new Date()) {
 }
 
 export function encounterNeedsNote(row) {
+  if(row?.records_import)return false;
   return row?.display_state === 'past' && !['signed'].includes(String(row?.note_status || '').toLowerCase());
 }
 
@@ -58,6 +60,7 @@ export function encounterScheduleLabel(row) {
 }
 
 export function noteStatusLabel(row) {
+  if(row?.records_import)return 'Imported intake · nonbillable';
   const s = String(row?.note_status || 'none');
   if (s === 'signed') return 'Signed';
   if (s === 'draft') return 'Draft';
@@ -66,6 +69,7 @@ export function noteStatusLabel(row) {
 }
 
 export function noteActionLabel(row) {
+  if(row?.records_import)return 'Imported intake · nonbillable';
   const s = String(row?.note_status || 'none');
   if (s === 'signed' || s === 'draft') return 'Open note';
   if (s === 'planned' || String(row?.display_state || '') === 'planned') return 'Prepare note';

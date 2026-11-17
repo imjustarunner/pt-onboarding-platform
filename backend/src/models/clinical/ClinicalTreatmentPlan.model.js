@@ -210,6 +210,7 @@ class ClinicalTreatmentPlan {
         }
       }
       if (supersedesImportedDraftId) await conn.execute("UPDATE clinical_treatment_plans SET status = 'superseded', updated_at = NOW() WHERE id = ? AND agency_id = ? AND client_id = ? AND status = 'draft'", [supersedesImportedDraftId,agencyId,clientId]);
+      if(['active','final','finalized'].includes(status))await conn.execute("UPDATE clinical_treatment_plans SET client_ack_status='awaiting_portal' WHERE id=?",[planId]);
       await conn.commit();
       return this.findById(planId);
     } catch (e) {

@@ -16,3 +16,7 @@ it('clears the previous client’s note immediately and discards late responses'
  let resolve;const previous=new Promise(done=>{resolve=done;});m.get.mockReturnValueOnce(previous).mockResolvedValueOnce({data:{administrativeNote:'Current note',contacts:[],insurance:null}});
  const wrapper=mount(Records,{global:{stubs:{ClientMedicalHistory:true}},props:{clientId:12,agencyId:2}});await wrapper.setProps({clientId:13});await flushPromises();resolve({data:{administrativeNote:'Previous note',contacts:[]}});await flushPromises();expect(wrapper.text()).toContain('Current note');expect(wrapper.text()).not.toContain('Previous note');wrapper.unmount();
 });
+it('shows verification and its date from app evidence separately from pasted eligibility text',async()=>{
+ m.get.mockResolvedValue({data:{contacts:[],insurance:{primary:{insurerName:'Example carrier',lastEligibilityCheck:'Not verified'}},verification:{current:true,verifiedAt:'2026-11-16T12:00:00Z',serviceDate:'2026-11-17'}}});
+ const w=mount(Records,{global:{stubs:{ClientMedicalHistory:true}},props:{clientId:12,agencyId:2}});await flushPromises();expect(w.text()).toContain('VERIFIED');expect(w.text()).toContain('11/16/2026');w.unmount();
+});

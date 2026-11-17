@@ -1,3 +1,4 @@
+import {deliverGuardianPlanNotice} from './guardianPlanDelivery.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import {guardianServiceContext,listClientServices} from './clientServiceEnrollment.service.js';
@@ -179,6 +180,9 @@ export async function shareGuardianPlanRevision({ plan, actorUserId }) {
     const [[result]] = await db.execute('SELECT GET_LOCK(?, 10) AS acquired', [lock]);
     if (Number(result?.acquired) !== 1) throw fail('Plan sharing is busy. Try saving again.', 409);
     locked = true;
+    const current=await ClinicalTreatmentPlan.findById(plan.id);
+    if(!current||Number(current.client_id)!==Number(plan.client_id)||Number(current.agency_id)!==Number(plan.agency_id)||!isSharedPlanStatus(current.status))return {shared:0,eligible:0};
+    plan=current;
     const revision = guardianPlanRevision(plan);
     const existing = await TreatmentPlanAckLink.listForPlan(context);
     for (const link of existing.filter(l => l.dashboard_visible && l.meta_json?.planRevision && l.meta_json.planRevision !== revision)) {
@@ -187,10 +191,11 @@ export async function shareGuardianPlanRevision({ plan, actorUserId }) {
     const guardians = await ClientGuardian.listForClient(plan.client_id);
     const { createDashboardShare } = await import('./treatmentPlanAck.service.js');
     let shared = 0;
-    let eligible = 0;
+    let eligible = 0,deliveryPending=false;const currentLinks=[];
     for (const guardian of guardians) {
-      if (Number(guardian.access_enabled) !== 1 || guardian.relationship_type === 'self' || ClientGuardian.isNoView(guardian.permissions_json)) continue;
-      try { await requireGuardianPlanAccess({ ...context, userId: guardian.guardian_user_id, scope: 'approve_goals', action: 'sign' }); }
+      if (Number(guardian.access_enabled) !== 1 || ClientGuardian.isNoView(guardian.permissions_json)) continue;
+      let recipient;
+      try { recipient=await requireGuardianPlanAccess({ ...context, userId: guardian.guardian_user_id, scope: 'approve_goals', action: 'sign' }); }
       catch (e) { if (e.status === 403) continue; throw e; }
       eligible++;
       let link = existing.find(l => Number(l.recipient_user_id) === Number(guardian.guardian_user_id) && l.meta_json?.planRevision === revision && !['cancelled', 'expired'].includes(l.status));
@@ -199,13 +204,19 @@ export async function shareGuardianPlanRevision({ plan, actorUserId }) {
           recipientName: [guardian.first_name, guardian.last_name].filter(Boolean).join(' '), planRevision: revision });
         shared++;
       }
+      currentLinks.push(link);
       const [notified] = await db.execute("SELECT id FROM notifications WHERE type='guardian_plan_review' AND related_entity_type='guardian_plan_ack' AND related_entity_id=? AND user_id=? LIMIT 1", [link.id, guardian.guardian_user_id]);
       if (!notified.length) await Notification.create({ type: 'guardian_plan_review', severity: 'info',
-        title: 'A plan is ready for your review', message: 'Your child/dependent’s plan has been updated. Sign in to review it and add your own acknowledgment.',
+        title: recipient?.portal_language==='es'?'Su plan está listo para revisar':'A plan is ready for your review', message: recipient?.portal_language==='es'?'Inicie sesión para revisar el plan y dar su aprobación.':'Sign in to review the plan and add your own acknowledgment.',
         userId: guardian.guardian_user_id, agencyId: plan.agency_id, relatedEntityType: 'guardian_plan_ack', relatedEntityId: link.id,
-        actorUserId, actorSource: 'provider_plan_save', audienceJson: { clientId: plan.client_id } });
+        actorUserId, actorSource: actorUserId?'provider_plan_save':'automation', audienceJson: { clientId: plan.client_id } });
+      const delivery=await deliverGuardianPlanNotice({plan,guardian,link,locale:recipient?.portal_language||'en'});
+      if(!delivery.complete)deliveryPending=true;
     }
-    return { shared, eligible };
+    const waiting=!eligible||deliveryPending;
+    const ackStatus=waiting?'awaiting_portal':currentLinks.every(link=>link.status==='signed')?'signed':currentLinks.some(link=>link.status==='signed')?'partially_signed':'shared';
+    await clinicalPool.execute("UPDATE clinical_treatment_plans SET client_ack_status=?,client_ack_at=IF(? > 0,NULL,client_ack_at),updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=? AND client_id=?",[ackStatus,shared,plan.id,plan.agency_id,plan.client_id]);
+    return { shared, eligible, deliveryPending:waiting };
   } finally {
     try { if (locked) await db.execute('SELECT RELEASE_LOCK(?)', [lock]); } finally { db.release(); }
   }

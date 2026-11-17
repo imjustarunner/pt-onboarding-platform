@@ -9,12 +9,13 @@ import Panel from '../ClientEhrBringUpToDatePanel.vue';
 const ReadyAssignments=defineComponent({name:'ClientUpdateAssignments',emits:['ready'],setup(_, {emit,expose}){onMounted(()=>emit('ready',true));expose({prepareLeave:()=>true});},template:'<section data-ready-assignments />'});
 const stubs = { ClientUpdateAssignments:ReadyAssignments, NoteAidTreatmentPlanImportReview:true, ClientPayerLinkage:true, ClientTransitionInvitation:true, Teleport:true };
 const mountPanel = initialTexts => mount(Panel, { props: { open: true, clientId: 12, agencyId: 2, creationFlow: true, initialIntakeServiceCode: '90791', initialTexts }, global: { stubs } });
-beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); mocks.patch.mockResolvedValue({ data: {} }); mocks.get.mockResolvedValue({ data: { drafts: {} } }); mocks.put.mockResolvedValue({ data: { revision: 1 } }); });
+async function confirmCompletion(wrapper){const review=wrapper.find('[aria-label="Review records import completion"]');if(review.find('input[type=checkbox]').exists())await review.find('input[type=checkbox]').setValue(true);await review.findAll('button').find(b=>b.text()==='Complete records import').trigger('click');await flushPromises();}
+beforeEach(() => { vi.clearAllMocks(); vi.spyOn(window,'confirm').mockReturnValue(false); setActivePinia(createPinia()); mocks.patch.mockResolvedValue({ data: {} }); mocks.get.mockResolvedValue({ data: { drafts: {} } }); mocks.put.mockResolvedValue({ data: { revision: 1 } }); });
 it('imports supplied demographics and signals completion for the saved client', async () => {
   mocks.post.mockResolvedValue({ data: { parsed: { fullName: 'Synthetic Client' } } });
   const wrapper = mountPanel({ demographics: 'Legal Name: Synthetic Client' }); await flushPromises();
   expect(mocks.post).toHaveBeenCalledWith('/clients/12/demographics/import', expect.objectContaining({ demographics: expect.objectContaining({ fullName: 'Synthetic Client' }) }), expect.anything());
-  expect(wrapper.emitted('imported')).toHaveLength(1);
+  expect(wrapper.emitted('section-imported')).toHaveLength(1);
   expect(wrapper.findAll('button').some(b => b.text() === 'Mark done')).toBe(false);
   expect(mocks.post.mock.calls.some(([url]) => url.endsWith('/note-aid-setup-complete'))).toBe(false);
   wrapper.unmount();
@@ -31,7 +32,7 @@ it('retries intake after a failure without repeating successful demographics or 
   expect(mocks.post.mock.calls.filter(([url])=>url.endsWith('/demographics/import'))).toHaveLength(1);
   expect(mocks.post).toHaveBeenCalledWith('/clients/12/intake-note/import',expect.objectContaining({serviceCode:'90791',recordsImport:{text:'Presenting Problem: Concern'}}),expect.anything());
   expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/treatment-plans/parse'))).toBe(false);expect(mocks.patch).not.toHaveBeenCalled();
-  expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+  expect(wrapper.emitted('section-imported')).toHaveLength(1);wrapper.unmount();
 });
 it('requires a selected intake type and saves H0031 as an unlinked record',async()=>{
  mocks.post.mockResolvedValue({data:{draft:{id:5,status:'draft'}}});
@@ -46,7 +47,7 @@ it('saves a plan draft directly without a second parser or blocking staff comple
  const wrapper=mountPanel({plan:'Original plan with incomplete scales'});await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/medical-billing/treatment-plans',expect.objectContaining({recordsImport:{text:'Original plan with incomplete scales'},status:'draft',finalize:false}),expect.anything());
  expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/treatment-plans/parse')||url.endsWith('/note-aid-setup-complete'))).toBe(false);
- expect(wrapper.findComponent({name:'NoteAidTreatmentPlanImportReview'}).exists()).toBe(false);expect(wrapper.emitted('imported')).toHaveLength(1);expect(wrapper.text()).toContain('provider must review and finalize');wrapper.unmount();
+ expect(wrapper.findComponent({name:'NoteAidTreatmentPlanImportReview'}).exists()).toBe(false);expect(wrapper.emitted('section-imported')).toHaveLength(1);expect(wrapper.text()).toContain('provider must review and finalize');wrapper.unmount();
 });
 it('retains historical source dates and authors as unsigned intake/plan drafts without finalization', async () => {
   mocks.post.mockImplementation(async url => {
@@ -73,21 +74,22 @@ it('imports a single new section while retaining the other pasted drafts', async
   const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,initialTexts:{insurance:'Example (00050): Primary',contacts:'Name\nPat Example',intake:'Intake draft'}},global:{stubs}});await flushPromises();
   await wrapper.findAll('button').find(b=>b.text()==='Import insurance').trigger('click');await flushPromises();
   expect(mocks.post.mock.calls.map(([url])=>url)).toEqual(['/clients/12/chart-import/start','/clients/12/chart-import/sections/insurance']);
-  expect(wrapper.get('textarea[data-section=contacts]').element.value).toBe('Name\nPat Example');expect(wrapper.get('textarea[data-section=intake]').element.value).toBe('Intake draft');expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+  expect(wrapper.get('textarea[data-section=contacts]').element.value).toBe('Name\nPat Example');expect(wrapper.get('textarea[data-section=intake]').element.value).toBe('Intake draft');expect(wrapper.emitted('section-imported')).toHaveLength(1);wrapper.unmount();
 });
 it('restores saved drafts and successful section imports, and preserves edits during status refresh', async () => {
   mocks.get.mockResolvedValue({data:{drafts:{comments:{revision:3,value:{text:'Private saved draft',imported:true}}}}});
   const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
   expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('Private saved draft');expect(wrapper.text()).toContain('Patient comments · imported');
+  expect(wrapper.get('textarea[data-section=comments]').attributes('disabled')).toBeDefined();await wrapper.findAll('button').find(b=>b.text()==='Edit imported section').trigger('click');
   await wrapper.get('textarea[data-section=comments]').setValue('New private draft');await wrapper.setProps({recordStatus:{demographics:'done'}});
   expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('New private draft');await wrapper.vm.prepareLeave();
   expect(mocks.put).toHaveBeenCalledWith('/clients/12/chart-import/drafts/comments',expect.objectContaining({text:'New private draft',revision:3,metadata:expect.objectContaining({imported:false})}),expect.anything());wrapper.unmount();
 });
-it('does not finish new client creation until insurance payer linkage is confirmed', async () => {
+it('allows records completion independently while payer linkage still gates invitations', async () => {
   mocks.post.mockResolvedValue({data:{result:{primary:{}}}});
   const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialTexts:{insurance:'Example (00050): Primary'}},global:{stubs}});await flushPromises();
-  expect(wrapper.emitted('imported')).toBeUndefined();const finish=()=>wrapper.findAll('button').find(b=>b.text()==='Finish client import');expect(finish().attributes('disabled')).toBeDefined();
-  wrapper.findComponent({name:'ClientPayerLinkage'}).vm.$emit('ready-change',true);await flushPromises();await finish().trigger('click');await flushPromises();expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+  expect(wrapper.emitted('imported')).toBeUndefined();const finish=()=>wrapper.findAll('button').find(b=>b.text()==='Finish client import');expect(finish().attributes('disabled')).toBeUndefined();
+  wrapper.findComponent({name:'ClientPayerLinkage'}).vm.$emit('ready-change',true);await flushPromises();await finish().trigger('click');await flushPromises();await confirmCompletion(wrapper);expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
 });
 it('blocks next-client navigation when a private draft save fails',async()=>{
   const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();mocks.put.mockRejectedValue({response:{status:409,data:{error:{message:'Draft changed in another window'}}}});
@@ -115,13 +117,13 @@ it('imports all filled coverage slots with their own position even while the sel
  await wrapper.get('textarea[data-section=insurance]').setValue('Secondary policy');await coverage.setValue('primary');
  await wrapper.findAll('button').find(b=>b.text()==='Import all filled sections').trigger('click');await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/sections/insurance',{text:'Secondary policy',position:'secondary'},expect.anything());
- expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+ expect(wrapper.emitted('section-imported')).toHaveLength(1);wrapper.unmount();
 });
 it('requires payer linkage for a secondary-only draft after returning to blank primary',async()=>{
  mocks.get.mockResolvedValue({data:{drafts:{insurance:{revision:1,value:{text:'Secondary policy',position:'secondary',imported:true,coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'Secondary policy',imported:true}}}}}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true},global:{stubs}});await flushPromises();
  await wrapper.get('section[aria-label=Insurance] select').setValue('primary');
- const finish=wrapper.findAll('button').find(b=>b.text()==='Finish client import');expect(finish.attributes('disabled')).toBeDefined();expect(wrapper.emitted('imported')).toBeUndefined();wrapper.unmount();
+ const finish=wrapper.findAll('button').find(b=>b.text()==='Finish client import');expect(finish.attributes('disabled')).toBeUndefined();expect(wrapper.emitted('imported')).toBeUndefined();wrapper.unmount();
 });
 it('routes source guardian channels separately and reimports demographics after correcting their owner',async()=>{
  mocks.post.mockResolvedValue({data:{parsed:{fullName:'Synthetic Client',contactPhone:'555-111-2222',email:'parent@example.test'}}});
@@ -141,7 +143,7 @@ it('places assignments after the records and waits for reviewed assignment chang
  await wrapper.findAll('button').find(button=>button.text()==='Mark done').trigger('click');await flushPromises();expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/note-aid-setup-complete'))).toBe(false);expect(wrapper.emitted('done')).toBeUndefined();
  wrapper.findComponent(AssignmentStub).vm.$emit('busy',true);await flushPromises();expect(wrapper.emitted('busy').at(-1)).toEqual([true]);
  wrapper.findComponent(AssignmentStub).vm.$emit('busy',false);wrapper.findComponent(AssignmentStub).vm.$emit('ready',true);leave.mockReturnValue(true);await flushPromises();expect(await wrapper.vm.prepareLeave()).toBe(true);
- await wrapper.findAll('button').find(button=>button.text()==='Mark done').trigger('click');await flushPromises();expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{ifPending:true},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);wrapper.unmount();
+ await wrapper.findAll('button').find(button=>button.text()==='Mark done').trigger('click');await flushPromises();await confirmCompletion(wrapper);expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{keptBlankSections:expect.any(Array)},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);wrapper.unmount();
 });
 
 it('honors client-owned contact channels selected before creating an office chart',async()=>{
@@ -151,7 +153,7 @@ it('honors client-owned contact channels selected before creating an office char
 });
 it('keeps assignments and the portal invitation inside the creation flow before final completion',async()=>{
  const AssignmentStub=defineComponent({name:'ClientUpdateAssignments',emits:['ready'],setup(_, {emit,expose}){onMounted(()=>emit('ready',false));expose({prepareLeave:()=>true});},template:'<section data-create-assignments />'});
- const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true},global:{stubs:{...stubs,ClientUpdateAssignments:AssignmentStub}}});await flushPromises();const finish=()=>wrapper.findAll('button').find(button=>button.text()==='Finish client import');expect(finish().attributes('disabled')).toBeDefined();
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true},global:{stubs:{...stubs,ClientUpdateAssignments:AssignmentStub}}});await flushPromises();const finish=()=>wrapper.findAll('button').find(button=>button.text()==='Finish client import');expect(finish().attributes('disabled')).toBeUndefined();
  expect(wrapper.html().indexOf('data-create-assignments')).toBeLessThan(wrapper.html().indexOf('client-transition-invitation-stub'));expect(wrapper.html().indexOf('client-transition-invitation-stub')).toBeLessThan(wrapper.html().indexOf('Finish client import'));
  wrapper.findComponent(AssignmentStub).vm.$emit('ready',true);await flushPromises();expect(finish().attributes('disabled')).toBeUndefined();wrapper.unmount();
 });
@@ -159,12 +161,12 @@ it('keeps assignments and the portal invitation inside the creation flow before 
 it('explains the remaining steps and distinguishes a saved paste from a successful import',async()=>{
  mocks.post.mockResolvedValue({data:{}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,autoImport:false,pendingProviderAssignment:true,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
- expect(wrapper.text()).toContain('Demographics · Ready to import');expect(wrapper.get('[aria-label="Remaining import steps"]').text()).toContain('Import demographics.');expect(wrapper.text()).toContain('Resolve the provider assignment');expect(wrapper.findAll('button').find(button=>button.text()==='Finish client import').attributes('disabled')).toBeDefined();wrapper.unmount();
+ expect(wrapper.text()).toContain('Demographics · Ready to import');expect(wrapper.get('[aria-label="Remaining import steps"]').text()).toContain('Import demographics.');expect(wrapper.text()).toContain('Resolve the provider assignment');expect(wrapper.findAll('button').find(button=>button.text()==='Finish client import').attributes('disabled')).toBeUndefined();wrapper.unmount();
 });
 it('keeps the import open when server completion fails after sections have saved',async()=>{
  mocks.post.mockImplementation(async url=>{if(url.endsWith('/chart-import/complete'))throw{response:{status:409,data:{error:{message:'Review a remaining section'}}}};return{data:{parsed:{fullName:'Synthetic Client'}}};});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,initialTexts:{demographics:'Legal Name\nSynthetic Client'}},global:{stubs}});await flushPromises();
- await wrapper.findAll('button').find(button=>button.text()==='Finish client import').trigger('click');await flushPromises();expect(wrapper.text()).toContain('Review a remaining section');expect(wrapper.emitted('imported')).toBeUndefined();expect(wrapper.get('textarea[data-section=demographics]').element.value).toContain('Synthetic Client');wrapper.unmount();
+ await wrapper.findAll('button').find(button=>button.text()==='Finish client import').trigger('click');await flushPromises();await confirmCompletion(wrapper);expect(wrapper.text()).toContain('Review a remaining section');expect(wrapper.emitted('imported')).toBeUndefined();expect(wrapper.get('textarea[data-section=demographics]').element.value).toContain('Synthetic Client');wrapper.unmount();
 });
 
 it('uses the client profile drafts over stale creation pastes, including an intentionally cleared field',async()=>{
@@ -172,17 +174,33 @@ it('uses the client profile drafts over stale creation pastes, including an inte
  mocks.post.mockResolvedValue({data:{progress:{status:'complete'}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,requireVerifiedPayers:true,autoImport:false,initialTexts:{plan:'Stale creation plan',comments:'Removed old comment',intake:'Old intake'}},global:{stubs}});await flushPromises();
  expect(wrapper.get('textarea[data-section=plan]').element.value).toBe('Latest source plan');expect(wrapper.get('textarea[data-section=comments]').element.value).toBe('');expect(wrapper.get('[data-intake-service]').element.value).toBe('H0031');
- await wrapper.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{},expect.anything());expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/intake-note/import')||url==='/medical-billing/treatment-plans')).toBe(false);expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+ await wrapper.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');await flushPromises();await confirmCompletion(wrapper);
+ expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{keptBlankSections:expect.any(Array)},expect.anything());expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/intake-note/import')||url==='/medical-billing/treatment-plans')).toBe(false);expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
 });
 it('marks imported intake and plan drafts done without attesting to clinical finalization',async()=>{
  mocks.get.mockResolvedValue({data:{drafts:{intake:{value:{text:'Original intake',serviceCode:'90791',imported:true,needsReview:true}},plan:{value:{text:'Original plan',imported:true,needsReview:true}}}}});mocks.post.mockResolvedValue({data:{}});
- const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();await wrapper.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();
- expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{ifPending:true},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/note-aid-setup-complete'))).toBe(false);wrapper.unmount();
+ const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();await wrapper.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();await confirmCompletion(wrapper);
+ expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{keptBlankSections:expect.any(Array)},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/note-aid-setup-complete'))).toBe(false);wrapper.unmount();
 });
 
 it('restores the latest coverage slot and contact owner rather than stale creation defaults',async()=>{
  mocks.get.mockResolvedValue({data:{drafts:{demographics:{value:{text:'Saved demographics',imported:true,contactOwner:'client'}},insurance:{value:{text:'Saved secondary',position:'secondary',coverageDrafts:{primary:{text:'Latest primary',imported:true},secondary:{text:'Saved secondary',imported:true}},imported:true}}}}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,creationFlow:true,autoImport:false,initialTexts:{insurance:'Stale primary'}},global:{stubs}});await flushPromises();
  expect(wrapper.get('section[aria-label=Demographics] select').element.value).toBe('client');expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Saved secondary');await wrapper.get('section[aria-label=Insurance] select').setValue('primary');expect(wrapper.get('textarea[data-section=insurance]').element.value).toBe('Latest primary');wrapper.unmount();
+});
+it('requires remaining pasted data to import and blank sections to be confirmed before completion',async()=>{
+ mocks.post.mockResolvedValue({data:{result:{message:'Saved'}}});const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();
+ await wrapper.get('textarea[data-section=comments]').setValue('Source comment');await wrapper.findAll('button').find(b=>b.text()==='Mark done').trigger('click');
+ const complete=()=>wrapper.findAll('button').find(b=>b.text()==='Complete records import');expect(complete().attributes('disabled')).toBeDefined();expect(wrapper.text()).toContain('Patient comments');
+ await wrapper.findAll('button').find(b=>b.text()==='Import remaining pasted sections').trigger('click');await flushPromises();expect(complete().attributes('disabled')).toBeDefined();expect(wrapper.get('textarea[data-section=comments]').attributes('disabled')).toBeDefined();
+ expect(wrapper.emitted('done')).toBeUndefined();expect(wrapper.emitted('section-imported')).toHaveLength(1);await confirmCompletion(wrapper);expect(wrapper.emitted('done')).toHaveLength(1);expect(mocks.post).toHaveBeenLastCalledWith('/clients/12/chart-import/complete',{keptBlankSections:expect.arrayContaining(['intake','plan','contacts'])},expect.anything());wrapper.unmount();
+});
+it('offers to import unsaved pasted information on leaving, or preserves it as a private draft',async()=>{
+ mocks.post.mockResolvedValue({data:{result:{message:'Saved'}}});const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();await wrapper.get('textarea[data-section=comments]').setValue('Saved source comment');
+ expect(await wrapper.vm.prepareLeave()).toBe(true);expect(mocks.post).not.toHaveBeenCalled();expect(mocks.put).toHaveBeenCalled();
+ window.confirm.mockReturnValue(true);expect(await wrapper.vm.prepareLeave()).toBe(true);expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/sections/comments',expect.objectContaining({text:'Saved source comment'}),expect.anything());wrapper.unmount();
+});
+it('keeps the explicit finish action available for referral and task creation flows too',async()=>{
+ mocks.post.mockResolvedValue({data:{parsed:{fullName:'Synthetic Client'}}});const wrapper=mountPanel({demographics:'Legal Name: Synthetic Client'});await flushPromises();
+ expect(wrapper.emitted('imported')).toBeUndefined();await wrapper.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');await confirmCompletion(wrapper);expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
 });

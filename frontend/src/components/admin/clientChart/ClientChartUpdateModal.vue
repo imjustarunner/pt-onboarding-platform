@@ -33,7 +33,7 @@
         </section>
         <p v-if="loading" role="status">Loading clients…</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <div class="chart-content"><ClientEhrBringUpToDatePanel v-if="current" :key="`${current.agency_id}:${current.id}`" ref="panel" embedded open :client-id="current.id" :agency-id="current.agency_id" :client-label="current.full_name || current.initials" @busy="busy = $event" @imported="emit('updated')" @done="emit('updated')" /></div>
+        <div class="chart-content"><ClientEhrBringUpToDatePanel v-if="current" :key="`${current.agency_id}:${current.id}`" ref="panel" embedded open :client-id="current.id" :agency-id="current.agency_id" :client-label="current.full_name || current.initials" @busy="busy = $event" @imported="emit('updated')" @section-imported="emit('updated')" @done="emit('updated')" /></div>
       </div>
     </div>
   </Teleport>

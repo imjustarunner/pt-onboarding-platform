@@ -9,6 +9,7 @@
         <p v-if="!records.insurance" class="muted">No imported insurance on file.</p>
         <article v-for="policy in policies" :key="policy.position" class="supplement-card">
           <h4>{{ policy.value.insurerName || 'Insurance' }} · {{ policy.position }}</h4>
+          <p v-if="records.verification?.verifiedAt" role="status"><strong>{{ records.verification.current ? 'VERIFIED' : 'Previously verified — review needed' }}</strong> · {{ new Date(records.verification.verifiedAt).toLocaleDateString() }}<span v-if="records.verification.serviceDate"> · For service date {{ records.verification.serviceDate }}</span></p><p v-else class="muted">Not verified</p>
           <dl><template v-for="field in insuranceFields.filter(field => policy.value[field.key])" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ policy.value[field.key] }}</dd></template></dl>
         </article>
       </section>

@@ -3,7 +3,7 @@ import { withIntakeDraftMutationLock } from '../services/intakeDraftMutationLock
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
-import { intakeDraftContext, intakeDraftReview, validateIntakeDraftReview } from '../services/intakeDraftReview.service.js';
+import { intakeDraftContext, intakeDraftChartSummary, intakeDraftReview, validateIntakeDraftReview } from '../services/intakeDraftReview.service.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -742,7 +742,9 @@ function formatDraftResponse(row) {
     sourceReview: intakeDraftReview(row, sections),
     intakeSubmissionId: row.intake_submission_id || null,
     treatmentPlanId: row.treatment_plan_id || null,
-    recordsImport: intakeDraftContext(row).source === 'client_records_import',
+    recordsImport: intakeDraftChartSummary(row).records_import,
+    dateOfService: intakeDraftChartSummary(row).date_of_service,
+    removableImported: row.status!=='final' && intakeDraftChartSummary(row).records_import,
     nonBillable: intakeDraftContext(row).nonBillable === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -775,6 +777,30 @@ async function intakeAppointmentOptions({ agencyId, clientId, providerUserId, se
  * GET /clients/:id/intake-note
  * Returns the latest (non-failed) intake note draft for this client.
  */
+/** Remove an unsigned imported copy from active views; retain its source and audit history. */
+export const removeImportedClientIntakeNote = async (req,res,next) => {
+ try {
+  if(!['admin','super_admin'].includes(req.user.role))return res.status(403).json({error:{message:'An administrator must remove an imported intake copy.'}});
+  const clientId=safeInt(req.params.id),draftId=safeInt(req.params.draftId),reason=String(req.body?.reason||'').trim();
+  if(!clientId||!draftId||!reason||reason.length>500)return res.status(400).json({error:{message:'Choose an intake and enter a removal reason (up to 500 characters).'}});
+  const access=await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
+  if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+  const agencyId=safeInt(access.client?.agency_id);
+  return await withIntakeDraftMutationLock(draftId,async()=>{
+   const row=await ClientIntakeNoteDraft.findForClient({draftId,clientId,agencyId});
+   if(!row)return res.status(404).json({error:{message:'Imported intake not found.'}});
+   const context=intakeDraftContext(row);
+   if(row.status==='final'||!['client_records_import','client_creation_record_import'].includes(context.source))return res.status(409).json({error:{message:'Only unsigned imported copies can be removed here. Signed clinical records retain their amendment workflow.'}});
+   if(row.status!=='failed'){
+    await ClientIntakeNoteDraft.updateContent({draftId,sessionContextEnc:maybeEncryptNotePayload(JSON.stringify({...context,removedImport:{at:new Date().toISOString(),byUserId:req.user.id,reason}}))});
+    await ClientIntakeNoteDraft.updateStatus({draftId,status:'failed',errorMessage:'Imported copy removed from active chart; source retained.'});
+    await logNoteAidChartEvent(req,{clientId,agencyId,action:'client_imported_intake_removed',metadata:{intakeNoteId:draftId,sourceRetained:true}});
+   }
+   return res.json({removed:true});
+  });
+ }catch(error){next(error);}
+};
+
 export const getClientIntakeNote = async (req, res, next) => {
   try {
     const clientId = safeInt(req.params.id);
@@ -793,7 +819,7 @@ export const getClientIntakeNote = async (req, res, next) => {
     const row = wantedDraftId
       ? await ClientIntakeNoteDraft.findForClient({ draftId: wantedDraftId, clientId, agencyId })
       : await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId, serviceCode: wantedCode });
-    if (wantedDraftId && !row) {
+    if (wantedDraftId && (!row || row.status==='failed')) {
       return res.status(404).json({ error: { message: 'Intake draft not found' } });
     }
     const treatmentPlan = await loadTreatmentPlanResponse(row?.treatment_plan_id);
@@ -810,7 +836,7 @@ export const getClientIntakeNote = async (req, res, next) => {
     }));
     if (row) await logNoteAidChartEvent(req, { clientId, agencyId, action: 'client_intake_note_viewed', metadata: { intakeNoteId: row.id, treatmentPlanId: row.treatment_plan_id || null } });
     let appointmentOptions = [], appointmentOptionsUnavailable = false;
-    if (row) {
+    if (row && !intakeDraftChartSummary(row).records_import) {
       try { appointmentOptions = await intakeAppointmentOptions({ agencyId, clientId,
         providerUserId: row.provider_user_id || await resolveAssignedPrimaryProviderUserId(clientId, access.client), serviceCode: row.service_code }); }
       catch (error) {

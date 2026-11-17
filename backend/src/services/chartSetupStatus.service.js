@@ -79,6 +79,7 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
     }
   }
   return {
+    recordsImportStatus: (()=>{try{return (typeof client.onboarding_docs_json==='string'?JSON.parse(client.onboarding_docs_json):client.onboarding_docs_json)?.recordsImport?.status||null;}catch{return null;}})(),
     requiresRecordImport: !isAppNativeOfficeClient(client),
     demographicsOnFile,
     intakeOnFile: intakeDone,

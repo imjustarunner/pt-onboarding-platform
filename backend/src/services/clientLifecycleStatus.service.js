@@ -76,6 +76,10 @@ export async function clientHasWeekdayAssignment(clientId) {
 }
 
 export async function clientHasProvider(clientId, clientRow = null) {
+  if(clientRow?.client_type && clientRow.client_type!=='school' && clientRow.agency_id){
+    const [services]=await pool.execute(`SELECT s.provider_user_id,u.is_active,u.terminated_at FROM client_service_enrollments s LEFT JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.agency_id=? AND s.service_kind='counseling' AND s.is_active=1`,[clientId,clientRow.agency_id]);
+    if(services.length)return services.some(row=>Number(row.provider_user_id)>0&&Number(row.is_active)===1&&!row.terminated_at);
+  }
   if (clientRow?.provider_id) return true;
   const [rows] = await pool.execute(
     `SELECT COUNT(*) AS cnt

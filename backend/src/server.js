@@ -3316,4 +3316,13 @@ const careInvitationTick=async()=>{
 setTimeout(careInvitationTick,45000).unref();
 setInterval(careInvitationTick,60000).unref();
 
+let guardianPlanDeliveryRunning=false;
+const guardianPlanDeliveryTick=async()=>{
+ if(guardianPlanDeliveryRunning)return;guardianPlanDeliveryRunning=true;
+ try{await (await import('./services/guardianPlanDelivery.service.js')).retryPendingGuardianPlans();}
+ catch(error){console.warn('[guardian-plan-delivery] Worker requires retry',error?.code||'unavailable');}
+ finally{guardianPlanDeliveryRunning=false;}
+};
+setTimeout(guardianPlanDeliveryTick,60000).unref();
+setInterval(guardianPlanDeliveryTick,5*60000).unref();
 } // Managed background jobs; local API routes/listener remain available.

@@ -29,3 +29,10 @@ it('rejects completion when another window changes the required import steps',as
  await beginClientChartImport(scope,['demographics'],10,{db});db.execute.mockResolvedValueOnce([[{import_state:state}]]).mockResolvedValueOnce([{affectedRows:0}]);
  await expect(completeClientChartImport(scope,10,{db,readRecord})).rejects.toHaveProperty('status',409);expect(state.status).toBe('pending');
 });
+it('records explicitly blank sections but refuses to discard a saved unimported paste',async()=>{
+ await beginClientChartImport(scope,['comments'],10,{db});
+ readRecord.mockImplementation(async(_scope,key)=>({value:{text:key==='intake'?'Original source':'',imported:key==='comments'}}));
+ await expect(completeClientChartImport(scope,10,{db,readRecord,keptBlankSections:['intake']})).rejects.toHaveProperty('status',409);
+ readRecord.mockResolvedValue({value:{text:'',imported:true}});
+ expect(await completeClientChartImport(scope,10,{db,readRecord,keptBlankSections:['intake','plan']})).toMatchObject({status:'complete',keptBlankSections:['intake','plan']});
+});

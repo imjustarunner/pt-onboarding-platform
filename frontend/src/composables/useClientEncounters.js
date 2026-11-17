@@ -24,9 +24,9 @@ export function useClientEncounters(agencyId, clientId, options = {}) {
     });
   });
 
-  const lastSession = computed(() => sortedEncounters.value.find(row => !['planned', 'not_held'].includes(row.display_state)) || null);
+  const lastSession = computed(() => sortedEncounters.value.find(row => !row.records_import && !['planned', 'not_held'].includes(row.display_state)) || null);
 
-  const sessionCount = computed(() => sortedEncounters.value.filter(row => !['planned', 'not_held'].includes(row.display_state)).length);
+  const sessionCount = computed(() => sortedEncounters.value.filter(row => !row.records_import && !['planned', 'not_held'].includes(row.display_state)).length);
 
   const unsignedNotesCount = computed(() =>
     sortedEncounters.value.filter(isUnsignedEncounter).length

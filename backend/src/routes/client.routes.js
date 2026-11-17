@@ -113,6 +113,7 @@ import {
 } from '../controllers/clientDisclosure.controller.js';
 import {
   getClientIntakeNote,
+  removeImportedClientIntakeNote,
   generateClientIntakeNote,
   confirmClientIntakeDiagnosis,
   finalizeClientIntakeNote,
@@ -370,6 +371,7 @@ router.put('/:id/paper-packet-processing', putPaperProcessing);
 router.post('/:id/paper-packet-processing/complete', postPaperProcessing);
 
 // Intake note pipeline (90791 / H0031 AI-assisted drafting)
+router.delete('/:id/intake-note/:draftId', excludeSupportClinicalContent, removeImportedClientIntakeNote);
 router.get('/:id/intake-note', excludeSupportClinicalContent, getClientIntakeNote);
 router.post('/:id/intake-note/generate', excludeSupportClinicalContent, generateClientIntakeNote);
 router.post('/:id/intake-note/import', excludeSupportClinicalContent, importClientIntakeNote);

@@ -148,6 +148,7 @@ class TreatmentPlanAckLink {
     const sets = [];
     const vals = [];
     const map = {
+      meta: 'meta_json',
       status: 'status',
       sentAt: 'sent_at',
       firstOpenedAt: 'first_opened_at',
@@ -168,7 +169,8 @@ class TreatmentPlanAckLink {
     for (const [key, col] of Object.entries(map)) {
       if (fields[key] === undefined) continue;
       sets.push(`${col} = ?`);
-      if (key === 'dashboardVisible') vals.push(fields[key] ? 1 : 0);
+      if (key === 'meta') vals.push(JSON.stringify(fields[key]||{}));
+      else if (key === 'dashboardVisible') vals.push(fields[key] ? 1 : 0);
       else if (key === 'status') {
         const st = String(fields[key] || '');
         vals.push(STATUSES.has(st) ? st : 'issued');

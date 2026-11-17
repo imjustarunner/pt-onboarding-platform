@@ -1,5 +1,7 @@
 <template>
   <div class="cc-enc-tab">
+    <section v-if="openedIntake" aria-label="Imported intake record"><button type="button" class="btn btn-secondary" @click="openedIntake=null">← Medical record</button><ClientIntakeNotePanel :key="openedIntake.intake_draft_id" :client-id="openedIntake.source_client_id || clientId" :initial-draft-id="openedIntake.intake_draft_id" :client="client" @removed="openedIntake=null;load()" /></section>
+    <template v-else>
     <SchoolAbsenceRecords :client-id="clientId" />
     <nav v-if="clientId" class="medical-document-tabs" aria-label="Medical documents"><button v-for="tab in documentTabs" :key="tab.key" :aria-pressed="documentTab===tab.key" @click="selectDocumentTab(tab.key)">{{ tab.label }}</button></nav>
     <EnrollmentPortalDocuments v-if="clientId&&documentTab==='portal'" ref="portalDocumentsRef" :key="`portal:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
@@ -79,10 +81,11 @@
               <span v-else-if="row.display_state === 'planned'" class="muted"> · Upcoming</span>
             </div>
             <div v-if="encounterScheduleLabel(row)" class="cc-enc-list-item__meta muted tiny">{{ encounterScheduleLabel(row) }}</div>
-            <div v-if="row.billing_attached" class="cc-enc-list-item__meta muted tiny">
+            <div v-if="row.records_import" class="cc-enc-list-item__meta muted tiny">Imported intake · nonbillable · Added {{ formatEncounterDate(row.created_at) }}</div>
+            <div v-else-if="row.billing_attached" class="cc-enc-list-item__meta muted tiny">
               Billing attached
             </div>
-            <div v-else-if="canViewMissingClaimFlag && row.billing_attached === false && row.display_state !== 'planned'" class="cc-enc-list-item__meta muted tiny">
+            <div v-else-if="canViewMissingClaimFlag && row.billing_attached === false && !row.non_billable && row.display_state !== 'planned'" class="cc-enc-list-item__meta muted tiny">
               No claim / billing info attached
             </div>
           </button>
@@ -152,7 +155,7 @@
               </div>
             </div>
             <p class="muted tiny" style="margin: 0;">
-              <template v-if="canViewMissingClaimFlag && selectedRow.billing_attached === false">
+              <template v-if="canViewMissingClaimFlag && selectedRow.billing_attached === false && !selectedRow.non_billable">
                 No claim / billing info attached. Importing a billing report for this date and service code will attach to this session instead of creating a duplicate.
               </template>
               <template v-else>
@@ -232,10 +235,12 @@
         <p class="muted">Select a session from the list to view details.</p>
       </section>
     </div>
+    </template>
   </div>
 </template>
 
 <script setup>
+import ClientIntakeNotePanel from './clientChart/ClientIntakeNotePanel.vue';
 import SchoolAbsenceRecords from '../schedule/SchoolAbsenceRecords.vue';
 import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
 import EnrollmentPortalDocuments from '../enrollment/EnrollmentPortalDocuments.vue';
@@ -257,6 +262,7 @@ import {
 } from '../../utils/clientEncounterUtils.js';
 import '../../styles/client-encounters-tab.css';
 
+const openedIntake=ref(null);
 const props = defineProps({
   agencyId: { type: Number, default: null },
   clientId: { type: Number, default: null },
@@ -380,7 +386,7 @@ const filteredEncounters = computed(() => {
   } else if (listFilter.value === 'signed') {
     rows = rows.filter((row) => String(row?.note_status || 'none') === 'signed');
   } else if (listFilter.value === 'missing_claim' && props.canViewMissingClaimFlag) {
-    rows = rows.filter((row) => row?.billing_attached === false);
+    rows = rows.filter((row) => row?.billing_attached === false && !row.non_billable);
   }
   const q = searchQuery.value;
   if (q) rows = rows.filter((row) => matchesEncounterSearch(row, q));
@@ -406,6 +412,7 @@ function selectEncounter(rowOrKey) {
 }
 
 function openNote(row) {
+  if(row.intake_draft_id){openedIntake.value=row;return;}
   openClinicalNote({
     agencyId: props.agencyId,
     clientId: props.clientId,
