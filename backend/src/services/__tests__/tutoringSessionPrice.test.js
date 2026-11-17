@@ -1,27 +1,17 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../models/TenantService.model.js',()=>({default:{findById:vi.fn()}}));
-vi.mock('../selfPayRates.service.js',()=>({assertSelfPayRateAccess:vi.fn()}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
 import TenantService from '../../models/TenantService.model.js';
-import {assertSelfPayRateAccess} from '../selfPayRates.service.js';
+import User from '../../models/User.model.js';
 import {canSetTutoringSessionPrice,tutoringSessionPriceBilling} from '../tutoringSessionPrice.service.js';
 const input={actor:{id:1807,role:'admin'},agencyId:453,providerId:1496,tenantServiceId:320,price:{amountCents:100,reason:'Synthetic one-dollar exercise'}};
-beforeEach(()=>{vi.resetAllMocks();assertSelfPayRateAccess.mockResolvedValue();TenantService.findById.mockResolvedValue({id:320,isActive:true,businessType:'tutoring',serviceCode:'TUTORING'});});
-it('uses the existing pricing authority without changing payroll or billing permissions',async()=>{
- expect(await tutoringSessionPriceBilling(input)).toEqual({amountCents:100,notes:expect.stringContaining('account 1807')});
- expect(assertSelfPayRateAccess).toHaveBeenCalledWith(input.actor,453,1496);expect(TenantService.findById).toHaveBeenCalledWith(320,453);
-});
-it('does not perform pricing reads when no custom price is requested',async()=>{expect(await tutoringSessionPriceBilling({...input,price:undefined})).toBeNull();expect(assertSelfPayRateAccess).not.toHaveBeenCalled();});
+beforeEach(()=>{vi.resetAllMocks();User.getAgencies.mockResolvedValue([{id:453}]);TenantService.findById.mockResolvedValue({id:320,isActive:true,businessType:'tutoring',serviceCode:'TUTORING'});});
+it.each(['admin','support','clinical_practice_assistant','booker','scheduler','front_desk'])('allows a scoped %s to set a customer price with a reason',async role=>{expect((await tutoringSessionPriceBilling({...input,actor:{...input.actor,role}})).amountCents).toBe(100);});
+it.each(['provider','provider_plus','client_guardian','staff','school_admin'])('never grants price control through the %s role',async role=>{expect(await canSetTutoringSessionPrice({...input.actor,role},453,1496)).toBe(false);expect(TenantService.findById).not.toHaveBeenCalled();});
+it('requires the actor and tutor to belong to the exact agency',async()=>{User.getAgencies.mockImplementation(async id=>[{id:id===1496?450:453}]);await expect(tutoringSessionPriceBilling(input)).rejects.toMatchObject({status:403});});
+it('performs no pricing reads without an override',async()=>{expect(await tutoringSessionPriceBilling({...input,price:undefined})).toBeNull();expect(User.getAgencies).not.toHaveBeenCalled();});
 it.each([-1,1.1,'100',NaN,Infinity,2147483648,null])('rejects invalid cents %s',async amountCents=>{await expect(tutoringSessionPriceBilling({...input,price:{...input.price,amountCents}})).rejects.toMatchObject({status:400});});
-it('permits an explicit zero price but never an empty reason',async()=>{
- expect((await tutoringSessionPriceBilling({...input,price:{...input.price,amountCents:0}})).amountCents).toBe(0);
- await expect(tutoringSessionPriceBilling({...input,price:{amountCents:100,reason:' '}})).rejects.toMatchObject({status:400});
-});
-it('rejects package and price together',async()=>{await expect(tutoringSessionPriceBilling({...input,packageEntitlementId:77})).rejects.toMatchObject({status:400});});
-it.each([{isActive:false},{businessType:'mental_health'},{serviceCode:'90837'}])('does not turn a clinical or inactive service into tutoring: %j',async patch=>{
- TenantService.findById.mockResolvedValue({isActive:true,businessType:'tutoring',serviceCode:'TUTORING',...patch});await expect(tutoringSessionPriceBilling(input)).rejects.toMatchObject({status:400});
-});
-it('denies a provider, a guardian or another agency when existing pricing authorization denies access',async()=>{
- assertSelfPayRateAccess.mockRejectedValue(Object.assign(new Error('Denied'),{status:403}));expect(await canSetTutoringSessionPrice(input.actor,453,1496)).toBe(false);
- await expect(tutoringSessionPriceBilling(input)).rejects.toMatchObject({status:403});expect(TenantService.findById).not.toHaveBeenCalled();
-});
-it('does not hide a database outage as a permission denial',async()=>{assertSelfPayRateAccess.mockRejectedValue(new Error('Unavailable'));await expect(canSetTutoringSessionPrice(input.actor,453,1496)).rejects.toThrow('Unavailable');});
+it('allows zero with a reason and rejects an empty reason',async()=>{expect((await tutoringSessionPriceBilling({...input,price:{...input.price,amountCents:0}})).amountCents).toBe(0);await expect(tutoringSessionPriceBilling({...input,price:{amountCents:100,reason:' '}})).rejects.toMatchObject({status:400});});
+it('rejects package and custom price together',async()=>{await expect(tutoringSessionPriceBilling({...input,packageEntitlementId:77})).rejects.toMatchObject({status:400});});
+it.each([{isActive:false},{businessType:'mental_health'},{serviceCode:'90837'}])('does not reclassify an ineligible service %j',async patch=>{TenantService.findById.mockResolvedValue({isActive:true,businessType:'tutoring',serviceCode:'TUTORING',...patch});await expect(tutoringSessionPriceBilling(input)).rejects.toMatchObject({status:400});});
+it('does not hide an authorization lookup outage',async()=>{User.getAgencies.mockRejectedValue(new Error('Unavailable'));await expect(canSetTutoringSessionPrice(input.actor,453,1496)).rejects.toThrow('Unavailable');});

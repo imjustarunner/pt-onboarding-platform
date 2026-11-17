@@ -1,12 +1,12 @@
 <template>
-  <section class="tutor-office-status" aria-label="Tutor’s office">
-    <h3>Tutor’s office</h3>
+  <section class="tutor-office-status" aria-label="Tutoring session">
+    <h3>Your tutoring session</h3>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="!offices.length" class="office-window">Office status and appointment chat are available from 30 minutes before your appointment until 30 minutes after its scheduled end.</p>
+    <p v-if="!offices.length" class="office-window">Your booked session is available from 30 minutes before your appointment until 30 minutes after its scheduled end.</p>
     <article v-for="office in offices" :key="`${office.source}-${office.appointmentId}`">
       <div><strong>{{ office.providerName }}</strong><span class="office-presence" :class="office.availability">{{ availabilityLabel(office.availability) }}</span></div>
       <p>{{ availabilityText(office) }}</p>
-      <div class="office-actions"><a v-if="office.virtual" :href="office.joinUrl">Join waiting room</a><button :disabled="busy" @click="openChat(office)">{{ busy?'Opening…':`Message ${office.providerName}` }}</button></div>
+      <div class="office-actions"><a v-if="office.virtual" :href="office.joinUrl">Join tutoring session</a><a v-if="office.source==='appointment'" :href="messagesHref">Message learning team</a><button v-else :disabled="busy" @click="openChat(office)">{{ busy?'Opening…':`Message ${office.providerName}` }}</button></div>
     </article>
     <OfficeWaitingMessages v-if="activeOffice && visit" :key="visit.id" :request="messageRequest" :recipient="activeOffice.providerName" :notice="availabilityText(activeOffice)" closable @close="selectedKey=''" />
   </section>
@@ -15,13 +15,14 @@
 import {computed,inject,unref,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 import OfficeWaitingMessages from '../meetings/OfficeWaitingMessages.vue';
+const messagesHref=computed(()=>{const query=new URLSearchParams(window.location.search);query.set('panel','messages');return `${window.location.pathname}?${query}`;});
 const props=defineProps({clientId:{type:[Number,String],required:true}});
 const api=usePortalCareApi(),careContext=inject('portalCareContext',null);
 const offices=ref([]),error=ref(''),busy=ref(false),selectedKey=ref(''),visit=ref(null);
 const key=o=>`${o.source}-${o.appointmentId}`;
 const activeOffice=computed(()=>offices.value.find(o=>key(o)===selectedKey.value));
-const availabilityLabel=value=>({in_session:'In a session',available:'In the office',away:'Away'})[value]||'Away';
-const availabilityText=o=>o.availability==='in_session'?`${o.providerName} is currently in a session. You can leave a message; they can reply when they are free.`:o.availability==='available'?`${o.providerName} is in the office. You can send a message while you wait.`:`${o.providerName} is away. You can leave a message for when they return.`;
+const availabilityLabel=value=>({in_session:'In a session',available:'In the office',scheduled:'Scheduled tutoring',away:'Away'})[value]||'Away';
+const availabilityText=o=>o.availability==='scheduled'?'Join this appointment’s waiting room. Your tutor will admit you when ready.':o.availability==='in_session'?`${o.providerName} is currently in a session. You can leave a message; they can reply when they are free.`:o.availability==='available'?`${o.providerName} is in the office. You can send a message while you wait.`:`${o.providerName} is away. You can leave a message for when they return.`;
 let timer,stopped=false,version=0,fetchingVersion=null;
 const endpoint=()=>`/tutoring-learning-os/clients/${props.clientId}`;
 async function refresh(){const requestVersion=version;if(fetchingVersion===requestVersion)return;fetchingVersion=requestVersion;try{const {data}=await api.get(`${endpoint()}/office-status`,{skipGlobalLoading:true});if(!stopped&&requestVersion===version){offices.value=data.offices||[];error.value='';if(!activeOffice.value){visit.value=null;selectedKey.value='';}}}catch{if(!stopped&&requestVersion===version){offices.value=[];visit.value=null;error.value='Office status is temporarily unavailable.';}}finally{if(fetchingVersion===requestVersion)fetchingVersion=null;}}

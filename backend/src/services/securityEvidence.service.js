@@ -38,7 +38,9 @@ export async function assertEvidenceStorage() {
     ['virtual_office_encounters', '1560', 'room_id,generation,counseling_session_id,attendance_version,synced_version'],
     ['private_virtual_office_visits', '1560', 'counseling_visit_id'],
     ['counseling_session_visits', '1560', 'client_id,entry_method,office_visit_id'],
-    ['therapy_session_artifacts', '1530', 'session_kind,session_id,generation,agency_id,payload_envelope']
+    ['therapy_session_artifacts', '1530', 'session_kind,session_id,generation,agency_id,payload_envelope'],
+    ['tutoring_session_visits', '1838', 'session_id,user_id,client_id,actor,status,admitted_at,ended_at'],
+    ['learning_class_sessions', '1838', 'actual_ended_at']
   ];
   for (const [component, requiredMigration, columns] of probes) {
     try { await pool.execute(`SELECT ${columns} FROM ${component} LIMIT 0`); }

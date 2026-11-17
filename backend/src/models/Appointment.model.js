@@ -8,6 +8,7 @@ const LIVE_STATUSES = new Set([
   'scheduled',
   'confirmed',
   'client_confirmed',
+  'in_progress',
   'completed',
   'canceled_by_provider',
   'canceled_by_client',

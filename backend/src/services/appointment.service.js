@@ -705,7 +705,10 @@ export async function cancelAppointment(appointmentId, {
   const notificationFacts = { eventType: 'canceled', cancellationActorRole: actorRole, cancellationActorUserId: actorUserId, clientFacingReason: clientFacingReason || reason || notes,
     followUpAction, followUpMessage };
   cancellationClientDetails(notificationFacts);
-  if (isCanceledAppointmentStatus(existing.status)) await syncQaAppointmentBalance(existing, actorUserId);
+  if (isCanceledAppointmentStatus(existing.status)) {
+    await syncQaAppointmentBalance(existing, actorUserId);
+    if(existing.businessType==='tutoring'){const {closeChangedBookedTutoringRoom}=await import('./bookedTutoringRoom.service.js');await closeChangedBookedTutoringRoom(existing,actorUserId);}
+  }
   if (isCanceledAppointmentStatus(existing.status)) return { ...(await getAppointmentBundle(appointmentId)), alreadyCanceled: true,
     notificationDelivery: null };
   if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
@@ -789,6 +792,7 @@ export async function cancelAppointment(appointmentId, {
     canceledByUserId: actorUserId,
     updatedByUserId: actorUserId
   }, { actorUserId, guardianCancellationClientId: familyCancellationActor ? billingClientId : null });
+  if(existing.businessType==='tutoring'){const {closeChangedBookedTutoringRoom}=await import('./bookedTutoringRoom.service.js');await closeChangedBookedTutoringRoom(existing,actorUserId);}
 
   try {
     await cancelPendingReminders(appointmentId);

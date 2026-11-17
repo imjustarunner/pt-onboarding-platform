@@ -36,7 +36,10 @@ export function dependentRouteAllowed(method,path,clientId){
  if(method==='GET'&&/^\/api\/icons\/\d+$/.test(path))return true;
  if(/^\/api\/auth\/(me|logout|session-activity|session-lock-config|verify-session-pin|refresh|change-password|security(?:\/.*)?|sessions(?:\/.*)?|passkeys(?:\/.*)?)\/?$/.test(path))return true;
  if(method==='GET'&&/^\/api\/(users\/me(?:\/agencies)?|branding(?:\/.*)?|agencies\/[^/]+\/(branding|public))$/.test(path))return true;
- // The authenticated appointment-entry page still uses the same tutor office.
+ // Exact personal-student binding and admission are rechecked by these handlers.
+ if(method==='GET'&&/^\/api\/tutoring-sessions\/\d+(?:\/workspace)?$/.test(path))return true;
+ if(method==='POST'&&/^\/api\/tutoring-sessions\/\d+\/(?:join|token|leave|workspace(?:\/download)?)$/.test(path))return true;
+ // Retained office chat routes keep their existing client scope.
  if(new RegExp(`^/api/tutoring-learning-os/clients/${Number(clientId)}/office-(entry|status|visit)$`).test(path))return true;
  return false;
 }

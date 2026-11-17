@@ -15,7 +15,7 @@ function section(start, end) {
 // watcher without mounting its unrelated network-backed calendars and booking UI.
 function scheduler(type = 'agency_meeting') {
   const state = {
-    computed, watch,
+    computed, watch, editorPracticeCategory:ref(''),tutoringWorkspaceOnly:ref(false),
     requestType: ref(type), gridMinHour: ref(7), gridMaxHour: ref(22),
     modalHour: ref(18), modalStartHour: ref(18), modalStartMinute: ref(0),
     modalEndHour: ref(19), modalEndMinute: ref(0),
@@ -97,6 +97,8 @@ describe('meeting time entry independent of the visible calendar band', () => {
       }
     } finally { s.stop(); }
   });
+
+  it.each(['tutoring_only','mixed'])('allows a 10:30 PM tutoring session in %s context',async context=>{const s=scheduler('individual_session');try{if(context==='tutoring_only')s.tutoringWorkspaceOnly.value=true;else s.editorPracticeCategory.value='tutoring';s.onEditorStartTime('22:30');await nextTick();s.onEditorEndTime('23:30');await nextTick();expect([s.modalStartHour.value,s.modalStartMinute.value,s.modalEndHour.value,s.modalEndMinute.value]).toEqual([22,30,23,30]);expect(s.modalGridMaxEnd.value).toBe(24);}finally{s.stop();}});
 
   it('leaves office-specific time bounds unchanged', () => {
     const s = scheduler('office_request_only');

@@ -1780,7 +1780,7 @@ function catalogEntries() {
       group: 'Coverage and referrals',
       prompt: 'Who has an intake opening today?',
       requiredToolsAll: ['findIntakeOpenings'],
-      subtitleTag: 'intake openings',
+      subtitleTag: 'enrollment openings',
       semanticExamples: [
         'any intake slots available today',
         'who is free for a new intake',

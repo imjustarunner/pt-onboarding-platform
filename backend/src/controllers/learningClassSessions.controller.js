@@ -260,8 +260,10 @@ export const getClassSession = async (req, res, next) => {
       primaryClientId = null;
     }
 
+    const [[tutoringAppointment]]=await pool.execute('SELECT appointment_id FROM tutoring_appointment_sessions WHERE session_id=?',[sessionId]);
     res.json({
       session,
+      appointmentId:tutoringAppointment?.appointment_id||null,
       actorRole,
       canModerate,
       roles,

@@ -1,12 +1,13 @@
 import TenantService from '../models/TenantService.model.js';
-import { assertSelfPayRateAccess } from './selfPayRates.service.js';
+import User from '../models/User.model.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
 // Uses the existing customer-rate permission; this never grants payroll or claims access.
 export async function canSetTutoringSessionPrice(actor, agencyId, providerId) {
-  try { await assertSelfPayRateAccess(actor, agencyId, providerId); return true; }
-  catch (error) { if (error.status === 403) return false; throw error; }
+  if (!actor?.id || !['admin','agency_admin','backoffice_admin','super_admin','support','clinical_practice_assistant','scheduler','front_desk','booker'].includes(actor.role)) return false;
+  if (!(await User.getAgencies(actor.id)).some(a=>Number(a.id)===Number(agencyId))) return false;
+  return !providerId || (await User.getAgencies(providerId)).some(a=>Number(a.id)===Number(agencyId));
 }
 
 export async function tutoringSessionPriceBilling({ actor, agencyId, providerId, tenantServiceId, packageEntitlementId, price }) {

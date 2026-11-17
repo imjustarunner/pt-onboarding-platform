@@ -16,6 +16,9 @@ export async function guardianAppointmentJoin(row,client,db) {
   const learning=['learning','tutoring'].includes(String(row.businessType||row.business_type||client.client_type).toLowerCase());
   if(!learning)return guardianVirtualJoin(row);
   if(!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;
+  // A booked tutoring visit always has an appointment-specific destination.
+  if (Number(row.id)>0) return `/tutoring-session/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}`;
+  // Legacy records without a canonical appointment need an explicit room link.
   // The provider's standing room is the destination for canonical appointments
   // too. Admission and student identity are checked again inside that office.
   const [offices]=await db.execute(`SELECT r.slug FROM provider_my_rooms r

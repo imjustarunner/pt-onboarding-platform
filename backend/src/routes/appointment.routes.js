@@ -56,6 +56,19 @@ router.get('/replacement-slots/:slotId', replacementSlotDetails);
 // This endpoint exposes only the authenticated provider's own benefit balance,
 // with agency and assignment checks in the handler; client billing redaction does not apply.
 router.get('/:id/change/school-support', getAppointmentSchoolSupportHandler);
+router.post('/:id/qa-billing-reconcile', async(req,res,next)=>{
+  try{
+    const appointment=await Appointment.findById(Number(req.params.id));
+    const {canSetTutoringSessionPrice}=await import('../services/tutoringSessionPrice.service.js');
+    if(!appointment||![453,454].includes(appointment.agencyId)||appointment.businessType!=='tutoring'||!await canSetTutoringSessionPrice(req.user,appointment.agencyId,appointment.providerUserId))return res.status(403).json({error:{message:'Scoped NLU QA pricing access is required.'}});
+    const {qaPaymentSimulationConfig}=await import('../services/qaPaymentSimulator.service.js');
+    if(!(await qaPaymentSimulationConfig(appointment.agencyId)).enabled)throw Object.assign(new Error('Enable the isolated QA payment simulator for this exact organization before reconciling its test balance.'),{status:409});
+    const {syncQaAppointmentBalance}=await import('../services/qaAppointmentBilling.service.js');
+    const balance=await syncQaAppointmentBalance(appointment,req.user.id,{repair:true});
+    if(!balance)throw Object.assign(new Error('This appointment has no payable tutoring outcome. Check its attendance, package and fee status.'),{status:409});
+    res.json({ok:true,balanceId:balance.id,status:balance.status,holdReason:balance.hold_reason||null});
+  }catch(error){next(error);}
+});
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
 router.use('/:id', async (req, res, next) => {

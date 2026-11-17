@@ -39,7 +39,7 @@ async function authorizedWorkspace(context, operation, suppliedDb) {
   if(context.historical!==true && session?.state!=='active')throw fail(410,'This encounter has ended.');
   if(context.historical && context.role!=='provider')throw fail(403,'Provider access is required.');
   if(context.role==='client') {
-   const table=context.kind==='office'?'private_virtual_office_visits':'counseling_session_visits';
+   const table=context.kind==='office'?'private_virtual_office_visits':context.kind==='tutoring'?'tutoring_session_visits':'counseling_session_visits';
    const office=context.kind==='office';
    const [visits]=await db.execute(`SELECT id FROM ${table} WHERE id=? AND status='admitted' AND ${office?'room_id=? AND generation=?':'session_id=? AND actor=?'}`,[context.visitId||0,context.sessionId,office?context.generation:context.actor]);
    if(!visits[0])throw fail(403,'Admission is required.');

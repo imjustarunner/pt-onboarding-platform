@@ -14,6 +14,7 @@ export {
 
 export const APPOINTMENT_EDITOR_STATUS_OPTIONS = [
   { value: 'scheduled', label: 'Scheduled' },
+  { value: 'in_progress', label: 'In progress' },
   { value: 'client_confirmed', label: 'Client confirmed' },
   { value: 'confirmed', label: 'Confirmed' },
   { value: 'draft', label: 'Draft' },

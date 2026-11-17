@@ -2,7 +2,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{getBilling:vi.fn(),listParticipants:vi.fn()}}));
 vi.mock('../familyLedger/receivables.js',()=>({createReceivable:vi.fn()}));
-vi.mock('../familyLedger/policy.js',()=>({transaction:vi.fn()}));
+vi.mock('../familyLedger/policy.js',()=>({transaction:vi.fn(),billingCalendarDate:(zone,date)=>new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date)}));
+vi.mock('../qaPaymentSimulator.service.js',()=>({qaPaymentSimulationConfig:vi.fn(async()=>({enabled:false}))}));
 import pool from '../../config/database.js';
 import Appointment from '../../models/Appointment.model.js';
 import {createReceivable} from '../familyLedger/receivables.js';
@@ -54,7 +55,7 @@ it('retains the completed one-dollar tutoring balance as synthetic and noncollec
  pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[nlu]]:[[]]);
  Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay',amountCents:100,paymentStatus:'fee_pending'});
  await syncQaAppointmentBalance(tutoring,1496);
- expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({agencyId:453,amountCents:100,serviceDomain:'tutoring',serviceLabel:'Tutoring session',reviewRequired:true,payload:expect.objectContaining({syntheticOnly:true,noCollection:true,appointmentId:72})}));
+ expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({agencyId:453,amountCents:100,serviceDomain:'tutoring',serviceLabel:'General tutoring',reviewRequired:true,payload:expect.objectContaining({syntheticOnly:true,noCollection:true,appointmentId:72})}));
  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('WHERE id=?'),[453]);
 });
 it.each(['package_consumed','free_rebook','waived','paid'])('does not duplicate a covered tutoring balance (%s)',async paymentStatus=>{
@@ -66,4 +67,11 @@ it.each([{agencyId:6},{businessType:'mental_health'},{serviceCode:'90837'}])('ke
 });
 it('keeps future tutoring completion and no-show blocked',async()=>{
  pool.execute.mockResolvedValue([[nlu]]);await expect(requireQaOutcomeElapsed({...tutoring,endAt:new Date(Date.now()+3600000).toISOString()},'completed')).rejects.toMatchObject({status:409});
+});
+
+it('dates an evening tutoring service in its booked Denver zone rather than the UTC calendar day',async()=>{
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[{id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}}]]:sql.includes('FROM client_service_enrollments')?[[{label:'Math tutoring'}]]:[[]]);
+ Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay',amountCents:100});
+ await syncQaAppointmentBalance({...appointment,agencyId:453,providerUserId:1496,businessType:'tutoring',serviceCode:'TUTORING',status:'completed',sourceTimezone:'America/Denver',startAt:'2026-11-17 03:00:00',endAt:'2026-11-17 04:00:00'},1496);
+ expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({serviceDate:'2026-11-16',serviceLabel:'Math tutoring'}));
 });

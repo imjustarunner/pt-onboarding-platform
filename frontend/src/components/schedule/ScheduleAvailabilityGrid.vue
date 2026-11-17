@@ -159,7 +159,7 @@
               Note Workspace
             </button>
             <button
-              v-if="canOpenMyRoomLobby"
+              v-if="canOpenMyRoomLobby && !tutoringWorkspaceOnly"
               type="button"
               class="sched-command__outline"
               title="Admit guests waiting in your My Room lobby"
@@ -1943,11 +1943,13 @@
         </label>
         <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">
           <label>Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
-          <TutoringSessionPrice v-model="editorIndividualPrice" :quote="editorTutoringQuote"
+          <label>Subject<select v-model="editorTutoringSubject"><option value="assigned">Assigned subject</option><option value="general">General</option></select></label>
+          <TutoringSessionPrice v-if="editorCanSetTutoringPrice" v-model="editorIndividualPrice" :quote="editorTutoringQuote"
             :can-set="editorCanSetTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
             :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
             :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
         </section>
+        <section v-if="editorIsLearning && editorSavedCustomerQuote" aria-label="Saved tutoring session price"><p>{{editorSavedCustomerQuote.label}}: {{editorSavedCustomerQuote.packageCovered ? 'Package credit' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(editorSavedCustomerQuote.total/100)}}</p><button v-if="[453,454].includes(Number(editorAgencyId))" type="button" @click="refreshQaTutoringBilling">Reconcile QA tutoring balance</button><p role="status">{{editorQaBillingMessage}}</p></section>
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
           :title="modalEditorTitle"
@@ -13144,6 +13146,7 @@ const useModalQuarterHourTime = computed(
 );
 const personalEventTypeOptions = computed(() => PERSONAL_EVENT_TYPE_OPTIONS);
 const pad2Clock = (n) => String(Math.max(0, Number(n) || 0)).padStart(2, '0');
+const editorPracticeCategory = ref('');
 const snapQuarterMinute = (m) => {
   const n = Number(m || 0);
   if (!Number.isFinite(n)) return 0;
@@ -13161,7 +13164,7 @@ const modalHasFullDayTimeRange = computed(() => {
   // Include the chooser so entering 6:30 AM before selecting Meeting is safe too.
   // Use requestType only — later editor computeds are not initialized yet (TDZ).
   const t = String(requestType.value || '');
-  return !t || ['agency_meeting', 'huddle', 'supervision', 'edit_supervision'].includes(t);
+  return !t || tutoringWorkspaceOnly.value || editorPracticeCategory.value==='tutoring' || ['agency_meeting', 'huddle', 'supervision', 'edit_supervision'].includes(t);
 });
 const modalGridMaxEnd = computed(() => modalHasFullDayTimeRange.value ? 24 : gridMaxHour.value);
 const modalStartTimeValue = computed(() => (
@@ -14342,7 +14345,6 @@ const editorOpenVirtual = ref(true);
 const editorOpenInPerson = ref(false);
 const editorCanLinkOpenOffice = computed(() => Number(modalContext.value?.officeEventId || 0) > 0 || findProviderOfficeBookingsForEditorWindow().length > 0);
 const editorModality = ref('TELEHEALTH');
-const editorPracticeCategory = ref('');
 const editorPracticeCategories = ref([]);
 const editorTenantServiceId = ref(0);
 const editorTenantServices = ref([]);
@@ -14703,6 +14705,7 @@ const editorCanViewBillingFinancials = computed(() => {
   return !['provider', 'provider_plus'].includes(role) && (['admin', 'super_admin'].includes(role) || (authStore.user?.billingAgencyIds || []).map(Number).includes(aid));
 });
 const editorShowBillingTab = computed(() => {
+  if(editorIsLearning.value&&['provider','provider_plus','intern','intern_plus'].includes(authStore.user?.role))return false;
   if (!editorIsClinical.value) return false;
   if (String(editorPracticeCategory.value || '') === 'mental_health') return true;
   if (!editorCanViewBillingFinancials.value) return false;
@@ -15138,13 +15141,17 @@ const editorInfoClientName = computed(() => {
   return scheduleEventClientDisplayName(id) || 'Client';
 });
 const editorIndividualPrice = ref(null);
+const editorTutoringSubject=ref('assigned');
+const editorSavedCustomerQuote=ref(null);
+const editorQaBillingMessage=ref('');
+async function refreshQaTutoringBilling(){editorQaBillingMessage.value='';try{await api.post(`/appointments/${editorAppointmentId.value}/qa-billing-reconcile`,{}, {skipGlobalLoading:true});editorQaBillingMessage.value='QA balance reconciled. Refresh the family billing page to review its simulated payment.';}catch(e){editorQaBillingMessage.value=e.response?.data?.error?.message||'QA billing could not be reconciled.';}}
 const editorCanSetTutoringPrice = ref(false);
 const editorTutoringQuote=computed(()=>{
  const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));
  const quote=svc?.quotes?.[editorModality.value==='IN_PERSON'?'IN_PERSON':'TELEHEALTH'];
  return quote?.amountCents!=null?{...quote,amountCents:quote.rateUnit==='hour'?Math.round(Number(quote.rateCents)*modalSessionDurationMinutes.value/60):Number(quote.amountCents)}:null;
 });
-watch(showRequestModal,()=>{editorIndividualPrice.value=null;});
+watch(showRequestModal,()=>{editorIndividualPrice.value=null;editorSavedCustomerQuote.value=null;editorTutoringSubject.value='assigned';});
 function tutoringSessionPricePayload() {
   if (!editorIsLearning.value || !editorCanSetTutoringPrice.value || !editorIndividualPrice.value) return undefined;
   const price=editorIndividualPrice.value;
@@ -16155,6 +16162,7 @@ async function loadEditorReminders() {
         );
         if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.status || 'scheduled');
         editorStatusBaseline.value=String(appointment.status || 'scheduled');
+        editorSavedCustomerQuote.value=appointment.customerQuote||null;
         editorAppointmentBaseline.value={id:apptId,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
         if (!edited) {
           if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
@@ -22210,6 +22218,7 @@ const buildVirtualAttendeeNotes = () => {
 };
 
 const pushCounselingSessionRoute = async (sessionKey) => {
+  if(String(sessionKey).startsWith('tutoring-appointment:')){await router.push(scheduleOrgTo(`/tutoring-session/appointment/${Number(String(sessionKey).split(':')[1])}`));return;}
   const slug = String(
     route.params.organizationSlug ||
       agencyStore?.currentAgency?.slug ||
@@ -22309,7 +22318,7 @@ const completePlatformVirtualSessionBooking = async ({
       startAt,
       endAt,
       modality: 'TELEHEALTH',
-      title: titleWithNotes,
+      title: editorIsLearning.value ? (editorTutoringSubject.value==='general'?'General tutoring':editorHeaderServiceOptions.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value))?.name||'General tutoring') : titleWithNotes,
       notes: description,
       quickNote: quickNote || undefined,
       source: 'staff_grid',
@@ -22376,7 +22385,9 @@ const completePlatformVirtualSessionBooking = async ({
   const scheduleResp = { data: { event: { id: canonicalBooking?.appointment?.providerScheduleEventId },
     googleCalendarWarning: canonicalBooking?.googleCalendarWarning } };
 
-  const useMyRoom = String(editorVideoRoomMode.value || '') === 'my_room';
+  const tutoringBooking = canonicalBooking.appointment?.businessType === 'tutoring';
+  if(tutoringBooking){virtualSessionShareUrl.value=new URL(scheduleOrgTo(`/tutoring-session/appointment/${appointmentId}`),window.location.origin).href;virtualSessionScheduledSessionKey.value=`tutoring-appointment:${appointmentId}`;}
+  const useMyRoom = !tutoringBooking && String(editorVideoRoomMode.value || '') === 'my_room';
   let data = null;
   if (useMyRoom) {
     try {
@@ -22474,6 +22485,7 @@ const submitRequest = async () => {
 
     if (requestType.value === 'start_video') {
       const ctx = modalContext.value || {};
+      if(editorIsLearning.value){const bookedId=Number(editorAppointmentId.value||ctx.appointmentId||0);if(!bookedId)throw new Error('Open this booked tutoring appointment and choose Open learning workspace to join its exact room.');closeModal();await router.push(scheduleOrgTo(`/tutoring-session/appointment/${bookedId}`));return;}
       const appointmentId = Number(ctx.officeEventId || 0);
       if (!appointmentId) throw new Error('Booked office event is required for video.');
       const agencyId = Number(
@@ -26283,6 +26295,7 @@ function sessionConfirmationState(ev = null) {
   if (!ev || !isClientSessionScheduleEvent(ev)) return null;
   if (isScheduleEventCancelled(ev)) return null;
   const st = String(ev?.appointmentStatus || ev?.appointment_status || '').trim().toLowerCase();
+  if (st === 'in_progress') return null;
   if (st === 'client_confirmed') return 'confirmed';
   if (['completed', 'canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian',
     'canceled_by_organization', 'late_canceled', 'no_show', 'voided', 'rescheduled'].includes(st)) {

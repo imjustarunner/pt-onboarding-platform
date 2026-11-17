@@ -2,7 +2,7 @@
 // The appointment row serializes the bridge with other entry points.
 import { selectedLearningServiceCode, learningServiceMetadata } from './learningServiceCompensation.js';
 
-export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allowEnded = false } = {}) {
+export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allowEnded = false, actorUserId = room.userId } = {}) {
   if (!visit.tutoringAppointmentId) return visit;
   const id = visit.tutoringAppointmentId;
   const serviceCode = selectedLearningServiceCode(visit.learning_service_code);
@@ -25,12 +25,12 @@ export async function ensureTutoringAppointmentWorkspace(room, visit, db, { allo
     if (!classId) {
       const [created] = await db.execute(`INSERT INTO learning_program_classes
         (organization_id,class_name,class_code,delivery_mode,status,is_active,created_by_user_id)
-        VALUES (?,'Private tutoring',?,'individual','active',1,?)`, [room.agencyId, code, room.userId]);
+        VALUES (?,'Private tutoring',?,'individual','active',1,?)`, [room.agencyId, code, actorUserId]);
       classId = created.insertId;
     }
     const [created] = await db.execute(`INSERT INTO learning_class_sessions
       (learning_class_id,title,mode,session_subtype,delivery_context,starts_at,ends_at,provider_user_id,created_by_user_id,metadata_json)
-      VALUES (?,?,?,'tutoring',?,?,?,?,?,?)`, [classId, visit.title || 'Tutoring appointment', visit.participants.length===1?'individual':'group', deliveryContext, visit.starts_at, visit.ends_at, room.userId, room.userId, JSON.stringify({ learningServiceCode: serviceCode })]);
+      VALUES (?,?,?,'tutoring',?,?,?,?,?,?)`, [classId, visit.title || 'Tutoring appointment', visit.participants.length===1?'individual':'group', deliveryContext, visit.starts_at, visit.ends_at, room.userId, actorUserId, JSON.stringify({ learningServiceCode: serviceCode })]);
     sessionId = created.insertId;
     for (const student of visit.participants) {
       await db.execute('INSERT INTO tutoring_session_clients(session_id,client_id) VALUES (?,?)', [sessionId, student.id]);

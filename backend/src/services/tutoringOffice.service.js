@@ -149,11 +149,8 @@ export async function tutoringOfficeDestination(session, actorId, db=pool) {
   if (!session?.provider_user_id || !virtual(session.delivery_context) || terminal.has(session.status) || (session.session_subtype!=='tutoring'&&session.mode!=='individual')) return null;
   const [[klass]] = await db.execute('SELECT organization_id FROM learning_program_classes WHERE id=?', [session.learning_class_id]);
   if (!klass) return null;
-  const {officeForHost}=await import('./privateVirtualOffice.service.js');
-  const {room}=await officeForHost(session.provider_user_id,klass.organization_id);
-  return Number(actorId) === Number(session.provider_user_id)
-    ? `/my-virtual-office?agencyId=${Number(klass.organization_id)}&learningSessionId=${Number(session.id)}`
-    : `/join/my-room/${encodeURIComponent(room.slug)}`;
+  const [[link]]=await db.execute('SELECT appointment_id FROM tutoring_appointment_sessions WHERE session_id=?',[session.id]);
+  return link ? `/tutoring-session/appointment/${Number(link.appointment_id)}?agencyId=${Number(klass.organization_id)}` : null;
 }
 
 export function assertTutoringArrivalTime(visit,now=Date.now()){

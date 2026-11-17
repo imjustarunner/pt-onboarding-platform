@@ -1,7 +1,7 @@
 import { recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { randomUUID } from 'node:crypto';
-import { tutoringSessionPriceBilling } from '../services/tutoringSessionPrice.service.js';
+import { tutoringSessionPriceBilling, canSetTutoringSessionPrice } from '../services/tutoringSessionPrice.service.js';
 import pool from '../config/database.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
@@ -39,6 +39,13 @@ async function assertBillingMutationAccess(req, agencyId) {
       && !(await hasSchedulingBillingAccess(req.user, agencyId))) {
     throw Object.assign(new Error('Billing access required to change charges or override settlement'), { status: 403 });
   }
+  const mutation=req.body?.billing||req.body?.waive||req.body?.force||req.body?.cancellationFeeCents!=null;
+  if(mutation){
+    const existing=req.params?.id?await Appointment.findById(Number(req.params.id)):null;
+    const service=!existing&&req.body?.tenantServiceId?await (await import('../models/TenantService.model.js')).default.findById(Number(req.body.tenantServiceId),agencyId):null;
+    if((existing?.businessType==='tutoring'||service?.businessType==='tutoring')&&!await canSetTutoringSessionPrice(req.user,agencyId,existing?.providerUserId||req.body?.providerUserId))throw Object.assign(new Error('Only authorized booking staff can change tutoring prices or discounts.'),{status:403});
+  }
+  if(req.params?.id&&req.body?.tutoringSessionPrice!=null)throw Object.assign(new Error('Set a custom price with a reason when booking. Use the billing adjustment workflow for an existing visit.'),{status:409});
 }
 
 function toMysqlDateTimeWall(value) {
@@ -104,6 +111,10 @@ export const getAppointment = async (req, res, next) => {
     const {default:scheduleReferences}=await import('../services/scheduleRecordReference.service.js');
     const references=await scheduleReferences.ensure([{type:'appointment',id}]);
     bundle.scheduleReference=references.get(`appointment:${id}`)||null;
+    if(bundle.businessType==='tutoring' && await (await import('../services/tutoringSessionPrice.service.js')).canSetTutoringSessionPrice(req.user,bundle.agencyId,bundle.providerUserId)){
+      const billing=await Appointment.getBilling(bundle.id);
+      bundle.customerQuote={total:billing?.amountCents??null,currency:'USD',packageCovered:!!bundle.packageEntitlementId,label:'Saved appointment price'};
+    }
     res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     next(e);

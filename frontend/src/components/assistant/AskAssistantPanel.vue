@@ -759,7 +759,7 @@ const quickActionGroups = computed(() => {
           label: 'Who has an intake opening',
           kind: 'tool',
           toolCall: { name: 'findIntakeOpenings', args: {} },
-          hint: 'Find intake openings today'
+          hint: 'Find enrollment openings today'
         },
         {
           id: 'referrals',

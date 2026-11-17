@@ -43,7 +43,7 @@ export async function clinicalVideoToken(mediaId, { actor, role, visitId = null,
     VALUES (?,?,?,?,?,?)`, [grantId, mediaId, actor, role, visitId, new Date(expiresAt * 1000)]);
   await clinicalAudit({ ...scope(media), actor, role, req }, 'clinical_video_token_issued', { visitId }, db);
   return Video.generateToken(mediaId, { expireTime: expiresAt,
-    data: JSON.stringify({ grantId, identity: actor, role, displayName: role === 'provider' ? 'Provider' : 'Client' }) });
+    data: JSON.stringify({ grantId, identity: actor, role, displayName: media.session_kind==='tutoring'?(role==='provider'?'Tutor':'Family participant'):(role === 'provider' ? 'Provider' : 'Client') }) });
 }
 const scope = media => ({ kind: media.session_kind, sessionId: media.session_id, generation: media.generation, agencyId: media.agency_id });
 

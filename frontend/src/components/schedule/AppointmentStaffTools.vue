@@ -17,7 +17,7 @@ async function openLearningWorkspace() {
   try {
     const {data:result}=await api.post(`/appointments/${id}/learning-workspace`,{}, {skipGlobalLoading:true});
     if (props.appointmentId!==id) return;
-    if (!/^\/(?:in-person-tutoring-session|tutoring-session)\/\d+$/.test(result.destination||'')) throw new Error('The learning session could not be opened.');
+    if (!/^\/(?:in-person-tutoring-session\/|tutoring-session\/(?:appointment\/)?)\d+$/.test(result.destination||'')) throw new Error('The learning session could not be opened.');
     const prefix=route?.params?.organizationSlug?`/${route.params.organizationSlug}`:'';
     window.location.assign(prefix+result.destination);
   } catch(e) { const message=e.response?.data?.error?.message||e.message||'';error.value=/unknown column|sqlstate|field list|ER_[A-Z_]+/i.test(message)?'The learning session could not be opened. Your appointment is unchanged. Try again, or contact support if this continues.':message||'Could not open the learning session.'; }
