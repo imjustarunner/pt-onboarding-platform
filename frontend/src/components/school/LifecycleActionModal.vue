@@ -38,7 +38,7 @@
                 </span>
               </div>
             </div>
-            <div class="lam-status-item">
+            <div v-if="isSchoolClient" class="lam-status-item">
               <span class="lam-status-icon" aria-hidden="true">📅</span>
               <div class="lam-status-body">
                 <span class="lam-status-label">Assigned day</span>
@@ -100,7 +100,8 @@
             </div>
           </section>
 
-          <section class="lam-section" :class="{ 'lam-section--muted': agency.waitlisted }">
+          <ClientUpdateAssignments v-if="!isSchoolClient" ref="officeAssignments" :client-id="clientId" :agency-id="client.agency_id" @updated="refreshOfficeProvider" />
+          <section v-else class="lam-section" :class="{ 'lam-section--muted': agency.waitlisted }">
             <h4 class="lam-section-title">Assignments</h4>
             <p class="lam-section-hint">
               <template v-if="agency.waitlisted">
@@ -164,8 +165,7 @@
                 <span class="lam-check-copy">
                   <strong>Waitlist (true barrier)</strong>
                   <span class="lam-check-sub">
-                    Waitlist overrides provider/day requirements. A client may wait for a spot on a day,
-                    for a day with a provider, or without either.
+                    Waitlist keeps the client pending until an appropriate provider or appointment is available.
                   </span>
                 </span>
               </label>
@@ -181,8 +181,7 @@
           <div class="lam-info-banner">
             <span class="lam-info-icon" aria-hidden="true">ℹ️</span>
             <p>
-              Action items depend on eligibility review and EHR transfer. Provider/day assignment and waitlist
-              are managed here — waitlist takes priority when checked.
+              Action items depend on eligibility review, records transfer and provider assignment. Waitlist takes priority when checked.
             </p>
           </div>
         </div>
@@ -641,6 +640,7 @@
 </template>
 
 <script setup>
+import ClientUpdateAssignments from '../admin/clientChart/ClientUpdateAssignments.vue';
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -738,7 +738,7 @@ const hasWaitlistAssignmentSelection = computed(() => {
 });
 
 const waitlistClientShape = computed(() => ({
-  client_type: 'school',
+  client_type: props.client?.client_type || 'school',
   organization_id: props.client?.organization_id,
   client_status_key: props.client?.client_status_key,
   fall_outcome: props.client?.fall_outcome,
@@ -792,6 +792,9 @@ const saveButtonLabel = computed(() => {
   }
   return 'Save';
 });
+const officeAssignments=ref(null);
+const isSchoolClient=computed(()=>String(props.client?.client_type || props.client?.organization_type || '').toLowerCase()==='school');
+async function refreshOfficeProvider(){const {data}=await api.get(`/clients/${clientId.value}/agency-intake`);agencyDerived.hasProvider=!!data?.derived?.hasProvider;agencyDerived.providerLabel=data?.derived?.providerLabel||'';}
 const schoolOrganizationId = computed(() => Number(props.client?.organization_id || 0));
 const assignedDayLabel = computed(() => {
   const day = String(props.client?.service_day || '').trim();
@@ -891,6 +894,7 @@ function onWaitlistRemoveToggle() {
 }
 
 async function loadAssignmentOptions() {
+  if(!isSchoolClient.value){assignmentProviders.value=[];assignmentOptionsError.value='';return;}
   const orgId = schoolOrganizationId.value;
   if (!orgId) {
     assignmentProviders.value = [];
@@ -1299,12 +1303,13 @@ async function save() {
   try {
     const id = clientId.value;
     if (props.actionKey === 'agency_intake') {
+      if(!isSchoolClient.value){if(officeAssignments.value?.prepareLeave?.()===false){await revealSaveError('Save or reset office assignment changes before finishing.');return;}await refreshOfficeProvider();}
       if (
         !agency.waitlisted
         && !agencyDerived.hasProvider
         && !Number(assignment.providerUserId || 0)
       ) {
-        await revealSaveError('Select a provider, assign a day, or mark waitlist before saving.');
+        await revealSaveError(isSchoolClient.value?'Select a provider, assign a day, or mark waitlist before saving.':'Assign a provider or mark waitlist before saving.');
         return;
       }
       if (Number(assignment.providerUserId || 0)) {

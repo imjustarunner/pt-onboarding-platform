@@ -8,6 +8,7 @@
         <span v-if="copyFlash" class="cin-copy-flash">{{ copyFlash }}</span>
       </div>
       <div class="cin-header__actions">
+        <button v-if="canRemoveImported" type="button" class="cdp-btn-soft" :disabled="busy" @click="removeImported">Remove imported copy</button>
         <button
           v-if="draft?.id"
           type="button"
@@ -82,7 +83,8 @@
         <div class="cin-client-bar__meta muted">
           <span v-if="clinicianLabel"><span class="cin-meta-label">Clinician</span> {{ clinicianLabel }}</span>
           <span v-if="intakeDateLabel"><span class="cin-meta-label">Intake date</span> {{ intakeDateLabel }}</span>
-          <span v-if="draft?.id"><span class="cin-meta-label">Draft</span> #{{ draft.id }}</span>
+          <span v-if="draft?.createdAt"><span class="cin-meta-label">Added</span> {{ new Date(draft.createdAt).toLocaleDateString() }}</span>
+          <span v-if="draft?.id"><span class="cin-meta-label">Record</span> #{{ draft.id }}</span>
           <span v-if="draft?.serviceCode || suggestedCode">
             <span class="cin-meta-label">Service code</span>
             <code class="mono">{{ draft?.serviceCode || suggestedCode }}</code>
@@ -94,12 +96,13 @@
       </div>
     </div>
 
-    <div v-if="loading" class="muted cin-loading">Loading intake note…</div>
     <p v-if="draft?.recordsImport" class="hint">Imported intake record · nonbillable · no appointment link. The original source is retained here; use a separate note for a new service.</p>
+    <div v-if="loading" class="muted cin-loading">Loading intake note…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <template v-else>
-      <div v-if="!assignedProvider" class="cin-callout">
+      <p v-if="draft && !assignedProvider" class="cin-callout">No clinician is assigned. An authorized clinician must review this record before using it for current care.</p>
+      <div v-if="!assignedProvider && !draft" class="cin-callout">
         Assign a clinician to generate an intake note (credential selects 90791 vs H0031).
       </div>
 
@@ -390,6 +393,8 @@
 </template>
 
 <script setup>
+import { getActivePinia } from 'pinia';
+import { useAuthStore } from '../../../store/auth';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../../services/api';
@@ -399,16 +404,19 @@ import NoteAidIntakeImportReview from '../../clinical/NoteAidIntakeImportReview.
 import ClientChartAvatar from './ClientChartAvatar.vue';
 
 const props = defineProps({
+  initialDraftId: {type:[Number,String],default:null},
   clientId: { type: [Number, String], required: true },
   assignedProvider: { type: Boolean, default: false },
   suggestedCode: { type: String, default: '' },
   phiBanner: { type: Boolean, default: false },
   client: { type: Object, default: null }
 });
-defineEmits(['navigate']);
+const emit=defineEmits(['navigate','removed']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const auth=getActivePinia()?useAuthStore():null;
+const canRemoveImported=computed(()=>draft.value?.removableImported && ['admin','super_admin'].includes(auth?.user?.role));
 
 const loading = ref(false);
 const busy = ref(false);
@@ -550,10 +558,10 @@ const clinicianLabel = computed(() => {
 });
 
 const intakeDateLabel = computed(() => {
-  const v = draft.value?.finalizedAt || draft.value?.createdAt;
+  const v = draft.value?.dateOfService;
   if (!v) return '';
   try {
-    return new Date(v).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return dateOnly(v)?.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
     return String(v);
   }
@@ -624,7 +632,7 @@ async function load(opts = {}) {
   if (!id) return;
   loading.value = true;
   error.value = '';
-  const draftId = opts.draftId ?? (opts.useViewingId ? viewingHistoryId.value : undefined);
+  const draftId = opts.draftId ?? (opts.useViewingId ? viewingHistoryId.value : props.initialDraftId);
   try {
     const params = draftId ? { draftId } : {};
     const r = await api.get(`/clients/${id}/intake-note`, { params, skipGlobalLoading: true });
@@ -663,6 +671,13 @@ async function load(opts = {}) {
   }
 }
 
+async function removeImported(){
+ const reason=window.prompt('Why are you removing this imported copy? Its source and audit history will be retained.');
+ if(!reason?.trim())return;
+ busy.value=true;error.value='';
+ try{await api.delete(`/clients/${props.clientId}/intake-note/${draft.value.id}`,{data:{reason:reason.trim()}});emit('removed');draft.value=null;await load({draftId:0});}
+ catch(e){error.value=e.response?.data?.error?.message||'The imported copy could not be removed.';}finally{busy.value=false;}
+}
 async function viewHistory(draftId) {
   showMoreMenu.value = false;
   await load({ draftId: Number(draftId) });
@@ -842,7 +857,7 @@ function formatHistoryDate(item) {
   const v = item.finalizedAt || item.updatedAt || item.createdAt;
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return dateOnly(v)?.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
     return String(v);
   }
@@ -881,7 +896,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick);
   if (copyFlashTimer) clearTimeout(copyFlashTimer);
 });
-watch(() => props.clientId, () => {
+watch(() => [props.clientId,props.initialDraftId], () => {
   viewingHistoryId.value = null;
   latestDraftId.value = null;
   load();

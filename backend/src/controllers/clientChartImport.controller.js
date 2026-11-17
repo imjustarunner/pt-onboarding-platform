@@ -1,3 +1,4 @@
+import { readCoverageVerificationSummary } from '../services/coverageVerificationSummary.service.js';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
 import { chartSections, readChartRecord, saveChartRecord, importSupplementaryChartSection } from '../services/clientChartImport.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -29,7 +30,7 @@ export async function startChartRecordsImport(req,res,next){try{
  res.set('Cache-Control','no-store').json({progress});
 }catch(error){next(error);}}
 export async function finishChartRecordsImport(req,res,next){try{
- const scope=await scopeOf(req),progress=await completeClientChartImport(scope,Number(req.user.id),{allowedSections:chartSections.filter(key=>canManageAccount(req)||!accountSections.has(key)),ifPending:req.body?.ifPending===true});
+ const scope=await scopeOf(req),progress=await completeClientChartImport(scope,Number(req.user.id),{allowedSections:chartSections.filter(key=>canManageAccount(req)||!accountSections.has(key)),ifPending:req.body?.ifPending===true,keptBlankSections:req.body?.keptBlankSections||[]});
  await logAuditEvent(req,{actionType:'client_records_import_completed',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId});
  res.set('Cache-Control','no-store').json({progress});
 }catch(error){next(error);}}
@@ -94,8 +95,9 @@ export async function getChartSupplementaryRecords(req, res, next) {
     const scope = await scopeOf(req);
     const accountAccess = canManageAccount(req);
     const [contacts, comments, insurance, payer, billingComments] = await Promise.all([readChartRecord(scope, 'contacts'), readChartRecord(scope, 'comments'), readClientInsurance(scope.clientId, scope.agencyId), accountAccess ? readChartRecord(scope, 'payer') : null, accountAccess ? readChartRecord(scope, 'billingComments') : null]);
+    const verification=await readCoverageVerificationSummary(scope,insurance);
     const policyForViewer = policy => !policy ? null : accountAccess ? policy : { insurerName: policy.insurerName || '', isMedicaid: policy.isMedicaid === true, programType: policy.programType || '' };
     await logAuditEvent(req, { actionType: 'client_chart_supplementary_viewed', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId });
-    res.set('Cache-Control', 'no-store').json({ contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: policyForViewer(insurance.primary), secondary: policyForViewer(insurance.secondary) } : null, payer: payer?.value || null, billingComments: billingComments?.value?.message || '', accountAccess });
+    res.set('Cache-Control', 'no-store').json({ verification, contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: policyForViewer(insurance.primary), secondary: policyForViewer(insurance.secondary) } : null, payer: payer?.value || null, billingComments: billingComments?.value?.message || '', accountAccess });
   } catch (error) { next(error); }
 }

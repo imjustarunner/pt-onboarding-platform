@@ -1,3 +1,4 @@
+import {readChartRecord,chartRecordContext as recordContext} from './clientChartRecordRead.service.js';
 import pool from '../config/database.js';
 import { encryptDemographicsPayload, decryptDemographicsPayload } from './demographicsImport.service.js';
 import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
@@ -8,15 +9,7 @@ import Client from '../models/Client.model.js';
 import { prepareGuardianAccount } from './guardianAccountPreparation.service.js';
 
 export const chartSections = ['demographics', 'intake', 'plan', 'insurance', 'contacts', 'comments', 'payer', 'billingComments'];
-const recordContext = ({ agencyId, clientId }, section, owner) => `${agencyId}:${clientId}:${section}:${owner}`;
-
-export async function readChartRecord(scope, section, owner = 0, db = pool) {
-  const [rows] = await db.execute('SELECT payload_enc,revision FROM client_chart_import_records WHERE agency_id=? AND client_id=? AND section_key=? AND owner_user_id=?', [scope.agencyId, scope.clientId, section, owner]);
-  if (!rows[0]) return { value: null, revision: 0 };
-  const envelope = decryptDemographicsPayload(rows[0].payload_enc);
-  if (envelope.context !== recordContext(scope, section, owner)) throw new Error('Chart record context mismatch');
-  return { value: envelope.value, revision: rows[0].revision };
-}
+export {readChartRecord} from './clientChartRecordRead.service.js';
 
 export async function saveChartRecord(scope, section, owner, value, actorId, expectedRevision = null) {
   const db = await pool.getConnection();

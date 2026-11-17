@@ -42,6 +42,7 @@ class ClientGuardian {
          u.profile_photo_path,
          u.status,
          u.is_active,
+         u.terminated_at, u.is_archived, u.status_expires_at,
          u.role
        FROM client_guardians cg
        JOIN users u ON u.id = cg.guardian_user_id

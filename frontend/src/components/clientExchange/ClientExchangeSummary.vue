@@ -15,7 +15,8 @@
     <section>
       <strong>Diagnoses</strong>
       <ul v-if="diagnoses.length"><li v-for="diagnosis in diagnoses" :key="diagnosis">{{ diagnosis }}</li></ul>
-      <p v-else class="muted">Not recorded</p>
+      <p v-else-if="!listing.importedDiagnoses?.length" class="muted">Not recorded</p>
+      <template v-if="listing.importedDiagnoses?.length"><p class="muted">Imported diagnoses — pending clinician confirmation for billing</p><ul><li v-for="diagnosis in listing.importedDiagnoses" :key="diagnosis">{{ diagnosis }}</li></ul></template>
     </section>
     <section v-if="fitGroups.length" class="summary-section"><strong>Provider fit preferences</strong><p v-for="group in fitGroups" :key="group.key">{{group.label}}: {{group.values.join('; ')}}</p></section>
     <p v-if="suggestedSpecialties.length">Clinical matching topics: {{suggestedSpecialties.join('; ')}}. Matched from the recorded concerns and diagnoses.</p>

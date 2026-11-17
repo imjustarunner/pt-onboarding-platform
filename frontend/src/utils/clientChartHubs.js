@@ -4,6 +4,7 @@
  */
 
 export const CHART_HUBS = Object.freeze({
+  'bring-up-to-date': 'bring-up-to-date',
   overview: 'overview',
   account: 'account',
   portal: 'portal',
@@ -14,6 +15,7 @@ export const CHART_HUBS = Object.freeze({
 
 /** Legacy tab id → { hub, sub } */
 export const LEGACY_TAB_ALIASES = Object.freeze({
+  'bring-up-to-date': {hub:'bring-up-to-date',sub:null},
   overview: { hub: 'overview', sub: null },
   account: { hub: 'account', sub: 'profile' },
   portal: { hub: 'portal', sub: null },
@@ -191,6 +193,7 @@ export function panelVisible(legacyId, hub, sub) {
 export function chartNavTarget(hubId, subId = '') {
   const hub = String(hubId || 'overview');
   const sub = String(subId || '').trim();
+  if (hub === 'bring-up-to-date') return {activeTab:'bring-up-to-date',hubSub:''};
   if (hub === 'overview') {
     if (sub === 'skill-builders') return { activeTab: 'skill-builders', hubSub: 'skill-builders' };
     return { activeTab: 'overview', hubSub: sub === 'home' ? 'home' : '' };

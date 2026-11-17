@@ -43,6 +43,10 @@ async function resolveProviderSummary(clientId, clientRow = null) {
     return { hasProvider: false, providerLabel: null, providerUserIds: [] };
   }
 
+  if(clientRow?.client_type && clientRow.client_type!=='school'){
+    const [services]=await pool.execute(`SELECT DISTINCT u.id,TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))) AS label FROM client_service_enrollments s JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.agency_id=? AND s.service_kind='counseling' AND s.is_active=1 AND u.is_active=1 AND u.terminated_at IS NULL ORDER BY u.id`,[cid,clientRow.agency_id]);
+    if(services.length)return {hasProvider:true,providerLabel:services.map(row=>row.label).join(', '),providerUserIds:services.map(row=>Number(row.id))};
+  }
   const [rows] = await pool.execute(
     `SELECT DISTINCT u.id,
             COALESCE(
@@ -174,7 +178,7 @@ export function computeAgencyIntakeState({
 
 export async function getAgencyIntake(clientId) {
   const [rows] = await pool.execute(
-    `SELECT c.id, c.agency_id, c.source, c.status, c.document_status, c.agency_intake_json,
+    `SELECT c.id, c.agency_id, c.client_type, c.source, c.status, c.document_status, c.agency_intake_json,
             c.insurance_type_id, c.staff_onboarding_completed_at, c.provider_id, c.client_status_id,
             cs.status_key AS client_status_key
      FROM clients c

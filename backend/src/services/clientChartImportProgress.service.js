@@ -18,7 +18,9 @@ export async function beginClientChartImport(scope,sections,actorId,{db=pool}={}
  const revision=Number(previous.revision||0);
  return write(scope,{status:'pending',revision:revision+1,sections:[...new Set(sections)],startedAt:previous.startedAt||new Date().toISOString(),startedByUserId:previous.startedByUserId||actorId,updatedByUserId:actorId},db,revision);
 }
-export async function completeClientChartImport(scope,actorId,{db=pool,readRecord=readChartRecord,allowedSections=chartSections,ifPending=false}={}){
+export async function completeClientChartImport(scope,actorId,{db=pool,readRecord=readChartRecord,allowedSections=chartSections,ifPending=false,keptBlankSections=[]}={}){
+ if(!Array.isArray(keptBlankSections)||keptBlankSections.some(key=>!allowedSections.includes(key)))throw fail(400,'Review the blank record sections before finishing.');
+ for(const key of keptBlankSections){const {value}=await readRecord(scope,key,actorId);if(value?.text?.trim()||Object.values(value?.coverageDrafts||{}).some(slot=>slot.text?.trim()))throw fail(409,'This section contains a saved paste. Import it or clear its draft before keeping it blank.');}
  const state=await current(scope,db);
  if(!state.status&&ifPending)return null;
  if(state.status==='complete')return state;
@@ -31,5 +33,5 @@ export async function completeClientChartImport(scope,actorId,{db=pool,readRecor
   if(!imported||value?.needsReview===true)throw fail(409,'Import and review every filled section before finishing this client.');
  }
  const revision=Number(state.revision||0);
- return write(scope,{...state,status:'complete',revision:revision+1,completedAt:new Date().toISOString(),completedByUserId:actorId},db,revision);
+ return write(scope,{...state,status:'complete',revision:revision+1,keptBlankSections:[...new Set(keptBlankSections)],completedAt:new Date().toISOString(),completedByUserId:actorId},db,revision);
 }

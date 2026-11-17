@@ -74,7 +74,7 @@ export function intakePresentingProblems({ row, clientId, clientIds = [] }) {
 
 export function latestPresentingProblem({ plans = [], intakes = [], preferences = {} }) {
   const candidates = [
-    ...plans.filter(plan => plan.status === 'active' || (plan.status === 'draft' && plan.source_tool_id === 'client_creation_record_import')).map(plan => ({
+    ...plans.filter(plan => plan.status === 'active' || (plan.status === 'draft' && (plan.source_tool_id === 'client_creation_record_import'||String(plan.source_tool_id||'').startsWith('client_records_import:')))).map(plan => ({
       values: summaryItems(presentingProblemFromPlan(plan)), source: plan.status === 'draft' ? 'Treatment plan (review pending)' : 'Treatment plan',
       recordedAt: plan.updated_at || plan.created_at || null, priority: 2
     })),

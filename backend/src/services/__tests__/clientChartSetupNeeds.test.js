@@ -22,3 +22,8 @@ it('clears imported setup with an actual source intake and provider plan draft, 
  expect((await clientChartSetupNeeds([2579],{db,clinicalDb})).get(2579)).toBe(false);expect(clinicalDb.execute).toHaveBeenCalledOnce();
  db.execute.mockResolvedValueOnce([[{id:2579,agency_id:2,source:'ADMIN_CREATED',client_type:'clinical',has_demographics:1,records_import_status:'complete'}]]).mockResolvedValueOnce([[]]);expect((await clientChartSetupNeeds([2579],{db,clinicalDb})).get(2579)).toBe(true);
 });
+it('respects explicit keep-blank decisions without hiding other pending actions',async()=>{
+ const db={execute:vi.fn().mockResolvedValueOnce([[{id:12,agency_id:2,source:'ADMIN_CREATED',client_type:'clinical',has_demographics:0,records_import_status:'complete',kept_blank_sections:'["demographics","intake","plan"]'}]]).mockResolvedValueOnce([[]])};
+ const clinicalDb={execute:vi.fn().mockResolvedValue([[]])};
+ expect((await clientChartSetupNeeds([12],{db,clinicalDb})).get(12)).toBe(false);
+});

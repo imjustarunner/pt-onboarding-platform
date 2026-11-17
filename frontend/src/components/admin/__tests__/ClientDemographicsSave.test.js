@@ -4,7 +4,7 @@ import {createPinia} from 'pinia';
 import ClientDetailPanel from '../ClientDetailPanel.vue';
 const {get,put}=vi.hoisted(()=>({get:vi.fn(),put:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:{get,put,post:vi.fn().mockResolvedValue({data:{}}),defaults:{baseURL:'/api'}}}));
-vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'auricwell-qa-demo'},query:{},path:'/auricwell-qa-demo/admin/clients'}),useRouter:()=>({push:vi.fn(),replace:vi.fn()})}));
+vi.mock('vue-router',()=>({onBeforeRouteLeave:vi.fn(),useRoute:()=>({params:{organizationSlug:'auricwell-qa-demo'},query:{},path:'/auricwell-qa-demo/admin/clients'}),useRouter:()=>({push:vi.fn(),replace:vi.fn()})}));
 let wrapper;
 beforeEach(()=>{
  localStorage.clear();localStorage.setItem('user',JSON.stringify({id:1434,role:'support'}));

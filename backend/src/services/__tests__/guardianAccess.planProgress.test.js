@@ -21,6 +21,7 @@ import { requireClinicalScope } from '../guardianClinicalAccess.service.js';
 import { signAcknowledgment, createDashboardShare } from '../treatmentPlanAck.service.js';
 vi.mock('../clientServiceEnrollment.service.js', () => ({ guardianServiceContext: vi.fn(async ({ userId, clientId, agencyId }) => (await ClientGuardian.listClientsForGuardian({ guardianUserId: userId })).find(row => Number(row.client_id) === Number(clientId) && Number(row.agency_id) === Number(agencyId))), listClientServices: vi.fn(async () => []) }));
 vi.mock('../guardianLearningPlan.service.js', () => ({ guardianLearningPlanProgress: vi.fn(async () => null) }));
+vi.mock('../guardianPlanDelivery.service.js',()=>({deliverGuardianPlanNotice:vi.fn(async()=>({complete:true}))}));
 import { guardianPlanRevision, guardianPlanProgress, recordGuardianPlanRating, signGuardianPlan, shareGuardianPlanRevision } from '../guardianPlanProgress.service.js';
 
 const context = { userId: 10, clientId: 5, agencyId: 2 };
@@ -109,7 +110,7 @@ it('invalidates signatures for content changes but not clinical rating or ack ti
   expect(guardianPlanRevision(current)).not.toBe(revision);
 });
 it('creates a distinct request and in-app notice for each currently authorized parent', async () => {
-  expect(await shareGuardianPlanRevision({ plan: current, actorUserId: 4 })).toEqual({ shared: 2, eligible: 2 });
+  expect(await shareGuardianPlanRevision({ plan: current, actorUserId: 4 })).toEqual({ shared: 2, eligible: 2,deliveryPending:false });
   expect(createDashboardShare.mock.calls.map(([args]) => args.recipientUserId)).toEqual([10, 11]);
   expect(Notification.create).toHaveBeenCalledTimes(2);
   expect(db.release).toHaveBeenCalled();
@@ -117,7 +118,7 @@ it('creates a distinct request and in-app notice for each currently authorized p
 it('does not duplicate current requests or create new ones for revoked guardians', async () => {
   Link.listForPlan.mockResolvedValue([{ id: 10, recipient_user_id: 10, meta_json: { planRevision: guardianPlanRevision(current) }, status: 'signed' }]);
   requireClinicalScope.mockImplementation(async ({ userId }) => { if (userId === 11) throw Object.assign(new Error('Revoked'), { status: 403 }); });
-  expect(await shareGuardianPlanRevision({ plan: current, actorUserId: 4 })).toEqual({ shared: 0, eligible: 1 });
+  expect(await shareGuardianPlanRevision({ plan: current, actorUserId: 4 })).toEqual({ shared: 0, eligible: 1,deliveryPending:false });
   expect(createDashboardShare).not.toHaveBeenCalled();
 });
 

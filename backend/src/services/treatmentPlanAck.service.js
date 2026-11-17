@@ -128,7 +128,7 @@ export async function createDashboardShare({
     ackLinkId: link.id,
     eventType: 'shared_dashboard',
     actorUserId,
-    actorLabel: 'Provider shared to dashboard'
+    actorLabel: actorUserId?'Provider shared to dashboard':'Automation prepared authorized portal review'
   });
   await markPlanAckStatus({ planId: treatmentPlanId, status: 'shared', at: false });
   return link;

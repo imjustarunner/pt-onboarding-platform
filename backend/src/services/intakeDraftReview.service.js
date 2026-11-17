@@ -1,3 +1,4 @@
+import { importedClinicalSourceDate } from '../utils/importedClinicalSourceDate.js';
 import { createHash } from 'node:crypto';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 
@@ -10,7 +11,7 @@ export function intakeDraftContext(row) {
 /** Chart metadata only: document timestamps never establish a date of service. */
 export function intakeDraftChartSummary(row, sessions = []) {
   const context = intakeDraftContext(row);
-  const imported = context.source === 'client_records_import';
+  const imported = ['client_records_import','client_creation_record_import'].includes(context.source);
   const session = !imported && sessions.find(s => Number(s.id) === Number(context.clinicalSessionId)
     && Number(s.agency_id) === Number(row.agency_id)
     && String(s.service_code || '').toUpperCase() === String(row.service_code || '').toUpperCase());
@@ -20,7 +21,7 @@ export function intakeDraftChartSummary(row, sessions = []) {
     created_at: row.created_at, updated_at: row.updated_at, finalized_at: row.finalized_at || null,
     clinical_session_id: session?.id || null,
     scheduled_start_at: session?.scheduled_start_at || null,
-    date_of_service: /^\d{4}-\d{2}-\d{2}$/.test(context.dateOfService || '') ? context.dateOfService : null
+    date_of_service: /^\d{4}-\d{2}-\d{2}$/.test(context.dateOfService || '') ? context.dateOfService : imported ? importedClinicalSourceDate(maybeDecryptNotePayload(row.scrubbed_input_enc)) : null
   };
 }
 

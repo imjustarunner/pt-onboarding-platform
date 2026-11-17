@@ -6,7 +6,7 @@ import {createPinia} from 'pinia';
 import ClientDetailPanel from '../ClientDetailPanel.vue';
 const {get,put}=vi.hoisted(()=>({get:vi.fn(),put:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:{get,put,post:vi.fn().mockResolvedValue({data:{}}),defaults:{baseURL:'/api'}}}));
-vi.mock('vue-router',()=>({useRoute:()=>({params:{},query:{},path:'/admin/clients'}),useRouter:()=>({push:vi.fn(),replace:vi.fn(),hasRoute:()=>false})}));
+vi.mock('vue-router',()=>({onBeforeRouteLeave:vi.fn(),useRoute:()=>({params:{},query:{},path:'/admin/clients'}),useRouter:()=>({push:vi.fn(),replace:vi.fn(),hasRoute:()=>false})}));
 let wrapper;
 beforeEach(()=>{localStorage.clear();localStorage.setItem('user',JSON.stringify({id:4,role:'support'}));get.mockReset().mockResolvedValue({data:[]});put.mockReset().mockResolvedValue({data:{}});window.alert=vi.fn();Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>wrapper?.unmount());
@@ -91,4 +91,10 @@ it('shows another authorized agency’s real school links only under that agency
 it('does not revive a stale roster provider after the office service reports no providers',async()=>{
  await renderAssignments();await wrapper.setProps({client:{id:2111,agency_id:2,client_type:'clinical',provider_id:99,provider_name:'Old Provider'}});await flushPromises();
  wrapper.vm.onAgencyServicesLoaded(2,{services:[]});await flushPromises();expect(wrapper.vm.primaryProviderLabel).toBe('Not assigned');expect(wrapper.vm.effectiveOverviewProviders).toEqual([]);
+});
+
+it('opens the temporary import tab after agency access loads and removes it only after explicit completion',async()=>{
+ let complete=false;get.mockImplementation(async url=>({data:url.endsWith('/chart-setup')?{requiresRecordImport:true,setupComplete:false,recordsImportStatus:complete?'complete':'pending',demographicsOnFile:true,intakeOnFile:true,planOnFile:true}:[]}));
+ await render();expect(wrapper.vm.tabs.map(tab=>tab.id).slice(0,2)).toEqual(['bring-up-to-date','overview']);expect(wrapper.vm.activeTab).toBe('bring-up-to-date');
+ complete=true;await wrapper.vm.onRecordsImportDone();await flushPromises();expect(wrapper.vm.tabs[0].id).toBe('overview');expect(wrapper.vm.activeTab).toBe('overview');
 });

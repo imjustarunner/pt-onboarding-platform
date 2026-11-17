@@ -1,5 +1,5 @@
 <template>
-  <section v-if="visible || status?.planReviewPending" class="chart-setup" aria-label="Chart setup">
+  <section v-if="visible" class="chart-setup" aria-label="Chart setup">
     <p v-if="status?.planReviewPending" class="chart-setup__note">The imported treatment plan is on file as a draft. The provider must review and finalize it in Treatment plans. Records import can be marked done separately.</p>
     <header v-if="!showWorkspaceUpdater" class="chart-setup__head">
       <div>
@@ -23,6 +23,7 @@
       :client-label="client?.full_name || client?.fullName || ''"
       :record-status="workspaceStatus"
       @imported="onWorkspaceImported"
+      @section-imported="onWorkspaceSectionImported"
       @done="onWorkspaceImported"
     />
 
@@ -197,7 +198,8 @@ const showSection = (id) => {
 const showWorkspaceUpdater = computed(() =>
   scope.value === 'all'
   && !!status.value
-  && !status.value.setupComplete
+  && status.value.recordsImportStatus!=='complete'
+  && (status.value.recordsImportStatus==='pending'||!status.value.setupComplete)
 );
 const workspaceStatus = computed(() => ({
   demographics: status.value?.demographicsOnFile ? 'done' : 'missing',
@@ -235,6 +237,7 @@ const intro = computed(() => {
   return 'Save this section to the chart. The prompt leaves once chart setup is complete.';
 });
 
+async function onWorkspaceSectionImported(){emit('updated');}
 async function onWorkspaceImported() {
   emit('updated');
   await loadStatus();

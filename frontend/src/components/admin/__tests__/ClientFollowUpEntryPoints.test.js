@@ -8,7 +8,7 @@ import OfficeClientsView from '../../../views/admin/OfficeClientsView.vue';
 const mocks = vi.hoisted(() => ({ open: vi.fn(), menu: vi.fn(), get: vi.fn() }));
 vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {}, getDocument: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: { get: mocks.get, put: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn().mockResolvedValue({ data: {} }), defaults: { baseURL: '/api' } } }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {}, path: '/admin/clients' }), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), hasRoute: () => false }) }));
+vi.mock('vue-router', () => ({ onBeforeRouteLeave: vi.fn(), useRoute: () => ({ params: {}, query: {}, path: '/admin/clients' }), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), hasRoute: () => false }) }));
 vi.mock('../../../composables/useOfficeClientAgency.js', async () => {
   const { ref } = await import('vue');
   return { formatRelativeTime: () => 'Today', portalLabel: () => 'Active', useOfficeClientAgency: () => ({

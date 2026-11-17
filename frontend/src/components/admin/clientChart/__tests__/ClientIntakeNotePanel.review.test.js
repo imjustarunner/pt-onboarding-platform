@@ -39,3 +39,12 @@ it('keeps source visible but prevents finalization when appointment information 
  for(const button of wrapper.findAll('.cin-section__toggle'))await button.trigger('click');for(const input of wrapper.findAll('input[type="checkbox"]'))await input.setValue(true);
  expect(wrapper.findAll('button').find(button=>button.text()==='Finalize intake only').attributes('disabled')).toBeDefined();
 });
+it('renders imported sections for an authorized admin without a clinician and separates service date from added date',async()=>{
+ mocks.get.mockResolvedValue({data:{draft:{...draft,status:'draft',recordsImport:true,nonBillable:true,dateOfService:'2026-07-29',createdAt:'2026-11-17T12:00:00Z'},history:[],appointmentOptions:[]}});
+ mountPanel();await wrapper.setProps({assignedProvider:false});await flushPromises();
+ expect(wrapper.text()).toContain('No clinician is assigned');expect(wrapper.text()).toContain('Jul 29, 2026');expect(wrapper.text()).toContain('Added');expect(wrapper.findAll('.cin-section__toggle')).toHaveLength(2);
+ await wrapper.findAll('.cin-section__toggle')[0].trigger('click');expect(wrapper.text()).toContain('Not observed.');expect(wrapper.text()).not.toContain('Assign a clinician to generate');
+});
+it('opens the exact intake selected in Notes or Medical record',async()=>{
+ mountPanel();await wrapper.setProps({initialDraftId:23});await flushPromises();expect(mocks.get).toHaveBeenLastCalledWith('/clients/2304/intake-note',{params:{draftId:23},skipGlobalLoading:true});
+});

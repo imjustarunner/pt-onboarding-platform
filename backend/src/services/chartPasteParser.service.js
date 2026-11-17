@@ -25,6 +25,7 @@ function labeledTokens(text, fields, { compact = false } = {}) {
   const marked = text.split('\n').map(line => {
     const match = line.match(anchor);
     if (!match) return line;
+    if (compact && ['appointmentReminders','comments'].includes(lookup[match[2].toLowerCase()])) return line.replace(anchor, (_, space, label) => `\n@@${lookup[label.toLowerCase()]}@@`);
     if (!compact) return line.replace(anchor, (_, space, label) => `\n@@${lookup[label.toLowerCase()]}@@`);
     const canonicalLine = `${canonical[match[2].toLowerCase()]}:${line.slice(match[0].length)}`;
     return canonicalLine.replace(inline, (_, label) => `\n@@${lookup[label.toLowerCase()]}@@`);
@@ -38,8 +39,9 @@ function labeledTokens(text, fields, { compact = false } = {}) {
 }
 
 export function parseChartContacts(input) {
-  let text = clean(input).replace(/svgEdit/g, '\n@@CONTACT@@\n')
-    .replace(/^\s*(?:Contacts|Additional Contacts|\+\s*New Contact|Save New Patient Contact|Cancel|Convert to Practice Contact)\s*$/gmi, '');
+  let text = clean(String(input || '').replace(/^\s*#{1,6}\s+([^\n]+)$/gm,'\n@@CONTACT@@\n$1'))
+    .replace(/svg\s*(?:Edit)/gi, '\n@@CONTACT@@\n')
+    .replace(/^\s*(?:Contacts|Additional\s+Contacts|\+?\s*New\s*Contact|Save New Patient Contact|Cancel|Convert to Practice Contact|svg|Edit)\s*$/gmi, '');
   // A TSV table has one contact per row, including separately named phone fields.
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   const headers = (lines[0] || '').split('\t').map(label => Object.entries(CONTACT_PASTE_FIELDS).find(([key]) => key.toLowerCase() === label.toLowerCase())?.[1]);
@@ -54,14 +56,14 @@ export function parseChartContacts(input) {
         if (!value) continue;
         if (key === 'fullName' && Object.keys(current).length) { contacts.push(current); current = {}; }
         if (key) current[key] = value;
-        else if (!current.fullName) current.fullName = value;
+        else if (!current.fullName) current.fullName = value.split('\n').map(line=>line.trim()).filter(line=>line&&!/^(?:Contacts|Additional Contacts|\+?\s*New\s*Contact|svg|Edit)$/i.test(line)).join(' ');
       }
       if (Object.keys(current).length) contacts.push(current);
     }
   }
   for (const contact of contacts) {
     contact.fullName ||= [contact.firstName, contact.middleName, contact.lastName, contact.suffix].filter(Boolean).join(' ');
-    if (contact.dateOfBirth) contact.dateOfBirth = date(contact.dateOfBirth);
+    if (contact.dateOfBirth) contact.dateOfBirth = date(contact.dateOfBirth.replace(/\s*Age\s*:?[\s\S]*$/i,'').trim());
   }
   if (!contacts.length || contacts.some(c => !c.fullName || c.fullName.includes('\n'))) throw Object.assign(new Error('Contact names could not be separated. Copy each contact with its name and field labels.'), { status: 400 });
   if (contacts.length > 100) throw Object.assign(new Error('Import up to 100 contacts at a time'), { status: 400 });

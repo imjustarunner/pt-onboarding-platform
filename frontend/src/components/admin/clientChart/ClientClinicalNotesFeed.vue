@@ -71,6 +71,7 @@
         </ul>
       </div>
 
+      <ClientIntakeNotePanel v-else-if="workspace.mode==='intake'" :key="workspace.intakeDraftId" :client-id="clientId" :initial-draft-id="workspace.intakeDraftId" @removed="closeWorkspace" />
       <ClientChartCompletedNote
         v-else-if="workspace.mode === 'view'"
         :note-id="workspace.clinicalNoteId"
@@ -164,6 +165,7 @@
 </template>
 
 <script setup>
+import ClientIntakeNotePanel from './ClientIntakeNotePanel.vue';
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api.js';
 import { useRouter } from 'vue-router';
@@ -447,6 +449,7 @@ const rows = computed(() => {
       providerSigned: final,
       supervisorSigned: false,
       isActivePlan: false,
+      intakeDraftId:inn.id,
       openMode: 'intake-chart'
     });
   }
@@ -683,7 +686,7 @@ function openRow(row) {
     return;
   }
   if (row.openMode === 'intake-chart') {
-    emit('navigate', 'intake-note');
+    workspace.value={mode:'intake',intakeDraftId:row.intakeDraftId};
     return;
   }
   if (row.openMode === 'treatment-plan') {
