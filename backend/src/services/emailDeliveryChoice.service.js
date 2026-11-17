@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { managedGroupEnvelope } from './managedWorkspaceGroupAccess.service.js';
 import { resolveRecipientDeliveryGate } from './hubRecipientDelivery.service.js';
+import { assertInternalEmailRecipients } from './internalEmailRecipients.service.js';
 
 const addresses = value => (Array.isArray(value) ? value : [value])
   .flatMap(v => String(v?.email || v || '').split(/[,;]/))
@@ -18,6 +19,7 @@ export async function planEmailDelivery({ agencyId, userId, to, cc, bcc, choice 
   const expanded = await managedGroupEnvelope({
     to: envelopeValue(to), cc: envelopeValue(cc), bcc: envelopeValue(bcc), actorUserId: userId
   });
+  await assertInternalEmailRecipients({ agencyId, to, cc, bcc });
   const targets = [...new Set([...addresses(expanded.to), ...addresses(expanded.cc), ...addresses(expanded.bcc)])];
   const recipientIds = [];
   const holds = [];

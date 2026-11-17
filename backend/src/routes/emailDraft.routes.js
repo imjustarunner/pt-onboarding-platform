@@ -1,11 +1,11 @@
 import express from 'express';
 import { dayCancellationAttention } from '../services/dayCancellationAttention.service.js';
-import { createEmailDraft, getEmailDraft, getEmailDraftSender, listEmailDrafts, saveEmailDraft, deleteEmailDraft, sendEmailDraft, getEmailDraftSummary, listEmailAttention } from '../services/emailDraft.service.js';
+import { createEmailDraft, getEmailDraft, getEmailDraftSender, getEmailDraftRecipientCheck, listEmailDrafts, saveEmailDraft, deleteEmailDraft, sendEmailDraft, getEmailDraftSummary, listEmailAttention } from '../services/emailDraft.service.js';
 const router = express.Router();
 const actor = (req) => req.quickView ? { id:req.quickView.userId, role:'provider', mobileDevice:!!req.quickView.mobileDeviceSessionId, scopedAgencyId:req.quickView.mobileDeviceSessionId?null:req.quickView.agencyId } : req.user;
 const handler = (fn) => async(req,res,next) => {
   try { res.set('Cache-Control','private, no-store'); await fn(req,res); }
-  catch(e) { if(e.status) return res.status(e.status).json({error:{message:e.message,code:e.code,availability:e.availability,clients:e.clients}}); next(e); }
+  catch(e) { if(e.status) return res.status(e.status).json({error:{message:e.message,code:e.code,availability:e.availability,clients:e.clients,recipientIssues:e.recipientIssues}}); next(e); }
 };
 router.get('/',handler(async(req,res) => {
  if(req.quickView?.mobileDeviceSessionId && req.query.agencyId==='all'){
@@ -30,6 +30,7 @@ router.get('/attention',handler(async(req,res) => {
 }));
 router.get('/:draftId',handler(async(req,res) => res.json({draft:await getEmailDraft(actor(req),req.params.draftId)})));
 router.get('/:draftId/sender',handler(async(req,res) => res.json(await getEmailDraftSender(actor(req),req.params.draftId))));
+router.post('/:draftId/recipients/check',handler(async(req,res) => res.json(await getEmailDraftRecipientCheck(actor(req),req.params.draftId,req.body))));
 router.put('/:draftId',handler(async(req,res) => res.json(await saveEmailDraft(actor(req),req.params.draftId,req.body))));
 router.delete('/:draftId',handler(async(req,res) => {await deleteEmailDraft(actor(req),req.params.draftId);res.json({ok:true});}));
 router.post('/:draftId/send',handler(async(req,res) => res.json(await sendEmailDraft(actor(req),req.params.draftId,req.body.version,req.body.deliveryChoice))));

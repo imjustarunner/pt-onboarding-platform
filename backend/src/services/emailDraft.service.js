@@ -1,6 +1,7 @@
 import { emailDraftContent, sanitizeQuotedEmailHtml } from '../utils/emailReplyContent.js';
 import { resolveEmailClientFiling } from './clientConversationRecord.service.js';
 import { planEmailDelivery } from './emailDeliveryChoice.service.js';
+import { checkInternalEmailRecipients } from './internalEmailRecipients.service.js';
 import { getCommunicationPrefs } from './inboxDigest.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
@@ -72,6 +73,16 @@ export async function getEmailDraftSender(actor, id) {
   const { resolveEmailSendMailbox } = await import('./emailSendMailbox.service.js');
   const sender = await resolveEmailSendMailbox({ agencyId: draft.agency_id, userId: actor.id, inbox });
   return { fromEmail: sender.fromEmail, replyTo: sender.replyTo };
+}
+export async function getEmailDraftRecipientCheck(actor, id, input = {}) {
+  // Typing recipient addresses must not repeatedly fetch message bodies or attachments.
+  const [[draft]] = await pool.execute('SELECT agency_id,conversation_id FROM communication_email_drafts WHERE id=? AND user_id=?', [id,actor.id]);
+  if (!draft) throw fail('Draft not found',404);
+  await agencyAccess(actor,draft.agency_id);
+  if (draft.conversation_id) await requireConversationAccess(actor,draft.conversation_id);
+  const recipients = Object.fromEntries(['to','cc','bcc'].map(field => [field, String(input[field] || '')]));
+  if (Object.values(recipients).some(value => value.length > 16_000 || /[\r\n]/.test(value))) throw fail('Invalid email recipients');
+  return checkInternalEmailRecipients({ agencyId: draft.agency_id, ...recipients });
 }
 export async function listEmailDrafts(actor, agencyId) {
   await agencyAccess(actor,agencyId);

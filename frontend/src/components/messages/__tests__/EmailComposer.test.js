@@ -78,6 +78,26 @@ it('clears an availability prompt if recipients change',async()=>{
  state.availabilityPrompt={recipientCount:1};state.draft.to='other@example.org';await nextTick();expect(state.availabilityPrompt).toBeNull();
 });
 
+it('blocks an internal Cc typo, preserves the writing and other recipients, and sends after explicit correction',async()=>{
+ wrapper.unmount();const original=mock.api.getMockImplementation();
+ mock.api.mockImplementation(async config=>{
+  if(config.url.endsWith('/recipients/check'))return {data:{issues:config.data.cc==='schols@itsco.health'?[{field:'cc',address:'schols@itsco.health',suggestions:['schools@itsco.health']}]:[]}};
+  if(config.url.endsWith('/send'))return {data:{messageId:40,conversationId:10,scheduled:true}};
+  return original(config);
+ });
+ wrapper=shallowMount(Composer,{global:{stubs:{EmailRecipientCheck:false}}});await flushPromises();state=wrapper.vm.$.setupState;
+ state.draft.to='nicola_walsh@dpsk12.net';state.draft.cc='schols@itsco.health';state.draft.bcc='private@example.org';state.draft.text='Please switch days';
+ await nextTick();await vi.advanceTimersByTimeAsync(350);await flushPromises();
+ expect(wrapper.find('button.send').attributes('disabled')).toBeDefined();
+ expect(wrapper.text()).toContain('not a recognized internal mailbox');
+ await state.send();expect(mock.api.mock.calls.some(([config])=>config.url.endsWith('/send'))).toBe(false);
+ await wrapper.findAll('button').find(button=>button.text()==='schools@itsco.health').trigger('click');
+ await vi.advanceTimersByTimeAsync(350);await flushPromises();
+ expect(state.draft).toMatchObject({to:'nicola_walsh@dpsk12.net',cc:'schools@itsco.health',bcc:'private@example.org',text:'Please switch days'});
+ expect(wrapper.find('button.send').attributes('disabled')).toBeUndefined();
+ await state.send();expect(state.record.state).toBe('sent');
+});
+
 it('resumes the saved writing returned by the server instead of replacing it with a blank reply',async()=>{
  wrapper.unmount();const original=mock.api.getMockImplementation();
  mock.api.mockImplementation(async config=>config.method==='post'&&config.url==='/communications/drafts'?{data:{draft:{id:'existing',agency_id:2,mode:'reply_all',version:8,state:'editing',resumed:true,draft:{to:'alice@example.org',cc:'team@example.org',subject:'Saved subject',text:'Work already written',quotedText:'Original',attachments:[]}}}}:original(config));

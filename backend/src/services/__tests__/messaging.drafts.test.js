@@ -1,5 +1,7 @@
 vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({sendDelayEmailSeconds:20}))}));
 vi.mock('../emailDeliveryChoice.service.js',()=>({planEmailDelivery:vi.fn(async()=>({choice:'now',recipientIds:[],scheduledAt:null}))}));
+vi.mock('../internalEmailRecipients.service.js',()=>({checkInternalEmailRecipients:vi.fn()}));
+import {checkInternalEmailRecipients} from '../internalEmailRecipients.service.js';
 import {planEmailDelivery} from '../emailDeliveryChoice.service.js';
 import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
@@ -10,7 +12,7 @@ vi.mock('../emailSendMailbox.service.js',()=>({resolveEmailSendMailbox:vi.fn()})
 vi.mock('../../models/CommunicationInbox.model.js',()=>({default:{findById:vi.fn(async()=>({id:3}))}}));
 import {resolveEmailSendMailbox} from '../emailSendMailbox.service.js';
 import pool from '../../config/database.js';
-import {createEmailDraft,getEmailDraft,getEmailDraftSender,saveEmailDraft,sendEmailDraft,validateEmailDraft} from '../emailDraft.service.js';
+import {createEmailDraft,getEmailDraft,getEmailDraftSender,getEmailDraftRecipientCheck,saveEmailDraft,sendEmailDraft,validateEmailDraft} from '../emailDraft.service.js';
 import {replyToConversation} from '../unifiedInbox.service.js';
 const actor={id:5,role:'provider'};
 const draft={id:'draft',user_id:5,agency_id:2,conversation_id:10,mode:'reply',version:2,state:'editing',draft_json:JSON.stringify({to:'alice@example.org',text:'Hello',quotedText:'Prior email',attachments:[]})};
@@ -40,6 +42,25 @@ it('keeps a draft editable when availability needs a choice, then passes the cho
  await sendEmailDraft(actor,'draft',2,'now');
  expect(planEmailDelivery).toHaveBeenLastCalledWith(expect.objectContaining({choice:'now',requireChoice:true}));
  expect(replyToConversation).toHaveBeenCalledWith(10,expect.objectContaining({deliveryPlan:expect.objectContaining({choice:'now'})}),{userId:5});
+});
+
+it('rejects unknown internal recipients before claiming a send, leaving the saved draft editable',async()=>{
+ const error=Object.assign(new Error('Unrecognized internal email address'),{status:400,code:'UNRECOGNIZED_INTERNAL_RECIPIENT'});
+ planEmailDelivery.mockRejectedValueOnce(error);
+ await expect(sendEmailDraft(actor,'draft',2)).rejects.toBe(error);
+ expect(pool.execute).toHaveBeenCalledTimes(1);
+ expect(replyToConversation).not.toHaveBeenCalled();
+ expect(planEmailDelivery).toHaveBeenCalledTimes(1);
+});
+
+it('checks proposed recipients only after draft ownership and tenant access, using the saved tenant',async()=>{
+ checkInternalEmailRecipients.mockResolvedValueOnce({issues:[]});
+ await getEmailDraftRecipientCheck(actor,'draft',{agencyId:999,to:'schols@itsco.health',bcc:'private@itsco.health'});
+ expect(pool.execute.mock.calls[0][0]).not.toMatch(/draft_json|SELECT d\.\*/);
+ expect(checkInternalEmailRecipients).toHaveBeenCalledWith({agencyId:2,to:'schols@itsco.health',cc:'',bcc:'private@itsco.health'});
+ checkInternalEmailRecipients.mockClear();
+ await expect(getEmailDraftRecipientCheck({...actor,scopedAgencyId:3},'draft',{to:'schools@itsco.health'})).rejects.toMatchObject({status:404});
+ expect(checkInternalEmailRecipients).not.toHaveBeenCalled();
 });
 
 it('persists sanitized formatted history and passes it separately from the new writing to delivery',async()=>{

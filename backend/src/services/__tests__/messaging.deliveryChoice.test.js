@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../managedWorkspaceGroupAccess.service.js', () => ({ managedGroupEnvelope: vi.fn(async x => x) }));
 vi.mock('../hubRecipientDelivery.service.js', () => ({ resolveRecipientDeliveryGate: vi.fn() }));
+vi.mock('../internalEmailRecipients.service.js', () => ({ assertInternalEmailRecipients: vi.fn() }));
+import { assertInternalEmailRecipients } from '../internalEmailRecipients.service.js';
 import pool from '../../config/database.js';
 import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
 import { resolveRecipientDeliveryGate } from '../hubRecipientDelivery.service.js';
@@ -39,6 +41,13 @@ it('never bypasses group manager authorization with Send now', async () => {
 });
 it('rejects unsupported delivery choices', async () => {
   await expect(planEmailDelivery({ ...request, choice: 'ignore_everything' })).rejects.toMatchObject({ status: 400 });
+});
+it('checks the original To, Cc and Bcc before any send is queued, including callers without drafts', async () => {
+  const error = Object.assign(new Error('Unknown internal recipient'), { status: 400, code: 'UNRECOGNIZED_INTERNAL_RECIPIENT' });
+  assertInternalEmailRecipients.mockRejectedValueOnce(error);
+  await expect(planEmailDelivery({ ...request, cc: 'schols@itsco.health', bcc: 'private@itsco.health' })).rejects.toBe(error);
+  expect(assertInternalEmailRecipients).toHaveBeenCalledWith({ agencyId: 2, to: 'staff@example.org', cc: 'schols@itsco.health', bcc: 'private@itsco.health' });
+  expect(pool.execute).not.toHaveBeenCalled();
 });
 it('records the author and intended recipients, never forwarding preferences', async () => {
   await recordEmailDeliveryChoice(40, 5, { choice: 'now', recipientIds: [6], scheduledAt: null });

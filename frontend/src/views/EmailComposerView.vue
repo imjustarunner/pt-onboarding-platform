@@ -11,6 +11,7 @@
         <form @submit.prevent="send"><fieldset :disabled="busy">
           <div class="to-row"><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.to" label="To" required /><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
           <div v-show="showCopyFields || draft.cc || draft.bcc" class="recipients"><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.cc" label="Cc" /><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.bcc" label="Bcc" /></div>
+          <EmailRecipientCheck :recipients="{to:draft.to,cc:draft.cc,bcc:draft.bcc}" :check="checkRecipients" @blocked="recipientBlocked=$event" @replace="replaceRecipient" />
           <label>Subject<input v-model="draft.subject" maxlength="998" /></label>
           <label>Your message<textarea ref="bodyInput" v-model="draft.text" placeholder="Write your message…" rows="12" /></label>
           <label class="files">Attach files<input type="file" multiple @change="attach" /></label>
@@ -30,7 +31,7 @@
           <EmailDeliveryChoice :info="availabilityPrompt" :busy="busy" @choose="send({confirmMissingAttachment:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
           <label>Send delay<select v-model.number="draft.undoDelaySeconds"><option v-if="![5,10,20,30,60,120,300,600].includes(draft.undoDelaySeconds)" :value="draft.undoDelaySeconds">{{ draft.undoDelaySeconds }} seconds</option><option :value="5">5 seconds</option><option :value="10">10 seconds</option><option :value="20">20 seconds</option><option :value="30">30 seconds</option><option :value="60">1 minute</option><option :value="120">2 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option></select></label>
           <p>You can undo during the {{ draft.undoDelaySeconds }}-second delay. If delivery is scheduled for later, you can cancel until sending begins.</p>
-          <footer><button class="send" :disabled="busy" type="submit">{{ busy ? 'Working…' : `Send · ${draft.undoDelaySeconds}s Undo` }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
+          <footer><button class="send" :disabled="busy || recipientBlocked" type="submit">{{ busy ? 'Working…' : `Send · ${draft.undoDelaySeconds}s Undo` }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
           <details v-if="draft.quotedHtml || draft.quotedText" open><summary>Original conversation — collapse or expand</summary><div v-if="draft.quotedHtml" class="quoted-email" v-html="readableEmailHtml({body_html:draft.quotedHtml},{collapseQuotes:false})" /><pre v-else v-html="readableEmailHtml({body_text:draft.quotedText})" /></details>
         </fieldset></form>
       </template>
@@ -47,6 +48,7 @@
 import EmailSendReceipt from '../components/messages/EmailSendReceipt.vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import EmailRecipientField from '../components/messages/EmailRecipientField.vue';
+import EmailRecipientCheck from '../components/messages/EmailRecipientCheck.vue';
 import EmailDeliveryChoice from '../components/messages/EmailDeliveryChoice.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -58,6 +60,16 @@ import { readableEmailHtml } from '../utils/emailPresentation';
 import { encodeEmailFiles } from '../utils/communicationAttachments';
 const props=defineProps({composeContext:{type:Object,default:null}});
 const emit=defineEmits(['close','composer-state']);
+const recipientBlocked = ref(false);
+async function checkRecipients(recipients) {
+  const {data} = await request('post',`/drafts/${record.value.id}/recipients/check`,recipients);
+  return data;
+}
+function replaceRecipient({field,address,replacement}) {
+  if (!['to','cc','bcc'].includes(field)) return;
+  draft.value[field] = String(draft.value[field] || '').split(/[,;\s]+/).filter(Boolean)
+    .map(value => value.toLowerCase() === address.toLowerCase() ? replacement : value).join(', ');
+}
 const route=useRoute(); const router=useRouter(); const context=props.composeContext || route.query; const qv=props.composeContext ? !!context.quickView : route.meta.publicQuickView === true;
 const setDraftRoute=id=>props.composeContext ? Promise.resolve() : router.replace({query:{draftId:id}});
 const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',quotedHtml:'',attachments:[],undoDelaySeconds:undefined});
@@ -99,7 +111,7 @@ function beforeUnload(event){if(record.value?.state==='editing' && JSON.stringif
 function onHidden(){if(document.visibilityState==='hidden')save().catch(()=>{});}
 function retrySave(){if(!busy.value)save().catch(()=>{});}
 async function discard(){busy.value=true;try{clearTimeout(timer);if(saveTask)await saveTask;await request('delete',`/drafts/${record.value.id}`);record.value.state='discarded';saved=JSON.stringify(draft.value);closeWindow();}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}finally{busy.value=false;}}
-async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':data.scheduled?'Email scheduled — not sent yet':'Delivery confirmation pending';notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingRequired.value=true;filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
+async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value || recipientBlocked.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':data.scheduled?'Email scheduled — not sent yet':'Delivery confirmation pending';notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingRequired.value=true;filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
 async function undo(){
   if(busy.value)return;
   busy.value=true;error.value='';

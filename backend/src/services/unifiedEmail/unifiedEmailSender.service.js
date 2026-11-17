@@ -1,4 +1,5 @@
 import { blockDemoExchangeEmail } from '../clientExchangeDemo.service.js';
+import { assertInternalEmailRecipients } from '../internalEmailRecipients.service.js';
 import { resolveRecipientUserIdByEmail } from '../emailRecipientLookup.service.js';
 import { isRequestedAccountEmail } from '../../utils/accountAccessEmail.js';
 import { isRequiredProviderWorkEmail } from '../requiredProviderWorkEmail.service.js';
@@ -1062,6 +1063,8 @@ export async function sendEmailFromIdentity({
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
   await guardSessionCommentNotice({ templateType, userId, agencyId:identity.agency_id, to, cc, bcc, communicationId:existingCommunicationId });
+  // Recheck at dispatch, including queued sends and callers outside the composer.
+  if (source === 'manual' && identity.agency_id) await assertInternalEmailRecipients({agencyId:identity.agency_id,to,cc,bcc});
   await assertPeopleOperationsSubmissionRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   await assertApplicantAdminNotice({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
