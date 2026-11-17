@@ -29,11 +29,14 @@ export function messageInboxPolicySql({ userId, schoolGroupInboxIds = [] } = {})
   const sender = `LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pm.from_json,'$.email')),JSON_UNQUOTE(JSON_EXTRACT(pm.from_json,'$[0].email')),''))`;
   const trustedSender = `EXISTS (SELECT 1 FROM email_sender_identities ps WHERE ps.agency_id=c.agency_id
     AND LOWER(ps.from_email) COLLATE utf8mb4_unicode_ci=${sender} COLLATE utf8mb4_unicode_ci)`;
-  const loggedTemplate = templates => `EXISTS (SELECT 1 FROM user_communications pu WHERE pu.agency_id=c.agency_id
-    AND pu.template_type IN (${templates.map(t => `'${t}'`).join(',')}) AND pu.subject=c.subject COLLATE utf8mb4_unicode_ci
+  // Each constant template equality lets MySQL use all three parts of the
+  // existing (agency_id, template_type, subject) index. A correlated IN only
+  // uses agency_id and rescans unrelated sent mail for every conversation.
+  const loggedTemplate = templates => `(${templates.map(template => `EXISTS (SELECT 1 FROM user_communications pu WHERE pu.agency_id=c.agency_id
+    AND pu.template_type='${template}' AND pu.subject=c.subject COLLATE utf8mb4_unicode_ci
     AND (JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.threadId')) COLLATE utf8mb4_unicode_ci=c.external_thread_id COLLATE utf8mb4_unicode_ci
       OR EXISTS (SELECT 1 FROM communication_messages pm WHERE pm.conversation_id=c.id
-        AND pm.internet_message_id IS NOT NULL AND pm.internet_message_id COLLATE utf8mb4_unicode_ci=JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.internetMessageId')) COLLATE utf8mb4_unicode_ci)))`;
+        AND pm.internet_message_id IS NOT NULL AND pm.internet_message_id COLLATE utf8mb4_unicode_ci=JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.internetMessageId')) COLLATE utf8mb4_unicode_ci)))`).join(' OR ')})`;
   const trustedSubject = pattern => `EXISTS (SELECT 1 FROM communication_messages pm WHERE pm.conversation_id=c.id
     AND pm.direction='inbound' AND COALESCE(pm.is_internal_note,0)=0 AND ${trustedSender}
     AND LOWER(COALESCE(pm.subject,c.subject,'')) REGEXP '${pattern}')`;

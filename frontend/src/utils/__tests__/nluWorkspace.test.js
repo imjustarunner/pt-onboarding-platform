@@ -1,4 +1,7 @@
 import{expect,it}from'vitest';import{canLoadClinicalSupervision,serviceWorkspace}from'../nluWorkspace.js';
+it.each([null,undefined])('handles an organization that has not loaded: %s',agency=>{
+ expect(serviceWorkspace({role:'provider'},agency)).toMatchObject({agencyId:null,canClinical:false,canTutor:false,canChildcare:false});
+});
 it.each(['provider','staff','admin'])('does not make clinical-supervision requests for %s in an explicitly learning-only organization',role=>{
  expect(canLoadClinicalSupervision({id:9,role},{id:453,feature_flags:{clinicalChartEnabled:false,standardsLearningEnabled:true}})).toBe(false);
 });

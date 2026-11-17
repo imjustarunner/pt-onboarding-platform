@@ -1,5 +1,6 @@
 const json = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 export function serviceWorkspace(user, agency = {}, context = user?.workspaceServiceContext) {
+  agency = agency ?? {};
   const scoped = Number(context?.agencyId) === Number(agency?.id) ? context : null;
   const flags = json(agency.feature_flags ?? agency.featureFlags);
   const learningTenant = flags.qaSandbox?.program === 'tutoring' || String(agency.organization_type).toLowerCase() === 'learning';
