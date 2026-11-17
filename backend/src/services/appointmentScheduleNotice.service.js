@@ -79,9 +79,12 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       bodyPreview: message, createdByUserId: row.created_by_user_id,
       metadata: { scheduleNotice: true, eventType: row.event_type || null, scheduleNoticeType: appointmentNoticeKind(row.event_type), scheduleNoticeId: row.id, clientId: row.client_id, deliveryStatus: status, body: message, ...extra } });
   }
-  async function summary(appointmentId) {
+  async function summary(appointmentId, {notificationMode=null}={}) {
     const [rows] = await db.execute('SELECT id,status,fire_at,payload_json FROM appointment_schedule_notices WHERE appointment_id=? ORDER BY id', [appointmentId]);
-    const [deliveryRows] = await db.execute(`SELECT DISTINCT d.id,d.channel,d.status,d.error_message,d.sent_at,d.recipient_address,uc.opened_at,uc.delivered_at,n.client_id,r.id AS receipt_id,r.confirmed_at FROM appointment_schedule_notice_deliveries d JOIN appointment_schedule_notices n ON n.batch_id=d.batch_id LEFT JOIN user_communications uc ON uc.id=d.communication_id LEFT JOIN cancellation_email_receipts r ON r.agency_id=n.agency_id AND r.delivery_type='appointment' AND r.delivery_key=CAST(d.id AS CHAR) WHERE n.appointment_id=?`, [appointmentId]);
+    const [history] = await db.execute(`SELECT DISTINCT d.id,d.channel,d.status,d.error_message,d.sent_at,d.recipient_address,uc.opened_at,uc.delivered_at,n.client_id,r.id AS receipt_id,r.confirmed_at FROM appointment_schedule_notice_deliveries d JOIN appointment_schedule_notices n ON n.batch_id=d.batch_id LEFT JOIN user_communications uc ON uc.id=d.communication_id LEFT JOIN cancellation_email_receipts r ON r.agency_id=n.agency_id AND r.delivery_type='appointment' AND r.delivery_key=CAST(d.id AS CHAR) WHERE n.appointment_id=?`, [appointmentId]);
+    // A user's explicit no-send choice must never report a prior booking email
+    // as sent by this action. The complete delivery history remains unchanged.
+    const deliveryRows=notificationMode==='none'?[]:history;
     return { pending: rows.filter(r => r.status === 'pending').length, suppressed: rows.filter(r => r.status === 'suppressed').length,
       warnings: rows.map(r=>r.payload_json && decode(r.payload_json).offerUnavailableReason).filter(Boolean),
       queuedUntil: rows.filter(r => r.status === 'pending').map(r => r.fire_at).at(-1) || null, deliveries: deliveryRows.map(r=>({id:r.id,source:'schedule_notice',channel:r.channel,status:r.status,reason:r.error_message,sentAt:r.sent_at,recipient:r.recipient_address,openedAt:r.opened_at,deliveredAt:r.delivered_at,clientId:r.client_id,receiptRequired:!!r.receipt_id,receiptConfirmedAt:r.confirmed_at || null})),
@@ -183,7 +186,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     // Old confirmation and provider-push queues must not race this single schedule update.
     await db.execute("UPDATE appointment_reminders SET status='canceled' WHERE appointment_id=? AND status='pending' AND kind='confirmation'", [a.id]);
     await db.execute("UPDATE appointment_change_notification_queue SET status='canceled',canceled_at=NOW() WHERE appointment_id=? AND status='pending'", [a.id]);
-    return summary(a.id);
+    return summary(a.id,{notificationMode:facts.notificationMode});
   }
   async function process(id) {
     const [[seed]] = await db.execute('SELECT * FROM appointment_schedule_notices WHERE id=?', [id]);

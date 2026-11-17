@@ -19125,8 +19125,10 @@ export const listMyTimeClaims = async (req, res, next) => {
       (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
     );
     const { meetingClaimCompensation } = await import('../services/meetingClaimRate.service.js');
+    const { childcareClaimEstimate } = await import('../services/childcarePay.service.js');
     for (const claim of filtered) {
       if (claim.payload?.source === 'meeting_compensation_auto') claim.compensation = await meetingClaimCompensation(claim);
+      if (claim.claim_type === 'childcare_shift') claim.compensation = childcareClaimEstimate(claim);
     }
     res.json(filtered);
   } catch (e) {

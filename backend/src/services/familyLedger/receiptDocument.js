@@ -1,3 +1,4 @@
+import {receiptTimestamp} from './receiptTimestamp.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { COPAY_CANCELLATION_NOTICE } from './receiptEmailPolicy.js';
 
@@ -16,7 +17,7 @@ export async function brandedReceiptPdf(receipt) {
   }if(y<65)addPage();page.drawText(text,{x:48,y,size,font,color});y-=size+10;};
   addPage();line('PAYMENT RECEIPT',{size:12,font:bold,color:muted});y-=14;line(money(receipt.amountCents),{size:30,font:bold,color:blue});
   if(receipt.simulated)line('SIMULATED QA RECORD - no money moved. Stripe and banks were not contacted.',{font:bold});
-  const details=[['Receipt',receipt.receiptNumber],['Payment date',String(receipt.receivedAt).slice(0,10)],['Responsible payer',receipt.payerName],['Client',receipt.clientName],['Service',receipt.service],['Service date',receipt.serviceDate],['Charge type',receipt.responsibilityType],['Balance reference',receipt.balanceReference],['Payment method',receipt.method]];
+  const details=[['Receipt',receipt.receiptNumber],['Payment received',receiptTimestamp(receipt.receivedAt,receipt.timeZone)],['Responsible payer',receipt.payerName],['Client',receipt.clientName],['Service',receipt.service],['Service date',receipt.serviceDate],['Charge type',receipt.responsibilityType],['Balance reference',receipt.balanceReference],['Payment method',receipt.method]];
   for(const [label,value] of details)if(value!=null&&value!=='')line(`${label}: ${value}`);
   if(receipt.shareCents!=null)line(`Assigned share: ${money(receipt.shareCents)} | Previously paid: ${money(receipt.previouslyPaidCents)}`);
   if(receipt.remainingAtPaymentCents!=null)line(`Remaining at time of payment: ${money(receipt.remainingAtPaymentCents)}`);

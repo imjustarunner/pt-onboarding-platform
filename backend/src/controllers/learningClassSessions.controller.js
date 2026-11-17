@@ -416,9 +416,19 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
     if(!session)throw Object.assign(new Error('Session not found'),{status:404});
     const linked=await linkedTutoringBilling(session);
     await requireLinkedTutoringCompletion(linked,session);
+    const syncCompletedAppointment=async saved=>{
+      if(!linked||!saved.actual_started_at||!saved.actual_ended_at)return;
+      await pool.execute(`UPDATE appointments a JOIN tutoring_appointment_sessions link ON link.appointment_id=a.id
+        JOIN learning_class_sessions s ON s.id=link.session_id JOIN learning_program_classes program ON program.id=s.learning_class_id
+        SET a.status='completed',a.updated_by_user_id=?
+        WHERE s.id=? AND s.status='ended' AND s.actual_started_at IS NOT NULL AND s.actual_ended_at>s.actual_started_at
+          AND a.agency_id=program.organization_id AND a.provider_user_id=s.provider_user_id
+          AND a.business_type='tutoring' AND a.service_code='TUTORING'
+          AND a.status IN ('scheduled','confirmed','client_confirmed','in_progress')`,[actorUserId,sessionId]);
+    };
     // A retry keeps the original time/transcript and repairs only idempotent
     // appointment settlement and payroll drafts. It never repeats an auto-charge.
-    const endedResult=async saved=>{const billing=await settleLinkedTutoringCompletion(linked,actorUserId);return {session:saved,...billing,...await prepareSessionPayroll(sessionId,actorUserId),message:billing.billingWarning||'Session ended.'};};
+    const endedResult=async saved=>{await syncCompletedAppointment(saved);const billing=await settleLinkedTutoringCompletion(linked,actorUserId);return {session:saved,...billing,...await prepareSessionPayroll(sessionId,actorUserId),message:billing.billingWarning||'Session ended.'};};
     if(session.status==='ended')return endedResult(session);
     // Support optional transcript submission from frontend or Vonage webhook
     let transcriptText = transcript || null;
@@ -437,6 +447,7 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
       return endedResult(freshSession);
     }
 
+    await syncCompletedAppointment(freshSession);
     const billingResult=await settleLinkedTutoringCompletion(linked,actorUserId);
     // If this is a tutoring session, trigger AI transcript analysis for strengths/needs, standards mapping,
     // progress update, and guardian homework generation (non-blocking)
@@ -474,11 +485,6 @@ export const endClassSession = async (req, res, next) => {
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
 
     const result = await completeLearningSession(sessionId,req.user.id,req.body?.transcript||req.body?.transcript_text);
-    await pool.execute(`UPDATE appointments a JOIN tutoring_appointment_sessions link ON link.appointment_id=a.id
-      JOIN learning_class_sessions s ON s.id=link.session_id JOIN learning_program_classes program ON program.id=s.learning_class_id
-      SET a.status='completed',a.updated_by_user_id=?
-      WHERE s.id=? AND s.status='ended' AND a.agency_id=program.organization_id AND a.provider_user_id=s.provider_user_id
-        AND a.business_type IN ('learning','tutoring') AND a.status IN ('scheduled','confirmed','client_confirmed','in_progress')`,[req.user.id,sessionId]);
     res.json(result);
   } catch (e) {
     next(e);

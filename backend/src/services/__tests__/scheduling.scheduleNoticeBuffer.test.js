@@ -380,3 +380,5 @@ it('does not send an outdated booking confirmation if delivery resumes after the
  const h=harness();h.appointments.get(1).status='scheduled';await h.service.queue(1,{eventType:'created'});h.advance(60*48);await h.service.process(1);
  expect(h.notices[0].status).toBe('skipped');expect(h.deps.sendEmail).not.toHaveBeenCalled();expect(h.deps.sendSms).not.toHaveBeenCalled();
 });
+
+it('does not count an earlier booking email as sent by a later explicit no-send cancellation',async()=>{const h=harness();await h.service.queue(1,{eventType:'created'});h.advance(61);await h.service.process(1);h.deliveries.push({id:999,status:'sent',channel:'email'});h.appointments.get(1).status='canceled_by_provider';const result=await h.service.queue(1,{eventType:'canceled',facts:{notificationMode:'none'}});expect(result.sent).toBe(0);expect(result.deliveries).toEqual([]);expect(h.deliveries.some(row=>row.status==='sent')).toBe(true);});

@@ -3,6 +3,7 @@ import {readAgencyAccess} from './agencyAccessProfiles.service.js';
 import {isNluChildcareAgency} from './compensationCategories.service.js';
 import {isNluTutoringQaAgency} from '../utils/nluTutoringQaPolicy.js';
 import {isStaffAccount} from '../utils/staffEligibility.js';
+import {employeeCompensationCountersignerAccess} from './employeeCompensationCountersignerAccess.js';
 
 const parse=value=>{try{return typeof value==='string'?JSON.parse(value):value||{};}catch{return {};}};
 const deny=message=>Object.assign(new Error(message),{status:403});
@@ -43,10 +44,10 @@ export async function requireEmployeeCompensationSignatureAccess(task,user,{coun
  const activeEmployee=actor&&isStaffAccount(actor)&&Number(actor.is_active)===1&&!Number(actor.is_archived)
   &&!actor.terminated_at&&String(actor.status).toUpperCase()==='ACTIVE_EMPLOYEE'
   &&(!Number(actor.is_demo)||qa);
- if(!activeAgency||!activeEmployee)throw deny(countersign?'The designated employer countersigner must still be an active administrator in this exact organization.':'This compensation agreement requires the employee’s active membership in its original organization.');
+ if(!activeAgency||!activeEmployee)throw deny(countersign?'The designated employer countersigner must still be an active authorized employee in this organization.':'This compensation agreement requires the employee’s active membership in its original organization.');
  if(countersign){
   const access=await readAgencyAccess(actorId,agencyId,db);
-  if(!access?.membership||!['admin','super_admin'].includes(access.role))throw deny('The designated employer countersigner must still be an active administrator in this exact organization.');
+  if(!access?.membership||!await employeeCompensationCountersignerAccess({...actor,id:actorId},agencyId,db))throw deny('The designated employer countersigner needs current hiring authority in this organization. Ask the agreement preparer to review its assigned signer.');
  }
  return true;
 }

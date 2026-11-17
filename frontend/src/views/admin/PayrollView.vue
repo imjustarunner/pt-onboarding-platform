@@ -6311,6 +6311,7 @@
             <button class="btn btn-secondary btn-sm" @click="showTimeClaimReviewModal = false">Close</button>
           </div>
           <MeetingClaimDetails v-if="hasMeetingClaimDetails(reviewedTimeClaim)" :claim="reviewedTimeClaim" :employee-name="nameForUserId(reviewedTimeClaim.user_id)" :period-label="timeClaimPeriodLabel(reviewedTimeClaim.suggested_payroll_period_id)" />
+          <ChildcareClaimDetails v-else-if="reviewedTimeClaim?.claim_type === 'childcare_shift'" :claim="reviewedTimeClaim" :employee-name="nameForUserId(reviewedTimeClaim.user_id)" />
           <div v-else-if="reviewedTimeClaim" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
 
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
@@ -6561,6 +6562,7 @@ import PayrollTodoNotes from '../../components/payroll/PayrollTodoNotes.vue';
 import { workingPeriods, claimInWorkingPeriods } from '../../utils/payrollWorkingPeriods';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
+import ChildcareClaimDetails from '../../components/payroll/ChildcareClaimDetails.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

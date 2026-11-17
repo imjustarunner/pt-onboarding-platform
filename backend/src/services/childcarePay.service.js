@@ -109,3 +109,14 @@ export function childcareClaimAmount(claim,approvedHours=null) {
   if(approvedHours!=null&&Math.abs(Number(approvedHours)-snapshot.totalMinutes/60)>.005001)throw fail('Correct actual childcare time in its shift before changing payroll hours.');
   return snapshot.totalAmount;
 }
+
+// This is an employee-facing estimate, never an approval or a second pay
+// calculation. Use only the immutable calculation snapshot's verified amount.
+export function childcareClaimEstimate(claim) {
+  const payload=claim?.payload||{},snapshot=payload.childcareSnapshot;
+  const verified=!!snapshot&&childcareSnapshotHashMatches(snapshot,payload.childcareSnapshotHash,payload.childcareSnapshotHashVersion);
+  const reasons=verified?[...(snapshot.reasons||[])]:['The recorded childcare calculation needs review.'];
+  if(payload.childcareWorkApprovalRequired&&!payload.childcareWorkApproved)reasons.push('Childcare work sign-off is pending.');
+  return {estimatedAmount:verified&&!snapshot.reviewRequired&&snapshot.totalAmount!=null?Number(snapshot.totalAmount):null,
+    rateLabel:'Recorded childcare time and attendance',reviewRequired:!verified||!!snapshot?.reviewRequired||reasons.length>0,reasons};
+}

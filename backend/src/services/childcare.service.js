@@ -8,6 +8,7 @@ import {calculateChildcarePay,childcareRateSchedule,childcareSnapshotHash,childc
 import {toUtcIso,utcDateToZonedYmd,dateToMysqlUtcDateTime} from '../utils/zonedWallTime.util.js';
 import {assertAppointmentWindowAvailable} from './appointmentConflict.service.js';
 import {readAgencyAccess} from './agencyAccessProfiles.service.js';
+import {childcareLocations,resolveChildcareLocation} from './childcareLocations.service.js';
 
 const parse=value=>{try{return typeof value==='string'?JSON.parse(value):(value||{});}catch{return {};}};
 const fail=(status,message,code='CHILDCARE_REQUEST_INVALID')=>{throw Object.assign(new Error(message),{status,code});};
@@ -63,6 +64,34 @@ export async function listChildcareStaff({agencyId,userId},db=pool) {
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
     LEFT JOIN childcare_service_grants g ON g.agency_id=ua.agency_id AND g.user_id=u.id ORDER BY u.first_name,u.last_name,u.id`,[ctx.agencyId]);
   return {staff:rows.filter(active).map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,role:row.role,grant:{enabled:!!Number(row.enabled),selfSchedule:!!Number(row.self_schedule),manageSchedule:!!Number(row.manage_schedule),approveWork:!!Number(row.approve_work)}}))};
+}
+export async function listChildcareLocations({agencyId,userId},db=pool) {
+  const ctx=await childcareContext({agencyId,userId},db);
+  if(!ctx.canSchedule&&!ctx.canManage&&!ctx.canWork)fail(403,'A childcare assignment is required.');
+  return childcareLocations(ctx.agencyId,db);
+}
+
+export async function listOwnActiveChildcareClocks({userId},db=pool) {
+  const uid=id(userId);
+  const [rows]=await db.execute(`SELECT s.id,s.agency_id,e.title,e.timezone,s.planned_children,
+    (SELECT p.punched_at FROM skill_builders_event_kiosk_punches p WHERE p.company_event_id=s.company_event_id AND p.user_id=? ORDER BY p.punched_at DESC,p.id DESC LIMIT 1) clocked_in_at
+    FROM childcare_shifts s JOIN company_events e ON e.id=s.company_event_id
+    JOIN company_event_provider_assignments a ON a.company_event_id=e.id AND a.provider_user_id=?
+    WHERE (SELECT p.punch_type FROM skill_builders_event_kiosk_punches p WHERE p.company_event_id=e.id AND p.user_id=? ORDER BY p.punched_at DESC,p.id DESC LIMIT 1)='clock_in'
+    ORDER BY e.starts_at,s.id`,[uid,uid,uid]);
+  const shifts=[];
+  for(const row of rows) {
+    try {
+      const ctx=await childcareContext({agencyId:row.agency_id,userId:uid},db);
+      if(ctx.canWork)shifts.push({id:Number(row.id),agencyId:ctx.agencyId,agencySlug:ctx.agencySlug,title:row.title,timezone:row.timezone,plannedChildren:Number(row.planned_children),clockedInAt:childcareStoredIso(row.clocked_in_at)});
+    } catch(error){if(error.status!==403)throw error;}
+  }
+  return {shifts};
+}
+export async function recordChildcareClockReminderChoice({shiftId,userId,choice},db=pool) {
+  if(!['stay','review-clock-out'].includes(choice))fail(400,'Choose whether to stay clocked in or review clock-out.');
+  const shift=await loadShift(shiftId,db);await authorizeShift(shift,userId,db,{work:true});
+  return {auditRowId:await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_clock_reminder_answered',metadata:{shiftId:Number(shift.id),choice}})};
 }
 export async function saveChildcareGrant({agencyId,userId,targetUserId,enabled,selfSchedule=false,manageSchedule=false,approveWork=false}) {
   if(typeof approveWork!=='boolean'||typeof enabled!=='boolean'||typeof selfSchedule!=='boolean'||typeof manageSchedule!=='boolean')fail(400,'Use explicit childcare and scheduling permission choices.');
@@ -123,7 +152,7 @@ async function mapShift(shift,userId,db=pool) {
   for(const person of providers){const own=workSources.punches.filter(p=>Number(p.user_id)===Number(person.id));if(own.length){person.last_punch=own.at(-1).punch_type;person.last_clock_in=own.filter(p=>p.punch_type==='clock_in').at(-1)?.punched_at;person.last_clock_out=own.filter(p=>p.punch_type==='clock_out').at(-1)?.punched_at;}}
   const intervals=childcareWorkIntervals(workSources.punches).intervals;
   const mine=providers.find(row=>Number(row.id)===Number(userId));
-  return {workReviews:workReviews.filter(row=>reviewAll||Number(row.user_id)===Number(userId)).map(row=>({...row,intervals:intervals.filter(i=>i.userId===Number(row.user_id)).map(i=>({startedAt:new Date(i.startedAt).toISOString(),endedAt:new Date(i.endedAt).toISOString()}))})),attendanceHistory:workSources.attendance.map(row=>({actualChildren:row.actual_children,effectiveAt:childcareStoredIso(row.effective_at),reviewRequired:!!row.needs_review})),timeCorrections:timeCorrections.filter(row=>reviewAll||Number(row.user_id)===Number(userId)),id:Number(shift.id),eventId:Number(shift.company_event_id),agencyId:Number(shift.agency_id),title:shift.title,startsAt:childcareStoredIso(shift.starts_at),endsAt:childcareStoredIso(shift.ends_at),firstClockInAt:providers.map(row=>childcareStoredIso(row.first_clock_in)).filter(Boolean).sort()[0]||null,timezone:shift.timezone,status:shift.status,plannedChildren:Number(shift.planned_children),actualChildren:shift.actual_children==null?null:Number(shift.actual_children),attendanceVersion:Number(shift.attendance_version),attendanceReviewRequired:!!Number(shift.attendance_review_required),locationName:shift.location_name||'',note:shift.private_note||'',minimumHourlyRate:shift.minimum_hourly_rate==null?null:Number(shift.minimum_hourly_rate),wageFloorJurisdiction:shift.wage_floor_jurisdiction||'',providers:providers.map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,clockedIn:row.last_punch==='clock_in',clockedOut:row.last_punch==='clock_out'})),myParticipation:{assigned:!!mine,clockedIn:mine?.last_punch==='clock_in',clockedInAt:childcareStoredIso(mine?.last_clock_in)||null,clockedOutAt:childcareStoredIso(mine?.last_clock_out)||null}};
+  return {workReviews:workReviews.filter(row=>reviewAll||Number(row.user_id)===Number(userId)).map(row=>({...row,intervals:intervals.filter(i=>i.userId===Number(row.user_id)).map(i=>({startedAt:new Date(i.startedAt).toISOString(),endedAt:new Date(i.endedAt).toISOString()}))})),attendanceHistory:workSources.attendance.map(row=>({actualChildren:row.actual_children,effectiveAt:childcareStoredIso(row.effective_at),reviewRequired:!!row.needs_review})),timeCorrections:timeCorrections.filter(row=>reviewAll||Number(row.user_id)===Number(userId)),id:Number(shift.id),eventId:Number(shift.company_event_id),agencyId:Number(shift.agency_id),title:shift.title,startsAt:childcareStoredIso(shift.starts_at),endsAt:childcareStoredIso(shift.ends_at),firstClockInAt:providers.map(row=>childcareStoredIso(row.first_clock_in)).filter(Boolean).sort()[0]||null,timezone:shift.timezone,status:shift.status,plannedChildren:Number(shift.planned_children),actualChildren:shift.actual_children==null?null:Number(shift.actual_children),attendanceVersion:Number(shift.attendance_version),attendanceReviewRequired:!!Number(shift.attendance_review_required),officeLocationId:shift.office_location_id?Number(shift.office_location_id):null,roomId:shift.room_id?Number(shift.room_id):null,locationName:shift.location_name||'',note:shift.private_note||'',minimumHourlyRate:shift.minimum_hourly_rate==null?null:Number(shift.minimum_hourly_rate),wageFloorJurisdiction:shift.wage_floor_jurisdiction||'',providers:providers.map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,clockedIn:row.last_punch==='clock_in',clockedOut:row.last_punch==='clock_out'})),myParticipation:{intervals:intervals.filter(row=>row.userId===Number(userId)).map(row=>({startedAt:new Date(row.startedAt).toISOString(),endedAt:new Date(row.endedAt).toISOString()})),assigned:!!mine,clockedIn:mine?.last_punch==='clock_in',clockedInAt:childcareStoredIso(mine?.last_clock_in)||null,clockedOutAt:childcareStoredIso(mine?.last_clock_out)||null}};
 }
 export async function listChildcareShifts({agencyId,userId},db=pool) {
   const ctx=await childcareContext({agencyId,userId},db);if(!ctx.canManage&&!ctx.canWork&&!ctx.canApprove)fail(403,'Childcare access is required.');
@@ -149,7 +178,7 @@ export function normalizeChildcareShift(body,existing={}) {
   const floor=value.minimumHourlyRate==null||value.minimumHourlyRate===''?null:Number(value.minimumHourlyRate);
   if(floor!==null&&(!Number.isFinite(floor)||floor<=0||floor>100000))fail(400,'Confirm a positive applicable hourly wage floor.');
   if(String(value.note||'').length>4000)fail(400,'Keep the private shift note under 4,000 characters.');
-  return {title:String(value.title||'Childcare').trim().slice(0,255)||'Childcare',startsAt:start.toISOString(),endsAt:end.toISOString(),timezone,plannedChildren,providerUserIds,note:String(value.note||'').trim(),locationName:String(value.locationName||'').trim().slice(0,255),minimumHourlyRate:floor,wageFloorJurisdiction:String(value.wageFloorJurisdiction||'').trim().slice(0,255)};
+  return {title:String(value.title||'Childcare').trim().slice(0,255)||'Childcare',startsAt:start.toISOString(),endsAt:end.toISOString(),timezone,plannedChildren,providerUserIds,note:String(value.note||'').trim(),officeLocationId:value.officeLocationId?id(value.officeLocationId):null,roomId:value.roomId?id(value.roomId):null,locationName:String(value.locationName||'').trim().slice(0,255),minimumHourlyRate:floor,wageFloorJurisdiction:String(value.wageFloorJurisdiction||'').trim().slice(0,255)};
 }
 async function validateProviders(ctx,providerUserIds,userId,db) {
   if(!ctx.canSchedule)fail(403,'Childcare scheduling permission is required.');
@@ -169,14 +198,14 @@ async function checkConflicts(value,db,excludeShiftId=0) {
 export async function createChildcareShift({userId,...body}) {
   return transaction(async db=>{
     const ctx=await childcareContext({agencyId:body.agencyId,userId},db);
-    const value=normalizeChildcareShift({...body,providerUserIds:body.providerUserIds||[Number(userId)]});
+    const value=await resolveChildcareLocation(normalizeChildcareShift({...body,providerUserIds:body.providerUserIds||[Number(userId)]}),ctx.agencyId,db);
     await validateProviders(ctx,value.providerUserIds,userId,db);await checkConflicts(value,db);
     if(!ctx.canManagePay&&(value.minimumHourlyRate!=null||value.wageFloorJurisdiction))fail(403,'A pay administrator must confirm work-location compensation settings.');
     const [[agency]]=await db.execute('SELECT feature_flags FROM agencies WHERE id=?',[ctx.agencyId]);
     const floor=parse(agency.feature_flags).childcareWageFloor||{};
     const [event]=await db.execute(`INSERT INTO company_events(agency_id,created_by_user_id,updated_by_user_id,title,event_type,description,starts_at,ends_at,timezone,is_active,rsvp_mode)
       VALUES (?,?,?,?,'childcare',?,?,?, ?,1,'none')`,[ctx.agencyId,userId,userId,value.title,`${value.plannedChildren} children planned`,sqlInstant(value.startsAt),sqlInstant(value.endsAt),value.timezone]);
-    const [created]=await db.execute(`INSERT INTO childcare_shifts(agency_id,company_event_id,planned_children,private_note,location_name,minimum_hourly_rate,wage_floor_jurisdiction,created_by_user_id) VALUES (?,?,?,?,?,?,?,?)`,[ctx.agencyId,event.insertId,value.plannedChildren,value.note||null,value.locationName||null,value.minimumHourlyRate??floor.minimumHourlyRate??null,value.wageFloorJurisdiction||floor.jurisdiction||null,userId]);
+    const [created]=await db.execute(`INSERT INTO childcare_shifts(agency_id,company_event_id,planned_children,private_note,location_name,minimum_hourly_rate,wage_floor_jurisdiction,created_by_user_id,office_location_id,room_id) VALUES (?,?,?,?,?,?,?,?,?,?)`,[ctx.agencyId,event.insertId,value.plannedChildren,value.note||null,value.locationName||null,value.minimumHourlyRate??floor.minimumHourlyRate??null,value.wageFloorJurisdiction||floor.jurisdiction||null,userId,value.officeLocationId,value.roomId]);
     for(const uid of value.providerUserIds) {
       await db.execute("INSERT INTO company_event_provider_assignments(company_event_id,provider_user_id,role_title,role_key) VALUES (?,?,'Childcare provider','childcare')",[event.insertId,uid]);
       await db.execute("INSERT INTO company_event_audiences(company_event_id,audience_type,target_id) VALUES (?,'user',?)",[event.insertId,uid]);
@@ -201,15 +230,15 @@ export async function updateChildcareShift({shiftId,userId,...body}) {
       if(!ctx.canManage)fail(403,'A manager must review changes after recorded work.');
     }
     if(body.agencyId!=null&&Number(body.agencyId)!==Number(shift.agency_id))fail(403,'This shift belongs to another organization.');
-    const current=await mapShift(shift,userId,db),value=normalizeChildcareShift({...body,providerUserIds:body.providerUserIds||current.providers.map(row=>row.userId)},current);
+    const current=await mapShift(shift,userId,db),value=await resolveChildcareLocation(normalizeChildcareShift({...body,providerUserIds:body.providerUserIds||current.providers.map(row=>row.userId)},current),ctx.agencyId,db,current);
     if(!ctx.canManagePay&&(value.minimumHourlyRate!==current.minimumHourlyRate||value.wageFloorJurisdiction!==current.wageFloorJurisdiction))fail(403,'Only a pay administrator may change work-location pay settings.');
     if(!punches.length){await validateProviders(ctx,value.providerUserIds,userId,db);await checkConflicts(value,db,shift.id);}
     if(body.status!=null&&!['scheduled','canceled'].includes(body.status))fail(400,'Use scheduled or canceled for a childcare shift.');
     const status=body.status||shift.status;
-    const scheduleChanged=['title','startsAt','endsAt','timezone','plannedChildren','locationName'].some(key=>JSON.stringify(value[key])!==JSON.stringify(current[key]))||status!==shift.status||JSON.stringify([...value.providerUserIds].sort((a,b)=>a-b))!==JSON.stringify(current.providers.map(row=>row.userId).sort((a,b)=>a-b));
+    const scheduleChanged=['title','startsAt','endsAt','timezone','plannedChildren','locationName','officeLocationId','roomId'].some(key=>JSON.stringify(value[key])!==JSON.stringify(current[key]))||status!==shift.status||JSON.stringify([...value.providerUserIds].sort((a,b)=>a-b))!==JSON.stringify(current.providers.map(row=>row.userId).sort((a,b)=>a-b));
     if(punches.length&&scheduleChanged)fail(409,'Recorded work keeps its original schedule and staffing. Review attendance or create a separate future shift.');
     await db.execute('UPDATE company_events SET title=?,description=?,starts_at=?,ends_at=?,timezone=?,updated_by_user_id=?,school_event_status=? WHERE id=?',[value.title,`${value.plannedChildren} children planned`,sqlInstant(value.startsAt),sqlInstant(value.endsAt),value.timezone,userId,status==='canceled'?'canceled':null,shift.company_event_id]);
-    await db.execute('UPDATE childcare_shifts SET planned_children=?,private_note=?,location_name=?,minimum_hourly_rate=?,wage_floor_jurisdiction=?,status=? WHERE id=?',[value.plannedChildren,value.note||null,value.locationName||null,value.minimumHourlyRate,value.wageFloorJurisdiction||null,status,shift.id]);
+    await db.execute('UPDATE childcare_shifts SET planned_children=?,private_note=?,location_name=?,minimum_hourly_rate=?,wage_floor_jurisdiction=?,status=?,office_location_id=?,room_id=? WHERE id=?',[value.plannedChildren,value.note||null,value.locationName||null,value.minimumHourlyRate,value.wageFloorJurisdiction||null,status,value.officeLocationId,value.roomId,shift.id]);
     if(scheduleChanged)await db.execute('UPDATE childcare_shifts SET schedule_version=schedule_version+1 WHERE id=?',[shift.id]);
     if(!punches.length){
       await db.execute('DELETE FROM company_event_provider_assignments WHERE company_event_id=?',[shift.company_event_id]);
@@ -253,7 +282,7 @@ async function refreshChildcarePay(shift,db) {
       await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_work_review_invalidated',metadata:{shiftId:shift.id,previousSnapshotHash:workReview.snapshot_hash,currentSnapshotHash:hash}});
     }
     const claimStatus=snapshot.reviewRequired||!workApproved?'deferred':'submitted';
-    const payload={childcareWorkApprovalRequired:true,childcareWorkApproved:workApproved,childcareWorkReviewedBy:workApproved?workReview.reviewed_by_user_id:null,source:'childcare_shift',companyEventId:Number(shift.company_event_id),childcareShiftId:Number(shift.id),childcareSnapshot:snapshot,childcareSnapshotHash:hash,childcareSnapshotHashVersion:2,totalMinutes:snapshot.totalMinutes,bucket:'direct',categoryLabel:'Childcare',rateReviewRequired:snapshot.reviewRequired,clockInAt:snapshot.segments[0]?.startedAt||null,clockOutAt:snapshot.segments.at(-1)?.endedAt||null};
+    const payload={childcareWorkApprovalRequired:true,childcareWorkApproved:workApproved,childcareWorkReviewedBy:workApproved?workReview.reviewed_by_user_id:null,source:'childcare_shift',timezone:shift.timezone,companyEventId:Number(shift.company_event_id),childcareShiftId:Number(shift.id),childcareSnapshot:snapshot,childcareSnapshotHash:hash,childcareSnapshotHashVersion:2,totalMinutes:snapshot.totalMinutes,bucket:'direct',categoryLabel:'Childcare',rateReviewRequired:snapshot.reviewRequired,clockInAt:snapshot.segments[0]?.startedAt||null,clockOutAt:snapshot.segments.at(-1)?.endedAt||null};
     let claimId=saved?.payroll_time_claim_id||null;
     if(snapshot.totalMinutes>0) {
       if(claimId)await db.execute("UPDATE payroll_time_claims SET payload_json=?,status=?,credits_hours=?,bucket='direct' WHERE id=? AND status IN ('submitted','deferred','rejected')",[jsonParams(payload),claimStatus,snapshot.totalMinutes/60,claimId]);

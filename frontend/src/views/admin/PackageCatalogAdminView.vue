@@ -126,7 +126,7 @@
         <label>Pricing<select v-model="form.pricingMode"><option value="fixed">Fixed package total</option><option value="provider-discount">Discount from provider hourly fee</option></select></label>
         <div v-if="form.pricingMode==='provider-discount'" class="row2"><label>Discount (%)<input v-model.number="form.discountPercent" type="number" min="0" max="100" step="0.1" /></label><label>Format<select v-model="form.format"><option value="virtual">Virtual</option><option value="in-person">In person</option><option value="small-group">Small group</option></select></label><p>The selected provider’s hourly client fee determines the total. Employee pay stays unchanged. The purchase is tied to that provider, service and session duration.</p></div>
         <div class="row2">
-          <label>Included free misses<input v-model.number="form.freeMisses" type="number" min="0" max="10000" /></label>
+          <label>Included free misses (late cancellations and no-shows)<input v-model.number="form.freeMisses" type="number" min="0" max="10000" /></label>
           <label>Bonus sessions<input v-model.number="form.bonusSessions" type="number" min="0" max="10000" /></label>
         </div>
         <p class="muted">Each session uses one unit. Bonus sessions add units. These allowances apply to new purchases; when a missed-session policy uses a credit, it uses a free miss first, then an available bonus unit, then a paid unit.</p>

@@ -1,0 +1,4 @@
+import {mount} from '@vue/test-utils';
+import {it,expect} from 'vitest';
+import View from '../ChildcareClaimDetails.vue';
+it('renders recorded seconds, gross estimate, review step and no raw payroll payload or suggested period',()=>{const wrapper=mount(View,{props:{employeeName:'QA caregiver',claim:{id:851,claim_type:'childcare_shift',status:'deferred',claim_date:'2026-11-15',payload:{timezone:'America/Denver',childcareShiftId:3,companyEventId:356,clockInAt:'2026-11-15T14:16:37Z',clockOutAt:'2026-11-15T14:47:28Z',childcareWorkApprovalRequired:true,childcareWorkApproved:false,childcareSnapshot:{totalMinutes:30.85,totalAmount:13.37,reasons:[],segments:[]}}}}});const text=wrapper.text();expect(text).toContain('7:16:37');expect(text).toContain('30.85 minutes');expect(text).toContain('$13.37');expect(text).toContain('separate sign-off');expect(text).not.toMatch(/Suggested pay period|clockInAt|childcareSnapshot|bucket/);});

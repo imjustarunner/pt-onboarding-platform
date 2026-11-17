@@ -172,6 +172,7 @@
         <div v-if="timeDetailLoading" role="status" class="pcp-muted">Loading claim details…</div>
         <div v-if="timeDetailError" role="alert" class="pcp-error">{{ timeDetailError }}</div>
         <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="providerName(reviewedTimeClaim)" :period-label="periodLabel" />
+          <ChildcareClaimDetails v-else-if="reviewedTimeClaim?.claim_type === 'childcare_shift'" :claim="reviewedTimeClaim" :employee-name="providerName(reviewedTimeClaim)" />
           <div v-else-if="reviewedTimeClaim" class="pcp-modal-body">
           <div class="pcp-detail-grid">
             <div><strong>Claim ID</strong><div>{{ reviewedTimeClaim.id }}</div></div>
@@ -211,6 +212,7 @@ import { usePayrollClaimReview, claimKey } from '../../composables/usePayrollCla
 import EventTravelPayrollReview from './EventTravelPayrollReview.vue';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import MeetingClaimDetails from './MeetingClaimDetails.vue';
+import ChildcareClaimDetails from './ChildcareClaimDetails.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import PayrollWizardEmpty from './PayrollWizardEmpty.vue';
 import api from '../../services/api';

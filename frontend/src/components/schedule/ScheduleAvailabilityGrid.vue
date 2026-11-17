@@ -15987,7 +15987,7 @@ async function loadEditorOpenRoomsForWindow() {
         editorPreferredRoomId.value = 0;
         editorPreferredRoomsHint.value = `Your previously selected room is not open for the full series (${checked} occurrence${checked === 1 ? '' : 's'}). Pick another open room.`;
       } else if (priorRoomId && stillOk) {
-        editorPreferredRoomsHint.value = `Selected room is still open for all ${checked} occurrence${checked === 1 ? '' : 's'}. You can request it — the prior pending series will be replaced on submit.`;
+        editorPreferredRoomsHint.value = `Selected room is still open for all ${checked} occurrence${checked === 1 ? '' : 's'}. ${Number(editorLastOfficeBookingRequestId.value)>0?'The linked pending office request will be replaced when this change is saved.':'No prior pending request will be replaced.'}`;
       } else {
         editorPreferredRoomsHint.value = recurrence === 'ONCE'
           ? `${rooms.length} room${rooms.length === 1 ? '' : 's'} open for ${formatEditorDisplayTime(startTime)}–${formatEditorDisplayTime(endTime)}.`
@@ -16977,7 +16977,9 @@ const resetBookingMetadataState = () => {
 };
 
 const normalizeBookingSelectionPayload = () => {
-  const isSession = showClinicalBookingFields.value && isSessionBookingRequestType.value;
+  // A learning appointment is still a session even when medical billing is
+  // disabled. Never downgrade it to an unclassified availability opening.
+  const isSession = isSessionBookingRequestType.value;
   // Individual/group session already chosen in the sidebar; modality + attendee count imply subtype.
   const appointmentTypeCode = isSession
     ? 'SESSION'
@@ -16997,7 +16999,7 @@ const normalizeBookingSelectionPayload = () => {
     // Recurring-series add-ons (99051 after-hours is the primary pre-linkable code).
     addonServiceCodes: isSession && addonServiceCodes.length ? addonServiceCodes : [],
     modality: isSessionBookingRequestType.value
-      ? (normalizeCodeValue(bookingModality.value) || null)
+      ? (normalizeCodeValue(editorModality.value || bookingModality.value) || null)
       : null,
     serviceLocationId: isSession
       ? (() => {
@@ -22284,7 +22286,7 @@ const completePlatformVirtualSessionBooking = async ({
     ? `Others present: ${String(editorOthersPresentNames.value || editorClinicalParticipantsDetail.value).trim()}`
     : '';
   const descriptionParts = [
-    String(requestNotes.value || '').trim() || 'Platform counseling video session.',
+    String(requestNotes.value || '').trim() || (editorIsLearning.value ? 'Virtual tutoring session.' : 'Platform counseling video session.'),
     isGroup ? 'Group Participants' : `Client id: ${clientId}`,
     participantsModeNote,
     othersNote,
@@ -22967,7 +22969,7 @@ const submitRequest = async () => {
       }
     } else if (requestType.value === 'individual_session' || requestType.value === 'group_session') {
       const officeId = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value);
-      const modality = String(bookingModality.value || '').toUpperCase();
+      const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
       const isVirtualIndividual = requestType.value === 'individual_session' && modality === 'TELEHEALTH';
 
       if (requestType.value === 'individual_session' && !modality) {

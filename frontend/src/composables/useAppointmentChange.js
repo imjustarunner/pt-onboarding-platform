@@ -291,6 +291,7 @@ export function useAppointmentChange({identity}={}) {
       preview.value = r.data?.preview || null;
       if(preview.value?.seriesChange){lastSeriesPreviewKey=previewKey;lastSeriesPreviewAt=Date.now();}
       if (preview.value?.appointment) {
+        context.serviceLabel = context.serviceLabel || preview.value.appointment.title || preview.value.appointment.serviceCode || '';
         if (!context.whenLabel && preview.value.appointment.displayWhen) {
           context.whenLabel = preview.value.appointment.displayWhen;
         }
@@ -324,7 +325,6 @@ export function useAppointmentChange({identity}={}) {
       if (facts.eventType === 'rescheduled' && !Number(facts.replacementAppointmentId)) return false;
       if (!retrospective.value && ['canceled', 'rescheduled'].includes(facts.eventType) && !String(facts.clientFacingReason || '').trim()) return false;
       if (facts.followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) return false;
-      if (!retrospective.value && facts.notificationMode === 'none' && !facts.suppressionReason.trim()) return false;
       if (!retrospective.value && ['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
         if (facts.eventType !== 'canceled' || facts.notificationMode === 'none') return false;
         if (facts.followUpAction === 'private_slots' && (!facts.offeredSlots.length || facts.offeredSlots.length > 24)) return false;

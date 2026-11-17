@@ -643,6 +643,7 @@
           <div v-if="timeDetailLoading" class="hint" role="status">Loading claim details…</div>
           <div v-if="timeDetailError" class="pps-error" role="alert">{{ timeDetailError }}</div>
           <MeetingClaimDetails v-if="hasMeetingClaimDetails(reviewedTimeClaim)" :claim="reviewedTimeClaim" :employee-name="claimName(reviewedTimeClaim)" :period-label="periodLabelForId(reviewedTimeClaim.suggested_payroll_period_id)" />
+          <ChildcareClaimDetails v-else-if="reviewedTimeClaim?.claim_type === 'childcare_shift'" :claim="reviewedTimeClaim" :employee-name="claimName(reviewedTimeClaim)" />
           <div v-else-if="reviewedTimeClaim" class="pps-modal-body">
             <div class="pps-detail-grid">
               <div class="field"><label>Claim ID</label><div>{{ reviewedTimeClaim.id || '—' }}</div></div>
@@ -927,6 +928,7 @@ import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrol
 import { supervisionActivityLabel, mileageUsesTier, mileageBillableMiles, mileageEstimate, approvedTimeDraft, timeClaimRateLabel } from '../../utils/payrollSubmissionReview';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
+import ChildcareClaimDetails from '../../components/payroll/ChildcareClaimDetails.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';

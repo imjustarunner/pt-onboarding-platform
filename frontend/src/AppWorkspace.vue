@@ -2048,6 +2048,7 @@
       <PublicWebsiteEditorBar v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteAnalytics v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteChat v-if="route.meta?.publicMarketingHub && !isAuthenticated" />
+      <ChildcareClockNotice v-if="isAuthenticated && !isFamilyPortalAccount && !isImmersiveJoinRoute" />
       <MomentumStickiesOverlay v-if="showMomentumStickiesShell" />
       <AddStickyFab v-if="showMomentumStickiesShell" />
       <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
@@ -2379,6 +2380,7 @@ import HelperWidget from './components/HelperWidget.vue';
 import BetaFeedbackWidget from './components/BetaFeedbackWidget.vue';
 import MeetingRouteHost from './components/meetings/MeetingRouteHost.vue';
 import MomentumStickiesOverlay from './components/momentum/MomentumStickiesOverlay.vue';
+import ChildcareClockNotice from './components/childcare/ChildcareClockNotice.vue';
 import AddStickyFab from './components/momentum/AddStickyFab.vue';
 import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu.vue';
 import { useMomentumListAddon } from './composables/useMomentumListAddon';

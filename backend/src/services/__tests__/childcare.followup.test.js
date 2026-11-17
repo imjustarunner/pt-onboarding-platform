@@ -1,0 +1,12 @@
+import {it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+import {resolveChildcareLocation} from '../childcareLocations.service.js';
+import {childcareClaimEstimate,childcareSnapshotHash} from '../childcarePay.service.js';
+const snapshot={totalMinutes:30.85,totalAmount:13.37,reviewRequired:false,reasons:[],segments:[]};
+const claim=()=>({payload:{childcareSnapshot:snapshot,childcareSnapshotHash:childcareSnapshotHash(snapshot),childcareSnapshotHashVersion:2,childcareWorkApprovalRequired:true,childcareWorkApproved:false}});
+it('shows a verified estimate while preserving the work sign-off hold',()=>{expect(childcareClaimEstimate(claim())).toMatchObject({estimatedAmount:13.37,reviewRequired:true,reasons:['Childcare work sign-off is pending.']});});
+it('does not show an amount from a tampered or incomplete snapshot',()=>{const c=claim();c.payload.childcareSnapshot={...snapshot,totalAmount:100};expect(childcareClaimEstimate(c).estimatedAmount).toBeNull();c.payload.childcareSnapshot={...snapshot,reviewRequired:true,totalAmount:null,reasons:['Attendance is missing.']};c.payload.childcareSnapshotHash=childcareSnapshotHash(c.payload.childcareSnapshot);expect(childcareClaimEstimate(c)).toMatchObject({estimatedAmount:null,reasons:expect.arrayContaining(['Attendance is missing.'])});});
+const db={execute:vi.fn(async sql=>sql.includes('FROM office_locations')?[[{id:12,name:'QA building'}]]:[[{id:18,location_id:12,name:'North',room_number:'2'}]])};
+it('binds the building and optional room to the organization and derives their display name',async()=>{expect(await resolveChildcareLocation({officeLocationId:12,roomId:18},453,db)).toMatchObject({locationName:'QA building · Room 2 — North'});expect(db.execute.mock.calls.every(([,args])=>args.every(id=>id===453))).toBe(true);});
+it('rejects a different organization’s building, mismatched room and new arbitrary locations',async()=>{await expect(resolveChildcareLocation({officeLocationId:99},453,db)).rejects.toMatchObject({status:400});await expect(resolveChildcareLocation({officeLocationId:12,roomId:99},453,db)).rejects.toMatchObject({status:400});await expect(resolveChildcareLocation({locationName:'Unverified building'},453,db)).rejects.toMatchObject({status:400});});
+it('keeps legacy recorded work locations readable without replacing history',async()=>{expect(await resolveChildcareLocation({locationName:'Retained site'},453,db,{locationName:'Retained site'})).toMatchObject({locationName:'Retained site'});});

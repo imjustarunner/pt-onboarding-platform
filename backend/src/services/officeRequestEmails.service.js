@@ -200,6 +200,12 @@ export async function queueOfficeDecisionEmail(options) {
   const { request, agencyId } = options;
   if (!agencyId || !request.roomRequest) return;
   const payload = await officeDecisionSnapshot(options);
+  // Past one-off reservations are record corrections. Keep their in-app audit
+  // and request history without sending a current booking approval notice.
+  if(request.clientLinked && (request.serviceCode === 'TUTORING' || request.roomType === 'tutoring') && payload.recurrence === 'ONCE' && payload.startDate) {
+    const today = new Intl.DateTimeFormat('en-CA',{timeZone:payload.timezone || 'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    if(String(payload.startDate).slice(0,10) < today)return {suppressed:true,reason:'retrospective_office_record'};
+  }
   await enqueueOfficeEmail({
     kind: "decision",
     agencyId,

@@ -23,6 +23,22 @@ async function enabled(appointment) {
 export async function requireQaOutcomeElapsed(appointment, outcome) {
   if (!['completed', 'no_show'].includes(outcome) || !await enabled(appointment)) return;
   const end = new Date(utcMysqlToIso(appointment.endAt) || appointment.endAt);
+  if([453,454].includes(Number(appointment.agencyId))&&outcome==='completed'&&Number.isFinite(+end)&&end>new Date()) {
+    // Early completion is legitimate only with the exact appointment's real,
+    // recorded visit. A past date or an open room alone is never attendance.
+    const [[recorded]]=await pool.execute(`SELECT s.id FROM tutoring_appointment_sessions link
+      JOIN appointments a ON a.id=link.appointment_id JOIN learning_class_sessions s ON s.id=link.session_id
+      JOIN learning_program_classes program ON program.id=s.learning_class_id
+      WHERE a.id=? AND a.agency_id=? AND a.provider_user_id=? AND program.organization_id=a.agency_id
+        AND s.provider_user_id=a.provider_user_id AND a.business_type='tutoring' AND a.service_code='TUTORING'
+        AND s.actual_started_at IS NOT NULL AND s.actual_ended_at>s.actual_started_at
+        AND s.actual_started_at<=UTC_TIMESTAMP() AND s.actual_ended_at<=UTC_TIMESTAMP()
+        AND (SELECT COUNT(*) FROM tutoring_session_clients c WHERE c.session_id=s.id)=1
+        AND (SELECT COUNT(*) FROM appointment_participants p WHERE p.appointment_id=a.id AND p.client_id IS NOT NULL)=1
+        AND EXISTS(SELECT 1 FROM tutoring_session_clients c JOIN appointment_participants p ON p.appointment_id=a.id AND p.client_id=c.client_id WHERE c.session_id=s.id)
+      LIMIT 1`,[appointment.id,appointment.agencyId,appointment.providerUserId]);
+    if(recorded)return;
+  }
   if (!Number.isFinite(+end) || end > new Date()) throw Object.assign(new Error('The session must end before recording completion or no-show.'), { status: 409 });
 }
 

@@ -776,6 +776,8 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       endAt: bundle.endAt,
       status: bundle.status,
       title: bundle.title,
+      serviceCode: bundle.serviceCode,
+      businessType: bundle.businessType,
       providerUserId: bundle.providerUserId,
       providerName,
       clientId,
