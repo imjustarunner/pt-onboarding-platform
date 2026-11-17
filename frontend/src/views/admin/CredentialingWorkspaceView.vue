@@ -10,12 +10,12 @@
         <h2>NPI follow-ups ({{ npiFollowups.length }})</h2>
         <p>Recent hires and people still onboarding who need an NPI answer, number, or help. Follow-ups close when an NPI is recorded.</p>
         <div v-if="npiFollowups.length" class="cw-table"><table>
-          <thead><tr><th>Provider</th><th>Agency</th><th>NPI follow-up</th><th>Assigned team</th><th></th></tr></thead>
+          <thead><tr><th>Provider</th><th>Agency</th><th>NPI follow-up</th><th>Owner</th><th></th></tr></thead>
           <tbody><tr v-for="item in npiFollowups" :key="item.taskId">
             <td><strong>{{ item.subjectName }}</strong><small>{{ label(item.accountStatus) }}</small></td>
             <td>{{ agencyName(item.agencyId) }}</td>
             <td><strong>{{ npiStateLabel(item.npiState) }}</strong><small>{{ item.nextAction }}</small></td>
-            <td>{{ item.assignees || 'Needs a credentialing assignee' }}</td>
+            <td>{{ item.assignees || 'Needs an NPI owner with credentialing access' }}</td>
             <td><button @click="openNpiTask(item.taskId)">Open task</button></td>
           </tr></tbody>
         </table></div>

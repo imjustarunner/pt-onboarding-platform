@@ -32,15 +32,15 @@ test('uses the latest answer within a field and labels automation without using 
   assert.equal(content.metadata.actorType,'automation'); assert.equal(content.metadata.providerUserId,3);
   assert.match(content.description,/Confirm no NPI already exists/); assert.equal('actorUserId' in content.metadata,false);
 });
-test('effective company grants replace affiliation expansion and honor a local denial',async()=>{
+test('only configured owners with effective permission receive NPI follow-ups',async()=>{
   let expanded=false;
-  const db={execute:async()=>[[{user_id:20,agency_id:2},{user_id:21,agency_id:2}]]};
+  const db={execute:async()=>[[{user_id:20,agency_id:2},{user_id:21,agency_id:6}]]};
   const team=await loadNpiCredentialingTeam(db,async()=>{expanded=true;return [2,6];},
     {ready:async()=>true,grants:async id=>id===20?[2]:[]});
   assert.equal(expanded,false);assert.deepEqual(team,[{id:20,agencies:[2]},{id:21,agencies:[]}]);
 });
 
-test('real MySQL: scope, shared assignments, deduplication, completion, revocation and audit rollback',
+test('real MySQL: explicit ownership, scope, deduplication, completion, revocation and audit rollback',
   { skip: !process.env.NPI_FOLLOWUP_MYSQL_SOCKET }, async () => {
   const { default: mysql } = await import('mysql2/promise');
   // Only an explicit local socket is accepted. This test never uses DB_*.
@@ -75,6 +75,8 @@ test('real MySQL: scope, shared assignments, deduplication, completion, revocati
       INSERT INTO user_info_field_definitions VALUES(1,'npi_status',NULL),(2,'npi_number',NULL),(3,'provider_identity_npi_number',2),(4,'npi_number',6);
       INSERT INTO user_info_values(user_id,field_definition_id,value) VALUES(10,1,'no_itsco_create'),(10,4,'1234567893'),(11,2,'1760160022'),(13,1,'no_itsco_create');`);
     await admin.query(await fs.readFile(new URL('../../../../database/migrations/1836_provider_npi_followups.sql',import.meta.url),'utf8'));
+    await admin.query(await fs.readFile(new URL('../../../../database/migrations/1837_provider_npi_followup_owners.sql',import.meta.url),'utf8'));
+    await admin.query('INSERT INTO provider_npi_followup_owners(agency_id,user_id) VALUES(2,20)');
     pool=mysql.createPool({socketPath,user:'root',database:schema,connectionLimit:8});
     const audit=async(event,db)=>db.execute('INSERT INTO evidence(actor_user_id,role,details) VALUES(?,?,?)',[event.userId,event.role,JSON.stringify(event.details)]);
     const d={db:pool,expand:async ids=>ids,audit,profiles:{ready:async()=>false}};
@@ -87,11 +89,12 @@ test('real MySQL: scope, shared assignments, deduplication, completion, revocati
     const [[count]]=await pool.query('SELECT COUNT(*) AS n FROM tasks');assert.equal(count.n,2);
     const [tasks]=await pool.query('SELECT * FROM tasks ORDER BY id');
     assert.ok(tasks.every(t=>t.assigned_by_user_id===null && t.is_private===1));
-    const [[notices]]=await pool.query('SELECT COUNT(*) AS n FROM notifications');assert.equal(notices.n,4);
-    assert.equal((await pool.query('SELECT * FROM task_collaborators'))[0].length,2);
+    assert.ok(tasks.every(t=>t.assigned_to_user_id===20));
+    const [[notices]]=await pool.query('SELECT COUNT(*) AS n FROM notifications');assert.equal(notices.n,2);
+    assert.equal((await pool.query('SELECT * FROM task_collaborators'))[0].length,0);
     await assert.rejects(assertProviderNpiTaskStatus(tasks[0].id,'completed',pool),{status:409});
     await reconcileProviderNpiFollowups(options,d);
-    assert.equal((await pool.query('SELECT COUNT(*) AS n FROM notifications'))[0][0].n,4);
+    assert.equal((await pool.query('SELECT COUNT(*) AS n FROM notifications'))[0][0].n,2);
     await pool.execute('INSERT INTO user_info_values(user_id,field_definition_id,value) VALUES(10,2,?)',['1234567893']);
     await reconcileProviderNpiFollowups(options,d);
     await assertProviderNpiTaskStatus(tasks[0].id,'completed',pool);
@@ -100,9 +103,21 @@ test('real MySQL: scope, shared assignments, deduplication, completion, revocati
     await pool.execute('DELETE FROM user_info_values WHERE user_id=10 AND field_definition_id=2');
     await reconcileProviderNpiFollowups(options,d);
     assert.equal((await pool.query('SELECT status FROM tasks WHERE id=?',[tasks[0].id]))[0][0].status,'pending');
+    // Simulate the earlier broad assignment. Access alone must not retain a collaborator.
+    await pool.query('INSERT INTO task_collaborators(task_id,user_id) VALUES(?,21)',[tasks[0].id]);
+    await reconcileProviderNpiFollowups(options,d);
+    assert.equal((await pool.query('SELECT * FROM task_collaborators'))[0].length,0);
+    await pool.query('UPDATE provider_npi_followup_owners SET user_id=21 WHERE agency_id=2');
+    const beforeMove=(await pool.query('SELECT COUNT(*) AS n FROM notifications WHERE user_id=21'))[0][0].n;
+    await reconcileProviderNpiFollowups(options,d);
+    assert.ok((await pool.query('SELECT assigned_to_user_id FROM tasks'))[0].every(t=>t.assigned_to_user_id===21));
+    assert.equal((await pool.query('SELECT COUNT(*) AS n FROM notifications WHERE user_id=21'))[0][0].n,beforeMove+2);
     await pool.query('UPDATE user_agencies SET can_manage_credentialing=0 WHERE user_id=21');
     await reconcileProviderNpiFollowups(options,d);
     assert.equal((await pool.query('SELECT * FROM task_collaborators'))[0].length,0);
+    // An owner who loses access leaves work unassigned; another permission holder
+    // is never selected merely because they could access credentialing.
+    assert.ok((await pool.query('SELECT assigned_to_user_id FROM tasks'))[0].every(t=>t.assigned_to_user_id===null));
     const [evidence]=await pool.query('SELECT * FROM evidence');assert.ok(evidence.every(e=>e.actor_user_id===null && e.role==='automation'));
     await pool.query("INSERT INTO users(id,first_name,last_name,role,status,created_at) VALUES(14,'Audit','Rollback','provider','ONBOARDING','2026-11-01')");
     await pool.query('INSERT INTO user_agencies(user_id,agency_id) VALUES(14,2)');

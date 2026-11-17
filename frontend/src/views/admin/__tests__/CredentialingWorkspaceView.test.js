@@ -10,7 +10,7 @@ const data=()=>({organizations:[{id:1,name:'Inner Strength',canViewBilling:false
 const button=(w,text)=>w.findAll('button').find(b=>b.text()===text);
 beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{items:[]}:data()}));api.patch.mockResolvedValue({data:{saved:true}});});
 describe('credentialing workspace',()=>{
-  it('shows onboarding NPI requests before payer enrollment and opens the shared task',async()=>{
+  it('shows onboarding NPI requests before payer enrollment and opens the owner task',async()=>{
     api.get.mockResolvedValue({data:{...data(),npiFollowups:[{taskId:123,agencyId:1,subjectName:'Synthetic New Hire',accountStatus:'ONBOARDING',npiState:'help_requested',nextAction:'Contact the provider',assignees:'Test Credentialer'}]}});
     const w=mount(CredentialingWorkspaceView);await flushPromises();
     const queue=w.find('[aria-label="NPI follow-ups"]');expect(queue.text()).toContain('Synthetic New Hire');expect(queue.text()).toContain('Requested help obtaining NPI');expect(queue.text()).toContain('Test Credentialer');

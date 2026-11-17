@@ -38,19 +38,27 @@ export async function loadProviderNpiCandidates({ sinceDate, userId = null, agen
 
 export async function loadNpiCredentialingTeam(db, expand, profiles) {
   const modern = await profiles.ready(db);
-  const [grants] = await db.execute(`SELECT u.id AS user_id,${modern?'p':'ua'}.agency_id FROM users u
-    ${modern ? "JOIN user_agency_access_profiles p ON p.user_id=u.id AND JSON_EXTRACT(p.effective_permissions,'$.can_manage_credentialing')=TRUE" : 'JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1 AND ua.can_manage_credentialing=1'}
-    JOIN agencies a ON a.id=${modern?'p':'ua'}.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
+  const [grants] = await db.execute(`SELECT u.id AS user_id,o.agency_id FROM provider_npi_followup_owners o
+    JOIN users u ON u.id=o.user_id
+    JOIN agencies a ON a.id=o.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
     WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.is_demo=0
       AND COALESCE(u.is_assistant_account,0)=0 AND u.role IN ('admin','staff','support','super_admin','provider','provider_plus','supervisor','clinical_practice_assistant','billing')
-      AND u.status='ACTIVE_EMPLOYEE' ORDER BY u.id,${modern?'p':'ua'}.agency_id`);
+      AND u.status='ACTIVE_EMPLOYEE' ORDER BY u.id,o.agency_id`);
   const users = new Map();
   for (const grant of grants) {
     if (!users.has(Number(grant.user_id))) users.set(Number(grant.user_id), []);
     users.get(Number(grant.user_id)).push(Number(grant.agency_id));
   }
   const team = [];
-  for (const [id, seeds] of users) team.push({ id, agencies: modern ? await profiles.grants(id,db) : await expand(seeds) });
+  for (const [id, configuredAgencies] of users) {
+    let permitted;
+    if (modern) permitted=await profiles.grants(id,db);
+    else {
+      const [seeds]=await db.execute('SELECT agency_id FROM user_agencies WHERE user_id=? AND is_active=1 AND can_manage_credentialing=1',[id]);
+      permitted=await expand(seeds.map(row=>Number(row.agency_id)));
+    }
+    team.push({id,agencies:configuredAgencies.filter(agencyId=>permitted.includes(agencyId))});
+  }
   return team;
 }
 
@@ -106,11 +114,12 @@ async function reconcileOne(provider, team, db, append) {
       for (const id of eligible.filter(id => id !== primary)) await db.execute('INSERT INTO task_collaborators (task_id,user_id) VALUES (?,?)', [taskId,id]);
       // Notice and assignment are committed together, so a worker retry cannot
       // duplicate an assignment or lose its notification after a process crash.
-      for (const id of eligible.filter(id => !prior.has(id) || reopened || (existing && meta?.npiState !== provider.npi.state))) {
+      for (const id of eligible.filter(id => !prior.has(id) || reopened || (existing && meta?.npiState !== provider.npi.state)
+        || (id === primary && Number(existing?.assigned_to_user_id) !== primary))) {
         await db.execute(`INSERT INTO notifications
           (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_user_id,actor_source)
           VALUES ('custom_task_assigned','info','NPI credentialing follow-up',?,?,?,'task',?,NULL,?)`,
-        [`A shared NPI follow-up is ready in your Task Hub: ${content.title}`,id,provider.agency_id,taskId,NPI_AUTOMATION]);
+        [`An NPI follow-up is assigned to you in your Task Hub: ${content.title}`,id,provider.agency_id,taskId,NPI_AUTOMATION]);
       }
       for (const id of [...prior].filter(id => !eligible.includes(id))) await db.execute(
         "UPDATE notifications SET is_resolved=1 WHERE user_id=? AND related_entity_type='task' AND related_entity_id=? AND actor_source=?", [id,taskId,NPI_AUTOMATION]);

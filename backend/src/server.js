@@ -2096,8 +2096,8 @@ if (shouldStartServerBackgroundJobs()) {
     }
   })();
 
-  // Repair missed NPI/profile/lifecycle updates and keep shared assignments
-  // aligned with current credentialing grants. The DB lock covers all replicas.
+  // Repair missed NPI/profile/lifecycle updates and keep explicit NPI ownership
+  // aligned with current credentialing permissions. The DB lock covers all replicas.
   const scheduleProviderNpiFollowups = async () => {
     try {
       const { reconcileProviderNpiFollowups } = await import('./services/providerNpiFollowup.service.js');

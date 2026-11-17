@@ -53,7 +53,7 @@ export function npiTaskContent(provider, state) {
   const prefix = state.state === 'help_requested' ? 'Help obtain NPI' : 'Review NPI readiness';
   return {
     title: `${prefix}: ${name}`.slice(0, 255),
-    description: `${state.action}\n\nProvider: ${name}\nAgency: ${provider.agency_name}\nAccount stage: ${provider.status}\nNPI answer: ${state.answer || 'Not answered'}\n\nRecord the NPI in the provider profile. This shared credentialing follow-up closes when a number with a valid format and checksum is recorded. Recording a number does not verify identity, NPPES enumeration type, or payer enrollment.`,
+    description: `${state.action}\n\nProvider: ${name}\nAgency: ${provider.agency_name}\nAccount stage: ${provider.status}\nNPI answer: ${state.answer || 'Not answered'}\n\nRecord the NPI in the provider profile. This credentialing follow-up closes when a number with a valid format and checksum is recorded. Recording a number does not verify identity, NPPES enumeration type, or payer enrollment.`,
     metadata: { source: NPI_FOLLOWUP_SOURCE, automation: NPI_AUTOMATION, actorType: 'automation',
       providerUserId: Number(provider.id), agencyId: Number(provider.agency_id),
       npiState: state.state, npiAnswer: state.answer, accountStatus: provider.status,
