@@ -17,6 +17,8 @@ test('the same historical classification preserves human replies, filters QA evi
   assert.match(policy.category, /WHEN .*?human|pm.in_reply_to IS NOT NULL/s);
   assert.match(policy.category, /pu.agency_id=c.agency_id/);
   assert.match(policy.category, /created_via_dev_fill/);
+  assert.match(policy.category, /client_exchange_demo_audit/);
+  assert.match(policy.demo, /qe.from_name/);
   assert.match(policy.schoolAutoRead, /IN \(7\)/); assert.doesNotMatch(policy.schoolAutoRead, /8 OR/);
   assert.match(policy.schoolAutoRead, /pr.id=9/); assert.match(policy.schoolAutoRead, /pra.agency_id=c.agency_id/);
   assert.match(policy.schoolAutoRead, /rachel@itsco.health/);

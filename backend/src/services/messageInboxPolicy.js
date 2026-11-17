@@ -8,6 +8,10 @@ export function ticketMailVisibilitySql(alias = 't') {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) throw new Error('Invalid ticket alias');
   return `(${alias}.source_channel<>'email' OR (LOWER(COALESCE(${alias}.subject,'')) NOT REGEXP '^(demo only:|qa:|demo:)|client exchange.*demo testing'
     AND LOWER(CONCAT_WS(' ',${alias}.source_email_from,${alias}.source_email_recipients)) NOT REGEXP '(^|[^a-z0-9._%+-])testing([+][^@[:space:]]+)?@'
+    AND NOT EXISTS (SELECT 1 FROM support_ticket_email_messages qe JOIN email_sender_identities qi
+      ON qi.agency_id=${alias}.agency_id AND LOWER(qi.from_email)=LOWER(qe.from_email)
+      WHERE qe.ticket_id=${alias}.id AND qe.direction='inbound'
+        AND (LOWER(COALESCE(qe.from_name,'')) REGEXP '^client exchange.*demo testing$' OR qe.internet_message_id LIKE '<exchange-demo-%'))
     AND NOT EXISTS (SELECT 1 FROM agencies qa WHERE qa.id=${alias}.agency_id AND qa.slug REGEXP '(^|[-_])(qa|demo)([-_]|$)')))`;
 }
 
@@ -37,6 +41,9 @@ export function messageInboxPolicySql({ userId, schoolGroupInboxIds = [] } = {})
     AND pm.direction='inbound' AND COALESCE(pm.is_internal_note,0)=0 AND pm.in_reply_to IS NOT NULL
     AND NOT (${trustedSender}))`;
   const demo = `(${trustedSubject('^(demo only:|qa:|demo:)|client exchange.*demo testing')}
+    OR ${loggedTemplate(['client_exchange_demo_audit','client_exchange_demo_preview'])}
+    OR EXISTS (SELECT 1 FROM communication_messages pm WHERE pm.conversation_id=c.id AND ${trustedSender}
+      AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pm.from_json,'$.name')),JSON_UNQUOTE(JSON_EXTRACT(pm.from_json,'$[0].name')),'')) REGEXP '^client exchange.*demo testing$')
     OR EXISTS (SELECT 1 FROM communication_messages qa_mail WHERE qa_mail.conversation_id=c.id
       AND LOWER(CONCAT_WS(' ',qa_mail.from_json,qa_mail.to_json,qa_mail.cc_json)) REGEXP '(^|[^a-z0-9._%+-])testing([+][^@[:space:]]+)?@')
     OR EXISTS (SELECT 1 FROM support_tickets qa_ticket WHERE qa_ticket.id=c.support_ticket_id AND NOT ${ticketMailVisibilitySql('qa_ticket')})
