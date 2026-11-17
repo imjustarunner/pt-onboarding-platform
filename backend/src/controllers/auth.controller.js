@@ -387,14 +387,14 @@ export const approvedEmployeeLogin = async (req, res, next) => {
       if (user && (user.is_active === false || user.is_active === 0)) {
         return res.status(401).json({ 
           error: { 
-            message: 'Forgot password? Please contact your administrator. Additionally, you may be attempting to login as a past user who has been set to "inactive" following the completion of your onboarding training. If this is the case and you are a current employee, on-demand training may be available to you and there may be a different password to access this training. If you are a current employee and believe this describes your current status, please email PO@itsco.health and request the on-demand credentials to access your account.' 
+            message: 'This account is not available through employee onboarding. Use your regular portal sign-in or contact Technology for help.'
           } 
         });
       }
       // Email not found at all
       return res.status(401).json({ 
         error: { 
-          message: 'User not found. Contact PO@ITSCO.health if this is an error or if you require your credentials.' 
+          message: 'User not found. Check your username or contact Technology for sign-in help.'
         } 
       });
     }
@@ -597,7 +597,7 @@ export const login = async (req, res, next) => {
       // User not found in system at all
       return res.status(401).json({ 
         error: { 
-          message: 'User not found. Contact PO@ITSCO.health if this is an error or if you require your credentials.' 
+          message: 'User not found. Check your username or contact Technology for sign-in help.'
         } 
       });
     }

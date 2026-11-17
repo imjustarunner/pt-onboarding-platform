@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ byEmail: vi.fn(), agencies: vi.fn(), execute: vi.fn(), bySlug: vi.fn() }));
+const m = vi.hoisted(() => ({ byEmail: vi.fn(), byUsername: vi.fn(), approved: vi.fn(), agencies: vi.fn(), execute: vi.fn(), bySlug: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute }, onTableWrite: vi.fn() }));
-vi.mock('../../models/User.model.js', () => ({ default: { findByEmail: m.byEmail, getAgencies: m.agencies } }));
+vi.mock('../../models/User.model.js', () => ({ default: { findByEmail: m.byEmail, findByUsername: m.byUsername, getAgencies: m.agencies } }));
+vi.mock('../../models/ApprovedEmployee.model.js', () => ({ default: { findAllByEmail: m.approved } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findBySlug: m.bySlug, findByPortalUrl: m.bySlug } }));
 vi.mock('../../services/email.service.js', () => ({ default: { isConfigured: () => false } }));
 vi.mock('../summitStats.controller.js', () => ({ getPlatformAgencyId: vi.fn() }));
-import { identifyLogin } from '../auth.controller.js';
+import { identifyLogin, login, approvedEmployeeLogin } from '../auth.controller.js';
 const agency = { id: 2, slug: 'itsco', organization_type: 'agency', feature_flags: {
   googleSsoEnabled: true, googleSsoRequiredRoles: ['provider', 'clinical_practice_assistant', 'provider_plus'], googleSsoAllowedDomains: ['itsco.health']
 } };
@@ -14,7 +15,27 @@ beforeEach(() => {
   vi.clearAllMocks();
   user = { id: 50, role: 'provider', status: 'ACTIVE_EMPLOYEE', email: 'provider@itsco.health', password_hash: null, temporary_password_hash: null };
   m.byEmail.mockImplementation(async () => user);
+  m.byUsername.mockResolvedValue(null); m.approved.mockResolvedValue([]);
   m.execute.mockResolvedValue([[]]); m.agencies.mockResolvedValue([agency]); m.bySlug.mockResolvedValue(agency);
+});
+
+describe('sign-in support failures',()=>{
+ it.each([['password',login],['approved employee',approvedEmployeeLogin]])('keeps unknown %s accounts denied and sends help to Technology',async(_,handler)=>{
+  m.byEmail.mockResolvedValue(null);
+  const res={json:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();
+  await handler({body:{email:'unmatched@example.test',password:'fictional-test-input'},headers:{}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(401);
+  expect(res.json).toHaveBeenCalledWith({error:{message:'User not found. Check your username or contact Technology for sign-in help.'}});
+  expect(m.agencies).not.toHaveBeenCalled();
+ });
+ it('keeps an inactive employee denied without alternate credential instructions',async()=>{
+  user.is_active=0;
+  const res={json:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();
+  await approvedEmployeeLogin({body:{email:user.email,password:'fictional-test-input'},headers:{}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(401);
+  expect(res.json).toHaveBeenCalledWith({error:{message:'This account is not available through employee onboarding. Use your regular portal sign-in or contact Technology for help.'}});
+  expect(m.agencies).not.toHaveBeenCalled();
+ });
 });
 async function identify(extra = {}) {
   const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }, next = vi.fn();
