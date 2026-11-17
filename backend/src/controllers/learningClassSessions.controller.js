@@ -283,10 +283,10 @@ export const getClassSession = async (req, res, next) => {
 
 // A booked tutoring room must keep its admission/attendance boundary even when
 // an old client calls the legacy generic video endpoint.
-async function bookedTutoringEntry(session) {
+export async function bookedTutoringEntry(session) {
   if (!(session.session_subtype==='tutoring'||session.mode==='individual')||session.delivery_context==='in_person')return null;
-  const [[booking]]=await pool.execute('SELECT appointment_id FROM tutoring_appointment_sessions WHERE session_id=?',[session.id]);
-  return booking?`/tutoring-session/appointment/${Number(booking.appointment_id)}`:null;
+  const [[booking]]=await pool.execute('SELECT a.id AS appointment_id,a.business_type,a.service_code FROM tutoring_appointment_sessions b JOIN appointments a ON a.id=b.appointment_id WHERE b.session_id=?',[session.id]);
+  return booking&&['tutoring','learning'].includes(booking.business_type)&&booking.service_code==='TUTORING'?`/tutoring-session/appointment/${Number(booking.appointment_id)}`:null;
 }
 
 export const startClassSession = async (req, res, next) => {
