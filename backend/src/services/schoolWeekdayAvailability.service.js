@@ -64,22 +64,30 @@ export async function requestSchoolWeekdayUpdates({ agencyId, providerId = null,
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
       AND (u.role IN ('provider','provider_plus','supervisor') OR u.has_provider_access=1 OR u.sees_clients=1)
       ${providerId ? 'AND u.id=?' : ''}`, providerId ? [agencyId, providerId] : [agencyId]);
-  const results = { requested: [], failed: [], skipped: [] };
+  const results = { requested: [], failed: [], skipped: [], outcomes: [] };
+  const skipReason = context => !context.eligible ? 'not_eligible'
+    : context.days.every(day => day.status === 'assigned' || day.answered === true) ? 'already_complete'
+      : !context.needsResponse ? 'no_school_assignment' : 'already_pending';
+  const skip = (id, context) => {
+    results.skipped.push(id);
+    results.outcomes.push({ providerId: id, outcome: 'skipped', reason: skipReason(context), requestedAt: context.requestedAt });
+  };
   const { default: NotificationDispatcher } = await import('./notificationDispatcher.service.js');
   for (const person of people) {
     try {
       const context = await readSchoolWeekdays(person.id, agencyId, database);
-      if (!context.needsResponse) { results.skipped.push(person.id); continue; }
+      if (!context.needsResponse) { skip(person.id, context); continue; }
       // Unanswered requests may be reminded once per day; clicks/retries are deduplicated.
       const recent = current => current.pending && Date.now() - Date.parse(current.requestedAt) < 86400000;
-      if (recent(context)) { results.skipped.push(person.id); continue; }
+      if (recent(context)) { skip(person.id, context); continue; }
       const requestedAt = new Date().toISOString();
+      let emailFollowupEnabled = false;
       const db = await database.getConnection();
       try {
         await db.beginTransaction();
         await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [person.id]);
         const current = await readSchoolWeekdays(person.id, agencyId, db);
-        if (!current.needsResponse || recent(current)) { await db.rollback(); results.skipped.push(person.id); continue; }
+        if (!current.needsResponse || recent(current)) { await db.rollback(); skip(person.id, current); continue; }
         await db.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
           ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
         [person.id, JSON.stringify({ schoolWeekdaysByAgency: { [agencyId]: { requestedAt, requestedBy: actorId } } })]);
@@ -92,16 +100,18 @@ export async function requestSchoolWeekdayUpdates({ agencyId, providerId = null,
         // unique index also protects against the worker seeding at the same time.
         const [[followups]] = await db.execute('SELECT enabled FROM school_weekday_followup_settings WHERE agency_id=?',[agencyId]);
         if (Number(followups?.enabled)===1) {
+          emailFollowupEnabled = true;
           await db.execute(`INSERT IGNORE INTO school_weekday_followups (agency_id,provider_id,request_key,requested_at)
             VALUES (?,?,?,?)`,[agencyId,person.id,requestedAt,new Date(requestedAt)]);
         }
         await db.commit();
       } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
       results.requested.push(person.id);
+      results.outcomes.push({ providerId: person.id, outcome: 'requested', requestedAt, emailFollowupEnabled });
       // In-app prompt is durable even when the provider has no push subscription.
       try { const [[notification]] = await database.execute(`SELECT * FROM notifications WHERE user_id=? AND agency_id=? AND related_entity_type='school_weekday_availability' ORDER BY id DESC LIMIT 1`, [person.id, agencyId]);
       await NotificationDispatcher.dispatchPushForNotification(notification); } catch { /* The in-app request remains saved when push delivery is unavailable. */ }
-    } catch { results.failed.push(person.id); }
+    } catch { results.failed.push(person.id); results.outcomes.push({ providerId: person.id, outcome: 'failed', reason: 'request_failed' }); }
   }
   if (providerId && !people.some(person => Number(person.id) === providerId)) throw Object.assign(new Error('Active provider not found in this agency.'), { status: 404 });
   return results;

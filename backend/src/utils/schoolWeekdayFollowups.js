@@ -24,7 +24,9 @@ export function schoolWeekdayProgress(context, tracking = {}) {
     requestedAt: context.requestedAt || null,
     invitationStatus: tracking.invitation_status || 'not_sent', invitationSentAt: tracking.invitation_sent_at || null,
     smsStatus: complete && ['waiting','sending'].includes(tracking.sms_status) ? 'cancelled' : tracking.sms_status || 'not_scheduled', smsDueAt: complete ? null : tracking.sms_due_at || null,
-    smsReason: tracking.sms_reason || null, thankyouStatus: tracking.thankyou_status || 'not_sent' };
+    smsReason: tracking.sms_reason || null, smsSentAt: tracking.sms_sent_at || null,
+    thankyouStatus: tracking.thankyou_status || 'not_sent', thankyouSentAt: tracking.thankyou_sent_at || null,
+    deliveryError: tracking.last_error || null };
 }
 export function schoolWeekdayUrl(agency) {
   return `${buildPublicAppUrl(agency, 'my-schedule')}?schoolAvailability=1&agencyId=${Number(agency.id)}`;

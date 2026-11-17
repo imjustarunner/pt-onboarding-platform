@@ -8,8 +8,11 @@
     <SchoolWeekdayResponseTracker v-if="showResponses&&canRequest" :agency-id="agencyId" />
     <template v-else>
     <p>Green means available for a school, gray shows an assigned school, and red means not available. Providers can update their usual five-day school availability.</p>
+    <p v-if="canRequest && responseCounts" class="response-summary">{{ responseCounts.completed }} complete · {{ responseCounts.opened }} opened and unfinished · {{ responseCounts.pending }} pending. <button type="button" class="btn btn-secondary btn-sm" @click="showResponses=true">View delivery and responses</button></p>
+    <p v-if="canRequest" class="muted">Request update saves an in-app prompt. Enabled email follow-ups run automatically. Existing emails are not resent by repeated clicks; providers who have accounted for all five weekdays need no update.</p>
     <button v-if="canRequest" type="button" class="btn btn-primary" :disabled="requesting || loading" @click="requestUpdate()">{{ requesting ? 'Requesting…' : 'Request update from all school providers' }}</button>
-    <p v-if="requestNotice" role="status">{{ requestNotice }}</p>
+    <p v-if="requestNotice" ref="noticeElement" role="status" tabindex="-1">{{ requestNotice }}</p>
+    <p v-if="progressError" role="alert">{{ progressError }} <button type="button" @click="loadProgress">Refresh delivery status</button></p>
     <SchoolWeekdayEditor v-if="editing" :provider-id="editing.id" :agency-id="agencyId" :provider-name="name(editing)" @close="editing = null" @saved="load" />
     <div class="days-toolbar">
       <label>Search providers<input v-model="search" type="search" placeholder="Provider name, title, or school" /></label>
@@ -18,7 +21,7 @@
     <p class="muted">Showing non-demo providers with School-Based Counseling in their service focuses. Use Edit service focuses to add another provider.</p>
     <SchoolProviderFocusEditor v-if="editingFocus" :providers="providers" :agency-id="agencyId" @close="editingFocus = false" @saved="load" />
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
-    <p v-else-if="loading" role="status">Loading provider school days…</p>
+    <p v-else-if="loading && !providers.length" role="status">Loading provider school days…</p>
     <template v-else>
       <SchoolDayBar v-model="selectedDay" :days="dayCounts" />
       <div class="days-filter"><button type="button" class="btn btn-secondary" :aria-pressed="!selectedDay" @click="selectedDay = ''">All provider days</button><strong>{{ selectedDay ? `Available ${selectedDay}` : 'Monday–Friday overview' }}</strong><span role="status">{{ filtered.length }} {{ filtered.length === 1 ? 'provider' : 'providers' }}</span></div>
@@ -35,7 +38,7 @@
                 <span v-else-if="available(person, day)" class="available-label">Available</span>
                 <span v-else>{{ person.schoolWeekdays?.eligible ? 'Not available' : Array.isArray(person.schoolAssignments) ? 'School care off' : 'Not checked' }}</span>
               </td>
-              <td><div class="row-actions"><button v-if="canRequest && person.schoolWeekdays?.eligible" type="button" class="btn btn-secondary btn-sm" :disabled="requesting" @click="requestUpdate(person)">Request update</button><router-link class="btn btn-primary btn-sm" :to="messageLink(person)" :aria-label="`Message ${name(person)}`">Message</router-link><router-link class="btn btn-secondary btn-sm" :to="scheduleLink(person)" :aria-label="`View schedule for ${name(person)}`">View schedule</router-link></div></td>
+              <td><div class="row-actions"><button v-if="canRequest && person.schoolWeekdays?.eligible" type="button" class="btn btn-secondary btn-sm" :disabled="requesting" :aria-label="`Request update from ${name(person)}`" @click="requestUpdate(person)">{{ requestingTarget===person.id ? 'Requesting…' : 'Request update' }}</button><router-link class="btn btn-primary btn-sm" :to="messageLink(person)" :aria-label="`Message ${name(person)}`">Message</router-link><router-link class="btn btn-secondary btn-sm" :to="scheduleLink(person)" :aria-label="`View schedule for ${name(person)}`">View schedule</router-link></div><SchoolWeekdayRequestReceipt v-if="canRequest" :progress="progressById[person.id]" :outcome="outcomesById[person.id]" :requesting="requestingTarget===person.id" /></td>
             </tr>
           </tbody>
         </table>
@@ -47,11 +50,12 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import SchoolProviderFocusEditor from './SchoolProviderFocusEditor.vue';
 import SchoolWeekdayResponseTracker from './SchoolWeekdayResponseTracker.vue';
+import SchoolWeekdayRequestReceipt from './SchoolWeekdayRequestReceipt.vue';
 import { useAuthStore } from '../../store/auth';
 import SchoolAvailabilityIcon from './SchoolAvailabilityIcon.vue';
 import SchoolWeekdayEditor from './SchoolWeekdayEditor.vue';
@@ -64,15 +68,38 @@ const auth = useAuthStore();
 const canRequest = computed(() => ['admin','super_admin','staff','support'].includes(auth.user?.role));
 const editingFocus = ref(false);
 const editing = ref(null), requesting = ref(false), requestNotice = ref('');
+const requestingTarget = ref(null), noticeElement = ref(null), outcomesById = ref({});
+const progressById = ref({}), responseCounts = ref(null), progressError = ref('');
+let requestGeneration = 0, progressGeneration = 0, progressTimer;
+async function loadProgress() {
+  if (!canRequest.value) return;
+  const current = ++progressGeneration;
+  try {
+    const { data } = await api.get('/availability/admin/school-weekdays/progress', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    if (current !== progressGeneration) return;
+    progressById.value = Object.fromEntries((data.providers || []).map(person => [person.providerId, person]));
+    responseCounts.value = data.counts || null; progressError.value = '';
+  } catch (e) { if (current === progressGeneration) progressError.value = e.response?.data?.error?.message || 'Delivery status could not be refreshed. Last known status is shown; use Track responses before retrying.'; }
+}
 async function requestUpdate(person = null) {
   if (requesting.value) return;
+  const current = ++requestGeneration;
+  requestingTarget.value = person?.id || 'all';
   requesting.value = true; requestNotice.value = '';
   try {
     const { data } = await api.post('/availability/admin/school-weekdays/request', { agencyId: props.agencyId, ...(person ? { providerId: person.id } : {}) }, { skipGlobalLoading: true });
-    requestNotice.value = `${data.requested.length} update requests sent. ${data.skipped.length} skipped (already answered, fully assigned, already pending, or not eligible).${data.failed.length ? ` ${data.failed.length} failed; retry to send the remaining requests.` : ''}`;
-    await load();
-  } catch (e) { requestNotice.value = e.response?.data?.error?.message || 'Could not send update requests. Please retry.'; }
-  finally { requesting.value = false; }
+    if (current !== requestGeneration) return;
+    const outcomes = data.outcomes || [...data.requested.map(providerId => ({ providerId, outcome: 'requested' })), ...data.skipped.map(providerId => ({ providerId, outcome: 'skipped', reason: 'already_pending' })), ...data.failed.map(providerId => ({ providerId, outcome: 'failed' }))];
+    for (const outcome of outcomes) outcomesById.value[outcome.providerId] = outcome;
+    requestNotice.value = `${data.requested.length} in-app update requests saved. ${data.skipped.length} needed no new request (complete, already pending, or not eligible).${data.failed.length ? ` ${data.failed.length} failed; check each provider’s status before retrying.` : ''} Email delivery is shown beside each provider and in Track responses.`;
+    await loadProgress();
+    if (current === requestGeneration && !person) { await nextTick(); noticeElement.value?.focus(); }
+  } catch (e) {
+    if (current !== requestGeneration) return;
+    requestNotice.value = e.response?.data?.error?.message || 'Could not confirm update requests. Check delivery status before retrying.';
+    if (person) outcomesById.value[person.id] = { providerId: person.id, outcome: 'failed' };
+  }
+  finally { if (current === requestGeneration) { requesting.value = false; requestingTarget.value = null; } }
 }
 const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const providers = ref([]), search = ref(''), selectedDay = ref(''), loading = ref(false), error = ref('');
@@ -96,15 +123,19 @@ const scheduleLink = person => ({ path: `${prefix.value}/dashboard`, query: { ta
 let generation = 0;
 async function load() {
   const current = ++generation;
-  providers.value = []; loading.value = true; error.value = '';
+  loading.value = true; error.value = '';
+  const delivery = loadProgress();
   try {
     const { data } = await api.get('/availability/admin/providers', { params: { agencyId: props.agencyId, includePreferences: true }, skipGlobalLoading: true });
     if (current === generation) providers.value = Array.isArray(data) ? data : [];
   } catch (e) {
     if (current === generation) error.value = e.response?.data?.error?.message || 'Could not load provider school days.';
   } finally { if (current === generation) loading.value = false; }
+  await delivery;
 }
-watch(() => props.agencyId, () => { search.value = ''; selectedDay.value = ''; editingFocus.value = false; editing.value = null; requestNotice.value = ''; load(); }, { immediate: true });
+watch(() => props.agencyId, () => { ++requestGeneration; ++progressGeneration; providers.value=[]; progressById.value={}; outcomesById.value={}; responseCounts.value=null; progressError.value=''; requesting.value=false; requestingTarget.value=null; search.value = ''; selectedDay.value = ''; editingFocus.value = false; editing.value = null; requestNotice.value = ''; load(); }, { immediate: true });
+onMounted(() => { progressTimer=setInterval(() => { if (document.visibilityState!=='hidden' && !showResponses.value) loadProgress(); },30000); });
+onBeforeUnmount(() => { ++generation; ++requestGeneration; ++progressGeneration; clearInterval(progressTimer); });
 </script>
 
 <style scoped>

@@ -61,13 +61,13 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
       if (!to) throw new Error('A valid work email is required.');
       const create = createCommunication || (async input => (await import('../models/UserCommunication.model.js')).default.create(input));
       const communication = await create({agencyId:config.agency_id,userId:person.id,templateType:`school_weekday_${kind}`,templateId:row.id,
-        subject:content.subject,body:content.text,recipientAddress:to,deliveryStatus:'pending',generatedByUserId:config.owner_user_id,
-        metadata:{schoolWeekdayFollowupId:row.id,kind,senderIdentityId:config.sender_identity_id,fromEmail:config.from_email,source:'auto',cc:config.owner_email,replyTo:config.owner_email}});
+        subject:content.subject,body:content.text,recipientAddress:to,deliveryStatus:'pending',generatedByUserId:null,
+        metadata:{schoolWeekdayFollowupId:row.id,kind,senderIdentityId:config.sender_identity_id,fromEmail:config.from_email,source:'auto',actorType:'automation',actorKey:'school_weekday_followups',coordinatorUserId:config.owner_user_id,cc:config.owner_email,replyTo:config.owner_email}});
       communicationId = communication.id;
       await database.execute(`UPDATE school_weekday_followups SET ${column}_communication_id=? WHERE id=?`,[communicationId,row.id]);
       const send = emailTransport || (await import('./unifiedEmail/unifiedEmailSender.service.js')).sendEmailFromIdentity;
       const result = await send({senderIdentityId:config.sender_identity_id,to,cc:config.owner_email,replyToOverride:config.owner_email,
-        ...content,source:'auto',templateType:`school_weekday_${kind}`,templateId:row.id,userId:person.id,generatedByUserId:config.owner_user_id,
+        ...content,source:'auto',templateType:`school_weekday_${kind}`,templateId:row.id,userId:person.id,generatedByUserId:null,
         existingCommunicationId:communicationId,preloggedReceipt:true,
         internetMessageIdOverride:`<school-weekday-${row.id}-${kind}@${String(config.from_email).split('@')[1]}>`});
       const sent = !!result.id && !result.queued && !result.skipped && !result.redirected && !result.pendingApproval;
