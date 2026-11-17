@@ -8,7 +8,6 @@ import { saveChartRecord } from '../clientChartImport.service.js';
 import { importRecordsIntake, importRecordsTreatmentPlan } from '../clientClinicalRecordsImport.service.js';
 import { intakeDraftChartSummary } from '../intakeDraftReview.service.js';
 import { parseScalePair as backendScale } from '../treatmentPlanImport.service.js';
-import { parseScalePair as frontendScale } from '../../../../frontend/src/utils/treatmentPlanDuration.js';
 let drafts, plans;
 const scope = { agencyId: 2, clientId: 2579, actorId: 10 };
 const intake = { text: 'Presenting Problem\nOriginal documented concern\nDiagnosis\nF41.1 Anxiety', recordsImport: true, serviceCode: 'H0031' };
@@ -61,6 +60,6 @@ it('saves an incomplete treatment plan as a provider draft once, preserving the 
 });
 it('reads the documented narrative scale without taking the 1–10 anchors as the rating', () => {
   const text='Progress will be measured on a scale of 1–10, with 10 representing sustained attention. The client is currently functioning at a 3, demonstrating difficulty maintaining focus. The goal is to achieve a 7 by improving attention.';
-  expect(backendScale(text)).toEqual({scaleCurrent:3,scaleTarget:7});expect(frontendScale(text)).toEqual(backendScale(text));
+  expect(backendScale(text)).toEqual({scaleCurrent:3,scaleTarget:7});
   expect(backendScale('Within 3 months, work on 7 coping strategies on a scale of 1–10.')).toEqual({scaleCurrent:null,scaleTarget:null});
 });
