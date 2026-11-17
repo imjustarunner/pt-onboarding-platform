@@ -20,6 +20,14 @@ beforeEach(() => {
   });
 });
 describe('scheduling requires a care assignment as well as credentials', () => {
+  it('loads only the configured tutoring code for an agency tutor and keeps clinical codes unavailable',async()=>{
+    mocks.read.mockResolvedValue({canProvideCare:false,canProvideTutoring:true,credentialTier:'unknown'});
+    mocks.offered.mockResolvedValue({careEligibility:{canProvideCare:false,canProvideTutoring:true},services:[{serviceType:'tutoring',offered:true}]});
+    mocks.tutoringServices.mockResolvedValue([{id:320,businessType:'tutoring',serviceCode:'TUTORING',name:'Tutoring',defaultDurationMinutes:60,isActive:true}]);
+    mocks.execute.mockImplementation(async sql=>sql.includes('FROM appointment_types')?[[{code:'SESSION'}]]:[[]]);
+    expect((await getSchedulingBookingMetadata({agencyId:6,providerId:8,businessType:'tutoring'})).eligibleServiceCodes.map(row=>row.code)).toEqual(['TUTORING']);
+    expect((await getSchedulingBookingMetadata({agencyId:6,providerId:8,businessType:'mental_health'})).eligibleServiceCodes).toEqual([]);
+  });
   it('returns no eligible care codes for an employee who has a BA but no care assignment', async () => {
     const result = await getSchedulingBookingMetadata({ agencyId: 6, providerId: 8, userRole: 'staff', providerCredentialText: 'BA' });
     expect(result.eligibleServiceCodes).toEqual([]);

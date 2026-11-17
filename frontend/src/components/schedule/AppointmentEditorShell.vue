@@ -34,6 +34,7 @@
       @update:selectedClientIds="emit('update:selectedClientIds', $event)"
       @update:recurrenceFrequency="emit('update:recurrenceFrequency', $event)"
       @update:videoRoomMode="emit('update:videoRoomMode', $event)"
+      @update:externalMeetingUrl="emit('update:externalMeetingUrl',$event)"
       @update:notificationMode="emit('update:notificationMode', $event)"
       @update:customReminders="emit('update:customReminders', $event)"
       @update:schedulingNotes="emit('update:schedulingNotes', $event)"
@@ -242,6 +243,7 @@ const props = defineProps({
   learning: { type: Boolean, default: false },
   bookSessionLayout: { type: Boolean, default: false },
   videoRoomMode: { type: String, default: 'unique_session' },
+  externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
   customReminders: { type: Array, default: () => [] },
@@ -288,6 +290,7 @@ const emit = defineEmits([
   'update:virtualWaitingRoomEnabled',
   'update:virtualCreateMeetLink',
   'update:videoRoomMode',
+  'update:externalMeetingUrl',
   'update:notificationMode',
   'update:customReminders',
   'update:schedulingNotes',
@@ -377,6 +380,7 @@ const headerProps = computed(() => ({
     ? props.recurrenceFrequencyOptions
     : undefined,
   videoRoomMode: props.videoRoomMode,
+  externalMeetingsEnabled:props.externalMeetingsEnabled,externalMeetingUrl:props.externalMeetingUrl,serviceCodeMessage:props.serviceCodeMessage,
   showNotifications: props.showNotifications,
   notificationMode: props.notificationMode,
   customReminders: props.customReminders,

@@ -10,8 +10,8 @@ export async function readProviderServices(providerId, agencyId, database = pool
     LEFT JOIN provider_public_profiles p ON p.user_id=u.id WHERE u.id=?`, [agencyId, providerId]);
   const careEligibility = await readStaffCareEligibility(providerId, agencyId, database);
   const services = providerServiceSettings(person, agencyId, types, enrollments).map(service => ({
-    ...service, offered: careEligibility.canProvideCare && service.offered && (service.serviceType !== 'counseling' || careEligibility.credentialTier !== 'unknown'),
-    onlineScheduling: careEligibility.canProvideCare && service.onlineScheduling && (service.serviceType !== 'counseling' || careEligibility.credentialTier !== 'unknown')
+    ...service, offered: Boolean(service.serviceType==='tutoring'?(careEligibility.canProvideTutoring||careEligibility.canProvideCare):careEligibility.canProvideCare) && service.offered && (service.serviceType !== 'counseling' || careEligibility.credentialTier !== 'unknown'),
+    onlineScheduling: Boolean(service.serviceType==='tutoring'?(careEligibility.canProvideTutoring||careEligibility.canProvideCare):careEligibility.canProvideCare) && service.onlineScheduling && (service.serviceType !== 'counseling' || careEligibility.credentialTier !== 'unknown')
   }));
   return { agencyId, careEligibility, agencyName: person?.agency_name || '', services };
 }
@@ -24,7 +24,7 @@ export async function saveProviderServices(providerId, agencyId, selected, onlin
     const current = await readProviderServices(providerId, agencyId, connection);
     const services = validateProviderServices(selected, current.services.map(s => s.serviceType));
     if (services.length) {
-      const eligibility = await requireStaffCareEligibility(providerId, agencyId, connection);
+      const eligibility = await requireStaffCareEligibility(providerId, agencyId, connection,{serviceType:services.every(service=>service==='tutoring')?'tutoring':'counseling'});
       if (services.includes('counseling') && eligibility.credentialTier === 'unknown') {
         throw Object.assign(new Error('Clinical qualifications must be configured by your agency before counseling can be enabled.'), {status:403});
       }

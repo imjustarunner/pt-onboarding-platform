@@ -140,13 +140,15 @@
             :disabled="disabled"
             @change="emit('update:videoRoomMode', String($event.target.value || 'unique_session'))"
           >
-            <option value="unique_session">Unique link for this session</option>
-            <option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option>
+            <template v-if="externalMeetingsEnabled"><option v-if="videoRoomMode!=='external'" :value="videoRoomMode">Existing session link</option><option value="external">Use external link</option></template>
+            <template v-else><option value="unique_session">Unique link for this session</option><option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option></template>
           </select>
+          <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
+          <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
         </div>
 
         <p
-          v-if="showModality && modality === 'TELEHEALTH' && videoRoomMode !== 'my_room'"
+          v-if="showModality && modality === 'TELEHEALTH' && !['my_room','external'].includes(videoRoomMode)"
           class="ahf-info-banner"
           role="status"
         >
@@ -403,6 +405,7 @@
           </div>
           <button v-if="hasMorePrimaryServices" type="button" class="ahf-more-services" :aria-expanded="moreServices" :disabled="disabled" @click="moreServices=!moreServices">{{ moreServices?'Show common services':'Looking for more services?' }}</button>
           <p v-if="selectedServiceDuration" class="ahf-hint">Default booking duration: {{ selectedServiceDuration }} minutes. Choosing a service updates the end time; you can adjust it.</p>
+          <p v-if="serviceCodeMessage" class="ahf-hint" role="status">{{serviceCodeMessage}}</p>
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
           </p>
@@ -699,6 +702,7 @@ const props = defineProps({
   recurrenceFrequency: { type: String, default: 'ONCE' },
   recurrenceFrequencyOptions: { type: Array, default: () => [{ value: 'ONCE', label: 'Does not repeat' }] },
   videoRoomMode: { type: String, default: 'unique_session' },
+  externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
   customReminders: { type: Array, default: () => [] },
@@ -733,6 +737,7 @@ const emit = defineEmits([
   'update:selectedClientIds',
   'update:recurrenceFrequency',
   'update:videoRoomMode',
+  'update:externalMeetingUrl',
   'update:notificationMode',
   'update:customReminders',
   'update:schedulingNotes',

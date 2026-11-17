@@ -292,3 +292,45 @@ it('uses Finley’s tutoring form and pricing capability when the viewer is the 
  s.onQuickActionSelect({id:'individual_session'});await flushPromises();await s.loadEditorTenantServices();await nextTick();
  expect(s.editorPracticeCategory).toBe('tutoring');expect(s.editorIsLearning).toBe(true);expect(s.editorTenantServiceId).toBe(320);expect(s.editorCanSetTutoringPrice).toBe(true);
 });
+
+it.each([
+ ['mental_health',''],['mental_health','https://video.example.test/counseling'],
+ ['tutoring',''],['tutoring','https://video.example.test/tutoring']
+])('books one NLU %s appointment with an optional external link (%s)',async(businessType,url)=>{
+ mocks.agency={id:6,slug:'nlu',organization_type:'agency',feature_flags:{hasClinicalOrg:true,medicalBillingEnabled:true}};
+ const base=mocks.get.getMockImplementation();
+ mocks.get.mockImplementation((path,...args)=>path.includes('/virtual-session-clients')?Promise.resolve({data:{clients:[{id:81,full_name:'Synthetic Client'}]}}):base(path,...args));
+ mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:'external',externalMeetingUrl:url||null,providerScheduleEventId:910}}:{}}));
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6,bookingClientId:81},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
+ const s=wrapper.vm.$.setupState;
+ s.weekStart='2026-11-23';s.modalDay='Thursday';s.modalHour=15;s.modalStartHour=15;s.modalEndHour=16;s.selectedActionAgencyId=6;
+ s.modalContext={agencyId:6,dateYmd:'2026-11-26',hour:15,assignedProviderId:7};s.showRequestModal=true;await flushPromises();
+ s.onQuickActionSelect({id:'individual_session'});await flushPromises();
+ s.editorPracticeCategory=businessType;s.editorModality='TELEHEALTH';s.bookingModality='TELEHEALTH';await flushPromises();
+ s.editorTenantServices=[{id:320,businessType,serviceCode:businessType==='tutoring'?'TUTORING':'90837',name:'Configured service',defaultDurationMinutes:60}];
+ s.editorTenantServiceId=320;await flushPromises();
+ s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
+ s.editorExternalMeetingUrl=url;s.clientSessionBookingEnabled=true;await nextTick();
+ expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:'external'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe('Schedule');
+ await s.submitRequest();await flushPromises();
+ expect(s.modalError).toBe('');
+ expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:'external',externalMeetingUrl:url||null,participants:[expect.objectContaining({clientId:81})]}));
+ expect(mocks.post.mock.calls.some(([path])=>path.includes('counseling'))).toBe(false);
+ expect(s.virtualSessionScheduledSessionKey).toBe('external-appointment:821');expect(s.submitActionLabel).toBe(url?'Open external meeting':'Done');
+ const open=vi.spyOn(window,'open').mockImplementation(()=>null);await s.submitRequest();
+ expect(mocks.post.mock.calls.filter(([path])=>path==='/appointments')).toHaveLength(1);
+ if(url)expect(open).toHaveBeenCalledWith(url,'_blank','noopener,noreferrer');else expect(s.showRequestModal).toBe(false);
+});
+
+it('opens an existing external appointment and saves an added link to that same appointment',async()=>{
+ mocks.agency={id:6,slug:'nlu',organization_type:'agency',timezone:'America/Denver'};
+ const event={id:910,eventId:910,kind:'PERSONAL_EVENT',eventKind:'PERSONAL_EVENT',label:'Virtual session',title:'Virtual session',agencyId:6,providerId:7,appointmentId:821,clientId:81,canEdit:true,startAt:'2026-11-26T22:00:00Z',endAt:'2026-11-26T23:00:00Z',timeZone:'America/Denver',isClientSession:true};
+ const appointment={id:821,agencyId:6,providerUserId:7,status:'scheduled',businessType:'mental_health',modality:'TELEHEALTH',serviceCode:'90837',videoRoomMode:'external',externalMeetingUrl:null};
+ const base=mocks.get.getMockImplementation();mocks.get.mockImplementation((path,...args)=>path==='/appointments/821'?Promise.resolve({data:{appointment}}):path==='/users/7/schedule-events/910'?Promise.resolve({data:{event}}):base(path,...args));
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ s.weekStart='2026-11-23';await s.openAppointmentEditInScheduleModal({item:event,dayName:'Thursday',hour:15});await flushPromises();
+ expect(s.editorAppointmentId).toBe(821);expect(s.editorVideoRoomMode).toBe('external');expect(s.editorExternalMeetingUrl).toBe('');
+ s.editorExternalMeetingUrl='https://video.example.test/added';await nextTick();await s.saveScheduleStackItem(event,{scope:'single'});await flushPromises();
+ expect(s.scheduleEventEditError).toBe('');expect(mocks.patch).toHaveBeenCalledWith('/appointments/821',expect.objectContaining({videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/added'}),expect.any(Object));
+ expect(mocks.post.mock.calls.some(([path])=>path==='/appointments')).toBe(false);
+});

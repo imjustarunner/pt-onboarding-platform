@@ -24,3 +24,13 @@ it('keeps the actual assigned tutoring appointment for its own enrollment',async
 it('retains deliberate agency-wide aggregation when no individual service was selected',async()=>{
  const result=await getGuardianTutoringDashboard(2545,{agencyId:453});expect(result.nextSession?.id).toBe(324);expect(m.execute.mock.calls.every(([,values])=>values.at(-1)===null)).toBe(true);
 });
+it('projects an external tutoring destination through authorized join access without returning its raw URL',async()=>{
+ const base=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,values)=>{
+  const result=await base(sql,values);
+  if(sql.includes('FROM appointments')){expect(sql).toContain('a.external_meeting_url');return [[{...result[0][0],video_room_mode:'external',external_meeting_url:'https://video.example.test/session',modality:'TELEHEALTH'}]];}
+  return result;
+ });
+ const result=await getGuardianTutoringDashboard(2545,{agencyId:453,providerId:1496});
+ expect(m.join).toHaveBeenCalledWith(expect.objectContaining({videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/session'}),expect.any(Object),expect.any(Object));
+ expect(result.nextSession.joinUrl).toBeNull();expect(result.nextSession).not.toHaveProperty('external_meeting_url');
+});

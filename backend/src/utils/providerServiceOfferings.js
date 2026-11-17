@@ -1,10 +1,10 @@
 /** An explicit per-agency selection overrides legacy discovery defaults. */
-export function offersProviderService(details, agencyId, serviceType, { enrolled = false, hasEnrollment = false, counselingEligible = false } = {}) {
+export function offersProviderService(details, agencyId, serviceType, { enrolled = false, hasEnrollment = false, counselingEligible = false,tutoringEligible=false } = {}) {
   let value = details;
   if (typeof value === 'string') { try { value = JSON.parse(value); } catch { value = {}; } }
   const selected = value?.serviceOfferingsByAgency?.[String(agencyId)];
   if (Array.isArray(selected)) return selected.includes(serviceType);
-  return enrolled || (serviceType === 'counseling' && !hasEnrollment && counselingEligible);
+  return enrolled || (serviceType === 'counseling' && !hasEnrollment && counselingEligible) || (serviceType==='tutoring'&&!hasEnrollment&&tutoringEligible);
 }
 export function validateProviderServices(selected, enabled) {
   if (!Array.isArray(selected) || selected.some(type => typeof type !== 'string' || !enabled.includes(type))) {
@@ -20,7 +20,7 @@ export function providerServiceSettings(person, agencyId, types, enrollments) {
   return types.map(type => {
     const enrollment = enrollments.find(e => e.service_type === type.service_type);
     return { serviceType: type.service_type, displayName: type.display_name || type.service_type,
-      offered: offersProviderService(person?.public_details_json, agencyId, type.service_type, {enrolled: Boolean(enrollment?.is_active) || (!enrollment && ['coaching','consulting'].includes(type.service_type) && ['life_coach','consultant'].includes(person?.organization_type) && person?.status === 'ACTIVE_EMPLOYEE' && ['admin','provider','provider_plus','super_admin','staff'].includes(person?.role)), hasEnrollment: Boolean(enrollment), counselingEligible}),
+      offered: offersProviderService(person?.public_details_json, agencyId, type.service_type, {enrolled: Boolean(enrollment?.is_active) || (!enrollment && ['coaching','consulting'].includes(type.service_type) && ['life_coach','consultant'].includes(person?.organization_type) && person?.status === 'ACTIVE_EMPLOYEE' && ['admin','provider','provider_plus','super_admin','staff'].includes(person?.role)), hasEnrollment: Boolean(enrollment), counselingEligible,tutoringEligible:role==='tutor'&&['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(person?.status||'').toUpperCase())}),
       onlineScheduling: Boolean(enrollment?.is_active) };
   });
 }

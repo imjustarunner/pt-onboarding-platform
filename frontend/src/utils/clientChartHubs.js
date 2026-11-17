@@ -6,6 +6,7 @@
 export const CHART_HUBS = Object.freeze({
   'bring-up-to-date': 'bring-up-to-date',
   overview: 'overview',
+  schedule:'schedule',
   account: 'account',
   portal: 'portal',
   lifecycle: 'lifecycle',
@@ -17,6 +18,7 @@ export const CHART_HUBS = Object.freeze({
 export const LEGACY_TAB_ALIASES = Object.freeze({
   'bring-up-to-date': {hub:'bring-up-to-date',sub:null},
   overview: { hub: 'overview', sub: null },
+  schedule:{hub:'schedule',sub:null},
   account: { hub: 'account', sub: 'profile' },
   portal: { hub: 'portal', sub: null },
   demographics: { hub: 'account', sub: 'demographics' },

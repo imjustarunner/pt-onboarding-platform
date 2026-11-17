@@ -195,6 +195,7 @@
           <ClientServiceEnrollments :key="`${client.id}:${selectedAgencyId || client.agency_id}`" :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliationsForActiveAgency" start-assigning @loaded="onAgencyServicesLoaded(selectedAgencyId || client.agency_id, $event)" @updated="onAgencyServicesUpdated(selectedAgencyId || client.agency_id, $event)" />
         </section>
 
+        <section v-if="chartHub==='schedule' && canScheduleClient" class="detail-section"><ClientSchedulePanel :key="client.id" :client="client" /></section>
         <section v-if="chartHub==='bring-up-to-date' && showRecordsImportTab" class="detail-section">
           <p v-if="!canFinishChartSetup || !recordsImportSetup" role="status">Loading this client’s saved import…</p>
           <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
@@ -2928,6 +2929,7 @@ import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { clientProfileActions } from '../../utils/clientProfileActions.js';
 import ClientUpdateAssignments from './clientChart/ClientUpdateAssignments.vue';
+import ClientSchedulePanel from './clientChart/ClientSchedulePanel.vue';
 import ClientEhrBringUpToDatePanel from './clientChart/ClientEhrBringUpToDatePanel.vue';
 import { formatAuditTimestamp, formatDate as formatCalendarDate } from '../../utils/formatDate';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
@@ -3630,6 +3632,7 @@ function closeLifecycleHistoryModal() {
 }
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const canScheduleClient=computed(()=>hasAgencyAccess.value&&['super_admin','admin','support','staff','clinical_practice_assistant','schedule_manager','provider','provider_plus','intern','intern_plus','supervisor','tutor','facilitator','qbha'].includes(roleNorm.value));
 const canManageServiceEnrollments = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 const canFinishChartSetup = computed(() => [
   'super_admin',
@@ -4412,6 +4415,7 @@ async function onRecordsImportDone(result){pendingAssignmentDraft.value=result?.
 const tabs = computed(() => ([
   ...(showRecordsImportTab.value?[{id:'bring-up-to-date',label:'Bring up to date',description:'Import records · Mark done'}]:[]),
   { id: 'overview', label: 'Overview', description: 'Summary · Quick actions' },
+  ...(canScheduleClient.value?[{id:'schedule',label:'Schedule',description:'Provider calendar · Book a session'}]:[]),
   { id: 'account', label: 'Account', description: canEditAccount.value ? 'Profile · Assignments' : 'Profile · Relationships' },
   ...(canViewGuardians.value ? [{id:'portal',label:'Portal',description:'Access · Sharing · Activity'}] : []),
   { id: 'lifecycle', label: 'Lifecycle', description: 'Timeline · History' },
@@ -4530,7 +4534,7 @@ async function onAgencyServicesUpdated(agencyId, payload) {
 }
 const followUpTask = ref(null);
 const profileQuickActions = computed(() => [...clientProfileActions({
-  hub: chartHub.value, sub: effectiveHubSub.value, canEdit: canEditAccount.value,
+  hub: chartHub.value, sub: effectiveHubSub.value, canEdit: canEditAccount.value,canSchedule:canScheduleClient.value,
   canPortal: canViewGuardians.value, canInvite: canManageGuardians.value,
   canClinical: canViewMedicalRecord.value, canBilling: canViewClientBillingImport.value,
   canDocuments: roleNorm.value !== 'support',

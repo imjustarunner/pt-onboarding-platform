@@ -23,7 +23,7 @@ const LIVE_STATUSES = new Set([
   'voided'
 ]);
 
-const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room']);
+const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room','external']);
 const NOTIFICATION_MODES = new Set(['default', 'customizable', 'in_app']);
 
 function parseJsonSafe(raw, fallback = null) {
@@ -91,6 +91,7 @@ class Appointment {
       ...(r.learning_context_json!==undefined?{learningContext:parseJsonSafe(r.learning_context_json,null)}:{}),
       othersPresentNames: r.others_present_names != null ? String(r.others_present_names) : null,
       videoRoomMode: normalizeVideoRoomMode(r.video_room_mode, 'unique_session'),
+      externalMeetingUrl:r.external_meeting_url || null,
       notificationMode: normalizeNotificationMode(r.notification_mode, 'default'),
       serviceCode: r.service_code ? String(r.service_code).toUpperCase() : null,
       addonServiceCodes: (() => {
@@ -254,6 +255,9 @@ class Appointment {
     const learningColumns=row.learningContext?', learning_context_json':'';
     const learningValues=row.learningContext?', ?':'';
     const learningParams=row.learningContext?[JSON.stringify(row.learningContext)]:[];
+    const externalColumns = videoRoomMode === 'external' ? ', external_meeting_url' : '';
+    const externalValues = videoRoomMode === 'external' ? ', ?' : '';
+    const externalParams = videoRoomMode === 'external' ? [row.externalMeetingUrl || null] : [];
     const baseParams = [
       Number(row.agencyId),
       row.parentAgencyId || null,
@@ -288,8 +292,8 @@ class Appointment {
            office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
            cancellation_policy_id, cancel_deadline_at,
            source, title, notes, others_present_names, video_room_mode, notification_mode,
-           created_by_user_id, updated_by_user_id${learningColumns}
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues})`,
+           created_by_user_id, updated_by_user_id${learningColumns}${externalColumns}
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues}${externalValues})`,
         [
           ...baseParams.slice(0, 22),
           othersPresentNames,
@@ -297,11 +301,13 @@ class Appointment {
           notificationMode,
           baseParams[22],
           baseParams[23],
-          ...learningParams
+          ...learningParams,
+          ...externalParams
         ]
       );
       return this.findById(result.insertId, { executor });
     } catch (e) {
+      if(videoRoomMode==='external')throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `INSERT INTO appointments (
@@ -378,6 +384,9 @@ class Appointment {
       : null;
     const videoRoomMode = normalizeVideoRoomMode(next.videoRoomMode, existing.videoRoomMode || 'unique_session');
     const notificationMode = normalizeNotificationMode(next.notificationMode, existing.notificationMode || 'default');
+    const writesExternalLink = videoRoomMode === 'external' || existing.videoRoomMode === 'external';
+    const externalUpdate = writesExternalLink ? ', external_meeting_url = ?' : '';
+    const externalParams = writesExternalLink ? [videoRoomMode === 'external' ? next.externalMeetingUrl || null : null] : [];
     // Compare the reviewed schedule in the UPDATE itself. This also rejects a
     // writer that changed the row after the shared provider lock's read.
     const participantCompare = expected?.expectedParticipantClientId ? ' AND (SELECT COUNT(*) FROM appointment_participants p WHERE p.appointment_id=appointments.id AND p.client_id IS NOT NULL)=1 AND EXISTS (SELECT 1 FROM appointment_participants p WHERE p.appointment_id=appointments.id AND p.client_id=?)' : '';
@@ -396,7 +405,7 @@ class Appointment {
            cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
            canceled_at = ?, canceled_by_user_id = ?,
            title = ?, notes = ?,
-           others_present_names = ?, video_room_mode = ?, notification_mode = ?,
+           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate},
            updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?${compare}`,
         [
@@ -427,12 +436,14 @@ class Appointment {
           othersPresentNames,
           videoRoomMode,
           notificationMode,
+          ...externalParams,
           next.updatedByUserId || null,
           Number(id), ...compareParams
         ]
       );
       if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     } catch (e) {
+      if(videoRoomMode==='external'||existing.videoRoomMode==='external')throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `UPDATE appointments SET

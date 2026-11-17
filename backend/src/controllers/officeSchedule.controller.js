@@ -3457,6 +3457,7 @@ export const getBookingMetadata = async (req, res, next) => {
     }
     const metadata = await getSchedulingBookingMetadata({
       agencyId: policyAgencyId,
+      businessType:String(req.query.businessType||'')||null,
       userRole: requestedProvider.role,
       providerCredentialText: requestedProvider.credential,
         providerId: requestedProvider.id

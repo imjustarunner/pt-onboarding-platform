@@ -1700,7 +1700,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
 
   // The scheduling system is authoritative for booked appointments. Learning
   // rooms supplement it; their IDs are never treated as appointment IDs.
-  const [appointments] = await pool.execute(`SELECT DISTINCT a.id,a.agency_id,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality,
+  const [appointments] = await pool.execute(`SELECT DISTINCT a.id,a.agency_id,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality,a.video_room_mode,a.external_meeting_url,
       a.source_timezone AS time_zone,CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name
     FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id
     JOIN clients c ON c.id=ap.client_id
@@ -1708,7 +1708,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
     WHERE ap.client_id=? AND (? IS NULL OR a.agency_id=?) AND (? IS NULL OR a.provider_user_id=?) AND a.business_type IN ('learning','tutoring') AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR)
       AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId,agencyId,agencyId,providerId??null,providerId??null]);
   const now = Date.now();
-  const canonical = await Promise.all(appointments.map(async a => ({...a, source:'appointment', title:'Tutoring appointment', delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,modality:a.modality,status:a.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning'},pool)})));
+  const canonical = await Promise.all(appointments.map(async ({external_meeting_url,video_room_mode,...a}) => ({...a, source:'appointment', title:'Tutoring appointment', delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:a.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning'},pool)})));
   upcomingSessions=upcomingSessions.filter(r=>!canonical.some(a=>+new Date(a.starts_at)===+new Date(r.starts_at)&&a.provider_name===r.provider_name&&!['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)));
   const merge = (rooms, booked, direction, limit) => {
     const rows = rooms.map(r => ({...r,source:'learning_session'}));

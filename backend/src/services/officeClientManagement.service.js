@@ -1067,6 +1067,7 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
        LEFT JOIN provider_public_profiles profile ON profile.user_id = u.id
        WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
+         AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','TERMINATED','SUSPENDED','DISABLED','DELETED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
          AND ${agencyAssignableProviderSql()}
        GROUP BY u.id, u.first_name, u.last_name, u.title, u.credential, u.provider_accepting_new_clients
        ORDER BY u.last_name ASC, u.first_name ASC
@@ -1101,6 +1102,7 @@ export async function listHubProviders({ agencyId, agencyIds = null }) {
          INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
          LEFT JOIN provider_public_profiles profile ON profile.user_id=u.id
          WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(ua.is_active, 1) = 1
+           AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','TERMINATED','SUSPENDED','DISABLED','DELETED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
            AND ${agencyAssignableProviderSql()}
          GROUP BY u.id,u.first_name,u.last_name
          ORDER BY u.last_name ASC`,

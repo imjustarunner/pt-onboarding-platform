@@ -224,6 +224,8 @@ jobs:
           backend/src/controllers/__tests__/scheduling.officeBuildingPhoto.test.js
       - name: Selected office reservation, shared practice booking, and reminder defaults
         run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.externalMeeting.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-portal-boundaries.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.officeSessionAgency.test.js backend/src/services/__tests__/scheduling.reminderRules.test.js backend/src/controllers/__tests__/scheduling.sharedOfficeBooking.test.js backend/src/services/__tests__/scheduling.ownedOfficeSession.test.js backend/src/services/__tests__/scheduling.ownedOfficeSessionJobs.test.js backend/src/services/__tests__/scheduling.notificationCustomizations.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-launch.config.js backend/src/services/__tests__/meetingJoinPolicy.test.js
           (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.office-session-supervision.config.js)
@@ -425,6 +427,8 @@ jobs:
         env:
           CLINICAL_INTEGRATION_MYSQL_PORT: '3306'
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-integrations.config.js backend/src/services/__tests__/clinicalIntegration.mysql.test.js backend/src/services/__tests__/guardianCancellation.mysql.test.js
+      - name: External meeting migration and atomic appointment persistence
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.externalMeeting.mysql.test.js
       - name: One-session alert persistence and concurrent workers
         env:
           PORTAL_ACTIVITY_MYSQL_PORT: '3306'

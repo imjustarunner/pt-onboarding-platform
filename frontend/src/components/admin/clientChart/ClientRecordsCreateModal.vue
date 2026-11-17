@@ -8,7 +8,7 @@
      <p class="cr-draft" role="status">{{ drafts.state.loading ? 'Loading private draft…' : drafts.state.message }}</p>
      <div class="cr-context">
       <label>Agency<select :value="agencyId" :disabled="busy || !!created || drafts.state.loading" @change="changeAgency($event.target.value)"><option value="">Choose agency…</option><option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
-      <label>Service<select v-model="form.kind" :disabled="busy || !!created || drafts.state.loading"><option value="clinical">Office / clinical</option><option value="school">School</option><option value="learning">Learning</option><option value="basic_nonclinical">Coaching / consulting</option></select></label>
+      <label>Service<select v-model="form.kind" :disabled="busy || !!created || drafts.state.loading"><option value="clinical">Office / clinical</option><option v-if="organizations.some(org=>org.organization_type==='school') || (created && form.kind==='school')" value="school">School</option><option value="learning">Learning</option><option value="basic_nonclinical">Coaching / consulting</option></select></label>
       <label>{{ form.kind === 'school' ? 'School' : 'Program / office affiliation' }}<select v-model="form.organizationId" :disabled="busy || !!created || drafts.state.loading"><option value="">Choose affiliation…</option><option v-for="org in filteredOrganizations" :key="org.id" :value="org.id">{{ org.name }}</option></select></label>
       <label v-if="!created">Provider<select v-model="form.providerId" :disabled="busy || !!created || drafts.state.loading || !isBackoffice"><option :value="null">Save unassigned</option><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option></select></label>
       <template v-if="form.kind === 'school'"><label>School year (optional)<input v-model="form.schoolYear" :disabled="!!created" placeholder="YYYY-YYYY" /></label><label>Grade (optional)<select v-model="form.grade" :disabled="!!created"><option value="">Not recorded</option><option v-for="grade in grades" :key="grade.value" :value="grade.value">{{ grade.label }}</option></select></label></template>
@@ -95,14 +95,17 @@ async function changeAgency(value){
  const version=++generation;parseVersion++;clearTimeout(parseTimer);hydrating=true;agencyId.value=String(value||'');Object.assign(form,defaults());created.value=null;completed.value=false;error.value='';organizations.value=[];providers.value=[];
  if(!agencyId.value){hydrating=false;return;}
  try{
-  const[saved,orgs,providerResponse]=await Promise.all([drafts.load(agencyId.value),api.get(`/agencies/${agencyId.value}/affiliated-organizations`,{skipGlobalLoading:true}),api.get('/provider-scheduling/providers',{params:{agencyId:Number(agencyId.value),activeProvidersOnly:true,clientAssignmentsOnly:true},skipGlobalLoading:true})]);
+  const[saved,orgs,providerResponse]=await Promise.all([drafts.load(agencyId.value),api.get(`/agencies/${agencyId.value}/affiliated-organizations`,{skipGlobalLoading:true}),isBackoffice.value?api.get('/office-clients/providers',{params:{agencyIds:String(agencyId.value)},skipGlobalLoading:true}):Promise.resolve({data:{providers:[auth.user]}})]);
   if(version!==generation)return;
   organizations.value=(Array.isArray(orgs.data)?orgs.data:[]).filter(row=>row.is_active!==false&&row.is_active!==0);
   const agency=props.agencies.find(row=>Number(row.id)===Number(agencyId.value));if(agency&&!organizations.value.some(row=>Number(row.id)===Number(agency.id)))organizations.value.push({...agency,organization_type:agency.organization_type||'agency'});
-  providers.value=Array.isArray(providerResponse.data)?providerResponse.data:providerResponse.data?.providers||[];
+  providers.value=(Array.isArray(providerResponse.data)?providerResponse.data:providerResponse.data?.providers||[]).filter(row=>!row.agencyIds || row.agencyIds.map(Number).includes(Number(agencyId.value))).map(row=>({...row,first_name:row.first_name||row.firstName,last_name:row.last_name||row.lastName}));
   if(saved?.form){for(const key of Object.keys(form))if(Object.hasOwn(saved.form,key))form[key]=saved.form[key];form.records={...defaults().records,...(saved.form.records||{})};created.value=saved.created||null;completed.value=saved.completed===true;}
   else {try{const previous=JSON.parse(localStorage.getItem(`client-entry-context:${auth.user.id}:${agencyId.value}`)||'{}');if(providers.value.some(row=>Number(row.id)===Number(previous.providerId)))form.providerId=previous.providerId;}catch{}}
   assignmentError.value='';startImport.value=false;
+  if (!created.value && form.kind === 'school' && !organizations.value.some(row => row.organization_type === 'school')) {
+    form.kind = 'clinical'; form.organizationId = ''; form.schoolYear = ''; form.grade = '';
+  }
   if(form.providerId&&!providers.value.some(row=>Number(row.id)===Number(form.providerId))){form.providerId=null;if(created.value)assignmentError.value='The saved provider is no longer assignable in this agency. Choose an active provider or continue unassigned.';}
   if(!form.organizationId&&form.kind==='clinical'&&filteredOrganizations.value.some(row=>Number(row.id)===Number(agencyId.value)))form.organizationId=Number(agencyId.value);
   if(!form.organizationId&&filteredOrganizations.value.length===1)form.organizationId=filteredOrganizations.value[0].id;

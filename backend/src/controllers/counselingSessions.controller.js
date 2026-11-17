@@ -397,6 +397,7 @@ export async function findOrCreateFromAppointment(req, res) {
     const managesSchedule = ['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant'].includes(String(req.user.role));
     if (Number(appointment.providerUserId) !== providerUserId && !managesSchedule) return res.status(403).json({ error: { message: 'Only the appointment provider or a schedule manager can open this video session' } });
     providerUserId = Number(appointment.providerUserId);
+    if(appointment.videoRoomMode==='external')return res.status(409).json({error:{message:'This appointment uses an external meeting. Open its saved link from the appointment.'}});
 
     bookingLock = await pool.getConnection();
     bookingLockName = `counseling_appointment:${appointmentId}`;

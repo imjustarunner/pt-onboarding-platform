@@ -44,7 +44,7 @@ const loading=ref(false),loaded=ref(false),saving=ref(false),suggesting=ref(fals
 const assignmentDrafts=useChartImportDrafts({sectionKeys:['assignments'],singleSection:true}),workingDraftNotice=ref('');
 let hydratingWorkingDraft=true,pendingServiceDraft=null,servicesLoaded=false;
 const blank=()=>({officeId:'',pos:'',serviceLocationId:''});const draft=reactive(blank());const saved=ref(blank());const additions=reactive({school:'',program:'',learning:''}),makePrimary=reactive({school:false,program:false,learning:false});
-const buckets=[{type:'school',label:'Schools',singular:'school'},{type:'program',label:'Programs',singular:'program'},{type:'learning',label:'Learning',singular:'learning organization'}];
+const buckets=computed(()=>[{type:'school',label:'Schools',singular:'school'},{type:'program',label:'Programs',singular:'program'},{type:'learning',label:'Learning',singular:'learning organization'}].filter(bucket=>catalog.value.some(row=>row.organization_type===bucket.type)||scopedAffiliations.value.some(row=>row.organization_type===bucket.type)));
 const canReadBilling=computed(()=>canAccessMedicalBilling(auth.user,props.agencyId));
 const isSchool=computed(()=>client.value?.client_type==='school');
 const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value));

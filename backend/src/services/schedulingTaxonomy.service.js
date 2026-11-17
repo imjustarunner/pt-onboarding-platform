@@ -263,12 +263,13 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
   const catalog = await resolveAgencySchedulingCatalog({ agencyId, credentialTier, allServiceCodes, eligibleServiceCodes });
   const credentialOverrides = await loadCredentialOverrides('CO');
   const grantedServiceCodes = providerId ? await grantedServiceCodesForProvider(agencyId, providerId) : [];
-  let visibleServiceCodes = filterServiceCodesForCredential(catalog.eligibleServiceCodes, credentialTier, credentialOverrides, grantedServiceCodes);
+  let visibleServiceCodes = careEligibility.canProvideCare?filterServiceCodesForCredential(catalog.eligibleServiceCodes, credentialTier, credentialOverrides, grantedServiceCodes):[];
   // Academic tutoring uses its configured service and active tutoring role,
   // without inventing a clinical credential or a medical service-code grant.
-  if (businessType === 'tutoring' && careEligibility.canProvideCare && !visibleServiceCodes.some(row=>row.code==='TUTORING')) {
+  const tutoringEligible=businessType==='tutoring'&&(careEligibility.canProvideTutoring||careEligibility.canProvideCare);
+  if (tutoringEligible && !visibleServiceCodes.some(row=>row.code==='TUTORING')) {
     const offered = await readProviderServices(providerId,agencyId);
-    if (offered.careEligibility.canProvideCare && offered.services.some(row=>row.serviceType==='tutoring'&&row.offered)) {
+    if ((offered.careEligibility.canProvideCare||offered.careEligibility.canProvideTutoring) && offered.services.some(row=>row.serviceType==='tutoring'&&row.offered)) {
       const services = (await TenantService.listForAgency(agencyId,{includeInactive:false}))
         .filter(row=>row.businessType==='tutoring'&&row.serviceCode==='TUTORING'&&row.isActive!==false&&(!tenantServiceId||Number(row.id)===Number(tenantServiceId)));
       if (services.length===1) visibleServiceCodes.push({code:'TUTORING',label:services[0].name,
@@ -289,7 +290,7 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
     appointmentTypes,
     appointmentSubtypes,
     allServiceCodes: catalog.allServiceCodes,
-    eligibleServiceCodes: careEligibility.canProvideCare ? visibleServiceCodes : []
+    eligibleServiceCodes: careEligibility.canProvideCare || tutoringEligible ? visibleServiceCodes : []
   };
 }
 

@@ -14,3 +14,13 @@ it('carries ranked room preferences and explicit any-room intent through the edi
  expect(wrapper.emitted('update:roomPreferenceAcknowledged')).toEqual([[true]]);
  wrapper.unmount();
 });
+it('shows NLU external meeting selection with an optional URL instead of new platform room choices',async()=>{
+ const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',videoRoomMode:'external',externalMeetingsEnabled:true,bookSessionLayout:true}});
+ const select=w.findAll('select').find(row=>row.findAll('option').some(option=>option.attributes('value')==='external'));
+ expect(select.findAll('option').map(row=>row.attributes('value'))).toEqual(['external']);expect(w.text()).not.toContain('will be available after booking');
+ const input=w.get('input[type=url]');expect(input.attributes('required')).toBeUndefined();await input.setValue('https://video.example.test/session');expect(w.emitted('update:externalMeetingUrl')).toEqual([['https://video.example.test/session']]);w.unmount();
+});
+it('preserves platform meeting choices for other agencies',()=>{
+ const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',videoRoomMode:'unique_session'}});
+ expect(w.findAll('option').some(option=>option.attributes('value')==='external')).toBe(false);expect(w.findAll('option').some(option=>option.attributes('value')==='unique_session')).toBe(true);w.unmount();
+});

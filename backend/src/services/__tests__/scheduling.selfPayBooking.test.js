@@ -147,7 +147,7 @@ it.each([['VIRTUAL','virtual'],['IN_PERSON','in-person']])('prices explicit tuto
  await createAppointment({...args,modality,endAt:'2026-09-15T17:00:00Z'});
  expect(resolveSelfPayQuote).toHaveBeenCalledWith(expect.objectContaining({learningFormat,durationMinutes:60}));
  expect(requireClientSessionBooking).not.toHaveBeenCalled();
- expect(requireStaffCareEligibility).toHaveBeenCalledWith(9,1);
+ expect(requireStaffCareEligibility).toHaveBeenCalledWith(9,1,undefined,{serviceType:'tutoring'});
  expect(validateSchedulingSelection).not.toHaveBeenCalled();
  expect(Appointment.create).toHaveBeenCalledWith(expect.objectContaining({businessType:'tutoring',tenantServiceId:10}));
 });

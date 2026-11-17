@@ -1,4 +1,5 @@
 import {resolveTutoringBookingContext} from './tutoringBookingContext.service.js';
+import {validateExternalMeeting} from './appointmentExternalMeeting.service.js';
 import { filterBookingServicesForClient, assertAppointmentServiceContext } from './clientServiceContext.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
@@ -196,6 +197,7 @@ async function createLockedAppointment({
   notes = null,
   othersPresentNames = null,
   videoRoomMode = 'unique_session',
+  externalMeetingUrl = null,
   notificationMode = 'default',
   customReminders = [],
   createdByUserId = null,
@@ -212,6 +214,7 @@ async function createLockedAppointment({
   deferScheduleNotice = false
 } = {}) {
   customReminders = normalizeCustomSessionReminders(customReminders);
+  externalMeetingUrl=await validateExternalMeeting({agencyId,videoRoomMode,externalMeetingUrl,modality});
   if (customReminders.length) notificationMode = 'customizable';
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
@@ -297,7 +300,8 @@ async function createLockedAppointment({
   if (providerUserId) {
     const memberships = await User.getAgencies(providerUserId);
     if (!memberships.some((a) => Number(a.id) === aid)) throw Object.assign(new Error('Provider is not assigned to this agency'), { status: 403 });
-    if (clinicalBooking || ['mental_health', 'healthcare', 'tutoring', 'learning'].includes(businessType)) await requireStaffCareEligibility(providerUserId, aid);
+    if(['tutoring','learning'].includes(businessType))await requireStaffCareEligibility(providerUserId,aid,undefined,{serviceType:'tutoring'});
+    else if (clinicalBooking || ['mental_health', 'healthcare'].includes(businessType)) await requireStaffCareEligibility(providerUserId, aid);
     if (clinicalBooking && !selfPayOnly&&!isProBonoServiceCode(serviceCode)) {
       const provider = await User.findById(providerUserId);
       await validateSchedulingSelection({ agencyId: aid, providerId: providerUserId, userRole: provider.role, providerCredentialText: provider.credential,
@@ -383,6 +387,7 @@ async function createLockedAppointment({
     notes,
     othersPresentNames,
     videoRoomMode,
+    externalMeetingUrl,
     notificationMode,
     createdByUserId,
     serviceCode: serviceCode || service?.serviceCode || null,
@@ -471,6 +476,11 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
+  if (patch.videoRoomMode !== undefined || patch.externalMeetingUrl !== undefined || (existing.videoRoomMode === 'external' && patch.modality !== undefined)) {
+    const externalMeetingUrl = patch.videoRoomMode !== undefined && patch.videoRoomMode !== 'external' && patch.externalMeetingUrl === undefined
+      ? null : patch.externalMeetingUrl === undefined ? existing.externalMeetingUrl : patch.externalMeetingUrl;
+    patch.externalMeetingUrl = await validateExternalMeeting({ ...existing, ...patch, externalMeetingUrl });
+  }
   if(existing.status==='no_show_pending'&&!allowPendingNoShow)throw Object.assign(new Error('Undo the pending no-show before editing this appointment.'),{status:409});
   const persistedSourceTimezone=Object.hasOwn(existing,'persistedSourceTimezone')?existing.persistedSourceTimezone:existing.sourceTimezone||null;
   const sourceZoneForEdit=existing.officeEventId&&['serviceCode','addonServiceCodes','providerUserId','startAt','endAt','timeZone','modality','serviceLocationId'].some(key=>patch[key]!==undefined)

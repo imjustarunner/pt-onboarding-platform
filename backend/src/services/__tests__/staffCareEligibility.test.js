@@ -5,6 +5,13 @@ import { staffCareEligibility, requireStaffCareEligibility } from '../staffCareE
 const person = { role: 'staff', credential: 'BA', status: 'ACTIVE_EMPLOYEE', is_active: 1,
   membership_active: 1, sees_clients: 1, has_provider_access: 0 };
 describe('agency care assignment is independent of academic credentials', () => {
+  it('recognizes an active agency tutor without granting counseling access',async()=>{
+    const tutor={...person,role:'super_admin',agency_role:'tutor'};
+    expect(staffCareEligibility(tutor,6)).toMatchObject({canProvideTutoring:true,canProvideCare:false});
+    const db={execute:vi.fn(async()=>[[tutor]])};
+    await expect(requireStaffCareEligibility(8,6,db,{serviceType:'tutoring'})).resolves.toMatchObject({canProvideTutoring:true});
+    await expect(requireStaffCareEligibility(8,6,db)).rejects.toHaveProperty('status',403);
+  });
   it.each(['BA', 'MA', 'MA, Unlicensed Masters', 'PhD', 'LPC'])('never grants care from %s alone', credential => {
     expect(staffCareEligibility({ ...person, credential }, 6).canProvideCare).toBe(false);
   });

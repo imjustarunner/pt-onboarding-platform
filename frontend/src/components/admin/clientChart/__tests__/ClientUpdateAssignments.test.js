@@ -22,6 +22,10 @@ beforeEach(()=>{vi.clearAllMocks();m.user={role:'support',billingAgencyIds:[2,3]
  });m.post.mockResolvedValue({data:{}});
 });
 async function render(){const wrapper=mount(Assignments,{props:{clientId:7,agencyId:2},global:{stubs:{ClientServiceEnrollments:Services}}});await flushPromises();return wrapper;}
+it('omits school and other affiliation controls when this agency has no such organizations',async()=>{
+ const original=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.endsWith('/affiliated-organizations')||url.endsWith('/affiliations')?{data:[]}:original(url,...args));
+ const w=await render();expect(w.find('[aria-label="Schools"]').exists()).toBe(false);expect(w.text()).not.toContain('Add school');expect(w.text()).toContain('Services and providers');w.unmount();
+});
 it('prefills the provider physical office as this agency’s office and billing defaults, then saves on review',async()=>{
  const wrapper=await render();expect(wrapper.get('[aria-label="Default office"]').element.value).toBe('21');expect(wrapper.get('[aria-label="Default place of service"]').element.value).toBe('11');expect(wrapper.get('[aria-label="Default billing location"]').element.value).toBe('41');expect(m.post).not.toHaveBeenCalled();expect(wrapper.vm.prepareLeave()).toBe(false);
  await wrapper.get('.assignment-defaults').trigger('submit');await flushPromises();expect(m.post).toHaveBeenCalledWith('/clients/7/agency-affiliations',{agency_id:2,default_office_location_id:21,default_place_of_service:'11',default_service_location_id:41},expect.objectContaining({headers:{'X-Agency-Id':'2'}}));expect(wrapper.vm.prepareLeave()).toBe(true);expect(wrapper.emitted('updated')).toHaveLength(1);wrapper.unmount();

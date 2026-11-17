@@ -16,6 +16,7 @@ export function staffCareEligibility(person, agencyId) {
   const active = enabled(person?.is_active) && enabled(person?.membership_active)
     && ['ACTIVE', 'ACTIVE_EMPLOYEE'].includes(person?.status);
   const canProvideCare = active && careRoleAssigned && seesClients;
+  const canProvideTutoring=active&&seesClients&&(canProvideCare||role==='tutor');
   return {
     credential: person?.credential || '',
     credentialTier: deriveCredentialTier({ userRole: role, providerCredentialText: person?.credential }),
@@ -23,6 +24,7 @@ export function staffCareEligibility(person, agencyId) {
     seesClients,
     careRoleAssigned,
     canProvideCare,
+    canProvideTutoring,
     reason: !active ? 'An active agency relationship is required.'
       : !careRoleAssigned ? 'An administrator must assign a client-facing role or provider access.'
         : !seesClients ? 'Sees clients is off for this agency.' : null
@@ -38,9 +40,9 @@ export async function readStaffCareEligibility(userId, agencyId, database = pool
   return staffCareEligibility(person, agencyId);
 }
 
-export async function requireStaffCareEligibility(userId, agencyId, database = pool) {
+export async function requireStaffCareEligibility(userId, agencyId, database = pool,{serviceType='counseling'}={}) {
   const eligibility = await readStaffCareEligibility(userId, agencyId, database);
-  if (!eligibility.canProvideCare) throw Object.assign(new Error(`Client care is not enabled for this person in this agency. ${eligibility.reason}`), {
+  if (!(serviceType==='tutoring'?(eligibility.canProvideTutoring||eligibility.canProvideCare):eligibility.canProvideCare)) throw Object.assign(new Error(`Client care is not enabled for this person in this agency. ${eligibility.reason}`), {
     status: 403, code: 'CARE_PROVIDER_ASSIGNMENT_REQUIRED'
   });
   return eligibility;
