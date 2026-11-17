@@ -14,7 +14,7 @@ export function ticketMailVisibilitySql(alias = 't') {
 export function operationalNoticeCategory(subject) {
   const text = String(subject || '').toLowerCase();
   if (/^(re|fw|fwd):/.test(text.trim())) return null;
-  if (/provider assignment|new client has been added to your caseload/.test(text)) return 'provider_assignments';
+  if (/provider assignment|provider assigned|clinician assigned|new client has been added to your caseload/.test(text)) return 'provider_assignments';
   if (/(digital|paper) enrollment packet|^new packet uploaded/.test(text)) return 'enrollment_packets';
   return null;
 }
@@ -47,7 +47,7 @@ export function messageInboxPolicySql({ userId, schoolGroupInboxIds = [] } = {})
     WHEN ${demo} THEN 'demo'
     WHEN ${humanReply} THEN 'correspondence'
     WHEN (${loggedTemplate(['client_assigned', 'client_exchange_assigned', 'school_provider_assignment'])}
-      OR ${trustedSubject('provider assignment|new client has been added to your caseload')}) THEN 'provider_assignments'
+      OR ${trustedSubject('provider assignment|provider assigned|clinician assigned|new client has been added to your caseload')}) THEN 'provider_assignments'
     WHEN (${loggedTemplate(['school_enrollment_packet_status', 'intake_packet_completion', 'enrollment_submission_confirmation'])}
       OR ${trustedSubject('(digital|paper) enrollment packet|^new packet uploaded')}) THEN 'enrollment_packets'
     ELSE 'correspondence' END)`;

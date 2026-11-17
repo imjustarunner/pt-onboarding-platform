@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
 import { syncSchoolOnboardingWorkflowTicket } from '../schoolOnboardingWorkflowTickets.service.js';
 test.after(() => pool.end());
-function fixture({ slug = 'itsco', owners = [{ id: 8 }] } = {}) {
+function fixture({ slug = 'itsco', contactEmail = 'school@example.test', owners = [{ id: 8 }] } = {}) {
   const calls = [], sent = []; let link = null;
   const connection = {
     async beginTransaction() { calls.push('begin'); }, async commit() { calls.push('commit'); }, async rollback() { calls.push('rollback'); }, release() { calls.push('release'); },
     async execute(sql, args) {
       calls.push({ sql, args });
       assert.equal((sql.match(/\?/g) || []).length, args.length, 'all SQL placeholders are bound');
-      if (sql.startsWith('SELECT i.*')) return [[{ id: 18, agency_id: 2, agency_slug: slug, school_organization_id: 11, school_name: 'Example School' }]];
+      if (sql.startsWith('SELECT i.*')) return [[{ id: 18, agency_id: 2, agency_slug: slug, contact_email: contactEmail, school_organization_id: 11, school_name: 'Example School' }]];
       if (sql.startsWith('SELECT u.id')) return [owners];
       if (sql.startsWith('SELECT ticket_id')) return [[...(link ? [link] : [])]];
       if (sql.startsWith('INSERT INTO support_tickets')) return [{ insertId: 60 }];
@@ -47,4 +47,10 @@ test('other tenants and missing or ambiguous Rachel membership cannot create or 
     assert.equal(f.calls.some(c => c.sql?.startsWith('INSERT')), false);
     assert.equal(f.calls.includes('rollback'), true); assert.equal(f.sent.length, 0);
   }
+});
+
+test('testing mailbox onboarding never creates app work or assignment email', async () => {
+ const f = fixture({ contactEmail:'testing+school@itsco.health' });
+ assert.equal((await syncSchoolOnboardingWorkflowTicket({inviteId:18,stage:'invite'},f.dependencies)).skipped,true);
+ assert.equal(f.sent.length,0);assert.equal(f.calls.some(c=>c.sql?.startsWith('INSERT')),false);
 });

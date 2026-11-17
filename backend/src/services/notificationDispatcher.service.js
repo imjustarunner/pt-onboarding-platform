@@ -302,7 +302,7 @@ class NotificationDispatcherService {
    */
   static async dispatchPushForNotification(notification) {
     if (!notification?.user_id) return { dispatched: false };
-    if (notification.type === 'new_packet_uploaded') return { dispatched: false, reason: 'review_in_messages' };
+    if (['new_packet_uploaded','school_group_email_received'].includes(notification.type)) return { dispatched: false, reason: 'review_in_messages' };
     if(notification.related_entity_type==='client_exchange_listing' && await isDemoExchangeListing({listingId:notification.related_entity_id,agencyId:notification.agency_id}))return {dispatched:false,reason:'demo_exchange_provider_notifications_suppressed'};
     const prefs = await UserPreferences.findByUserId(notification.user_id);
     if (!prefs?.push_notifications_enabled) return { dispatched: false };

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isExternalTestingEmail } from '../utils/externalTestingEmail.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 import { sendTicketAssignmentEmail } from './ticketAssignmentEmail.service.js';
 import { RACHEL_SCHOOL_EMAIL } from './messageInboxPolicy.js';
@@ -16,7 +17,7 @@ export async function syncSchoolOnboardingWorkflowTicket({ inviteId, stage, stag
     await db.beginTransaction();
     const [[invite]] = await db.execute(`SELECT i.*,a.slug AS agency_slug FROM school_onboarding_invites i
       JOIN agencies a ON a.id=i.agency_id WHERE i.id=? FOR UPDATE`, [inviteId]);
-    if (!invite || invite.agency_slug !== 'itsco') { await db.commit(); return { skipped: true, reason: 'outside_itsco_workflow' }; }
+    if (!invite || invite.agency_slug !== 'itsco' || isExternalTestingEmail(invite.contact_email)) { await db.commit(); return { skipped: true, reason: 'outside_itsco_workflow' }; }
     const [owners] = await db.execute(`SELECT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id
       AND ua.agency_id=? AND ua.is_active=1 WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0
       AND COALESCE(u.is_demo,0)=0 AND u.status IN ('ACTIVE','ACTIVE_EMPLOYEE')
@@ -62,7 +63,7 @@ export async function runSchoolOnboardingWorkflowTickets({ database = pool, limi
     FROM school_onboarding_invites i JOIN agencies a ON a.id=i.agency_id AND a.slug='itsco'
     LEFT JOIN school_onboarding_workflow_tickets linked ON linked.invite_id=i.id
     JOIN ticket_assignment_email_settings settings ON settings.id=1
-    WHERE i.status<>'revoked' AND (i.submitted_at>=settings.enabled_at OR EXISTS
+    WHERE i.status<>'revoked' AND LOWER(COALESCE(i.contact_email,'')) NOT REGEXP '^testing([+][^@]+)?@' AND (i.submitted_at>=settings.enabled_at OR EXISTS
       (SELECT 1 FROM school_onboarding_email_deliveries d WHERE d.invite_id=i.id AND d.delivery_status='sent' AND d.sent_at>=settings.enabled_at))
     ) pending WHERE (pending.status='submitted' AND COALESCE(pending.linked_stage_key,'')<>'completed')
       OR (pending.status<>'submitted' AND pending.delivery_id IS NOT NULL AND COALESCE(pending.linked_stage_key,'')<>CONCAT(pending.delivery_kind,':',pending.delivery_id))

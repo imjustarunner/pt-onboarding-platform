@@ -26,8 +26,8 @@ function fixture(){
 }
 test('real receipt mail is stored as group email without tickets, draft generation, or resend',async()=>{
  const f=fixture();const result=await recordSchoolGroupEmail(input,f.deps);
- assert.equal(result.handled,true);assert.equal(result.notificationCount,1);assert.equal(f.copies[0].standalone,true);assert.equal(f.copies[0].isGroupEmail,true);assert.equal(f.copies[0].inboxId,12);assert.equal(f.notifications[0][4],2);assert.equal(f.notifications[0][5],30);assert.equal(f.pushes.length,1);
- assert.equal((await recordSchoolGroupEmail(input,f.deps)).notificationCount,0);assert.equal(f.pushes.length,1);
+ assert.equal(result.handled,true);assert.equal(result.notificationCount,0);assert.equal(f.copies[0].standalone,true);assert.equal(f.copies[0].isGroupEmail,true);assert.equal(f.copies[0].inboxId,12);assert.equal(f.notifications.length,0);assert.equal(f.pushes.length,0);
+ assert.equal((await recordSchoolGroupEmail(input,f.deps)).notificationCount,0);assert.equal(f.pushes.length,0);
 });
 test('restoring a previously sent receipt preserves its date and suppresses old device/browser alerts',async()=>{
  const f=fixture();await recordSchoolGroupEmail({...input,historical:true},f.deps);assert.equal(f.copies[0].suppressPush,true);assert.equal(f.copies[0].receivedAt.toISOString(),new Date(input.receivedAt).toISOString());assert.equal(f.pushes.length,0);
@@ -49,5 +49,5 @@ test('school-email alerts default on for support, can be muted, and cannot send 
 
 test('other automatic school-group notifications remain email and do not require packet wording',async()=>{
  const f=fixture();const result=await recordSchoolGroupEmail({...input,automated:true,subject:'Example School - Clinician assigned'},f.deps);
- assert.equal(result.handled,true);assert.equal(f.copies[0].autoReplyKind,'school_group_notification');assert.equal(f.notifications[0][1],'Example School: new school email');
+ assert.equal(result.handled,true);assert.equal(f.copies[0].autoReplyKind,'school_group_notification');assert.equal(f.notifications.length,0);
 });

@@ -10,6 +10,7 @@ test('classifies actual packet/assignment subjects while leaving replies as corr
   for (const mode of ['Digital', 'Paper']) assert.equal(operationalNoticeCategory(`${mode} Enrollment Packet submitted`), 'enrollment_packets');
   assert.equal(operationalNoticeCategory('Re: Digital Enrollment Packet submitted'), null);
   assert.equal(operationalNoticeCategory('Question about assignments'), null);
+  assert.equal(operationalNoticeCategory('Example School - Clinician assigned'), 'provider_assignments');
 });
 test('the same historical classification preserves human replies, filters QA evidence, and scopes Rachel to schools', () => {
   const policy = messageInboxPolicySql({ userId: 9, schoolGroupInboxIds: [7, '8 OR 1=1'] });
@@ -30,7 +31,7 @@ test('school identities are groups and billing remains an explicit agency grant'
 });
 test('packet notices and duplicate delivered email are excluded without deleting old notifications', () => {
   const sql = notificationInboxVisibilitySql('n');
-  assert.match(sql, /type<>'new_packet_uploaded'/); assert.match(sql, /delivery_status IN \('sent','delivered'\)/);
+  assert.match(sql, /type<>'new_packet_uploaded'/); assert.match(sql, /type<>'school_group_email_received'/); assert.match(sql, /delivery_status IN \('sent','delivered'\)/);
   assert.match(sql, /ne.client_id=n.related_entity_id/); assert.doesNotMatch(sql, /DELETE|UPDATE/);
   assert.throws(() => notificationInboxVisibilitySql('n; DROP TABLE users'));
 });
