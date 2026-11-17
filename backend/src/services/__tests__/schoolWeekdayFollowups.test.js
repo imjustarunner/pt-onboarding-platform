@@ -13,6 +13,7 @@ beforeEach(()=>{
  rows=[];held=false;sendEmail=vi.fn(async()=>({id:'accepted'}));sendSms=vi.fn(async()=>({sid:'text-accepted'}));createCommunication=vi.fn(async()=>({id:500}));
  person={id:7,first_name:'Avery',last_name:'Example',work_email:'avery@itsco.health',email:'avery@itsco.health',personal_phone:'+17195550101'};
  const database={getConnection:async()=>({release(){},execute:async sql=>{if(sql.includes('GET_LOCK')){if(held)return [[{acquired:0}]];held=true;return [[{acquired:1}]];}held=false;return [[{released:1}]];}}),execute:vi.fn(async(sql,args=[])=>{
+  if(sql.includes('school_weekday_email_reminders'))return sql.startsWith('SELECT')?[[]]:[{affectedRows:0}];
   if(sql.includes('FROM school_weekday_followup_settings'))return [[config]];
   if(sql.includes('SELECT DISTINCT u.id'))return [[person]];
   if(sql.startsWith('SELECT id FROM school_weekday_followups'))return [[...rows.filter(r=>!r.completed_at&&!r.cancelled_at).slice(0,1)]];
@@ -111,4 +112,11 @@ describe('school weekday follow-ups',()=>{
   expect(schoolWeekdaySmsDue(row,new Date('2026-11-12T17:00:00Z'))).toBe(true);
   context.days.forEach(day=>day.answered=true);expect(schoolWeekdayProgress(context,{sms_status:'sent'}).smsStatus).toBe('sent');
  });
+});
+
+it('distinguishes an older saved answer from explicit confirmation and keeps re-confirmation pending even with five saved values',()=>{
+ context.days.forEach(day=>day.answered=true);Object.assign(context,{providerId:7,updatedBy:7,updatedAt:'2026-11-10T22:33:08Z',confirmationVersion:1});
+ expect(schoolWeekdayProgress(context)).toMatchObject({status:'completed',savedByProvider:true,explicitlyConfirmed:false,savedAt:'2026-11-10T22:33:08Z'});
+ Object.assign(context,{reconfirmationPending:true,reconfirmationRequestedAt:'2026-11-16T21:00:00Z',openedAt:'2026-11-10T22:00:00Z'});
+ expect(schoolWeekdayProgress(context)).toMatchObject({status:'pending',accounted:5,openedAt:null,reconfirmationPending:true});expect(schoolWeekdayCompletion(context).complete).toBe(false);
 });

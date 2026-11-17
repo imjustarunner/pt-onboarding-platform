@@ -1,11 +1,13 @@
 import pool from '../config/database.js';
 import { readSchoolWeekdays } from './schoolWeekdayAvailability.service.js';
 import { schoolWeekdayCompletion, schoolWeekdayProgress, schoolWeekdayEmail, schoolWeekdayUrl, schoolWeekdaySmsDue, schoolWeekdayEmailRecipient } from '../utils/schoolWeekdayFollowups.js';
+import {createSchoolWeekdayReminders,schoolWeekdayReminderReceipt} from './schoolWeekdayReminders.service.js';
 
 const mysql = value => new Date(value).toISOString().replace('T',' ').slice(0,23);
 const validEmail = value => /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(String(value || ''));
 
 export function createSchoolWeekdayFollowups({ database = pool, readContext = readSchoolWeekdays, emailTransport, smsTransport, createCommunication, notificationGate } = {}) {
+  const reminders=createSchoolWeekdayReminders({database,readContext,emailTransport,createCommunication,loadSettings:settings,loadParticipants:participants});
   async function settings(agencyId = null) {
     const [rows] = await database.execute(`SELECT s.*,COALESCE(NULLIF(u.work_email,''),u.email) AS owner_email,u.first_name AS owner_name,
       i.from_email,i.identity_key,a.name AS agency_name,a.slug,a.portal_url,a.custom_domain,a.feature_flags
@@ -131,6 +133,7 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
         const people=await participants(config.agency_id);
         const plan=await seed(config,people,now,dryRun);
         if(dryRun){results.push(...plan);continue;}
+        results.push(...(await reminders.process({agencyId:Number(config.agency_id),now})).map(result=>({...result,kind:'reminder'})));
         const [rows]=await database.execute(`SELECT * FROM school_weekday_followups WHERE agency_id=? AND cancelled_at IS NULL
           AND (completed_at IS NULL OR thankyou_status='waiting') ORDER BY id`,[config.agency_id]);
         for(const row of rows) {
@@ -157,17 +160,21 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
   async function progress(agencyId) {
     const people=await participants(agencyId);
     const [rows]=await database.execute('SELECT * FROM school_weekday_followups WHERE agency_id=? ORDER BY id DESC',[agencyId]);
+    const [reminderRows]=await database.execute('SELECT * FROM school_weekday_email_reminders WHERE agency_id=? ORDER BY id DESC',[agencyId]);
+    const reminderEnabled=(await settings(agencyId)).length>0;
     const result=[];
     for(const person of people) {
       const context=await readContext(person.id,agencyId,database);
       if(!context.eligible || (!context.needsResponse && !schoolWeekdayCompletion(context).complete) || (!context.requestedAt && !context.days.some(day=>day.status==='assigned')))continue;
       const tracking=rows.find(row=>Number(row.provider_id)===Number(person.id)) || {};
-      result.push({providerId:person.id,name:[person.first_name,person.last_name].filter(Boolean).join(' '),...schoolWeekdayProgress(context,tracking)});
+      const reminder=schoolWeekdayReminderReceipt(reminderRows.find(row=>Number(row.provider_id)===Number(person.id)));
+      result.push({providerId:person.id,name:[person.first_name,person.last_name].filter(Boolean).join(' '),...schoolWeekdayProgress(context,tracking),reminderEnabled,reminder});
     }
     return {providers:result,counts:{pending:result.filter(p=>p.status==='pending').length,opened:result.filter(p=>p.status==='opened').length,completed:result.filter(p=>p.status==='completed').length}};
   }
-  return {process,progress};
+  return {process,progress,requestReminder:reminders.enqueue};
 }
 const service=createSchoolWeekdayFollowups();
 export const processSchoolWeekdayFollowups=service.process;
 export const readSchoolWeekdayProgress=service.progress;
+export const requestSchoolWeekdayEmailReminder=service.requestReminder;

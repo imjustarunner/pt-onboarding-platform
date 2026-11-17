@@ -1,6 +1,6 @@
 import User from '../models/User.model.js';
 import { readSchoolWeekdays, writeSchoolWeekdays, requestSchoolWeekdayUpdates, updateSchoolProviderFocus, markSchoolWeekdaysOpened } from '../services/schoolWeekdayAvailability.service.js';
-import { readSchoolWeekdayProgress } from '../services/schoolWeekdayFollowups.service.js';
+import { readSchoolWeekdayProgress,requestSchoolWeekdayEmailReminder } from '../services/schoolWeekdayFollowups.service.js';
 const managers = ['super_admin', 'admin', 'support', 'staff'];
 async function authorize(req, res, request = false) {
   const agencyId = Number(req.query.agencyId || req.body?.agencyId);
@@ -26,7 +26,7 @@ export async function getSchoolWeekdays(req, res, next) {
   try { const ids = await authorize(req, res); if (ids) res.json(await readSchoolWeekdays(ids.providerId, ids.agencyId)); } catch (e) { fail(e, res, next); }
 }
 export async function putSchoolWeekdays(req, res, next) {
-  try { const ids = await authorize(req, res); if (ids) res.json(await writeSchoolWeekdays({ ...ids, days: req.body.days })); } catch (e) { fail(e, res, next); }
+  try { const ids = await authorize(req, res); if (ids) res.json(await writeSchoolWeekdays({ ...ids, days: req.body.days,confirmationVersion:req.body.confirmationVersion,confirmedDays:req.body.confirmedDays })); } catch (e) { fail(e, res, next); }
 }
 export async function pushSchoolWeekdays(req, res, next) {
   try { const ids = await authorize(req, res, true); if (ids) { const result = await requestSchoolWeekdayUpdates(ids); res.status(result.failed.length ? 207 : 200).json(result); } } catch (e) { fail(e, res, next); }
@@ -48,4 +48,12 @@ export async function postSchoolWeekdaysOpened(req,res,next) {
 export async function getSchoolWeekdayProgress(req,res,next) {
   try {const ids=await authorize(req,res,true);if(ids)res.json(await readSchoolWeekdayProgress(ids.agencyId));}
   catch(error) {fail(error,res,next);}
+}
+export async function postSchoolWeekdayEmailReminder(req,res,next) {
+  try {
+    const ids=await authorize(req,res,true);if(!ids)return;
+    if(!ids.providerId)return res.status(400).json({error:{message:'Choose one provider for an email reminder.'}});
+    const result=await requestSchoolWeekdayEmailReminder({...ids,requestKey:req.body.requestKey,mode:req.body.mode||'reminder'});
+    res.status(result.deduplicated?200:201).json(result);
+  }catch(error){fail(error,res,next);}
 }

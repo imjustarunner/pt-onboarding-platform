@@ -1,10 +1,11 @@
 <script setup>
-import { nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 import SchoolAvailabilityIcon from './SchoolAvailabilityIcon.vue';
 const props = defineProps({ providerId: { type: Number, required: true }, agencyId: { type: Number, required: true }, providerName: { type: String, default: '' } });
 const emit = defineEmits(['close', 'saved']);
 const context = ref(null), choices = ref({}), loading = ref(false), saving = ref(false), error = ref(''), dialog = ref(null);
+const allReviewed=computed(()=>context.value?.days.every(day=>day.status==='assigned'||typeof choices.value[day.day]==='boolean'));
 let generation = 0;
 const previousFocus = typeof document !== 'undefined' ? document.activeElement : null;
 async function load() {
@@ -13,7 +14,7 @@ async function load() {
   try {
     const { data } = await api.get(`/availability/providers/${props.providerId}/school-weekdays`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
     if (current !== generation) return;
-    context.value = data; choices.value = Object.fromEntries(data.days.map(day => [day.day, day.available]));
+    context.value = data; choices.value = Object.fromEntries(data.days.map(day => [day.day, day.status==='assigned'?true:null]));
     await nextTick();
     if(current===generation && data.eligible) {
       // The server records only the provider's own rendered modal. A manager
@@ -25,9 +26,10 @@ async function load() {
 }
 async function save() {
   if (saving.value) return;
+  if(!allReviewed.value){error.value='Choose Available or Not available for each unassigned weekday before saving.';return;}
   saving.value = true; error.value = '';
   try {
-    const { data } = await api.put(`/availability/providers/${props.providerId}/school-weekdays`, { agencyId: props.agencyId, days: choices.value }, { skipGlobalLoading: true });
+    const { data } = await api.put(`/availability/providers/${props.providerId}/school-weekdays`, { agencyId: props.agencyId, days: choices.value,confirmationVersion:2,confirmedDays:context.value.days.filter(day=>day.status!=='assigned').map(day=>day.day) }, { skipGlobalLoading: true });
     emit('saved', data); emit('close');
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not save availability. Your changes have not been saved.'; }
   finally { saving.value = false; }
@@ -50,18 +52,19 @@ onBeforeUnmount(() => { generation++; previousFocus?.focus?.(); });
       <section ref="dialog" class="school-weekdays-dialog" role="dialog" aria-modal="true" aria-labelledby="school-weekdays-title">
         <header><div><h2 id="school-weekdays-title"><SchoolAvailabilityIcon /> School availability</h2><p v-if="providerName">{{ providerName }}</p></div><button type="button" :disabled="saving" @click="emit('close')">Close</button></header>
         <p>Choose your usual Monday–Friday availability for school placement. Assigned days stay reserved for the school shown.</p>
+        <p>Review each unassigned weekday and choose Available or Not available. Previous answers are shown for reference; no unassigned day is selected for you.</p>
         <p v-if="loading" role="status">Loading school days…</p>
         <p v-if="error" role="alert">{{ error }} <button v-if="!context" type="button" @click="load">Try again</button></p>
         <form v-if="context?.eligible" @submit.prevent="save">
           <div class="school-weekdays-grid">
-            <fieldset v-for="day in context.days" :key="day.day" :class="day.status === 'assigned' ? 'assigned' : choices[day.day] ? 'available' : 'unavailable'" :disabled="saving || day.status === 'assigned'">
+            <fieldset v-for="day in context.days" :key="day.day" :class="day.status === 'assigned' ? 'assigned' : choices[day.day]===null ? 'unconfirmed' : choices[day.day] ? 'available' : 'unavailable'" :disabled="saving || day.status === 'assigned'">
               <legend>{{ day.day }}</legend><SchoolAvailabilityIcon />
               <template v-if="day.status === 'assigned'"><strong v-for="school in day.schools" :key="school.schoolOrganizationId">{{ school.schoolName }}</strong><small>Assigned · reserved</small></template>
-              <template v-else><button type="button" :aria-pressed="choices[day.day]" @click="choices[day.day] = true">Available</button><button type="button" :aria-pressed="!choices[day.day]" @click="choices[day.day] = false">Not available</button></template>
+              <template v-else><small v-if="day.answered">Previously saved: {{ day.available ? 'Available' : 'Not available' }}</small><small v-if="choices[day.day]===null">Choose an answer</small><button type="button" :aria-pressed="choices[day.day]===true" @click="choices[day.day] = true">Available</button><button type="button" :aria-pressed="choices[day.day]===false" @click="choices[day.day] = false">Not available</button></template>
             </fieldset>
           </div>
           <p class="school-weekdays-hint">Green: available · Gray: assigned · Red: not available. These choices describe school placement days; confirm hours before scheduling.</p>
-          <footer><button class="btn btn-primary" type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save availability' }}</button></footer>
+          <footer><button class="btn btn-primary" type="submit" :disabled="saving || !allReviewed">{{ saving ? 'Saving…' : 'Save availability' }}</button></footer>
         </form>
         <p v-else-if="context">School-Based Counseling must be included in this provider’s service focuses.</p>
       </section>
@@ -76,6 +79,7 @@ button { font:inherit; padding:8px 10px; border:1px solid #cbd5e1; border-radius
 .school-weekdays-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
 fieldset { display:flex; flex-direction:column; gap:9px; margin:0; padding:12px; border:1px solid #bbdfcd; border-radius:12px; min-width:0; } legend { font-size:13px; font-weight:700; } strong { font-size:13px; overflow-wrap:anywhere; }
 .available { background:#f0fdf4; color:#15803d; } .unavailable { background:#fff1f2; color:#b91c1c; border-color:#fecdd3; } .assigned { background:#f1f5f9; color:#64748b; border-color:#cbd5e1; }
+.unconfirmed { background:#fffbea; color:#854d0e; border-color:#facc15; }
 button[aria-pressed="true"] { box-shadow:inset 0 0 0 2px #15803d; color:#166534; background:#dcfce7; font-weight:700; }
 .unavailable button[aria-pressed="true"] { color:#991b1b; background:#fee2e2; box-shadow:inset 0 0 0 2px #b91c1c; }
 .school-weekdays-hint { color:#64748b; font-size:12px; } footer { display:flex; justify-content:flex-end; margin-top:16px; } footer button { background:#176745; color:#fff; }
