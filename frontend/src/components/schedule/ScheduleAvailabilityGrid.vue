@@ -16096,6 +16096,13 @@ async function loadEditorTenantServices() {
     if (tutoringWorkspaceOnly.value) services=services.filter(service=>['tutoring','learning'].includes(String(service.businessType||service.business_type)));
     editorTenantServices.value = services;
     if(tutoringWorkspaceOnly.value && services.length===1)editorTenantServiceId.value=Number(services[0].id);
+    if(!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){
+      const categories=[...new Set(services.map(service=>practiceCategoryForBusinessType(service.businessType||service.business_type)).filter(Boolean))];
+      // The selected provider/client's catalog determines a new booking's form,
+      // including when an administrator is viewing a tutor's calendar.
+      if(categories.length===1&&!categories.includes(editorPracticeCategory.value))editorPracticeCategory.value=categories[0];
+      if(services.length===1&&!services.some(service=>Number(service.id)===Number(editorTenantServiceId.value)))editorTenantServiceId.value=Number(services[0].id);
+    }
     if (!editorPracticeCategory.value && !mixedSessionServices.value) {
       const first = services[0];
       editorPracticeCategory.value = practiceCategoryForBusinessType(first?.businessType || first?.business_type) || 'mental_health';

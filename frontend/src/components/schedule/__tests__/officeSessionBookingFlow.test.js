@@ -285,3 +285,10 @@ it('requests an agency scheduling capability for the scoped admin instead of req
  wrapper=shallowMount(Grid,{props:{userId:1807,agencyId:453},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
  expect(mocks.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:expect.objectContaining({agencyId:453,providerUserId:1807,businessType:'any',scope:'agency'})}));expect(wrapper.vm.$.setupState.clientSessionBookingEnabled).toBe(true);
 });
+it('uses Finley’s tutoring form and pricing capability when the viewer is the QA administrator',async()=>{
+ mocks.user={id:1807,role:'admin'};mocks.agency={id:453,slug:'nlu-qa-demo',organization_type:'agency',feature_flags:{}};
+ const base=mocks.get.getMockImplementation();mocks.get.mockImplementation((url,...args)=>url.includes('/booking-options')?Promise.resolve({data:{canSetTutoringSessionPrice:true,services:[{id:320,businessType:'tutoring',serviceCode:'TUTORING',name:'Math',defaultDurationMinutes:60,quotes:{TELEHEALTH:{amountCents:5000,rateCents:5000,rateUnit:'hour'}}}]}}):base(url,...args));
+ wrapper=shallowMount(Grid,{props:{userId:1496,agencyId:453},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ s.onQuickActionSelect({id:'individual_session'});await flushPromises();await s.loadEditorTenantServices();await nextTick();
+ expect(s.editorPracticeCategory).toBe('tutoring');expect(s.editorIsLearning).toBe(true);expect(s.editorTenantServiceId).toBe(320);expect(s.editorCanSetTutoringPrice).toBe(true);
+});
