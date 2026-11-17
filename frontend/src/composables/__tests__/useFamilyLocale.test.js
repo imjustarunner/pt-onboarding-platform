@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { computed, defineComponent, h, nextTick } from 'vue';
-import { provideFamilyLocale, useFamilyLocale, familyTranslator } from '../useFamilyLocale';
+import { provideFamilyLocale, useFamilyLocale, useActiveFamilyLocale, familyTranslator } from '../useFamilyLocale';
 import FamilyDashboard from '../../components/guardian/FamilyDashboard.vue';
 
 vi.mock('../../services/api', () => ({ default: { get: vi.fn() } }));
@@ -39,3 +39,5 @@ it('keeps explicit language choices per person instead of carrying them into ano
   await w.setProps({userId:1450}); expect(w.text()).toContain('Your assigned balance');
   w.unmount();
 });
+
+it('keeps shared toolbar language scoped to the mounted account and surviving newer view',async()=>{const first=mount(Host,{props:{userId:1450,enrollmentLocale:'es'}}),same=useActiveFamilyLocale(1450),other=useActiveFamilyLocale(1452);expect(same.value).toBe('es');expect(other.value).toBe('en');const second=mount(Host,{props:{userId:1452,enrollmentLocale:'es'}});expect(other.value).toBe('es');first.unmount();expect(other.value).toBe('es');expect(document.documentElement.lang).toBe('es');second.unmount();expect(other.value).toBe('en');expect(document.documentElement.lang).toBe('en');});

@@ -79,20 +79,21 @@ it('keeps each family-wide payment request on its own agency without inheriting 
 it('uses tutoring wording for access help and recovery, including a changed service on the same child',async()=>{
  const {default:Access}=await import('../GuardianCareAccess.vue');api.get.mockRejectedValue(new Error('offline'));
  const w=mount(Access,{props:{clientId:8,clientName:'Parker',learningOnly:true}});await flushPromises();
- expect(w.text()).toContain('Contact the tutoring team to review it.');expect(w.text()).toContain('Contact the tutoring team if this list needs review.');expect(w.text()).not.toContain('care team');
- await w.setProps({learningOnly:false});expect(w.text()).toContain('Contact the care team to review it.');w.unmount();
+ expect(w.text()).toContain('Contact the tutoring team to review it, or try again.');expect(w.text()).toContain('Contact the tutoring team if this list needs review.');expect(w.text()).not.toContain('care team');
+ await w.setProps({learningOnly:false});expect(w.text()).toContain('Contact the care team to review it, or try again.');w.unmount();
 });
 
 it.each([true,false])('explains missing provider assignment without opening an unavailable conversation (learning=%s)',async learningOnly=>{
  const {default:Access}=await import('../GuardianCareAccess.vue');
  api.get.mockRejectedValue({response:{status:409,data:{error:{message:'An active assigned provider is required before secure messaging is available.'}}}});
- const w=mount(Access,{props:{clientId:8,clientName:'Parker',learningOnly}});await flushPromises();
+ let w=mount(Access,{props:{clientId:8,clientName:'Parker',learningOnly}});await flushPromises();
  expect(w.text()).toContain(`A ${learningOnly?'tutor':'provider'} must be assigned`);
  expect(w.text()).toContain(`Contact the ${learningOnly?'tutoring team':'care team'} to arrange this.`);
  const open=w.findAll('button').find(b=>b.text().includes('conversation'));expect(open.element.disabled).toBe(true);expect(w.emitted('messages')).toBeUndefined();
  api.get.mockResolvedValue({data:{participants:[{id:9,name:'Synthetic Parent',role:'guardian'},{id:11,name:'Assigned provider',role:'provider'}]}});
- await w.findAll('button').find(b=>b.text()==='Try again').trigger('click');await flushPromises();
- expect(w.text()).not.toContain('must be assigned');expect(open.element.disabled).toBe(false);await open.trigger('click');expect(w.emitted('messages')).toHaveLength(1);w.unmount();
+ expect(w.findAll('button').some(b=>b.text()==='Try again')).toBe(false);w.unmount();
+ w=mount(Access,{props:{clientId:8,clientName:'Parker',learningOnly}});await flushPromises();
+ expect(w.text()).not.toContain('must be assigned');const available=w.findAll('button').find(b=>b.text().includes('conversation'));expect(available.element.disabled).toBe(false);await available.trigger('click');expect(w.emitted('messages')).toHaveLength(1);w.unmount();
 });
 it('does not restore an old messaging audience after switching the selected child',async()=>{
  const {default:Access}=await import('../GuardianCareAccess.vue');let finishOld;

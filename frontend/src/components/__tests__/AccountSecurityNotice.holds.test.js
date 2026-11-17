@@ -1,5 +1,6 @@
 import {mount,flushPromises} from '@vue/test-utils';
-import {reactive} from 'vue';
+import {reactive,computed,defineComponent,h} from 'vue';
+import {provideFamilyLocale} from '../../composables/useFamilyLocale';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),auth:null}));
 vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.post}}));
@@ -54,3 +55,5 @@ it('keeps routine security details in a closed dropdown and opens it on demand',
  mocks.get.mockImplementation(async url=>({data:url.endsWith('/activity-protection')?{holds:[]}:{verified:true}}));mountNotice();await flushPromises();
  expect(wrapper.get('.account-security-notice').attributes('style')).toContain('display: none');await wrapper.get('.security-trigger').trigger('click');await flushPromises();expect(wrapper.get('.security-trigger').attributes('aria-expanded')).toBe('true');expect(wrapper.text()).toContain('They do not mean an account owner acted maliciously');
 });
+
+it('keeps the security toolbar in the mounted family language without clearing protections',async()=>{let language;const Family=defineComponent({setup(){language=provideFamilyLocale({userId:computed(()=>10),enrollmentLocale:computed(()=>'es')});return()=>h('div');}});const family=mount(Family);try{mountNotice();await flushPromises();expect(wrapper.get('.security-trigger').text()).toContain('Seguridad');expect(wrapper.text()).toContain('El acceso adicional está suspendido');expect(wrapper.get('aside').attributes('aria-label')).toBe('Seguridad');language.setLocale('en');await flushPromises();expect(wrapper.get('.security-trigger').text()).toContain('Security');expect(wrapper.text()).toContain('Additional access is paused');language.setLocale('es');await flushPromises();mocks.auth.user={id:20};await flushPromises();expect(wrapper.get('.security-trigger').text()).toContain('Security');expect(mocks.post).not.toHaveBeenCalled();}finally{family.unmount();}});
