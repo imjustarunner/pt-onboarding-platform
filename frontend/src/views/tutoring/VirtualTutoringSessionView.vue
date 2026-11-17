@@ -43,7 +43,7 @@ const request=(suffix,method='get',body)=>api({url:path(suffix),method,data:body
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
 async function refresh(){if(stopped||polling||!appointmentId)return;polling=true;try{state.value=await request('');if(ended.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
  if(state.value.host&&state.value.sessionId&&!noteLoaded.value){const data=await request('/note');note.value=data.note?.summary||'';noteLoaded.value=true;}
- }catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;}}
+ }catch(e){if([401,403,404,410].includes(e.response?.status)){state.value=null;video.value=null;connected.value=false;wantsJoin.value=false;note.value='';noteLoaded.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;}}
 async function action(fn){if(busy.value)return;busy.value=true;error.value='';try{await fn();}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
 async function join(){await action(async()=>{const data=await request('/join','post');wantsJoin.value=true;if(data.token)video.value=data;await refresh();});}
 async function admit(id){await action(async()=>{await request(`/admit/${id}`,'post');await refresh();});}

@@ -1949,7 +1949,7 @@
             :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
             :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
         </section>
-        <section v-if="editorIsLearning && editorSavedCustomerQuote" aria-label="Saved tutoring session price"><p>{{editorSavedCustomerQuote.label}}: {{editorSavedCustomerQuote.packageCovered ? 'Package credit' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(editorSavedCustomerQuote.total/100)}}</p><button v-if="[453,454].includes(Number(editorAgencyId))" type="button" @click="refreshQaTutoringBilling">Reconcile QA tutoring balance</button><p role="status">{{editorQaBillingMessage}}</p></section>
+        <TutoringBookedPrice v-if="editorIsLearning && Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
           :title="modalEditorTitle"
@@ -5383,6 +5383,7 @@
                   </div>
                 </div>
               </div>
+              <TutoringBookedPrice v-if="Number(item.appointmentId || item.appointment_id)>0" :appointment-id="Number(item.appointmentId || item.appointment_id)" />
               <p v-if="item.therapyNoteAid && !tutoringWorkspaceOnly" class="muted">External calendar entry. Viewing this does not start a session or create a claim. Use the linked app appointment for clinical documentation.</p>
               <div v-if="item.therapyNoteAid && !tutoringWorkspaceOnly && !isViewingOtherUserSchedule" class="stack-details-actions" style="margin-top: 8px;">
                 <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
@@ -6042,6 +6043,7 @@ import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
 const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
 import AppointmentStaffTools from './AppointmentStaffTools.vue';
+import TutoringBookedPrice from './TutoringBookedPrice.vue';
 import AppointmentOfficeReservation from './AppointmentOfficeReservation.vue';
 import AppointmentReminderSettings from './AppointmentReminderSettings.vue';
 import { allDayItemOccursOn, isAllDayScheduleItem, visibleScheduleHours } from '../../utils/scheduleVisibleHours';
@@ -15142,16 +15144,13 @@ const editorInfoClientName = computed(() => {
 });
 const editorIndividualPrice = ref(null);
 const editorTutoringSubject=ref('assigned');
-const editorSavedCustomerQuote=ref(null);
-const editorQaBillingMessage=ref('');
-async function refreshQaTutoringBilling(){editorQaBillingMessage.value='';try{const {data}=await api.post(`/appointments/${editorAppointmentId.value}/qa-billing-reconcile`,{}, {skipGlobalLoading:true});editorQaBillingMessage.value=data.holdReason==='payer_assignment'?'The QA balance needs a payer. Assign the responsible payer in family billing, then review its simulated payment.':data.status==='review'?`The QA balance is still held for ${data.holdReason||'office review'}. Open family billing to resolve that hold.`:'QA balance reconciled. Refresh the family billing page to review its simulated payment.';}catch(e){editorQaBillingMessage.value=e.response?.data?.error?.message||'QA billing could not be reconciled.';}}
 const editorCanSetTutoringPrice = ref(false);
 const editorTutoringQuote=computed(()=>{
  const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));
  const quote=svc?.quotes?.[editorModality.value==='IN_PERSON'?'IN_PERSON':'TELEHEALTH'];
  return quote?.amountCents!=null?{...quote,amountCents:quote.rateUnit==='hour'?Math.round(Number(quote.rateCents)*modalSessionDurationMinutes.value/60):Number(quote.amountCents)}:null;
 });
-watch(showRequestModal,()=>{editorIndividualPrice.value=null;editorSavedCustomerQuote.value=null;editorTutoringSubject.value='assigned';});
+watch(showRequestModal,()=>{editorIndividualPrice.value=null;editorTutoringSubject.value='assigned';});
 function tutoringSessionPricePayload() {
   if (!editorIsLearning.value || !editorCanSetTutoringPrice.value || !editorIndividualPrice.value) return undefined;
   const price=editorIndividualPrice.value;
@@ -16162,7 +16161,6 @@ async function loadEditorReminders() {
         );
         if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.status || 'scheduled');
         editorStatusBaseline.value=String(appointment.status || 'scheduled');
-        editorSavedCustomerQuote.value=appointment.customerQuote||null;
         editorAppointmentBaseline.value={id:apptId,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
         if (!edited) {
           if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}

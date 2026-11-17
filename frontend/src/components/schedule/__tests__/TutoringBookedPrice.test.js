@@ -1,0 +1,12 @@
+import {mount,flushPromises} from '@vue/test-utils';
+import {it,expect,vi,beforeEach} from 'vitest';
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));
+vi.mock('../../../services/api',()=>({default:m}));
+import View from '../TutoringBookedPrice.vue';
+let response;
+beforeEach(()=>{vi.clearAllMocks();response={appointment:{id:358,agencyId:453,businessType:'tutoring',status:'completed',customerQuote:{total:100,currency:'USD',label:'Saved appointment price'}}};m.get.mockImplementation(async()=>({data:response}));m.post.mockResolvedValue({data:{status:'open'}});});
+it('shows the immutable one-dollar quote even when the completed booking has no editor',async()=>{const w=mount(View,{props:{appointmentId:358}});await flushPromises();expect(w.text()).toContain('$1.00');await w.get('button').trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledWith('/appointments/358/qa-billing-reconcile',{},{skipGlobalLoading:true});expect(w.text()).toContain('QA balance reconciled');w.unmount();});
+it('does not display money or controls when the server withholds tutor pricing access',async()=>{delete response.appointment.customerQuote;const w=mount(View,{props:{appointmentId:358}});await flushPromises();expect(w.find('section').exists()).toBe(false);expect(m.post).not.toHaveBeenCalled();w.unmount();});
+it('offers no QA reconciliation for a live organization',async()=>{response.appointment.agencyId=6;const w=mount(View,{props:{appointmentId:358}});await flushPromises();expect(w.text()).toContain('$1.00');expect(w.find('button').exists()).toBe(false);w.unmount();});
+it('points a payer-assignment hold directly to the required billing action',async()=>{m.post.mockResolvedValue({data:{status:'review',holdReason:'payer_assignment'}});const w=mount(View,{props:{appointmentId:358}});await flushPromises();await w.get('button').trigger('click');await flushPromises();expect(w.text()).toContain('Assign the responsible payer in family billing');w.unmount();});
+it('clears the prior quote before loading another appointment',async()=>{const w=mount(View,{props:{appointmentId:358}});await flushPromises();m.get.mockReturnValue(new Promise(()=>{}));await w.setProps({appointmentId:359});expect(w.find('section').exists()).toBe(false);w.unmount();});
