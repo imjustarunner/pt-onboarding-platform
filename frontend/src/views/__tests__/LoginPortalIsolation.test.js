@@ -147,3 +147,53 @@ it('keeps the explicit AuricWell product entry for clinical families',async()=>{
  route.params={organizationSlug:'nlu-qa-demo'};route.path='/nlu-qa-demo/login';route.query={workspace:'auricwell'};
  await render();expect(wrapper.vm.isAuricWellLogin).toBe(true);
 });
+
+it.each(['auricwell-qa-demo','nlu-qa-demo'])('offers scoped Technology help after an unmatched username on %s',async slug=>{
+ route.params={organizationSlug:slug};route.path=`/${slug}/login`;
+ await render();wrapper.vm.username='unmatched@example.test';
+ await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.get('.error').attributes('role')).toBe('alert');
+ expect(wrapper.get('.login-error-support').attributes('to')).toBe(`/${slug}/support?topic=technical`);
+ expect(wrapper.get('.login-error-support').text()).toBe('Contact Technology for sign-in help');
+ expect(wrapper.vm.username).toBe('unmatched@example.test');expect(wrapper.vm.showPassword).toBe(false);
+ expect(post.mock.calls.every(([url])=>url==='/auth/identify')).toBe(true);
+});
+
+it('replaces the old People Operations login message while retaining the chosen agency',async()=>{
+ await render();wrapper.vm.username='unmatched@example.test';
+ post.mockRejectedValue({response:{status:401,data:{error:{message:'User not found. Contact PO@ITSCO.health if this is an error or if you require your credentials.'}}}});
+ await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.get('.error').text()).toContain('Check your username or contact Technology');
+ expect(wrapper.get('.error').text()).not.toContain('PO@');
+ expect(wrapper.get('.login-error-support').attributes('to')).not.toContain('unmatched');
+ expect(replace).not.toHaveBeenCalled();expect(post).toHaveBeenCalledTimes(1);
+});
+
+it('keeps Technology help in the parent agency for a school login',async()=>{
+ route.params={parentOrgSlug:'auricwell-qa-demo',organizationSlug:'school-fixture'};
+ route.meta={organizationSlug:true,parentOrgSlug:true};route.path='/auricwell-qa-demo/school-fixture/login';
+ await render();wrapper.vm.username='unmatched@example.test';
+ await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.get('.login-error-support').attributes('to')).toBe('/auricwell-qa-demo/support?topic=technical');
+});
+
+it('translates missing-account guidance and Technology help without a recovery request',async()=>{
+ route.query={lang:'es'};await render();wrapper.vm.username='unmatched@example.test';
+ post.mockRejectedValue({response:{status:401,data:{error:{message:'User not found. Check your username or contact Technology for sign-in help.'}}}});
+ await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.get('.error').text()).toContain('No se encontró la cuenta');
+ expect(wrapper.get('.login-error-support').text()).toBe('Contactar a Tecnología para recibir ayuda con el acceso');
+ await wrapper.get('.portal-auth-language select').setValue('en');
+ expect(wrapper.get('.error').text()).toContain('User not found.');
+ expect(wrapper.get('.login-error-support').text()).toBe('Contact Technology for sign-in help');
+ expect(post).toHaveBeenCalledTimes(1);
+});
+
+it('preserves a credential failure rather than relabeling it an unknown account',async()=>{
+ await render();wrapper.vm.username='retained@example.test';
+ post.mockRejectedValue({response:{status:401,data:{error:{message:'Invalid email or password'}}}});
+ await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.get('.error').text()).toContain('Invalid email or password');
+ expect(wrapper.get('.error').text()).not.toContain('User not found');
+ expect(wrapper.find('.login-error-support').exists()).toBe(true);
+});
