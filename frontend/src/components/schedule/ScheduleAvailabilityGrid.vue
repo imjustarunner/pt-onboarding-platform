@@ -1941,11 +1941,15 @@
         <label v-if="editorIsClinical && mixedSessionServices && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">This session is for
           <select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select>
         </label>
-        <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">
+        <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice tutoring-booking-details" aria-label="Tutoring booking details">
+          <h3>Session details</h3>
+          <p v-if="!mixedSessionServices">This session is for <strong>Tutoring</strong>.</p>
           <label v-if="editorHeaderServiceOptions.length>1">Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
           <label v-if="editorTutoringSubjectApplicable">Subject<select v-model="editorTutoringSubject"><option value="general">General</option><option v-for="subject in editorTutoringSubjects" :key="subject.key" :value="subject.key">{{subject.label}}</option></select></label>
-          <TutoringSessionPrice v-if="editorCanSetTutoringPrice" v-model="editorIndividualPrice" :quote="editorTutoringQuote"
-            :can-set="editorCanSetTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
+          <label>Session credits<select v-model="editorPackageEntitlementId" :disabled="editorServicesLoading"><option :value="0">Use assigned service rate / no package</option><option v-for="entitlement in editorPackageEntitlements" :key="entitlement.id" :value="Number(entitlement.id)">{{ entitlement.packageName || `Package #${entitlement.packageId}` }} — {{ entitlement.sessionsRemaining }} available</option></select></label>
+          <p v-if="!editorServicesLoading && !editorPackageEntitlements.length" class="muted">No eligible package credits for this selection. The provider’s assigned service rate applies.</p>
+          <TutoringSessionPrice v-if="editorMayOverrideTutoringPrice" v-model="editorIndividualPrice" :quote="editorTutoringQuote"
+            :can-set="editorMayOverrideTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
             :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
             :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
         </section>
@@ -2029,7 +2033,7 @@
           :preferred-room-ids="editorPreferredRoomIds"
           :preferred-room-options="editorPreferredOpenRoomOptions"
           :preferred-rooms-hint="editorPreferredRoomsHint"
-          :show-service="editorIsClinical && !!editorPracticeCategory && String(editorPracticeCategory || '') !== 'mental_health'"
+          :show-service="editorIsClinical && !editorIsLearning && !!editorPracticeCategory && String(editorPracticeCategory || '') !== 'mental_health'"
           :tenant-service-id="Number(editorTenantServiceId || 0)"
           :service-options="editorHeaderServiceOptions"
           :services-loading="editorServicesLoading"
@@ -2380,7 +2384,7 @@
             :clinical-session-id="editorClinicalSessionId"
             :clinical-note-id="editorClinicalNoteId"
             :claim-id="editorClaimId"
-            :package-entitlements="editorPackageEntitlements"
+            :package-entitlements="editorIsLearning ? [] : editorPackageEntitlements"
             :pre-session-addons-only="Number(editorAppointmentId || editorClinicalSessionId || 0) <= 0"
             :booking-basics-in-header="true"
             :hide-clinical-tools="editorUseBookSessionLayout && Number(editorAppointmentId || editorClinicalSessionId || 0) <= 0"
@@ -15147,6 +15151,8 @@ const editorTutoringSubject=ref('assigned');
 const editorTutoringSubjects=ref([]);
 const editorTutoringSubjectApplicable=computed(()=>editorIsLearning.value&&String(editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value))?.serviceCode||bookingServiceCode.value||'TUTORING').toUpperCase()==='TUTORING');
 const editorCanSetTutoringPrice = ref(false);
+const editorMayOverrideTutoringPrice = computed(() => editorCanSetTutoringPrice.value &&
+  ['admin','agency_admin','backoffice_admin','super_admin','support','clinical_practice_assistant','scheduler','front_desk','booker'].includes(String(authStore.user?.effectiveRole || authStore.user?.role || '').toLowerCase()));
 const editorTutoringQuote=computed(()=>{
  const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));
  const quote=svc?.quotes?.[editorModality.value==='IN_PERSON'?'IN_PERSON':'TELEHEALTH'];
@@ -15154,7 +15160,7 @@ const editorTutoringQuote=computed(()=>{
 });
 watch(showRequestModal,()=>{editorIndividualPrice.value=null;editorTutoringSubject.value='assigned';});
 function tutoringSessionPricePayload() {
-  if (!editorIsLearning.value || !editorCanSetTutoringPrice.value || !editorIndividualPrice.value) return undefined;
+  if (!editorIsLearning.value || !editorMayOverrideTutoringPrice.value || !editorIndividualPrice.value) return undefined;
   const price=editorIndividualPrice.value;
   if (Number(editorPackageEntitlementId.value)>0) throw new Error('Choose either a package credit or a custom session price.');
   if (!Number.isSafeInteger(price.amountCents)||price.amountCents<0||price.amountCents>2147483647)
@@ -27943,6 +27949,8 @@ watch(()=>props.spanMode,value=>{
 </script>
 
 <style scoped>
+.tutoring-booking-details{padding:18px 20px;margin:12px 0;background:var(--bg-primary,#fff);border:1px solid var(--border,#dce4ea);border-radius:12px;display:grid;gap:12px}.tutoring-booking-details h3{margin:0;font-size:1rem}.tutoring-booking-details>label{display:grid;gap:6px;font-weight:600}.tutoring-booking-details select{font:inherit;color:inherit;min-height:44px;max-width:100%;width:100%;padding:9px 12px;background:var(--bg-primary,#fff);border:1px solid var(--border,#ccd8e3);border-radius:8px}.tutoring-booking-details p{margin:0;line-height:1.5}
+
 .schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
 
 .nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
