@@ -134,6 +134,8 @@ server.listen(PORT, HOST, () => {
 
   runStartupMigrations()
     .then(async () => {
+      const { verifyMessagingRollout } = await import('./services/messagingRolloutReadiness.service.js');
+      console.log('[startup:messaging]', JSON.stringify(await verifyMessagingRollout()));
       console.log('[startup:security] Checking required security storage and configuration');
       const { requireSecurityReadiness } = await import('./services/securityEvidence.service.js');
       await requireSecurityReadiness();
