@@ -6,6 +6,7 @@ export default {...base,test:{...base.test,testTimeout:120000,hookTimeout:120000
  'src/services/__tests__/scheduling.scheduleNoticeBuffer.test.js',
  'src/services/__tests__/scheduling.noShowReview.test.js',
  'src/services/__tests__/attendanceFeeRules.test.js',
+ 'src/services/__tests__/appointmentProviderNoticeRecipient.test.js',
  'src/services/__tests__/attendance.mysql.test.js',
  'src/models/__tests__/attendanceFeePolicy.model.test.js',
  'src/services/__tests__/bookingCancellationPolicy.service.test.js',

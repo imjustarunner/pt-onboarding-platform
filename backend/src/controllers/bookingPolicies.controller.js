@@ -42,8 +42,8 @@ function canManage(role) {
 }
 
 async function assertPolicyTargets(agencyId, body) {
-  for(const [key,model] of [['tenantServiceId',TenantService],['bookingPackageId',BookingPackage]]) {
-    const id=body?.[key];
+  for(const [key,alias,model] of [['tenantServiceId','tenant_service_id',TenantService],['bookingPackageId','booking_package_id',BookingPackage]]) {
+    const id=body?.[key]??body?.[alias];
     if(id!=null&&id!==''&&(!agencyId||!Number.isSafeInteger(Number(id))||Number(id)<1||!await model.findById(Number(id),agencyId)))throw Object.assign(new Error('Choose a service or package belonging to this organization.'),{status:400});
   }
 }
@@ -91,7 +91,7 @@ export const createCancellationPolicy = async (req, res, next) => {
     if (!canManage(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Only admins can create policies' } });
     }
-    if(agencyId!==null&&req.body?.scopeLevel==='platform')return res.status(403).json({error:{message:'Platform fee defaults require platform administration.'}});
+    if(agencyId!==null&&String(req.body?.scopeLevel||req.body?.scope_level||'').toLowerCase()==='platform')return res.status(403).json({error:{message:'Platform fee defaults require platform administration.'}});
     await assertPolicyTargets(agencyId,req.body);
     const policy = await BookingCancellationPolicy.create(agencyId, agencyId===null?{...req.body,scopeLevel:'platform'}:req.body || {}, req.user?.id || null);
     res.status(201).json({ ok: true, policy });
@@ -111,7 +111,7 @@ export const updateCancellationPolicy = async (req, res, next) => {
     if (!canManage(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Only admins can update policies' } });
     }
-    if(agencyId!==null&&req.body?.scopeLevel==='platform')return res.status(403).json({error:{message:'Platform fee defaults require platform administration.'}});
+    if(agencyId!==null&&String(req.body?.scopeLevel||req.body?.scope_level||'').toLowerCase()==='platform')return res.status(403).json({error:{message:'Platform fee defaults require platform administration.'}});
     await assertPolicyTargets(agencyId,req.body);
     const policy = await BookingCancellationPolicy.update(policyId, agencyId, agencyId===null?{...req.body,scopeLevel:'platform'}:req.body || {},req.user.id);
     if (!policy) return res.status(404).json({ error: { message: 'Policy not found' } });

@@ -1938,11 +1938,10 @@
           <router-link v-if="editorInfoClientId" class="nlu-button nlu-button--secondary" :to="scheduleOrgTo(`/students/${editorInfoClientId}`)">Open student learning record</router-link>
         </section>
         <p v-if="editorSchoolOverlapNames.length" role="alert" class="nr-warn">These virtual hours overlap your assignment at {{editorSchoolOverlapNames.join(', ')}}. You can save them; assigned school hours remain reserved, and existing sessions stay protected. Request an hours change if you intend to see other clients then.</p>
-        <label v-if="editorIsClinical && mixedSessionServices && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">This session is for
-          <select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select>
-        </label>
-        <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice tutoring-booking-details" aria-label="Tutoring booking details">
+        <section v-if="(editorIsLearning || (editorIsClinical && mixedSessionServices)) && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice tutoring-booking-details" aria-label="Session booking details">
           <h3>Session details</h3>
+          <label v-if="mixedSessionServices">This session is for<select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select></label>
+          <template v-if="editorIsLearning">
           <p v-if="!mixedSessionServices">This session is for <strong>Tutoring</strong>.</p>
           <label v-if="editorHeaderServiceOptions.length>1">Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
           <label v-if="editorTutoringSubjectApplicable">Subject<select v-model="editorTutoringSubject"><option value="general">General</option><option v-for="subject in editorTutoringSubjects" :key="subject.key" :value="subject.key">{{subject.label}}</option></select></label>
@@ -1952,6 +1951,7 @@
             :can-set="editorMayOverrideTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
             :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
             :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
+          </template>
         </section>
         <AppointmentNoShowStatus v-if="Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />
         <TutoringBookedPrice v-if="editorIsLearning && Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />

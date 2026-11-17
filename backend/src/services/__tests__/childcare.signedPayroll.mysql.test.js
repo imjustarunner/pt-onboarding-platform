@@ -85,6 +85,8 @@ describe.runIf(process.env.CHILDCARE_SIGNED_MYSQL_TESTS==='1')('signed childcare
   for(const statement of migration.split(';').map(value=>value.trim()).filter(Boolean))await state.connection.query(statement);
   const reviewMigration=await fs.readFile(new URL('../../../../database/migrations/1827_childcare_work_review.sql',import.meta.url),'utf8');
   for(const statement of reviewMigration.split(';').filter(s=>s.trim()))await state.connection.query(statement);
+  const locationsMigration=await fs.readFile(new URL('../../../../database/migrations/1840_childcare_work_locations.sql',import.meta.url),'utf8');
+  for(const statement of locationsMigration.split(';').filter(s=>s.trim()))await state.connection.query(statement);
   const flags={qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:6},nluCompensationPolicyVersion:NLU_COMPENSATION_POLICY_VERSION,nluCompensationEffectiveOn:'2026-11-12'};
   await state.db.execute('INSERT INTO agencies(id,name,slug,is_active,feature_flags) VALUES (453,?,?,1,?)',['SYNTHETIC SQL QA ONLY','nlu-qa-demo',JSON.stringify(flags)]);
   for(const [id,role]of [[ADMIN,'admin'],[FIRST,'staff'],[SECOND,'staff']]){
