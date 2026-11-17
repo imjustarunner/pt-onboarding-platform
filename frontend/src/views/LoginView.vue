@@ -182,7 +182,10 @@
         <p v-else-if="!isAppLike && !isPlatformLogin && !showTenantVideoHero" class="subtitle">{{ primaryLoginSubtitle }}</p>
         
         <label class="portal-auth-language">Idioma / Language <select :value="authLocale" @change="setAuthLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select></label>
-        <div v-if="error" class="error" v-html="formatError(authText(error))"></div>
+        <div v-if="error" class="error" role="alert">
+          <div v-html="formatError(authText(loginErrorMessage))"></div>
+          <router-link :to="loginSupportPath" class="login-error-support">{{ authText("Contact Technology for sign-in help") }}</router-link>
+        </div>
         <div v-if="showSignupSuggestion" class="login-signup-suggestion">
           <p class="login-signup-suggestion__text">
             No account was found for <strong>{{ suggestedSignupEmail }}</strong>. Create an account first, then apply for a club.
@@ -932,6 +935,27 @@ const parentOrgSlug = computed(() => {
     return p || null;
   }
   return null;
+});
+// Stay in the selected practice's support context, including school portals
+// whose login is managed by their parent agency. Never include login inputs.
+const loginSupportPath = computed(() => {
+  const slug = parentOrgSlug.value
+    || loginTheme.value?.agency?.canonicalLoginSlug
+    || effectiveLoginSlug.value
+    || loginBrandOrganizationSlug.value
+    || (isAuricWellLogin.value || isSchoolCareBridge.value ? 'auricwell' : 'plottwistco');
+  return `/${encodeURIComponent(slug)}/support?topic=technical`;
+});
+// Keep rolling releases and old error links from directing account help to HR.
+const loginErrorMessage = computed(() => {
+  const message = String(error.value || '');
+  if (/^User not found\. Contact PO@ITSCO\.health/i.test(message)) {
+    return 'User not found. Check your username or contact Technology for sign-in help.';
+  }
+  if (message.includes('on-demand credentials') && /PO@itsco\.health/i.test(message)) {
+    return 'This account is not available through employee onboarding. Use your regular portal sign-in or contact Technology for help.';
+  }
+  return message;
 });
 const isOrgLogin = computed(() => !!loginSlug.value);
 
@@ -3697,6 +3721,14 @@ html[data-pt-app-preview-mode="ipad"] .login-help {
   font-size: 13px;
   line-height: 1.5;
   word-wrap: break-word;
+}
+
+.login-error-support {
+  display: inline-block;
+  margin-top: 8px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 .login-info {
