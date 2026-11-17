@@ -1,9 +1,11 @@
 import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({current:vi.fn()}));
+vi.mock('../clientRecordsStatus.service.js',()=>({markRecordsClientCurrent:m.current}));
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../clientChartImport.service.js',()=>({chartSections:['demographics','comments','insurance','intake','plan'],readChartRecord:vi.fn()}));
 import {beginClientChartImport,completeClientChartImport} from '../clientChartImportProgress.service.js';
 const scope={clientId:12,agencyId:2};let state,db,readRecord;
-beforeEach(()=>{state=null;db={execute:vi.fn(async(sql,args)=>{if(sql.startsWith('SELECT'))return[[{import_state:state}]];state=JSON.parse(args[0]);return[{affectedRows:1}];})};readRecord=vi.fn().mockResolvedValue({value:{text:'Synthetic imported section',imported:true}});});
+beforeEach(()=>{m.current.mockReset().mockResolvedValue({id:3,key:'current',label:'Current'});state=null;db={execute:vi.fn(async(sql,args)=>{if(sql.startsWith('SELECT'))return[[{import_state:state}]];state=JSON.parse(args[0]);return[{affectedRows:1}];})};readRecord=vi.fn().mockResolvedValue({value:{text:'Synthetic imported section',imported:true}});});
 it('starts a bounded import and updates only its JSON branch with actual actor attribution',async()=>{
  const result=await beginClientChartImport(scope,['demographics','comments'],10,{db});expect(result).toMatchObject({status:'pending',sections:['demographics','comments'],startedByUserId:10});
  expect(db.execute.mock.calls[1][0]).toContain('JSON_SET(COALESCE(onboarding_docs_json');expect(db.execute.mock.calls[1][1].slice(1)).toEqual([12,2,0]);
@@ -12,11 +14,19 @@ it('starts a bounded import and updates only its JSON branch with actual actor a
 it.each([{imported:false},{imported:true,needsReview:true},null])('keeps incomplete or unreviewed drafts pending (%j)',async value=>{
  await beginClientChartImport(scope,['demographics'],10,{db});readRecord.mockResolvedValue({value});
  await expect(completeClientChartImport(scope,10,{db,readRecord})).rejects.toHaveProperty('status',409);expect(state.status).toBe('pending');
+ expect(m.current).not.toHaveBeenCalled();
 });
 it('completes only after all filled sections are saved and accepts secondary-only coverage',async()=>{
  await beginClientChartImport(scope,['demographics','insurance'],10,{db});readRecord.mockImplementation(async(_scope,key)=>({value:key==='insurance'?{imported:false,coverageDrafts:{primary:{text:'',imported:false},secondary:{text:'Secondary policy',imported:true}}}:{imported:true}}));
  expect(await completeClientChartImport(scope,10,{db,readRecord})).toMatchObject({status:'complete',completedByUserId:10});
+ expect(m.current).toHaveBeenCalledWith(scope,10,db);
  expect(readRecord).toHaveBeenCalledWith(scope,'demographics',10);const writes=db.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE')).length;await completeClientChartImport(scope,10,{db,readRecord});expect(db.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE'))).toHaveLength(writes);
+});
+it('rolls back completion if Current cannot be saved, and commits its progress and status together on retry',async()=>{
+ await beginClientChartImport(scope,['comments'],10,{db});Object.assign(db,{beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn()});
+ m.current.mockRejectedValueOnce(Object.assign(Error('Current is disabled'),{status:409}));
+ await expect(completeClientChartImport(scope,10,{db,readRecord})).rejects.toHaveProperty('status',409);expect(db.rollback).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();
+ expect(await completeClientChartImport(scope,10,{db,readRecord})).toMatchObject({clientStatus:{id:3,key:'current'}});expect(db.commit).toHaveBeenCalledOnce();
 });
 it('does not finish billing sections after account access is removed',async()=>{
  await beginClientChartImport(scope,['insurance'],10,{db});await expect(completeClientChartImport(scope,10,{db,readRecord,allowedSections:['demographics']})).rejects.toHaveProperty('status',403);expect(readRecord).not.toHaveBeenCalled();

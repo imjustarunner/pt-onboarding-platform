@@ -508,10 +508,12 @@ async function finishReviewedImport() {
     if(own!==scopeGeneration)return;
     progressBusy.value=true;
     await beginImportProgress();if(own!==scopeGeneration)return;progressBusy.value=true;
-    await api.post(`/clients/${props.clientId}/chart-import/complete`,{keptBlankSections:blankSections.value},{skipGlobalLoading:true,headers:agencyHeaders()});
+    const {data}=await api.post(`/clients/${props.clientId}/chart-import/complete`,{keptBlankSections:blankSections.value},{skipGlobalLoading:true,headers:agencyHeaders()});
     if(own!==scopeGeneration)return;
     completionReview.value=false;successMessage.value='Records import marked done. Remaining profile actions stay pending.';
-    emit(props.creationFlow?'imported':'done',{...status,marked:true,assignmentDraftPending:assignmentsPanel.value?.hasPendingDraft?.()===true});
+    const current=data?.progress?.clientStatus;
+    const client=current?{id:Number(props.clientId),status:'ACTIVE',client_status_id:current.id,client_status_key:current.key,client_status_label:current.label}:null;
+    emit(props.creationFlow?'imported':'done',{...status,marked:true,...(client?{client}:{}),assignmentDraftPending:assignmentsPanel.value?.hasPendingDraft?.()===true});
   }catch(e){if(own===scopeGeneration)error.value=e.response?.data?.error?.message||'The import could not be completed. Your saved entries remain here.';}
   finally{if(own===scopeGeneration){progressBusy.value=false;completionPreparing.value=false;}}
 }

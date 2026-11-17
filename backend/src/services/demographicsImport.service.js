@@ -130,7 +130,9 @@ const LABEL_ALIASES = {
   'appt reminders': 'appointmentReminderType',
   'appointment reminders': 'appointmentReminderType',
   'appointment reminder type': 'appointmentReminderType',
-  'administrative sex': 'administrativeSex'
+  'administrative sex': 'administrativeSex',
+  sex: 'administrativeSex',
+  sexo: 'administrativeSex'
 };
 
 const STOP_AFTER = new Set([
@@ -172,6 +174,17 @@ function sanitizeAdministrativeSex(value) {
     return null;
   }
   return v;
+}
+
+export function normalizeAdministrativeSex(value) {
+  const raw=sanitizeAdministrativeSex(value);
+  if (!raw) return null;
+  const key=raw.toLowerCase();
+  if (['male','m','masculino','hombre'].includes(key)) return 'male';
+  if (['female','f','femenino','mujer'].includes(key)) return 'female';
+  if (['nonbinary','non-binary','non binary'].includes(key)) return 'nonbinary';
+  if (['other','other / self-describe','otro','otra'].includes(key)) return 'other';
+  return raw;
 }
 
 function collectBlock(lines, startIndex) {
@@ -370,7 +383,7 @@ export function demographicsToClientPatch(parsed) {
   if (p.email) patch.email = p.email;
   if (p.appointmentReminderType) patch.appointment_reminder_type = p.appointmentReminderType;
   if (p.administrativeSex) {
-    const gender = sanitizeAdministrativeSex(p.administrativeSex);
+    const gender = normalizeAdministrativeSex(p.administrativeSex);
     if (gender) patch.gender = gender;
   }
   if (p.grade) patch.grade = p.grade;

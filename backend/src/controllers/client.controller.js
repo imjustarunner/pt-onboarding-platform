@@ -43,6 +43,8 @@ import { findProviderAssignmentId, notifyAssigneeClientAlert, saveClientAlert } 
 import { readClientAlertText } from '../utils/clientAlertText.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+import {requireRecordsCurrentStatus} from '../services/clientRecordsStatus.service.js';
+import {normalizeAdministrativeSex} from '../services/demographicsImport.service.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
 import { bumpGradeCanonical, normalizeGradeForSave } from '../utils/clientGrade.js';
 import { syncClientGradeFromIntakeIfMissing } from '../utils/intakeGrade.util.js';
@@ -1715,9 +1717,10 @@ export const createClient = async (req, res, next) => {
 
     // Create client
     // Auto-archive for terminal client statuses (Dead/Terminated).
-    let workflowStatus = 'PENDING_REVIEW';
+    const recordsImport = req.body?.recordsImport === true;
+    let workflowStatus = recordsImport ? 'ACTIVE' : 'PENDING_REVIEW';
     try {
-      const csId = client_status_id ? parseInt(client_status_id, 10) : null;
+      const csId = !recordsImport && client_status_id ? parseInt(client_status_id, 10) : null;
       if (csId) {
         const [rows] = await pool.execute(
           `SELECT status_key, label FROM client_statuses WHERE id = ? LIMIT 1`,
@@ -1762,7 +1765,8 @@ export const createClient = async (req, res, next) => {
 
     // New school/office clients with no explicit status default to Received (legacy: packet).
     let resolvedClientStatusId = client_status_id ? parseInt(client_status_id, 10) : null;
-    if (!resolvedClientStatusId) {
+    if (recordsImport) resolvedClientStatusId = (await requireRecordsCurrentStatus(parsedAgencyId)).id;
+    else if (!resolvedClientStatusId) {
       try {
         let defaultStatusId = await getClientStatusIdByKey({
           agencyId: parsedAgencyId,
@@ -1797,6 +1801,7 @@ export const createClient = async (req, res, next) => {
       source,
       created_by_user_id: userId,
       client_status_id: resolvedClientStatusId,
+      ...(recordsImport ? {gender:normalizeAdministrativeSex(req.body.gender || req.body.administrativeSex),date_of_birth:req.body.date_of_birth || null} : {}),
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
       school_year: resolvedClientType === 'school' ? (school_year ? String(school_year).trim() : null) : null,
       grade: normalizeGradeForSave(grade),
@@ -1962,7 +1967,7 @@ export const createClient = async (req, res, next) => {
       changed_by_user_id: userId,
       field_changed: 'created',
       from_value: null,
-      to_value: JSON.stringify({ status: 'PENDING_REVIEW', source }),
+      to_value: JSON.stringify({ status: workflowStatus, client_status_id: resolvedClientStatusId, source }),
       note: 'Client created'
     });
 

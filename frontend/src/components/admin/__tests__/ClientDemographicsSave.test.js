@@ -13,7 +13,7 @@ beforeEach(()=>{
 });
 afterEach(()=>wrapper?.unmount());
 async function render(){
- wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:2277,agency_id:450,client_type:'clinical',status:'PACKET',client_status_id:null,full_name:'Jules QA',grade:'Test answer'},agencyId:450},global:{plugins:[createPinia()]}});await flushPromises();
+ wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:2277,agency_id:450,client_type:'clinical',status:'PACKET',client_status_id:null,full_name:'Jules QA',grade:'Test answer'},agencyId:450},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot name="header" /><slot /></div>'}}}});await flushPromises();
  wrapper.vm.myAgencies=[{id:450}];await wrapper.vm.startEditOverview();await flushPromises();
 }
 it('saves demographics with no configured lifecycle statuses without demanding termination',async()=>{
@@ -27,4 +27,18 @@ it('still requires a reason for an explicitly selected configured termination',a
  await render();wrapper.vm.overviewClientStatuses=[{id:7,status_key:'terminated'}];wrapper.vm.overviewForm.client_status_id='7';
  await wrapper.vm.saveOverview();expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('termination reason'));
  expect(put).not.toHaveBeenCalled();
+});
+it('opens the status editor from Received and saves the selected status without erasing imported sex or a root organization',async()=>{
+ get.mockImplementation(async url=>({data:url==='/client-settings/client-statuses'?[{id:7,label:'Received',status_key:'received'},{id:11,label:'Current',status_key:'current'}]:[]}));
+ await render();await wrapper.setProps({client:{...wrapper.props('client'),gender:'Male',organization_id:450,agency_name:'Example agency',client_status_id:7,client_status_key:'received',client_status_label:'Received'}});await flushPromises();
+ wrapper.vm.cancelEditOverview();await wrapper.vm.onHubChange('overview');await flushPromises();
+ const badge=wrapper.get('button[aria-label="Change client status"]');expect(badge.text()).toContain('Received');await badge.trigger('click');await flushPromises();
+ expect(wrapper.vm.effectiveHubSub).toBe('profile');expect(wrapper.get('select[aria-label="Client sex"]').element.value).toBe('male');
+ const organization=wrapper.get('select[aria-label="Client organization"]');expect(organization.element.selectedOptions[0].textContent).toBe('Example agency');
+ await wrapper.get('select[aria-label="Client status"]').setValue('11');await wrapper.vm.saveOverview();
+ expect(put).toHaveBeenCalledWith('/clients/2277',expect.objectContaining({client_status_id:11,gender:'male',organization_id:450}));
+});
+it('shows None for no organization and preserves unsaved profile changes when the status badge is clicked',async()=>{
+ await render();wrapper.vm.overviewForm.gender='female';await wrapper.get('button[aria-label="Change client status"]').trigger('click');await flushPromises();
+ expect(wrapper.get('select[aria-label="Client organization"]').element.selectedOptions[0].textContent).toBe('None');expect(wrapper.get('select[aria-label="Client sex"]').element.value).toBe('female');
 });

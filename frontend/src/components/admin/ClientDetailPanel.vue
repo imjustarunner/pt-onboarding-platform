@@ -81,7 +81,10 @@
                 </span>
               </div>
               <div v-show="!headerCollapsed" class="cdp-meta-row">
-                <span
+                <button v-if="canEditAccount" type="button" class="cdp-pill cdp-status-edit" :class="statusPillClass" aria-label="Change client status" title="Change client status" @click="editHeaderStatus">
+                  {{ isClientArchived ? 'Archived' : displayStatusLabel }} ▾
+                </button>
+                <span v-else
                   class="cdp-pill"
                   :class="statusPillClass"
                   :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
@@ -458,7 +461,7 @@
               </article>
               <article class="cdp-contact-card">
                 <div class="cdp-contact-card__role">Organization</div>
-                <div class="cdp-contact-card__name">{{ client.organization_name || '—' }}</div>
+                <div class="cdp-contact-card__name">{{ savedOrganizationLabel }}</div>
                 <div class="cdp-glance-meta">{{ clientTypeLabel }}</div>
               </article>
             </div>
@@ -544,14 +547,15 @@
                   <div class="ov-row-label">{{ organizationLabel }}</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
-                      <select v-model="overviewForm.organization_id" class="inline-select">
-                        <option :value="''">—</option>
+                      <select v-model="overviewForm.organization_id" class="inline-select" aria-label="Client organization">
+                        <option :value="''">None</option>
+                        <option v-if="client.organization_id && !overviewOrganizations.some(o=>Number(o.id)===Number(client.organization_id))" :value="String(client.organization_id)">{{ savedOrganizationLabel }}</option>
                         <option v-for="o in overviewOrganizations" :key="o.id" :value="String(o.id)">
                           {{ o.name }}
                         </option>
                       </select>
                     </template>
-                    <template v-else>{{ client.organization_name || '-' }}</template>
+                    <template v-else>{{ savedOrganizationLabel }}</template>
                   </div>
                 </div>
                 <div class="ov-row">
@@ -594,8 +598,9 @@
                   <div class="ov-row-label">Sex</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
-                      <select v-model="overviewForm.gender" class="inline-select">
+                      <select v-model="overviewForm.gender" class="inline-select" aria-label="Client sex">
                         <option value="">Prefer not to say</option>
+                        <option v-if="overviewForm.gender && !sexSelectOptions.some(o=>o.value===overviewForm.gender)" :value="overviewForm.gender">{{ overviewForm.gender }}</option>
                         <option v-for="o in sexSelectOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
                       </select>
                     </template>
@@ -657,7 +662,7 @@
                   <div class="ov-row-label">Client Status</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
-                      <select v-model="overviewForm.client_status_id" class="inline-select">
+                      <select ref="statusSelectEl" v-model="overviewForm.client_status_id" class="inline-select" aria-label="Client status">
                         <option :value="''">—</option>
                         <option v-for="s in overviewClientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
                       </select>
@@ -4140,6 +4145,7 @@ const assignedDayGlanceLabel = computed(() => {
   return assignedDayDisplay(props.client);
 });
 const organizationLabel = computed(() => (isSchoolClientType.value ? 'School' : 'Organization'));
+const savedOrganizationLabel = computed(() => props.client?.organization_name || overviewOrganizations.value.find(o=>Number(o.id)===Number(props.client?.organization_id))?.name || (props.client?.organization_id ? (Number(props.client.organization_id)===Number(props.client.agency_id) ? props.client.agency_name || `Agency #${props.client.agency_id}` : `Organization #${props.client.organization_id}`) : 'None'));
 const clientTypeOptions = computed(() => {
   const all = CLIENT_TYPE_ORDER.map((value) => ({
     value,
@@ -4402,7 +4408,7 @@ async function loadRecordsImportSetup(selectFirst=false){
  }catch{if(run===recordsImportLoad)recordsImportSetup.value=null;}
 }
 watch([()=>Number(props.client?.id),canFinishChartSetup],()=>{recordsImportSetup.value=null;if(showRecordsImportTab.value&&activeTab.value==='overview'&&(!props.initialTab||props.initialTab==='overview'))setChartNav('bring-up-to-date');void loadRecordsImportSetup(true);},{immediate:true});
-async function onRecordsImportDone(result){pendingAssignmentDraft.value=result?.assignmentDraftPending===true;recordsImportSetup.value={...recordsImportSetup.value,recordsImportStatus:'complete'};setChartNav('overview');emit('updated',{keepOpen:true});void loadRecordsImportSetup();await onChartSetupUpdated();}
+async function onRecordsImportDone(result){pendingAssignmentDraft.value=result?.assignmentDraftPending===true;recordsImportSetup.value={...recordsImportSetup.value,recordsImportStatus:'complete'};setChartNav('overview');emit('updated',{keepOpen:true,...(result?.client?{client:{...props.client,...result.client}}:{})});void loadRecordsImportSetup();await onChartSetupUpdated();}
 const tabs = computed(() => ([
   ...(showRecordsImportTab.value?[{id:'bring-up-to-date',label:'Bring up to date',description:'Import records · Mark done'}]:[]),
   { id: 'overview', label: 'Overview', description: 'Summary · Quick actions' },
@@ -5512,7 +5518,8 @@ const hydrateOverviewForm = () => {
   overviewForm.value.referral_date = props.client?.referral_date ? String(props.client.referral_date).slice(0, 10) : '';
   overviewForm.value.source = String(props.client?.source || '');
   overviewForm.value.date_of_birth = props.client?.date_of_birth ? String(props.client.date_of_birth).slice(0, 10) : '';
-  overviewForm.value.gender = String(props.client?.gender || '');
+  const sex=String(props.client?.gender || '').trim();
+  overviewForm.value.gender = sexSelectOptions.find(o=>o.value===sex.toLowerCase()||o.label.toLowerCase()===sex.toLowerCase())?.value || sex;
   overviewForm.value.ethnicity = String(props.client?.ethnicity || '');
   overviewForm.value.preferred_language = String(props.client?.preferred_language || '');
   overviewForm.value.address_street = String(props.client?.address_street || '');
@@ -5550,6 +5557,14 @@ const startEditOverview = async (scrollToFields = false) => {
     setTimeout(() => { editHighlightActive.value = false; }, 1600);
   }
 };
+
+const statusSelectEl=ref(null);
+async function editHeaderStatus(){
+  if(!canEditAccount.value || await saveClientWorkspaceDrafts()===false)return;
+  if(!editingOverview.value)await startEditOverview();else setChartNav('account','profile');
+  await nextTick();
+  statusSelectEl.value?.scrollIntoView?.({block:'center',behavior:'smooth'});statusSelectEl.value?.focus();
+}
 
 const cancelEditOverview = () => {
   editingOverview.value = false;
@@ -7534,6 +7549,7 @@ watch(
 }
 
 .cdp-pill svg { flex: 0 0 auto; opacity: 0.75; }
+.cdp-status-edit{font:inherit;cursor:pointer}.cdp-status-edit:focus-visible{outline:2px solid #1d4f8a;outline-offset:3px}
 .cdp-pill .mono { font-size: 11px; }
 
 .cdp-pill__dot {

@@ -121,7 +121,7 @@ async function create(){
  try{
   if(!form.manual){const read=await readDemographics();if(!read||!form.fullName)throw Error('Read and review the demographics before creating a chart.');}
   save();if(!(await drafts.flush()))return;
-  const payload={agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,provider_id:isBackoffice.value?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
+  const payload={recordsImport:true,agency_id:Number(agencyId.value),organization_id:Number(form.organizationId),client_type:form.kind,full_name:form.fullName,date_of_birth:form.dateOfBirth||null,gender:form.parsedDemographics?.administrativeSex||null,provider_id:isBackoffice.value?null:Number(auth.user.id),submission_date:todayCalendarDate(),referral_date:todayCalendarDate(),school_year:form.kind==='school'?form.schoolYear||null:null,grade:form.kind==='school'?form.grade||null:null,source:'ADMIN_CREATED'};
   const{data}=await api.post('/clients',payload,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}});if(!data?.id)throw Error('The client could not be saved.');created.value=data;form.organizationId=data.organization_id||form.organizationId;save();await drafts.flush();emit('created',data);
   if(form.providerId){try{await assignSelectedProvider();}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Select an active provider and retry.';}}
   startImport.value=true;
@@ -130,7 +130,8 @@ async function create(){
 async function assignSelectedProvider(){return finishClientCreation({api,clientId:created.value.id,agencyId:Number(agencyId.value),organizationId:Number(form.organizationId),outcome:'assign',providerId:form.providerId,isSchool:form.kind==='school'});}
 async function retryProvider(){working.value=true;try{if(form.providerId)await assignSelectedProvider();assignmentError.value='';await panel.value?.reloadAssignments?.();}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Retry or continue unassigned.';}finally{working.value=false;}}
 async function resumeImport(){startImport.value=true;await panel.value?.importAll?.();}
-async function finish(){
+async function finish(result){
+ if(result?.client)created.value={...created.value,...result.client};
  // The server has already confirmed records completion. Refreshes must not keep staff in review.
  const snapshot=created.value,id=snapshot?.id,version=generation;completed.value=true;error.value='';save();await drafts.flush();if(version!==generation||created.value?.id!==id)return;emit('created',snapshot);
  try{const[record,enrollments]=await Promise.all([api.get(`/clients/${id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);

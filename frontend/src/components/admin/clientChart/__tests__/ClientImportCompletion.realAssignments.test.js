@@ -35,13 +35,16 @@ beforeEach(()=>{
 function renderCreate(){return mount(CreateModal,{props:{agencies:[{id:2,name:'Agency'}],initialAgencyId:2},global:{plugins:[createPinia()],stubs:{ClientMedicalHistory:true,ClientPayerLinkage:true,Teleport:false}}});}
 function render(props={}){return mount(Panel,{props:{open:true,clientId:12,agencyId:2,autoImport:false,...props},global:{stubs:{ClientMedicalHistory:true,ClientPayerLinkage:true,Teleport:true}}});}
 it('completes the real import while provider defaults are unsaved, preserving those defaults as a private draft',async()=>{
+ m.post.mockResolvedValue({data:{progress:{status:'complete',clientStatus:{id:11,key:'current',label:'Current'}}}});
  const w=render({creationFlow:true,requireVerifiedPayers:true});await flushPromises();
  const assignments=w.findComponent(Assignments);expect(assignments.get('[aria-label="Default office"]').element.value).toBe('21');expect(assignments.vm.prepareLeave()).toBe(false);
  await w.findAll('button').find(b=>b.text()==='Finish client import').trigger('click');await w.get('.ehr-completion-review input[type=checkbox]').setValue(true);
  await w.findAll('button').find(b=>b.text()==='Complete records import').trigger('click');await flushPromises();
  expect(m.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',expect.anything(),expect.anything());expect(w.emitted('imported')).toHaveLength(1);
  expect(JSON.parse(savedAssignment)).toMatchObject({defaults:{officeId:'21',pos:'11',serviceLocationId:'41'}});
- expect(m.post.mock.calls.some(([url])=>url.endsWith('/agency-affiliations'))).toBe(false);expect(w.emitted('imported')[0][0].assignmentDraftPending).toBe(true);w.unmount();
+ expect(m.post.mock.calls.some(([url])=>url.endsWith('/agency-affiliations'))).toBe(false);expect(w.emitted('imported')[0][0].assignmentDraftPending).toBe(true);
+ expect(w.emitted('imported')[0][0].client).toMatchObject({id:12,status:'ACTIVE',client_status_id:11,client_status_key:'current',client_status_label:'Current'});
+ w.unmount();
 });
 it('lets staff save and leave with restored assignment choices instead of forcing them to commit every pending action',async()=>{
  const w=render();await flushPromises();expect(await w.vm.prepareLeave()).toBe(true);expect(savedAssignment).toContain('21');w.unmount();

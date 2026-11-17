@@ -9,6 +9,10 @@ it('retains the parent contact source without attaching their channels or prefer
   expect(patch).not.toHaveProperty('session_sms_opt_in');expect(patch).not.toHaveProperty('appointment_reminder_type');
   expect(parsed).toMatchObject({ contactOwner:'guardian', contactPhone:null, email:null, sourceContact:{ email:'parent@example.test', contactPhone:'(555) 111-2222' } });
 });
+it.each([['Male','male'],['Female','female'],['Masculino','male'],['Femenino','female']])('stores imported %s in the app’s canonical sex field (%s)',(source,expected)=>{
+ const parsed=parseDemographicsPaste(`Legal Name\nSynthetic Client\nAdministrative Sex\n${source}\nGender Identity`);
+ expect(demographicsToClientPatch(parsed)).toMatchObject({gender:expected});
+});
 it('preserves existing client-owned channels that differ from the imported parent', () => {
   const parsed = { fullName:'Synthetic Client', contactPhone:'555-111-2222', email:'parent@example.test', textMessagesOk:true };
   const patch = demographicsToClientPatch(parsed);
