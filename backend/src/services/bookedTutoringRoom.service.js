@@ -33,8 +33,9 @@ export async function bookedTutoringAccess(req, appointmentId) {
  } else {
   if (!['client','client_guardian','guardian'].includes(req.user.role)) throw fail(403, 'Only the assigned tutor or an authorized family participant can join this session.');
   const access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
+  if(access.service&&appointment.learningContext?.serviceEnrollmentId&&Number(access.service.id)!==Number(appointment.learningContext.serviceEnrollmentId))throw fail(403,'This appointment belongs to a different tutoring service.');
   if (access.service && Number(access.service.provider_user_id)!==Number(appointment.providerUserId)) throw fail(403, 'This appointment belongs to a different tutoring team.');
-  if (Array.isArray(access.services) && !access.services.some(s=>s.service_kind==='tutoring'&&Number(s.is_active)===1&&Number(s.provider_user_id)===Number(appointment.providerUserId))) throw fail(403,'An active tutoring assignment is required to join this appointment.');
+  if (Array.isArray(access.services) && !access.services.some(s=>s.service_kind==='tutoring'&&Number(s.is_active)===1&&Number(s.provider_user_id)===Number(appointment.providerUserId)&&(!appointment.learningContext?.serviceEnrollmentId||Number(s.id)===Number(appointment.learningContext.serviceEnrollmentId)))) throw fail(403,'An active tutoring assignment is required to join this appointment.');
   if (access.permissions?.canViewAppointments===false) throw fail(403, 'Appointment access is required to join this session.');
  }
  if (req.query?.clientId && Number(req.query.clientId)!==clientId) throw fail(403,'This appointment belongs to a different student.');

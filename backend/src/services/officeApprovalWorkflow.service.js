@@ -145,6 +145,7 @@ function normalize(source, row) {
     occurrenceCount,
     frequencyLabel: recurrenceLabel(recurrence, occurrenceCount),
     notes: String(row.notes || row.requester_notes || ''),
+    serviceCode:String(row.service_code||'').toUpperCase(),
     requestType: row.request_type || 'PROVIDER_REQUEST',
     roomRequest:
       intake ||
@@ -157,8 +158,8 @@ function normalize(source, row) {
   };
 }
 
-// Expired pending room requests remain in the source history, but require no
-// denial and must not appear as actionable work or generate reviewer emails.
+// Mark historical requests without hiding unresolved work. Retrospective tutoring
+// requests keep their original date and use the normal conflict-checked review.
 export function officeApprovalExpired(request, now = new Date()) {
   if (!request.roomRequest || !request.startDate || !request.slots?.length) return false;
   if (request.recurrence !== 'ONCE' && request.occurrenceCount == null) return false;
@@ -195,7 +196,7 @@ export async function listOfficeApprovals(actor, { now = new Date() } = {}) {
     ...bookings.map((r) => normalize('booking', r)),
     ...intake.map((r) => normalize('intake', r)),
     ...legacy.map((r) => normalize('legacy', r))
-  ].filter(request => !officeApprovalExpired(request, now)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  ].map(request=>({...request,pastRequestedTime:officeApprovalExpired(request,now)})).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 export async function findOfficeApproval(actor, key) {
   parseOfficeApprovalKey(key);
@@ -209,7 +210,8 @@ export async function findOfficeApproval(actor, key) {
 }
 
 // Keep the original cadence when a request waited for approval. Never create a
-// retroactive reservation, move a biweekly anchor, or restart a finite series.
+// retroactive recurring reservation, move a biweekly anchor, or restart a finite series.
+// A one-off tutoring request may explicitly retain its past date for review.
 export function approvalWindow(request, timezone, now = new Date()) {
   if (request.slots.length !== 1)
     throw fail(
@@ -231,7 +233,8 @@ export function approvalWindow(request, timezone, now = new Date()) {
     occurrenceCount: request.occurrenceCount ?? 520,
     now
   });
-  const remaining = dates.filter(
+  const retrospectiveTutoring=request.source==='booking' && request.serviceCode==='TUTORING' && request.recurrence==='ONCE';
+  const remaining = retrospectiveTutoring?dates:dates.filter(
     (date) =>
       date >= today &&
       mysqlDateTimeForDateHour(date, endHour, timezone) >

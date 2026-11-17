@@ -1,5 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({quote:vi.fn(),options:vi.fn(),membership:vi.fn(),pricing:vi.fn()}));
+vi.mock('../../services/tutoringBookingContext.service.js',()=>({tutoringBookingSubjects:(...args)=>m.subjects(...args)}));
+vi.mock('../../utils/learningAccess.js',()=>({assertLearningClientAccess:(...args)=>m.clientAccess(...args)}));
+const m=vi.hoisted(()=>({quote:vi.fn(),options:vi.fn(),membership:vi.fn(),pricing:vi.fn(),subjects:vi.fn(),clientAccess:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencyMembership:m.membership}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({organization_type:'agency'})}}));
@@ -31,3 +33,6 @@ it('retains only the public customer quote across the real nonbilling response f
  m.options.mockResolvedValue({services:[{id:320,businessType:'tutoring',defaultDurationMinutes:60,priceCents:9900}],billing:{claimPayload:{secret:'private'}},employeePayRate:44});m.quote.mockResolvedValue({amountCents:5000,rateCents:5000,rateUnit:'hour',privateRate:44,claimPayload:{secret:'private'}});
  const {res,next}=await run({quote:'1',providerId:'1496'});expect(next).not.toHaveBeenCalled();const data=res.json.mock.calls[0][0];expect(data.services[0].quotes.TELEHEALTH).toEqual({amountCents:5000,rateCents:5000,rateUnit:'hour'});expect(data.services[0].priceCents).toBeUndefined();expect(data.billing).toBeUndefined();expect(JSON.stringify(data)).not.toContain('private');expect(data.employeePayRate).toBeUndefined();
 });
+
+it('returns assigned tutoring choices and prepaid credits to the tutor without pricing authority',async()=>{m.subjects.mockResolvedValue([{key:'service:1038',label:'Math'}]);m.clientAccess.mockResolvedValue({});m.options.mockResolvedValue({services:[{id:320,businessType:'tutoring'}],packagePreview:{entitlements:[{id:2,packageName:'QA tutoring package',sessionsRemaining:2}]}});const {res}=await run({quote:'1',providerId:'1496',clientId:'2545'});expect(res.json.mock.calls[0][0]).toMatchObject({canSetTutoringSessionPrice:false,tutoringSubjects:[{key:'service:1038',label:'Math'}],packagePreview:{entitlements:[{id:2,sessionsRemaining:2}]}});expect(m.clientAccess).toHaveBeenCalledWith(expect.objectContaining({user:{id:1496,role:'provider'}}),2545,453);});
+it('does not disclose another tutor subject roster through a forged provider selector',async()=>{const {res}=await run({providerId:'9999',clientId:'2545'});expect(res.status).toHaveBeenCalledWith(403);expect(m.subjects).not.toHaveBeenCalled();});

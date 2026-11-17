@@ -117,7 +117,7 @@ async function ensureLockedAppointmentContext({
       clientId: resolvedClientId, startAt: event.start_at, endAt: event.end_at,
       modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
       serviceLocationId: actualServiceLocationId,
-      tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
+      learningSubjectKey:bookingContext.learningSubjectKey ?? null, tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
       serviceCode: event.service_code, notificationMode: bookingContext.notificationMode, customReminders: bookingContext.customReminders, notes: bookingContext.schedulingNotes,
       clinicalSessionId, actorUserId, billing: bookingContext.billing || null, strict: true, preserveParticipants: !!boundAppointment });
     if (clinicalSessionId && ['self_pay_only', 'package'].includes(canonical?.billing?.settlementMode)) {

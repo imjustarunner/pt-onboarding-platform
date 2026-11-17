@@ -30,7 +30,7 @@ export async function tutoringVisit(room, { learningSessionId, tutoringAppointme
       JOIN clients c ON c.id=m.client_id WHERE s.id=? AND (c.agency_id=? OR EXISTS
       (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`, [id, room.agencyId, room.agencyId]);
   } else {
-    [[session]] = await db.execute(`SELECT a.id,a.title,a.status,a.start_at AS starts_at,a.end_at AS ends_at,a.provider_user_id,a.modality,a.agency_id,
+    [[session]] = await db.execute(`SELECT a.id,a.title,a.status,a.learning_context_json,a.start_at AS starts_at,a.end_at AS ends_at,a.provider_user_id,a.modality,a.agency_id,
       COALESCE(NULLIF(a.service_code,''),t.service_code) AS learning_service_code
       FROM appointments a LEFT JOIN tenant_services t ON t.id=a.tenant_service_id AND t.agency_id=a.agency_id
       WHERE a.id=? AND a.agency_id=? AND a.provider_user_id=? AND a.business_type IN ('learning','tutoring')`, [id, room.agencyId, room.userId]);

@@ -1,0 +1,13 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
+import pool from '../../config/database.js';
+import {tutoringBookingSubjects,resolveTutoringBookingContext} from '../tutoringBookingContext.service.js';
+const input={agencyId:453,providerId:1496,clientId:2545};let services,subjects;
+beforeEach(()=>{vi.clearAllMocks();services=[{id:1038,label:'Tutoring — Math (SYNTHETIC QA)'}];subjects=[{id:71,subject_label:'Math'}];pool.execute.mockImplementation(async sql=>[sql.includes('client_service_enrollments')?services:subjects]);});
+it('offers the actual assigned Math service and its subject without any financial or clinical fields',async()=>{const options=await tutoringBookingSubjects(input);expect(options).toEqual([{key:'service:1038',label:'Math',serviceEnrollmentId:1038,studentSubjectId:71}]);expect(pool.execute.mock.calls.every(([,args])=>args.join(',')==='453,2545,1496')).toBe(true);});
+it('preserves a subject snapshot and exact service/subject IDs chosen for booking',async()=>{expect(await resolveTutoringBookingContext({...input,key:'service:1038'})).toEqual({version:1,subjectLabel:'Math',serviceEnrollmentId:1038,studentSubjectId:71,generalSupport:false});});
+it('permits General without creating a subject, plan or clinical prerequisite',async()=>{expect(await resolveTutoringBookingContext({...input,key:'general'})).toMatchObject({subjectLabel:'General',serviceEnrollmentId:1038,studentSubjectId:null,generalSupport:true});expect(pool.execute.mock.calls.some(([sql])=>/INSERT|UPDATE/.test(sql))).toBe(false);});
+it('rejects a stale or other-student selection instead of guessing by label/date',async()=>{await expect(resolveTutoringBookingContext({...input,key:'service:1042'})).rejects.toMatchObject({status:409});});
+it('offers the saved enrollment label before any learning subject or plan exists',async()=>{subjects=[];expect(await tutoringBookingSubjects(input)).toEqual([{key:'service:1038',label:'Math (SYNTHETIC QA)',serviceEnrollmentId:1038,studentSubjectId:null}]);});
+it('never binds an ambiguous subject merely because labels sound alike',async()=>{subjects=[{id:71,subject_label:'Math'},{id:72,subject_label:'Math'}];expect((await tutoringBookingSubjects(input))[0].studentSubjectId).toBeNull();});
+it('supports a retained assigned subject when there is no service-enrollment row',async()=>{services=[];expect(await tutoringBookingSubjects(input)).toEqual([{key:'subject:71',label:'Math',serviceEnrollmentId:null,studentSubjectId:71}]);});
