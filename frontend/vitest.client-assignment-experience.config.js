@@ -15,6 +15,7 @@ export default defineConfig({
   'src/components/clients/__tests__/ProviderSearchSelect.test.js',
   'src/components/clients/__tests__/ClientPortalOverview.test.js',
   'src/views/admin/__tests__/OfficeClientsAssignments.test.js',
+  'src/views/admin/__tests__/ClientManagementView.setup.test.js',
   'src/components/admin/__tests__/ClientServiceAssignments.test.js',
   'src/components/admin/__tests__/ClientServiceEnrollments.providers.test.js',
   'src/components/admin/clientChart/__tests__/ClientOverviewHub.secureAction.test.js',

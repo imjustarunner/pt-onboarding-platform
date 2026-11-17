@@ -481,7 +481,8 @@ async function getSkillBuilderEligibilityForUser(userId) {
 async function attachRosterAssignmentAudit(rows) {
   if (!rows.length) return rows;
   try {
-    const ids=rows.map(row=>Number(row.id));
+    const ids=rows.filter(row=>!Number(row.assigned_service_id)).map(row=>Number(row.id));
+    if (!ids.length) return rows;
     const [assignments]=await pool.execute(`SELECT h.client_id,h.changed_at AS assigned_at,
       CONCAT_WS(' ',u.first_name,u.last_name) AS assigned_by_name
       FROM client_status_history h JOIN clients c ON c.id=h.client_id
@@ -561,6 +562,8 @@ export const getClients = async (req, res, next) => {
     // Build query options
     const options = {
       includeSensitive: true, // Agency view includes all fields
+      directoryAssignments: true,
+      directoryProviderAgencyId: agencyIds.length === 1 ? agencyIds[0] : null,
       status,
       organization_id: organization_id ? parseInt(organization_id) : undefined,
       provider_id: provider_id ? (['provider','provider_plus'].includes(String(userRole).toLowerCase()) ? userId : parseInt(provider_id)) : undefined,

@@ -1,4 +1,5 @@
 import { readDirectoryPage } from '../utils/clientDirectoryPage.js';
+import { clientDirectoryProviderJoin, formatClientDirectoryProvider } from '../utils/clientDirectoryProvider.js';
 import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 import pool from '../config/database.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
@@ -296,6 +297,7 @@ class Client {
 
     const values = [];
     const useOrgAssignments = !!organization_id;
+    const directoryAssignments = options.directoryAssignments === true || !!options.directoryPage;
 
     // Best-effort: if per-client checklist exists, include a needed-count for UI summary.
     let hasChecklist = false;
@@ -318,6 +320,7 @@ class Client {
         ${useOrgAssignments ? 'COALESCE(orgf.organization_type, org.organization_type) as organization_type,' : 'org.organization_type as organization_type,'}
         provider.first_name as provider_first_name,
         provider.last_name as provider_last_name,
+        ${directoryAssignments ? 'provider.id AS directory_provider_id, directory_service.id AS assigned_service_id,' : ''}
         cs.label as client_status_label,
         cs.status_key as client_status_key,
         ps.label as paperwork_status_label,
@@ -349,7 +352,7 @@ class Client {
 
     query += `
       LEFT JOIN agencies org ON c.organization_id = org.id
-      LEFT JOIN users provider ON c.provider_id = provider.id
+      ${directoryAssignments ? clientDirectoryProviderJoin(options.directoryProviderAgencyId || agency_id) : 'LEFT JOIN users provider ON c.provider_id = provider.id'}
       LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
       LEFT JOIN paperwork_statuses ps ON c.paperwork_status_id = ps.id
       LEFT JOIN insurance_types it ON c.insurance_type_id = it.id
@@ -429,7 +432,7 @@ class Client {
       if (options.demo==='only') query+=' AND (COALESCE(c.is_demo,0)=1 OR COALESCE(c.created_via_dev_fill,0)=1)';
       if (options.demo==='exclude') query+=' AND COALESCE(c.is_demo,0)<>1 AND COALESCE(c.created_via_dev_fill,0)<>1';
       const page=await readDirectoryPage({executor:pool,query,values,hasChecklist,...options.directoryPage});
-      page.items=page.items.map(row=>{delete row.billing_insurance_payload;return {...row,provider_name:row.provider_first_name && row.provider_last_name?`${row.provider_first_name} ${row.provider_last_name}`:null};});
+      page.items=page.items.map(formatClientDirectoryProvider);
       return page;
     }
 
@@ -517,15 +520,7 @@ class Client {
     }
 
     // Format provider names
-    return rows.map(row => {
-      delete row.billing_insurance_payload;
-      if (row.provider_first_name && row.provider_last_name) {
-        row.provider_name = `${row.provider_first_name} ${row.provider_last_name}`;
-      } else {
-        row.provider_name = null;
-      }
-      return row;
-    });
+    return rows.map(formatClientDirectoryProvider);
   }
 
   /**

@@ -41,7 +41,10 @@
             <div class="cm-drawer-rows">
               <div class="cm-drawer-row">
                 <span class="cm-drawer-dt">Clinician</span>
-                <span class="cm-drawer-dd">{{ client.provider_name || 'Unassigned' }}</span>
+                <span class="cm-drawer-dd">
+                  <button v-if="canAssign" type="button" class="cm-drawer-provider" :aria-label="`${client.provider_name ? 'Manage' : 'Assign'} provider for ${client.full_name || client.initials || 'client'}`" @click="$emit('assign-provider', client)">{{ client.provider_name || 'Unassigned — assign provider' }}</button>
+                  <template v-else>{{ client.provider_name || 'Unassigned' }}</template>
+                </span>
               </div>
               <div class="cm-drawer-row">
                 <span class="cm-drawer-dt">Program</span>
@@ -153,11 +156,12 @@
     </transition>
 </template>
 <script setup>
-defineProps({client:{type:Object,default:null},pinned:{type:Boolean,default:false},canEdit:{type:Boolean,default:false},analyticsArea:{type:String,default:null},presentation:{type:Object,required:true}});
-defineEmits(['open','close','edit-status','enter','leave']);
+defineProps({client:{type:Object,default:null},pinned:{type:Boolean,default:false},canEdit:{type:Boolean,default:false},canAssign:{type:Boolean,default:false},analyticsArea:{type:String,default:null},presentation:{type:Object,required:true}});
+defineEmits(['open','close','edit-status','assign-provider','enter','leave']);
 </script>
 <style scoped>
 /* Quick-view / pinned side panel */
+.cm-drawer-provider { border:0; padding:0; background:transparent; color:inherit; font:inherit; text-align:left; text-decoration:underline; cursor:pointer; }
 .cm-drawer {
   position: fixed;
   top: var(--app-nav-height, 72px);

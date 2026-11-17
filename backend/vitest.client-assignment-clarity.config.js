@@ -7,6 +7,7 @@ export default {
     include: [
       'src/services/__tests__/clientServiceContext.test.js',
       'src/services/__tests__/providerServiceCaseload.test.js',
+      'src/utils/__tests__/clientDirectoryPage.test.js',
       'src/services/__tests__/dependentPortalInvitations.test.js',
       'src/services/__tests__/dependentPortalPolicy.test.js',
       'src/services/__tests__/clientAssignmentScope.test.js',

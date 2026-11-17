@@ -622,7 +622,10 @@
               </span>
             </td>
             <td v-if="columnPrefs.provider" data-label="Clinician">
-              <span class="cm-provider-label" :style="getProviderLabelStyle(client)">
+              <button v-if="canBackofficeEdit" type="button" class="cm-provider-label cm-provider-assign" :style="getProviderLabelStyle(client)" :aria-label="`${client.provider_name ? 'Manage' : 'Assign'} provider for ${getClientDisplay(client)}`" @click.stop="openDirectoryAssignment(client)">
+                {{ client.provider_name || 'Unassigned' }}
+              </button>
+              <span v-else class="cm-provider-label" :style="getProviderLabelStyle(client)">
                 {{ client.provider_name || 'Unassigned' }}
               </span>
               <span v-if="client.provider_name" :title="assignmentTooltip(client)" class="cm-referral-date">
@@ -1275,10 +1278,20 @@
     </template><!-- /v-else cmViewMode=clients -->
 
     <!-- Shared with the public demo; hover/pin behavior stays in the shared composable. -->
-    <ClientQuickLook :client="quickViewClient" :pinned="quickViewPinned" :can-edit="canBackofficeEdit"
+    <ClientQuickLook :client="quickViewClient" :pinned="quickViewPinned" :can-edit="canBackofficeEdit" :can-assign="canBackofficeEdit"
       :presentation="{ getInitialsStyle, getClientDisplay, getStatusPillStyle, formatClientStatus, affiliationDisplayLabel, formatDate, getDocumentStatusTone, getDocumentStatusIcon, formatDocumentStatusSummary, roiExpiryClass }"
       @enter="cancelQuickViewClose" @leave="scheduleQuickViewClose" @close="closeClientPanel"
-      @open="openClientDetail" @edit-status="startEditStatus" />
+      @open="openClientDetail" @edit-status="startEditStatus" @assign-provider="openDirectoryAssignment" />
+
+    <div v-if="directoryAssignmentClient && canBackofficeEdit" class="modal-overlay cm-provider-assign-overlay" @click.self="closeDirectoryAssignment" @keydown.esc.stop.prevent="closeDirectoryAssignment">
+      <section ref="directoryAssignmentDialog" class="modal-content cm-provider-dialog" role="dialog" aria-modal="true" aria-labelledby="directory-assignment-title" tabindex="-1">
+        <header class="cm-provider-dialog-header">
+          <div><h3 id="directory-assignment-title">Providers · {{ getClientDisplay(directoryAssignmentClient) }}</h3><p>{{ directoryAssignmentAgencyName }}</p></div>
+          <button type="button" class="btn btn-secondary" @click="closeDirectoryAssignment">Close</button>
+        </header>
+        <ClientServiceEnrollments ref="directoryAssignmentEditor" :key="`${directoryAssignmentClient.id}:${directoryAssignmentAgencyId}`" :client-id="directoryAssignmentClient.id" :agency-id="directoryAssignmentAgencyId" :start-assigning="true" @updated="onDirectoryAssignmentUpdated" />
+      </section>
+    </div>
 
     <IdentityReviewDrawer
       v-if="identityReviewMode"
@@ -1309,6 +1322,7 @@
 
 <script setup>
 import ClientQuickLook from '../../components/clients/ClientQuickLook.vue';
+import ClientServiceEnrollments from '../../components/admin/ClientServiceEnrollments.vue';
 import { useClientQuickLook } from '../../composables/useClientQuickLook.js';
 import ClientPortalInviteDialog from '../../components/clients/ClientPortalInviteDialog.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
@@ -1379,6 +1393,32 @@ const nameDuplicateGroupCount = ref(0);
 const nameDuplicateClientIds = ref(new Set());
 const { quickViewClient, quickViewPinned, pinClientPanel, closeClientPanel, openQuickView,
   scheduleQuickView, cancelQuickView, cancelQuickViewClose, scheduleQuickViewClose } = useClientQuickLook();
+const directoryAssignmentClient = ref(null);
+const directoryAssignmentEditor = ref(null);
+const directoryAssignmentDialog = ref(null);
+const directoryAssignmentAgencyId = computed(() => Number(effectiveAgencyScopeId.value || directoryAssignmentClient.value?.agency_id));
+const directoryAssignmentAgencyName = computed(() => {
+  const id = directoryAssignmentAgencyId.value;
+  return [...(agencyStore.agencies || []), ...(agencyStore.userAgencies || [])].find(agency => Number(agency.id) === id)?.name || directoryAssignmentClient.value?.agency_name || 'Agency';
+});
+let directoryAssignmentTrigger = null;
+async function openDirectoryAssignment(client) {
+  if (!canBackofficeEdit.value || !Number(client?.id) || !Number(effectiveAgencyScopeId.value || client.agency_id)) return;
+  directoryAssignmentTrigger = document.activeElement;
+  cancelQuickView();
+  closeClientPanel();
+  directoryAssignmentClient.value = client;
+  await nextTick();
+  directoryAssignmentDialog.value?.focus();
+}
+function closeDirectoryAssignment() {
+  if (directoryAssignmentEditor.value?.prepareLeave?.() === false) return;
+  directoryAssignmentClient.value = null;
+  if (directoryAssignmentTrigger?.isConnected) directoryAssignmentTrigger.focus();
+}
+async function onDirectoryAssignmentUpdated() {
+  await fetchClients({ background: true });
+}
 
 async function loadSideCounts() {
   const aid = agencyStore.currentAgency?.value?.id || agencyStore.currentAgency?.id;
@@ -1457,7 +1497,7 @@ const getDocumentStatusIcon = (client) => {
 };
 const getProviderLabelStyle = (client) => {
   if (usingServerPagination.value) return {};
-  const hue = hashHue(client?.provider_id || client?.provider_name || 'unassigned');
+  const hue = hashHue(client?.directory_provider_id || client?.provider_id || client?.provider_name || 'unassigned');
   return { color: colorFromHue(hue, { sat: 55, light: 34 }) };
 };
 
@@ -2504,6 +2544,10 @@ const fetchClients = async ({ background = false } = {}) => {
         district_name: org?.district_name || ''
       };
     });
+    if (quickViewClient.value) {
+      const refreshed = clients.value.find(client => Number(client.id) === Number(quickViewClient.value.id));
+      if (refreshed) quickViewClient.value = refreshed;
+    }
     if (usingServerPagination.value) {
       serverTotal.value = Number(payload?.total || 0);
       serverSummary.value = payload?.summary || null;
@@ -4053,6 +4097,12 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   font-size: 13px;
   display: block;
 }
+.cm-provider-assign { border:0; padding:0; background:transparent; font:inherit; text-align:left; text-decoration:underline; cursor:pointer; }
+.modal-overlay.cm-provider-assign-overlay { z-index:11000; }
+.modal-content.cm-provider-dialog { width:min(960px,96vw); max-width:960px; max-height:90dvh; overflow:auto; }
+.cm-provider-dialog-header { display:flex; align-items:start; justify-content:space-between; gap:16px; }
+.cm-provider-dialog-header h3 { margin:0; }
+.cm-provider-dialog-header p { margin:6px 0 0; }
 .cm-referral-date {
   display: block;
   font-size: 11px;
