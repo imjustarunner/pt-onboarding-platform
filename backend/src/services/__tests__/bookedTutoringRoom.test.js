@@ -22,13 +22,14 @@ import {TutoringSessionNote} from '../../models/TutoringSessionLearning.model.js
 import {clinicalAudit} from '../clinicalSessionAudit.service.js';
 import * as room from '../bookedTutoringRoom.service.js';
 import {completeLearningSession} from '../../controllers/learningClassSessions.controller.js';
-const a={id:359,agencyId:453,providerUserId:1496,businessType:'tutoring',serviceCode:'TUTORING',status:'scheduled',startAt:'2026-11-17 18:00:00',endAt:'2026-11-17 19:00:00'};
+const a={id:359,agencyId:453,providerUserId:1496,businessType:'tutoring',serviceCode:'TUTORING',status:'scheduled',modality:'VIRTUAL',startAt:'2026-11-17 18:00:00',endAt:'2026-11-17 19:00:00'};
 const tutor={user:{id:1496,role:'provider'},query:{}},parent={user:{id:1759,role:'client_guardian'},query:{}};
 let session,visits,db;
 beforeEach(()=>{vi.resetAllMocks();vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-17T18:10:00Z'));session={id:600,status:'scheduled',provider_user_id:1496};visits=[];
  Appointment.findById.mockResolvedValue(a);Appointment.listParticipants.mockResolvedValue([{clientId:2547}]);User.getAgencies.mockResolvedValue([{id:453}]);assertLearningClientAccess.mockResolvedValue({permissions:{canViewAppointments:true},service:{provider_user_id:1496}});
  db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>{
- if(sql.startsWith('SELECT status,provider_user_id'))return [[{status:a.status,agency_id:453,provider_user_id:1496}]];
+ if(sql.startsWith('SELECT status,provider_user_id'))return [[{status:a.status,agency_id:453,provider_user_id:1496,start_at:a.startAt,end_at:a.endAt,modality:a.modality,service_code:'TUTORING',business_type:'tutoring'}]];
+ if(sql.includes('FROM users WHERE id='))return [[{id:1759,role:'client_guardian',is_active:1,is_archived:0}]];
  if(sql.includes('FROM tutoring_appointment_sessions b'))return [session?[session]:[]];
  if(sql.includes('FROM tutoring_session_clients'))return [[{client_id:2547}]];
  if(sql.startsWith('SELECT id,status FROM tutoring_session_visits'))return [visits];
@@ -55,3 +56,8 @@ it('keeps quarter hours and inclusive joining bounds',()=>{expect(room.bookedTut
 
 it('seals canceled tutoring media without completing or billing the appointment',async()=>{session.twilio_room_sid='exact-room';await room.closeChangedBookedTutoringRoom(a,1807);expect(media.requestClinicalEnd).toHaveBeenCalledWith('exact-room',null,db);expect(completeLearningSession).not.toHaveBeenCalled();});
 it('does not open a room for a personal portal linked to another student',async()=>{await expect(room.bookedTutoringAccess({...parent,dependentPortalAccess:{client_id:2545}},359)).rejects.toMatchObject({status:403});});
+
+it('admits an authorized active family account after signed host presence and links its start to the exact appointment',async()=>{session.twilio_room_sid='exact-room';visits=[{id:9,user_id:1759,status:'waiting'}];const ctx=await room.bookedTutoringAccess(tutor,359);await room.admitBookedTutoringParticipant(ctx,9);expect(assertLearningClientAccess).toHaveBeenCalledWith(expect.objectContaining({user:expect.objectContaining({id:1759})}),2547,453);expect(db.execute.mock.calls.find(([sql])=>sql.startsWith("UPDATE appointments SET status='in_progress'"))[1]).toEqual([1496,359]);});
+it('withholds room credentials if the booking moved between access resolution and its row lock',async()=>{const original=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT status,provider_user_id')?[[{status:'scheduled',agency_id:453,provider_user_id:1496,start_at:'2026-11-18 18:00:00',end_at:'2026-11-18 19:00:00'}]]:original(sql,...args));const ctx=await room.bookedTutoringAccess(tutor,359);await expect(room.openBookedTutoringRoom(ctx)).rejects.toMatchObject({status:409});expect(Video.createSession).not.toHaveBeenCalled();});
+it('cannot turn an in-person appointment into a video visit',async()=>{const ctx=await room.bookedTutoringAccess(tutor,359);ctx.appointment={...ctx.appointment,modality:'IN_PERSON'};await expect(room.openBookedTutoringRoom(ctx)).rejects.toMatchObject({status:409});expect(media.clinicalVideoToken).not.toHaveBeenCalled();});
+it('requires an active matching tutoring assignment even when a family opens a copied link without a service selector',async()=>{assertLearningClientAccess.mockResolvedValue({services:[{provider_user_id:0,service_kind:'tutoring',is_active:1}]});await expect(room.bookedTutoringAccess(parent,359)).rejects.toMatchObject({status:403});});

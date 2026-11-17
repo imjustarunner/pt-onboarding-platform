@@ -5,7 +5,7 @@ ALTER TABLE learning_class_sessions ADD COLUMN actual_ended_at DATETIME NULL;
 ALTER TABLE tutoring_session_notes MODIFY student_subject_id INT NULL;
 CREATE TABLE IF NOT EXISTS tutoring_session_visits (
  id BIGINT AUTO_INCREMENT PRIMARY KEY,
- session_id INT NOT NULL,
+ session_id BIGINT NOT NULL,
  user_id INT NOT NULL,
  client_id INT NOT NULL,
  actor VARCHAR(100) NOT NULL,

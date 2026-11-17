@@ -40,7 +40,7 @@ const path=suffix=>`/tutoring-sessions/${appointmentId}${suffix||''}`;
 const params=()=>Object.fromEntries(['agencyId','clientId','serviceId'].filter(k=>route.query[k]).map(k=>[k,route.query[k]]));
 const request=(suffix,method='get',body)=>api({url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true}).then(r=>r.data);
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
-async function refresh(){if(stopped||polling||!appointmentId)return;polling=true;try{state.value=await request('');if(ended.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if(!state.value.visit&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
+async function refresh(){if(stopped||polling||!appointmentId)return;polling=true;try{state.value=await request('');if(ended.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
  if(state.value.host&&state.value.sessionId&&!noteLoaded.value){const data=await request('/note');note.value=data.note?.summary||'';noteLoaded.value=true;}
  }catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;}}
 async function action(fn){if(busy.value)return;busy.value=true;error.value='';try{await fn();}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}

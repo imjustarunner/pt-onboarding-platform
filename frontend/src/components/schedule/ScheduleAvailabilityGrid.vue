@@ -15144,7 +15144,7 @@ const editorIndividualPrice = ref(null);
 const editorTutoringSubject=ref('assigned');
 const editorSavedCustomerQuote=ref(null);
 const editorQaBillingMessage=ref('');
-async function refreshQaTutoringBilling(){editorQaBillingMessage.value='';try{await api.post(`/appointments/${editorAppointmentId.value}/qa-billing-reconcile`,{}, {skipGlobalLoading:true});editorQaBillingMessage.value='QA balance reconciled. Refresh the family billing page to review its simulated payment.';}catch(e){editorQaBillingMessage.value=e.response?.data?.error?.message||'QA billing could not be reconciled.';}}
+async function refreshQaTutoringBilling(){editorQaBillingMessage.value='';try{const {data}=await api.post(`/appointments/${editorAppointmentId.value}/qa-billing-reconcile`,{}, {skipGlobalLoading:true});editorQaBillingMessage.value=data.holdReason==='payer_assignment'?'The QA balance needs a payer. Assign the responsible payer in family billing, then review its simulated payment.':data.status==='review'?`The QA balance is still held for ${data.holdReason||'office review'}. Open family billing to resolve that hold.`:'QA balance reconciled. Refresh the family billing page to review its simulated payment.';}catch(e){editorQaBillingMessage.value=e.response?.data?.error?.message||'QA billing could not be reconciled.';}}
 const editorCanSetTutoringPrice = ref(false);
 const editorTutoringQuote=computed(()=>{
  const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));

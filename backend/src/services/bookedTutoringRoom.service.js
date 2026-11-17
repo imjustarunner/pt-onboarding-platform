@@ -18,7 +18,7 @@ export function bookedTutoringWindow(appointment, now = Date.now()) {
  const start = new Date(utcMysqlToIso(appointment.startAt) || appointment.startAt).getTime();
  const end = new Date(utcMysqlToIso(appointment.endAt) || appointment.endAt).getTime();
  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw fail(409, 'This tutoring appointment needs a valid scheduled time.');
- return { opensAt:new Date(start-1800000).toISOString(), closesAt:new Date(end+1800000).toISOString(), available:!terminal.has(appointment.status)&&now>=start-1800000&&now<=end+1800000 };
+ return { opensAt:new Date(start-1800000).toISOString(), closesAt:new Date(end+1800000).toISOString(), available:appointment.status!=='completed'&&!terminal.has(appointment.status)&&now>=start-1800000&&now<=end+1800000 };
 }
 export async function bookedTutoringAccess(req, appointmentId) {
  const appointment = await Appointment.findById(Number(appointmentId));
@@ -34,6 +34,7 @@ export async function bookedTutoringAccess(req, appointmentId) {
   if (!['client','client_guardian','guardian'].includes(req.user.role)) throw fail(403, 'Only the assigned tutor or an authorized family participant can join this session.');
   const access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
   if (access.service && Number(access.service.provider_user_id)!==Number(appointment.providerUserId)) throw fail(403, 'This appointment belongs to a different tutoring team.');
+  if (Array.isArray(access.services) && !access.services.some(s=>s.service_kind==='tutoring'&&Number(s.is_active)===1&&Number(s.provider_user_id)===Number(appointment.providerUserId))) throw fail(403,'An active tutoring assignment is required to join this appointment.');
   if (access.permissions?.canViewAppointments===false) throw fail(403, 'Appointment access is required to join this session.');
  }
  if (req.query?.clientId && Number(req.query.clientId)!==clientId) throw fail(403,'This appointment belongs to a different student.');
@@ -54,14 +55,18 @@ async function linkedSession(ctx,db=pool,lock=false) {
  return row||null;
 }
 function requireOpen(ctx) {
+ if(!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(ctx.appointment.modality).toUpperCase()))throw fail(409,'This is an in-person appointment. Open its learning workspace from your calendar.');
  const window=bookedTutoringWindow(ctx.appointment);
  if (terminal.has(ctx.appointment.status)) throw fail(409,'This appointment was canceled or changed. Open the current booking from your calendar.');
  if (!window.available) throw fail(409,`This session opens at ${window.opensAt} and closes at ${window.closesAt}.`);
  if (ctx.appointment.status==='completed') throw fail(410,'This tutoring session has ended.');
 }
 async function lockAppointment(ctx,db) {
- const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
+ const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id,start_at,end_at,modality,service_code,business_type FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
  if (!current || Number(current.provider_user_id)!==Number(ctx.appointment.providerUserId)||Number(current.agency_id)!==Number(ctx.appointment.agencyId)) throw fail(409,'The tutor assignment changed. Reopen the appointment.');
+ if((current.start_at&&utcMysqlToIso(current.start_at)!==utcMysqlToIso(ctx.appointment.startAt))||(current.end_at&&utcMysqlToIso(current.end_at)!==utcMysqlToIso(ctx.appointment.endAt)))throw fail(409,'This appointment was rescheduled. Reopen the current booking from your calendar.');
+ if(current.service_code&&current.service_code!=='TUTORING')throw fail(409,'This appointment service changed. Reopen the current booking.');
+ if(current.modality&&current.modality!==ctx.appointment.modality)throw fail(409,'This appointment format changed. Reopen the current booking.');
  ctx.appointment={...ctx.appointment,status:current.status};
 }
 const audit=(ctx,session,action,details,db)=>clinicalAudit({kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,role:ctx.host?'provider':'client',actor:ctx.actor,req:ctx.req},action,{appointmentId:ctx.appointment.id,...details},db);
