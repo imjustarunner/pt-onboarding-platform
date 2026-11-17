@@ -1,5 +1,7 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import mysql from 'mysql2/promise';
+import {readFileSync} from 'node:fs';
+import {hasPortalMigrationEnrollment} from '../portalMigrationEnrollment.service.js';
 import {readDirectoryPage} from '../../utils/clientDirectoryPage.js';
 import {providerScheduleWindowQuery} from '../../utils/providerScheduleWindowQuery.js';
 import {firstLoginDedupSql} from '../../utils/notificationFirstLoginDedup.js';
@@ -58,4 +60,14 @@ it.skipIf(!enabled)('uses the chart setup evidence for Needs in MySQL, including
  expect((await clientChartSetupNeeds([102],{db,clinicalDb:db})).get(102)).toBe(true);
  await db.execute("UPDATE clinical_treatment_plans SET status='draft',title='Imported Treatment Plan',source_tool_id='client_records_import:synthetic' WHERE client_id=102");
  expect((await clientChartSetupNeeds([102],{db,clinicalDb:db})).get(102)).toBe(false);
+});
+
+it.skipIf(!enabled)('reads transition enrollment using the actual composite-key schema, without inventing an id column',async()=>{
+ const migration=readFileSync(new URL('../../../../database/migrations/1674_portal_migration_benefit_notices.sql',import.meta.url),'utf8');
+ const ddl=migration.match(/CREATE TABLE IF NOT EXISTS family_portal_migration_enrollments\s*\([\s\S]*?\);/)[0];
+ await db.query(ddl);
+ expect(await hasPortalMigrationEnrollment({agencyId:2,clientId:101,guardianUserId:20},db)).toBe(false);
+ await db.execute("INSERT INTO family_portal_migration_enrollments(agency_id,client_id,guardian_user_id,cohort_label,created_by_user_id) VALUES(2,101,20,'Synthetic transition',10)");
+ expect(await hasPortalMigrationEnrollment({agencyId:2,clientId:101,guardianUserId:20},db)).toBe(true);
+ for(const scope of [{agencyId:9,clientId:101,guardianUserId:20},{agencyId:2,clientId:102,guardianUserId:20},{agencyId:2,clientId:101,guardianUserId:21}])expect(await hasPortalMigrationEnrollment(scope,db)).toBe(false);
 });

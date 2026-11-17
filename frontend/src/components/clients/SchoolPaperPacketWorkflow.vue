@@ -20,11 +20,13 @@
         <PaperPacketEnglishEntry :reading="packetReading" :stage="stage" v-model:answers="englishAnswers" v-model:reviewed="englishResponsesReviewed" :disabled="busy || !!state.processedAt" @use-details="useEnglishDetails" @use-parent="useEnglishParent" />
         <p class="muted">Steps open in order after Save and continue. Missing information stays pending for follow-up; moving between saved steps does not change the packet.</p>
         <template v-if="state.processedAt && stage === 6">
-          <h4>Paper packet processed</h4><p>The uploaded school ROI and packet consent remain the signature evidence. Review portal invitations below.</p><p v-if="state.insuranceSubmission?.status !== 'not_required'">Insurance was submitted for automatic checks and billing follow-up. Billing handles missing details and coverage issues.</p>
+          <h4>Paper packet processed</h4><p role="status">Paper packet review is complete. Provider assignments, billing follow-up, portal invitations and unsigned portal forms remain separate pending actions on the client profile.</p>
+          <button type="button" class="btn btn-primary" :disabled="busy" @click="finishSavedReview">Finish paper packet review</button>
+          <p>The uploaded school ROI and packet consent remain the signature evidence.</p><p v-if="state.insuranceSubmission?.status !== 'not_required'">Insurance was submitted for automatic checks and billing follow-up. Billing handles missing details and coverage issues.</p>
           <ul><li v-for="(delivery, id) in state.invitations" :key="id">{{ guardianLabel(id) }}: <strong>{{ delivery.status }}</strong><span v-if="delivery.reason"> — {{ delivery.reason }}</span><span v-if="delivery.communicationId"> · Delivery record {{ delivery.communicationId }}</span><span v-if="delivery.attemptedAt"> · {{ new Date(delivery.attemptedAt).toLocaleString() }}</span><span v-if="delivery.status === 'redirected'"> · Sent to the configured test destination; guardian inbox receipt is not confirmed.</span></li></ul>
           <button v-if="hasFailedInvitation" type="button" class="btn btn-primary" :disabled="busy" @click="finish">Retry failed invitations</button>
           <p>Provider assignment and service readiness continue in Client actions.</p>
-          <ClientTransitionInvitation :client-id="clientId" :agency-id="context.client.agency_id" :refresh-key="state.processedAt" />
+          <details class="paper-optional-invitation"><summary>Optional: portal invitation and forms</summary><ClientTransitionInvitation :client-id="clientId" :agency-id="context.client.agency_id" :refresh-key="state.processedAt" /></details>
         </template>
         <div v-else>
           <h4>{{ stage + 1 }}. {{ labels[stage] }}</h4>
@@ -100,7 +102,7 @@
             </template>
             <template v-else><p><strong>{{ context.client.full_name }}</strong> · {{ context.schoolName }}</p><p>Source: {{ selectedDocument?.original_name || 'Uploaded packet' }} · Version {{ state.consentReview?.versionLabel || context.packetRead?.versionLabel || 'Not identified' }}</p><ul><li v-for="id in [state.guardian1Id,state.guardian2Id].filter(Boolean)" :key="id">{{ guardianLabel(id) }} · {{ guardianContact(id) }} — own portal invitation</li></ul><p>Shared custody: {{ state.sharedCustody }}. Insurance: {{ insuranceTypes.find(type => Number(type.id) === Number(insuranceTypeId))?.label || 'Review required' }}.</p><template v-if="state.consentReview?.kind === 'human_source_review'"><p v-for="kind in ['roi','disclosure']" :key="kind">{{ kind === 'roi' ? 'ROI' : 'Disclosure' }}: {{ state.consentReview[kind].signerName }} · {{ state.consentReview[kind].signedDate }} · PDF page {{ state.consentReview[kind].page }}</p></template><ul v-if="state.consentReview?.staffSelections"><li v-for="staff in state.consentReview.staffSelections" :key="staff.schoolStaffUserId">{{ staff.name || `Staff #${staff.schoolStaffUserId}` }}: {{ staff.state }}</li></ul><p>Paper consents and release selections were reviewed. Mark this packet processed, then review and send the portal invitation from Portal.</p></template>
           </fieldset>
-          <div v-if="!state.processedAt" class="paper-actions"><button v-if="stage > 0" type="button" class="btn btn-secondary" :disabled="busy" @click="stage--">Back</button><button type="button" class="btn btn-primary" :disabled="busy || (stage === 6 && !packetMatched)" @click="next">{{ busy ? 'Saving…' : stage === 6 ? 'Mark packet processed' : 'Save and continue' }}</button></div>
+          <div v-if="!state.processedAt" class="paper-actions"><button v-if="stage > 0" type="button" class="btn btn-secondary" :disabled="busy" @click="stage--">Back</button><button type="button" class="btn btn-primary" :disabled="busy || (stage === 6 && !packetMatched)" @click="next">{{ busy ? 'Saving…' : stage === 6 ? 'Finish paper packet review' : 'Save and continue' }}</button></div>
         </div>
       </div>
       <aside class="paper-source" aria-label="Uploaded paper packet">
@@ -281,7 +283,7 @@ async function next(){
   }
   if(state.value.processedAt)return;
   clearTimeout(draftTimer);await draftQueue.catch(()=>{});draftDirty=false;
-  if(stage.value===6)return finish();const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
+  if(stage.value===6)return finish({closeAfter:true});const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
   let data={};
   if(stage.value===0)data={...demographics,documentId:Number(documentId.value),...(packetReading.value?.responses.length?{englishResponses:{snapshotId:packetReading.value.snapshotId,reviewed:englishResponsesReviewed.value,answers:englishAnswers.value}}:{})};
   if(stage.value===1||stage.value===2)data=stage.value===2?(secondNotListed.value?{notListed:true}:!secondPortalAccount.value?{contactOnly:true}:await connectGuardian(1)):await connectGuardian(0);
@@ -299,10 +301,11 @@ async function next(){
   if(stage.value===0)context.value.client.full_name=`${demographics.firstName} ${demographics.lastName}`;
   stage.value++;await refreshPacketRead();
 }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||e.message||'Unable to save this step.';}finally{if(generation===contextGeneration)busy.value=false;}}
-async function finish(){const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
+async function finish({closeAfter=false}={}){const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
  if(!state.value.processedAt&&!packetMatched.value)throw new Error('The paper consent evidence needs review before finishing.');
- const{data}=await api.post(`${url}/complete`,{signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value,sendInvitations:false});if(disposed||generation!==contextGeneration)return;state.value=data.state;stage.value=6;emit('processed',data.state);
+ const{data}=await api.post(`${url}/complete`,{signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value,sendInvitations:false});if(disposed||generation!==contextGeneration)return;state.value=data.state;stage.value=6;emit('processed',data.state);if(closeAfter)emit('close');
  }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||e.message||'Unable to complete processing.';}finally{if(generation===contextGeneration)busy.value=false;}}
+function finishSavedReview(){if(busy.value||!state.value.processedAt)return;emit('processed',state.value);emit('close');}
 
 function snapshot(){return {documentId:Number(documentId.value),evaluationId:context.value?.packetRead?.id||null,stage:stage.value,demographics:{...demographics},demographicBaseline:demographicBaseline.value?{...demographicBaseline.value}:null,guardianForms:JSON.parse(JSON.stringify(guardianForms)),secondNotListed:secondNotListed.value,secondPortalAccount:secondPortalAccount.value,schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value,insuranceTypeId:insuranceTypeId.value,humanEvidence:JSON.parse(JSON.stringify(humanEvidence)),...(packetReading.value?.responses.length?{englishAnswers:JSON.parse(JSON.stringify(englishAnswers.value)),englishResponsesReviewed:englishResponsesReviewed.value,englishReadingSnapshot:packetReading.value.snapshotId}:{})};}
 async function saveWorkingDraft(){

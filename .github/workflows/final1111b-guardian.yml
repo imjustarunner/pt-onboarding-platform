@@ -130,6 +130,7 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.client-management-needs.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.paper-followup.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.chart-import.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.client-transition-settings.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.chart-import.config.js
           cd frontend
           node node_modules/vitest/vitest.mjs run --config vite.config.js src/views/__tests__/hire.setup.test.js src/components/admin/clientChart/__tests__/ClientRecordsCreateModal.test.js

@@ -14,6 +14,7 @@ import { createPaymentTask } from './familyLedger/tasks.js';
 import { clientUpdatesEnabled, createClientUpdate, assignClientUpdateToPortal,assignSmartDisclosureToPortal } from './clientUpdate.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
 import {getClientDisclosureStatus,buildSmartDisclosureContext} from './smartDisclosure.service.js';
+import {hasPortalMigrationEnrollment} from './portalMigrationEnrollment.service.js';
 
 const cohortLabel=clientId=>`Client transition ${Number(clientId)}`;
 const kindForName=name=>/disclosure|divulgaci[oó]n/i.test(name)?'disclosure':/school.*(roi|release)|roi.*school|autorizaci[oó]n.*escuel/i.test(name)?'school_roi':null;
@@ -70,7 +71,7 @@ export async function previewClientTransitionInvitation({actor,agencyId,clientId
     }
     for(const item of assigned.filter(item=>!billingOnly&&item.item_type==='document'))if(!documents.some(doc=>doc.title===item.title||kindForName(item.title)===doc.kind))documents.push({kind:'document',title:item.title,assigned:true,available:transitionLanguage(item.language_code)===language,language:transitionLanguage(item.language_code)});
     const [tasks]=await pool.execute("SELECT id,status FROM family_billing_tasks WHERE agency_id=? AND guardian_user_id=? AND (status='completed' OR (status='pending' AND expires_at>UTC_TIMESTAMP())) AND JSON_CONTAINS(client_ids_json,CAST(? AS JSON)) ORDER BY id DESC",[agencyId,recipient.guardianUserId,JSON.stringify(Number(clientId))]);
-    const [[enrollment]]=await pool.execute('SELECT id FROM family_portal_migration_enrollments WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,recipient.guardianUserId]);
+    const enrollment=await hasPortalMigrationEnrollment({agencyId,clientId,guardianUserId:recipient.guardianUserId});
     const forms=[{kind:'notifications',title:language==='es'?'Preferencias de comunicación':'Communication preferences',assigned:!!enrollment,available:true},...documents];
     if(coverageKnown&&!medicaid)forms.push({kind:'payment_authorization',title:language==='es'?'Autorización de pago y tarjeta':'Payment authorization and card setup',assigned:!!tasks.length,available:true,taskId:tasks[0]?.id||null});
     const portal=await resolveClientPortalContext(client),portalUrl=portalUrlWithLocale(clientPortalAppUrl(portal.portal,'guardian'),language);

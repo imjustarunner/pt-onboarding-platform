@@ -20,7 +20,8 @@
         <ReferralUpload v-if="paperUploadOpen" :organization-slug="checklist.client.organization_slug" :existing-client-id="Number(clientId)" @close="paperUploadOpen=false" @submitted="paperUploadOpen=false; load()" />
       </div>
       <div v-if="checklist.is_paper_packet && !readonly && effectiveCanEditDocs" class="ob-paper-processing">
-        <button v-if="!paperWorkflowOpen" type="button" class="btn btn-primary" @click="paperWorkflowOpen=true">Process paper packet step by step</button>
+        <p v-if="!paperWorkflowOpen && checklist.paper_packet_processed_at" role="status">Paper packet review complete. Remaining profile actions are listed below.</p>
+        <button v-if="!paperWorkflowOpen" type="button" class="btn btn-primary" @click="paperWorkflowOpen=true">{{ checklist.paper_packet_processed_at ? 'View completed paper packet review' : 'Process paper packet step by step' }}</button>
         <SchoolPaperPacketWorkflow v-else :key="clientId" :client-id="clientId" @close="paperWorkflowOpen=false" @processed="load" />
       </div>
       <header v-if="variant === 'workspace'" class="ob-hero" :class="checklist.client_type === 'school' ? 'is-school' : 'is-office'">

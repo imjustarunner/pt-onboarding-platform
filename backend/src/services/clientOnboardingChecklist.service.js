@@ -217,6 +217,10 @@ export async function getClientOnboardingChecklist(clientId) {
 
   const school = isSchoolClient(client);
   const paperPacket = isPaperPacketClient(client);
+  let packetMetadata={};
+  try{packetMetadata=typeof client.onboarding_docs_json==='string'?JSON.parse(client.onboarding_docs_json):client.onboarding_docs_json||{};}catch{}
+  const processing=(packetMetadata||{}).paperProcessing;
+  const packetProcessedAt=paperPacket&&processing?.processedAt&&Number(processing.documentId)>0&&Number(processing.documentId)===Number(packetMetadata.paperPacketSource?.documentId||processing.documentId)?processing.processedAt:null;
   const documentItems = paperPacket ? loadOnboardingPacketDocuments(client) : [];
   const packetSignature = paperPacket ? buildPacketSignatureSummary(documentItems) : null;
   const roiDoc = documentItems.find((d) => d.key === 'roi') || null;
@@ -420,6 +424,7 @@ export async function getClientOnboardingChecklist(clientId) {
     client_id: cid,
     client_type: school ? 'school' : 'office',
     is_paper_packet: paperPacket,
+    paper_packet_processed_at: packetProcessedAt,
     intake_source: client.source || null,
     phase,
     status_key: statusKey || null,
