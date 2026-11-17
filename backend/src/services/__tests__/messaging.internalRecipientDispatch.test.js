@@ -3,6 +3,9 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTa
 vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 8, agency_id: 2, from_email: 'messages@itsco.health' })) } }));
 vi.mock('../managedWorkspaceGroupAccess.service.js', () => ({ managedGroupEnvelope: vi.fn(async args => args) }));
 vi.mock('../unifiedEmail/gmailClient.js', () => ({ getGmailClient: vi.fn(), getImpersonatedUser: () => 'automation@example.org' }));
+vi.mock('../emailSettings.service.js', () => ({ getEmailSendingMode: async () => 'all', isEmailNotificationsEnabled: async () => true, emailRequiresAdminApproval: async () => false }));
+vi.mock('../routineParentEmailPause.service.js', () => ({ routineParentEmailGate: vi.fn(async () => ({ allowed: true })) }));
+vi.mock('../emailComplianceFooter.service.js', () => ({ assertRecipientAllowsEmail: vi.fn(async () => ({ allowed: true })), appendComplianceFooter: vi.fn() }));
 import pool from '../../config/database.js';
 import { getGmailClient } from '../unifiedEmail/gmailClient.js';
 import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';

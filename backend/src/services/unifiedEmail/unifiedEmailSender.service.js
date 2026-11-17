@@ -1062,9 +1062,8 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const checkManualRecipients = source === 'manual' && !!identity.agency_id;
   await guardSessionCommentNotice({ templateType, userId, agencyId:identity.agency_id, to, cc, bcc, communicationId:existingCommunicationId });
-  // Recheck at dispatch, including queued sends and callers outside the composer.
-  if (source === 'manual' && identity.agency_id) await assertInternalEmailRecipients({agencyId:identity.agency_id,to,cc,bcc});
   await assertPeopleOperationsSubmissionRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   await assertApplicantAdminNotice({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
@@ -1208,6 +1207,10 @@ export async function sendEmailFromIdentity({
     });
     return { skipped: true, reason: optGate.reason };
   }
+
+  // Preserve pause, privacy and opt-out gates before rechecking actual dispatch.
+  // This also covers queued sends and callers outside the composer.
+  if (checkManualRecipients) await assertInternalEmailRecipients({agencyId:identity.agency_id,to,cc,bcc});
 
   const overrideName = String(fromDisplayNameOverride || '').trim();
   const effectiveDisplayName = isPortalIdentity(identity) ? portalSenderName(identity) : overrideName || identity.display_name;
