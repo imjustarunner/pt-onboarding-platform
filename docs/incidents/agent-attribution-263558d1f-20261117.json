@@ -1,0 +1,15 @@
+{
+  "annotationType": "append_only_agent_attribution_correction",
+  "date": "2026-11-17",
+  "commit": "263558d1f216ffafd14a3b29cc5a23409a44b4e4",
+  "actualActor": {
+    "kind": "automation",
+    "name": "Codex"
+  },
+  "operation": "Merged origin/main into the client records and paper packet release branch, preserving the concurrent tutoring release, then pushed the merge to main.",
+  "observedIssue": "The merge command inherited the repository default human Git author and committer metadata. The merge was performed by Codex, not by the human identified in that inherited Git metadata.",
+  "originalCommitPreserved": true,
+  "historyRewritten": false,
+  "applicationIdentityUsed": false,
+  "applicationAuditActorChanged": false
+}
