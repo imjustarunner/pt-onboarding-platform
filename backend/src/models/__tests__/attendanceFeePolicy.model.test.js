@@ -3,7 +3,7 @@ const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:m}));
 import Policy from '../BookingCancellationPolicy.model.js';
 beforeEach(()=>vi.resetAllMocks());
-it.each([{lateFeeCents:-1},{noShowFeeCents:1.5},{providerCategory:5},{providerLevel:0},{customerTierId:'L6'},{noShowUndoAfterEndMinutes:-1},{scopeLevel:'payer'},{scopeLevel:'service'},{scopeLevel:'package'}])('rejects invalid fee rules before persistence: %j',patch=>{
+it.each([{lateFeeCents:-1},{noShowFeeCents:1.5},{providerCategory:5},{providerLevel:0},{customerTierId:'L6'},{noShowUndoAfterEndMinutes:-1},{scopeLevel:'payer'},{scopeLevel:'service'},{scopeLevel:'package'},{scopeLevel:'rate_category',customerTierId:'L1'}])('rejects invalid fee rules before persistence: %j',patch=>{
  expect(()=>Policy.normalizePayload({name:'QA rule',...patch},453)).toThrow();expect(m.execute).not.toHaveBeenCalled();
 });
 it('keeps platform defaults global without converting NULL agency into zero',async()=>{

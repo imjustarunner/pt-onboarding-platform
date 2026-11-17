@@ -108,7 +108,7 @@ class BookingCancellationPolicy {
     if(scopeLevel==='payer'&&!payerType)throw Object.assign(new Error('Choose the payer / funding type for this policy.'),{status:400});
     if(scopeLevel==='service'&&!Number(body.tenantServiceId??body.tenant_service_id))throw Object.assign(new Error('Choose the specific service for this policy.'),{status:400});
     if(scopeLevel==='package'&&!Number(body.bookingPackageId??body.booking_package_id))throw Object.assign(new Error('Choose the package for this policy.'),{status:400});
-    if(scopeLevel==='rate_category'&&!providerCategory&&!customerTierId)throw Object.assign(new Error('Choose the category or customer tier for this policy.'),{status:400});
+    if(scopeLevel==='rate_category'&&!providerCategory)throw Object.assign(new Error('Choose the employee’s NLU category (1–4) for this policy.'),{status:400});
     const suggested=body.noShowSuggestedWaitMinutes??15,undo=body.noShowUndoAfterEndMinutes??10;
     if(!Number.isInteger(Number(suggested))||Number(suggested)<0||Number(suggested)>120||!Number.isInteger(Number(undo))||Number(undo)<0||Number(undo)>1440)throw Object.assign(new Error('Use a suggested wait of 0–120 minutes and an undo / notice delay of 0–1440 minutes.'),{status:400});
     return {
