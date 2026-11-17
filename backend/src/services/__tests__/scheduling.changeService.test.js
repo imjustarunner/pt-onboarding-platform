@@ -5,7 +5,12 @@ vi.mock('../../models/BookingPackage.model.js', () => ({ default: { applyAppoint
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../../models/ClientMedicaidAttendanceStrike.model.js', () => ({ default: {} }));
 vi.mock('../appointment.service.js', () => ({ getAppointmentBundle: vi.fn(), updateAppointment: vi.fn() }));
-vi.mock('../appointmentChangeWorkflow.service.js', () => ({ runSignedAppointmentChange: vi.fn() }));
+vi.mock('../appointmentChangeWorkflow.service.js', () => ({ runSignedAppointmentChange: vi.fn(),getAppointmentChangeWorkflow:vi.fn(async()=>({result:{sessionNotes:[]}})) }));
+vi.mock('../appointmentNoShowReview.service.js',()=>({declareAppointmentNoShow:vi.fn(async appointment=>({id:1,appointmentId:appointment.id,state:'pending',undoUntil:new Date(+new Date(appointment.endAt.includes('T')?appointment.endAt:appointment.endAt.replace(' ','T')+'Z')+600000).toISOString()}))}));
+vi.mock('../familyLedger/copayAttendance.js',()=>({suppressAppointmentAttendanceCopays:vi.fn(),completeAppointmentAttendanceDocumentation:vi.fn()}));
+vi.mock('../appointmentChangeNote.service.js',()=>({blockAppointmentChangeClaims:vi.fn()}));
+vi.mock('../appointmentWaiver.service.js',()=>({queueAppointmentWaiver:vi.fn()}));
+vi.mock('../appointmentCancellationNotification.service.js',async original=>({...await original(),notifyAppointmentCancellation:vi.fn(async()=>({sent:0,pending:1}))}));
 vi.mock('../appointmentCalendarMaintenance.service.js', () => ({ releaseAppointmentCalendar: vi.fn() }));
 vi.mock('../appointmentReminder.service.js', () => ({ cancelPendingReminders: vi.fn() }));
 vi.mock('../bookingCancellationPolicy.service.js', () => ({ evaluateCancel: vi.fn() }));
@@ -20,7 +25,7 @@ import { runSignedAppointmentChange } from '../appointmentChangeWorkflow.service
 import { releaseAppointmentCalendar } from '../appointmentCalendarMaintenance.service.js';
 import { evaluateCancel } from '../bookingCancellationPolicy.service.js';
 import { applyMissedSessionPolicy } from '../practitionerPackage.service.js';
-import { previewAppointmentChange, completeAppointmentChange } from '../appointmentChange.service.js';
+import { previewAppointmentChange, completeAppointmentChange,finalizeAppointmentNoShow } from '../appointmentChange.service.js';
 const actor = { actorUserId: 9, actorRole: 'provider' };
 const canceled = { eventType: 'canceled', clientId: 3, initiator: 'client', reasons: ['illness'], clientFacingReason: 'Requested cancellation due to illness.', signatureConfirmed: true };
 let appointment, packageRow;
@@ -114,12 +119,16 @@ describe('appointment change consequences and completion', () => {
     await expect(completeAppointmentChange(1, { ...canceled, clientFacingReason: '', reasonOther: 'Private medical details' }, actor)).rejects.toThrow('share with the client');
     expect(runSignedAppointmentChange).not.toHaveBeenCalled();
   });
-  it('forfeits a selected booking package once without invoking automatic settlement too', async () => {
+  it('defers a selected package until finalization, then forfeits it once through the existing settlement path', async () => {
     appointment.packageEntitlementId = 7; appointment.clinicalSessionId = null; packageRow = { id: 7, sessions_remaining: 5 };
-    await completeAppointmentChange(1, { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] }, actor);
+    const facts={ ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] };
+    const preview=await previewAppointmentChange(1,facts,actor);
+    const declaration=await completeAppointmentChange(1,facts,actor);
+    expect(declaration.noShowReview.state).toBe('pending');expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();expect(updateAppointment).not.toHaveBeenCalled();
+    await finalizeAppointmentNoShow({...appointment,status:'no_show_pending'},{facts,preview},{declared_by_user_id:9});
     expect(BookingPackage.applyAppointmentUsage).toHaveBeenCalledOnce();
     expect(BookingPackage.applyAppointmentUsage).toHaveBeenCalledWith(expect.objectContaining({ mode: 'forfeit' }));
-    expect(updateAppointment).toHaveBeenCalledWith(1, expect.anything(), { actorUserId: 9, settleOutcome: false });
+    expect(updateAppointment).toHaveBeenCalledWith(1, expect.anything(), { actorUserId: null, settleOutcome: false,allowPendingNoShow:true });
     expect(applyMissedSessionPolicy).not.toHaveBeenCalled();
   });
   it('applies the existing practitioner free-miss policy to the same entitlement', async () => {
@@ -155,7 +164,8 @@ it('retains notifications for a new signed ended no-show but keeps past cancella
   await completeAppointmentChange(1, canceled, actor);
   expect(runSignedAppointmentChange.mock.calls[1][1]).toMatchObject({ notificationMode: 'none', suppressionReason: 'Retrospective record correction.' });
 });
-it('rejects a no-show while the session is still in progress', async () => {
+it('records a started appointment as pending before its scheduled end without applying a fee', async () => {
   appointment.endAt = new Date(Date.now() + 60000).toISOString();
-  await expect(completeAppointmentChange(1, { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] }, actor)).rejects.toThrow('scheduled end');
+  const result=await completeAppointmentChange(1, { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] }, actor);
+  expect(result.noShowReview.state).toBe('pending');expect(Appointment.upsertBilling).not.toHaveBeenCalled();expect(updateAppointment).not.toHaveBeenCalled();
 });

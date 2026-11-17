@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../appointmentNoShowReview.service.js',()=>({processDueAppointmentNoShows:vi.fn(async()=>[])}));
+import {processDueAppointmentNoShows} from '../appointmentNoShowReview.service.js';
 vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:vi.fn(async()=>({agency_id:2})),requireGuardianCancellation:vi.fn(async()=>({agency_id:2}))}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), query:vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn(), listParticipants: vi.fn(), update: vi.fn(), mapRow: r => r } }));
@@ -240,4 +242,11 @@ it('sends a single reminder when two guardians share the same destination',async
  const sms=plan.deliveries.filter(d=>d.channel==='sms');
  expect(sms.length).toBeGreaterThan(0);
  expect(new Set(sms.map(d=>d.recipientGuardianUserId)).size).toBe(1);
+});
+
+it('reports incomplete no-show coverage without stopping unrelated reminder queues',async()=>{
+ processDueAppointmentNoShows.mockRejectedValueOnce(Object.assign(new Error('Source unavailable'),{code:'ER_NO_SUCH_TABLE'}));
+ const result=await processDueSessionNotifications();
+ expect(result.noShowReviews).toEqual({failed:1,coverage:'incomplete',code:'NO_SHOW_SOURCE_UNAVAILABLE'});
+ expect(result).toHaveProperty('scheduleUpdates');
 });

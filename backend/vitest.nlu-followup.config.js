@@ -11,6 +11,8 @@ export default {...base,test:{...base.test,testTimeout:120000,hookTimeout:120000
  'src/models/__tests__/attendanceFeePolicy.model.test.js',
  'src/services/__tests__/bookingCancellationPolicy.service.test.js',
  'src/services/__tests__/scheduling.changeWorkflow.test.js',
+ 'src/services/__tests__/scheduling.changeService.test.js',
+ 'src/services/__tests__/schoolAppointmentNotifications.test.js',
  'src/services/__tests__/scheduling.replacementRooms.test.js',
  'src/services/__tests__/scheduling.officeRequestEmails.test.js',
  'src/services/__tests__/familyBillingPolicy.test.js',
