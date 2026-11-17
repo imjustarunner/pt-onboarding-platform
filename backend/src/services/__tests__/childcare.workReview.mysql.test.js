@@ -5,8 +5,8 @@ vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:async(uid,ai
 // The isolated SQL fixture supplies approved synthetic rate schedules; it creates no signed live agreement.
 vi.mock('../employmentAgreementPolicy.service.js',()=>({effectiveCompensationAgreement:async({userId})=>({id:100+Number(userId),effectiveOn:'2026-01-01',data:{schedule:{nluCompensationPolicyVersion:'nlu-four-category-2026-11-21',category:2,childcareLevel:3,childcareRatesByBand:Number(userId)===7?{1:26,2:31,3:35,4:39}:{1:22,2:26,3:28,4:30}}}}),agreementRateProfile:(_,agreement)=>agreement.data.schedule}));
 import{recordChildcareAction,childcareWorkReview,previewChildcarePay,getChildcareShift,childcareContext,listChildcareShifts}from'../childcare.service.js';import{childcareClaimAmount}from'../childcarePay.service.js';import PayrollTimeClaim from '../../models/PayrollTimeClaim.model.js';
-const socket=process.env.EVIDENCE_TEST_SOCKET,schema='childcare_review_'+crypto.randomBytes(5).toString('hex');let admin;
-beforeAll(async()=>{if(!socket)return;admin=await mysql.createConnection({socketPath:socket,user:'root',multipleStatements:true});await admin.query(`CREATE DATABASE ${schema}`);state.db=mysql.createPool({socketPath:socket,user:'root',database:schema,timezone:'Z',dateStrings:true,multipleStatements:true,connectionLimit:6});await state.db.query(`
+const socket=process.env.EVIDENCE_TEST_SOCKET,proxy=process.env.CHILDCARE_MYSQL_TESTS==='1'&&process.env.DB_HOST==='127.0.0.1'&&process.env.DB_NAME==='onboarding_stage',enabled=!!socket||proxy,connection=socket?{socketPath:socket,user:'root'}:{host:'127.0.0.1',port:Number(process.env.DB_PORT||3307),user:process.env.DB_USER,password:process.env.DB_PASSWORD},schema='childcare_review_'+crypto.randomBytes(5).toString('hex');let admin;
+beforeAll(async()=>{if(!enabled)return;admin=await mysql.createConnection({...connection,multipleStatements:true});await admin.query(`CREATE DATABASE ${schema}`);state.db=mysql.createPool({...connection,database:schema,timezone:'Z',dateStrings:true,multipleStatements:true,connectionLimit:6});await state.db.query(`
 CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(200),slug VARCHAR(100),feature_flags JSON,is_active INT DEFAULT 1,is_archived INT DEFAULT 0);
 CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(32),status VARCHAR(32) DEFAULT 'ACTIVE_EMPLOYEE',is_active INT DEFAULT 1,is_archived INT DEFAULT 0,is_assistant_account INT DEFAULT 0,terminated_at DATETIME NULL,first_name VARCHAR(50),last_name VARCHAR(50),email VARCHAR(255));
 CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active INT DEFAULT 1,role VARCHAR(32));
@@ -26,7 +26,7 @@ INSERT INTO company_event_provider_assignments(company_event_id,provider_user_id
  await state.db.query("INSERT INTO childcare_shifts(id,agency_id,company_event_id,planned_children,minimum_hourly_rate,wage_floor_jurisdiction,created_by_user_id) VALUES(8,453,80,3,19.29,'Synthetic test jurisdiction',1)");
 },30000);
 afterAll(async()=>{if(state.db)await state.db.end();if(admin){await admin.query(`DROP DATABASE ${schema}`);await admin.end();}});
-it.skipIf(!socket)('keeps co-caregiver actual intervals, count changes, separate approval and corrected time consistent in real SQL',async()=>{
+it.skipIf(!enabled)('keeps co-caregiver actual intervals, count changes, separate approval and corrected time consistent in real SQL',async()=>{
  const action=(userId,kind,actualChildren,at)=>recordChildcareAction({shiftId:8,userId,action:kind,actualChildren,idempotencyKey:kind+'-'+userId+'-'+at,now:new Date(at)});
  await action(7,'clock-in',3,'2026-11-01T17:00:00Z');await action(8,'clock-in',3,'2026-11-01T17:30:00Z');await action(7,'attendance',5,'2026-11-01T18:00:00Z');await action(7,'clock-out',5,'2026-11-01T20:00:00Z');await action(8,'clock-out',5,'2026-11-01T20:00:00Z');
  const payA=await previewChildcarePay({shiftId:8,userId:7}),payB=await previewChildcarePay({shiftId:8,userId:8});expect(payA).toMatchObject({totalMinutes:180,totalAmount:103,claimStatus:'deferred'});expect(payB).toMatchObject({totalMinutes:150,totalAmount:69,claimStatus:'deferred'});
@@ -50,13 +50,13 @@ it.skipIf(!socket)('keeps co-caregiver actual intervals, count changes, separate
  const [[audit]]=await state.db.query("SELECT COUNT(*) total FROM user_activity_log WHERE action_type='childcare_work_submitted'");expect(Number(audit.total)).toBe(1);
 });
 
-it.skipIf(!socket)('supports an assigned review-only employee without granting scheduling or peer compensation',async()=>{
+it.skipIf(!enabled)('supports an assigned review-only employee without granting scheduling or peer compensation',async()=>{
  await state.db.query("INSERT INTO childcare_service_grants(agency_id,user_id,enabled,self_schedule,manage_schedule,approve_work,granted_by_user_id) VALUES(453,10,1,0,0,1,1)");
  expect(await childcareContext({agencyId:453,userId:10})).toMatchObject({canApprove:true,canManage:false,canManagePay:false,canSchedule:false});
  const data=await listChildcareShifts({agencyId:453,userId:10});expect(data.shifts).toHaveLength(1);
  await expect(previewChildcarePay({shiftId:8,userId:10,targetUserId:7})).rejects.toMatchObject({status:403});
 });
-it.skipIf(!socket)('blocks corrections overlapping an unclosed punch or another approved correction',async()=>{
+it.skipIf(!enabled)('blocks corrections overlapping an unclosed punch or another approved correction',async()=>{
  await state.db.query("INSERT INTO company_events VALUES(81,453,1,'Other synthetic shift','','2026-11-02 17:00:00','2026-11-02 19:00:00','America/Denver',NULL,1)");
  await state.db.query("INSERT INTO childcare_shifts(id,agency_id,company_event_id,planned_children,created_by_user_id) VALUES(9,453,81,3,1)");
  await state.db.query("INSERT INTO skill_builders_event_kiosk_punches(company_event_id,user_id,punch_type,punched_at) VALUES(81,7,'clock_in','2026-11-02 17:00:00')");
@@ -69,7 +69,7 @@ it.skipIf(!socket)('blocks corrections overlapping an unclosed punch or another 
  shift=(await getChildcareShift({shiftId:8,userId:1})).shift;expect(shift.timeCorrections.find(c=>c.id===correctionId).status).toBe('rejected');
 });
 
-it.skipIf(!socket)('atomically rejects payroll approval if current work signoff was invalidated after the preview',async()=>{
+it.skipIf(!enabled)('atomically rejects payroll approval if current work signoff was invalidated after the preview',async()=>{
  await state.db.query(`ALTER TABLE payroll_time_claims ADD COLUMN target_payroll_period_id INT NULL,ADD COLUMN applied_amount DECIMAL(12,2),ADD COLUMN approved_by_user_id INT NULL,ADD COLUMN approved_at DATETIME,ADD COLUMN rejection_reason TEXT,ADD COLUMN rejected_by_user_id INT NULL,ADD COLUMN rejected_at DATETIME;
  CREATE TABLE payroll_periods(id INT PRIMARY KEY,agency_id INT,status VARCHAR(32),posted_at DATETIME,finalized_at DATETIME);
  INSERT INTO payroll_periods VALUES(40,453,'draft',NULL,NULL)`);
@@ -81,7 +81,7 @@ it.skipIf(!socket)('atomically rejects payroll approval if current work signoff 
  const allowed=await PayrollTimeClaim.approve({id:claim.id,approverUserId:1,targetPayrollPeriodId:40,appliedAmount:111.75,childcareSnapshotHash:payload.childcareSnapshotHash,requireSubmitted:true,db:state.db});expect(allowed.status).toBe('approved');
 });
 
-it.skipIf(!socket)('requires review for retained unapproved drafts without changing approved or paid earnings',async()=>{
+it.skipIf(!enabled)('requires review for retained unapproved drafts without changing approved or paid earnings',async()=>{
  await state.db.query("INSERT INTO payroll_time_claims(id,agency_id,user_id,status,claim_type,payload_json,applied_amount) VALUES(901,453,7,'submitted','childcare_shift',JSON_OBJECT(),NULL),(902,453,7,'approved','childcare_shift',JSON_OBJECT(),77),(903,453,7,'paid','childcare_shift',JSON_OBJECT(),88)");
  const migration=await fs.readFile(new URL('../../../../database/migrations/1827_childcare_work_review.sql',import.meta.url),'utf8');
  await state.db.query(migration.slice(migration.indexOf('UPDATE payroll_time_claims')));
@@ -89,6 +89,6 @@ it.skipIf(!socket)('requires review for retained unapproved drafts without chang
  expect(rows.map(r=>r.status)).toEqual(['deferred','approved','paid']);expect(rows[0].payload_json).toMatchObject({childcareWorkApprovalRequired:true,childcareWorkApproved:false});expect(rows[1].applied_amount).toBe('77.00');expect(rows[2].applied_amount).toBe('88.00');
 });
 
-it.skipIf(!socket)('new childcare audit rows identify the reserved QA actor and retain action/object facts',async()=>{
+it.skipIf(!enabled)('new childcare audit rows identify the reserved QA actor and retain action/object facts',async()=>{
  await getChildcareShift({shiftId:8,userId:1496});const [[row]]=await state.db.query("SELECT metadata FROM user_activity_log WHERE user_id=1496 AND action_type='childcare_shift_viewed' ORDER BY id DESC LIMIT 1");expect(row.metadata).toMatchObject({shiftId:8,eventId:80,automationActor:{kind:'qa_automation',actorUserId:1496,qaAgencyBoundary:[453,454]}});
 });

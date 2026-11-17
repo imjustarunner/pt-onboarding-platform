@@ -33,7 +33,7 @@ import {
   getAgencyCapabilities
 } from '../controllers/bookingPackages.controller.js';
 import {
-  listCancellationPolicies,
+  cancellationPriceReference, listCancellationPolicies,
   createCancellationPolicy,
   updateCancellationPolicy,
   resolvePolicyPreview,
@@ -92,6 +92,7 @@ router.post('/agencies/:agencyId/packages/:packageId/checkout', checkoutPackage)
 router.post('/agencies/:agencyId/packages/:packageId/confirm', confirmPackageCheckout);
 router.get('/agencies/:agencyId/clients/:clientId/entitlements', listClientEntitlements);
 router.post('/agencies/:agencyId/entitlements', activateEntitlement);
+router.get('/agencies/:agencyId/cancellation-price-reference', cancellationPriceReference);
 router.get('/agencies/:agencyId/cancellation-policies', listCancellationPolicies);
 router.post('/agencies/:agencyId/cancellation-policies', createCancellationPolicy);
 router.patch('/agencies/:agencyId/cancellation-policies/:policyId', updateCancellationPolicy);

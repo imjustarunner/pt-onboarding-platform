@@ -1241,6 +1241,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   }
 
   if(!includeRelatedQueues)return results;
+  await (await import('./appointmentNoShowReview.service.js')).processDueAppointmentNoShows({limit:20,agencyId});
   // Also drain change buffer
   const bufferResult = await processDueChangeNotifications({ limit: 20, agencyId });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');

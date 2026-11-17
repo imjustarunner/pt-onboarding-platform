@@ -89,8 +89,10 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
     // Persist the decision before side effects. Retries finish the same decision and signature.
     const linked = await Appointment.findById(appointmentId);
     const {suppressAppointmentAttendanceCopays}=await import('./familyLedger/copayAttendance.js');
-    await suppressAppointmentAttendanceCopays(linked,actor.actorUserId);
-    await blockAppointmentChangeClaims(linked, workflow.facts.eventType);
+    if(workflow.facts.noShowReviewActive!==true){
+      await suppressAppointmentAttendanceCopays(linked,actor.actorUserId);
+      await blockAppointmentChangeClaims(linked, workflow.facts.eventType);
+    }
     let result = workflow.result;
     if (!result) {
       result = await applyChange(appointmentId, workflow.facts, actor, workflow.preview);
@@ -100,7 +102,7 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
     const notes = await attachAppointmentChangeNotes({ appointment: linked, narrative: result.narrative,
       eventType: workflow.facts.eventType, actorUserId: workflow.signed_by_user_id, signedAt: workflow.signed_at });
     const {completeAppointmentAttendanceDocumentation}=await import('./familyLedger/copayAttendance.js');
-    await completeAppointmentAttendanceDocumentation(linked,notes);
+    if(workflow.facts.noShowReviewActive!==true)await completeAppointmentAttendanceDocumentation(linked,notes);
     if (linked.officeEventId) {
       for (const note of notes) await ClinicalRecordRef.upsert({ agencyId: linked.agencyId, clientId: note.clientId,
         officeEventId: linked.officeEventId, clinicalSessionId: note.clinicalSessionId, recordType: 'note', clinicalRecordId: note.id });
@@ -108,7 +110,7 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
     result = { ...result, ok: true, noteId: notes[0]?.id || null, sessionNotes: notes,
       sessionNote: { appointmentId, narrative: result.narrative, signedAt: workflow.signed_at,
         signedByUserId: workflow.signed_by_user_id, isBillable: false } };
-    await queueAppointmentWaiver({ appointmentId, agencyId: linked.agencyId, facts: workflow.facts, actorUserId: workflow.signed_by_user_id }, conn);
+    if(workflow.facts.noShowReviewActive!==true)await queueAppointmentWaiver({ appointmentId, agencyId: linked.agencyId, facts: workflow.facts, actorUserId: workflow.signed_by_user_id }, conn);
     if (notifyChange) result.notificationDelivery = await notifyChange(appointmentId, workflow.facts, workflow.signed_by_user_id);
     await conn.execute("UPDATE appointment_change_workflows SET status = 'completed', result_json = ?, narrative = ? WHERE appointment_id = ?",
       [JSON.stringify(result), result.narrative, appointmentId]);

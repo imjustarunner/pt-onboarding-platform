@@ -84,7 +84,7 @@ async function prepareSession(ctx,db){
 }
 export async function tutoringRoomStatus(ctx) {
  const session=await linkedSession(ctx), window=bookedTutoringWindow(ctx.appointment);
- const safe={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,providerId:ctx.appointment.providerUserId,host:ctx.host,title:String(ctx.appointment.title||'General tutoring').replace(/\bTUTORING\b/g,'Tutoring').replace(/Clinical session/gi,'Tutoring session'),timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),...window,unavailableReason:terminal.has(ctx.appointment.status)?'This appointment was canceled or changed. Open the current booking from your calendar.':null,sessionId:session?.id||null,status:terminal.has(ctx.appointment.status)?ctx.appointment.status:session?.status||ctx.appointment.status,startedAt:utcMysqlToIso(session?.actual_started_at),endedAt:utcMysqlToIso(session?.actual_ended_at),branding:await buildPublicFormBrandingForAgencyId(ctx.appointment.agencyId)};
+ const safe={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,providerId:ctx.appointment.providerUserId,host:ctx.host,title:String(ctx.appointment.title||'General tutoring').replace(/\bTUTORING\b/g,'Tutoring').replace(/Clinical session/gi,'Tutoring session'),timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),...window,unavailableReason:terminal.has(ctx.appointment.status)?'This appointment was canceled or changed. Open the current booking from your calendar.':null,sessionId:session?.id||null,status:ctx.appointment.status==='no_show_pending'?'no_show_pending':terminal.has(ctx.appointment.status)?ctx.appointment.status:session?.status||ctx.appointment.status,startedAt:utcMysqlToIso(session?.actual_started_at),endedAt:utcMysqlToIso(session?.actual_ended_at),branding:await buildPublicFormBrandingForAgencyId(ctx.appointment.agencyId)};
  if (!session)return {...safe,visits:[],visit:null};
  const [visits]=await pool.execute(`SELECT v.id,v.user_id AS userId,v.status,v.admitted_at AS admittedAt,v.ended_at AS endedAt,v.duration_seconds AS durationSeconds,CONCAT_WS(' ',u.first_name,u.last_name) AS displayName FROM tutoring_session_visits v JOIN users u ON u.id=v.user_id WHERE v.session_id=? ${ctx.host?'':'AND v.user_id=?'} ORDER BY v.id`,ctx.host?[session.id]:[session.id,ctx.req.user.id]);
  const room=session.booked_media_id?await media.clinicalMedia(session.booked_media_id):null;
@@ -125,9 +125,10 @@ export async function joinBookedTutoringRoom(ctx) {
  });
 }
 export async function admitBookedTutoringParticipant(ctx,visitId) {
+ if(ctx.appointment.status==='no_show_pending')throw fail(409,'Undo this pending no-show before admitting a late arrival.');
  if(!ctx.host)throw fail(403,'Only the assigned tutor can admit participants.');
  return transact(async db=>{
-  await lockAppointment(ctx,db);requireOpen(ctx);
+  await lockAppointment(ctx,db);if(ctx.appointment.status==='no_show_pending')throw fail(409,'Undo this pending no-show before admitting a late arrival.');requireOpen(ctx);
   const session=await linkedSession(ctx,db,true);
   if(!session?.booked_media_id||session.status==='ended')throw fail(409,'Open this tutoring room first.');
   await media.requireMonitoredProvider(session.booked_media_id,db);

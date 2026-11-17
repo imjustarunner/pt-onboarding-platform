@@ -37,13 +37,15 @@ async function cloneDefinition(table){
 async function isolatedQuery(method,sql,params){
  if(!state.schema||!/^nlu_childcare_signed_test_\d+_\d+$/.test(state.schema))throw new Error('The owned test schema must be selected.');
  if(/\b(?:onboarding_stage|onboarding_prod)\s*\./i.test(sql))throw new Error('Application data access is prohibited in this isolated test.');
- try{return await state.connection[method](sql,params);}catch(error){
+ for(let attempt=0;attempt<20;attempt++)try{return await state.connection[method](sql,params);}catch(error){
   // Payroll probes a wide optional surface. Add only missing table definitions,
   // never rows. All statements still execute in the owned synthetic schema.
   const missing=error.code==='ER_NO_SUCH_TABLE'&&String(error.sqlMessage).match(/Table '([^']+)\.([a-z][a-z0-9_]*)' doesn't exist/);
   if(!missing||missing[1]!==state.schema)throw error;
-  await cloneDefinition(missing[2]);return state.connection[method](sql,params);
+  if(state.cloned.has(missing[2]))throw error;
+  await cloneDefinition(missing[2]);
  }
+ throw new Error('Too many optional table definitions requested by isolated payroll verification.');
 }
 async function executedFixture({userId,effectiveDate,schedule,generationId=null,mergeTokens=false,agencyId=AGENCY}){
  let taskId;
@@ -89,6 +91,12 @@ describe.runIf(process.env.CHILDCARE_SIGNED_MYSQL_TESTS==='1')('signed childcare
    await state.db.execute("INSERT INTO users(id,email,first_name,last_name,role,status,is_active) VALUES (?,?,?,?,?,'ACTIVE_EMPLOYEE',1)",[id,`synthetic-isolated-${id}@example.com`,'Synthetic',`Isolated ${id}`,role]);
    await state.db.execute('INSERT INTO user_agencies(user_id,agency_id,is_active) VALUES (?,453,1)',[id]);
   }
+  // The normal contract workflow now requires a published company handbook.
+  // Supply an explicitly synthetic handbook in this disposable schema only.
+  for(const table of ['workplace_handbook_documents','workplace_handbook_versions','workplace_handbook_sections'])await cloneDefinition(table);
+  await state.db.execute("INSERT INTO workplace_handbook_documents(id,agency_id,title,published_version_id) VALUES(1,453,'SYNTHETIC SQL QA handbook',1)");
+  await state.db.execute("INSERT INTO workplace_handbook_versions(id,document_id,agency_id,version_number,is_draft,published_at,published_by_user_id) VALUES(1,1,453,1,0,UTC_TIMESTAMP(),?)",[ADMIN]);
+  await state.db.execute("INSERT INTO workplace_handbook_sections(version_id,agency_id,sort_order,slug,title,body_html) VALUES(1,453,1,'compensation','SYNTHETIC compensation reference','<p>Isolated SQL test only. Not an employment policy.</p>')");
   const [push]=await state.db.execute("INSERT INTO provider_update_pushes(agency_id,title,status,section_config_json,created_by_user_id,amendment_plan_json) VALUES (453,?,'draft',?,?,?)",['SYNTHETIC ISOLATED COMPENSATION TEST',JSON.stringify({amendments:true}),ADMIN,JSON.stringify({mode:'compensation'})]);pushId=push.insertId;
   oldAgreementId=await executedFixture({userId:FIRST,effectiveDate:'2026-11-12',schedule:initialSchedule,mergeTokens:true});
   newAgreementId=await issueReviewedFixture(FIRST,{1:21,2:26,3:30,4:33});

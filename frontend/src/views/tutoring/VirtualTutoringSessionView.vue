@@ -4,6 +4,7 @@
   <p v-if="loading" role="status">Checking your booked session…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="refresh">Try again</button></p>
   <template v-if="state">
+   <AppointmentNoShowStatus v-if="state.host" :appointment-id="Number(state.appointmentId)" @undone="refresh" />
    <p v-if="state.unavailableReason" role="alert">{{state.unavailableReason}}</p>
    <p v-if="!state.available && !ended && !state.unavailableReason" role="status">This tutoring room opens {{ formatTime(state.opensAt) }}, 30 minutes before the appointment.</p>
    <section v-if="ended" class="room-ended"><h2>Session ended</h2><p v-if="state.endedAt">Ended {{ formatTime(state.endedAt) }}. Attendance and saved work remain linked to appointment #{{ state.appointmentId }}.</p><p v-if="billingWarning" role="status">{{ billingWarning }}</p><button v-if="state.host && state.roomState==='ending'" :disabled="busy" @click="finish">Confirm disconnection</button></section>
@@ -20,6 +21,7 @@
  </main>
 </template>
 <script setup>
+import AppointmentNoShowStatus from '../../components/schedule/AppointmentNoShowStatus.vue';
 import {ref,computed,onMounted,onBeforeUnmount} from 'vue';
 import {useRoute} from 'vue-router';
 import {useAgencyStore} from '../../store/agency';

@@ -355,6 +355,7 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 const routes = [
   { path: '/assistant-reviews', name: 'AssistantHumanReviews', component: () => import('../views/assistants/AssistantHumanReviewView.vue'), meta: { requiresAuth: true } },
   { path: '/assistant', name: 'AssistantDashboard', component: () => import('../views/assistants/AssistantDashboardView.vue'), meta: { requiresAuth: true, requiresRole: ['assistant'], assistantSurface: true } },
+  { path: '/admin/attendance-fees', name: 'PlatformAttendanceFeeDefaults', component: () => import('../views/admin/AttendanceFeeDefaultsView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
   { path: '/admin/assistant-teams', name: 'AssistantTeams', component: () => import('../views/assistants/AssistantTeamsView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
   {
     path: '/meeting-times',

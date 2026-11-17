@@ -1953,6 +1953,7 @@
             :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
             :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
         </section>
+        <AppointmentNoShowStatus v-if="Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />
         <TutoringBookedPrice v-if="editorIsLearning && Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
@@ -5990,6 +5991,7 @@ import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import TutoringSessionPrice from './TutoringSessionPrice.vue';
+import AppointmentNoShowStatus from './AppointmentNoShowStatus.vue';
 import GuardianAppointmentRequests from './GuardianAppointmentRequests.vue';
 import SecureSessionCommentButton from '../session-comments/SecureSessionCommentButton.vue';
 import { canUseSessionComments } from '../session-comments/sessionComments';
@@ -26313,7 +26315,7 @@ function sessionConfirmationState(ev = null) {
   if (!ev || !isClientSessionScheduleEvent(ev)) return null;
   if (isScheduleEventCancelled(ev)) return null;
   const st = String(ev?.appointmentStatus || ev?.appointment_status || '').trim().toLowerCase();
-  if (st === 'in_progress') return null;
+  if (st === 'in_progress' || st === 'no_show_pending') return null;
   if (st === 'client_confirmed') return 'confirmed';
   if (['completed', 'canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian',
     'canceled_by_organization', 'late_canceled', 'no_show', 'voided', 'rescheduled'].includes(st)) {

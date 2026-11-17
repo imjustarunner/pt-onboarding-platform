@@ -105,7 +105,7 @@
               </template>
 
               <template v-else-if="change.facts.eventType === 'no_show'">
-                <h4 class="acw-h4">Outreach</h4>
+                <p v-if="change.preview.value?.appointment?.noShowTiming" class="acw-info">You can undo this no-show until {{new Date(change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'})}} if the client arrives. After that time, the client will be notified and the provider will receive a copy.</p><h4 class="acw-h4">Outreach</h4>
                 <div class="acw-chips">
                   <button
                     v-for="o in OUTREACH_OPTIONS"
@@ -186,9 +186,9 @@
               <fieldset v-if="!change.retrospective?.value && ['canceled', 'rescheduled', 'no_show'].includes(change.facts.eventType)" class="acw-client-notice">
                 <legend>Client notification</legend>
                 <label class="acw-field"><span>{{ change.facts.eventType === 'no_show' ? 'Send a missed-appointment notification?' : 'Send a cancellation notification?' }}</span>
-                  <select v-model="change.facts.notificationMode" class="acw-input" @change="onNotificationModeChange">
+                  <select v-model="change.facts.notificationMode" :disabled="change.facts.eventType==='no_show'" class="acw-input" @change="onNotificationModeChange">
                     <option value="send">Send email and any permitted text notification</option>
-                    <option value="none">Do not send email or text</option>
+                    <option v-if="change.facts.eventType!=='no_show'" value="none">Do not send email or text</option>
                   </select>
                 </label>
                 <label v-if="change.facts.notificationMode === 'none'" class="acw-field"><span>Notification note (optional, internal record)</span>
@@ -487,6 +487,7 @@
 
         <p v-if="change.error.value" class="acw-error">{{ change.error.value }}</p>
 
+        <AppointmentNoShowStatus v-if="change.workflow.value?.result?.noShowReview" :appointment-id="Number(change.appointmentId.value)" />
         <footer class="acw-footer">
           <button v-if="!change.seriesOperation?.value && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
           <span v-else class="muted">{{ change.seriesOperation?.value ? 'Signed series request saved.' : change.workflow.value?.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
@@ -523,6 +524,7 @@
 const cancellationClassification = value => ({advance_cancel:'Advance cancellation',late_cancel:'Late cancellation',canceled:'Canceled',late_cancel_reschedule:'Late cancellation / reschedule'})[value] || 'Cancellation';
 const money = cents => cents == null ? 'Not set' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(Number(cents) / 100);
 import { computed, watch } from 'vue';
+import AppointmentNoShowStatus from './AppointmentNoShowStatus.vue';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import SchoolSupportCancellationBenefit from './SchoolSupportCancellationBenefit.vue';
 import {
@@ -538,6 +540,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['closed', 'completed']);
+watch(()=>props.change.facts.eventType,eventType=>{if(eventType==='no_show')props.change.facts.notificationMode='send';});
 const visibleCancelReasons = computed(() => isLearning.value ? CANCEL_REASONS.filter(reason => reason.id !== 'authorization') : CANCEL_REASONS);
 const isLearning = computed(() => String(props.change.preview.value?.appointment?.serviceCode || '').toUpperCase() === 'TUTORING' || ['learning','tutoring'].includes(props.change.preview.value?.appointment?.businessType));
 
@@ -652,6 +655,11 @@ async function onSaveDraft() {
 }
 
 async function onSign() {
+  if(props.change.facts.eventType==='no_show'&&props.change.preview.value?.appointment?.noShowTiming?.earlyConfirmationRequired&&!props.change.facts.earlyNoShowConfirmed){
+    const until=new Date(props.change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:props.change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'});
+    if(!window.confirm(`Are you sure? It is suggested that you allow the client at least ${props.change.preview.value.appointment.noShowTiming.suggestedWaitMinutes ?? 15} minutes after the scheduled start to arrive. You can undo this no-show until ${until} if they arrive. After that time, the client will be notified and you will receive a copy.`))return;
+    props.change.facts.earlyNoShowConfirmed=true;
+  }
   const result = await props.change.complete();
   if (result?.ok) {
     emit('completed', result);

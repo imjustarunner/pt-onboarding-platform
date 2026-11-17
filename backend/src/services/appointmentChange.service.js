@@ -1,4 +1,6 @@
 import { futureAppointment } from './scheduleNoticeMessage.service.js';
+import {noShowReviewTiming,noShowDeclarationNarrative} from '../utils/noShowReviewTiming.js';
+import {declareAppointmentNoShow} from './appointmentNoShowReview.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 /**
  * Appointment Change Workflow — preview consequence + assemble narrative + complete.
@@ -12,7 +14,7 @@ import Appointment from '../models/Appointment.model.js';
 import ClientMedicaidAttendanceStrike from '../models/ClientMedicaidAttendanceStrike.model.js';
 import User from '../models/User.model.js';
 import BookingPackage from '../models/BookingPackage.model.js';
-import { runSignedAppointmentChange } from './appointmentChangeWorkflow.service.js';
+import { runSignedAppointmentChange, getAppointmentChangeWorkflow } from './appointmentChangeWorkflow.service.js';
 import { releaseAppointmentCalendar } from './appointmentCalendarMaintenance.service.js';
 import { cancelPendingReminders } from './appointmentReminder.service.js';
 import { evaluateCancel } from './bookingCancellationPolicy.service.js';
@@ -774,10 +776,12 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       agencyId: bundle.agencyId,
       startAt: bundle.startAt,
       endAt: bundle.endAt,
+      sourceTimezone: bundle.sourceTimezone,
       status: bundle.status,
       title: bundle.title,
       serviceCode: bundle.serviceCode,
       businessType: bundle.businessType,
+      noShowTiming: eventType==='no_show'?noShowReviewTiming(bundle,new Date(),evaluation.policy||{}):null,
       providerUserId: bundle.providerUserId,
       providerName,
       clientId,
@@ -785,6 +789,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       clinicalSessionId: bundle.clinicalSessionId || null,
       displayWhen: formatApptWhen(bundle.startAt, bundle.sourceTimezone)
     },
+    noShowReviewNarrative:eventType==='no_show'?noShowDeclarationNarrative(bundle,noShowReviewTiming(bundle,new Date(),evaluation.policy||{})):null,
     eventType,
     classification,
     isLate: !!isLate,
@@ -802,6 +807,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       policySource: evaluation.policySource || (evaluation.policy ? 'configured_policy' : 'none'),
       lateFeeCents: Number(evaluation.policy?.lateFeeCents || 0),
       noShowFeeCents: Number(evaluation.policy?.noShowFeeCents || 0),
+      noShowSuggestedWaitMinutes:evaluation.policy?.noShowSuggestedWaitMinutes??15,noShowUndoAfterEndMinutes:evaluation.policy?.noShowUndoAfterEndMinutes??10,
       agreementStatus: 'not_verified'
     },
     payer,
@@ -825,6 +831,13 @@ async function applyAppointmentChange(
   preview
 ) {
   const eventType = preview.eventType;
+  if(eventType==='no_show'&&facts.noShowReviewActive===true&&facts.noShowReviewFinalized!==true) {
+    const appointment=await Appointment.findById(appointmentId);
+    const review=await declareAppointmentNoShow(appointment,facts,preview,actorUserId);
+    await cancelPendingReminders(appointmentId);
+    const narrative=noShowDeclarationNarrative(appointment,review,facts.additionalComments);
+    return {ok:true,appointment:await getAppointmentBundle(appointmentId),noShowReview:review,settlement:null,strike:null,billingArtifacts:null,narrative};
+  }
   const clientId = preview.appointment.clientId;
   const waiveDirect =
     preview.canWaive
@@ -849,7 +862,7 @@ async function applyAppointmentChange(
     cancellationFeeCents: noConsequence ? 0 : Number(preview.consequence.feeCents || 0),
     canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '), canceledByUserId: actorUserId,
     cancellationRecommendationJson: { workflow: 'appointment_change', preview, facts }
-  }, { actorUserId, settleOutcome: false });
+  }, { actorUserId, settleOutcome: false, allowPendingNoShow:facts.noShowReviewFinalized===true });
   if (appointment.packageEntitlementId) {
     settlement = await BookingPackage.applyAppointmentUsage({ entitlementId: appointment.packageEntitlementId,
       agencyId: appointment.agencyId, appointmentId, mode: noConsequence || preview.consequence.packageAction === 'release' ? 'release' : 'forfeit', actorUserId });
@@ -998,14 +1011,16 @@ export function validateAppointmentChangeFacts(facts, actor = {}) {
 }
 
 export async function completeAppointmentChange(appointmentId, facts = {}, actor = {}) {
+  // These flags are server-owned, never accepted as bypasses from the browser.
+  facts={...facts};delete facts.noShowReviewActive;delete facts.noShowReviewFinalized;
   if(facts.eventType!=='canceled')facts={...facts,officeReservationDisposition:null};
   const original = await Appointment.findById(appointmentId);
   // A newly signed no-show is an attendance outcome, not a historical schedule correction.
   // This server-only marker is persisted with the new signed decision; old suppressed
   // decisions keep their original facts on retry and are never retroactively released.
   const newNoShow = facts.eventType === 'no_show' && ['draft','scheduled','confirmed','client_confirmed','checked_in'].includes(original?.status);
-  facts = { ...facts, reviewedAttendanceOutcome: newNoShow };
-  if (newNoShow) facts = { ...facts, clientFacingReason: 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.', followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
+  facts = { ...facts, reviewedAttendanceOutcome: newNoShow, noShowReviewActive:newNoShow };
+  if (newNoShow) facts = { ...facts, notificationMode:'send', clientFacingReason: `This appointment was recorded as missed. Contact your ${original?.businessType==='tutoring'?'tutoring team':'provider or support team'} if this needs to be corrected.`, followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
   if (original && !futureAppointment(original,parseUtcDate(actor.cancellationAt)||new Date()) && facts.eventType !== 'no_show') facts = { ...facts, officeReservationDisposition:null,notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
   validateAppointmentChangeFacts(facts, actor);
   return runSignedAppointmentChange(appointmentId, facts, actor, {
@@ -1018,8 +1033,9 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
         throw Object.assign(new Error('There is no fee or package consequence to send for waiver review'), { status: 400 });
       }
       if (facts.eventType === 'no_show') {
-        const end = parseUtcDate(preview.appointment.endAt);
-        if (!end || +end > Date.now()) throw Object.assign(new Error('An appointment cannot be marked no-show before its scheduled end'), { status: 400 });
+        const timing=noShowReviewTiming(preview.appointment,new Date(),preview.evaluation||{});
+        if(!timing.started)throw Object.assign(new Error('This appointment has not started.'),{status:400});
+        if(timing.earlyConfirmationRequired&&facts.earlyNoShowConfirmed!==true)throw Object.assign(new Error(`It is suggested that you allow at least ${timing.suggestedWaitMinutes} minutes for the client to arrive. Are you sure you want to record a no-show?`),{status:409,code:'EARLY_NO_SHOW_CONFIRMATION_REQUIRED'});
         cancellationClientDetails(facts, { requireReason: false });
       }
       if (preview.appointment.packageEntitlementId && preview.evaluation.recommendedPackageAction === 'review'
@@ -1031,6 +1047,23 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
     prepareChange: facts.useSchoolSupportHour === true ? reserveCancellationSchoolSupport : null,
     notifyChange: (id, signedFacts, signerId) => notifyAppointmentCancellation(id, signedFacts, signerId)
   });
+}
+
+// Invoked by the due worker under the same appointment-change lock. The signed
+// declaration and its author/time remain intact; settlement is a separate event.
+export async function finalizeAppointmentNoShow(appointment,snapshot,review) {
+  const facts={...snapshot.facts,noShowReviewActive:false,noShowReviewFinalized:true,reviewedAttendanceOutcome:true,notificationMode:'send',copyProvider:true,reasonCategory:'attendance_no_show'};
+  const {suppressAppointmentAttendanceCopays,completeAppointmentAttendanceDocumentation}=await import('./familyLedger/copayAttendance.js');
+  const {blockAppointmentChangeClaims}=await import('./appointmentChangeNote.service.js');
+  await suppressAppointmentAttendanceCopays(appointment,null);
+  await blockAppointmentChangeClaims(appointment,'no_show');
+  const result=await applyAppointmentChange(appointment.id,facts,{actorUserId:null,actorRole:'system'},snapshot.preview);
+  const workflow=await getAppointmentChangeWorkflow(appointment.id);
+  if(workflow?.result?.sessionNotes)await completeAppointmentAttendanceDocumentation(appointment,workflow.result.sessionNotes);
+  const {queueAppointmentWaiver}=await import('./appointmentWaiver.service.js');
+  await queueAppointmentWaiver({appointmentId:appointment.id,agencyId:appointment.agencyId,facts,actorUserId:review.declared_by_user_id});
+  const notificationDelivery=await notifyAppointmentCancellation(appointment.id,{...facts,noShowDeclaredByUserId:review.declared_by_user_id},null);
+  return {...result,notificationDelivery,declaredByUserId:review.declared_by_user_id,finalizedBy:'attendance_worker'};
 }
 
 export async function setAgencyMedicaidStrikePolicy(agencyId, enabled) {

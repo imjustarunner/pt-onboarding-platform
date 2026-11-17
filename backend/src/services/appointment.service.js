@@ -166,7 +166,8 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
       communications = [];
     }
   }
-  return { ...appt, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
+  const noShowReview=appt.status==='no_show_pending'?await (await import('./appointmentNoShowReview.service.js')).getAppointmentNoShowReview(appt.id):null;
+  return { ...appt, noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment(input) {
@@ -335,7 +336,7 @@ async function createLockedAppointment({
       businessType,
       tenantServiceId,
       packageEntitlementId,
-      cancellationPolicyId
+      cancellationPolicyId,clientId:participants?.[0]?.clientId||null,serviceCode:service?.serviceCode,providerUserId,modality:modality||service?.modality,startAt:start,timeZone:timeZone||'America/Denver',payerType:selfPayOnly||businessType==='tutoring'||String(billing?.settlementMode||service?.billingMethod||'').startsWith('self_pay')?'self_pay':'insurance'
     });
     bookedAttendancePolicy = resolved.policy;
     if (resolved.policy?.id) cancellationPolicyId = resolved.policy.id;
@@ -460,7 +461,7 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
     return updateLockedAppointment(appointmentId, patch, options);
   });
 }
-async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false } = {}) {
+async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false, allowPendingNoShow = false } = {}) {
   if (patch.customReminders !== undefined) patch.customReminders = normalizeCustomSessionReminders(patch.customReminders);
   const existing = await Appointment.findById(appointmentId);
   if (existing && patch.customReminders !== undefined) {
@@ -468,6 +469,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
+  if(existing.status==='no_show_pending'&&!allowPendingNoShow)throw Object.assign(new Error('Undo the pending no-show before editing this appointment.'),{status:409});
   const persistedSourceTimezone=Object.hasOwn(existing,'persistedSourceTimezone')?existing.persistedSourceTimezone:existing.sourceTimezone||null;
   const sourceZoneForEdit=existing.officeEventId&&['serviceCode','addonServiceCodes','providerUserId','startAt','endAt','timeZone','modality','serviceLocationId'].some(key=>patch[key]!==undefined)
     ?await savedOfficeBookingTimezone(existing.officeEventId,existing.agencyId):patch.timeZone||persistedSourceTimezone;
