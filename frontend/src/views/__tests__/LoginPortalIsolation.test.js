@@ -183,6 +183,9 @@ it('translates missing-account guidance and Technology help without a recovery r
  await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
  expect(wrapper.get('.error').text()).toContain('No se encontró la cuenta');
  expect(wrapper.get('.login-error-support').text()).toBe('Contactar a Tecnología para recibir ayuda con el acceso');
+ await wrapper.get('.portal-auth-language select').setValue('en');
+ expect(wrapper.get('.error').text()).toContain('User not found.');
+ expect(wrapper.get('.login-error-support').text()).toBe('Contact Technology for sign-in help');
  expect(post).toHaveBeenCalledTimes(1);
 });
 

@@ -2271,7 +2271,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     showPassword.value = true;
   } catch (e) {
-    error.value = authText(rateLimitNotice(e) || e?.response?.data?.error?.message || 'Verification failed. Please try again.');
+    error.value = rateLimitNotice(e) || e?.response?.data?.error?.message || 'Verification failed. Please try again.';
     showPassword.value = false;
     needsOrgChoice.value = false;
   } finally {
