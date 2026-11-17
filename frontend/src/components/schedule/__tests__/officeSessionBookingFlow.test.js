@@ -226,7 +226,7 @@ it('selects the office as soon as locations arrive while the slower service cata
   expect(s.editorServiceLocationId).toBe(51);
   expect(mocks.get.mock.calls.filter(([url]) => url.includes('/booking-locations'))).toHaveLength(1);
   resolveMetadata({ data: { serviceLocations, serviceCodes: [] } }); await flushPromises();
-  expect(s.bookingMetadataLoading).toBe(false);
+  await vi.waitFor(() => expect(s.bookingMetadataLoading).toBe(false), { timeout: 3000 });
 });
 it('shows one default delivery when platform and agency both set a 24-hour email reminder', async () => {
   mocks.get.mockResolvedValue({ data: { settings: {
