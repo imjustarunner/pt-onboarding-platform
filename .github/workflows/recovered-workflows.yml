@@ -48,6 +48,8 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
+      - name: Install PDF test runtime
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ghostscript
       - name: Install test dependencies
         run: |
           npm ci --prefix backend
