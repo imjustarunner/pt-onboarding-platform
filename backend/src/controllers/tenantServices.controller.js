@@ -1,3 +1,5 @@
+import {assertLearningClientAccess} from '../utils/learningAccess.js';
+import {tutoringBookingSubjects} from '../services/tutoringBookingContext.service.js';
 import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import AgencyBusinessType, { BUSINESS_TYPE_CODES } from '../models/AgencyBusinessType.model.js';
@@ -320,6 +322,11 @@ export const getBookingOptions = async (req, res, next) => {
           amountCents:quote.amountCents,rateCents:quote.rateCents,rateUnit:quote.rateUnit,...(quote.source?{source:quote.source}:{})
         }:null]));
       }
+    }
+    if(Number(req.query.clientId)>0&&Number(req.query.providerId)>0&&(options.services||[]).some(service=>service.businessType==='tutoring')){
+      if(['provider','provider_plus','intern','intern_plus'].includes(req.user.role)&&Number(req.query.providerId)!==Number(req.user.id))throw Object.assign(new Error('Use your own assigned tutoring students when choosing subjects and packages.'),{status:403});
+      await assertLearningClientAccess(req,Number(req.query.clientId),agencyId);
+      response.tutoringSubjects=await tutoringBookingSubjects({agencyId,providerId:Number(req.query.providerId),clientId:Number(req.query.clientId)});
     }
     res.json(response);
   } catch (e) {

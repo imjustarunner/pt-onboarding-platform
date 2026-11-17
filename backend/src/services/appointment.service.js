@@ -1,3 +1,4 @@
+import {resolveTutoringBookingContext} from './tutoringBookingContext.service.js';
 import { filterBookingServicesForClient, assertAppointmentServiceContext } from './clientServiceContext.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
@@ -197,6 +198,7 @@ async function createLockedAppointment({
   createdByUserId = null,
   participants = [],
   billing = null,
+  learningSubjectKey = null,
   serviceCode = null,
   addonServiceCodes = [],
   ensureContext = true,
@@ -273,6 +275,12 @@ async function createLockedAppointment({
   serviceCode = serviceCode || service?.serviceCode || null;
   await assertAppointmentServiceContext({ agencyId: aid, providerId: providerUserId, clientIds: bookingClients.map(client => client.id),
     service, businessType: businessType || (serviceCode === 'TUTORING' ? 'tutoring' : 'mental_health'), serviceCode, addonServiceCodes });
+  let learningContext=null;
+  if(learningSubjectKey!=null){
+    if(businessType!=='tutoring'||serviceCode!=='TUTORING'||bookingClients.length!==1)throw Object.assign(new Error('Select an individual tutoring service before choosing an academic subject.'),{status:400});
+    learningContext=await resolveTutoringBookingContext({agencyId:aid,providerId:providerUserId,clientId:bookingClients[0].id,key:learningSubjectKey});
+    title=`${learningContext.subjectLabel} tutoring`;
+  }
   const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
     || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));
   const proBono=isProBonoFunding({serviceCode,billing});
@@ -367,6 +375,7 @@ async function createLockedAppointment({
     cancellationPolicyId,
     cancelDeadlineAt,
     source,
+    learningContext,
     title: title || service?.name || null,
     notes,
     othersPresentNames,

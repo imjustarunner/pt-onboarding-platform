@@ -327,10 +327,10 @@ it('warns when two pending request sources overlap for the same provider', async
 
 describe('current office approval work',()=>{
  const now=new Date('2026-11-13T17:00:00Z');
- it('hides ended one-time requests without denying or deleting their history',async()=>{
+ it('keeps unresolved past requests visible and marks the historical window without changing records',async()=>{
   m.booking.mockResolvedValue([{...booking,id:900,recurrence:'ONCE',start_at:'2026-11-11 20:00:00',end_at:'2026-11-11 21:00:00'},{...booking,id:901,recurrence:'ONCE',start_at:'2026-11-26 20:00:00',end_at:'2026-11-26 21:00:00'}]);
   const rows=await listOfficeApprovals(actor,{now});
-  expect(rows.some(row=>row.key==='booking:900')).toBe(false);expect(rows.some(row=>row.key==='booking:901')).toBe(true);
+  expect(rows.find(row=>row.key==='booking:900')).toMatchObject({pastRequestedTime:true,startDate:'2026-11-11'});expect(rows.some(row=>row.key==='booking:901')).toBe(true);
   expect(m.execute.mock.calls.some(([sql])=>/^UPDATE|^DELETE/i.test(sql))).toBe(false);
  });
  it('keeps recurring requests with remaining dates and filters exhausted finite series',()=>{
@@ -359,3 +359,5 @@ describe('current office approval work',()=>{
   expect(strict.rooms.map(room=>room.roomId)).toEqual([5]);
  });
 });
+
+it('reviews a retrospective tutoring request on its original day without turning it into a recurring reservation',()=>{const result=approvalWindow({source:'booking',serviceCode:'TUTORING',slots:[{startHour:10,endHour:11}],startDate:'2026-11-16',recurrence:'ONCE',occurrenceCount:1},'America/Denver',new Date('2026-11-17T17:00:00Z'));expect(result).toMatchObject({startDate:'2026-11-16',checkedDates:['2026-11-16'],recurrence:'ONCE',occurrenceCount:1});});

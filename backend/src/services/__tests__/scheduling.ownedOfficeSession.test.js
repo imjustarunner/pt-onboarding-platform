@@ -79,3 +79,5 @@ it('carries one stable next-session confirmation policy after the full recurring
  for(const [,options] of m.notice.mock.calls)expect(options).toMatchObject({eventType:'created',facts:{recurringBooking:{nextAppointmentId:100,occurrenceCount:2}}});
  expect(m.notice.mock.calls[0][1].facts.recurringBooking.id).toBe(m.notice.mock.calls[1][1].facts.recurringBooking.id);
 });
+
+it('leaves an immediate office booking retry with its original handler instead of treating it as a standing reservation',async()=>{events[0].client_id=81;events[0].session_context_json={immediateBookingKey:'retained-immediate-key'};await expect(bookSessionInOwnedOffice({...input,serviceCode:'TUTORING',recurrence:'ONCE',occurrenceCount:1})).resolves.toBeNull();expect(m.create).not.toHaveBeenCalled();});

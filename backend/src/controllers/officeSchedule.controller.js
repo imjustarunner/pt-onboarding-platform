@@ -2,6 +2,7 @@ import { clinicalCodesForClientContext } from '../services/clientServiceContext.
 import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
+import {bookImmediateTutoringOffice} from '../services/immediateTutoringOffice.service.js';
 import { queueOwnedOfficeSession } from '../services/ownedOfficeSessionJobs.service.js';
 import { normalizeCustomSessionReminders, validateCustomReminderChannels } from '../services/appointmentNotificationCustomization.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
@@ -2740,7 +2741,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       tenantServiceId:req.body?.tenantServiceId, packageEntitlementId:req.body?.packageEntitlementId, price:req.body?.tutoringSessionPrice });
     if (individualPrice && (!clientId || req.body?.appointmentId || req.body?.appointmentSeriesId))
       return res.status(400).json({error:{message:'Set an individual price only while booking a new student session.'}});
-    const ownedInput = { office: loc, roomId: room?.id || null,
+    const ownedInput = { learningSubjectKey:req.body?.learningSubjectKey ?? null, office: loc, roomId: room?.id || null,
       providerId: requestedProviderId, actorUserId: req.user.id, agencyId: policyAgencyId, clientId,
       startAt, endAt, recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1,
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
@@ -2749,12 +2750,14 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       notificationMode, customReminders, billing: individualPrice };
     const ownedBooking = await (req.body?.asyncOwnedSession === true ? queueOwnedOfficeSession : bookSessionInOwnedOffice)(ownedInput);
     if (ownedBooking) return res.status(ownedBooking.kind === 'booking_job' ? 202 : 201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
+    const immediateBooking=await bookImmediateTutoringOffice({...ownedInput,request:req});
+    if(immediateBooking)return res.status(201).json(await schedulingResponseForUser(req.user,policyAgencyId,immediateBooking));
     await validateCustomReminderChannels(policyAgencyId, customReminders);
 
     // Every new room request uses the same allocator and pending hold. Legacy
     // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
-      sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, schedulingNotes: notes,
+      sessionContext: { learningSubjectKey:req.body?.learningSubjectKey ?? null, appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
         ...(individualPrice ? {billing:individualPrice} : {}) },
       requestType: 'PROVIDER_REQUEST',

@@ -1942,8 +1942,8 @@
           <select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select>
         </label>
         <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">
-          <label>Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
-          <label>Subject<select v-model="editorTutoringSubject"><option value="assigned">Assigned subject</option><option value="general">General</option></select></label>
+          <label v-if="editorHeaderServiceOptions.length>1">Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
+          <label v-if="editorTutoringSubjectApplicable">Subject<select v-model="editorTutoringSubject"><option value="general">General</option><option v-for="subject in editorTutoringSubjects" :key="subject.key" :value="subject.key">{{subject.label}}</option></select></label>
           <TutoringSessionPrice v-if="editorCanSetTutoringPrice" v-model="editorIndividualPrice" :quote="editorTutoringQuote"
             :can-set="editorCanSetTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
             :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
@@ -15144,6 +15144,8 @@ const editorInfoClientName = computed(() => {
 });
 const editorIndividualPrice = ref(null);
 const editorTutoringSubject=ref('assigned');
+const editorTutoringSubjects=ref([]);
+const editorTutoringSubjectApplicable=computed(()=>editorIsLearning.value&&String(editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value))?.serviceCode||bookingServiceCode.value||'TUTORING').toUpperCase()==='TUTORING');
 const editorCanSetTutoringPrice = ref(false);
 const editorTutoringQuote=computed(()=>{
  const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));
@@ -16071,10 +16073,13 @@ async function loadEditorPracticeCategories() {
 }
 
 let editorServicesRequest=0;
+let editorOptionsIdentity='';
 async function loadEditorTenantServices() {
   const request=++editorServicesRequest;
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   if (!aid || !editorIsClinical.value) return;
+  const identity=[aid,Number(bookingTargetUserId.value||props.userId||0),...(virtualSessionSelectedClientIds.value||[]).map(Number)].join(':');
+  if(identity!==editorOptionsIdentity&&!editorHydratingAppointment.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){editorOptionsIdentity=identity;editorPackageEntitlements.value=[];editorPackageEntitlementId.value=0;editorTutoringSubjects.value=[];editorTutoringSubject.value='assigned';}
   editorServicesLoading.value = true;
   try {
     const params = {quote:'1'};
@@ -16084,7 +16089,6 @@ async function loadEditorTenantServices() {
     if (selectedClients.length === 1) params.clientId = selectedClients[0];
     const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params, skipGlobalLoading: true });
     let services = Array.isArray(r.data?.services) ? r.data.services : [];
-    editorPackageEntitlements.value = r.data?.packagePreview?.entitlements || [];
     // Fallback: booking-options can be empty before suites are seeded; services list ensures defaults.
     if (!services.length && !params.clientId) {
       const r2 = await api.get(`/tenant-booking/agencies/${aid}/tenant-services`, {
@@ -16098,6 +16102,9 @@ async function loadEditorTenantServices() {
       });
     }
     if(request!==editorServicesRequest||aid!==Number(editorAgencyId.value||effectiveAgencyId.value||0))return;
+    editorPackageEntitlements.value=r.data?.packagePreview?.entitlements||[];
+    editorTutoringSubjects.value=r.data?.tutoringSubjects||[];
+    if(!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&editorTutoringSubject.value!=='general'&&!editorTutoringSubjects.value.some(s=>s.key===editorTutoringSubject.value))editorTutoringSubject.value=editorTutoringSubjects.value[0]?.key||'general';
     editorCanSetTutoringPrice.value = r.data?.canSetTutoringSessionPrice === true;
     if (tutoringWorkspaceOnly.value) services=services.filter(service=>['tutoring','learning'].includes(String(service.businessType||service.business_type)));
     editorTenantServices.value = services;
@@ -16114,11 +16121,12 @@ async function loadEditorTenantServices() {
       editorPracticeCategory.value = practiceCategoryForBusinessType(first?.businessType || first?.business_type) || 'mental_health';
     }
   } catch {
+    if(request!==editorServicesRequest||aid!==Number(editorAgencyId.value||effectiveAgencyId.value||0))return;
     editorCanSetTutoringPrice.value = false;
     editorTenantServices.value = [];
     editorPackageEntitlements.value = [];
   } finally {
-    editorServicesLoading.value = false;
+    if(request===editorServicesRequest)editorServicesLoading.value=false;
   }
 }
 
@@ -17002,6 +17010,7 @@ const normalizeBookingSelectionPayload = () => {
     tenantServiceId: Number(editorTenantServiceId.value || 0) || null,
     packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || null,
     tutoringSessionPrice: tutoringSessionPricePayload(),
+    ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&(virtualSessionSelectedClientIds.value||[]).length===1?{learningSubjectKey:editorTutoringSubject.value}:{}),
     status: 'scheduled',
     videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     notificationMode: String(editorNotificationMode.value || 'default'),
@@ -22325,6 +22334,7 @@ const completePlatformVirtualSessionBooking = async ({
       occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12,
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
       tutoringSessionPrice: tutoringSessionPricePayload(),
+      ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&(virtualSessionSelectedClientIds.value||[]).length===1?{learningSubjectKey:editorTutoringSubject.value}:{}),
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
       participants,
@@ -23176,13 +23186,15 @@ const submitRequest = async () => {
         } else if (r?.data?.kind === 'auto_booked') {
           ensureScheduleAgencyVisible(Number(r.data.agencyId || editorAgencyId.value || effectiveAgencyId.value));
           const count = r.data.appointmentIds?.length || occurrenceCount || 1;
-          showBookingReceipt({ title: `${count} client session${count === 1 ? '' : 's'} scheduled`, when: formatBookingReceiptWhen({ dateYmd: String(t.dateYmd).slice(0,10), startHour: Number(t.hour || h), startMinute, endHour: endH, endMinute }) });
-          officeReminderToast.value = `${count} client session${count === 1 ? '' : 's'} scheduled.`;
+          const reference=r.data.appointmentIds?.[0]?` · Appointment #${r.data.appointmentIds[0]}`:'';
+          const resultLabel=r.data.confirmationReason==='retrospective'?'Past tutoring booking recorded':`${count} session${count===1?'':'s'} scheduled`;
+          showBookingReceipt({title:resultLabel,when:formatBookingReceiptWhen({dateYmd:String(t.dateYmd).slice(0,10),startHour:Number(t.hour||h),startMinute,endHour:endH,endMinute})+reference});
+          officeReminderToast.value=resultLabel+reference;
           setTimeout(() => { officeReminderToast.value = ''; }, 10000);
           refreshInBackground = true;
           needsOfficeRefresh = true;
         } else if (r?.data?.kind === 'request') {
-          officeReminderToast.value = 'Your office is held while the CPA reviews your request.';
+          officeReminderToast.value = `Office request #${bookingReqId} is waiting for an office reviewer. A session is created when the request is confirmed.`;
           setTimeout(() => { officeReminderToast.value = ''; }, 7000);
         }
       }
