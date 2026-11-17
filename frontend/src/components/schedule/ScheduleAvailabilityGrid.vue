@@ -26687,7 +26687,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       if(baseline && baseline.id===Number(editorAppointmentId.value)){
         const next={serviceCode:String(bookingServiceCode.value || ''),tenantServiceId:Number(editorTenantServiceId.value || 0),serviceLocationId:Number(editorServiceLocationId.value || 0),modality:String(editorModality.value || '')};
         for(const key of Object.keys(next))if(next[key] && next[key]!==baseline[key])clinicalPatch[key]=next[key];
-        if (editorVideoRoomMode.value !== baseline.videoRoomMode || editorExternalMeetingUrl.value !== baseline.externalMeetingUrl) {
+        if (editorVideoRoomMode.value !== (baseline.videoRoomMode || 'unique_session') || editorExternalMeetingUrl.value !== (baseline.externalMeetingUrl || '')) {
           clinicalPatch.videoRoomMode = editorVideoRoomMode.value;
           clinicalPatch.externalMeetingUrl = editorVideoRoomMode.value === 'external' ? editorExternalMeetingUrl.value.trim() || null : null;
         }

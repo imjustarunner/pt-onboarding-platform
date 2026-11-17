@@ -8,10 +8,12 @@ import Panel from '../ClientSchedulePanel.vue';
 beforeEach(()=>{vi.resetAllMocks();m.user={id:10,role:'support'};m.get.mockResolvedValue({data:{services:[{is_active:1,provider_user_id:20,provider_name:'First Provider'},{is_active:1,provider_user_id:21,provider_name:'Second Provider'},{is_active:0,provider_user_id:99,provider_name:'Former Provider'}]}});});
 it('opens the assigned provider calendar in the chart agency and carries the client into booking',async()=>{
  const w=mount(Panel,{props:{client:{id:12,agency_id:6,full_name:'Synthetic Client'}}});await flushPromises();
+ await vi.waitFor(()=>expect(w.findComponent({name:'ScheduleAvailabilityGrid'}).exists()).toBe(true));
  expect(w.findComponent({name:'ScheduleAvailabilityGrid'}).props()).toMatchObject({userId:20,agencyId:6,bookingClientId:12,mode:'admin'});
  expect(w.text()).not.toContain('Former Provider');await w.get('select').setValue(21);await flushPromises();expect(w.findComponent({name:'ScheduleAvailabilityGrid'}).props('userId')).toBe(21);w.unmount();
 });
 it('keeps a provider’s embedded calendar scoped to their own assignment',async()=>{
  m.user={id:21,role:'provider'};const w=mount(Panel,{props:{client:{id:12,agency_id:6}}});await flushPromises();
+ await vi.waitFor(()=>expect(w.findComponent({name:'ScheduleAvailabilityGrid'}).exists()).toBe(true));
  expect(w.findAll('option')).toHaveLength(1);expect(w.findComponent({name:'ScheduleAvailabilityGrid'}).props()).toMatchObject({userId:21,mode:'self'});w.unmount();
 });
