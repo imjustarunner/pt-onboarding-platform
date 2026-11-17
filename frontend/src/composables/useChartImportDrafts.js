@@ -2,7 +2,8 @@ import { reactive } from 'vue';
 import api from '../services/api';
 
 // PHI stays in encrypted server records; never put these drafts in browser storage.
-export function useChartImportDrafts() {
+const DEFAULT_SECTIONS=['demographics','intake','plan','insurance','contacts','comments','payer','billingComments'];
+export function useChartImportDrafts({sectionKeys=DEFAULT_SECTIONS,singleSection=false}={}) {
   const state = reactive({ loading: false, loadError: '', sections: {} });
   let current = null;
   function createScope(clientId, agencyId) {
@@ -14,14 +15,15 @@ export function useChartImportDrafts() {
     current = scope;
     state.loading = true; state.loadError = ''; state.sections = {};
     try {
-      const response = await api.get(`/clients/${clientId}/chart-import/drafts`, scope.config);
+      const response = await api.get(`/clients/${clientId}/chart-import/drafts${singleSection?`/${sectionKeys[0]}`:''}`, scope.config);
+      const savedDrafts=singleSection?{[sectionKeys[0]]:response.data?.draft}:response.data?.drafts;
       if (current !== scope) return null;
-      for (const key of ['demographics', 'intake', 'plan', 'insurance', 'contacts', 'comments', 'payer', 'billingComments']) {
-        const saved = response.data?.drafts?.[key];
+      for (const key of sectionKeys) {
+        const saved = savedDrafts?.[key];
         scope.sections[key] = reactive({ revision: saved?.revision || 0, value: saved?.value || { text: '' }, pending: null, running: null, timer: null, message: saved?.value?.text ? 'Draft saved' : '', error: '' });
         state.sections[key] = scope.sections[key];
       }
-      return response.data?.drafts || {};
+      return savedDrafts || {};
     } catch (error) {
       if (current === scope) state.loadError = error.response?.data?.error?.message || 'Drafts could not be loaded. Reopen this panel to retry; your paste is still here.';
       return null;
@@ -72,8 +74,8 @@ export function useChartImportDrafts() {
     const scope = current, section = scope?.sections[key];
     if (!section) return;
     try {
-      const response = await api.get(`/clients/${scope.clientId}/chart-import/drafts`, scope.config);
-      section.revision = response.data?.drafts?.[key]?.revision || 0;
+      const response = await api.get(`/clients/${scope.clientId}/chart-import/drafts${singleSection?`/${key}`:''}`, scope.config);
+      section.revision = (singleSection?response.data?.draft:response.data?.drafts?.[key])?.revision || 0;
       await save(scope, key);
     } catch (error) { section.error = error.response?.data?.error?.message || 'The latest draft could not be loaded. Your paste is still here.'; }
   }

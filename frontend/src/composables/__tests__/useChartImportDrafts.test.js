@@ -42,3 +42,12 @@ it('does not rewrite an unchanged restored draft or cause needless version confl
  m.get.mockResolvedValue({data:{drafts:{comments:{revision:4,value:{text:'Saved note',imported:true}}}}});const drafts=useChartImportDrafts();await drafts.load(12,2);
  drafts.schedule('comments',{text:'Saved note',metadata:{imported:true}});await drafts.flush();expect(m.put).not.toHaveBeenCalled();drafts.detach();
 });
+it('loads and retries a single assignment draft without fetching unrelated patient record drafts',async()=>{
+ m.get.mockResolvedValueOnce({data:{draft:{revision:4,value:{text:'Saved assignment choices'}}}});
+ const drafts=useChartImportDrafts({sectionKeys:['assignments'],singleSection:true});await drafts.load(12,2);
+ expect(Object.keys(drafts.state.sections)).toEqual(['assignments']);expect(drafts.state.sections.assignments.value.text).toBe('Saved assignment choices');
+ m.put.mockRejectedValueOnce({response:{status:409}});drafts.schedule('assignments',{text:'Updated assignment choices'});await drafts.flush();
+ m.get.mockResolvedValueOnce({data:{draft:{revision:7,value:{text:'Other window choices'}}}});m.put.mockResolvedValueOnce({data:{revision:8}});await drafts.retry('assignments');
+ expect(m.get.mock.calls.map(([url])=>url)).toEqual(['/clients/12/chart-import/drafts/assignments','/clients/12/chart-import/drafts/assignments']);
+ expect(m.put).toHaveBeenLastCalledWith('/clients/12/chart-import/drafts/assignments',expect.objectContaining({text:'Updated assignment choices',revision:7}),expect.objectContaining({headers:{'X-Agency-Id':'2'}}));drafts.detach();
+});

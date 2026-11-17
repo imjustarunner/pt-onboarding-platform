@@ -189,13 +189,15 @@
         </section>
 
         <section v-if="chartHub==='bring-up-to-date' && showRecordsImportTab" class="detail-section">
-          <ClientEhrBringUpToDatePanel ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
+          <p v-if="!canFinishChartSetup || !recordsImportSetup" role="status">Loading this client’s saved import…</p>
+          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
         </section>
 
         <div
           v-if="chartHub === 'overview' && effectiveHubSub !== 'skill-builders'"
           class="detail-section cdp-overview"
         >
+          <p v-if="pendingAssignmentDraft" role="status">Assignment choices are saved as a draft and still need review. <button type="button" class="cdp-text-link" @click="openAssignmentDraft">Review saved assignments</button></p>
           <ClientOverviewHub :show-quick-actions="false" :key="`overview-${client.id}`"
             :client-id="client.id"
             :client="client"
@@ -1919,7 +1921,8 @@
         <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" @close="showPortalInvites = false" />
 
         <!-- Assignments Tab (backoffice only) -->
-        <div v-if="showPanel('assignments')" class="detail-section casg">
+        <section v-if="showPanel('assignments') && reviewAssignmentDraft" class="detail-section"><button type="button" class="cdp-text-link" @click="closeAssignmentDraft">Back to account assignments</button><ClientUpdateAssignments ref="savedAssignmentPanel" :key="`saved-assignments-${client.id}`" :client-id="client.id" :agency-id="client.agency_id" @updated="loadPendingAssignmentDraft" /></section>
+        <div v-if="showPanel('assignments') && !reviewAssignmentDraft" class="detail-section casg">
           <div class="casg-head">
             <div>
               <h3 class="casg-title">Assignments</h3>
@@ -2896,6 +2899,7 @@ import ClientQuickActions from './clientChart/ClientQuickActions.vue';
 import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { clientProfileActions } from '../../utils/clientProfileActions.js';
+import ClientUpdateAssignments from './clientChart/ClientUpdateAssignments.vue';
 import ClientEhrBringUpToDatePanel from './clientChart/ClientEhrBringUpToDatePanel.vue';
 import { formatAuditTimestamp, formatDate as formatCalendarDate } from '../../utils/formatDate';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
@@ -3134,16 +3138,17 @@ function setChartNav(hubId, subId = '') {
   hubSub.value = target.hubSub;
 }
 async function onHubChange(hubId) {
-  if(chartHub.value==='bring-up-to-date'&&hubId!==chartHub.value&&await recordsImportPanel.value?.prepareLeave?.()===false)return;
+  if(hubId!==chartHub.value&&await saveClientWorkspaceDrafts()===false)return;
   if (hubId !== 'overview') clinicalWorkspaceMode.value = 'clinical';
   setChartNav(hubId, '');
 }
-function onHubSubChange(subId) {
+async function onHubSubChange(subId) {
+  if(await saveClientWorkspaceDrafts()===false)return;
   setChartNav(chartHub.value, subId);
 }
 
 async function goChartSub(subOrLegacy) {
-  if(chartHub.value==='bring-up-to-date'&&await recordsImportPanel.value?.prepareLeave?.()===false)return;
+  if(await saveClientWorkspaceDrafts()===false)return;
   const key = String(subOrLegacy || '');
   if (LEGACY_TAB_ALIASES[key]) {
     const resolved = resolveChartTab(key);
@@ -3713,7 +3718,7 @@ const clientAgenciesNote = computed(() => {
 });
 
 const openFullClientRecord = async () => {
-  if (!props.client?.id || await recordsImportPanel.value?.prepareLeave?.()===false) return;
+  if (!props.client?.id || await saveClientWorkspaceDrafts()===false) return;
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const tab = String(activeTab.value || 'overview');
   const path = orgSlug
@@ -4358,9 +4363,21 @@ const overviewAlertItems = computed(() => {
   return items.slice(0, 6);
 });
 
-const recordsImportPanel=ref(null);
+const recordsImportPanel=ref(null),savedAssignmentPanel=ref(null),pendingAssignmentDraft=ref(false),reviewAssignmentDraft=ref(false);
+let assignmentDraftRequest=0;
+async function loadPendingAssignmentDraft(){const id=Number(props.client?.id),own=++assignmentDraftRequest;if(!canEditAccount.value||!['super_admin','admin','support'].includes(roleNorm.value)){pendingAssignmentDraft.value=false;return;}try{const {data}=await api.get(`/clients/${id}/chart-import/drafts/assignments`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.client.agency_id)}});if(own===assignmentDraftRequest&&id===Number(props.client?.id))pendingAssignmentDraft.value=!!data?.draft?.value?.text;}catch{/* Draft details stay private if account access is unavailable. */}}
+async function openAssignmentDraft(){reviewAssignmentDraft.value=true;await goChartSub('assignments');}
+async function closeAssignmentDraft(){if(await savedAssignmentPanel.value?.saveWorkingDraft?.()===false)return;reviewAssignmentDraft.value=false;await loadPendingAssignmentDraft();}
+async function saveClientWorkspaceDrafts(){if(await recordsImportPanel.value?.prepareLeave?.()===false)return false;if(await savedAssignmentPanel.value?.saveWorkingDraft?.()===false)return false;if(savedAssignmentPanel.value)pendingAssignmentDraft.value=savedAssignmentPanel.value.hasPendingDraft?.()===true;return true;}
+watch([()=>props.client?.id,canEditAccount],()=>{pendingAssignmentDraft.value=false;reviewAssignmentDraft.value=false;void loadPendingAssignmentDraft();},{immediate:true});
 const recordsImportSetup=ref(null);
-const showRecordsImportTab=computed(()=>canFinishChartSetup.value && recordsImportSetup.value?.requiresRecordImport && recordsImportSetup.value?.recordsImportStatus!=='complete' && (recordsImportSetup.value?.recordsImportStatus==='pending'||!recordsImportSetup.value?.setupComplete));
+const recordsImportHint=computed(()=>{
+ try{const data=typeof props.client?.onboarding_docs_json==='string'?JSON.parse(props.client.onboarding_docs_json):props.client?.onboarding_docs_json;
+  if(data?.recordsImport?.status==='complete')return false;
+  return data?.recordsImport?.status==='pending'||props.client?.renewal_flags?.recordsImportPending===true||props.client?.renewalFlags?.recordsImportPending===true;
+ }catch{return false;}
+});
+const showRecordsImportTab=computed(()=>['super_admin','admin','support','staff','provider','provider_plus','supervisor','clinical_practice_assistant'].includes(roleNorm.value) && (recordsImportSetup.value ? canFinishChartSetup.value && recordsImportSetup.value.requiresRecordImport && recordsImportSetup.value.recordsImportStatus!=='complete' && (recordsImportSetup.value.recordsImportStatus==='pending'||!recordsImportSetup.value.setupComplete) : recordsImportHint.value));
 const recordsImportSectionStatus=computed(()=>({demographics:recordsImportSetup.value?.demographicsOnFile?'done':'missing',intake:recordsImportSetup.value?.intakeOnFile?'done':'missing',plan:recordsImportSetup.value?.planOnFile?'done':'missing'}));
 let recordsImportLoad=0;
 async function loadRecordsImportSetup(selectFirst=false){
@@ -4370,8 +4387,8 @@ async function loadRecordsImportSetup(selectFirst=false){
  if(selectFirst&&activeTab.value==='overview'&&showRecordsImportTab.value&&(!props.initialTab||props.initialTab==='overview'))setChartNav('bring-up-to-date');
  }catch{if(run===recordsImportLoad)recordsImportSetup.value=null;}
 }
-watch([()=>Number(props.client?.id),canFinishChartSetup],()=>{recordsImportSetup.value=null;void loadRecordsImportSetup(true);},{immediate:true});
-async function onRecordsImportDone(){await loadRecordsImportSetup();setChartNav('overview');await onChartSetupUpdated();}
+watch([()=>Number(props.client?.id),canFinishChartSetup],()=>{recordsImportSetup.value=null;if(showRecordsImportTab.value&&activeTab.value==='overview'&&(!props.initialTab||props.initialTab==='overview'))setChartNav('bring-up-to-date');void loadRecordsImportSetup(true);},{immediate:true});
+async function onRecordsImportDone(result){pendingAssignmentDraft.value=result?.assignmentDraftPending===true;recordsImportSetup.value={...recordsImportSetup.value,recordsImportStatus:'complete'};setChartNav('overview');emit('updated',{keepOpen:true});void loadRecordsImportSetup();await onChartSetupUpdated();}
 const tabs = computed(() => ([
   ...(showRecordsImportTab.value?[{id:'bring-up-to-date',label:'Bring up to date',description:'Import records · Mark done'}]:[]),
   { id: 'overview', label: 'Overview', description: 'Summary · Quick actions' },
@@ -6543,9 +6560,9 @@ const makePrimaryProvider = async (pa) => {
 };
 
 
-onBeforeRouteLeave(async()=>await recordsImportPanel.value?.prepareLeave?.()!==false);
+onBeforeRouteLeave(saveClientWorkspaceDrafts);
 const handleClose = async () => {
-  if(await recordsImportPanel.value?.prepareLeave?.()===false)return;
+  if(await saveClientWorkspaceDrafts()===false)return;
   emit('close');
 };
 

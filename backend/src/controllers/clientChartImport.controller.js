@@ -5,9 +5,9 @@ import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import {beginClientChartImport,completeClientChartImport} from '../services/clientChartImportProgress.service.js';
 
-function sectionOf(req) {
+function sectionOf(req, allowWorkingDraft = false) {
   const section = req.params.section;
-  if (!chartSections.includes(section)) throw Object.assign(new Error('Unknown chart section'), { status: 400 });
+  if (!chartSections.includes(section) && !(allowWorkingDraft && section==='assignments')) throw Object.assign(new Error('Unknown chart section'), { status: 400 });
   return section;
 }
 function textOf(req) {
@@ -16,7 +16,7 @@ function textOf(req) {
   return text;
 }
 const scopeOf = req => requireClientChartImportAccess(req.user, req.params.id, req.get?.('X-Agency-Id') || req.query?.agencyId || null);
-const accountSections = new Set(['insurance','payer','billingComments']);
+const accountSections = new Set(['insurance','payer','billingComments','assignments']);
 const canManageAccount = req => ['super_admin','admin','support'].includes(req.user?.role);
 function requireSectionAccess(req, section) {
   if (accountSections.has(section) && !canManageAccount(req)) throw Object.assign(new Error('Client account support access required for billing information'), { status: 403 });
@@ -44,9 +44,17 @@ export async function getChartImportDrafts(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function getChartImportDraft(req,res,next){
+ try{
+  const scope=await scopeOf(req),section=sectionOf(req,true);requireSectionAccess(req,section);
+  const draft=await readChartRecord(scope,section,Number(req.user.id));
+  await logAuditEvent(req,{actionType:'client_chart_import_drafts_viewed',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId,metadata:{section}});
+  res.set('Cache-Control','no-store').json({draft});
+ }catch(error){next(error);}
+}
 export async function saveChartImportDraft(req, res, next) {
   try {
-    const scope = await scopeOf(req), section = sectionOf(req), text = textOf(req);
+    const scope = await scopeOf(req), section = sectionOf(req,true), text = textOf(req);
     requireSectionAccess(req, section);
     const revision = req.body?.revision;
     if (!Number.isSafeInteger(revision) || revision < 0) throw Object.assign(new Error('Draft revision is required'), { status: 400 });

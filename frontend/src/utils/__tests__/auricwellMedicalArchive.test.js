@@ -16,7 +16,7 @@ describe('medical history archive', () => {
     for (const part of archive.parts) { expect(part.bytes.byteLength).toBeLessThanOrEqual(1100); expect(part.startPage).toBe(next); expect((await PDFDocument.load(part.bytes)).getPageCount()).toBe(part.endPage - part.startPage + 1); next = part.endPage + 1; }
     expect(next).toBe(7);
   });
-  it('prepares a real PDF above 25 MB as bounded page volumes with reproducible integrity hashes', async () => {
+  it('losslessly compresses a real PDF above 25 MB into bounded volumes with reproducible integrity hashes', async () => {
     const doc = await PDFDocument.create();
     const content = '%' + 'x'.repeat(3 * 1024 * 1024) + '\n';
     for (let i = 0; i < 9; i++) {
@@ -25,7 +25,8 @@ describe('medical history archive', () => {
     }
     const bytes = await doc.save(); expect(bytes.byteLength).toBeGreaterThan(25 * 1024 * 1024);
     const archive = await prepareMedicalArchive(bytes);
-    expect(archive.parts.length).toBeGreaterThan(1);
+    expect(archive.parts.length).toBeGreaterThanOrEqual(1);
+    expect(archive.convertedPages).toEqual([]);
     expect(archive.parts.every(part => part.bytes.byteLength < 25 * 1024 * 1024)).toBe(true);
     expect(archive.parts.reduce((count, part) => count + part.endPage - part.startPage + 1, 0)).toBe(9);
     const retry = await prepareMedicalArchive(bytes);
@@ -46,4 +47,36 @@ describe('medical history archive', () => {
     await expect(uploadMedicalArchive(api, 20, archive)).rejects.toThrow('list could not be verified'); expect(api.post).not.toHaveBeenCalled();
     await expect(uploadMedicalArchive(api, 20, archive, { assertContext: () => { throw new Error('Changed client'); } })).rejects.toThrow('Changed client');
   });
+});
+
+async function sharedImagePdf(pages=3){
+ const {PDFDocument,PDFName}=await import('pdf-lib');const doc=await PDFDocument.create(),images=[],originals=[];
+ let seed=123456789;
+ for(let page=0;page<pages;page++){
+  const bytes=new Uint8Array(64*64*3);for(let i=0;i<bytes.length;i++){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;bytes[i]=seed&255;}
+  originals.push(bytes);images.push(doc.context.register(doc.context.stream(bytes,{Type:'XObject',Subtype:'Image',Width:64,Height:64,ColorSpace:'DeviceRGB',BitsPerComponent:8})));
+ }
+ const shared=doc.context.obj(Object.fromEntries(images.map((ref,i)=>[`Image${i}`,ref])));
+ for(let i=0;i<pages;i++){const page=doc.addPage([200,200]);page.node.set(PDFName.of('Resources'),doc.context.obj({XObject:shared}));page.node.set(PDFName.of('Contents'),doc.context.register(doc.context.flateStream(`q 64 0 0 64 0 0 cm /Image${i} Do Q`)));}
+ return {bytes:await doc.save(),originals};
+}
+it('removes unused shared images before splitting instead of falsely rejecting a single page',async()=>{
+ const {PDFDict,decodePDFRawStream}=await import('pdf-lib');const {bytes,originals}=await sharedImagePdf();
+ const archive=await prepareMedicalArchive(bytes,{maxPartBytes:16*1024});expect(archive.parts).toHaveLength(3);expect(archive.convertedPages).toEqual([]);
+ for(let i=0;i<3;i++){
+  const result=await PDFDocument.load(archive.parts[i].bytes),page=result.getPages()[0],objects=page.node.Resources().lookup(PDFName.of('XObject'),PDFDict);
+  expect(objects.entries()).toHaveLength(1);const image=result.context.lookup(objects.entries()[0][1]);expect(decodePDFRawStream(image).getBytes()).toEqual(originals[i]);
+ }
+});
+it('offers an explicitly reviewed smaller-copy fallback with separate upload-set identity when a real page remains oversized',async()=>{
+ const {bytes}=await sharedImagePdf(1);const smaller=await pdf(1),render=vi.fn(async()=>smaller);
+ await expect(prepareMedicalArchive(bytes,{maxPartBytes:4096})).rejects.toMatchObject({code:'MEDICAL_ARCHIVE_PAGE_TOO_LARGE',pageNumber:1});
+ const archive=await prepareMedicalArchive(bytes,{maxPartBytes:4096,renderOversizedPage:render});
+ expect(render).toHaveBeenCalledWith(bytes,1,4096);expect(archive.convertedPages).toEqual([1]);expect(archive.archiveSetId).not.toBe(archive.sourceHash);expect(archive.parts[0].bytes).toBe(smaller);
+ const retry=await prepareMedicalArchive(bytes,{maxPartBytes:4096,renderOversizedPage:render});expect(retry.archiveSetId).toBe(archive.archiveSetId);
+});
+it('never drops image resources from annotated pages that may use them in stamp appearances',async()=>{
+ const {compactMedicalPdf}=await import('../medicalArchivePdfResources.js'),{PDFDict}=await import('pdf-lib');const {bytes}=await sharedImagePdf();const source=await PDFDocument.load(bytes),page=source.getPages()[0];
+ page.node.set(PDFName.of('Annots'),source.context.obj([source.context.register(source.context.obj({Type:'Annot',Subtype:'Stamp',Rect:[0,0,10,10]}))]));
+ compactMedicalPdf(source);expect(page.node.Resources().lookup(PDFName.of('XObject'),PDFDict).entries()).toHaveLength(3);
 });

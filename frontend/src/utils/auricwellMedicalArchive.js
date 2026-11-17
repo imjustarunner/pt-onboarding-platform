@@ -1,3 +1,4 @@
+import {compactMedicalPdf} from './medicalArchivePdfResources.js';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
 export const MEDICAL_ARCHIVE_PART_BYTES = 24 * 1024 * 1024;
@@ -11,7 +12,7 @@ export async function archiveSha256(bytes) {
 }
 
 /** Split by complete pages. The server's existing 25 MB document limit stays in place. */
-export async function prepareMedicalArchive(input, { filename = 'medical-history.pdf', maxPartBytes = MEDICAL_ARCHIVE_PART_BYTES, onProgress = () => {} } = {}) {
+export async function prepareMedicalArchive(input, { filename = 'medical-history.pdf', maxPartBytes = MEDICAL_ARCHIVE_PART_BYTES, onProgress = () => {}, renderOversizedPage = null } = {}) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   if (!bytes.byteLength || bytes.byteLength > MEDICAL_ARCHIVE_INPUT_BYTES) throw new Error('Choose a PDF up to 256 MB. Larger archives can be exported as separate client-specific files.');
   let source;
@@ -20,7 +21,8 @@ export async function prepareMedicalArchive(input, { filename = 'medical-history
   const pageCount = source.getPageCount();
   if (!pageCount || pageCount > 5000) throw new Error('Use a PDF containing 1 to 5,000 pages. Export larger histories in date-range volumes.');
   const sourceHash = await archiveSha256(bytes);
-  const parts = [];
+  const parts = [],convertedPages=[];
+  if(bytes.byteLength>maxPartBytes)compactMedicalPdf(source);
   async function addPart(partBytes, startPage, endPage) {
     parts.push({ bytes: partBytes, startPage, endPage, sha256: await archiveSha256(partBytes) });
     onProgress({ pages: endPage, total: pageCount });
@@ -32,22 +34,29 @@ export async function prepareMedicalArchive(input, { filename = 'medical-history
     pages.forEach(page => doc.addPage(page));
     const out = await doc.save();
     if (out.byteLength <= maxPartBytes) return addPart(out, start + 1, end);
-    if (end - start === 1) throw new Error(`Source page ${start + 1} alone exceeds the upload limit. Retain the original EHR archive and export this page at a smaller size before retrying.`);
+    if(end-start===1){
+      if(renderOversizedPage){
+        const copy=await renderOversizedPage(bytes,start+1,maxPartBytes);
+        if(copy?.byteLength<=maxPartBytes&&(await PDFDocument.load(copy)).getPageCount()===1){convertedPages.push(start+1);return addPart(copy,start+1,end);}
+      }
+      throw Object.assign(new Error(`Source page ${start+1} alone exceeds the upload limit after lossless optimization. You can prepare a smaller page copy here and check readability before uploading.`),{code:'MEDICAL_ARCHIVE_PAGE_TOO_LARGE',pageNumber:start+1});
+    }
     const middle = start + Math.floor((end - start) / 2);
     await split(start, middle); await split(middle, end);
   }
   if (bytes.byteLength <= maxPartBytes) await addPart(bytes, 1, pageCount);
   else await split(0, pageCount);
+  const archiveSetId=parts.length===1&&parts[0].bytes===bytes?sourceHash:await archiveSha256(new TextEncoder().encode(JSON.stringify(['medical-history-v2',sourceHash,convertedPages,parts.map(part=>[part.startPage,part.endPage,part.sha256])])));
   parts.forEach((part, index) => {
-    part.title = `AW history ${sourceHash} pages ${part.startPage}-${part.endPage}`;
-    part.filename = `medical-history-${sourceHash.slice(0, 12)}-volume-${String(index + 1).padStart(3, '0')}.pdf`;
+    part.title = `AW history ${archiveSetId} pages ${part.startPage}-${part.endPage}`;
+    part.filename = `medical-history-${archiveSetId.slice(0, 12)}-volume-${String(index + 1).padStart(3, '0')}.pdf`;
     part.number = index + 1;
   });
-  const manifest = await createArchiveManifest({ filename, sourceHash, sourceBytes: bytes.byteLength, pageCount, parts });
-  return { sourceHash, filename, sourceBytes: bytes.byteLength, pageCount, parts, manifest };
+  const manifest = await createArchiveManifest({ filename, sourceHash, sourceBytes: bytes.byteLength, pageCount, parts, convertedPages,archiveSetId });
+  return { sourceHash, filename, sourceBytes: bytes.byteLength, pageCount, parts, manifest, convertedPages,archiveSetId };
 }
 
-async function createArchiveManifest({ filename, sourceHash, sourceBytes, pageCount, parts }) {
+async function createArchiveManifest({ filename, sourceHash, sourceBytes, pageCount, parts, convertedPages = [],archiveSetId=sourceHash }) {
   const doc = await PDFDocument.create();
   doc.setCreationDate(fixedDate); doc.setModificationDate(fixedDate);
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -59,14 +68,15 @@ async function createArchiveManifest({ filename, sourceHash, sourceBytes, pageCo
   line('AuricWell - imported medical history manifest', 15);
   line(`Original filename: ${safeText(filename).slice(0, 85)}`);
   line(`Source bytes: ${sourceBytes} | Source pages: ${pageCount} | Volumes: ${parts.length}`);
-  line('Source SHA-256:'); line(sourceHash, 8);
+  line('Source SHA-256:'); line(sourceHash, 8);line('Upload-set SHA-256:');line(archiveSetId,8);
+  if(convertedPages.length){line(`Smaller image copies: source pages ${convertedPages.join(', ')}`,10);line('Check the text and details on every converted page before using this copy.');line('Retain the original export for searchable text, digital signatures and attachments.');}
   line('Complete source pages are retained in order. No clinical sessions or claims are created.');
   line('Verify every volume opens and downloads before retiring access to the previous EHR.');
   for (const part of parts) {
     line(`Volume ${part.number}: source pages ${part.startPage}-${part.endPage} | ${part.bytes.byteLength} bytes`, 11);
     line(part.filename, 9); line(`SHA-256: ${part.sha256}`, 8);
   }
-  return { bytes: await doc.save(), title: `AW history ${sourceHash} manifest`, filename: `medical-history-${sourceHash.slice(0, 12)}-manifest.pdf` };
+  return { bytes: await doc.save(), title: `AW history ${archiveSetId} manifest`, filename: `medical-history-${archiveSetId.slice(0, 12)}-manifest.pdf` };
 }
 
 export function findArchiveDocument(documents, title) {

@@ -98,3 +98,24 @@ it('opens the temporary import tab after agency access loads and removes it only
  await render();expect(wrapper.vm.tabs.map(tab=>tab.id).slice(0,2)).toEqual(['bring-up-to-date','overview']);expect(wrapper.vm.activeTab).toBe('bring-up-to-date');
  complete=true;await wrapper.vm.onRecordsImportDone();await flushPromises();expect(wrapper.vm.tabs[0].id).toBe('overview');expect(wrapper.vm.activeTab).toBe('overview');
 });
+
+it('selects the pending import tab immediately while permissions and private setup details are still loading',async()=>{
+ let resolveSetup;const setup=new Promise(resolve=>{resolveSetup=resolve;});
+ get.mockImplementation(url=>url.endsWith('/chart-setup')?setup:Promise.resolve({data:[]}));
+ wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:7,agency_id:2,client_type:'clinical',onboarding_docs_json:{recordsImport:{status:'pending'}}},agencyId:2},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot /></div>'}}}});
+ await flushPromises();expect(wrapper.vm.tabs[0].id).toBe('bring-up-to-date');expect(wrapper.vm.activeTab).toBe('bring-up-to-date');
+ expect(wrapper.text()).toContain('Loading this client’s saved import');expect(wrapper.findComponent({name:'ClientEhrBringUpToDatePanel'}).exists()).toBe(false);
+ wrapper.vm.myAgencies=[{id:2}];await flushPromises();resolveSetup({data:{requiresRecordImport:true,recordsImportStatus:'pending',setupComplete:false}});await flushPromises();
+ expect(wrapper.findComponent({name:'ClientEhrBringUpToDatePanel'}).exists()).toBe(true);
+});
+
+it('leaves completed import review immediately and offers the saved assignments without waiting for profile refresh',async()=>{
+ get.mockImplementation(async url=>({data:url.endsWith('/chart-setup')?{requiresRecordImport:true,recordsImportStatus:'pending',setupComplete:false}:[]}));
+ await render();let resolveRefresh;const refresh=new Promise(resolve=>{resolveRefresh=resolve;});
+ get.mockImplementation(url=>url.endsWith('/chart-setup')?refresh:Promise.resolve({data:[]}));
+ const done=wrapper.vm.onRecordsImportDone({assignmentDraftPending:true});await flushPromises();
+ expect(wrapper.vm.activeTab).toBe('overview');expect(wrapper.vm.tabs[0].id).toBe('overview');expect(wrapper.vm.pendingAssignmentDraft).toBe(true);
+ expect(wrapper.emitted('updated')).toContainEqual([{keepOpen:true}]);
+ await wrapper.vm.openAssignmentDraft();await flushPromises();expect(wrapper.vm.showPanel('assignments')).toBe(true);expect(wrapper.vm.reviewAssignmentDraft).toBe(true);
+ resolveRefresh({data:{requiresRecordImport:true,recordsImportStatus:'complete',setupComplete:false}});await done;
+});

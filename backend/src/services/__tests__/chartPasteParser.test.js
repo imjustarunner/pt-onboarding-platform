@@ -100,3 +100,6 @@ Appt RemindersText (SMS) and Email`);
  expect(contacts).toHaveLength(2);expect(contacts[0]).toMatchObject({fullName:'Dr. Morgan Lee Example',relationshipType:'Stepmother',dateOfBirth:'1980-03-20'});
  expect(contacts[1]).toMatchObject({fullName:'Pat Jo Example',contactType:'Guardian',relationshipType:'Mother',email:'pat@example.test',dateOfBirth:'1986-09-16',appointmentReminders:'Text (SMS) and Email'});
 });
+it('excludes copied contact activity receipts from the actual contact name',()=>{
+ expect(parseChartContacts('Contacts\n+ New Contact\nsvgEdit\nPrimary Parent was added as a Patient Contact. Primary Parent\nMobile Phone(720) 555-0102Emailparent@example.test\nRelationshipMother')[0]).toMatchObject({fullName:'Primary Parent',email:'parent@example.test',relationshipType:'Mother'});
+});

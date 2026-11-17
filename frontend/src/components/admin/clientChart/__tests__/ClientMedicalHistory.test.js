@@ -13,3 +13,19 @@ it('requires an identity check before uploading volumes and the manifest to the 
 it('warns before leaving an unuploaded selected PDF',async()=>{
  const w=mount(History,{props:{clientId:12,agencyId:2}});await flushPromises();const input=w.get('input[type=file]');Object.defineProperty(input.element,'files',{value:[{name:'synthetic.pdf',arrayBuffer:async()=>new ArrayBuffer(2)}]});await input.trigger('change');await flushPromises();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);expect(w.vm.prepareLeave()).toBe(false);expect(confirm).toHaveBeenCalledWith(expect.stringContaining('has not been uploaded'));confirm.mockRestore();w.unmount();
 });
+
+it('offers a reviewed smaller page copy after an oversized-page failure and requires readability confirmation before upload',async()=>{
+ m.prepare.mockRejectedValueOnce(Object.assign(Error('Page alone exceeds the limit'),{code:'MEDICAL_ARCHIVE_PAGE_TOO_LARGE',pageNumber:3}));
+ const w=mount(History,{props:{clientId:12,agencyId:2}});await flushPromises();const input=w.get('input[type=file]');Object.defineProperty(input.element,'files',{value:[{name:'synthetic.pdf',arrayBuffer:async()=>new ArrayBuffer(2)}]});await input.trigger('change');await flushPromises();
+ expect(w.text()).toContain('Page 3 still needs a smaller upload copy');expect(m.post).not.toHaveBeenCalled();
+ m.prepare.mockResolvedValueOnce({filename:'synthetic.pdf',pageCount:3,convertedPages:[3],parts:[{startPage:3,endPage:3,bytes:new Uint8Array([1]),filename:'volume.pdf',title:'volume'}],manifest:{bytes:new Uint8Array([2]),filename:'manifest.pdf',title:'manifest'}});
+ await w.findAll('button').find(button=>button.text()==='Prepare a smaller page copy for review').trigger('click');await flushPromises();expect(m.prepare.mock.calls.at(-1)[1].renderOversizedPage).toBeTypeOf('function');
+ await w.findAll('input[type=checkbox]')[0].setValue(true);const upload=w.findAll('button').find(button=>button.text()==='Upload complete medical history');expect(upload.attributes('disabled')).toBeDefined();
+ await w.findAll('input[type=checkbox]')[1].setValue(true);expect(upload.attributes('disabled')).toBeUndefined();await upload.trigger('click');await flushPromises();expect(m.post).toHaveBeenCalledTimes(2);w.unmount();
+});
+it('clears the previous prepared file when a newly selected PDF exceeds the input limit',async()=>{
+ const w=mount(History,{props:{clientId:12,agencyId:2}});await flushPromises();const input=w.get('input[type=file]');
+ Object.defineProperty(input.element,'files',{configurable:true,value:[{name:'first.pdf',size:2,arrayBuffer:async()=>new ArrayBuffer(2)}]});await input.trigger('change');await flushPromises();expect(w.find('.history-review').exists()).toBe(true);
+ const read=vi.fn();Object.defineProperty(input.element,'files',{value:[{name:'too-large.pdf',size:257*1024*1024,arrayBuffer:read}]});await input.trigger('change');await flushPromises();
+ expect(w.text()).toContain('Choose a PDF up to 256 MB');expect(w.find('.history-review').exists()).toBe(false);expect(read).not.toHaveBeenCalled();expect(m.post).not.toHaveBeenCalled();w.unmount();
+});

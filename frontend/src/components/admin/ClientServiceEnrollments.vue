@@ -58,7 +58,7 @@ import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
 import { meaningfulProgram } from '../../utils/clientRosterContext.js';
 const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false } });
-const emit = defineEmits(['updated','loaded','busy']);
+const emit = defineEmits(['updated','loaded','busy','draft-change']);
 const auth=useAuthStore();
 const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
 const returnService=ref(null),returnRequests=ref([]),returnMessages=ref({});
@@ -162,9 +162,20 @@ async function saveStatus(){
 async function loadReturns(service){const own=sequence;busy.value=true;error.value='';returnService.value=service;returnRequests.value=[];try{const{data}=await api.get(`/clients/${props.clientId}/service-enrollments/${service.id}/return-requests`,{params:{agencyId:props.agencyId}});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Return requests could not load.';}finally{if(own===sequence)busy.value=false;}}
 async function reviewReturn(request,decision){const own=sequence;busy.value=true;error.value='';try{const{data}=await api.post(`/clients/${props.clientId}/service-enrollments/${returnService.value.id}/return-requests/${request.id}/review`,{agencyId:Number(props.agencyId),decision,message:returnMessages.value[request.id]||''});if(own===sequence)returnRequests.value=data.requests||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Request could not be reviewed.';}finally{if(own===sequence)busy.value=false;}}
 
-watch(()=>busy.value||loading.value||providersLoading.value||editingServiceId.value!==null||!!statusEdit.value||hasServiceDraft.value,value=>emit('busy',value),{flush:'sync'});
+watch(()=>busy.value||loading.value||providersLoading.value,value=>emit('busy',value),{flush:'sync'});
 function prepareLeave(){if(busy.value||loading.value||providersLoading.value)return false;if(editingServiceId.value!==null||statusEdit.value||hasServiceDraft.value){error.value='Save or cancel the assignment change before moving to another client.';return false;}return true;}
-defineExpose({prepareLeave});
+function workingDraft(){return {editingServiceId:editingServiceId.value,editingSourceId:editingSourceId.value,editingOrganizationId:editingOrganizationId.value,selectedProviderId:selectedProviderId.value,addingProvider:addingProvider.value,newService:{...draft.value},statusEditId:statusEdit.value?.id||null,statusDraft:{...statusDraft.value}};}
+function restoreWorkingDraft(value){
+ if(!value||typeof value!=='object')return;
+ const existing=services.value.find(service=>Number(service.id)===Number(value.editingServiceId));
+ if(existing){editingServiceId.value=existing.id;editingSourceId.value=value.editingSourceId||null;editingOrganizationId.value=Number(value.editingOrganizationId)||0;selectedProviderId.value=String(value.selectedProviderId||'');addingProvider.value=value.addingProvider===true;}
+ if(value.newService)draft.value={...newDraft(newServiceKinds.value[0]||'counseling'),...value.newService};
+ const statusService=services.value.flatMap(service=>[service,...(service.providers||[]).map(provider=>({...service,...provider,id:provider.service_id}))]).find(service=>Number(service.id)===Number(value.statusEditId));
+ if(statusService){statusEdit.value=statusService;statusDraft.value={...statusDraft.value,...value.statusDraft};}
+}
+watch(()=>JSON.stringify(workingDraft()),()=>emit('draft-change'),{flush:'post'});
+const hasWorkingDraft=()=>editingServiceId.value!==null||!!statusEdit.value||hasServiceDraft.value;
+defineExpose({prepareLeave,workingDraft,restoreWorkingDraft,hasWorkingDraft});
 watch(() => [props.clientId, props.agencyId], load, { immediate: true });
 onBeforeUnmount(() => { ++sequence;emit('busy',false); });
 </script>

@@ -39,7 +39,7 @@ export const auricwellTransitionReadiness = [
   {
     id: 'archive', title: 'Medical PDF storage and download', status: 'available',
     current: 'The workbench accepts client-specific PDFs up to 256 MB/5,000 pages, creates ordered volumes below 25 MB, and uploads them with a page/checksum manifest to the existing protected chart storage.',
-    remaining: 'Open/download every volume and verify completeness. A page that alone exceeds the limit needs a smaller source export. The prior-EHR fallback is recorded as pending; historical session extraction is separate.'
+    remaining: 'Open/download every volume and verify completeness. Oversized pages can use a smaller upload copy after staff reviews readability. Keep the original export for searchable text, digital signatures and attachments. The prior-EHR fallback is recorded as pending; historical session extraction is separate.'
   },
   {
     id: 'history', title: 'Separate historical sessions from a PDF', status: 'planned',

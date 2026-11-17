@@ -54,7 +54,7 @@ it('keeps services visible and explains a provider catalog failure',async()=>{
 it('keeps new service edits pending until saved or canceled, including service type and school choices',async()=>{
  mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider]}}:{data:{services:[service],availableServiceKinds:['counseling','tutoring','coaching']}});
  await render();expect(wrapper.vm.prepareLeave()).toBe(true);
- await wrapper.get('.add-service select').setValue('coaching');expect(wrapper.vm.prepareLeave()).toBe(false);expect(wrapper.emitted('busy').at(-1)).toEqual([true]);
+ await wrapper.get('.add-service select').setValue('coaching');expect(wrapper.vm.prepareLeave()).toBe(false);expect(wrapper.emitted('busy').at(-1)).toEqual([false]);expect(wrapper.vm.hasWorkingDraft()).toBe(true);
  await wrapper.findAll('button').find(button=>button.text()==='Cancel new service').trigger('click');expect(wrapper.vm.prepareLeave()).toBe(true);expect(wrapper.emitted('busy').at(-1)).toEqual([false]);
  await wrapper.setProps({organizations:[{organization_id:8,organization_name:'School'}]});await wrapper.get('.add-service-form label:last-of-type select').setValue('8');expect(wrapper.vm.prepareLeave()).toBe(false);
  await wrapper.findAll('button').find(button=>button.text()==='Cancel new service').trigger('click');expect(wrapper.vm.prepareLeave()).toBe(true);expect(mocks.post).not.toHaveBeenCalled();

@@ -89,12 +89,13 @@
         </button>
       </div>
       <template v-if="!historicalImport && canPrepareAccounts">
-        <p v-if="!recordsReadyForInvitation" class="ehr-muted">Import the filled sections, finish pending reviews and save assignment changes before sending the portal invitation.</p>
-        <fieldset class="ehr-invitation" :disabled="busy || !recordsReadyForInvitation"><ClientTransitionInvitation :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></fieldset>
+        <p v-if="!recordsReadyForInvitation" class="ehr-muted">You can update portal access and preview the invitation now. Import the filled record sections before sending it.</p>
+        <div class="ehr-invitation"><ClientTransitionInvitation :sending-enabled="recordsReadyForInvitation" :client-id="clientId" :agency-id="agencyId" :refresh-key="transitionRefreshKey" @busy="invitationBusy = $event" /></div>
       </template>
-      <div v-if="creationFlow && !historicalImport" class="ehr-finish"><p v-if="creationPendingReasons.length">Before finishing this client:</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="completeCreation">Finish client import</button></div>
+      <div v-if="creationFlow && !historicalImport" class="ehr-finish"><p v-if="creationPendingReasons.length">Remaining setup actions (records import can finish separately):</p><ul v-if="creationPendingReasons.length" aria-label="Remaining import steps"><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="completeCreation">Finish client import</button></div>
       <section v-if="completionReview" class="ehr-completion-review" aria-label="Review records import completion">
-        <h4>Review before marking done</h4>
+        <h4>Review before marking done</h4><p v-if="completionPreparing" role="status">Saving record and assignment drafts…</p>
+        <p v-if="error" class="ehr-error" role="alert">{{ error }}</p>
         <template v-if="unimportedSections.length"><p>These paste boxes contain information that has not been imported:</p><ul><li v-for="key in unimportedSections" :key="key">{{ sectionLabel(key) }}</li></ul><button type="button" class="ehr-btn-primary" :disabled="busy" @click="importAll()">Import remaining pasted sections</button><p>Resolve any import errors before finishing.</p></template>
         <template v-if="blankSections.length"><p>These paste boxes are blank. Existing information on the chart is preserved:</p><ul><li v-for="key in blankSections" :key="key">{{ sectionLabel(key) }}</li></ul><label class="ehr-label"><span><input v-model="keepBlankConfirmed" type="checkbox" :disabled="busy" /> Keep these boxes blank and finish with the information imported.</span></label></template>
         <p>Clinical finalization, assignment and billing follow-up remain separate profile actions.</p>
@@ -168,6 +169,7 @@ const unimportedSections=computed(()=>filledSections().filter(key=>key==='insura
 const blankSections=computed(()=>visibleSections.value.filter(section=>!(section.key==='insurance'?hasCoveragePaste.value:sectionTexts[section.key].trim())&&!['done','imported'].includes(status[section.key])).map(section=>section.key));
 const historyBusy=ref(false),historyPanel=ref(null);
 const assignmentsBusy=ref(false),assignmentsReady=ref(false),assignmentsPanel=ref(null);
+const completionPreparing=ref(false);
 const progressBusy=ref(false);let progressSectionsKey=null;
 const showAssignments=computed(()=>!props.historicalImport&&canPrepareAccounts.value);
 const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
@@ -176,8 +178,8 @@ const payerPosition = ref('primary');
 const coverageDrafts = reactive({ primary: { text: '', imported: false }, secondary: { text: '', imported: false } });
 const allCoverageImported = computed(() => Object.values(coverageDrafts).every(draft => !draft.text.trim() || draft.imported));
 const hasCoveragePaste = computed(() => Boolean(payerText.value.trim()) || Object.values(coverageDrafts).some(draft => draft.text.trim()));
-const creationRecordsReady = computed(() => allCoverageImported.value && visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => status[section.key] === 'imported'));
-const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !props.pendingProviderAssignment && !reviewPending.intake && !reviewPending.plan && (!showAssignments.value || assignmentsReady.value));
+const creationRecordsReady = computed(() => allCoverageImported.value && visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => ['imported','done'].includes(status[section.key])));
+const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !reviewPending.intake && !reviewPending.plan);
 let hydratingDrafts = false;
 let pipelineSections = [];
 
@@ -196,7 +198,8 @@ const status = reactive({
 const hasAnyPaste = computed(
   () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && Object.values(coverageDrafts).some(draft => draft.text.trim()))
 );
-const busy = computed(() => importing.value || markingDone.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || progressBusy.value || drafts.state.loading);
+const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || progressBusy.value || drafts.state.loading);
+const busy=computed(()=>networkBusy.value||completionPreparing.value);
 const filledSections=()=>visibleSections.value.filter(section=>sectionTexts[section.key].trim()||(section.key==='insurance'&&hasCoveragePaste.value)).map(section=>section.key);
 const creationPendingReasons=computed(()=>[
  ...(intakeText.value.trim()&&!intakeServiceCode.value?['Choose H0031 or 90791 for the imported intake.']:[]),
@@ -499,30 +502,32 @@ async function finishImportPipeline() {
 async function completeCreation() { completionReview.value=true;keepBlankConfirmed.value=false; }
 async function finishReviewedImport() {
   if(unimportedSections.value.length || busy.value || blankSections.value.length&&!keepBlankConfirmed.value)return;
-  if(await prepareLeave({confirmPending:false})===false)return;
-  const own=scopeGeneration;progressBusy.value=true;error.value='';
+  const own=scopeGeneration;completionPreparing.value=true;error.value='';
   try{
+    if(await prepareLeave({confirmPending:false,fromCompletion:true})===false)return;
+    if(own!==scopeGeneration)return;
+    progressBusy.value=true;
     await beginImportProgress();if(own!==scopeGeneration)return;progressBusy.value=true;
     await api.post(`/clients/${props.clientId}/chart-import/complete`,{keptBlankSections:blankSections.value},{skipGlobalLoading:true,headers:agencyHeaders()});
     if(own!==scopeGeneration)return;
     completionReview.value=false;successMessage.value='Records import marked done. Remaining profile actions stay pending.';
-    emit(props.creationFlow?'imported':'done',{...status,marked:true});
+    emit(props.creationFlow?'imported':'done',{...status,marked:true,assignmentDraftPending:assignmentsPanel.value?.hasPendingDraft?.()===true});
   }catch(e){if(own===scopeGeneration)error.value=e.response?.data?.error?.message||'The import could not be completed. Your saved entries remain here.';}
-  finally{if(own===scopeGeneration)progressBusy.value=false;}
+  finally{if(own===scopeGeneration){progressBusy.value=false;completionPreparing.value=false;}}
 }
 
-async function prepareLeave({confirmPending=true}={}) {
-  if(busy.value)return false;
+async function prepareLeave({confirmPending=true,fromCompletion=false}={}) {
+  if(networkBusy.value || (completionPreparing.value&&!fromCompletion)){error.value='Wait for the current request to finish, then save the draft or complete the import.';return false;}
   if(confirmPending && unimportedSections.value.length && !busy.value && window.confirm('Some pasted information has not been imported. Import it before leaving? Choose Cancel to keep it as a saved draft.')===true){
     await importAll();if(unimportedSections.value.length)return false;
   }
-  if (historyPanel.value?.prepareLeave?.() === false) return false;
+  if (historyPanel.value?.prepareLeave?.() === false){error.value='The selected medical history has not been uploaded. Upload it, or confirm that you will select it again later.';return false;}
   await drafts.flush();
   if (Object.values(drafts.state.sections).some(section => section.error) || (drafts.state.loadError && hasAnyPaste.value)) {
     error.value = 'Save the drafts before leaving this client. Retry any draft errors above.';
     return false;
   }
-  if (showAssignments.value && assignmentsPanel.value?.prepareLeave?.() === false) return false;
+  if (showAssignments.value && await assignmentsPanel.value?.saveWorkingDraft?.() === false){error.value='The pending assignment choices could not be saved as a draft. Review the assignment draft error above and retry.';return false;}
   emit('drafts-saved');
   return true;
 }

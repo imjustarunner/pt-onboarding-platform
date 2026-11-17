@@ -1,6 +1,6 @@
 <template>
  <Teleport to="body">
-  <div class="create-records-backdrop auricwell-client-workspace">
+  <div class="create-records-backdrop auricwell-client-workspace" @click.self="leave">
    <section ref="dialog" class="create-records-modal" role="dialog" aria-modal="true" aria-labelledby="create-records-title" tabindex="-1">
     <header><div><h2 id="create-records-title">{{ created ? `Import records · ${form.fullName}` : 'Add client from records' }}</h2><p>Paste the same sections used in Bring up to date. Create the chart, review imports and assignments, then preview the portal invitation.</p></div><button type="button" class="cr-button" :disabled="busy" @click="leave">Save draft &amp; close</button></header>
     <div class="cr-body">
@@ -131,13 +131,18 @@ async function assignSelectedProvider(){return finishClientCreation({api,clientI
 async function retryProvider(){working.value=true;try{if(form.providerId)await assignSelectedProvider();assignmentError.value='';await panel.value?.reloadAssignments?.();}catch(e){assignmentError.value=e.response?.data?.error?.message||e.message||'Provider assignment failed. Retry or continue unassigned.';}finally{working.value=false;}}
 async function resumeImport(){startImport.value=true;await panel.value?.importAll?.();}
 async function finish(){
- working.value=true;error.value='';
- try{const[record,enrollments]=await Promise.all([api.get(`/clients/${created.value.id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${created.value.id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);const data=record.data;form.providerId=primaryAssignmentProvider(data,enrollments.data?.services||[])||null;form.fullName=data.full_name||form.fullName;completed.value=true;save();await drafts.flush();try{localStorage.setItem(`client-entry-context:${auth.user.id}:${agencyId.value}`,JSON.stringify({providerId:form.providerId}));}catch{}emit('created',created.value);}
- catch(e){error.value=e.response?.data?.error?.message||e.message||'The chart is saved. Provider assignment needs attention; retry for this same client.';}finally{working.value=false;}
+ // The server has already confirmed records completion. Refreshes must not keep staff in review.
+ const snapshot=created.value,id=snapshot?.id,version=generation;completed.value=true;error.value='';save();await drafts.flush();if(version!==generation||created.value?.id!==id)return;emit('created',snapshot);
+ try{const[record,enrollments]=await Promise.all([api.get(`/clients/${id}`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId.value)}}),api.get(`/clients/${id}/service-enrollments`,{params:{agencyId:Number(agencyId.value)},skipGlobalLoading:true})]);
+  if(version!==generation||created.value?.id!==id)return;
+  const data=record.data?.client||record.data;form.providerId=primaryAssignmentProvider(data,enrollments.data?.services||[])||null;form.fullName=data.full_name||form.fullName;save();await drafts.flush();
+  try{localStorage.setItem(`client-entry-context:${auth.user.id}:${agencyId.value}`,JSON.stringify({providerId:form.providerId}));}catch{}
+ }catch{/* The imported chart and completion were saved; its profile can refresh independently. */}
 }
+
 async function nextClient(){chartDraftsSaved.value=false;const context={kind:form.kind,organizationId:form.organizationId,providerId:form.providerId};hydrating=true;Object.assign(form,defaults(),context);created.value=null;completed.value=false;startImport.value=false;assignmentError.value='';hydrating=false;save();await drafts.flush();await nextTick();dialog.value?.querySelector('textarea')?.focus();}
 async function leaveImportForNextClient(){if(await panel.value?.prepareLeave()===false)return;await nextClient();chartDraftsSaved.value=false;}
-async function prepareLeave(){if(busy.value)return false;clearTimeout(parseTimer);if(await panel.value?.prepareLeave()===false)return false;save();return drafts.flush();}
+async function prepareLeave(){if(busy.value){error.value='Wait for the current request to finish, then save and close.';return false;}clearTimeout(parseTimer);if(await panel.value?.prepareLeave()===false)return false;save();return drafts.flush();}
 async function leave(){if(await prepareLeave())emit('close');}
 useModalFocus(dialog,leave);
 onBeforeRouteLeave(async()=>!busy.value&&await prepareLeave());

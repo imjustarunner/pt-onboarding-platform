@@ -40,6 +40,7 @@ function labeledTokens(text, fields, { compact = false } = {}) {
 
 export function parseChartContacts(input) {
   let text = clean(String(input || '').replace(/^\s*#{1,6}\s+([^\n]+)$/gm,'\n@@CONTACT@@\n$1'))
+    .replace(/^.*?\bwas\s+added\s+as\s+a\s+(?:Patient\s+)?Contact[.!]?\s*/gmi,'')
     .replace(/svg\s*(?:Edit)/gi, '\n@@CONTACT@@\n')
     .replace(/^\s*(?:Contacts|Additional\s+Contacts|\+?\s*New\s*Contact|Save New Patient Contact|Cancel|Convert to Practice Contact|svg|Edit)\s*$/gmi, '');
   // A TSV table has one contact per row, including separately named phone fields.

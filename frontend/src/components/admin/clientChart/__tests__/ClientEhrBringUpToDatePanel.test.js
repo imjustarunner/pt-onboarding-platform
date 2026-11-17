@@ -135,8 +135,8 @@ it('routes source guardian channels separately and reimports demographics after 
  expect(mocks.post).toHaveBeenLastCalledWith('/clients/12/demographics/import',expect.objectContaining({contactOwner:'client'}),expect.anything());wrapper.unmount();
 });
 
-it('places assignments after the records and waits for reviewed assignment changes before leaving',async()=>{
- const leave=vi.fn(()=>false);const AssignmentStub=defineComponent({name:'ClientUpdateAssignments',emits:['busy','ready','updated'],setup(_, {expose}){expose({prepareLeave:leave});},template:'<section data-assignments>Assignments controls</section>'});
+it('places assignments after the records and saves pending assignment changes as drafts before leaving',async()=>{
+ const leave=vi.fn(()=>false);const AssignmentStub=defineComponent({name:'ClientUpdateAssignments',emits:['busy','ready','updated'],setup(_, {expose}){expose({prepareLeave:()=>false,saveWorkingDraft:leave});},template:'<section data-assignments>Assignments controls</section>'});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs:{...stubs,ClientUpdateAssignments:AssignmentStub}}});await flushPromises();
  expect(wrapper.find('[data-assignments]').exists()).toBe(true);expect(wrapper.html().indexOf('data-assignments')).toBeGreaterThan(wrapper.html().indexOf('data-section="plan"'));
  expect(await wrapper.vm.prepareLeave()).toBe(false);expect(leave).toHaveBeenCalledOnce();
