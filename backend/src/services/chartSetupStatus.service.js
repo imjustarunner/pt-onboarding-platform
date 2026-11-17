@@ -17,7 +17,7 @@ async function intakeOnFile(clientId, agencyId) {
   try {
     const [rows] = await pool.execute(
       `SELECT id,status,session_context_enc FROM client_intake_note_drafts
-       WHERE client_id = ? AND agency_id = ? AND status IN ('final','draft')`,
+       WHERE client_id = ? AND agency_id = ? AND status IN ('final','draft','ready','diagnosis_pending')`,
       [clientId,agencyId]
     );
     return rows.some(row => !row.status || row.status === 'final' || intakeDraftContext(row).source === 'client_records_import');
@@ -33,7 +33,7 @@ async function planOnFile(agencyId, clientId) {
     const [rows] = await clinicalPool.execute(
       `SELECT p.id, p.title, p.status, p.source_tool_id
        FROM clinical_treatment_plans p
-       WHERE p.agency_id = ? AND p.client_id = ? AND (p.status = 'active' OR (p.status = 'draft' AND p.source_tool_id LIKE 'client_records_import:%'))
+       WHERE p.agency_id = ? AND p.client_id = ? AND (p.status = 'active' OR (p.status = 'draft' AND (p.source_tool_id LIKE 'client_records_import:%' OR p.source_tool_id='client_creation_record_import')))
        ORDER BY p.id DESC`,
       [agencyId, clientId]
     );

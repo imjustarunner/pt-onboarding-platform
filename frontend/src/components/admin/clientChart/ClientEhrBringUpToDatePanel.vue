@@ -284,7 +284,7 @@ watch(
       if (typeof stored?.text === 'string') sectionTexts[section.key] = stored.text;
     }
     for (const section of sections) if (saved?.[section.key]?.value?.imported && saved[section.key].value.text === sectionTexts[section.key]) status[section.key] = 'imported';
-    for (const key of ['intake','plan']) reviewPending[key] = status[key] === 'imported' && saved?.[key]?.value?.needsReview === true;
+    for (const key of ['intake','plan']) reviewPending[key] = props.historicalImport && status[key] === 'imported' && saved?.[key]?.value?.needsReview === true;
     restoreCoverage(saved);
     contactOwner.value = saved?.demographics?.value?.contactOwner || props.initialContactOwner;
     intakeServiceCode.value = saved?.intake?.value?.serviceCode || props.initialIntakeServiceCode;

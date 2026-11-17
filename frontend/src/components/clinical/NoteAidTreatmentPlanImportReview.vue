@@ -561,7 +561,7 @@ function applyPlanRecord(plan) {
   const sourceParsed = plan.recordsImportSource?.parsed || {};
   const sourceDiagnoses = plan.diagnoses?.length ? plan.diagnoses : sourceParsed.diagnoses || [];
   loadedPlanId.value = plan.id || null;
-  importedDraftId.value = plan.status === 'draft' && String(plan.source_tool_id || '').startsWith('client_records_import:') ? plan.id : null;
+  importedDraftId.value = plan.status === 'draft' && (String(plan.source_tool_id || '').startsWith('client_records_import:') || plan.source_tool_id === 'client_creation_record_import') ? plan.id : null;
   const dxFromLinks = (plan.planDiagnoses || plan.plan_diagnoses || []).map((d, i) => ({
     icd10Code: d.icd10_code || d.icd10Code || '',
     description: d.description || '',

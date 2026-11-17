@@ -54,7 +54,7 @@ class ClinicalTreatmentPlan {
       await conn.beginTransaction();
       if (supersedesImportedDraftId) {
         const [[source]] = await conn.execute('SELECT status,source_tool_id FROM clinical_treatment_plans WHERE id = ? AND agency_id = ? AND client_id = ? FOR UPDATE', [supersedesImportedDraftId,agencyId,clientId]);
-        if (!source || source.status !== 'draft' || !String(source.source_tool_id || '').startsWith('client_records_import:')) {
+        if (!source || source.status !== 'draft' || !(String(source.source_tool_id || '').startsWith('client_records_import:') || source.source_tool_id === 'client_creation_record_import')) {
           throw Object.assign(new Error('This imported draft changed or was already finalized. Reload the treatment plans before continuing.'), {status:409});
         }
       }

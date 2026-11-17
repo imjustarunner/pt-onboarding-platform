@@ -176,7 +176,7 @@ it('uses the client profile drafts over stale creation pastes, including an inte
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{},expect.anything());expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/intake-note/import')||url==='/medical-billing/treatment-plans')).toBe(false);expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
 });
 it('marks imported intake and plan drafts done without attesting to clinical finalization',async()=>{
- mocks.get.mockResolvedValue({data:{drafts:{intake:{value:{text:'Original intake',serviceCode:'90791',imported:true}},plan:{value:{text:'Original plan',imported:true}}}}});mocks.post.mockResolvedValue({data:{}});
+ mocks.get.mockResolvedValue({data:{drafts:{intake:{value:{text:'Original intake',serviceCode:'90791',imported:true,needsReview:true}},plan:{value:{text:'Original plan',imported:true,needsReview:true}}}}});mocks.post.mockResolvedValue({data:{}});
  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2},global:{stubs}});await flushPromises();await wrapper.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/clients/12/chart-import/complete',{ifPending:true},expect.anything());expect(wrapper.emitted('done')).toHaveLength(1);expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/note-aid-setup-complete'))).toBe(false);wrapper.unmount();
 });
