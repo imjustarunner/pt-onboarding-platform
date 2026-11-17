@@ -36,7 +36,7 @@ export async function recordSchoolGroupEmail(input, dependencies = {}) {
   const saved = await persist({agencyId:Number(input.agencyId),inboxId:inbox.id,deliveryId:input.messageId,
     threadId:input.threadId || null,fromEmail:input.fromEmail,subject:input.subject,bodyText:input.bodyText || '',bodyHtml:input.bodyHtml || null,
     to:emails(input.to).map(email=>({email})),cc:emails(input.cc).map(email=>({email})),receivedAt,
-    attachments,isGroupEmail:true,isAutoReply:true,autoReplyKind:'school_group_notification',standalone:true,suppressPush:!!input.historical});
+    attachments,isGroupEmail:true,isAutoReply:true,autoReplyKind:'school_group_notification',standalone:true,suppressPush:true});
   if (!saved.messageId || !saved.conversationId) throw new Error('School notification email did not persist');
   await db.execute("UPDATE communication_conversations SET is_unknown_sender=0,status='resolved' WHERE id=? AND agency_id=? AND support_ticket_id IS NULL", [saved.conversationId,input.agencyId]);
   // The email itself is available in Groups. Its review state is the signal;

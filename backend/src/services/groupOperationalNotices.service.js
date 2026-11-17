@@ -27,6 +27,6 @@ export async function captureGroupOperationalNotice(input, dependencies = {}) {
     deliveryId: messageId, threadId: threadId || messageId, fromEmail, subject, bodyText,
     bodyHtml: await html(payload, { gmail, gmailMessageId }),
     to: (input.to || []).map(email => ({ email })), cc: (input.cc || []).map(email => ({ email })),
-    receivedAt, attachments, isGroupEmail: true });
+    receivedAt, attachments, isGroupEmail: true, suppressPush: true });
   return { ...result, category };
 }

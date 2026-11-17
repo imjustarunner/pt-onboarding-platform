@@ -6,7 +6,7 @@ function ownerCandidates(alias) {
     WHERE LOWER(COALESCE(${alias}.identity_key,'')) NOT IN (${sharedKeys})
       AND LOWER(SUBSTRING_INDEX(COALESCE(${alias}.from_email,''),'@',1)) NOT IN (${sharedKeys})
       AND po.role NOT IN ('school_staff','client_guardian','guardian','client','athlete','assistant')
-      AND LOWER(${alias}.from_email) IN (LOWER(po.email),LOWER(po.work_email),LOWER(po.username))`;
+      AND LOWER(${alias}.from_email) COLLATE utf8mb4_unicode_ci IN (LOWER(po.email),LOWER(po.work_email),LOWER(po.username))`;
 }
 // Historical login Groups may have been created as shared inboxes. Infer an
 // owner only from an exact account address in that tenant, never a display name.

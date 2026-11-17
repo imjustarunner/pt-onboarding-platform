@@ -9,7 +9,7 @@ export function ticketMailVisibilitySql(alias = 't') {
   return `(${alias}.source_channel<>'email' OR (LOWER(COALESCE(${alias}.subject,'')) NOT REGEXP '^(demo only:|qa:|demo:)|client exchange.*demo testing'
     AND LOWER(CONCAT_WS(' ',${alias}.source_email_from,${alias}.source_email_recipients)) NOT REGEXP '(^|[^a-z0-9._%+-])testing([+][^@[:space:]]+)?@'
     AND NOT EXISTS (SELECT 1 FROM support_ticket_email_messages qe JOIN email_sender_identities qi
-      ON qi.agency_id=${alias}.agency_id AND LOWER(qi.from_email)=LOWER(qe.from_email)
+      ON qi.agency_id=${alias}.agency_id AND LOWER(qi.from_email) COLLATE utf8mb4_unicode_ci=LOWER(qe.from_email) COLLATE utf8mb4_unicode_ci
       WHERE qe.ticket_id=${alias}.id AND qe.direction='inbound'
         AND (LOWER(COALESCE(qe.from_name,'')) REGEXP '^client exchange.*demo testing$' OR qe.internet_message_id LIKE '<exchange-demo-%'))
     AND NOT EXISTS (SELECT 1 FROM agencies qa WHERE qa.id=${alias}.agency_id AND qa.slug REGEXP '(^|[-_])(qa|demo)([-_]|$)')))`;
@@ -28,12 +28,12 @@ export function messageInboxPolicySql({ userId, schoolGroupInboxIds = [] } = {})
   const schools = ids(schoolGroupInboxIds);
   const sender = `LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pm.from_json,'$.email')),JSON_UNQUOTE(JSON_EXTRACT(pm.from_json,'$[0].email')),''))`;
   const trustedSender = `EXISTS (SELECT 1 FROM email_sender_identities ps WHERE ps.agency_id=c.agency_id
-    AND LOWER(ps.from_email)=${sender})`;
+    AND LOWER(ps.from_email) COLLATE utf8mb4_unicode_ci=${sender} COLLATE utf8mb4_unicode_ci)`;
   const loggedTemplate = templates => `EXISTS (SELECT 1 FROM user_communications pu WHERE pu.agency_id=c.agency_id
-    AND pu.template_type IN (${templates.map(t => `'${t}'`).join(',')}) AND pu.subject=c.subject
-    AND (JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.threadId'))=c.external_thread_id
+    AND pu.template_type IN (${templates.map(t => `'${t}'`).join(',')}) AND pu.subject=c.subject COLLATE utf8mb4_unicode_ci
+    AND (JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.threadId')) COLLATE utf8mb4_unicode_ci=c.external_thread_id COLLATE utf8mb4_unicode_ci
       OR EXISTS (SELECT 1 FROM communication_messages pm WHERE pm.conversation_id=c.id
-        AND pm.internet_message_id IS NOT NULL AND pm.internet_message_id=JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.internetMessageId')))))`;
+        AND pm.internet_message_id IS NOT NULL AND pm.internet_message_id COLLATE utf8mb4_unicode_ci=JSON_UNQUOTE(JSON_EXTRACT(pu.metadata,'$.internetMessageId')) COLLATE utf8mb4_unicode_ci)))`;
   const trustedSubject = pattern => `EXISTS (SELECT 1 FROM communication_messages pm WHERE pm.conversation_id=c.id
     AND pm.direction='inbound' AND COALESCE(pm.is_internal_note,0)=0 AND ${trustedSender}
     AND LOWER(COALESCE(pm.subject,c.subject,'')) REGEXP '${pattern}')`;
@@ -61,7 +61,7 @@ export function messageInboxPolicySql({ userId, schoolGroupInboxIds = [] } = {})
   const schoolAutoRead = schools.length && uid ? `(COALESCE(c.inbox_id,0) IN (${schools.join(',')}) AND EXISTS
     (SELECT 1 FROM users pr JOIN user_agencies pra ON pra.user_id=pr.id AND pra.agency_id=c.agency_id AND pra.is_active=1
       WHERE pr.id=${uid} AND pr.is_active=1 AND COALESCE(pr.is_archived,0)=0
-        AND '${RACHEL_SCHOOL_EMAIL}' IN (LOWER(pr.email),LOWER(pr.work_email),LOWER(pr.personal_email),LOWER(pr.username))))` : '0=1';
+        AND '${RACHEL_SCHOOL_EMAIL}' COLLATE utf8mb4_unicode_ci IN (LOWER(pr.email),LOWER(pr.work_email),LOWER(pr.personal_email),LOWER(pr.username))))` : '0=1';
   return { category, demo, schoolAutoRead, correspondence: `${category}='correspondence'` };
 }
 

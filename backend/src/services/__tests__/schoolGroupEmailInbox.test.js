@@ -26,7 +26,7 @@ function fixture(){
 }
 test('real receipt mail is stored as group email without tickets, draft generation, or resend',async()=>{
  const f=fixture();const result=await recordSchoolGroupEmail(input,f.deps);
- assert.equal(result.handled,true);assert.equal(result.notificationCount,0);assert.equal(f.copies[0].standalone,true);assert.equal(f.copies[0].isGroupEmail,true);assert.equal(f.copies[0].inboxId,12);assert.equal(f.notifications.length,0);assert.equal(f.pushes.length,0);
+ assert.equal(result.handled,true);assert.equal(result.notificationCount,0);assert.equal(f.copies[0].standalone,true);assert.equal(f.copies[0].isGroupEmail,true);assert.equal(f.copies[0].inboxId,12);assert.equal(f.copies[0].suppressPush,true);assert.equal(f.notifications.length,0);assert.equal(f.pushes.length,0);
  assert.equal((await recordSchoolGroupEmail(input,f.deps)).notificationCount,0);assert.equal(f.pushes.length,0);
 });
 test('restoring a previously sent receipt preserves its date and suppresses old device/browser alerts',async()=>{

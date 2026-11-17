@@ -22,7 +22,7 @@ export async function syncSchoolOnboardingWorkflowTicket({ inviteId, stage, stag
       AND ua.agency_id=? AND ua.is_active=1 WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0
       AND COALESCE(u.is_demo,0)=0 AND u.status IN ('ACTIVE','ACTIVE_EMPLOYEE')
       AND u.role IN ('admin','support','staff','super_admin')
-      AND ? IN (LOWER(u.email),LOWER(u.work_email),LOWER(u.username))`, [invite.agency_id, RACHEL_SCHOOL_EMAIL]);
+      AND ? COLLATE utf8mb4_unicode_ci IN (LOWER(u.email),LOWER(u.work_email),LOWER(u.username))`, [invite.agency_id, RACHEL_SCHOOL_EMAIL]);
     if (owners.length !== 1) throw Object.assign(new Error('School onboarding assignee must be uniquely configured.'), { code: 'SCHOOL_ONBOARDING_ASSIGNEE_UNAVAILABLE' });
     const [[link]] = await db.execute('SELECT ticket_id,stage_key FROM school_onboarding_workflow_tickets WHERE invite_id=? FOR UPDATE', [inviteId]);
     const key = String(stageKey || stage).slice(0, 160);

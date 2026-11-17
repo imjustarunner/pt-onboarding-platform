@@ -24,7 +24,7 @@ export async function applySchoolGmailOwnership({ input, ticket, appOriginReceip
   const [[member]] = await database.execute(`SELECT u.id FROM users u JOIN user_agencies ua
     ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
     WHERE u.id=? AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
-      AND ? IN (LOWER(u.email),LOWER(u.work_email),LOWER(u.personal_email),LOWER(u.username)) LIMIT 1`,
+      AND ? COLLATE utf8mb4_unicode_ci IN (LOWER(u.email),LOWER(u.work_email),LOWER(u.personal_email),LOWER(u.username)) LIMIT 1`,
   [ticket.agency_id, input.staffUserId, RACHEL_SCHOOL_EMAIL]);
   if (!member) return false;
   const [result] = await database.execute(`UPDATE support_tickets SET claimed_by_user_id=?,claimed_at=COALESCE(claimed_at,CURRENT_TIMESTAMP)
