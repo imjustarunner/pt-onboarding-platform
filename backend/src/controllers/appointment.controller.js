@@ -1,6 +1,7 @@
 import { recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { randomUUID } from 'node:crypto';
+import { tutoringSessionPriceBilling } from '../services/tutoringSessionPrice.service.js';
 import pool from '../config/database.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
@@ -119,6 +120,10 @@ export const createAppointmentHandler = async (req, res, next) => {
     await assertBillingMutationAccess(req, agencyId);
     const createPse = req.body?.createProviderScheduleEvent !== false;
     const providerUserId = Number(req.body?.providerUserId || req.user?.id || 0) || null;
+    const individualPrice = await tutoringSessionPriceBilling({ actor: req.user, agencyId, providerId: providerUserId,
+      tenantServiceId: req.body?.tenantServiceId, packageEntitlementId: req.body?.packageEntitlementId,
+      price: req.body?.tutoringSessionPrice });
+    if (individualPrice && req.body?.billing) return res.status(400).json({error:{message:'Choose one session pricing method.'}});
     let notes = req.body?.notes || null;
     const quickNote = String(req.body?.quickNote || req.body?.quick_note || '').trim();
     if (quickNote) {
@@ -178,7 +183,7 @@ export const createAppointmentHandler = async (req, res, next) => {
             : (Array.isArray(req.body?.addon_service_codes) ? req.body.addon_service_codes : []),
           createdByUserId: req.user?.id || null,
           participants: Array.isArray(req.body?.participants) ? req.body.participants : [],
-          billing: req.body?.billing || null
+          billing: individualPrice || req.body?.billing || null
         });
 
         // Session adapter: create a calendar facet (PSE) for non-office bookings.

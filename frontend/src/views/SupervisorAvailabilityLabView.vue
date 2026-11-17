@@ -2,13 +2,14 @@
   <div class="provider-find-page">
     <header class="page-head">
       <div>
-        <h1>Find a Provider</h1>
-        <p class="muted">Active client-facing providers with intake availability (in-person and virtual).</p>
+        <h1>{{ serviceType==='tutoring' ? 'Find a Tutor' : 'Find a Provider' }}</h1>
+        <p class="muted">{{ serviceType==='tutoring' ? 'Tutoring openings for new and current students (in person and virtual).' : 'Active client-facing providers with enrollment availability (in person and virtual).' }}</p>
       </div>
       <button class="btn btn-secondary" type="button" :disabled="loading" @click="reloadAll">Refresh</button>
     </header>
 
     <section class="filters">
+      <label class="field"><span>Service</span><select v-model="serviceType" @change="loadCards"><option value="tutoring">Tutoring</option><option value="counseling">Counseling</option></select></label>
       <label class="field">
         <span>Agency</span>
         <select v-model="selectedAgencyKey" @change="onAgencyChange">
@@ -36,8 +37,8 @@
     </section>
 
     <div v-if="error" class="error">{{ error }}</div>
-    <div v-else-if="loading" class="loading">Loading provider intake availability...</div>
-    <div v-else-if="filteredCards.length === 0" class="empty">No matching providers with intake openings.</div>
+    <div v-else-if="loading" class="loading">Loading {{serviceType==='tutoring'?'tutoring':'enrollment'}} availability…</div>
+    <div v-else-if="filteredCards.length === 0" class="empty">No matching {{serviceType==='tutoring'?'tutors with tutoring':'providers with enrollment'}} openings. Try another week or ask Support to review the provider’s service availability.</div>
 
     <section v-else class="cards">
       <article v-for="card in filteredCards" :key="card.providerId" class="provider-card">
@@ -255,6 +256,7 @@ const WEEKDAY_LABELS = {
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const serviceType = ref(String(route.params.organizationSlug || agencyStore.currentAgency?.slug || '').startsWith('nlu') ? 'tutoring' : 'counseling');
 const loading = ref(false);
 const error = ref('');
 const agencies = ref([]);
@@ -487,7 +489,7 @@ function buildCardFromSlots(provider, slots) {
     providerId: Number(provider.id),
     providerName: providerName(provider),
     profilePhotoUrl: toUploadsUrl(provider?.profilePhotoUrl || provider?.profile_photo_url || provider?.profile_photo_path || null),
-    availabilityLabel: `Available this week (${sortedSlots.length} intake slot${sortedSlots.length === 1 ? '' : 's'})`,
+    availabilityLabel: `Available this week (${sortedSlots.length} ${serviceType.value==='tutoring'?'tutoring':'enrollment'} slot${sortedSlots.length === 1 ? '' : 's'})`,
     bookedThroughLabel: bookedThroughDate ? `Booked through: ${toDateLabel(bookedThroughDate)}` : 'Booked through: currently open this week',
     locationSummary,
     dayColumns: buildDayColumns(displaySlots)
@@ -544,15 +546,15 @@ async function loadCards() {
         ...(selectedAgencyIds.length === 1
           ? { agencyId: selectedAgencyIds[0] }
           : { agencyIds: selectedAgencyIds.join(',') }),
-        weekStart: weekStart.value
+        weekStart: weekStart.value, serviceType:serviceType.value
       }
     });
     const providers = Array.isArray(data?.providers) ? data.providers : [];
     cards.value = providers
       .map((p) => {
         const merged = [
-          ...(Array.isArray(p?.inPersonSlots) ? p.inPersonSlots.map((s) => ({ ...s, modality: 'In-person intake', modalityClass: 'modality-office' })) : []),
-          ...(Array.isArray(p?.virtualSlots) ? p.virtualSlots.map((s) => ({ ...s, modality: 'Virtual intake', modalityClass: 'modality-virtual' })) : [])
+          ...(Array.isArray(p?.inPersonSlots) ? p.inPersonSlots.map((s) => ({ ...s, modality: 'In person', modalityClass: 'modality-office' })) : []),
+          ...(Array.isArray(p?.virtualSlots) ? p.virtualSlots.map((s) => ({ ...s, modality: 'Virtual', modalityClass: 'modality-virtual' })) : [])
         ].sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
         return buildCardFromSlots(
           { id: Number(p.providerId), first_name: p.firstName, last_name: p.lastName, profilePhotoUrl: p.profilePhotoUrl },

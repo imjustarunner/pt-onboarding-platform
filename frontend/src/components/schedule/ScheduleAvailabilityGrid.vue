@@ -1943,7 +1943,10 @@
         </label>
         <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">
           <label>Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
-          <p v-if="editorServicesLoading">Loading tutoring services…</p><p v-else-if="editorTutoringPriceCents!=null">Session price: {{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(editorTutoringPriceCents/100)}} · {{editorModality==='IN_PERSON'?'In person':'Virtual'}} · {{modalSessionDurationMinutes}} minutes</p><p v-else role="status">Select a service and format to review its price before booking.</p>
+          <TutoringSessionPrice v-model="editorIndividualPrice" :quote="editorTutoringQuote"
+            :can-set="editorCanSetTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
+            :context-key="`${editorAgencyId}:${bookingTargetUserId}:${editorTenantServiceId}:${editorInfoClientId}:${editorModality}`"
+            :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
         </section>
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
@@ -5979,6 +5982,7 @@ import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
+import TutoringSessionPrice from './TutoringSessionPrice.vue';
 import GuardianAppointmentRequests from './GuardianAppointmentRequests.vue';
 import SecureSessionCommentButton from '../session-comments/SecureSessionCommentButton.vue';
 import { canUseSessionComments } from '../session-comments/sessionComments';
@@ -15133,11 +15137,23 @@ const editorInfoClientName = computed(() => {
   if (!id) return '';
   return scheduleEventClientDisplayName(id) || 'Client';
 });
-const editorTutoringPriceCents=computed(()=>{
+const editorIndividualPrice = ref(null);
+const editorCanSetTutoringPrice = ref(false);
+const editorTutoringQuote=computed(()=>{
  const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));
  const quote=svc?.quotes?.[editorModality.value==='IN_PERSON'?'IN_PERSON':'TELEHEALTH'];
- return quote?.amountCents!=null?(quote.rateUnit==='hour'?Math.round(Number(quote.rateCents)*modalSessionDurationMinutes.value/60):Number(quote.amountCents)):null;
+ return quote?.amountCents!=null?{...quote,amountCents:quote.rateUnit==='hour'?Math.round(Number(quote.rateCents)*modalSessionDurationMinutes.value/60):Number(quote.amountCents)}:null;
 });
+watch(showRequestModal,()=>{editorIndividualPrice.value=null;});
+function tutoringSessionPricePayload() {
+  if (!editorIsLearning.value || !editorCanSetTutoringPrice.value || !editorIndividualPrice.value) return undefined;
+  const price=editorIndividualPrice.value;
+  if (Number(editorPackageEntitlementId.value)>0) throw new Error('Choose either a package credit or a custom session price.');
+  if (!Number.isSafeInteger(price.amountCents)||price.amountCents<0||price.amountCents>2147483647)
+    throw new Error('Enter a session price of zero or more with at most two decimal places.');
+  if (!String(price.reason||'').trim()) throw new Error('Add a reason for this session price.');
+  return {...price,reason:price.reason.trim()};
+}
 const editorInfoServiceLabel = computed(() => {
   const sid = Number(editorTenantServiceId.value || 0);
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
@@ -16076,6 +16092,7 @@ async function loadEditorTenantServices() {
       });
     }
     if(request!==editorServicesRequest||aid!==Number(editorAgencyId.value||effectiveAgencyId.value||0))return;
+    editorCanSetTutoringPrice.value = r.data?.canSetTutoringSessionPrice === true;
     if (tutoringWorkspaceOnly.value) services=services.filter(service=>['tutoring','learning'].includes(String(service.businessType||service.business_type)));
     editorTenantServices.value = services;
     if(tutoringWorkspaceOnly.value && services.length===1)editorTenantServiceId.value=Number(services[0].id);
@@ -16084,6 +16101,7 @@ async function loadEditorTenantServices() {
       editorPracticeCategory.value = practiceCategoryForBusinessType(first?.businessType || first?.business_type) || 'mental_health';
     }
   } catch {
+    editorCanSetTutoringPrice.value = false;
     editorTenantServices.value = [];
     editorPackageEntitlements.value = [];
   } finally {
@@ -16970,6 +16988,7 @@ const normalizeBookingSelectionPayload = () => {
     ...(clientId ? { clientId } : {}),
     tenantServiceId: Number(editorTenantServiceId.value || 0) || null,
     packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || null,
+    tutoringSessionPrice: tutoringSessionPricePayload(),
     status: 'scheduled',
     videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     notificationMode: String(editorNotificationMode.value || 'default'),
@@ -16993,7 +17012,7 @@ const preferDefaultServiceLocation = ({ force = false } = {}) => {
 
 const refreshBookingUnitPreview = async () => {
   bookingUnitPreview.value = '';
-  if (!showClinicalBookingFields.value || !effectiveAgencyFeatureFlags.value.medicalBillingEnabled) return;
+  if (editorIsLearning.value || !showClinicalBookingFields.value || !effectiveAgencyFeatureFlags.value.medicalBillingEnabled) return;
   const agencyId = Number(effectiveAgencyId.value || 0);
   let code = normalizeCodeValue(bookingServiceCode.value);
   if (!agencyId || !code) return;
@@ -22291,6 +22310,7 @@ const completePlatformVirtualSessionBooking = async ({
       recurrence: editorOfficeSeriesParams().recurrence,
       occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12,
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
+      tutoringSessionPrice: tutoringSessionPricePayload(),
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
       participants,

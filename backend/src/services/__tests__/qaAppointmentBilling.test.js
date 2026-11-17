@@ -47,3 +47,23 @@ it.each([0,null,undefined])('does not post the full booked price when a no-show 
  Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay_only',amountCents:12000});
  await syncQaAppointmentBalance({...appointment,status:'no_show',cancellationFeeCents},1433);expect(createReceivable).not.toHaveBeenCalled();
 });
+
+const nlu={id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}};
+const tutoring={...appointment,agencyId:453,businessType:'tutoring',serviceCode:'TUTORING',status:'completed'};
+it('retains the completed one-dollar tutoring balance as synthetic and noncollectible',async()=>{
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[nlu]]:[[]]);
+ Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay',amountCents:100,paymentStatus:'fee_pending'});
+ await syncQaAppointmentBalance(tutoring,1496);
+ expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({agencyId:453,amountCents:100,serviceDomain:'tutoring',serviceLabel:'Tutoring session',reviewRequired:true,payload:expect.objectContaining({syntheticOnly:true,noCollection:true,appointmentId:72})}));
+ expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('WHERE id=?'),[453]);
+});
+it.each(['package_consumed','free_rebook','waived','paid'])('does not duplicate a covered tutoring balance (%s)',async paymentStatus=>{
+ pool.execute.mockResolvedValue([[nlu]]);Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay',amountCents:100,paymentStatus});
+ expect(await syncQaAppointmentBalance(tutoring,1496)).toBeNull();expect(createReceivable).not.toHaveBeenCalled();
+});
+it.each([{agencyId:6},{businessType:'mental_health'},{serviceCode:'90837'}])('keeps the NLU example out of live or clinical billing: %j',async patch=>{
+ pool.execute.mockResolvedValue([[nlu]]);await syncQaAppointmentBalance({...tutoring,...patch},1496);expect(createReceivable).not.toHaveBeenCalled();
+});
+it('keeps future tutoring completion and no-show blocked',async()=>{
+ pool.execute.mockResolvedValue([[nlu]]);await expect(requireQaOutcomeElapsed({...tutoring,endAt:new Date(Date.now()+3600000).toISOString()},'completed')).rejects.toMatchObject({status:409});
+});
