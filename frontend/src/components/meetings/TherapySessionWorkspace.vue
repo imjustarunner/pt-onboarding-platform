@@ -3,7 +3,7 @@
   <section :class="{'therapy-workspace--mini':mini,'therapy-workspace--pip':!!miniTarget}" :style="{'--office-accent':officeAccent(branding)}" class="therapy-workspace">
     <header class="therapy-header">
       <button v-if="mini" class="mini-restore" @click="closeMini">Return to session</button>
-      <OfficeBrand v-if="showBrand" class="therapy-brand" :branding="branding" />
+      <OfficeBrand v-if="showBrand" class="therapy-brand" :branding="branding" :subtitle="learning ? 'Tutoring session' : null" />
       <span class="therapy-status" :class="{'status-leading':!showBrand}">● {{ startedAt === null ? 'Ready for your guest' : 'In session' }}</span><span class="therapy-clock">{{ elapsed }}</span>
       <button class="danger" @click="$emit('leave-request')">{{ isHost ? 'End session' : 'Leave session' }}</button>
     </header>

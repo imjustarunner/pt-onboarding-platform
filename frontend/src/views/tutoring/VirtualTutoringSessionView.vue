@@ -1,6 +1,6 @@
 <template>
  <main class="tutoring-room">
-  <header><img v-if="logo" :src="logo" :alt="brand" /><div><h1>{{ state?.title || 'Tutoring session' }}</h1><p v-if="state">Appointment #{{ state.appointmentId }} · {{ scheduleLabel }} · {{ statusLabel }}</p></div><router-link :to="backPath">Back to {{ state?.host ? 'my schedule' : 'my portal' }}</router-link></header>
+  <header><img v-if="logo" :src="logo" :alt="brand" /><div><p class="brand-name">{{brand}}</p><h1>{{ state?.title || 'Tutoring session' }}</h1><p v-if="state">Appointment #{{ state.appointmentId }} · {{ scheduleLabel }} · {{ statusLabel }}</p></div><router-link :to="backPath">Back to {{ state?.host ? 'my schedule' : 'my portal' }}</router-link></header>
   <p v-if="loading" role="status">Checking your booked session…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="refresh">Try again</button></p>
   <template v-if="state">
@@ -29,7 +29,8 @@ const route=useRoute(),agencies=useAgencyStore();
 const state=ref(null),loading=ref(true),error=ref(''),video=ref(null),connected=ref(false),wantsJoin=ref(false),busy=ref(false),confirmingEnd=ref(false),billingWarning=ref('');
 const note=ref(''),noteLoaded=ref(false),savingNote=ref(false),noteStatus=ref('');
 let appointmentId=Number(route.params.appointmentId),timer,stopped=false,polling=false;
-const brand=computed(()=>agencies.currentAgency?.name||'Tutoring'),logo=computed(()=>agencies.currentAgency?.logo_url||'');
+const scopedAgency=computed(()=>Number(agencies.currentAgency?.id)===Number(state.value?.agencyId)?agencies.currentAgency:null);
+const brand=computed(()=>state.value?.branding?.agencyName||scopedAgency.value?.name||'Tutoring'),logo=computed(()=>state.value?.branding?.agencyLogoUrl||state.value?.branding?.logoUrl||scopedAgency.value?.logo_url||'');
 const backPath=computed(()=>`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/${state.value?.host?'dashboard?tab=my_schedule':'guardian'}`);
 const waiting=computed(()=>(state.value?.visits||[]).filter(v=>v.status==='waiting')),admitted=computed(()=>(state.value?.visits||[]).filter(v=>v.status==='admitted'));
 const ended=computed(()=>state.value?.status==='ended'||state.value?.status==='completed'||['ending','ended'].includes(state.value?.roomState));
