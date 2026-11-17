@@ -13,7 +13,7 @@ it('keeps delivery pending without an account or email and observes existing com
 });
 it('delivers a localized portal-only notice once, without clinical content or a human automation actor',async()=>{
  expect(await deliverGuardianPlanNotice({plan,guardian,link,locale:'es'},deps)).toEqual({complete:true});
- expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({to:'parent@example.test',generatedByUserId:null,source:'auto',subject:'Su plan está listo para revisar',linkUrl:expect.stringContaining('lang=es')}));
+ expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({to:'parent@example.test',generatedByUserId:null,source:'auto',subject:'Su plan está listo para revisar',locale:'es',linkUrl:expect.stringContaining('lang=es')}));
  expect(deps.send.mock.calls[0][0].text).not.toContain('diagnos');expect(deps.update.mock.calls.map(([,fields])=>fields.meta.emailDelivery.status)).toEqual(['sending','sent']);
  const saved=deps.update.mock.calls.at(-1)[1].meta;
  await deliverGuardianPlanNotice({plan,guardian,link:{...link,meta_json:saved}},deps);expect(deps.send).toHaveBeenCalledOnce();

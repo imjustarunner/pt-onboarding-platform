@@ -8,7 +8,7 @@ import {portalUrlWithLocale} from './familyPortalLocale.service.js';
 
 export function planReviewEmail(locale,url){
  const es=locale==='es';
- return {subject:es?'Su plan está listo para revisar':'Your plan is ready to review',linkUrl:url,linkLabel:es?'Revisar y aprobar el plan':'Review and approve your plan',
+ return {locale:es?'es':'en',subject:es?'Su plan está listo para revisar':'Your plan is ready to review',linkUrl:url,linkLabel:es?'Revisar y aprobar el plan':'Review and approve your plan',
   text:es?`Hay un plan de tratamiento disponible en su portal seguro. Inicie sesión para revisarlo y dar su aprobación.\n\n${url}`:`A treatment plan is available in your secure portal. Sign in to review it and add your approval.\n\n${url}`};
 }
 /** Called under the plan publication lock. An uncertain or queued send is never repeated. */

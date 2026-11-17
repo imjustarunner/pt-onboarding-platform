@@ -101,7 +101,7 @@
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <template v-else>
-      <p v-if="draft && !assignedProvider" class="cin-callout">No clinician is assigned. This is an imported record; a clinician must review clinical content before using it for current care.</p>
+      <p v-if="draft && !assignedProvider" class="cin-callout">No clinician is assigned. An authorized clinician must review this record before using it for current care.</p>
       <div v-if="!assignedProvider && !draft" class="cin-callout">
         Assign a clinician to generate an intake note (credential selects 90791 vs H0031).
       </div>
