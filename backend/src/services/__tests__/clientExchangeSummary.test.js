@@ -5,7 +5,7 @@ vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.c
 vi.mock('../billingReportIngest.service.js', () => ({ listBillingDiagnosesForClient: mocks.billing }));
 vi.mock('../intakeResponsesEncryption.service.js', () => ({ decryptIntakeSubmissionRows: mocks.decrypt }));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:mocks.insurance}));
-vi.mock('../clientChartImport.service.js',()=>({readChartRecord:vi.fn(async()=>({value:{parsed:{diagnoses:[{icd10Code:'R69',description:'Source concern'}]}}}))}));
+vi.mock('../clientChartRecordRead.service.js',()=>({readChartRecord:vi.fn(async()=>({value:{parsed:{diagnoses:[{icd10Code:'R69',description:'Source concern'}]}}}))}));
 import { loadClientExchangeSummary } from '../clientExchangeSummary.service.js';
 beforeEach(() => { vi.clearAllMocks(); mocks.insurance.mockResolvedValue(null); mocks.execute.mockResolvedValue([[]]); mocks.clinical.mockResolvedValue([[]]); mocks.billing.mockResolvedValue([]); });
 it('uses active clinical diagnoses and latest plan over older intake', async () => {

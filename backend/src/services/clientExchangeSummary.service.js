@@ -1,4 +1,4 @@
-import {readChartRecord} from './clientChartImport.service.js';
+import {readChartRecord} from './clientChartRecordRead.service.js';
 import {readClientInsurance} from './clientInsurance.service.js';
 import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';

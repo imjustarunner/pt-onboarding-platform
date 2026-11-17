@@ -4367,9 +4367,10 @@ async function loadRecordsImportSetup(selectFirst=false){
  const cid=Number(props.client?.id),run=++recordsImportLoad;
  if(!cid||!canFinishChartSetup.value){recordsImportSetup.value=null;return;}
  try{const {data}=await api.get(`/clients/${cid}/chart-setup`,{skipGlobalLoading:true});if(run!==recordsImportLoad||cid!==Number(props.client?.id))return;recordsImportSetup.value=data;
- if(selectFirst&&showRecordsImportTab.value&&(!props.initialTab||props.initialTab==='overview'))setChartNav('bring-up-to-date');
+ if(selectFirst&&activeTab.value==='overview'&&showRecordsImportTab.value&&(!props.initialTab||props.initialTab==='overview'))setChartNav('bring-up-to-date');
  }catch{if(run===recordsImportLoad)recordsImportSetup.value=null;}
 }
+watch([()=>Number(props.client?.id),canFinishChartSetup],()=>{recordsImportSetup.value=null;void loadRecordsImportSetup(true);},{immediate:true});
 async function onRecordsImportDone(){await loadRecordsImportSetup();setChartNav('overview');await onChartSetupUpdated();}
 const tabs = computed(() => ([
   ...(showRecordsImportTab.value?[{id:'bring-up-to-date',label:'Bring up to date',description:'Import records · Mark done'}]:[]),
@@ -6663,8 +6664,6 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
     clientCodeDraft.value = '';
     clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
   }
-  recordsImportSetup.value=null;
-  void loadRecordsImportSetup(true);
   syncOpenClientForm();
   await Promise.all([
     loadOverviewOptions(),

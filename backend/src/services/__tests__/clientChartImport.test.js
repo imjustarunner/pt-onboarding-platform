@@ -6,6 +6,7 @@ vi.mock('../clientContactAffiliation.service.js',()=>({upsertClientAffiliatedCon
 vi.mock('../../models/ClientContactAffiliation.model.js',()=>({default:{listForClient:m.contacts}}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
 vi.mock('../guardianAccountPreparation.service.js',()=>({prepareGuardianAccount:m.prepareGuardian}));
+import {encryptDemographicsPayload} from '../demographicsImport.service.js';
 import { readChartRecord,saveChartRecord,importSupplementaryChartSection } from '../clientChartImport.service.js';
 const scope={clientId:12,agencyId:2};
 let db, stored;
@@ -74,4 +75,11 @@ it('prepares only the matching primary parent and retains secondary parents as c
 it('prepares an additional account only when that contact was explicitly selected',async()=>{
  await importSupplementaryChartSection(scope,'contacts','svgEdit\nSecond Parent\nEmailsecond@example.test\nRelationshipMother',10,{guardianContactNames:['Second Parent']});
  expect(m.prepareGuardian).toHaveBeenCalledWith(expect.objectContaining({profile:expect.objectContaining({email:'second@example.test'})}));
+});
+
+it('matches the guardian card to encrypted source demographics after patient phone and email were separated',async()=>{
+ m.client.mockResolvedValue({id:12,agency_id:2,email:null,contact_phone:null,demographics_phi_enc:JSON.stringify(encryptDemographicsPayload({sourceContact:{email:'parent@example.test',contactPhone:'720-555-0102'}}))});
+ m.upsert.mockImplementation(async value=>({affiliation:{id:value.fullName==='Emergency Example'?50:51,agencyContactId:value.fullName==='Emergency Example'?60:61}}));
+ const result=await importSupplementaryChartSection(scope,'contacts','Contacts\n+ New Contact\nsvgEdit\n### Emergency Example\nMobile Phone(303) 555-0101Emailemergency@example.test\nContact TypeEmergency ContactRelationshipStepmother\nsvgEdit\n### Primary Example\nMobile Phone(720) 555-0102Emailparent@example.test\nContact TypeGuardianRelationshipMother\nAppt RemindersText (SMS) and Email',10,{preparePrimaryGuardian:true});
+ expect(m.prepareGuardian).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({profile:expect.objectContaining({email:'parent@example.test',relationship:'Mother',phone:'(720) 555-0102'})}));expect(result[0].portalAccount).toBeUndefined();expect(result[1].portalAccount).toMatchObject({prepared:true,invitationSent:false,requiresAccessReview:true});
 });
