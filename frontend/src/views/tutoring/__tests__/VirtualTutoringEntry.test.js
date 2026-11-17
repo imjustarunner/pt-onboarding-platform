@@ -1,42 +1,25 @@
 import {mount,flushPromises} from '@vue/test-utils';
 import {it,expect,vi,beforeEach,afterEach} from 'vitest';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),replace:vi.fn(),route:null,router:null}));
-vi.mock('../../../services/api',()=>({default:{get:m.get,post:m.post}}));
-vi.mock('vue-router',async importOriginal=>{const actual=await importOriginal();return{...actual,useRoute:()=>m.route||actual.useRoute(),useRouter:()=>m.router||{replace:m.replace}};});
+const m=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),state:null,failNote:false,route:{params:{appointmentId:'359',organizationSlug:'nlu-qa-demo'},query:{agencyId:'453'}}}));
+vi.mock('../../../services/api',()=>({default:Object.assign(m.request,{get:m.get})}));
+vi.mock('vue-router',()=>({useRoute:()=>m.route}));
 vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{name:'Next Level Up'}})}));
 import Entry from '../VirtualTutoringSessionView.vue';
-beforeEach(()=>{vi.clearAllMocks();m.route={params:{appointmentId:'12'},query:{clientId:'4',agencyId:'6'}};m.router=null;});afterEach(()=>{vi.useRealTimers();sessionStorage.clear();});
-const mountEntry=()=>mount(Entry,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});
-it('shows an opening time at 45 minutes early without creating a visit or admitting anyone',async()=>{
- vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-21T19:15:00Z'));
- m.get.mockResolvedValue({data:{available:false,virtual:true,opensAt:'2026-10-21T19:30:00Z',closesAt:'2026-10-21T21:30:00Z',timeZone:'America/Denver'}});
- const w=mountEntry();await flushPromises();expect(w.text()).toContain('You’re a little early');expect(w.text()).toContain('1:30 PM MDT');expect(m.post).not.toHaveBeenCalled();expect(m.replace).not.toHaveBeenCalled();w.unmount();
+const Workspace={props:['video','isHost','learning'],emits:['connected'],template:'<button @click="$emit(\'connected\')">Connect test transport</button>'};
+let wrapper;
+beforeEach(()=>{vi.clearAllMocks();m.failNote=false;m.route.params={appointmentId:'359',organizationSlug:'nlu-qa-demo'};m.state={appointmentId:359,sessionId:600,host:true,status:'scheduled',roomState:'idle',available:true,opensAt:'2026-11-17T17:30:00Z',startAt:'2026-11-17T18:00:00Z',timeZone:'America/Denver',title:'Reading tutoring',visits:[]};
+ m.request.mockImplementation(async config=>{if(config.url.endsWith('/note')){if(config.method==='put'&&m.failNote)throw Error('Save unavailable');return {data:{note:{summary:config.data?.summary||'Retained note'}}};}if(config.url.endsWith('/join')||config.url.endsWith('/token'))return {data:m.state.host||m.state.visit?.status==='admitted'?{sessionId:'appointment-specific-media',token:'test-only',participantRole:m.state.host?'provider':'client'}:{visit:{id:9,status:'waiting'}}};if(config.url.endsWith('/end')){m.state={...m.state,status:'ended',endedAt:'2026-11-17T19:00:00Z',roomState:'ended'};return {data:{state:'ended'}};}return {data:m.state};});
 });
-it('at 10 minutes early creates a waiting visit and carries its credential to the same permanent office',async()=>{
- m.get.mockResolvedValue({data:{available:true,virtual:true,appointmentId:12,source:'appointment',officeSlug:'sample'}});m.post.mockResolvedValue({data:{officeSlug:'sample',lobby:{id:9,credential:'synthetic',guestDisplayName:'Parent',status:'waiting'}}});
- const w=mountEntry();await flushPromises();expect(m.post.mock.calls[0][0]).toBe('/tutoring-learning-os/clients/4/office-visit');expect(m.replace).toHaveBeenCalledWith('/join/my-room/sample');expect(JSON.parse(sessionStorage.getItem('auricwell-office-visit:sample')).id).toBe(9);expect(m.post.mock.calls.some(([url])=>url.includes('/admit'))).toBe(false);w.unmount();
-});
-it('does not reuse a cancelled or closed appointment link',async()=>{m.get.mockResolvedValue({data:{available:false,virtual:true,opensAt:null}});const w=mountEntry();await flushPromises();expect(w.text()).toContain('closed or the appointment has changed');expect(m.post).not.toHaveBeenCalled();w.unmount();});
+afterEach(()=>{wrapper?.unmount();});
+async function render(){wrapper=mount(Entry,{global:{stubs:{RouterLink:{template:'<a><slot/></a>'},TherapySessionWorkspace:Workspace}}});await flushPromises();return wrapper;}
+it('opens the exact appointment as host and never navigates to a permanent office',async()=>{const w=await render();expect(w.text()).toContain('Appointment #359');await w.findAll('button').find(b=>b.text()==='Open this tutoring room').trigger('click');await flushPromises();expect(w.findComponent(Workspace).props('isHost')).toBe(true);expect(m.request.mock.calls.find(([c])=>c.url.endsWith('/join'))[0].url).toBe('/tutoring-sessions/359/join');expect(w.text()).not.toMatch(/Unscheduled|HIPAA|beta|Clinical session/);});
+it('keeps family entry in this appointment and hides host notes and admission controls',async()=>{m.state={...m.state,host:false,visit:{id:9,status:'waiting'}};const w=await render();await w.findAll('button').find(b=>b.text()==='Join this tutoring session').trigger('click');await flushPromises();expect(w.text()).toContain('appointment’s waiting room');expect(w.find('textarea').exists()).toBe(false);expect(w.text()).not.toContain('Open this tutoring room');expect(w.findComponent(Workspace).exists()).toBe(false);});
+it('issues no join action while early and displays Denver time',async()=>{m.state={...m.state,available:false};const w=await render();expect(w.text()).toContain('10:30 AM MST');const button=w.findAll('button').find(b=>b.text()==='Open this tutoring room');expect(button.attributes('disabled')).toBeDefined();expect(m.request.mock.calls.some(([c])=>c.method==='post')).toBe(false);});
+it('does not offer Admit until the host transport connects',async()=>{m.state={...m.state,visits:[{id:9,status:'waiting',displayName:'Morgan QA'}]};const w=await render();let admit=w.findAll('button').find(b=>b.text()==='Admit to this session');expect(admit.attributes('disabled')).toBeDefined();await w.findAll('button').find(b=>b.text()==='Open this tutoring room').trigger('click');await flushPromises();await w.findComponent(Workspace).trigger('click');await flushPromises();admit=w.findAll('button').find(b=>b.text()==='Admit to this session');expect(admit.attributes('disabled')).toBeUndefined();});
+it('saves notes without a plan or subject and preserves text after a failed save',async()=>{m.state={...m.state,status:'ended',endedAt:'2026-11-17T19:00:00Z'};const w=await render();await w.get('textarea').setValue('Synthetic notes retained');m.failNote=true;await w.findAll('button').find(b=>b.text()==='Save session notes').trigger('click');await flushPromises();expect(w.get('textarea').element.value).toBe('Synthetic notes retained');m.failNote=false;await w.findAll('button').find(b=>b.text()==='Save session notes').trigger('click');await flushPromises();expect(w.text()).toContain('Session notes saved.');});
+it('requires an explicit end confirmation with the appointment number',async()=>{const w=await render();await w.findAll('button').find(b=>b.text()==='End this tutoring session').trigger('click');expect(w.get('[role=dialog]').text()).toContain('End appointment #359');expect(m.request.mock.calls.some(([c])=>c.url.endsWith('/end'))).toBe(false);await w.get('[role=dialog]').findAll('button')[0].trigger('click');await flushPromises();expect(w.text()).toContain('Session ended');expect(w.text()).toContain('12:00 PM MST');});
+it('resolves legacy learning links only through their explicit appointment bridge',async()=>{m.route.params={sessionId:'600'};m.get.mockResolvedValue({data:{appointmentId:359}});await render();expect(m.get).toHaveBeenCalledWith('/learning-class-sessions/sessions/600');expect(m.request.mock.calls[0][0].url).toBe('/tutoring-sessions/359');});
 
-it('follows the actual guardian navigation policy into the public waiting room without admission',async()=>{
- const {createRouter,createMemoryHistory,RouterView}=await import('vue-router');
- const {isGuardianWorkspaceRoute}=await import('../../../router/guardianRoutePolicy.js');
- const router=createRouter({history:createMemoryHistory(),routes:[
-  {path:'/tutoring-session/appointment/:appointmentId',name:'VirtualTutoringAppointment',component:Entry},
-  {path:'/join/my-room/:slug',name:'JoinMyRoom',component:{template:'<div>Waiting for admission</div>'}},
-  {path:'/nlu-qa-demo/my-virtual-office',name:'OrganizationPrivateVirtualOffice',component:{template:'<div>Employee office controls</div>'}},
-  {path:'/nlu-qa-demo/guardian',name:'Guardian',component:{template:'<div>Family dashboard</div>'}}
- ]});
- router.beforeEach(to=>isGuardianWorkspaceRoute(to)?true:'/nlu-qa-demo/guardian');
- m.route=null;m.router=router;
- m.get.mockResolvedValue({data:{available:true,virtual:true,appointmentId:12,source:'appointment',officeSlug:'qa-nlu-tutor'}});
- m.post.mockResolvedValue({data:{officeSlug:'qa-nlu-tutor',lobby:{id:9,credential:'synthetic',guestDisplayName:'Parent',status:'waiting'}}});
- await router.push('/tutoring-session/appointment/12?clientId=4&agencyId=6');
- const w=mount(RouterView,{global:{plugins:[router]}});await flushPromises();await flushPromises();
- expect(router.currentRoute.value.name).toBe('JoinMyRoom');expect(w.text()).toBe('Waiting for admission');
- expect(m.post).toHaveBeenCalledTimes(1);expect(m.post.mock.calls[0][1]).toMatchObject({appointmentId:12,intent:'join'});
- expect(m.post.mock.calls.some(([url])=>url.includes('/admit'))).toBe(false);
- expect(JSON.parse(sessionStorage.getItem('auricwell-office-visit:qa-nlu-tutor'))).toMatchObject({id:9,credential:'synthetic'});
- await router.push('/nlu-qa-demo/my-virtual-office');await flushPromises();
- expect(router.currentRoute.value.name).toBe('Guardian');w.unmount();
-});
+it('rejoins a departed family participant through a fresh appointment waiting request',async()=>{m.state={...m.state,host:false,visit:{id:8,status:'ended'}};const w=await render();await w.findAll('button').find(b=>b.text()==='Join this tutoring session').trigger('click');await flushPromises();expect(m.request.mock.calls.filter(([c])=>c.url.endsWith('/join')).length).toBe(2);expect(w.findComponent(Workspace).exists()).toBe(false);});
+
+it('takes tenant branding from the booked appointment rather than a previous organization selection',async()=>{m.state={...m.state,agencyId:453,branding:{agencyName:'Next Level Up — SYNTHETIC QA',agencyLogoUrl:'https://example.com/nlu-logo.png'}};const w=await render();expect(w.text()).toContain('Next Level Up — SYNTHETIC QA');expect(w.find('header img').attributes('src')).toBe('https://example.com/nlu-logo.png');});

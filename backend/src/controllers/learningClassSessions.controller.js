@@ -260,8 +260,10 @@ export const getClassSession = async (req, res, next) => {
       primaryClientId = null;
     }
 
+    const [[tutoringAppointment]]=await pool.execute('SELECT appointment_id FROM tutoring_appointment_sessions WHERE session_id=?',[sessionId]);
     res.json({
       session,
+      appointmentId:tutoringAppointment?.appointment_id||null,
       actorRole,
       canModerate,
       roles,
@@ -278,6 +280,14 @@ export const getClassSession = async (req, res, next) => {
     next(e);
   }
 };
+
+// A booked tutoring room must keep its admission/attendance boundary even when
+// an old client calls the legacy generic video endpoint.
+async function bookedTutoringEntry(session) {
+  if (!(session.session_subtype==='tutoring'||session.mode==='individual')||session.delivery_context==='in_person')return null;
+  const [[booking]]=await pool.execute('SELECT appointment_id FROM tutoring_appointment_sessions WHERE session_id=?',[session.id]);
+  return booking?`/tutoring-session/appointment/${Number(booking.appointment_id)}`:null;
+}
 
 export const startClassSession = async (req, res, next) => {
   try {
@@ -301,6 +311,8 @@ export const startClassSession = async (req, res, next) => {
       });
       return res.json({ session: updated });
     }
+    const bookedEntry=await bookedTutoringEntry(session);
+    if(bookedEntry)return res.status(409).json({error:{message:'Open this booked appointment’s tutoring room to join with the correct attendance and admission.',destination:bookedEntry}});
     if (!isVideoConfigured()) {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }
@@ -414,7 +426,7 @@ export async function completeLearningSession(sessionId,actorUserId,transcript=n
       transcriptText = await buildInPersonTranscriptSummaryText(sessionId);
     }
     const completed = await LearningClassSession.completeOnce(sessionId, {
-      endedAt: new Date(),
+      endedAt: session.actual_ended_at || new Date(),
       endedByUserId: actorUserId,
       transcriptText
     });
@@ -481,6 +493,8 @@ export const getClassSessionVideoToken = async (req, res, next) => {
     if (String(session?.delivery_context || '').toLowerCase() === 'in_person') {
       return res.status(400).json({ error: { message: 'Video is not used for in-person tutoring sessions' } });
     }
+    const bookedEntry=await bookedTutoringEntry(session);
+    if(bookedEntry)return res.status(409).json({error:{message:'Open this booked appointment’s tutoring room to join with the correct attendance and admission.',destination:bookedEntry}});
     if (!isVideoConfigured()) {
       return res.status(503).json({ error: { message: 'Video is not configured' } });
     }

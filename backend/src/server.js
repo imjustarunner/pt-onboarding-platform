@@ -313,6 +313,7 @@ import learningContentGenerationRoutes from './routes/learningContentGeneration.
 import learningRecommendationsRoutes from './routes/learningRecommendations.routes.js';
 import learningClassSessionsRoutes from './routes/learningClassSessions.routes.js';
 import tutoringLearningOsRoutes from './routes/tutoringLearningOs.routes.js';
+import bookedTutoringRoomRoutes from './routes/bookedTutoringRoom.routes.js';
 import tutoringWorkspaceRoutes from './routes/tutoringWorkspace.routes.js';
 import clubStoreRoutes from './routes/clubStore.routes.js';
 import summitStatsRoutes from './routes/summitStats.routes.js';
@@ -1119,6 +1120,7 @@ app.use('/api/learning-content', learningContentGenerationRoutes);
 app.use('/api/learning-recommendations', learningRecommendationsRoutes);
 app.use('/api/learning-class-sessions', learningClassSessionsRoutes);
 app.use('/api/tutoring-learning-os', tutoringLearningOsRoutes);
+app.use('/api/tutoring-sessions', bookedTutoringRoomRoutes);
 app.use('/api/tutoring-workspace', tutoringWorkspaceRoutes);
 app.use('/api/club-store', clubStoreRoutes);
 app.use('/api/summit-stats', summitStatsRoutes);

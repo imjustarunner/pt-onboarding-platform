@@ -141,7 +141,7 @@
             @change="emit('update:videoRoomMode', String($event.target.value || 'unique_session'))"
           >
             <option value="unique_session">Unique link for this session</option>
-            <option value="my_room">Use my room (personal link)</option>
+            <option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option>
           </select>
         </div>
 
@@ -460,7 +460,7 @@
             :disabled="disabled || !canEditStatus"
             @change="emit('update:status', String($event.target.value || ''))"
           >
-            <option v-for="opt in statusOptions" :key="`ahf-st-${opt.value}`" :value="opt.value">
+            <option v-for="opt in statusOptions" :key="`ahf-st-${opt.value}`" :value="opt.value" :disabled="opt.value==='in_progress'">
               {{ opt.value === 'ONCE' ? 'One time only' : opt.label }}
             </option>
           </select>

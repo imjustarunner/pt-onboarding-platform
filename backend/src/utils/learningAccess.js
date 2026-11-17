@@ -47,7 +47,7 @@ export async function assertLearningClientAccess(req, clientId, resourceAgencyId
       err.status = 403;
       throw err;
     }
-    return { clientId: cid,client,agencyId,service:context.service,permissions:context.permissions_json };
+    return { clientId: cid,client,agencyId,service:context.service,services:context.services,permissions:context.permissions_json };
   }
 
 

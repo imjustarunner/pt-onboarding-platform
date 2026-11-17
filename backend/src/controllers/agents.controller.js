@@ -1883,7 +1883,7 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
       if (!list.length) {
         const modLabel = out.modality && out.modality !== 'ALL' ? ` ${out.modality.toLowerCase().replace('_', '-')}` : '';
         const whenLabel = isMultiDay ? `over the next ${out.daysAhead} days` : `on ${dateLabel}`;
-        lines.push(`No providers have${modLabel} intake openings ${whenLabel}.`);
+        lines.push(`No providers have${modLabel} enrollment openings ${whenLabel}.`);
       } else {
         const items = list.slice(0, 12).map((p) => {
           const mods = [];
@@ -1899,7 +1899,7 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
           return `• ${p.name}: ${mods.join(' + ')}${earliest}`;
         });
         const whenLabel = isMultiDay ? `over the next ${out.daysAhead} days` : `on ${dateLabel}`;
-        lines.push(`${list.length} provider(s) with intake openings ${whenLabel}:\n${items.join('\n')}`);
+        lines.push(`${list.length} provider(s) with enrollment openings ${whenLabel}:\n${items.join('\n')}`);
       }
     } else if (r.tool === 'findSchoolSlotAvailability') {
       const out = r.result || {};

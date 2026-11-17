@@ -1,0 +1,2 @@
+import base from './vitest.nlu-workspace.config.js';
+export default {...base,root:new URL('.',import.meta.url).pathname,test:{...base.test,include:['src/views/tutoring/__tests__/VirtualTutoringEntry.test.js','src/components/schedule/__tests__/TutoringSessionPrice.test.js','src/components/schedule/__tests__/*.test.js','src/components/schedule/__tests__/scheduleTimezone.test.js','src/components/billing/__tests__/FamilyLedgerPanel.test.js','src/components/schedule/__tests__/AppointmentStaffTools.test.js','src/utils/__tests__/activityTracker.test.js']}};

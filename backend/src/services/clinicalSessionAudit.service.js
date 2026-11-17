@@ -6,8 +6,8 @@ import { networkEvidence, sessionReference } from '../utils/securityEvidence.js'
 export async function clinicalAudit(context, action, details = {}, db) {
   const req = context.req;
   const event = {
-    requestId: req?.evidenceContext?.requestId || crypto.randomUUID(), phase: 'clinical',
-    method: req?.method || 'SYSTEM', route: '/clinical-session',
+    requestId: req?.evidenceContext?.requestId || crypto.randomUUID(), phase: context.kind==='tutoring'?'learning':'clinical',
+    method: req?.method || 'SYSTEM', route: context.kind==='tutoring'?'/tutoring-session':'/clinical-session',
     ...(req ? networkEvidence(req) : { clientIp: null, ipSource: 'system', peerIp: null }),
     userId: req?.user?.id || null, role: context.role || 'system',
     sessionRef: sessionReference(req?.user?.sessionId), action, outcome: 'succeeded',

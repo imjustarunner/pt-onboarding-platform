@@ -5,6 +5,10 @@ import { isNluTutoringQaAgency } from '../utils/nluTutoringQaPolicy.js';
 import { createReceivable } from './familyLedger/receivables.js';
 import { transaction } from './familyLedger/policy.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import { qaPaymentSimulationConfig } from './qaPaymentSimulator.service.js';
+import { encryptFamilyBilling } from './familyBillingEncryption.service.js';
+import { auditBilling } from './familyBillingPolicy.service.js';
+import { billingCalendarDate } from './familyLedger/policy.js';
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 
 async function enabled(appointment) {
@@ -44,7 +48,7 @@ export async function qaAttendancePolicy(appointment) {
 
 // The normal ledger supplies payer scope, auditing and source idempotency.
 // Every demo balance is held for review: this path cannot collect money.
-export async function syncQaAppointmentBalance(appointment, actorUserId) {
+export async function syncQaAppointmentBalance(appointment, actorUserId, { repair = false } = {}) {
   if (!await enabled(appointment)) return null;
   const billing = await Appointment.getBilling(appointment.id);
   const tutoring = appointment.businessType === 'tutoring';
@@ -66,9 +70,27 @@ export async function syncQaAppointmentBalance(appointment, actorUserId) {
   const participants = await Appointment.listParticipants(appointment.id);
   const clientId = participants.find(p => p.isBillingResponsible && p.clientId)?.clientId || participants.find(p => p.clientId)?.clientId;
   if (!clientId) throw new Error('Synthetic appointment needs a billing client');
-  const label = outcome === 'no_show' ? 'Missed appointment' : outcome === 'completed' ? (tutoring ? 'Tutoring session' : 'Counseling session') : 'Late cancellation';
+  let tutoringLabel='General tutoring';
+  if(tutoring && /tutoring$/i.test(String(appointment.title||'')) && String(appointment.title).length<120)tutoringLabel=String(appointment.title).replace(/TUTORING/g,'Tutoring');
+  else if(tutoring){const [subjects]=await pool.execute(`SELECT DISTINCT s.subject_label FROM tutoring_appointment_sessions b JOIN learning_class_sessions l ON l.id=b.session_id JOIN student_subjects s ON s.id=l.student_subject_id WHERE b.appointment_id=? AND s.client_id=? AND s.agency_id=?`,[appointment.id,clientId,appointment.agencyId]);if(subjects.length===1&&subjects[0].subject_label)tutoringLabel=`${subjects[0].subject_label} tutoring`;else{const [services]=await pool.execute("SELECT label FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind='tutoring' AND is_active=1",[clientId,appointment.agencyId,appointment.providerUserId]);if(services.length===1){const label=String(services[0].label||'').replace(/\s*tutoring\s*/ig,'').trim();if(label)tutoringLabel=`${label} tutoring`;}}}
+  const label = outcome === 'no_show' ? 'Missed appointment' : outcome === 'completed' ? (tutoring ? tutoringLabel : 'Counseling session') : 'Late cancellation';
+  const simulation=tutoring&&[453,454].includes(Number(appointment.agencyId))&&(await qaPaymentSimulationConfig(appointment.agencyId)).enabled;
+  const serviceDate=billingCalendarDate(appointment.sourceTimezone||'America/Denver',new Date(utcMysqlToIso(appointment.startAt)||appointment.startAt));
+  const payload={appointmentId:appointment.id,outcome,syntheticOnly:true,noCollection:!simulation,simulationOnly:simulation,policy:await qaAttendancePolicy(appointment)};
+  if(repair&&simulation)await transaction(async db=>{
+    const [[old]]=await db.execute("SELECT * FROM family_receivables WHERE agency_id=? AND source_type='qa_appointment' AND source_key=? FOR UPDATE",[appointment.agencyId,String(appointment.id)]);
+    if(!old)return;
+    if(Number(old.client_id)!==Number(clientId)||Number(old.amount_cents)!==amountCents)throw Object.assign(new Error('The existing balance differs. Review an audited adjustment instead.'),{status:409});
+    const [payments]=await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? LIMIT 1",[old.id]);
+    if(payments.length||old.disputed_at||!['review','open'].includes(old.status))throw Object.assign(new Error('This balance already has payment or review activity. Preserve it for billing review.'),{status:409});
+    const {qaTutoringSimulationAllowed}=await import('./qaAppointmentSimulation.service.js');
+    if(!await qaTutoringSimulationAllowed({...old,service_domain:'tutoring'},db,payload))throw Object.assign(new Error('This appointment is not eligible for simulated payment.'),{status:409});
+    const [shares]=await db.execute('SELECT payer_user_id FROM family_receivable_allocations WHERE receivable_id=?',[old.id]);
+    const assigned=shares.length>0&&shares.every(s=>Number(s.payer_user_id)>0);
+    await db.execute('UPDATE family_receivables SET service_domain=?,service_label=?,service_date=?,status=?,hold_reason=?,source_payload=? WHERE id=?',['tutoring',label,serviceDate,assigned?'open':'review',assigned?null:'payer_assignment',encryptFamilyBilling(payload,`receivable:${appointment.agencyId}:${clientId}`),old.id]);
+    await auditBilling({agencyId:appointment.agencyId,clientId,userId:actorUserId,action:'qa_tutoring_balance_reconciled',objectId:old.id},db);
+  });
   return createReceivable({ agencyId: appointment.agencyId, clientId, sourceType: 'qa_appointment', sourceKey: String(appointment.id),
-    serviceDomain: tutoring ? 'tutoring' : 'mental_health', serviceLabel: label, serviceDate: String(utcMysqlToIso(appointment.startAt) || appointment.startAt).slice(0, 10),
-    amountCents, reviewRequired: true, actorUserId,
-    payload: { appointmentId: appointment.id, outcome, syntheticOnly: true, noCollection: true, policy: await qaAttendancePolicy(appointment) } });
+    serviceDomain: tutoring ? 'tutoring' : 'mental_health', serviceLabel: label, serviceDate,
+    amountCents, reviewRequired: !simulation, actorUserId, payload });
 }

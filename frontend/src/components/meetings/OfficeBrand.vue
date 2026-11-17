@@ -3,7 +3,7 @@
     <div v-if="auricwell" class="office-product"><img :src="AURICWELL_MARK_URL" alt="" /><div><strong>AuricWell</strong><small>Virtual office</small></div></div>
     <div v-if="!auricwell || branding?.agencyName" :class="auricwell ? 'office-agency' : 'office-product tenant-product'">
       <img v-if="logo && !failed" :src="logo" :alt="`${branding.agencyName} logo`" @error="failed=true" />
-      <div><strong>{{ branding?.agencyName || branding?.organizationName || 'My Virtual Office' }}</strong><small v-if="!auricwell && (branding?.agencyName || branding?.organizationName)">My Virtual Office</small></div>
+      <div><strong>{{ branding?.agencyName || branding?.organizationName || 'My Virtual Office' }}</strong><small v-if="!auricwell && (branding?.agencyName || branding?.organizationName)">{{ subtitle || 'My Virtual Office' }}</small></div>
     </div>
   </div>
 </template>
@@ -11,7 +11,7 @@
 import { computed, ref, watch } from 'vue';
 import { isAuricWellOffice, officeAccent } from '../../utils/officeBranding';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
-const props=defineProps({branding:Object});
+const props=defineProps({branding:Object,subtitle:{type:String,default:null}});
 const auricwell=computed(()=>isAuricWellOffice(props.branding));
 const logo=computed(()=>props.branding?.agencyLogoUrl || props.branding?.logoUrl);
 const failed=ref(false);

@@ -9,6 +9,7 @@ export function createInPersonLearningWorkspace({ db = pool, authorize = staffTo
   return async function open(user, appointmentId) {
     const appointment = await authorize(user, appointmentId);
     if (!canOpenLearningWorkspace(appointment,user.id)) throw fail(403,'Only the assigned tutor may open an available learning appointment.');
+    if (String(appointment.modality).toUpperCase() !== 'IN_PERSON') return {appointmentId:appointment.id,destination:`/tutoring-session/appointment/${appointment.id}`};
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();

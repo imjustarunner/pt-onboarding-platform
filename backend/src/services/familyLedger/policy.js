@@ -75,7 +75,10 @@ export async function assertSharesAuthorized(agencyId, clientId, shares, db = po
   for (const s of normalizeShares(shares)) await requireResponsiblePayer(s.payerUserId, clientId, agencyId, db);
 }
 export async function assertCollectible(receivable, db = pool) {
-  if (receivable.source_type === 'qa_appointment') throw billingError(409, 'Synthetic appointment balances are for testing and cannot be collected.');
+  if (receivable.source_type === 'qa_appointment') {
+    const {qaTutoringSimulationAllowed}=await import('../qaAppointmentSimulation.service.js');
+    if(!await qaTutoringSimulationAllowed(receivable,db))throw billingError(409, 'This synthetic balance cannot be collected. Only approved NLU tutoring balances can use the isolated QA payment simulator.');
+  }
   if (receivable.status !== 'open' || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is settled or on hold and cannot be collected');
   await assertLedgerIntegrity(receivable,db);
   if (receivable.source_type === 'missed_session_fee') {

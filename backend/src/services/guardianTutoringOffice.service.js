@@ -8,6 +8,12 @@ export async function guardianTutoringOfficeStatus(context){
  const appointments=await tutoringOfficeAppointments(context);
  const offices=[];
  for(const appointment of appointments){
+  if(appointment.source==='appointment'){
+   const [[person]]=await pool.execute('SELECT first_name FROM users WHERE id=?',[appointment.provider_user_id]);
+   const [[session]]=await pool.execute(`SELECT s.id,s.status FROM tutoring_appointment_sessions b JOIN learning_class_sessions s ON s.id=b.session_id WHERE b.appointment_id=?`,[appointment.id]);
+   offices.push({appointmentId:appointment.id,source:'appointment',providerName:person?.first_name||'Your tutor',joinUrl:`/tutoring-session/appointment/${Number(appointment.id)}?clientId=${Number(context.clientId)}&agencyId=${Number(context.agencyId)}`,virtual:['virtual','online','video','telehealth'].includes(String(appointment.modality).toLowerCase()),...officeAppointmentWindow(appointment),availability:session?.status==='live'?'in_session':'scheduled'});
+   continue;
+  }
   const room=await ProviderMyRoom.findByUserId(appointment.provider_user_id,context.agencyId);
   if(!room)continue;
   try{await assertOfficeAccess(room);}catch(e){if([403,404].includes(e.status))continue;throw e;}

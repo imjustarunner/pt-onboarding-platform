@@ -42,7 +42,7 @@ function scheduler() {
     modalContext: ref({}), weekStart: ref('2026-10-26')
   });
   const dependencies = {
-    computed, watch, nextTick,
+    computed, watch, nextTick, ref,
     editorClinicalContextRequest: 0,
     props: { userId: 10 }, authStore: { user: { id: 10 } },
     agencyStore: { currentAgency: { id: 2 }, fetchAgencies: vi.fn().mockResolvedValue() },

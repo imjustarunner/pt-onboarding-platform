@@ -225,7 +225,7 @@ class TutoringSessionNote {
     };
   }
 
-  static async create(payload, actorUserId) {
+  static async create(payload, actorUserId, db = pool) {
     const {
       agencyId,
       clientId,
@@ -248,7 +248,7 @@ class TutoringSessionNote {
       metadata = null
     } = payload;
 
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO tutoring_session_notes
        (agency_id, client_id, student_subject_id, learning_plan_id, session_id, session_brief_id,
         attendance_status, session_type, how_it_went_json, evidence_chips_json, strengths_observed,
@@ -279,32 +279,32 @@ class TutoringSessionNote {
         actorUserId || null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM tutoring_session_notes WHERE id = ? LIMIT 1`, [id]);
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(`SELECT * FROM tutoring_session_notes WHERE id = ? LIMIT 1`, [id]);
     return this.normalize(rows[0] || null);
   }
 
-  static async findBySession(sessionId) {
-    const [rows] = await pool.execute(
+  static async findBySession(sessionId, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM tutoring_session_notes WHERE session_id = ? ORDER BY id DESC LIMIT 1`,
       [sessionId]
     );
     return this.normalize(rows[0] || null);
   }
 
-  static async listBySubject(studentSubjectId, { limit = 50 } = {}) {
+  static async listBySubject(studentSubjectId, { limit = 50 } = {}, db = pool) {
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT * FROM tutoring_session_notes WHERE student_subject_id = ? ORDER BY created_at DESC LIMIT ${lim}`,
       [studentSubjectId]
     );
     return rows.map((r) => this.normalize(r));
   }
 
-  static async update(id, payload, actorUserId) {
+  static async update(id, payload, actorUserId, db = pool) {
     const map = {
       learningPlanId: 'learning_plan_id',
       sessionId: 'session_id',
@@ -349,12 +349,12 @@ class TutoringSessionNote {
       updates.push('saved_by_user_id = ?');
       values.push(actorUserId || null);
     }
-    if (!updates.length) return this.findById(id);
+    if (!updates.length) return this.findById(id, db);
     updates.push('updated_by_user_id = ?');
     values.push(actorUserId || null);
     values.push(id);
-    await pool.execute(`UPDATE tutoring_session_notes SET ${updates.join(', ')} WHERE id = ?`, values);
-    return this.findById(id);
+    await db.execute(`UPDATE tutoring_session_notes SET ${updates.join(', ')} WHERE id = ?`, values);
+    return this.findById(id, db);
   }
 }
 

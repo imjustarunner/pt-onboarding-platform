@@ -1,0 +1,18 @@
+import express from 'express';
+import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
+import * as room from '../services/bookedTutoringRoom.service.js';
+const router=express.Router();
+router.use(authenticate,requireActiveStatus);
+const handle=fn=>async(req,res,next)=>{try{res.set('Cache-Control','no-store');const context=await room.bookedTutoringAccess(req,req.params.appointmentId);res.json(await fn(context,req));}catch(error){next(error);}};
+router.get('/:appointmentId',handle(room.tutoringRoomStatus));
+router.post('/:appointmentId/join',handle(room.joinBookedTutoringRoom));
+router.post('/:appointmentId/token',handle(room.bookedTutoringToken));
+router.post('/:appointmentId/admit/:visitId',handle((ctx,req)=>room.admitBookedTutoringParticipant(ctx,req.params.visitId)));
+router.post('/:appointmentId/leave',handle(room.leaveBookedTutoringRoom));
+router.post('/:appointmentId/end',handle(room.endBookedTutoringRoom));
+router.get('/:appointmentId/note',handle(ctx=>room.bookedTutoringNote(ctx)));
+router.put('/:appointmentId/note',handle((ctx,req)=>room.bookedTutoringNote(ctx,req.body)));
+router.get('/:appointmentId/workspace',handle((ctx,req)=>room.bookedTutoringWorkspace(ctx,'read',req.query)));
+router.post('/:appointmentId/workspace',handle((ctx,req)=>room.bookedTutoringWorkspace(ctx,'append',req.body)));
+router.post('/:appointmentId/workspace/download',handle((ctx,req)=>room.bookedTutoringWorkspace(ctx,'download',req.body)));
+export default router;

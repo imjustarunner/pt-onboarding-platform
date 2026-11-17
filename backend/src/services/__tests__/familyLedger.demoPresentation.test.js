@@ -43,3 +43,12 @@ test('disputed, void, paid, and unrelated hold states do not become coverage est
   assert.equal(value.referencePrice,undefined);assert.equal(value.dueCents,0);assert.equal(value.canPay,false);
  }
 });
+
+
+test('approved NLU tutoring simulation shows the actual payable share and subject without automatic collection',()=>{
+ const value=presentBalance({...row,serviceDomain:'tutoring',serviceLabel:'Math tutoring',amountCents:100,totalCents:100,status:'open',holdReason:null},{collectible:true,own:true,responsibility:{syntheticOnly:true,noCollection:false,simulationOnly:true,outcome:'completed'}});
+ assert.equal(value.description,'Math tutoring');assert.equal(value.dueCents,100);assert.equal(value.canPay,true);assert.equal(value.demoAmountCents,undefined);assert.equal(value.autoPayAvailable,false);assert.equal(value.canArrangePayments,false);
+});
+test('another family share, disputed or held simulated tutoring does not offer Pay',()=>{
+ for(const [patch,own] of [[{},false],[{holdReason:'payer_assignment'},true],[{disputedAt:'2026-11-17'},true]]){const value=presentBalance({...row,serviceDomain:'tutoring',serviceLabel:'Math tutoring',status:'open',holdReason:null,...patch},{collectible:true,own,responsibility:{simulationOnly:true,noCollection:false}});assert.equal(value.canPay,false);}
+});

@@ -212,7 +212,7 @@
     </div>
 
     <footer class="tsg-footer">
-      <button type="button" class="tsg-btn primary" :disabled="saving || !studentSubjectId" @click="saveNote">
+      <button type="button" class="tsg-btn primary" :disabled="saving || (!studentSubjectId && !sessionId)" @click="saveNote">
         {{ saving ? 'Saving…' : 'Save session notes' }}
       </button>
       <button type="button" class="tsg-btn" :disabled="saving || !studentSubjectId" @click="draftFamilyRecap">
@@ -364,6 +364,7 @@ async function loadPackageBalance() {
 
 async function loadAll() {
   if (!studentSubjectId.value) {
+    if(props.sessionId){try{const data=await los.getSessionNote(props.sessionId);if(data.note){note.summary=data.note.summary||'';note.strengthsObserved=data.note.strengths_observed||'';note.challengesObserved=data.note.challenges_observed||'';note.nextSteps=data.note.next_steps||'';note.homework=data.note.homework||'';}}catch(e){error.value=e.response?.data?.error?.message||'Session notes could not be loaded.';}}
     loading.value = false;
     return;
   }
@@ -478,7 +479,7 @@ async function draftFamilyRecap() {
 }
 
 async function saveNote() {
-  if (!studentSubjectId.value) return;
+  if (!studentSubjectId.value && !props.sessionId) return;
   saving.value = true;
   error.value = '';
   successMsg.value = '';
@@ -498,13 +499,14 @@ async function saveNote() {
     }));
 
     const result = await los.saveSessionNote({
+      clientId:Number(props.clientId),agencyId:Number(props.agencyId),
       studentSubjectId: studentSubjectId.value,
       sessionId: props.sessionId ? Number(props.sessionId) : null,
       sessionBriefId: brief.value?.id || null,
       learningPlanId: brief.value?.learning_plan_id || null,
       sessionType: props.sessionType,
       attendanceStatus: 'present',
-      generalSupport: false,
+      generalSupport: !studentSubjectId.value,
       assignPractice: assignPractice.value,
       howItWent: {
         rating: note.howItWent,

@@ -1,0 +1,14 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../qaPaymentSimulator.service.js',()=>({qaPaymentSimulationConfig:vi.fn()}));
+vi.mock('../familyBillingEncryption.service.js',()=>({decryptFamilyBilling:vi.fn()}));
+import {qaPaymentSimulationConfig} from '../qaPaymentSimulator.service.js';
+import {qaTutoringSimulationAllowed} from '../qaAppointmentSimulation.service.js';
+const row={source_type:'qa_appointment',source_key:'358',service_domain:'tutoring',agency_id:453,client_id:2545,amount_cents:100};
+const payload={appointmentId:358,syntheticOnly:true,noCollection:false,simulationOnly:true};
+let db,source;
+beforeEach(()=>{vi.clearAllMocks();qaPaymentSimulationConfig.mockResolvedValue({enabled:true});source={status:'completed',end_at:'2026-11-01 20:00:00',amount_cents:100,payment_status:'fee_pending',is_demo:1};db={execute:vi.fn(async()=>[[source]])};});
+it('permits exactly the saved synthetic tutoring price through the enabled simulator',async()=>{expect(await qaTutoringSimulationAllowed(row,db,payload)).toBe(true);expect(db.execute.mock.calls[0][1]).toEqual([2545,358,453]);});
+it.each([{agency_id:6},{agency_id:450},{service_domain:'mental_health'},{source_type:'staff_charge'}])('never changes live or clinical collection boundaries %j',async patch=>{expect(await qaTutoringSimulationAllowed({...row,...patch},db,payload)).toBe(false);expect(db.execute).not.toHaveBeenCalled();});
+it.each([{noCollection:true},{syntheticOnly:false},{simulationOnly:false},{appointmentId:359}])('rejects wrong or legacy evidence %j',async patch=>{expect(await qaTutoringSimulationAllowed(row,db,{...payload,...patch})).toBe(false);});
+it.each([{is_demo:0},{amount_cents:5000},{status:'scheduled'},{package_entitlement_id:77},{payment_status:'waived'},{payment_status:'paid'},{payment_status:'package_consumed'},{end_at:'2099-01-01 20:00:00'},{end_at:'invalid'}])('withholds a simulated payment for a mismatched source %j',async patch=>{source={...source,...patch};expect(await qaTutoringSimulationAllowed(row,db,payload)).toBe(false);});
+it('never falls back to live payments if the QA simulator is unavailable',async()=>{qaPaymentSimulationConfig.mockResolvedValue({enabled:false});expect(await qaTutoringSimulationAllowed(row,db,payload)).toBe(false);expect(db.execute).not.toHaveBeenCalled();});

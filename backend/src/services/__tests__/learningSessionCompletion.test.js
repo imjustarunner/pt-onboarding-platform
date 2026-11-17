@@ -160,3 +160,7 @@ it('does not issue a new video join for an ended session',async()=>{
  await getClassSessionVideoToken({params:{sessionId:'90'},user:{id:20}},response,vi.fn());
  expect(response.status).toHaveBeenCalledWith(409);expect(m.update).not.toHaveBeenCalled();
 });
+
+it('keeps a booked room actual closure time while running its first completion and payroll path',async()=>{const actual='2026-10-29 19:58:12';m.find.mockResolvedValueOnce({...ended,status:'live',actual_started_at:'2026-10-29 19:00:00',actual_ended_at:actual}).mockResolvedValue({...ended,actual_ended_at:actual});await completeLearningSession(90,20);expect(m.complete).toHaveBeenCalledWith(90,expect.objectContaining({endedAt:actual}));expect(m.telemetry).toHaveBeenCalledTimes(1);expect(m.payroll).toHaveBeenCalledTimes(1);});
+
+it.each([startClassSession,getClassSessionVideoToken])('prevents legacy entry endpoints from bypassing booked room admission',async handler=>{m.access.mockResolvedValue({session:{...ended,status:'scheduled',delivery_context:'virtual'},canModerate:true,actorRole:'presenter'});m.database.mockResolvedValue([[{appointment_id:331}]]);const response={status:vi.fn().mockReturnThis(),json:vi.fn()},next=vi.fn();await handler({params:{sessionId:'90'},user:{id:20}},response,next);expect(response.status).toHaveBeenCalledWith(409);expect(response.json).toHaveBeenCalledWith({error:expect.objectContaining({destination:'/tutoring-session/appointment/331'})});expect(m.update).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();});

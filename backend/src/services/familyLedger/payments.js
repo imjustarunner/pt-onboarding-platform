@@ -44,6 +44,7 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
   let amount=requestedAmount;
   const attempt=await transaction(async db=>{
     const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);
+    if(automatic&&receivable.source_type==='qa_appointment')throw billingError(409,'Pay this QA test balance explicitly through the simulator; automatic collection is disabled.');
     await requireResponsiblePayer(userId,receivable.client_id,agencyId,db);
     if(Number(allocation.payer_user_id)!==Number(userId))throw billingError(403,'You can pay only your assigned share');
     const [same]=await db.execute('SELECT * FROM family_ledger_payments WHERE agency_id=? AND idempotency_key=?',[agencyId,requestKey]);

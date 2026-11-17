@@ -283,6 +283,16 @@ export async function updateBrief(req, res, next) {
 
 export async function saveSessionNote(req, res, next) {
   try {
+    if(!req.body.studentSubjectId && req.body.sessionId){
+      await requireTutorSession(req,req.body.sessionId);
+      const [[link]]=await pool.execute('SELECT appointment_id FROM tutoring_appointment_sessions WHERE session_id=?',[Number(req.body.sessionId)]);
+      if(!link)throw Object.assign(new Error('Open the booked appointment to save a General session note.'),{status:409});
+      const {bookedTutoringAccess,bookedTutoringNote}=await import('../services/bookedTutoringRoom.service.js');
+      const context=await bookedTutoringAccess(req,link.appointment_id);
+      if(req.body.clientId&&Number(req.body.clientId)!==context.clientId)throw Object.assign(new Error('This session belongs to a different student.'),{status:403});
+      const result=await bookedTutoringNote(context,req.body);
+      return res.status(201).json(result);
+    }
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
     await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
