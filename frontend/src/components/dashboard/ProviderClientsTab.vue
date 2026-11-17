@@ -256,6 +256,7 @@
                 <td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
                 <td v-if="canEhrPatientImport">
                   <button
+                    v-if="requiresClientRecordImport(c)"
                     type="button"
                     class="pct-link-btn"
                     @click="openBringUpToDate(c)"
@@ -514,6 +515,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { requiresClientRecordImport } from '../../utils/clientRecordImport.js';
 import ClientListGrid from '../school/ClientListGrid.vue';
 import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
@@ -722,7 +724,7 @@ const bringUpClientLabel = computed(() => {
 });
 
 function openBringUpToDate(client) {
-  if (!client?.id) return;
+  if (!client?.id || !requiresClientRecordImport(client)) return;
   bringUpClient.value = client;
 }
 

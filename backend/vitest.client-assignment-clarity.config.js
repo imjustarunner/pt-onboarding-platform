@@ -11,6 +11,7 @@ export default {
       'src/services/__tests__/dependentPortalPolicy.test.js',
       'src/services/__tests__/clientAssignmentScope.test.js',
       'src/services/__tests__/clientServiceUnification.test.js',
+      'src/services/__tests__/clientServiceCatalog.test.js',
       'src/services/__tests__/guardianCancellationServiceStatus.test.js',
       'src/controllers/__tests__/guardianServiceStatusAccess.test.js',
       'src/services/__tests__/officeClientAssignmentClarity.test.js',

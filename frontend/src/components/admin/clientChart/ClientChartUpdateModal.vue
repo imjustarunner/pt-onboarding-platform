@@ -44,10 +44,11 @@ import { useAuthStore } from '../../../store/auth';
 import { useModalFocus } from '../../../composables/useModalFocus';
 import api from '../../../services/api';
 import ClientEhrBringUpToDatePanel from './ClientEhrBringUpToDatePanel.vue';
+import { requiresClientRecordImport } from '../../../utils/clientRecordImport.js';
 const props = defineProps({ initialClient: { type: Object, required: true }, agencyId: { type: [Number,String], default: null }, selectedClients: { type: Array, default: null } });
 const emit = defineEmits(['close', 'updated']);
 const auth = useAuthStore();
-const queue = ref([props.initialClient]), current = ref(props.initialClient), busy = ref(false), moving = ref(false), loading = ref(false), error = ref(''), panel = ref(null), dialog = ref(null), pickerOpen = ref(false), search = ref('');
+const queue = ref([props.initialClient].filter(requiresClientRecordImport)), current = ref(props.initialClient), busy = ref(false), moving = ref(false), loading = ref(false), error = ref(''), panel = ref(null), dialog = ref(null), pickerOpen = ref(false), search = ref('');
 const filters = reactive({ agency:'',status:'',assignment:'',provider:'',school:'',demo:'',sort:'full_name' });
 const preferenceKey = `chart-update-filters-v1:${auth.user?.id || 'anon'}`;
 try { const saved=JSON.parse(localStorage.getItem(preferenceKey)||'{}'); for(const key of Object.keys(filters)) if(typeof saved[key]==='string') filters[key]=saved[key]; } catch {}
@@ -65,10 +66,10 @@ const filtered = computed(() => {
     && (!term || [c.full_name,c.initials,c.identifier_code,c.id,c.agency_name,c.organization_name,c.provider_name,c.client_status_label,c.status].join(' ').toLowerCase().includes(term)))
     .sort((a,b)=>String(a[filters.sort] || (filters.sort==='full_name'?a.initials:'') || '').localeCompare(String(b[filters.sort] || (filters.sort==='full_name'?b.initials:'') || '')) || Number(a.id)-Number(b.id));
 });
-const index=computed(()=>filtered.value.findIndex(c=>Number(c.id)===Number(current.value.id)));
+const index=computed(()=>filtered.value.findIndex(c=>Number(c.id)===Number(current.value?.id)));
 let alive=true;
 async function choose(client) {
-  if (!client || busy.value || moving.value || Number(client.id)===Number(current.value.id)) return;
+  if (!client || busy.value || moving.value || Number(client.id)===Number(current.value?.id)) return;
   moving.value=true;
   try { if (await panel.value?.prepareLeave() !== false && alive) current.value=client; }
   finally { moving.value=false; }
@@ -83,8 +84,9 @@ async function leave() {
 useModalFocus(dialog,leave);
 onMounted(async () => {
   if (props.selectedClients) {
-    const unique = [...new Map(props.selectedClients.filter(client => Number(client?.id) > 0).map(client => [Number(client.id), client])).values()];
-    queue.value = unique.length ? unique : [props.initialClient];
+    const unique = [...new Map(props.selectedClients.filter(client => Number(client?.id) > 0 && requiresClientRecordImport(client)).map(client => [Number(client.id), client])).values()];
+    queue.value = unique;
+    if (!unique.length) { emit('close'); return; }
     current.value=queue.value.find(client=>Number(client.id)===Number(props.initialClient.id))||queue.value[0];
     for(const key of Object.keys(filters))filters[key]=key==='sort'?'full_name':'';
     search.value='';
@@ -103,9 +105,11 @@ onMounted(async () => {
       rows.push(...batch);page++;
     }
     if(!alive)return;
-    const unique=[...new Map(rows.map(c=>[Number(c.id),c])).values()];
-    const selected=unique.find(c=>Number(c.id)===Number(current.value.id));
-    if(!selected)unique.unshift(props.initialClient);else current.value=selected;
+    const unique=[...new Map(rows.filter(requiresClientRecordImport).map(c=>[Number(c.id),c])).values()];
+    const selected=unique.find(c=>Number(c.id)===Number(current.value?.id));
+    if(!selected && requiresClientRecordImport(props.initialClient))unique.unshift(props.initialClient);
+    if(!unique.length){emit('close');return;}
+    current.value=selected||unique[0];
     queue.value=unique;
   }catch(err){if(alive)error.value=err.response?.data?.error?.message||err.message||'Clients could not be loaded.';}
   finally{if(alive)loading.value=false;}

@@ -1,3 +1,5 @@
+import ClientOverviewHub from '../clientChart/ClientOverviewHub.vue';
+vi.mock('pdfjs-dist',()=>({GlobalWorkerOptions:{},getDocument:vi.fn()}));
 import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 import {shallowMount,flushPromises} from '@vue/test-utils';
 import {createPinia} from 'pinia';
@@ -41,4 +43,52 @@ it('retains every assigned counselor in the overview care team',async()=>{
 it('keeps a genuine optional program enrollment in the chart header',async()=>{
  wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:7,agency_id:2,client_type:'clinical',organization_id:8,organization_name:'Tutoring + Therapy',organization_type:'program'},agencyId:2},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot name="header" /></div>'}}}});await flushPromises();
  expect(wrapper.findAll('.cdp-pill').some(pill=>pill.text()==='Program · Tutoring + Therapy')).toBe(true);expect(wrapper.vm.overviewProgramLabel).toBe('Tutoring + Therapy');
+});
+
+it('treats a counseling program as an office organization and opens assignments from the profile clinician',async()=>{
+ wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:7,agency_id:2,client_type:'clinical',organization_id:8,organization_type:'clinical',organization_name:'Counseling and Psychotherapy',grade:'1',school_year:'2026-2027'},agencyId:2},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot name="header" /><slot /></div>'}}}});
+ await flushPromises();wrapper.vm.myAgencies=[{id:2}];wrapper.vm.goChartSub('account');await flushPromises();
+ const strip=wrapper.get('.cdp-school-profile-strip');expect(strip.text()).toContain('Organization');expect(strip.text()).not.toContain('Assigned day');expect(strip.text()).not.toContain('School year');
+ await strip.findAll('button').find(button=>button.text()==='Not assigned').trigger('click');await flushPromises();
+ expect(wrapper.get('[aria-label="Assign client provider"]').exists()).toBe(true);
+ expect(wrapper.findComponent({name:'ClientServiceEnrollments'}).props('startAssigning')).toBe(true);
+});
+it.each([true,false])('enables direct overview assignment only for authorized editors (%s)',async canEdit=>{
+ wrapper=shallowMount(ClientOverviewHub,{props:{clientId:7,canEdit,careTeamLabel:'Not assigned',glanceItems:[{label:'Primary clinician',value:'Not assigned',assignable:canEdit}]}});await flushPromises();
+ const links=wrapper.findAll('button').filter(button=>button.text()==='Not assigned');
+ expect(links).toHaveLength(canEdit?2:0);
+ if(canEdit){await links[0].trigger('click');await links[1].trigger('click');expect(wrapper.emitted('assign-provider')).toHaveLength(2);}
+});
+
+async function renderAssignments() {
+ wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:2111,agency_id:2,client_type:'clinical',organization_id:8,organization_type:'clinical',organization_name:'Counseling and Therapy'},agencyId:2},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot name="header" /><slot /></div>'}}}});
+ await flushPromises();wrapper.vm.myAgencies=[{id:2},{id:3}];wrapper.vm.goChartSub('assignments');await flushPromises();
+ wrapper.vm.clientAgencyAffiliations=[{agency_id:2,agency_name:'Inner Strength'}];
+ wrapper.vm.affiliations=[{organization_id:8,organization_type:'clinical',organization_name:'Counseling and Therapy'}];
+ wrapper.vm.affiliatedOrgsByAgencyId={'2':[{id:8,organization_type:'clinical',name:'Counseling and Therapy'}]};
+ await flushPromises();
+}
+it('places services under the agency before defaults and omits nonexistent school, program, and learning controls',async()=>{
+ await renderAssignments();const card=wrapper.get('.casg-tenant-card');
+ expect(card.text()).toContain('Inner Strength');expect(card.text()).not.toContain('Schools');expect(card.text()).not.toContain('Programs');expect(card.text()).not.toContain('Learning');
+ expect(card.findComponent({name:'ClientServiceEnrollments'}).props('agencyId')).toBe(2);
+ expect(card.html().indexOf('client-service-enrollments-stub')).toBeLessThan(card.html().indexOf('Default office'));
+ expect(wrapper.text()).not.toContain('School & program roster');expect(wrapper.vm.programAffiliationCount).toBe(0);
+});
+it('counts service providers and suggests their office without a school or program roster assignment',async()=>{
+ await renderAssignments();wrapper.vm.onAgencyServicesLoaded(2,{services:[{id:11,is_active:1,service_kind:'counseling',provider_user_id:20,provider_name:'Sam Provider'},{id:12,is_active:1,service_kind:'tutoring',provider_user_id:20,provider_name:'Sam Provider'}]});await flushPromises();
+ expect(wrapper.vm.serviceProviderCount).toBe(1);expect(wrapper.vm.primaryProviderLabel).toBe('Provider, Sam');expect(wrapper.vm.providerAssignments).toEqual([]);
+ wrapper.vm.tenantOfficeOptionsByAgency={'2':[{id:9,agency_id:2}]};get.mockResolvedValue({data:{assigned:[{id:9,is_primary:true}]}});await wrapper.vm.suggestDefaultsFromPrimaryProviderForTenant(2);
+ expect(get).toHaveBeenCalledWith('/users/20/office-assignments',expect.any(Object));expect(wrapper.vm.tenantBookingDraft(2).officeId).toBe('9');
+});
+it('shows another authorized agency’s real school links only under that agency',async()=>{
+ await renderAssignments();wrapper.vm.clientAgencyAffiliations=[{agency_id:2,agency_name:'Inner Strength'},{agency_id:3,agency_name:'School agency'}];
+ wrapper.vm.affiliatedOrgsByAgencyId={'2':[{id:8,organization_type:'clinical'}],'3':[{id:9,organization_type:'school',name:'Example school'}]};await flushPromises();
+ const cards=wrapper.findAll('.casg-tenant-card');expect(cards).toHaveLength(2);expect(cards[0].text()).not.toContain('Schools');expect(cards[1].text()).toContain('Schools');
+ expect(cards[1].findComponent({name:'ClientServiceEnrollments'}).props('agencyId')).toBe(3);
+ expect(wrapper.vm.primaryServiceProviderForTenant(3)).toBeNull();
+});
+it('does not revive a stale roster provider after the office service reports no providers',async()=>{
+ await renderAssignments();await wrapper.setProps({client:{id:2111,agency_id:2,client_type:'clinical',provider_id:99,provider_name:'Old Provider'}});await flushPromises();
+ wrapper.vm.onAgencyServicesLoaded(2,{services:[]});await flushPromises();expect(wrapper.vm.primaryProviderLabel).toBe('Not assigned');expect(wrapper.vm.effectiveOverviewProviders).toEqual([]);
 });

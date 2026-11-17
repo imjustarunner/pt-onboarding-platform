@@ -1,3 +1,4 @@
+vi.mock('../clientServiceCatalog.service.js', () => ({ clientServiceKindsForAgency: vi.fn().mockResolvedValue(['counseling','tutoring']) }));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../models/ClientGuardian.model.js', () => ({ default: {} }));
@@ -13,7 +14,7 @@ beforeEach(() => {
     if (sql.includes('SELECT agency_id FROM client_agency_assignments')) return [[{ agency_id: 6 }], []];
     if (sql.includes('SELECT c.id FROM clients')) return [[{ id: 4 }]];
     if (sql.includes('SELECT u.id FROM users')) return [[{ id: 20 }]];
-    if (sql.startsWith('SELECT id FROM client_service_enrollments')) return [[{ id: 11 }]];
+    if (sql.startsWith('SELECT id,service_kind,label,organization_id FROM client_service_enrollments')) return [[{ id: 11 }]];
     if (sql.includes('FROM client_service_enrollments e JOIN clients')) return [[{ id: 11, provider_user_id: 20 }]];
     return [{ affectedRows: 1 }];
   });
@@ -61,7 +62,7 @@ it('assigns a provider to a specific existing enrollment instead of creating ano
 
 it('will not update another client or agency’s service enrollment', async () => {
   const original = pool.execute.getMockImplementation();
-  pool.execute.mockImplementation(async sql => sql.startsWith('SELECT id FROM client_service_enrollments') ? [[]] : original(sql));
+  pool.execute.mockImplementation(async sql => sql.startsWith('SELECT id,service_kind,label,organization_id FROM client_service_enrollments') ? [[]] : original(sql));
   await expect(saveClientService({ clientId: 4, agencyId: 6, userId: 9, input: {
     serviceId: 99, serviceKind: 'counseling', providerUserId: 20
   } })).rejects.toMatchObject({ status: 404 });

@@ -21,7 +21,8 @@
       <div class="cc-ribbon" aria-label="At a glance">
         <div v-for="item in glanceItems" :key="item.label" class="cc-ribbon__item">
           <span class="cc-ribbon__k">{{ item.label }}</span>
-          <div class="cc-ribbon__v">{{ item.value }}</div>
+          <button v-if="canEdit && item.assignable" type="button" class="cc-ribbon__v cc-provider-assign" @click="$emit('assign-provider')">{{ item.value }}</button>
+          <div v-else class="cc-ribbon__v">{{ item.value }}</div>
         </div>
       </div>
 
@@ -42,7 +43,7 @@
           <div class="cc-tile__v">{{ documentsLabel }}</div>
           <div class="cc-tile__m">Open chart documents →</div>
         </button>
-        <button type="button" class="cc-tile" @click="$emit('navigate', 'assignments')">
+        <button type="button" class="cc-tile" @click="canEdit && glanceItems.some(item => item.assignable) ? $emit('assign-provider') : $emit('navigate', 'assignments')">
           <div class="cc-tile__k">Care team</div>
           <div class="cc-tile__v">{{ careTeamLabel }}</div>
           <div class="cc-tile__m">{{ careTeamMeta || 'Primary clinician' }}</div>
@@ -113,7 +114,8 @@
           </article>
           <article class="cdp-contact-card">
             <div class="cdp-contact-card__role">Primary clinician</div>
-            <div class="cdp-contact-card__name">{{ careTeamLabel }}</div>
+            <button v-if="canEdit && glanceItems.some(item => item.assignable)" type="button" class="cdp-contact-card__name cc-provider-assign" @click="$emit('assign-provider')">{{ careTeamLabel }}</button>
+            <div v-else class="cdp-contact-card__name">{{ careTeamLabel }}</div>
             <div class="cdp-glance-meta">{{ organizationName || '—' }}</div>
           </article>
           <article class="cdp-contact-card">
@@ -198,7 +200,7 @@ const props = defineProps({
   organizationName: { type: String, default: '' }
 });
 
-defineEmits(['secure-message','upload','client-actions','edit', 'navigate', 'alert-click', 'view-event', 'open-document']);
+defineEmits(['secure-message','upload','client-actions','edit', 'assign-provider', 'navigate', 'alert-click', 'view-event', 'open-document']);
 
 /** @param {string} [viewKey] — chart artifact viewKey; parent opens Documents and views it directly */
 
@@ -241,3 +243,19 @@ async function loadDocs() {
 onMounted(loadDocs);
 watch(() => props.clientId, loadDocs);
 </script>
+
+<style scoped>
+.cc-provider-assign {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+</style>

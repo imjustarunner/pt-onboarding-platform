@@ -1,3 +1,4 @@
+import { requiresClientRecordImport } from '../../../../utils/clientRecordImport.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { shallowMount, flushPromises } from '@vue/test-utils';
 const {get,post}=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));
@@ -118,4 +119,17 @@ it('clears open import dialogs and their pasted text when the chart agency chang
   const dialog = wrapper.findComponent({ name: 'NoteAidIntakeImportReview' });
   expect(dialog.props('open')).toBe(false);
   expect(dialog.props('initialText')).toBe('');
+});
+
+it.each(['all', 'demographics', 'intake', 'plan'])('omits record import prompts for native office submissions in %s', async scope => {
+ get.mockResolvedValue({data:{demographicsOnFile:true,intakeOnFile:false,planOnFile:false,setupComplete:false,requiresRecordImport:false}});
+ wrapper=shallowMount(Setup,{props:{clientId:7,agencyId:2,client:{client_type:'clinical',source:'PUBLIC_INTAKE_LINK'},scope}});
+ await flushPromises();expect(wrapper.find('.chart-setup').exists()).toBe(false);
+});
+it.each(['PUBLIC_INTAKE_LINK','PUBLIC_OFFICE_INTAKE','DIGITAL_FORM','ADAPTIVE_QUICK_PROSPECTIVE','PUBLIC_BOOKING_INQUIRY'])('excludes %s office submissions from update actions and queues', source => {
+ expect(requiresClientRecordImport({source,client_type:'clinical',organization_type:'clinical'})).toBe(false);
+ expect(requiresClientRecordImport({source,client_type:'school'})).toBe(true);
+});
+it('keeps update actions available for legacy office records',()=>{
+ expect(requiresClientRecordImport({source:'BULK_IMPORT',client_type:'clinical'})).toBe(true);
 });

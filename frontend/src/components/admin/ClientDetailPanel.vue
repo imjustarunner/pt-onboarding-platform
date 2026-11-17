@@ -178,6 +178,14 @@
       </div>
     </template>
 
+        <section v-if="providerAssignmentOpen && canManageServiceEnrollments" ref="providerAssignmentSection" class="detail-section" aria-label="Assign client provider">
+          <div class="cdp-overview-toolbar">
+            <h3>Assign provider</h3>
+            <button type="button" class="cdp-btn-soft" @click="providerAssignmentOpen = false">Close assignments</button>
+          </div>
+          <ClientServiceEnrollments :key="`${client.id}:${selectedAgencyId || client.agency_id}`" :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliationsForActiveAgency" start-assigning @loaded="onAgencyServicesLoaded(selectedAgencyId || client.agency_id, $event)" @updated="onAgencyServicesUpdated(selectedAgencyId || client.agency_id, $event)" />
+        </section>
+
         <div
           v-if="chartHub === 'overview' && effectiveHubSub !== 'skill-builders'"
           class="detail-section cdp-overview"
@@ -212,6 +220,7 @@
             :guardian-meta="overviewGuardianMeta"
             :organization-name="client.organization_name || schoolGlanceLabel"
             @edit="startEditOverview(true)"
+            @assign-provider="openProviderAssignment"
             @upload="openDocumentUpload"
             @client-actions="openClientActions"
             @navigate="goChartSub"
@@ -299,14 +308,14 @@
           </div>
 
           <div
-            v-if="showSchoolGlance"
+            v-if="showSchoolGlance || isClinicalLikeClientType"
             class="cdp-school-profile-strip"
           >
             <div class="cdp-school-profile-item">
-              <span class="cdp-school-profile-kicker">School</span>
+              <span class="cdp-school-profile-kicker">{{ showSchoolGlance ? 'School' : 'Organization' }}</span>
               <strong>{{ schoolGlanceLabel }}</strong>
             </div>
-            <template v-if="!showSchoolStripAssignmentEditor">
+            <template v-if="showSchoolGlance && !showSchoolStripAssignmentEditor">
               <div class="cdp-school-profile-item">
                 <span class="cdp-school-profile-kicker">Assigned day</span>
                 <strong>{{ assignedDayGlanceLabel }}</strong>
@@ -326,7 +335,7 @@
               </template>
               <strong v-else>{{ formatGradeDisplay(client.grade) || '—' }}</strong>
             </div>
-            <div class="cdp-school-profile-item">
+            <div v-if="showSchoolGlance" class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">School year</span>
               <template v-if="editingOverview && canEditAccount">
                 <input v-model="overviewForm.school_year" class="cdp-strip-input" placeholder="2025-2026" />
@@ -336,7 +345,8 @@
             <template v-if="!showSchoolStripAssignmentEditor">
               <div class="cdp-school-profile-item">
                 <span class="cdp-school-profile-kicker">Primary clinician</span>
-                <strong>{{ primaryProviderLabel }}</strong>
+                <button v-if="canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-clinician-link" @click="openProviderAssignment">{{ primaryProviderLabel }}</button>
+                <strong v-else>{{ primaryProviderLabel }}</strong>
               </div>
             </template>
             <div
@@ -438,7 +448,8 @@
               </article>
               <article class="cdp-contact-card">
                 <div class="cdp-contact-card__role">Primary clinician</div>
-                <div class="cdp-contact-card__name">{{ primaryProviderLabel }}</div>
+                <button v-if="canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-contact-card__name cdp-clinician-link" @click="openProviderAssignment">{{ primaryProviderLabel }}</button>
+                <div v-else class="cdp-contact-card__name">{{ primaryProviderLabel }}</div>
                 <div class="cdp-glance-meta">{{ client.organization_name || '—' }}</div>
               </article>
               <article class="cdp-contact-card">
@@ -895,6 +906,7 @@
                   <div class="ov-row-label">Provider</div>
                   <div class="ov-row-value">
                     <div v-if="overviewProvidersLoading" class="muted">Loading…</div>
+                    <button v-else-if="effectiveOverviewProviders.length === 0 && canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-text-link" @click="openProviderAssignment">Not assigned — assign provider</button>
                     <div v-else-if="effectiveOverviewProviders.length === 0">Not assigned</div>
                     <div v-else class="provider-list">
                       <div v-for="p in effectiveOverviewProviders" :key="p.id" class="provider-row">
@@ -905,7 +917,7 @@
                             {{ p.organization_name }}
                           </div>
                         </div>
-                        <div class="muted" style="white-space: nowrap;">
+                        <div v-if="showSchoolGlance" class="muted" style="white-space: nowrap;">
                           {{ p.service_day || 'Unknown' }}
                         </div>
                       </div>
@@ -1921,20 +1933,20 @@
           <div class="casg-head">
             <div>
               <h3 class="casg-title">Assignments</h3>
+              <button v-if="canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-btn-soft" @click="openProviderAssignment">Assign provider</button>
               <p class="casg-subtitle">
-                Agency memberships, school/program links, care team, default office &amp; place of service for scheduling and claims.
+                Each agency’s services and providers, scheduling defaults, and available school or program links.
               </p>
             </div>
             <div class="casg-stats">
               <span class="casg-stat"><strong>{{ (tenantMemberships || []).length }}</strong> Agenc{{ (tenantMemberships || []).length === 1 ? 'y' : 'ies' }}</span>
-              <span class="casg-stat"><strong>{{ schoolAffiliationCount }}</strong> School{{ schoolAffiliationCount === 1 ? '' : 's' }}</span>
-              <span class="casg-stat"><strong>{{ programAffiliationCount }}</strong> Program{{ programAffiliationCount === 1 ? '' : 's' }}</span>
-              <span class="casg-stat"><strong>{{ learningAffiliationCount }}</strong> Learning</span>
-              <span class="casg-stat"><strong>{{ (providerAssignments || []).length }}</strong> Provider{{ (providerAssignments || []).length === 1 ? '' : 's' }}</span>
+              <span v-if="hasAnyTenantCategory('school')" class="casg-stat"><strong>{{ schoolAffiliationCount }}</strong> School{{ schoolAffiliationCount === 1 ? '' : 's' }}</span>
+              <span v-if="hasAnyTenantCategory('program')" class="casg-stat"><strong>{{ programAffiliationCount }}</strong> Program{{ programAffiliationCount === 1 ? '' : 's' }}</span>
+              <span v-if="hasAnyTenantCategory('learning')" class="casg-stat"><strong>{{ learningAffiliationCount }}</strong> Learning</span>
+              <span class="casg-stat"><strong>{{ serviceProviderCount }}</strong> Provider{{ serviceProviderCount === 1 ? '' : 's' }}</span>
             </div>
           </div>
 
-          <ClientServiceEnrollments v-if="canManageServiceEnrollments" :client-id="client.id" :agency-id="selectedAgencyId || client.agency_id" :organizations="affiliationsForActiveAgency" @updated="onServiceEnrollmentUpdated" />
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
           <div class="casg-grid">
@@ -1943,7 +1955,7 @@
                 <div>
                   <h4>Agency memberships</h4>
                   <p class="casg-card-hint">
-                    Manage each agency’s schools, programs, providers, and scheduling defaults here.
+                    Services, providers, and scheduling defaults for each agency.
                   </p>
                 </div>
               </header>
@@ -1966,9 +1978,9 @@
                       >
                         {{ Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Active chart' : 'Member' }}
                       </span>
-                      <span class="casg-badge casg-badge--soft">Schools ({{ affiliationsForTenant(a.agency_id, 'school').length }})</span>
-                      <span class="casg-badge casg-badge--soft">Programs ({{ affiliationsForTenant(a.agency_id, 'program').length }})</span>
-                      <span class="casg-badge casg-badge--soft">Learning ({{ affiliationsForTenant(a.agency_id, 'learning').length }})</span>
+                      <span v-if="hasTenantCategory(a.agency_id, 'school')" class="casg-badge casg-badge--soft">Schools ({{ affiliationsForTenant(a.agency_id, 'school').length }})</span>
+                      <span v-if="hasTenantCategory(a.agency_id, 'program')" class="casg-badge casg-badge--soft">Programs ({{ affiliationsForTenant(a.agency_id, 'program').length }})</span>
+                      <span v-if="hasTenantCategory(a.agency_id, 'learning')" class="casg-badge casg-badge--soft">Learning ({{ affiliationsForTenant(a.agency_id, 'learning').length }})</span>
                     </div>
                     <div class="casg-tenant-card__actions">
                       <button
@@ -2003,8 +2015,10 @@
                     </div>
                   </div>
 
+                  <ClientServiceEnrollments v-if="canManageServicesForTenant(a.agency_id) && !(providerAssignmentOpen && Number(a.agency_id) === Number(selectedAgencyId || client.agency_id))" :key="`${client.id}:${a.agency_id}`" :client-id="client.id" :agency-id="a.agency_id" :organizations="assignmentOrganizationsForTenant(a.agency_id)" @loaded="onAgencyServicesLoaded(a.agency_id, $event)" @updated="onAgencyServicesUpdated(a.agency_id, $event)" />
+
                   <div class="casg-tenant-section">
-                    <h5 class="casg-tenant-section__title"><span>1</span> Default office &amp; place of service</h5>
+                    <h5 class="casg-tenant-section__title">Default office &amp; place of service</h5>
                     <p class="casg-card-hint" style="margin-bottom: 10px;">
                       Prefills scheduled sessions and billing claims for this agency.
                     </p>
@@ -2070,7 +2084,7 @@
                       <button
                         type="button"
                         class="btn btn-secondary btn-sm"
-                        :disabled="savingTenantBookingAgencyId === Number(a.agency_id) || !canSuggestOfficeFromProvider"
+                        :disabled="savingTenantBookingAgencyId === Number(a.agency_id) || !primaryServiceProviderForTenant(a.agency_id)"
                         @click="suggestDefaultsFromPrimaryProviderForTenant(a.agency_id)"
                       >
                         Use provider office
@@ -2087,8 +2101,8 @@
                     </div>
                   </div>
 
-                  <div class="casg-tenant-section">
-                    <h5 class="casg-tenant-section__title"><span>2</span> Schools</h5>
+                  <div v-if="hasTenantCategory(a.agency_id, 'school')" class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title">Schools</h5>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
                       <div v-if="affiliationsForTenant(a.agency_id, 'school').length === 0" class="hint">No schools linked for this agency.</div>
@@ -2158,8 +2172,8 @@
                     </div>
                   </div>
 
-                  <div class="casg-tenant-section">
-                    <h5 class="casg-tenant-section__title"><span>3</span> Programs</h5>
+                  <div v-if="hasTenantCategory(a.agency_id, 'program')" class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title">Programs</h5>
                     <p class="casg-card-hint" style="margin-bottom: 8px;">
                       Optional enrollments, such as a Tutoring + Therapy program. Counseling services do not require a program.
                     </p>
@@ -2233,8 +2247,8 @@
                     </div>
                   </div>
 
-                  <div class="casg-tenant-section">
-                    <h5 class="casg-tenant-section__title"><span>4</span> Learning</h5>
+                  <div v-if="hasTenantCategory(a.agency_id, 'learning')" class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title">Learning</h5>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
                       <div v-if="affiliationsForTenant(a.agency_id, 'learning').length === 0" class="hint">No learning orgs linked for this agency.</div>
@@ -2366,7 +2380,7 @@
               </div>
             </section>
 
-            <section class="casg-card">
+            <section v-if="rosterAffiliations.length" class="casg-card">
               <header class="casg-card-head">
                 <div>
                   <h4>School &amp; program roster</h4>
@@ -2378,7 +2392,7 @@
                   <label class="filters-label">Affiliation</label>
                   <select v-model="selectedAssignmentOrgId" class="filters-select">
                     <option value="">Select…</option>
-                    <option v-for="a in affiliations" :key="a.organization_id" :value="String(a.organization_id)">
+                    <option v-for="a in rosterAffiliations" :key="a.organization_id" :value="String(a.organization_id)">
                       {{ a.organization_name }}
                     </option>
                   </select>
@@ -3700,6 +3714,7 @@ const primaryProviderLabel = computed(() => {
     const first = String(primary.provider_first_name || '').trim();
     if (last || first) return `${last}${last && first ? ', ' : ''}${first}`;
   }
+  if (!showSchoolGlance.value && Object.hasOwn(servicesByAgency.value, String(activeChartAgencyId.value))) return 'Not assigned';
   return String(props.client?.provider_name || '').trim() || 'Not assigned';
 });
 
@@ -3788,6 +3803,20 @@ function affiliationsForTenant(agencyId, bucket) {
     if (!oid || !ids.has(oid)) return false;
     return orgTypeBucket(row?.organization_type) === bucket && (bucket !== 'program' || meaningfulProgram(row.organization_name || row.name, row.organization_type));
   });
+}
+
+function hasTenantCategory(agencyId, bucket) {
+  return (affiliatedOrgsByAgencyId.value[String(agencyId)] || []).some(org => orgTypeBucket(org.organization_type) === bucket)
+    || affiliationsForTenant(agencyId, bucket).length > 0;
+}
+function hasAnyTenantCategory(bucket) {
+  return tenantMemberships.value.some(agency => hasTenantCategory(agency.agency_id, bucket));
+}
+function assignmentOrganizationsForTenant(agencyId) {
+  return ['school', 'program', 'learning'].flatMap(kind => affiliationsForTenant(agencyId, kind));
+}
+function canManageServicesForTenant(agencyId) {
+  return isBackofficeRole.value && (isSuperAdmin.value || myAgencies.value.some(agency => Number(agency.id) === Number(agencyId)));
 }
 
 const orphanAffiliations = computed(() => {
@@ -4085,7 +4114,7 @@ const showLearningChartSurfaces = computed(() =>
   hasLearningProgramEnrollment.value && activeTenantSponsorsClientLearning.value
 );
 
-const showSchoolSpecificOverviewFields = computed(() => isClinicalLikeClientType.value);
+const showSchoolSpecificOverviewFields = computed(() => showSchoolGlance.value);
 const displayStatusLabel = computed(() => {
   if (isClientArchived.value) return 'Archived';
   return displaySchoolClientStatusLabel(props.client);
@@ -4093,9 +4122,6 @@ const displayStatusLabel = computed(() => {
 const showSchoolGlance = computed(() =>
   isSchoolClientType.value
   || isSchoolPortalContext.value
-  || !!Number(props.client?.organization_id)
-  || !!String(props.client?.organization_name || '').trim()
-  || !!String(props.client?.service_day || '').trim()
 );
 const schoolGlanceLabel = computed(() => {
   const fromAssignments = [...new Set(
@@ -4104,7 +4130,7 @@ const schoolGlanceLabel = computed(() => {
       .filter(Boolean)
   )];
   if (fromAssignments.length) return fromAssignments.join(' · ');
-  return String(props.client?.organization_name || '').trim() || 'Not on a school roster';
+  return String(props.client?.organization_name || '').trim() || (showSchoolGlance.value ? 'Not on a school roster' : '—');
 });
 const assignedDayGlanceLabel = computed(() => {
   const days = String(careTeamGlanceMeta.value || '').trim();
@@ -4318,7 +4344,7 @@ const overviewGlanceItems = computed(() => {
     items.push({ label: 'Grade', value: formatGradeDisplay(props.client?.grade) || '—' });
     if (props.client?.school_year) items.push({ label: 'School year', value: String(props.client.school_year) });
   }
-  items.push({ label: 'Primary clinician', value: primaryProviderLabel.value });
+  items.push({ label: 'Primary clinician', value: primaryProviderLabel.value, assignable: canManageServiceEnrollments.value && !showSchoolGlance.value });
   items.push({ label: 'Program', value: clientTypeLabel.value });
   items.push({ label: 'Insurance', value: primaryInsuranceLabel.value || 'Not on file' });
   items.push({ label: 'Status', value: isClientArchived.value ? 'Archived' : displayStatusLabel.value });
@@ -4440,8 +4466,40 @@ const providerOptionLabel = (p) => {
 const searchableProviderOptions = computed(() => providerOptions.value.map(provider => ({ ...provider, name: providerOptionLabel(provider) })));
 const affiliationsForActiveAgency = computed(() => {
   const agencyId = selectedAgencyId.value || props.client?.agency_id;
-  return ['school', 'program', 'learning'].flatMap(kind => affiliationsForTenant(agencyId, kind));
+  return assignmentOrganizationsForTenant(agencyId);
 });
+const rosterAffiliations = computed(() => affiliations.value.filter(row => ['school', 'program', 'learning'].includes(orgTypeBucket(row.organization_type))));
+const servicesByAgency = ref({});
+function serviceProviderRows(services, agencyId) {
+  const providers = new Map();
+  for (const service of services || []) {
+    if (Number(service.is_active) !== 1) continue;
+    for (const provider of service.providers || [service]) {
+      const id = Number(provider.provider_user_id);
+      if (!id || providers.has(id)) continue;
+      const [firstName, ...lastName] = String(provider.provider_name || '').trim().split(/\s+/);
+      providers.set(id, { id: `service-${provider.service_id || service.id}`, agency_id: Number(agencyId), provider_user_id: id,
+        provider_first_name: firstName, provider_last_name: lastName.join(' '), is_primary: providers.size === 0 });
+    }
+  }
+  return [...providers.values()];
+}
+function primaryServiceProviderForTenant(agencyId) {
+  const serviceProvider = serviceProviderRows(servicesByAgency.value[String(agencyId)], agencyId)[0];
+  if (serviceProvider) return serviceProvider;
+  if (showSchoolGlance.value && Number(agencyId) === Number(activeChartAgencyId.value)) return effectiveOverviewProviders.value[0] || null;
+  return null;
+}
+const serviceProviderCount = computed(() => new Set(tenantMemberships.value.flatMap(agency =>
+  serviceProviderRows(servicesByAgency.value[String(agency.agency_id)], agency.agency_id).map(row => row.provider_user_id)
+)).size);
+function onAgencyServicesLoaded(agencyId, payload) {
+  servicesByAgency.value = { ...servicesByAgency.value, [String(agencyId)]: payload.services || [] };
+}
+async function onAgencyServicesUpdated(agencyId, payload) {
+  onAgencyServicesLoaded(agencyId, payload);
+  await onServiceEnrollmentUpdated();
+}
 const profileQuickActions = computed(() => clientProfileActions({
   hub: chartHub.value, sub: effectiveHubSub.value, canEdit: canEditAccount.value,
   canPortal: canViewGuardians.value, canInvite: canManageGuardians.value,
@@ -4467,6 +4525,15 @@ function onProfileQuickAction(action) {
 async function onServiceEnrollmentUpdated() {
   await refreshOverviewProviders();
   emit('updated', { keepOpen: true });
+}
+
+const providerAssignmentOpen = ref(false);
+const providerAssignmentSection = ref(null);
+async function openProviderAssignment() {
+  if (!canManageServiceEnrollments.value) return;
+  providerAssignmentOpen.value = true;
+  await nextTick();
+  providerAssignmentSection.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
 }
 
 const selectedAddProviderFacets = computed(() => {
@@ -4535,6 +4602,8 @@ function providersFromClientSnapshot(client) {
 }
 
 const effectiveOverviewProviders = computed(() => {
+  const agencyId = activeChartAgencyId.value;
+  if (!showSchoolGlance.value && Object.hasOwn(servicesByAgency.value, String(agencyId))) return serviceProviderRows(servicesByAgency.value[String(agencyId)], agencyId);
   if ((overviewProviders.value || []).length) return overviewProviders.value;
   return providersFromClientSnapshot(props.client);
 });
@@ -4586,6 +4655,7 @@ const refreshOverviewProviders = async () => {
     ]);
     // A late response from the prior client must not change this client's care team.
     if (!isCurrent()) return;
+    if (serviceResponse) onAgencyServicesLoaded(agencyId, serviceResponse.data);
     const rows = Array.isArray(r.data) ? [...r.data] : [];
     for (const service of serviceResponse?.data?.services || []) {
       if (!Number(service.is_active)) continue;
@@ -4989,11 +5059,7 @@ async function saveTenantBookingDefaults(agencyId) {
 async function suggestDefaultsFromPrimaryProviderForTenant(agencyId) {
   const aid = Number(agencyId);
   const draft = ensureTenantBookingDraft(aid);
-  const primary = (providerAssignments.value || []).find((p) => p.is_primary)
-    || (providerAssignments.value || [])[0];
-  const providerUserId = Number(
-    primary?.provider_user_id || primary?.provider_id || props.client?.provider_id || 0
-  );
+  const providerUserId = Number(primaryServiceProviderForTenant(aid)?.provider_user_id || 0);
   if (!providerUserId) {
     draft.error = 'Assign a primary provider first.';
     tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
@@ -5851,9 +5917,9 @@ const fetchClientAffiliations = async () => {
     const rows = Array.isArray(r.data) ? r.data : [];
     affiliations.value = rows.filter(row => Number(row.is_active) === 1);
     pastAffiliations.value = rows.filter(row => Number(row.is_active) === 0);
-    if (!affiliations.value.some(row => Number(row.organization_id) === Number(selectedAssignmentOrgId.value))) selectedAssignmentOrgId.value = '';
+    if (!rosterAffiliations.value.some(row => Number(row.organization_id) === Number(selectedAssignmentOrgId.value))) selectedAssignmentOrgId.value = '';
     if (canEditAccount.value && !selectedAssignmentOrgId.value) {
-      const primary = (affiliations.value || []).find((a) => a?.is_primary) || affiliations.value?.[0] || null;
+      const primary = rosterAffiliations.value.find((a) => a?.is_primary) || rosterAffiliations.value[0] || null;
       if (primary?.organization_id) selectedAssignmentOrgId.value = String(primary.organization_id);
     }
     if (canEditAccount.value) await refreshOverviewProviders();
@@ -6115,17 +6181,13 @@ const schoolAffiliationCount = computed(
 const programAffiliationCount = computed(
   () => (affiliations.value || []).filter((a) => {
     const t = String(a.organization_type || '').toLowerCase();
-    return t === 'program' || t === 'clinical';
+    return t === 'program';
   }).length
 );
 const learningAffiliationCount = computed(
   () => (affiliations.value || []).filter((a) => String(a.organization_type || '').toLowerCase() === 'learning').length
 );
-const canSuggestOfficeFromProvider = computed(() => {
-  const primary = (providerAssignments.value || []).find((p) => p.is_primary)
-    || (providerAssignments.value || [])[0];
-  return !!(primary?.provider_user_id || primary?.provider_id || props.client?.provider_id);
-});
+const canSuggestOfficeFromProvider = computed(() => !!primaryServiceProviderForTenant(activeChartAgencyId.value));
 
 function syncClientBookingDefaultsFromClient() {
   const c = props.client || {};
@@ -6187,11 +6249,7 @@ async function saveClientBookingDefaults() {
 }
 
 async function suggestDefaultsFromPrimaryProvider() {
-  const primary = (providerAssignments.value || []).find((p) => p.is_primary)
-    || (providerAssignments.value || [])[0];
-  const providerUserId = Number(
-    primary?.provider_user_id || primary?.provider_id || props.client?.provider_id || 0
-  );
+  const providerUserId = Number(primaryServiceProviderForTenant(activeChartAgencyId.value)?.provider_user_id || 0);
   if (!providerUserId) {
     clientBookingDefaultsError.value = 'Assign a primary provider first.';
     return;
@@ -6588,6 +6646,8 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
   const seq = ++chartContextSeq;
   if (!id) return;
   if (id !== prev) {
+    providerAssignmentOpen.value = false;
+    servicesByAgency.value = {};
     clientActionsOpen.value = false;
     overviewProviderRequest++;
     providerOptionRequest++;
@@ -7857,6 +7917,19 @@ watch(
   font-size: 12px;
   color: #64748b;
   line-height: 1.35;
+}
+.cdp-clinician-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .cdp-text-link {
   appearance: none;

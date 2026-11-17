@@ -11,7 +11,7 @@ beforeEach(() => {
   actor.user.role = 'support';
   post.mockReset(); remove.mockReset();patch.mockReset();
   vi.stubGlobal('confirm', () => true);
-  get.mockReset().mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [] } : {providers:[
+  get.mockReset().mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [],availableServiceKinds:['counseling','tutoring'] } : {providers:[
     { id: 1433, name: 'Avery QA', agencyIds:[450] }
   ]} }));
 });
@@ -28,7 +28,7 @@ it('uses the authorized limited provider projection for Support instead of an ad
 
 it('preserves the normal authorized admin provider choices', async () => {
   actor.user.role = 'admin';
-  get.mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [] } : {providers:[
+  get.mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [],availableServiceKinds:['counseling','tutoring'] } : {providers:[
     { id: 10, name: 'Admin Provider', agencyIds:[450] },
     { id: 11, name: 'Other Agency Provider', agencyIds:[999] }
   ]} }));
@@ -55,6 +55,7 @@ it('ignores a delayed provider response belonging to the prior child and agency'
 });
 
 it('clears the prior draft and ignores its delayed save after changing child', async () => {
+  const initialGet=get.getMockImplementation();get.mockImplementation(async (url,...rest)=>{const response=await initialGet(url,...rest);if(url.includes('/3000/'))response.data.availableServiceKinds=['counseling'];return response;});
   let release;
   post.mockImplementation(() => new Promise(resolve => { release = resolve; }));
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });

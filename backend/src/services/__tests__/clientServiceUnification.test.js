@@ -1,3 +1,5 @@
+import { clientServiceKindsForAgency } from '../clientServiceCatalog.service.js';
+vi.mock('../clientServiceCatalog.service.js', () => ({ clientServiceKindsForAgency: vi.fn().mockResolvedValue(['counseling','tutoring']) }));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/ClientGuardian.model.js', () => ({ default: {} }));
@@ -79,4 +81,28 @@ it('does not leave a phantom unassigned Counseling service after its last counse
 it('keeps the unified service active when another counselor still provides care',async()=>{
  records.push({...assigned,id:13,provider_user_id:21});
  const result=await endProviderCounselingService({clientId:4,agencyId:6,providerUserId:20});expect(result.remainingActive).toBe(1);expect(pool.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE client_service_enrollments')).map(([,values])=>values.at(-1))).toEqual([12]);
+});
+
+it('adds another counselor to the existing service without replacing the first counselor or using a school roster',async()=>{
+ records=[{...assigned}];
+ await saveClientService({clientId:4,agencyId:6,userId:9,input:{serviceId:12,serviceKind:'counseling',providerUserId:21,addProvider:true}});
+ const [sql,values]=pool.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO client_service_enrollments'));
+ expect(values).toEqual([4,6,'counseling',21,0,'Counseling',9,9]);
+ expect(pool.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE client_service_enrollments')||sql.includes('client_provider_assignments'))).toBe(false);
+ expect(connection.commit).toHaveBeenCalledOnce();
+});
+it('does not add a duplicate counselor when a request is retried',async()=>{
+ records=[{...assigned}];
+ await saveClientService({clientId:4,agencyId:6,userId:9,input:{serviceId:12,serviceKind:'counseling',providerUserId:20,addProvider:true}});
+ expect(pool.execute.mock.calls.some(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toBe(false);
+});
+it('rejects creating a service that this agency does not offer',async()=>{
+ clientServiceKindsForAgency.mockResolvedValueOnce(['counseling']);
+ await expect(saveClientService({clientId:4,agencyId:6,userId:9,input:{serviceKind:'coaching',providerUserId:20}})).rejects.toMatchObject({status:400});
+ expect(pool.execute.mock.calls.some(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toBe(false);
+});
+it('allows the same eligible provider to deliver counseling and a separate enabled service',async()=>{
+ records=[{...assigned}];
+ await saveClientService({clientId:4,agencyId:6,userId:9,input:{serviceKind:'tutoring',label:'Tutoring',providerUserId:20}});
+ expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO client_service_enrollments'),[4,6,'tutoring',20,0,'Tutoring',9,9]);
 });

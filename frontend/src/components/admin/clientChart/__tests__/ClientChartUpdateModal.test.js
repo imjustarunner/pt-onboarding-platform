@@ -38,3 +38,11 @@ it('limits the update queue to the selected clients without loading the rest of 
  await wrapper.findAll('button').find(b=>b.text()==='Next client →').trigger('click');await flushPromises();
  expect(m.leave).toHaveBeenCalledOnce();expect(wrapper.get('[data-panel]').attributes('data-client')).toBe('18');wrapper.unmount();
 });
+
+it.each([true,false])('skips native office submissions in selected and fetched queues (selected: %s)',async selected=>{
+ const native={id:19,agency_id:2,client_type:'clinical',source:'PUBLIC_INTAKE_LINK'};
+ const rows=[client,native,{id:20,agency_id:2,source:'BULK_IMPORT'}];
+ m.get.mockResolvedValue({data:rows});
+ const wrapper=mount(Modal,{props:{initialClient:client,...(selected?{selectedClients:rows}:{})},global:{stubs:{ClientEhrBringUpToDatePanel:Panel}}});await flushPromises();
+ expect(wrapper.vm.queue.map(client=>client.id)).toEqual([12,20]);wrapper.unmount();
+});

@@ -14,6 +14,11 @@ function normalizeSource(client) {
   return String(client?.source || '').trim().toUpperCase();
 }
 
+/** App-originated office charts need no legacy record import. */
+export function isAppNativeOfficeClient(client) {
+  return DIGITAL_INTAKE_SOURCES.has(normalizeSource(client)) && !isSchoolRegistrationClient(client);
+}
+
 export function isPaperPacketClient(client) {
   if (!client) return false;
   let docs = client.onboarding_docs_json || {};

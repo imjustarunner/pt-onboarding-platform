@@ -7,6 +7,7 @@ import {withClientSchedulingLock} from './clientSchedulingGuard.service.js';
 import {appointmentServiceKind} from '../utils/guardianCancellationScope.js';
 import { assertAssignableProvider } from './clientAssignmentScope.service.js';
 import { clientServiceAssignments } from '../utils/clientServiceAssignments.js';
+import { clientServiceKindsForAgency } from './clientServiceCatalog.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 export const SERVICE_KINDS=['counseling','tutoring','coaching','consultation'];
 
@@ -76,7 +77,7 @@ export async function guardianServiceContext({userId,clientId,agencyId,serviceId
  return {...client,agency_id:aid,portal_access:portalAccess,services,client_type:service?.service_kind==='tutoring'||(restriction&&restriction.kinds.every(kind=>kind==='tutoring'))?'learning':service?.service_kind==='counseling'?'clinical':client.client_type,service,...(restriction?{authorizedServices:services.filter(service=>service.is_active||allowEndedServices)}:{})};
 }
 export async function saveClientService(context,db=pool){
- if(context.input.serviceKind==='counseling')return withClientServiceLock(context.clientId,db,connection=>saveClientServiceRow(context,connection));
+ if(context.input.serviceKind==='counseling'||context.input.addProvider===true)return withClientServiceLock(context.clientId,db,connection=>saveClientServiceRow(context,connection));
  return saveClientServiceRow(context,db);
 }
 async function saveClientServiceRow({clientId,agencyId,input,userId},db){
@@ -90,9 +91,21 @@ async function saveClientServiceRow({clientId,agencyId,input,userId},db){
  const label=serviceKind==='counseling'?'Counseling':String(input.label||serviceKind).trim().slice(0,150);if(!label)throw fail(400,'Enter a service name.');
  const serviceId=input.serviceId == null ? null : Number(input.serviceId);
  if(serviceId!==null&&(!Number.isSafeInteger(serviceId)||serviceId<1))throw fail(400,'Choose a valid service enrollment.');
+ if(!serviceId && !(await clientServiceKindsForAgency(agencyId,db)).includes(serviceKind))throw fail(400,'This service is not enabled for this agency.');
  if(serviceId){
-  const [[existing]]=await db.execute('SELECT id FROM client_service_enrollments WHERE id=? AND client_id=? AND agency_id=? AND is_active=1',[serviceId,clientId,agencyId]);
+  const [[existing]]=await db.execute('SELECT id,service_kind,label,organization_id FROM client_service_enrollments WHERE id=? AND client_id=? AND agency_id=? AND is_active=1',[serviceId,clientId,agencyId]);
   if(!existing)throw fail(404,'Service enrollment not found for this client and agency.');
+  if(existing.service_kind && existing.service_kind!==serviceKind)throw fail(400,'Edit the provider for the existing service or add a different service.');
+  if(input.addProvider===true){
+   if(!providerId)throw fail(400,'Choose an additional provider.');
+   const [assigned]=await db.execute('SELECT provider_user_id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND service_kind=? AND label=? AND is_active=1',[clientId,agencyId,serviceKind,label]);
+   if(assigned.some(row=>Number(row.provider_user_id)===providerId))return listClientServices(clientId,agencyId,db);
+  const [ended]=await db.execute('SELECT id AS ended_service_id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? AND is_active=0 LIMIT 1',[clientId,agencyId,providerId,serviceKind]);
+  if(ended?.[0]?.ended_service_id)throw fail(409,'This service was ended. Use Change status to explicitly reactivate it before adding another enrollment with this provider.');
+   await db.execute(`INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,organization_id,label,created_by_user_id,updated_by_user_id)
+    VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE updated_by_user_id=VALUES(updated_by_user_id)`,[clientId,agencyId,serviceKind,providerId,Number(existing.organization_id)||0,label,userId,userId]);
+   return listClientServices(clientId,agencyId,db);
+  }
   try {
    await db.execute(`UPDATE client_service_enrollments SET service_kind=?,provider_user_id=?,organization_id=?,label=?,updated_by_user_id=? WHERE id=? AND client_id=? AND agency_id=?`,[serviceKind,providerId,organizationId,label,userId,serviceId,clientId,agencyId]);
   }catch(error){if(error?.code==='ER_DUP_ENTRY')throw fail(409,'This provider already has a matching service enrollment. Review the existing assignments before changing this service.');throw error;}

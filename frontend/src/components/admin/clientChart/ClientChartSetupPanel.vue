@@ -148,6 +148,7 @@ import NoteAidIntakeImportReview from '../../clinical/NoteAidIntakeImportReview.
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
 import DemographicMergeFields from './DemographicMergeFields.vue';
 import ClientEhrBringUpToDatePanel from './ClientEhrBringUpToDatePanel.vue';
+import { requiresClientRecordImport } from '../../../utils/clientRecordImport.js';
 import {
   buildDemographicMergeRows,
   currentDemographicsFromClient,
@@ -207,6 +208,7 @@ const showUpdater = computed(() =>
   && (scope.value === 'all' || scope.value === 'demographics')
 );
 const visible = computed(() => {
+  if (status.value?.requiresRecordImport === false || !requiresClientRecordImport(props.client)) return false;
   if (loadError.value) return true;
   if (!status.value) return false;
   return showWorkspaceUpdater.value || showSection('demographics') || showSection('intake') || showSection('plan') || showUpdater.value;

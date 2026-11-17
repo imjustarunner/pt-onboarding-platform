@@ -49,7 +49,7 @@
         <PostClientToExchangeButton />
         <button type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="refreshWorkspace">Refresh</button>
         <button v-if="canSeeRenewalFlags && activeAgencyId" type="button" class="cm-hbtn cm-hbtn--ghost" @click="clientUpdateOpen = true">Add client for selected updates</button>
-        <button v-if="canUpdateCharts && clients.length" type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="openChartUpdates()">Bring clients up to date{{ selectedIds.size ? ` (${selectedIds.size} selected)` : '' }}</button>
+        <button v-if="canUpdateCharts && recordImportQueue.length" type="button" class="cm-hbtn cm-hbtn--ghost" :disabled="loading" @click="openChartUpdates()">Bring clients up to date{{ selectedIds.size ? ` (${recordImportQueue.length} selected)` : '' }}</button>
         <button v-if="canUpdateCharts" type="button" class="cm-hbtn cm-hbtn--ghost" @click="openOfficeClientModal">+ Add office client from records</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
@@ -375,7 +375,7 @@
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="selectAllMatchingClients">
         {{ selectingAllMatching ? 'Selecting…' : `Select all ${totalCountForDisplay} matching clients` }}
       </button>
-      <button v-if="selectedIds.size" class="btn btn-primary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="openChartUpdates()">Bring selected clients up to date ({{ selectedIds.size }})</button>
+      <button v-if="selectedIds.size && recordImportQueue.length" class="btn btn-primary btn-sm" type="button" :disabled="loading || selectingAllMatching" @click="openChartUpdates()">Bring selected clients up to date ({{ recordImportQueue.length }})</button>
     </div>
     <div v-if="canInvitePortal && filteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
       <span>Portal invitations: filter by provider, school, or status, then select clients.</span>
@@ -669,7 +669,7 @@
               </label>
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="closeClientPanel()">
-              <button v-if="canUpdateCharts" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client)">Bring up to date</button>
+              <button v-if="canUpdateCharts && requiresClientRecordImport(client)" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client)">Bring up to date</button>
               <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
                 <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
               <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
@@ -1346,6 +1346,7 @@ import {
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
 import ClientEhrBringUpToDatePanel from '../../components/admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import ClientChartUpdateModal from '../../components/admin/clientChart/ClientChartUpdateModal.vue';
+import { requiresClientRecordImport } from '../../utils/clientRecordImport.js';
 import ClientRecordsCreateModal from '../../components/admin/clientChart/ClientRecordsCreateModal.vue';
 import ClientAgencyLogo from '../../components/clients/ClientAgencyLogo.vue';
 import ClientMatchingPreferences from '../../components/public/ClientMatchingPreferences.vue';
@@ -1675,9 +1676,12 @@ function clientAgencyBrand(client) {
 }
 
 const chartUpdateQueue = ref(null);
-function openChartUpdates(client = null) {
+const recordImportQueue = computed(() => {
   const selected = [...selectedClientRecords.value.values()].filter(row => selectedIds.value.has(row.id));
-  chartUpdateQueue.value = client ? [client] : selected.length ? selected : [...filteredClients.value];
+  return (selected.length ? selected : filteredClients.value).filter(requiresClientRecordImport);
+});
+function openChartUpdates(client = null) {
+  chartUpdateQueue.value = client ? [client].filter(requiresClientRecordImport) : [...recordImportQueue.value];
   chartUpdateClient.value = chartUpdateQueue.value[0] || null;
 }
 function closeChartUpdates() { chartUpdateClient.value = null; chartUpdateQueue.value = null; }

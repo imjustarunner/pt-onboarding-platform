@@ -4,7 +4,7 @@
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { clientHasDemographicsOnFile } from './demographicsImport.service.js';
-import { isPaperPacketClient, isSchoolRegistrationClient } from '../utils/paperPacketClient.js';
+import { isAppNativeOfficeClient, isPaperPacketClient, isSchoolRegistrationClient } from '../utils/paperPacketClient.js';
 import { readPaperPacketDemographicCandidate } from './paperPacketDemographics.service.js';
 import { isIntakeAutoTreatmentPlan } from './treatmentPlanPrecedence.service.js';
 import {
@@ -78,6 +78,7 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
     }
   }
   return {
+    requiresRecordImport: !isAppNativeOfficeClient(client),
     demographicsOnFile,
     intakeOnFile: intakeDone,
     planOnFile: planDone,

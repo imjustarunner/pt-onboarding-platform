@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {clientServiceKindsForAgency} from '../services/clientServiceCatalog.service.js';
 import {clientServiceAssignments} from '../utils/clientServiceAssignments.js';
 import {listClientServices,saveClientService,clientAgencyMembership,updateClientServiceStatus} from '../services/clientServiceEnrollment.service.js';
 import {clientServiceReturnRequests} from '../services/clientServiceReturnRequest.service.js';
@@ -13,7 +14,7 @@ async function staff(req){
  if(providerRole){const [owned]=await pool.execute(`SELECT id FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? ${req.params.serviceId?'AND id=?':''}`,[clientId,agencyId,req.user.id,...(req.params.serviceId?[Number(req.params.serviceId)]:[])]);if(!owned.length)throw Object.assign(new Error('Only the assigned provider can manage this service.'),{status:403});}
  return {clientId,agencyId,userId:req.user.id,...(providerRole?{providerUserId:req.user.id}:{})};
 }
-export const list=async(req,res,next)=>{try{const c=await staff(req);const services=await listClientServices(c.clientId,c.agencyId);res.set('Cache-Control','no-store').json({services:clientServiceAssignments(c.providerUserId?services.filter(s=>Number(s.provider_user_id)===Number(c.providerUserId)):services)});}catch(e){next(e);}};
+export const list=async(req,res,next)=>{try{const c=await staff(req);const [services,availableServiceKinds]=await Promise.all([listClientServices(c.clientId,c.agencyId),c.providerUserId?Promise.resolve([]):clientServiceKindsForAgency(c.agencyId)]);res.set('Cache-Control','no-store').json({...(!c.providerUserId?{availableServiceKinds}:{}),services:clientServiceAssignments(c.providerUserId?services.filter(s=>Number(s.provider_user_id)===Number(c.providerUserId)):services)});}catch(e){next(e);}};
 export const save=async(req,res,next)=>{try{const c=await staff(req);if(c.providerUserId)return res.status(403).json({error:{message:'An agency administrator must add or assign service enrollments.'}});res.json({services:clientServiceAssignments(await saveClientService({...c,input:req.body}))});}catch(e){next(e);}};
 export const status=async(req,res,next)=>{try{const c=await staff(req);const result=await updateClientServiceStatus({...c,serviceId:Number(req.params.serviceId),input:req.body});if(c.providerUserId)result.services=result.services.filter(s=>Number(s.provider_user_id)===Number(c.providerUserId));result.services=clientServiceAssignments(result.services);res.json(result);}catch(e){next(e);}};
 export const archive=async(req,res,next)=>{try{const c=await staff(req);const result=await updateClientServiceStatus({...c,serviceId:Number(req.params.serviceId),input:{...req.body,status:'discontinued'}});if(c.providerUserId)result.services=result.services.filter(s=>Number(s.provider_user_id)===Number(c.providerUserId));result.services=clientServiceAssignments(result.services);res.json(result);}catch(e){next(e);}};
