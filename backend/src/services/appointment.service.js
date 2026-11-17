@@ -171,6 +171,8 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
 }
 
 export async function createAppointment(input) {
+  const {assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
+  assertNoShowUsesSignedWorkflow(null,input.status);
   return withClientSchedulingLock((input.participants || []).map(p => p.clientId || p.client_id), () => createLockedAppointment(input));
 }
 async function createLockedAppointment({
@@ -482,7 +484,8 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     }
   }
 
-  const {assertAppointmentOutcomePreserved}=await import('../utils/appointmentOutcomeGuard.js');
+  const {assertAppointmentOutcomePreserved,assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
+  assertNoShowUsesSignedWorkflow(existing,patch.status,{trustedFinalization:allowPendingNoShow});
   assertAppointmentOutcomePreserved(existing,patch);
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
     await requireClientSessionBooking(existing.agencyId, patch.providerUserId);
@@ -958,6 +961,9 @@ export async function settleAppointment(appointmentId, {
   if (!existing) return null;
   if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR billing workflow for this appointment.'), { status: 409 });
   const status = String(outcome || existing.status || '').toLowerCase();
+  if(existing.status==='no_show_pending')throw Object.assign(new Error('Undo the pending no-show before recording an attended outcome. Missed-session settlement runs after its correction deadline.'),{status:409});
+  const {assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
+  assertNoShowUsesSignedWorkflow(existing,status);
   await requireQaOutcomeElapsed(existing, status);
   if (status === 'completed' || status === 'no_show') {
     if (String(existing.status || '').toLowerCase() !== status) {
