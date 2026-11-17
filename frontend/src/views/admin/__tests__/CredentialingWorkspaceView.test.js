@@ -10,6 +10,13 @@ const data=()=>({organizations:[{id:1,name:'Inner Strength',canViewBilling:false
 const button=(w,text)=>w.findAll('button').find(b=>b.text()===text);
 beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{items:[]}:data()}));api.patch.mockResolvedValue({data:{saved:true}});});
 describe('credentialing workspace',()=>{
+  it('shows onboarding NPI requests before payer enrollment and opens the shared task',async()=>{
+    api.get.mockResolvedValue({data:{...data(),npiFollowups:[{taskId:123,agencyId:1,subjectName:'Synthetic New Hire',accountStatus:'ONBOARDING',npiState:'help_requested',nextAction:'Contact the provider',assignees:'Test Credentialer'}]}});
+    const w=mount(CredentialingWorkspaceView);await flushPromises();
+    const queue=w.find('[aria-label="NPI follow-ups"]');expect(queue.text()).toContain('Synthetic New Hire');expect(queue.text()).toContain('Requested help obtaining NPI');expect(queue.text()).toContain('Test Credentialer');
+    await button(w,'Open task').trigger('click');expect(router.push).toHaveBeenCalledWith({path:'/plottwistco/tasks',query:{taskId:'123'}});
+    await w.find('.cw-search input').setValue('unrelated');expect(queue.text()).not.toContain('Synthetic New Hire');w.unmount();
+  });
   it('starts across authorized agencies, then brands and loads the selected tenant',async()=>{
     const w=mount(CredentialingWorkspaceView);await flushPromises();expect(w.text()).toContain('PlotTwistCo');expect(w.text()).toContain('Second Group');expect(api.get.mock.calls[0][1].params).toEqual({});
     await w.find('[data-testid="credential-scope"]').setValue('1');await flushPromises();expect(api.get).toHaveBeenLastCalledWith('/agencies/credentialing/workspace',{params:{agencyId:'1'}});expect(w.attributes('style')).toContain('#23564f');w.unmount();

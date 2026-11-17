@@ -15,6 +15,13 @@ function fixture(){
   return {d,db};
 }
 describe('credentialing management access and projection',()=>{
+  it('includes scoped NPI follow-ups even before the provider has a payer enrollment',async()=>{
+    const {d}=fixture();const base=d.main.execute.getMockImplementation();
+    d.main.execute.mockImplementation(async(sql,params)=>sql.includes("t.source_ref_type='provider_npi_followup'")?[[{taskId:77,agencyId:1,providerId:42,subjectName:'Synthetic New Hire',accountStatus:'ONBOARDING',npiState:'help_requested'}]]:base(sql,params));
+    const result=await credentialingWorkspace(user,{agencyId:1},d);
+    expect(result.npiFollowups).toEqual([expect.objectContaining({providerId:42,npiState:'help_requested'})]);
+    const call=d.main.execute.mock.calls.find(([sql])=>sql.includes("t.source_ref_type='provider_npi_followup'"));expect(call[1]).toEqual([1]);expect(call[0]).not.toMatch(/password|date_of_birth|ssn|SELECT \*/i);
+  });
   it('uses current credentialing grants and active affiliation expansion, not client billing permissions',async()=>{
     const {d}=fixture();const data=await credentialingWorkspace(user,{},d);
     expect(d.grants).toHaveBeenCalledWith(9);expect(d.expand).toHaveBeenCalledWith([1]);

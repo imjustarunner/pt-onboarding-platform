@@ -44,9 +44,20 @@ export function normalizeCredentialTracking(input) {
 
 export async function credentialingWorkspace(user,query={},d=deps) {
   const scope=await credentialingScope(user,query.agencyId,d);
-  const result={organizations:scope.organizations,records:[],payers:[],billingPayers:[],groups:[],enrollments:[],claimCounts:[],capabilities:{electronicEnrollment:true,claimLinkage:true}};
+  const result={organizations:scope.organizations,records:[],npiFollowups:[],payers:[],billingPayers:[],groups:[],enrollments:[],claimCounts:[],capabilities:{electronicEnrollment:true,claimLinkage:true}};
   if(!scope.ids.length)return result;
   const marks=scope.ids.map(()=>'?').join(',');
+  [result.npiFollowups]=await d.main.execute(`SELECT t.id AS taskId,t.assigned_to_agency_id AS agencyId,
+    u.id AS providerId,CONCAT_WS(' ',u.first_name,u.last_name) AS subjectName,u.status AS accountStatus,t.status,
+    JSON_UNQUOTE(JSON_EXTRACT(t.metadata,'$.npiState')) AS npiState,
+    JSON_UNQUOTE(JSON_EXTRACT(t.metadata,'$.action')) AS nextAction,
+    (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ',owner.first_name,owner.last_name) ORDER BY owner.id SEPARATOR ', ')
+      FROM users owner WHERE owner.id=t.assigned_to_user_id OR EXISTS
+      (SELECT 1 FROM task_collaborators tc WHERE tc.task_id=t.id AND tc.user_id=owner.id)) AS assignees
+    FROM tasks t JOIN users u ON u.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(t.metadata,'$.providerUserId')) AS UNSIGNED)
+    WHERE t.source_ref_type='provider_npi_followup' AND t.status IN ('pending','in_progress','waiting')
+      AND t.assigned_to_agency_id IN (${marks})
+    ORDER BY (JSON_UNQUOTE(JSON_EXTRACT(t.metadata,'$.npiState'))='help_requested') DESC,u.last_name,u.first_name`,scope.ids);
   // Select only operational fields. Credentials/passwords, provider DOB and claim PHI never enter this response.
   const [providers]=await d.main.execute(`SELECT 'provider' AS subjectType,c.id AS credentialId,p.agency_id AS agencyId,p.id AS payerDefinitionId,p.name AS payerName,
     c.allow_supervisee_billing, parent.name AS parent_name, link.payer_id AS billing_payer_id,

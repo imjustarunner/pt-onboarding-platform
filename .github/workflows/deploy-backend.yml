@@ -42,6 +42,9 @@ jobs:
       - name: Check public school demo and homepage navigation
         run: node --test scripts/check-school-demo-release.test.mjs
 
+      - name: Check NPI credentialing follow-up rules
+        run: node --test backend/src/services/__tests__/providerNpiFollowup.test.mjs
+
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
         continue-on-error: true

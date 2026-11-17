@@ -366,6 +366,13 @@ export const deleteCustomTask = async (req, res, next) => {
 async function canViewTaskDetails(task, userId, role) {
   if (!task) return false;
   if (Number(task.is_private) === 1) {
+    if (task.source_ref_type === 'provider_npi_followup') {
+      const { userHasCredentialingAccessForAgency } = await import('../utils/capabilities.js');
+      if (!await userHasCredentialingAccessForAgency(userId, task.assigned_to_agency_id, { role })) return false;
+      if (Number(task.assigned_to_user_id) === Number(userId)) return true;
+      const collaborators = await TaskCollaborator.listForTask(task.id);
+      return collaborators.some(c => Number(c.user_id) === Number(userId));
+    }
     return (
       Number(task.assigned_to_user_id) === Number(userId)
       || Number(task.assigned_by_user_id) === Number(userId)

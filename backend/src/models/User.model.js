@@ -3239,6 +3239,10 @@ class User {
         return (await conn.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values))[0];
       }
     });
+    if (['ONBOARDING', 'ACTIVE_EMPLOYEE'].includes(status)) {
+      const { refreshProviderNpiFollowup } = await import('../services/providerNpiFollowup.service.js');
+      await refreshProviderNpiFollowup(userId);
+    }
     return this.findById(userId);
   }
 

@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { assertProviderUpdateTaskStatus } from '../services/providerUpdateTasks.service.js';
 import {assertCountersignTaskCompletion} from '../services/documentCountersignTasks.service.js';
+import { assertProviderNpiTaskStatus } from '../services/providerNpiFollowup.service.js';
 import { normalizeTaskCategories, resolveTaskCategories, isClientRelatedTask } from '../constants/taskCategories.js';
 import {
   ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER,
@@ -875,6 +876,7 @@ class Task {
   }
 
   static async markComplete(taskId, userId) {
+    await assertProviderNpiTaskStatus(taskId, 'completed', pool);
     await assertCountersignTaskCompletion(taskId);
     await assertProviderUpdateTaskStatus(taskId, 'completed');
     await pool.execute(
@@ -1069,6 +1071,7 @@ class Task {
   }
 
   static async updateStatus(taskId, status) {
+    await assertProviderNpiTaskStatus(taskId, status, pool);
     if (status === 'completed') await assertCountersignTaskCompletion(taskId);
     await assertProviderUpdateTaskStatus(taskId, status);
     await pool.execute(

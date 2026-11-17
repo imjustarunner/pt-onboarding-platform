@@ -2096,6 +2096,19 @@ if (shouldStartServerBackgroundJobs()) {
     }
   })();
 
+  // Repair missed NPI/profile/lifecycle updates and keep shared assignments
+  // aligned with current credentialing grants. The DB lock covers all replicas.
+  const scheduleProviderNpiFollowups = async () => {
+    try {
+      const { reconcileProviderNpiFollowups } = await import('./services/providerNpiFollowup.service.js');
+      await reconcileProviderNpiFollowups();
+    } catch (error) {
+      console.error('[provider NPI follow-ups]', error?.code || 'reconcile_failed');
+    }
+  };
+  scheduleProviderNpiFollowups();
+  setInterval(scheduleProviderNpiFollowups, 15 * 60 * 1000).unref();
+
   // Set up daily credential expiration watchdog (documents compliance)
   const scheduleCredentialWatchdog = async () => {
     try {

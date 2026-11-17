@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "test:npi-followup": "node --test src/services/__tests__/providerNpiFollowup.test.mjs",
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "check-security": "node src/scripts/checkSecurityReadiness.js",

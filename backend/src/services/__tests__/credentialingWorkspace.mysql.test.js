@@ -13,7 +13,9 @@ it.skipIf(process.env.CREDENTIAL_WORKSPACE_MYSQL_TEST!=='1')('isolates tenant cr
     await admin.query(`DROP DATABASE IF EXISTS ${schema}; CREATE DATABASE ${schema}; USE ${schema};`);
     await admin.query(`
       CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(100),slug VARCHAR(100),logo_url VARCHAR(255),color_palette JSON,is_active BOOLEAN DEFAULT 1,organization_type VARCHAR(20) DEFAULT 'agency');
-      CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(50),last_name VARCHAR(50));
+      CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(50),last_name VARCHAR(50),status VARCHAR(30));
+      CREATE TABLE tasks(id INT PRIMARY KEY,assigned_to_agency_id INT,assigned_to_user_id INT,status VARCHAR(30),source_ref_type VARCHAR(32),metadata JSON);
+      CREATE TABLE task_collaborators(task_id INT,user_id INT);
       CREATE TABLE user_agencies(user_id INT,agency_id INT,has_department_access BOOLEAN);
       CREATE TABLE office_locations(id INT PRIMARY KEY,agency_id INT,name VARCHAR(100),street_address VARCHAR(100),city VARCHAR(100),state VARCHAR(10));
       CREATE TABLE user_info_field_definitions(id INT PRIMARY KEY,field_key VARCHAR(100),agency_id INT);
@@ -32,7 +34,7 @@ it.skipIf(process.env.CREDENTIAL_WORKSPACE_MYSQL_TEST!=='1')('isolates tenant cr
     await admin.query('ALTER TABLE user_insurance_credentialing ADD COLUMN returned_date DATE NULL');
     await admin.query(`
       INSERT INTO agencies(id,name) VALUES (1,'Synthetic Agency One'),(2,'Synthetic Agency Two');
-      INSERT INTO users VALUES (9,'Synthetic','Credentialer'),(10,'Synthetic','Provider');
+      INSERT INTO users(id,first_name,last_name) VALUES (9,'Synthetic','Credentialer'),(10,'Synthetic','Provider');
       INSERT INTO insurance_credentialing_definitions(id,agency_id,name) VALUES (11,1,'Synthetic Payer'),(12,2,'Synthetic Payer');
       INSERT INTO user_insurance_credentialing(id,user_id,insurance_credentialing_definition_id,effective_date) VALUES (21,10,11,'2024-09-15'),(22,10,12,'2024-09-15');
       INSERT INTO office_locations(id,agency_id,name) VALUES (1,1,'Office One'),(2,2,'Office Two');

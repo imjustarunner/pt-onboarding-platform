@@ -20,6 +20,18 @@ Credentialing staff see provider identity, agency/payer credentials, electronic 
 - Changes to tracking or payer mappings require a source reference and append an audit event in the same database transaction. Source-row locking plus version checks prevents two initial saves from overwriting one another. Conflicts require refreshing the record.
 - This workspace does not submit payer enrollments, send claims, change submission gates, verify CAQH, or verify payer enrollment automatically. Configurable team reminders supplement the recorded follow-up dates and link to the existing tools. Existing clinical/billing readiness checks still govern submission.
 
+## Individual NPI follow-ups
+
+Apply main migration `1836_provider_npi_followups.sql` before deploying this feature. System-created tasks and their audit entries allow a null human actor; metadata and append-only security evidence name `provider_npi_credentialing_automation`. Existing actor records are preserved.
+
+Credentialing Management shows **NPI follow-ups** before payer enrollment exists. The cohort includes clinical hires created, hired, started, or entering onboarding in the last 90 days, plus everyone still onboarding. An existing unresolved follow-up remains tracked after that window. Prospective applicants, archived staff, demo accounts, and synthetic tenants are excluded. An unanswered question is not treated as a request to create an NPI. Explicit requests, reported absence, pending registrations, existing numbers not yet supplied, invalid numbers, and conflicting numbers have distinct actions.
+
+Each provider/agency has one private task, with a primary owner and the other credentialers as collaborators. Only active people with effective credentialing permission are assigned. Current company overrides and denials take precedence over legacy membership flags and affiliation expansion; a superadmin role alone does not add someone to the assignment team. A missing team is shown as needing a credentialing assignee. Assignment notices, updates, and automation evidence commit together. A unique source key and worker lock prevent duplicate tasks across replicas.
+
+Saving an NPI/status field or opening onboarding triggers reconciliation. A 15-minute recovery job catches imports, missed updates, and permission changes. Follow-ups close when an unambiguous number with a valid format and checksum is recorded, and reopen if it is removed. Task completion checks the profile. Identity, Type 1 enumeration, surrogate authorization, and payer enrollment still need credentialing verification. No NPI application is submitted by this automation.
+
+The audit/backfill CLI is dry-run by default: `node backend/src/scripts/reconcileProviderNpiFollowups.js --since=YYYY-MM-DD --agency-id=2 --agency-id=6`. Add `--report=/private/path/new-report.json` to save the combined cohort list with restricted file permissions; add `--apply` to reconcile tasks. It uses the configured operational database connection and never accepts a human actor ID or application credentials.
+
 ## Validation
 
 Backend and frontend tests cover authorization, scope changes, safe response fields, current-account enrollment filtering, unavailable data, evidence/history, stale writes, and claim-submission regressions. The opt-in `credentialingWorkspace.mysql.test.js` applies the migration to a disposable local schema, queries synthetic records, and runs five concurrent initial saves (one accepted, four conflicts). It uses only the local test socket and removes its schema afterward.

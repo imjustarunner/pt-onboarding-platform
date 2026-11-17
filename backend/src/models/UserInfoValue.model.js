@@ -161,6 +161,8 @@ class UserInfoValue {
       await this._syncUsersCredentialColumn({ userId, fieldKey: fk, value });
       // Ensure we don't retain duplicate values for the same logical field_key.
       await this._dedupeByFieldKeyKeepDefinition({ userId, fieldKey: fk, keepFieldDefinitionId: fieldDefinitionId });
+      const { refreshProviderNpiFollowup } = await import('../services/providerNpiFollowup.service.js');
+      await refreshProviderNpiFollowup(userId, fk);
       return this.findByUserAndField(userId, fieldDefinitionId);
     } else {
       // Create
@@ -172,6 +174,9 @@ class UserInfoValue {
       
       // Ensure we don't retain duplicate values for the same logical field_key.
       await this._dedupeByFieldKeyKeepDefinition({ userId, fieldKey: fk, keepFieldDefinitionId: fieldDefinitionId });
+
+      const { refreshProviderNpiFollowup } = await import('../services/providerNpiFollowup.service.js');
+      await refreshProviderNpiFollowup(userId, fk);
 
       const [rows] = await pool.execute(
         'SELECT * FROM user_info_values WHERE id = ?',
