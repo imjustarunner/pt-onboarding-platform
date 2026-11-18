@@ -4,6 +4,40 @@ This is a live browser QA assignment, not a completed test report. It supersedes
 the old instruction to create Plotline companies or a People Ops operator by
 signing in as a human administrator. Preserve earlier evidence and open defects.
 
+CONFIRMED RETAINED FIXTURES — OWNER HANDOFF, NOVEMBER 18
+- Reserved automation actor: Jordan, user 1434. Recheck the normal signed-in
+  account at the beginning of the run; do not substitute a different login.
+- Juniper Consulting QA is company 463; Maple Studio QA is company 464.
+  Both already exist. Reuse them; the creation steps below are retained setup
+  coverage, not an instruction to create either company again or a third one.
+- Run the focused question tests in Juniper 463. Keep Maple 464 available for
+  job/branding independence checks. A shared owner seeing both is expected.
+
+READ THIS BEFORE DECLARING SETUP BLOCKED
+- The 9:04 AM MST PRODUCTION-READINESS.json was an ANONYMOUS probe. Its
+  availability.enabled=false is expected: public company signup is closed.
+  It does not show that setup was closed again for registered QA accounts.
+  Engineering subsequently reconfirmed PLOTLINE_SELF_SERVICE_ENABLED=qa_only.
+  The actual signed-in QA screen remains the browser test, not a config pass.
+- Sign in normally using the reserved QA vault account, record its user ID,
+  select the intended standalone QA company, then evaluate the setup screen.
+  Only an opening-soon/error result AFTER that sign-in is a setup blocker.
+  Never open public registration, remove limits or use a human/superadmin login.
+- Confirm the retained company's QA provenance, for example its Company
+  activity -> company_created entry identifies QA automation. A name ending
+  in QA alone is not evidence of the server's QA mail classification.
+- Company signup, a job's Active/Live label, and publishing the company's
+  careers page are THREE separate controls. Live on the job list is not proof
+  that a careers page is published, and an unpublished careers page does not
+  prevent normal staff-created applicants or internal interview scheduling.
+- The stale-question case needs TWO TABS, not two people. The same authorized
+  QA account can load the scheduler in A, edit the exact selected question in B,
+  then return to A without reloading. Separate-identity permission/attribution
+  tests still need separately reserved accounts and remain separately scoped.
+- For this round, begin in Juniper 463's existing workspace. Do not repeat
+  company setup or email verification merely because the anonymous probe is
+  false. Reuse prior receipt evidence and record any untested case separately.
+
 START SMALL
 1. First sign in at https://plotlinepo.com/app, then open /setup. The initial
    release is QA-only: anonymous visitors use the walkthrough request path.
@@ -12,11 +46,14 @@ START SMALL
    ordinary sign-in, MFA and session controls. Add plotlinepo.com to that vault
    entry's allowed sites. Do not use human administrator 1435 or a superadmin,
    copy a session, forge credentials, or reset another person's password.
-2. If setup says it is opening soon, record BLOCKED. Engineering must apply
-   migration 1847, confirm company access profiles are already enabled, configure
-   a verified platform sender and enable the protected rollout switch first.
+2. Check existing workspaces and retained fixture markers before creating any
+   company or record. Reuse the intended QA companies at their current stage;
+   do not create a third company or repeat a successful setup for inspection.
+   If setup still says opening soon after the reserved account's normal sign-in,
+   record the actual account/company IDs, screen, build and BLOCKED result.
+   The anonymous readiness JSON alone is not that result.
 3. Use the QA email delivery check to send ONE Plotline verification message,
-   even if this reserved account is already verified. Inspect actual receipt in
+   if this run has no retained receipt evidence for that case. Inspect receipt in
    testing@itsco.health. If it is not verified yet, use the normal email step.
    Open its personal link and explicitly confirm. Normal sign-in remains required;
    a link must never reset an existing password or bypass MFA/SSO.
@@ -30,8 +67,11 @@ START SMALL
    paid conversion. The careers page and jobs stay unpublished.
 6. Stop at the useful workspace. Open only one next step: Create your first job.
    Create a fictional Operations Coordinator role, clearly marked SYNTHETIC QA /
-   NO REAL VACANCY. Save it as a draft first. Do not create clinical clients,
-   provider credentials, medical billing, school or tutoring records.
+   NO REAL VACANCY. Save it for internal QA first. Do not create clinical clients,
+   provider credentials, medical billing, school or tutoring records. There may
+   be no separate Draft control: record the actual Active/Scheduled setting and
+   keep the company's careers page unpublished. Manual applicants require an
+   Active job; do not describe its Live badge as company publication evidence.
 7. Return to company branding when ready. Upload a synthetic logo, review its
    extracted colors, paste your own short mission and edit the suggested copy.
    Confirm that a suggestion does not replace text you already edited. Preview
@@ -97,7 +137,12 @@ BOUNDARIES / EMAIL / ACCESSIBILITY
   rows. Requests to continue must not extend a trial or charge a card.
 
 JOB POSTING / INTERVIEW QUESTIONS — RETEST BEFORE THE HIRING JOURNEY
-- Create two different synthetic jobs. Each new job receives its own private,
+- First identify the selected company and signed-in QA actor. Preserve the
+  user's existing Live jobs and applicants unless a matching synthetic marker
+  from this packet is positively identified. Use two NEW/reused clearly marked
+  jobs QA-PL1118-QUESTIONS-A / B in the authorized standalone QA company.
+  Do not publish a company containing unreviewed jobs to unblock this retest.
+- Each new job receives its own private,
   editable starter set copied from the company's template, or Plotline's five
   general questions when no company template exists. Record the job/set IDs.
 - In Job postings -> Edit -> Interview guide, tailor Operations Coordinator's
@@ -109,6 +154,23 @@ JOB POSTING / INTERVIEW QUESTIONS — RETEST BEFORE THE HIRING JOURNEY
 - Schedule from BOTH the applicant's Interviews tab and Interview Hub. Choose
   the actual applied job/candidate. Its own questions must load first; booking
   stays disabled while questions are loading, unavailable or empty.
+- A public application is not required for these question tests. In People Ops
+  -> Hiring -> Applicants use New application (the dialog says New applicant).
+  Reuse the exact synthetic candidate for this company/job if one already exists;
+  otherwise create ONE: first name Rory, last name QA Questions 463,
+  personal email qa.plotline.questions+463@example.com, source
+  Manual QA-PL1118-QUESTIONS, and select QA-PL1118-QUESTIONS-A from the job list.
+  Confirm company 463 before saving. Leave phone blank. Use fictional copy
+  only. This creates a staff-entered application, not a public submission.
+  Do not sign in as the new candidate or activate employee access for this case.
+- This must be a standalone Plotline QA company. Verify the saved candidate is
+  nonclinical Staff; the Plotline server enforces that role. If the UI cannot
+  create/link this applicant, capture that exact failure. Do not assume the
+  path is unavailable merely because the careers page is unpublished, or use
+  another tenant's applicant/email to work around a real failure.
+- Leave Send calendar + email invites OFF for both scheduler paths and stale
+  attempts. Use distinct future slots with the displayed timezone. A calendar
+  connection warning is separate evidence; do not invent calendar success.
 - Use previous/next arrows or the set dropdown to change the whole set. Create
   one alternative set for this job and use it. This must not replace the job's
   default for the next interview. Shared company sets may also be selected.
@@ -119,9 +181,25 @@ JOB POSTING / INTERVIEW QUESTIONS — RETEST BEFORE THE HIRING JOURNEY
   EXACTLY that list and order, without five extra standard questions appended.
   Change the job's guide afterwards: the booked interview keeps its saved copy;
   a new interview uses the changed job default. Do not rewrite a past interview.
-- Change a question in a separate authorized staff session after the scheduler
-  loaded it. Booking must ask for a reload/review before creating a calendar
-  event or sending an invitation. Do not repeatedly send invitations to inspect.
+- Stale-question test: in tab A, load an unsubmitted scheduler for this synthetic
+  candidate and confirm its selected job guide/set ID and one question's text.
+  In tab B, using the SAME normally authenticated QA account, open that QA job's
+  Interview guide, edit that exact question (e.g. append 'QA revision B') and
+  save. Return to A WITHOUT Reload questions, preserve its old selection, keep
+  invitations OFF, and attempt booking. Expect the changed-question error and
+  no new interview/calendar/invitation. Reload questions, review the new text
+  and book once through the ordinary form. Do not change production clocks.
+- A second staff login is NOT a prerequisite for the stale-data rejection.
+  Do not claim this same-account check passes multi-author attribution or
+  A-only/B-only tenant isolation; those distinct permission cases still need
+  separately authorized, scoped automation identities.
+- If invitation delivery is part of this focused retest, send at most ONE
+  candidate invitation action, only for a known not-yet-sent QA interview, after
+  reviewing its actual recipient and sender. The logical example.com address
+  must be physically redirected to testing@itsco.health. Fictional addressing
+  alone is not inbox evidence. Record automatic staff/calendar notices separately.
+  A public application/receipt remains NOT RUN in this private staff-created
+  lane; conduct it later through the separately reviewed publication workflow.
 - Invalid, inactive, other-company and unrelated-job question references must
   fail. A candidate/public careers visitor must not read the staff guide or see
   its questions in the posting, applicant portal, invitation or guest workspace.
