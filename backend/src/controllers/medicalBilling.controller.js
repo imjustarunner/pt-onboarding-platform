@@ -1,3 +1,4 @@
+import { visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 import {treatmentPlanGoalTimeframes} from '../services/treatmentPlanGoalTimeframes.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {assistantBillingAuthorization,assertAssistantBillingCommand} from '../services/assistantBillingCommand.service.js';
@@ -2907,7 +2908,7 @@ export const listMedicalClaims = async (req, res, next) => {
     const [responsibilities]=await pool.execute("SELECT r.source_key,r.id,r.amount_cents,r.status,COALESCE(SUM(a.paid_cents),0) AS paid_cents FROM family_receivables r LEFT JOIN family_receivable_allocations a ON a.receivable_id=r.id WHERE r.agency_id=? AND r.source_type='claim_responsibility' GROUP BY r.id",[agencyId]);
     const byClaim=new Map(responsibilities.map(r=>[String(r.source_key),r]));
     await attachClaimReferences(rows,clinicalPool);
-    const claims=collapseClaimAttempts(rows).sort((a,b)=>Number(b.id)-Number(a.id)).slice(0,200);
+    const claims=collapseClaimAttempts(await visibleClinicalWork(rows, { db: pool })).sort((a,b)=>Number(b.id)-Number(a.id)).slice(0,200);
     return res.json({ claims: claims.map(claim=>{const {metadata_json,...visible}=claim;return {...visible,familyResponsibility:byClaim.get(String(claim.id))||null,familyResponsibilities:claim.attempt_ids.map((id,index)=>{const balance=byClaim.get(String(id));return balance?{...balance,attemptNumber:index+1}:null;}).filter(Boolean)};}) });
   } catch (e) {
     next(e);

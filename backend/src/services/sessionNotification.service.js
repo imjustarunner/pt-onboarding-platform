@@ -1,4 +1,5 @@
 import { readAppointmentNotificationRules, normalizeCustomSessionReminders } from './appointmentNotificationCustomization.service.js';
+import { attachClinicalWorkArchives } from './clinicalWorkArchiveRead.service.js';
 import { readSessionReminderDefaults, saveSessionReminderDefaults, organizationReminderRules } from './sessionReminderDefaults.service.js';
 import { APP_SESSION_REMINDERS, sessionRsvpState, scheduledReminderSpacing, sessionReminderMessage } from './sessionReminderPolicy.js';
 import { rebuildSessionReminderPolicies } from './sessionReminderPolicyRebuild.service.js';
@@ -900,6 +901,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         if(policy?.status==='review') {await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='reminder_schedule_needs_review' WHERE id=?",[row.id]);results.skipped++;continue;}
       }
     const appt = await Appointment.findById(row.appointment_id);
+    if (appt && (await attachClinicalWorkArchives([{ appointment_id: appt.id }]))[0].administrativeArchive) {
+      results.skipped += 1;
+      continue;
+    }
     if (appt && Number(row.agency_id) !== Number(appt.agencyId)) {
       await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='recipient_agency_mismatch' WHERE id=?",[row.id]);
       results.skipped++; continue;

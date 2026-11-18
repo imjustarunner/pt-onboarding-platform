@@ -3,6 +3,7 @@ import {requiresTestingRole} from '../content/testingServicePolicy.js';
 import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
 import { closeUnsubmittedClaim } from '../services/claimClosure.service.js';
+import { assertClinicalWorkActive, visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 import { determineLicenseStatus } from '../utils/credentialNormalization.js';
 import { listPayerSetupRequests } from '../services/payerSetupCatalog.service.js';
 import {loadBillingPayerRules,evaluateClientBillingPayerRules,programForPolicy} from '../services/billingPayerRules.service.js';
@@ -50,6 +51,7 @@ async function agencyFor(req) {
 export async function prepareClaimReview(agencyId, claimId) {
   const [[claim]] = await clinicalPool.execute('SELECT * FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0', [claimId, agencyId]);
   if (!claim) throw fail(404, 'Claim not found');
+  await assertClinicalWorkActive({ claimId: claim.id, clinical_session_id: claim.clinical_session_id });
   await attachClaimReferences([claim], clinicalPool);
   const family=await loadClaimFamily(agencyId,claimId);
   claim.claim_reference=family.claimReference;
@@ -375,7 +377,7 @@ export async function listUndraftedNotes(req, res, next) {
       AND (s.claim_blocked_reason IS NULL OR s.claim_blocked_reason = '')
       AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.agency_id = n.agency_id AND c.clinical_session_id = n.clinical_session_id)
       ORDER BY n.provider_signed_at DESC LIMIT 200`, [agencyId]);
-    res.json({ notes });
+    res.json({ notes: await visibleClinicalWork(notes, { kind: 'note' }) });
   } catch (e) { next(e); }
 }
 

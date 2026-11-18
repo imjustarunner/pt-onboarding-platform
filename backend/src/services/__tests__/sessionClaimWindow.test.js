@@ -1,9 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) }, onTableWrite: vi.fn() }));
+import main from '../../config/database.js';
 import { sessionShouldOpenClaim, sessionClaimServiceDate, openDueSessionClaims, claimGroupKey, sessionsForSubmission, canJoinOpenClaim, CLAIM_OPEN_LEAD_MS } from '../sessionClaimWindow.service.js';
 
 const now = Date.parse('2026-11-05T18:00:00Z');
 
 describe('session claim window', () => {
+  beforeEach(() => main.execute.mockReset().mockResolvedValue([[]]));
+  it('does not recreate a claim for an administratively archived session', async () => {
+    main.execute.mockResolvedValue([[{ resource_type: 'clinical_session', resource_id: 1, archive_id: 7 }]]);
+    const db = { execute: vi.fn(async sql => sql.includes('FROM clinical_sessions s') ? [[{ id: 1, agency_id: 2, client_id: 3, service_code: '90834', scheduled_start_at: '2026-11-17 01:30:00' }]] : [[]]) };
+    expect(await openDueSessionClaims(db, new Date('2026-11-17T01:31:00Z'))).toEqual({ opened: 0 });
+    expect(db.execute.mock.calls.some(([sql]) => sql.startsWith('INSERT'))).toBe(false);
+  });
   it.each([
     ['2026-11-17 01:30:00','America/Denver','2026-11-16'],
     ['2026-07-17T01:30:00Z','America/Denver','2026-07-16'],

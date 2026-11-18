@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import {splitSqlStatements,stripSqlLineComments} from '../../utils/migrationSql.js';
 vi.mock('../claimMdWorkflow.service.js',()=>({recordClaimEvent:async({agencyId,claimId,eventType},db)=>{await db.execute('INSERT INTO test_events(agency_id,claim_id,event_type) VALUES(?,?,?)',[agencyId,claimId,eventType]);}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{}}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])},onTableWrite:vi.fn()}));
 import {loadBillingWorkItems} from '../billingWorkItems.service.js';
 import {loadClinicalBillingApproval} from '../billingClinicalApproval.service.js';
 import {createClaimResubmission} from '../claimResubmission.service.js';

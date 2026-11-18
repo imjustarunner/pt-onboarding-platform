@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { visibleClinicalWork, assertClinicalWorkActive } from '../services/clinicalWorkArchiveRead.service.js';
 
 // Public marker only; all clinical content and the client label remain encrypted.
 const quickCopyMarkerSql = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(d.output_json) THEN d.output_json ELSE '{}' END, '$._quickCopy')), 'false')";
@@ -44,6 +45,7 @@ class ClinicalNoteDraft {
     const init = initials ? clampText(initials, 16) : null;
     const input = inputText === null || inputText === undefined ? null : String(inputText);
     const out = outputJson === null || outputJson === undefined ? null : String(outputJson);
+    await assertClinicalWorkActive({ clinical_session_id: csid, office_event_id: oeid });
 
     const reusable = allowReuse ? await this.findReusableOpen({
       userId: uid,
@@ -125,10 +127,11 @@ class ClinicalNoteDraft {
          FROM clinical_note_drafts
          WHERE user_id = ? AND archived_at IS NULL AND office_event_id = ?${scopeSql}
          ORDER BY updated_at DESC, id DESC
-         LIMIT 1`,
+         LIMIT 100`,
         [uid, oeid, ...scopeValues]
       );
-      if (rows?.[0]) return rows[0];
+      const active = await visibleClinicalWork(rows || [], { db: pool, kind: 'draft' });
+      if (active[0]) return active[0];
     }
     if (csid) {
       const [rows] = await pool.execute(
@@ -136,10 +139,11 @@ class ClinicalNoteDraft {
          FROM clinical_note_drafts
          WHERE user_id = ? AND archived_at IS NULL AND clinical_session_id = ?${scopeSql}
          ORDER BY updated_at DESC, id DESC
-         LIMIT 1`,
+         LIMIT 100`,
         [uid, csid, ...scopeValues]
       );
-      if (rows?.[0]) return rows[0];
+      const active = await visibleClinicalWork(rows || [], { db: pool, kind: 'draft' });
+      if (active[0]) return active[0];
     }
     if (cid && dos) {
       const params = [uid, cid, dos, ...(aid ? [aid] : [])];
@@ -159,10 +163,11 @@ class ClinicalNoteDraft {
            ${(oeid || csid) ? ' AND office_event_id IS NULL AND clinical_session_id IS NULL' : ''}
            ${codeSql}
          ORDER BY updated_at DESC, id DESC
-         LIMIT 1`,
+         LIMIT 100`,
         params
       );
-      if (rows?.[0]) return rows[0];
+      const active = await visibleClinicalWork(rows || [], { db: pool, kind: 'draft' });
+      if (active[0]) return active[0];
     }
     return null;
   }
@@ -175,6 +180,7 @@ class ClinicalNoteDraft {
     const id = safeInt(draftId);
     const uid = safeInt(userId);
     if (!id || !uid) throw new Error('Invalid draftId/userId');
+    await assertClinicalWorkActive({ id, archiveResourceType: 'draft' });
 
     const updates = [];
     const values = [];
@@ -330,7 +336,7 @@ class ClinicalNoteDraft {
        LIMIT ${lim}`,
       params
     );
-    return rows || [];
+    return visibleClinicalWork(rows || [], { db: pool, kind: 'draft' });
   }
 
   static async listQuickCopyForUser({ userId, agencyId, limit = 500 }) {
@@ -429,7 +435,9 @@ class ClinicalNoteDraft {
     const d = Math.max(1, Math.min(4000, Number(days) || 2555));
     const [result] = await pool.execute(
       `DELETE FROM clinical_note_drafts
-       WHERE created_at < (NOW() - INTERVAL ? DAY)`,
+       WHERE created_at < (NOW() - INTERVAL ? DAY)
+         AND NOT EXISTS (SELECT 1 FROM clinical_work_archive_resources r JOIN clinical_work_archives a ON a.id=r.archive_id
+           WHERE r.resource_type='draft' AND r.resource_id=clinical_note_drafts.id AND a.restored_at IS NULL)`,
       [d]
     );
     return Number(result?.affectedRows || 0);
@@ -442,6 +450,8 @@ class ClinicalNoteDraft {
       ? draftIds.map((id) => safeInt(id)).filter((id) => Number.isInteger(id) && id > 0)
       : [];
     if (!ids.length) return 0;
+    const active = await visibleClinicalWork(ids.map(id => ({ id })), { db: pool, kind: 'draft' });
+    if (active.length !== ids.length) throw Object.assign(new Error('Restore archived test records before deleting a draft.'), { status: 409 });
 
     const where = ['user_id = ?', `id IN (${ids.map(() => '?').join(', ')})`];
     const params = [uid, ...ids];

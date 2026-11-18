@@ -36,7 +36,13 @@ export async function submitReadyClaimSet(req, res, next) {
     const submitted = [];
     const held = [];
     for (const claim of claims) {
-      const prepared = await prepareClaimReview(agencyId, claim.id);
+      let prepared;
+      try { prepared = await prepareClaimReview(agencyId, claim.id); }
+      catch (error) {
+        if (error.code !== 'CLINICAL_WORK_ARCHIVED') throw error;
+        held.push({ claimId: claim.id, message: error.message });
+        continue;
+      }
       if (!prepared.readiness?.ready || !prepared.reviewHash) {
         held.push({ claimId: claim.id, message: prepared.readiness?.blockers?.[0] || 'The billing check held this claim' });
         continue;

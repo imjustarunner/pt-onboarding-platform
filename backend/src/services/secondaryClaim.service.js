@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
+import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { encryptFamilyBilling,decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { coverageDate,coverageFingerprint } from './coverageVerification.service.js';
@@ -73,6 +74,7 @@ export async function prepareSecondaryClaim({agencyId,parentClaimId,actorUserId,
   if(!session||session.encounter_status!=='completed')throw policyError(409,'Only a completed visit can have a secondary claim');
   const [[parent]]=await db.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? FOR UPDATE',[parentClaimId,agencyId]);
   if(!parent||parent.is_deleted||Number(parent.payer_sequence||1)!==1||parent.claim_lifecycle==='void')throw policyError(409,'Use the primary claim and its actual payer adjudication; a clearinghouse acceptance alone is insufficient');
+  await assertClinicalWorkActive({ claimId: parent.id, clinical_session_id: ref.clinical_session_id });
   if(await hasPendingClaimChange(parent,db))throw policyError(409,'Resolve outstanding primary service corrections first');
   const insurance=await readClientInsurance(parent.client_id,agencyId);secondaryInsurance(insurance);
   const [[submission]]=await db.execute("SELECT event_key,payload_encrypted FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type='approved_submission' ORDER BY id DESC LIMIT 1",[agencyId,parentClaimId]);

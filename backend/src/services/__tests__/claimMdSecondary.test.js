@@ -1,5 +1,5 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
 vi.mock('../claimMdWorkflow.service.js',()=>({recordClaimEvent:vi.fn()}));

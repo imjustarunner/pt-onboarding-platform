@@ -3,6 +3,7 @@ import { excludeSupportClinicalContent } from '../middleware/supportContentAcces
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import sessionSupportingMaterials from './sessionSupportingMaterials.routes.js';
+import { previewClinicalWorkArchive, listClinicalWorkArchives, createClinicalWorkArchive, restoreClinicalWorkArchive } from '../controllers/clinicalWorkArchive.controller.js';
 import {
   bootstrapClinicalSession,
   listSessionArtifacts,
@@ -20,6 +21,12 @@ const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, excludeSupportClinicalContent);
 router.use('/sessions/:sessionId/materials', sessionSupportingMaterials);
+
+const archiveTarget = [body('agencyId').isInt({ min: 1 }), body('target.type').isIn(['claim', 'clinical_session', 'appointment', 'draft']), body('target.id').isInt({ min: 1 })];
+router.get('/work-archives', [query('agencyId').isInt({ min: 1 })], listClinicalWorkArchives);
+router.post('/work-archives/preview', archiveTarget, previewClinicalWorkArchive);
+router.post('/work-archives', [...archiveTarget, body('version').isHexadecimal().isLength({ min: 64, max: 64 }), body('reason').isString().isLength({ min: 10, max: 2000 })], createClinicalWorkArchive);
+router.post('/work-archives/:archiveId/restore', [param('archiveId').isInt({ min: 1 }), body('agencyId').isInt({ min: 1 }), body('reason').isString().isLength({ min: 10, max: 2000 })], restoreClinicalWorkArchive);
 
 router.get(
   '/documentation-queue',

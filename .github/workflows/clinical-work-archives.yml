@@ -1,0 +1,73 @@
+name: Clinical work archives
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/services/clinicalWorkArchive*'
+      - 'backend/src/controllers/clinicalWorkArchive*'
+      - 'backend/src/routes/clinicalData.routes.js'
+      - 'backend/src/models/**'
+      - 'backend/src/services/billingWorkItems.service.js'
+      - 'backend/src/services/claimMdWorkspace.service.js'
+      - 'backend/src/services/bookedSessionWorkQueue.service.js'
+      - 'backend/src/services/sessionClaimWindow.service.js'
+      - 'backend/src/services/claimServiceChanges.service.js'
+      - 'backend/src/**/__tests__/clinicalWorkArchive*'
+      - 'frontend/src/components/clinical/ClinicalWorkArchive*'
+      - 'frontend/src/components/clinical/__tests__/ClinicalWorkArchive*'
+      - 'frontend/src/views/admin/BillingWorkspaceView.vue'
+      - 'frontend/src/views/admin/ClinicalNoteGeneratorView.vue'
+      - 'frontend/src/components/schedule/OfficeEventSessionNotePanel.vue'
+      - 'database/migrations/1846_clinical_work_archives.sql'
+      - '**/vitest.clinical-work-archive.config.js'
+      - '.github/workflows/clinical-work-archives.yml'
+  pull_request:
+    paths:
+      - 'backend/src/services/clinicalWorkArchive*'
+      - 'backend/src/controllers/clinicalWorkArchive*'
+      - 'backend/src/routes/clinicalData.routes.js'
+      - 'backend/src/models/**'
+      - 'backend/src/services/billingWorkItems.service.js'
+      - 'backend/src/services/claimMdWorkspace.service.js'
+      - 'frontend/src/components/clinical/ClinicalWorkArchive*'
+      - 'frontend/src/views/admin/BillingWorkspaceView.vue'
+      - 'database/migrations/1846_clinical_work_archives.sql'
+      - '**/vitest.clinical-work-archive.config.js'
+      - '.github/workflows/clinical-work-archives.yml'
+  workflow_dispatch:
+jobs:
+  archive-and-restore:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_ROOT_HOST: '%'
+        ports: ['33326:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h127.0.0.1 -uroot"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: America/Denver
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      RECOVERY_TEST_MYSQL_HOST: 127.0.0.1
+      RECOVERY_TEST_MYSQL_PORT: '33326'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies once
+        run: |
+          npm ci --prefix backend --no-audit --no-fund
+          npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+      - name: Archive permissions, billing guards and MySQL record preservation
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-work-archive.config.js
+      - name: Admin controls and existing billing and note workflows
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.clinical-work-archive.config.js
