@@ -205,7 +205,7 @@ export async function sendClinicalSms({
   });
 
   try {
-    const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId,
+    const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId, clientId: cid || contact?.client_id || null,
       to: MessageLog.normalizePhone(targetPhone) || targetPhone,
       from: MessageLog.normalizePhone(fromNumber) || fromNumber,
       body: authored.body, senderFirstName: authored.senderFirstName,

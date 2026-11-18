@@ -169,5 +169,13 @@ export async function familyNotificationDeliveryGate({agencyId,clientId,to,chann
   const allowed=rows.every(row=>invitation&&channel==='email'
     ?Object.values(parse(row.choices_json)||{}).some(choice=>choiceAllows(choice,'email'))
     :choiceAllows(parse(row.choices_json)?.[category],channel));
+  if (!allowed && channel === 'sms' && ['appointments','school_sessions','schedule_changes'].includes(category) && Number(clientId)) {
+    const { recordedReminderConsent } = await import('./smsCompliance.service.js');
+    const grant = await recordedReminderConsent(agencyId, address, { clientId });
+    const startedAt = Date.parse(grant?.collectedAt);
+    if (grant?.source === 'inbound_start' && Number.isFinite(startedAt)
+        && rows.every(row => choiceAllows(parse(row.choices_json)?.[category],channel)
+          || startedAt > new Date(row.updated_at instanceof Date ? row.updated_at : utcMysqlToIso(row.updated_at)).getTime())) return { allowed: true };
+  }
   return {allowed,...(!allowed?{reason:'family_notification_category_off'}:{})};
 }

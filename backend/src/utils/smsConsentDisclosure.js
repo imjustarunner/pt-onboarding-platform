@@ -1,3 +1,5 @@
+import { CLIENT_START_CONSENT_VERSION, clientStartConsentNotice } from './clientSmsStartPolicy.js';
+
 export const SMS_CONSENT_VERSION = '2026-10-05.1';
 export const SMS_PURPOSE_LABELS = {
   care: 'Two-way administrative messages with my care team',
@@ -9,7 +11,12 @@ export const SMS_PURPOSE_LABELS = {
   polling: 'Optional nonpolitical polls and surveys'
 };
 
-export function buildSmsConsentDisclosure(registration, { signerRole = null, enrollmentCategory = null } = {}) {
+export function buildSmsConsentDisclosure(registration, { signerRole = null, enrollmentCategory = null, version = null } = {}) {
+  // Reviewed historical signatures retain the disclosure they actually signed.
+  // New requests always receive the current START flow; callers cannot choose
+  // an arbitrary historical disclosure or skip the registration/hash comparison.
+  const legacyVersion = ['2026-10-05.1', '2026-10-06.1'].includes(version) ? version : null;
+  const startNotice = legacyVersion ? null : clientStartConsentNotice(registration);
   const purposes = registration.purposes.filter((purpose) => {
     if (enrollmentCategory === 'hiring') return purpose === 'workforce';
     if (signerRole === 'staff') return !['care', 'reminders', 'billing'].includes(purpose);
@@ -18,14 +25,14 @@ export function buildSmsConsentDisclosure(registration, { signerRole = null, enr
   });
   return {
     ...(enrollmentCategory === 'hiring' ? {enrollmentCategory:'hiring'} : {}),
-    version: registration.messagingPlatform === 'the messaging platform' ? '2026-10-06.1' : SMS_CONSENT_VERSION,
+    version: legacyVersion || (startNotice ? CLIENT_START_CONSENT_VERSION : registration.messagingPlatform === 'the messaging platform' ? '2026-10-06.1' : SMS_CONSENT_VERSION),
     brandName: registration.brandName,
     legalName: registration.legalName,
     termsUrl: registration.termsUrl,
     privacyUrl: registration.privacyUrl,
     supportContact: registration.supportContact,
     purposes: purposes.map((purpose) => ({ purpose, label: enrollmentCategory === 'hiring' ? 'Hiring and onboarding only: private portal links, new documents and tasks, pre-hire completion, onboarding start and completion' : registration.messagingPlatform === 'the messaging platform' && purpose === 'workforce' ? 'Staff announcements, supervisor and team messages, schedules, meetings, session-access links and assigned-training notifications' : SMS_PURPOSE_LABELS[purpose] })),
-    text: `${enrollmentCategory === 'hiring' ? 'Choose email only or email and text for your hiring and onboarding journey. Email continues either way. Texting is optional and is not a condition of applying or employment. This choice does not enroll you in staff announcements, client messaging or polls. Enrollment requires staff review before texts begin. ' : ''}${registration.brandName} (${registration.legalName}) uses ${registration.messagingPlatform === 'the messaging platform' ? 'the messaging platform' : 'AuricWell'} to send the messages you select below to the phone number on this form. Choose Yes or No for every message type. Receiving texts is optional; you may choose No for all types. Message frequency varies. Message and data rates may apply. Reply STOP to stop this program across its sending numbers. Reply HELP for help, or contact ${registration.supportContact}. START or UNSTOP reactivates existing subscriptions only when supported by this program. Carriers are not liable for delayed or undelivered messages. Standard SMS is not end-to-end encrypted; use the secure portal for sensitive clinical information. Texting is not monitored for emergencies. Call 911 for an emergency. Marketing permission is separate and is not required to receive services or make a purchase. Your selection does not authorize affiliate or third-party marketing. Read the linked SMS terms and privacy policy before signing.`,
+    text: `${enrollmentCategory === 'hiring' ? 'Choose email only or email and text for your hiring and onboarding journey. Email continues either way. Texting is optional and is not a condition of applying or employment. This choice does not enroll you in staff announcements, client messaging or polls. Enrollment requires staff review before texts begin. ' : ''}${registration.brandName} (${registration.legalName}) uses ${registration.messagingPlatform === 'the messaging platform' ? 'the messaging platform' : 'AuricWell'} to send the messages you select below to the phone number on this form. Choose Yes or No for every message type. Receiving texts is optional; you may choose No for all types. Message frequency varies. Message and data rates may apply. Reply STOP to stop this program across its sending numbers. Reply HELP for help, or contact ${registration.supportContact}. ${startNotice || 'START or UNSTOP reactivates existing subscriptions only when supported by this program.'} Carriers are not liable for delayed or undelivered messages. Standard SMS is not end-to-end encrypted; use the secure portal for sensitive clinical information. Texting is not monitored for emergencies. Call 911 for an emergency. Marketing permission is separate and is not required to receive services or make a purchase. Your selection does not authorize affiliate or third-party marketing. Read the linked SMS terms and privacy policy before signing.`,
     signatureText: 'By typing my name and selecting Sign, I electronically sign these choices. I control the listed phone number and am the recipient or their authorized guardian. I understand that declining text messages does not prevent me from receiving services.'
   };
 }

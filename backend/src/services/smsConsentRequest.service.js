@@ -93,7 +93,7 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   if (!numbers[0]) throw invalid();
   const sender = await getSmsSender(numbers[0].phone_number);
   if (savedStaff) signed = await currentStaffEnrollmentEvidence(row, sender.registration);
-  const currentDisclosure = JSON.stringify(buildSmsConsentDisclosure(sender.registration, { signerRole: row.signer_role, enrollmentCategory: signed.disclosure.enrollmentCategory }));
+  const currentDisclosure = JSON.stringify(buildSmsConsentDisclosure(sender.registration, { signerRole: row.signer_role, enrollmentCategory: signed.disclosure.enrollmentCategory, version: signed.disclosure.version }));
   if (!savedStaff && hash(currentDisclosure) !== row.disclosure_hash) throw smsPolicyError('sms_disclosure_changed', 'The program disclosure changed; issue a fresh consent request');
   const [newer] = await pool.execute(
     `SELECT id FROM sms_consent_requests WHERE agency_id = ? AND number_id = ? AND phone = ?

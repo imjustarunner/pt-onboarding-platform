@@ -288,7 +288,7 @@ export async function putTenantSettings(agencyId, body = {}, updatedByUserId = n
   return getTenantSettings(aid);
 }
 
-export async function getClientPreferences(agencyId, clientId, guardianUserId = null) {
+export async function getClientPreferences(agencyId, clientId, guardianUserId = null, effectiveConsent = null) {
   const gid = Number(guardianUserId || 0) || 0;
   const params = [Number(agencyId), Number(clientId), gid];
   const sql = `SELECT * FROM client_session_notification_preferences
@@ -297,12 +297,14 @@ export async function getClientPreferences(agencyId, clientId, guardianUserId = 
   try {
     const [rows] = await pool.execute(sql, params);
     const r = rows?.[0];
+    const consent = effectiveConsent || await loadClientConsent(clientId, agencyId, guardianUserId);
+    const startOptIn = consent.smsStartOptIn === true;
     if (!r) {
       return {
         agencyId: Number(agencyId),
         clientId: Number(clientId),
         guardianUserId: gid || null,
-        channels: { in_app: true, email: true, sms: false, phone: false },
+        channels: { in_app: true, email: true, sms: startOptIn, phone: false },
         reminderLead: null,
         optionalRemindersEnabled: true,
         confirmationRequestsEnabled: true,
@@ -315,7 +317,7 @@ export async function getClientPreferences(agencyId, clientId, guardianUserId = 
       agencyId: Number(r.agency_id),
       clientId: Number(r.client_id),
       guardianUserId: Number(r.guardian_user_id || 0) || null,
-      channels: parseJson(r.channels_json, {}),
+      channels: { ...parseJson(r.channels_json, {}), ...(startOptIn ? { sms: true } : {}) },
       reminderLead: parseJson(r.reminder_lead_json, null),
       optionalRemindersEnabled: Number(r.optional_reminders_enabled) === 1,
       confirmationRequestsEnabled: Number(r.confirmation_requests_enabled) === 1,
@@ -416,6 +418,7 @@ export async function loadClientConsent(clientId, agencyId, recipientGuardianUse
     return {
       guardianUserId,
       intakeChoice: cp?.smsPreference || null,
+      smsStartOptIn: recorded?.source === 'inbound_start',
       email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : recipientGuardianUserId && cp?.emailPreference ? true : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
       sms: !!recorded && (cp?.smsPreference !== 'no' || !!laterReviewedConsent),
       phone: Number(c.session_phone_opt_in) === 1,
@@ -498,7 +501,7 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
     sms: !!contact.sms_reminders_enabled && !!contact.sms_opt_in && contact.sms_consent_status === 'opted_in' && contact.sms_consent_phone_hash === contactReminderPhoneHash(contact.contact_phone),
     phone: false, emailAddress: contact.contact_email, phoneNumber: contact.contact_phone
   } : await loadClientConsent(clientId, appt.agencyId, recipientGuardianUserId);
-  const prefs = !contact && clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
+  const prefs = !contact && clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId, consent) : null;
   const start = parseStartAt(appt.startAt);
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
   const deliveries = [];
@@ -1072,7 +1075,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       when:sessionReminderTime(appt),requiresConfirmation:askConfirmation,
       message:formatQueuedSessionMessage(appt,row.message_body),nearSession:+parseStartAt(appt.startAt)-Date.now()<=5*3600000});
     const contactBody = minimalContactSessionReminder(appt);
-    const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
+    const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId, consent) : null;
     const participant = participants.find((p) => p.clientId === clientId);
     const optedOut = participant?.receivesReminders === false || (!prefs?.isDefault && prefs?.channels?.[channel] === false)
       || (channel === 'email' && !consent.email)
@@ -1305,7 +1308,7 @@ export async function previewPushUpdate(appointmentId, { channels = null } = {})
   const participants = await Appointment.listParticipants(appt.id);
   const clientId = participants.find((p) => p.clientId)?.clientId || null;
   const consent = await loadClientConsent(clientId, appt.agencyId);
-  const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
+  const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId, consent) : null;
   const requested = channels || tenant.changeNotify?.channels || ['email'];
   const available = {};
   for (const ch of CHANNELS) {

@@ -1,6 +1,7 @@
 import {phoneFingerprint} from '../../utils/staffCommunicationChoices.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
+vi.mock('../sessionPreferenceSchedule.service.js', () => ({ refreshClientSessionNotifications: vi.fn() }));
 import pool from '../../config/database.js';
 import { getSmsSender, prepareSmsDelivery, processSmsKeyword, recordInboundConversation, staffAssistantReplyCapability } from '../smsCompliance.service.js';
 import { parseSmsKeyword, validateSmsRegistration, validateSmsConsentEvidence } from '../../utils/smsCompliancePolicy.js';
@@ -36,6 +37,13 @@ beforeEach(() => {
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.startsWith('SELECT status,evidence_json,expires_at')) return pool.execute(sql, values);
     if (sql.startsWith('SELECT evidence_json FROM sms_permission_events')) return [[]];
+    if (sql.startsWith('SELECT evidence_json,updated_at')) return [[]];
+    if (sql.includes("VALUES (?,?,?,'opted_in',?,NULL)")) {
+      const [scope,phone,purpose,details]=values;
+      permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));
+      permissions.push({scope,phone,purpose,status:'opted_in',evidence_json:JSON.parse(details)});
+      return [{affectedRows:1}];
+    }
     if (sql.startsWith("UPDATE sms_recipient_permissions SET status='opted_in'")) {const [evidence,expires_at,scope,phone,purpose]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_in',evidence_json:evidence,expires_at});return [{affectedRows:1}];}
     if (sql.includes('INSERT INTO sms_recipient_permissions')) {
       const [scope, phone, purpose, status, evidence, expires] = values;
@@ -159,11 +167,12 @@ describe('campaign-wide SMS delivery gate', () => {
     expect(permissions[0].expires_at).toBeInstanceOf(Date);
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({ code: 'sms_consent_required' });
   });
-  it('does not grant a new subscription from START', async () => {
-    await processSmsKeyword({ from: message.to, to: message.from, body: 'START', sendReply: vi.fn() });
-    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({ code: 'sms_consent_required' });
+  it('saves START subscriptions but prevents delivery before a client or guardian relationship exists', async () => {
+    await processSmsKeyword({ from: message.to, to: message.from, body: 'START', messageId:'start-unknown', sendReply: vi.fn() });
+    expect(permissions.filter(p=>['care','reminders'].includes(p.purpose))).toHaveLength(2);
+    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({ code: 'sms_start_not_active' });
   });
-  it('NOREMIND stops reminders only; category-only START restores prior consent and confirms once', async () => {
+  it('NOREMIND stops reminders only; START records fresh consent and confirms once', async () => {
     permissions.push(...['care','reminders'].map(purpose=>({scope:'campaign:C123',phone:message.to,purpose,status:'opted_in',evidence_json:{source:'web_form',reference:'original-consent'}})));
     const sendReply=vi.fn(async options=>prepareSmsDelivery(options));
     const command={from:message.to,to:message.from,body:' noremind ',messageId:'category-1',sendReply};
@@ -174,9 +183,9 @@ describe('campaign-wide SMS delivery gate', () => {
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
     await expect(prepareSmsDelivery({...message,purpose:'care'})).resolves.toMatchObject({to:message.to});
     await processSmsKeyword({...command,body:'START',messageId:'start-category-1'});
-    await expect(prepareSmsDelivery(message)).resolves.toMatchObject({to:message.to});
+    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_start_not_active'});
     expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_in');
-    expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOREMIND (appointment reminders)');
+    expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOREMIND to stop reminders');
   });
   it('puts NOREMIND on a supervision reminder without adding STOP', async () => {
     const original = pool.execute.getMockImplementation();
@@ -322,5 +331,5 @@ it.each(['STOP','START'])('keeps Notifyre-owned %s replies unchanged with an app
  pool.execute.mockImplementation(async(sql,args)=>sql.includes('FROM twilio_numbers')?[[{...sender,registration_json:{...registration,keywordOwner:'notifyre',helpKeywordOwner:'application'}}]]:execute(sql,args));
  const sendReply=vi.fn();await processSmsKeyword({from:message.to,to:message.from,body:keyword,messageId:'help-override-'+keyword,sendReply});
  expect(sendReply).not.toHaveBeenCalled();
- expect(permissions.some(p=>p.purpose==='care'||p.purpose==='reminders')).toBe(false);
+ expect(permissions.some(p=>p.purpose==='care'||p.purpose==='reminders')).toBe(keyword==='START');
 });

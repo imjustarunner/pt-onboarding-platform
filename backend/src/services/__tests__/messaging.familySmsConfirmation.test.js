@@ -76,3 +76,15 @@ it('revokes the accepted types if the single confirmation fails',async()=>{
  expect(recordSmsPermission.mock.calls.slice(-3).map(([r])=>[r.purpose,r.status])).toEqual([['care','opted_out'],['reminders','opted_out'],['billing','opted_out']]);
  expect(activation).toEqual({});
 });
+it('can review an existing signature after START enrollment becomes available without rewriting its disclosure',async()=>{
+ const original=JSON.stringify(signed.disclosure);
+ getSmsSender.mockResolvedValue({registration:{...registration,allowRestart:true},agency_id:2,scope:'campaign:C2',phone_number:'+13035550100'});
+ await expect(review()).resolves.toMatchObject({reviewed:true});
+ expect(JSON.stringify(signed.disclosure)).toBe(original);
+ expect(recordSmsPermission.mock.calls[0][0].evidence.disclosure).toContain('reactivates existing subscriptions only');
+});
+it('still rejects a changed program identity when reviewing a historical disclosure',async()=>{
+ getSmsSender.mockResolvedValue({registration:{...registration,allowRestart:true,brandName:'Different practice'},agency_id:2,scope:'campaign:C2',phone_number:'+13035550100'});
+ await expect(review()).rejects.toMatchObject({code:'sms_disclosure_changed'});
+ expect(recordSmsPermission).not.toHaveBeenCalled();
+});

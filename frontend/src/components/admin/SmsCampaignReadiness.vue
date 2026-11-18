@@ -76,7 +76,7 @@
           <label><input v-model="registration.verbalReminderConsentApproved" type="checkbox" /> I verified carrier approval of the verbal appointment-reminder opt-in script (version {{ VERBAL_REMINDER_CONSENT_VERSION }})</label>
           <p>This records an existing carrier approval. It does not submit a campaign or grant recipient consent. Support can record verbal consent from the client’s contact screen; STOP remains in force.</p>
         </template>
-        <label><input v-model="registration.allowRestart" type="checkbox" /> START / UNSTOP reactivation is documented in the registered message flow</label>
+        <label><input v-model="registration.allowRestart" type="checkbox" /> {{ registration.provider === 'notifyre' && !registration.startEnrollment ? 'START / UNSTOP enrollment for registered reminder/provider texts is documented in the message flow' : 'START / UNSTOP reactivation is documented in the registered message flow' }}</label>
         <fieldset v-if="registration.provider === 'notifyre' && registration.startEnrollment">
           <legend>First-time family START enrollment</legend>
           <label><input v-model="registration.startEnrollment.enabled" type="checkbox" /> I verified carrier approval for this number’s first-time text-to-join flow</label>

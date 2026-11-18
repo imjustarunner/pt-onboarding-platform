@@ -16,6 +16,7 @@ import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
 import { CLIENT_SMS_PURPOSES, assertSmsCarrierPurpose, notifyreCampaignForAgency } from '../utils/smsCarrierPolicy.js';
 import { notifyrePhoneStopped, applyNotifyreAccountCommand, notifyrePurposeOptedOut, declineNotifyrePurpose, restartNotifyrePurpose } from './notifyreRecipientState.service.js';
+import { clientStartPurposes, recordClientSmsStart, clientSmsStartAllowed, refreshClientSmsStartReminders } from './clientSmsStartConsent.service.js';
 
 const json = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 // One-use capabilities bind an automated control reply to its exact recipient/body.
@@ -221,6 +222,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
   const evidence = permissions[0].evidence_json ? json(permissions[0].evidence_json) : null;
+  if (evidence?.source === 'inbound_start' && !providerRelayEnrollmentId
+      && !await clientSmsStartAllowed({ sender, phone: recipient, purpose, evidence, clientId })) {
+    throw smsPolicyError('sms_start_not_active', 'START is saved, but a current client/guardian relationship and compatible recipient choices are required.');
+  }
   if (purpose==='reminders' && evidence?.source==='staff_verbal') {
     if(!verbalReminderProgramReady(registration))throw smsPolicyError('sms_verbal_program_not_ready','This campaign has not enabled its approved verbal reminder script.');
     const {reviewedVerbalReminderGrant}=await import('./staffVerbalReminderConsent.service.js');
@@ -284,6 +289,10 @@ export async function recordedReminderConsent(agencyId, phone, { requireActive =
     WHERE scope_key = ? AND phone = ? AND purpose = 'reminders' AND status = 'opted_in'
       AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP()) LIMIT 1`, [sender.scope, normalized]);
   const evidence = rows[0]?.evidence_json ? json(rows[0].evidence_json) : null;
+  if (evidence?.source === 'inbound_start') {
+    if (await isSmsSuppressed(sender, normalized)) return null;
+    return await clientSmsStartAllowed({ sender, phone: normalized, purpose: 'reminders', evidence, ...context }) ? evidence : null;
+  }
   if(evidence?.source==='staff_verbal'){
     if(!verbalReminderProgramReady(sender.registration))return null;
     const {reviewedVerbalReminderGrant}=await import('./staffVerbalReminderConsent.service.js');
@@ -335,6 +344,32 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   try {
   let reply;
   const wasStopped = keyword === 'START' ? await isSmsSuppressed(sender, phone) : false;
+  if (keyword === 'START' && clientStartPurposes(sender).length) {
+    await consentDb.beginTransaction();
+    let changed;
+    let relayRestored = false;
+    try {
+      changed = await recordClientSmsStart({ sender, phone, messageId, receivedAt }, consentDb);
+      if (changed && !wasStopped) relayRestored = await restartProviderRelay({ sender, phone, evidence }, consentDb);
+      await consentDb.commit();
+    } catch (error) { await consentDb.rollback(); throw error; }
+    const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
+    if (!await notifyrePurposeOptedOut(sender.scope, phone, 'reminders')) await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
+    // Also reconcile on receipt retries after a scheduling failure. This never
+    // replays sent/attempted reminders and never edits another recipient's rows.
+    await refreshClientSmsStartReminders({ sender, phone });
+    if (!changed) return true;
+    // Keep the registered carrier as the sole START response owner. A separate
+    // forwarding-category confirmation retains its existing app-owned behavior.
+    if (registration.keywordOwner !== 'application' && !relayRestored) return true;
+    const labels = clientStartPurposes(sender).map(p => p === 'reminders' ? 'appointment reminders' : 'provider texts').join(' and ');
+    const body = relayRestored ? categoryRestartMessage(brand, ['client_forwarding'])
+      : `${brand}: START is saved for ${labels} for this program. Texts begin when you are a current client or guardian. Later enrollment or notification choices take precedence. Message frequency varies. Message and data rates may apply. Reply NOREMIND to stop reminders, NOPROVIDER to stop provider texts, STOP to stop all texts, or HELP for help.`;
+    const capability = { to: phone, from: sender.phone_number, body, categoryReply: true };
+    controlReplies.add(capability);
+    await sendReply({ ...capability, complianceReply: capability });
+    return true;
+  }
   let categoryRestart = false;
   if (consentDb && ['STOP','START'].includes(keyword)
       && (keyword === 'STOP' || (!validateSmsRegistration(registration).length && registration.allowRestart === true))) {
@@ -385,7 +420,7 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
     reply = `${brand}: ${keyword === 'NOREMIND' ? 'Appointment text reminders are off. Your provider texting choice is unchanged.' : 'Provider texts are off. Your appointment reminder choice is unchanged.'} Reply START to restore previously consented text categories, or use your notification settings. Reply STOP to stop all texts or HELP for help.`;
   } else if (keyword === 'STOP') {
     const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_out',
-      evidence:{...evidence,providerNoticeRequested:true,agencyId:sender.agency_id,senderNumber:sender.phone_number,provider:registration?.provider||'vonage'} });
+      evidence:{...evidence,collectedAt:new Date(receivedAt).toISOString(),providerNoticeRequested:true,agencyId:sender.agency_id,senderNumber:sender.phone_number,provider:registration?.provider||'vonage'} });
     const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
     if (registration?.provider === 'notifyre') await cancelPendingRelayReplies(phone);
     await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
