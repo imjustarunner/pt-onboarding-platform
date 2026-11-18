@@ -694,9 +694,9 @@ const setBookingPlanLocked = async (req, res, next) => {
     const clientId = Number(req.body?.clientId || 0) || null;
     if (clientId) {
       await assertAppointmentClients(agencyId, [{ clientId }]);
-      await requireClientSessionBooking(agencyId, provider.id);
+      await requireClientSessionBooking(agencyId, provider.id, undefined, { actorUserId: req.user.id });
     }
-    const validated = await validateSchedulingSelection({ clientIds: clientId ? [clientId] : [], enforceSessionRollout: true, agencyId, providerId: provider.id, userRole: provider.role,
+    const validated = await validateSchedulingSelection({ clientIds: clientId ? [clientId] : [], enforceSessionRollout: true, actorUserId: req.user.id, agencyId, providerId: provider.id, userRole: provider.role,
       providerCredentialText: provider.credential, ...selection });
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
@@ -1122,8 +1122,8 @@ const staffBookEventLocked = async (req, res, next) => {
         officeLocationId,
         preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || officeBookingAgencyId(ev) || 0) || null
       });
-      if (req.body?.clientId || ev.client_id) await requireClientSessionBooking(policyAgencyId, provider.id);
-      validatedSelection = await validateSchedulingSelection({ enforceSessionRollout: true,
+      if (req.body?.clientId || ev.client_id) await requireClientSessionBooking(policyAgencyId, provider.id, undefined, { actorUserId: req.user.id });
+      validatedSelection = await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
         agencyId: policyAgencyId,
         clientIds: Number(req.body?.clientId || ev.client_id) > 0 ? [Number(req.body?.clientId || ev.client_id)] : [],
         userRole: provider.role,
@@ -1598,7 +1598,7 @@ const setEventBookingPlanLocked = async (req, res, next) => {
       officeLocationId,
       preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || officeBookingAgencyId(ev) || 0) || null
     });
-    const validatedSelection = await validateSchedulingSelection({ enforceSessionRollout: true,
+    const validatedSelection = await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
       agencyId: policyAgencyId,
       clientIds: Number(req.body?.clientId || ev.client_id) > 0 ? [Number(req.body?.clientId || ev.client_id)] : [],
       userRole: provider.role,
@@ -1614,7 +1614,7 @@ const setEventBookingPlanLocked = async (req, res, next) => {
     const planClientId = Number(req.body?.clientId || ev.client_id || 0) || null;
     if (planClientId) {
       await assertAppointmentClients(policyAgencyId, [{ clientId: planClientId }]);
-      await requireClientSessionBooking(policyAgencyId, provider.id);
+      await requireClientSessionBooking(policyAgencyId, provider.id, undefined, { actorUserId: req.user.id });
     }
 
     let assignment = await OfficeStandingAssignment.findActiveBySlot({

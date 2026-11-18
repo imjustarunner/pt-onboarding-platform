@@ -25,7 +25,7 @@ it('uses saved session code and appointment modality when those appointment labe
 });
 it('creates documentation work with the exact saved appointment/session and source timezone',async()=>{
  expect(await run()).toEqual([expect.objectContaining({appointmentId:132,clinicalSessionId:214,clientId:2104,date:'2026-09-05',timeLabel:'2:30 PM',noteKind:'intake',serviceCode:'90791',status:'not_started',durationMinutes:60,sourceTimezone:'America/Denver'})]);
- expect(db.execute.mock.calls[0][0]).toContain('a.end_at<=UTC_TIMESTAMP()');
+ expect(db.execute.mock.calls[0][0]).toContain('a.start_at<=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 2 DAY)');
  expect(db.execute.mock.calls[0][0]).toContain('NOT EXISTS');
  expect(clinical.execute.mock.calls[0][0]).toContain('n.provider_signed_at IS NOT NULL');
  expect(clinical.execute.mock.calls[0][1]).toEqual([501,214]);
@@ -63,4 +63,25 @@ it('materializes shared-client work only with an explicit active client membersh
  expect(clientAgencies).toHaveBeenCalledWith(2104);expect(agencyAccess).toHaveBeenCalledWith({reqUser:user,agencyId:377});
  queue.createIfMissingForUser.mockClear();clientAccess.mockResolvedValue({ok:false,client:{agency_id:888}});
  expect(await run(user,{agencyId:377,clientAgencies})).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
+});
+it('includes today’s scheduled appointment before its end without marking attendance',async()=>{
+ appointment.start_at='2026-11-18 00:00:00';appointment.end_at='2026-11-18 01:00:00';
+ expect(await run(user,{now:new Date('2026-11-17T19:00:00Z')})).toEqual([expect.objectContaining({date:'2026-11-17',status:'not_started'})]);
+ appointment.start_at='2026-11-18 20:00:00';appointment.end_at='2026-11-18 21:00:00';
+ queue.createIfMissingForUser.mockClear();expect(await run(user,{now:new Date('2026-11-17T19:00:00Z')})).toEqual([]);
+ expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
+});
+it('recovers exact legacy office bookings even when no appointments row exists',async()=>{
+ const legacy={...session,appointment_id:null,office_event_id:460,service_code:'90837',scheduled_start_at:'2026-11-15 16:00:00',scheduled_end_at:'2026-11-15 17:00:00',source_timezone:'America/Denver'};
+ const event={id:460,client_id:2104,clinical_session_id:214,booked_provider_id:501,start_at:legacy.scheduled_start_at,end_at:legacy.scheduled_end_at,status:'BOOKED',location_timezone:'America/Denver',location_label:'Example office'};
+ clinical.execute.mockImplementation(async sql=>[sql.includes('s.appointment_id IS NULL')?[legacy]:[]]);
+ db.execute.mockImplementation(async sql=>[sql.includes('FROM office_events')?[event]:sql.includes('FROM clinical_note_drafts')?[{id:17,clinical_session_id:214,created_at:'2026-11-16 16:00:00'}]:[]]);
+ expect(await run()).toEqual([expect.objectContaining({appointmentId:null,officeEventId:460,clinicalSessionId:214,agencyId:377,date:'2026-11-15',draftId:17,status:'started'})]);
+ expect(agencyAccess).toHaveBeenCalledWith({reqUser:user,agencyId:377});
+});
+it.each([{booked_provider_id:999},{client_id:999},{clinical_session_id:999},{status:'CANCELLED'},{status_outcome:'NO_SHOW'}])('rejects stale or foreign office-event associations: %j',async mismatch=>{
+ const legacy={...session,appointment_id:null,office_event_id:460,scheduled_start_at:'2026-11-15 16:00:00',source_timezone:'America/Denver'};
+ clinical.execute.mockImplementation(async sql=>[sql.includes('s.appointment_id IS NULL')?[legacy]:[]]);
+ db.execute.mockImplementation(async sql=>[sql.includes('FROM office_events')?[{id:460,client_id:2104,clinical_session_id:214,booked_provider_id:501,start_at:legacy.scheduled_start_at,status:'BOOKED',...mismatch}]:[]]);
+ expect(await run()).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });

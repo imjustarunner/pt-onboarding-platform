@@ -10,7 +10,7 @@ export function useNarrivaReview({ agencyId, apiClient, base = '/narriva', pollM
   let pausedGeneration = null, pausedSession = null;
   const sessionKey = () => { try { return window.localStorage.getItem('sessionId'); } catch { return null; } };
   function cancel() { clearTimeout(timer); timer = null; settle?.(); settle = null; generation++; busy.value = false; paused.value=false; pausedGeneration=null; pausedSession=null; }
-  function invalidate() { cancel(); review.value = null; error.value = ''; }
+  function invalidate({ preserve = false } = {}) { cancel(); review.value = preserve && review.value ? { ...review.value, status: 'stale', quickSignEligible: false } : null; error.value = ''; }
   function handleError(e,current) {
     if(current!==generation)return;
     if(e?.response?.status===423 && e?.response?.data?.error?.code==='SESSION_LOCKED' && active(review.value)) {

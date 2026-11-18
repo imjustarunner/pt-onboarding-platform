@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { assertTreatmentPlanShareApproval } from './treatmentPlanApproval.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 /**
  * Treatment plan client/guardian acknowledgment:
@@ -112,6 +113,7 @@ export async function createDashboardShare({
   if (!plan || Number(plan.agency_id) !== Number(agencyId) || Number(plan.client_id) !== Number(clientId) || !isSharedPlanStatus(plan.status)) {
     throw Object.assign(new Error('Only an active, finalized plan can be shared.'), { status: 409 });
   }
+  await assertTreatmentPlanShareApproval(plan);
   const link = await TreatmentPlanAckLink.create({
     agencyId,
     clientId,
@@ -150,6 +152,9 @@ export async function createEmailLink({
     throw err;
   }
   await requireAckRecipient({agency_id:agencyId,client_id:clientId,recipient_kind:recipientKind,recipient_email:email});
+  const plan = await ClinicalTreatmentPlan.findById(treatmentPlanId);
+  if (!plan || Number(plan.agency_id) !== Number(agencyId) || Number(plan.client_id) !== Number(clientId)) throw Object.assign(new Error('Treatment plan not found.'), { status: 404 });
+  await assertTreatmentPlanShareApproval(plan);
   const link = await TreatmentPlanAckLink.create({
     agencyId,
     clientId,
@@ -193,6 +198,9 @@ export async function startProviderSession({
   actorUserId,
   actorName = null
 }) {
+  const plan = await ClinicalTreatmentPlan.findById(treatmentPlanId);
+  if (!plan || Number(plan.agency_id) !== Number(agencyId) || Number(plan.client_id) !== Number(clientId)) throw Object.assign(new Error('Treatment plan not found.'), { status: 404 });
+  await assertTreatmentPlanShareApproval(plan);
   const link = await TreatmentPlanAckLink.create({
     agencyId,
     clientId,
@@ -224,6 +232,9 @@ export async function attachPrintUpload({
   phiDocumentId,
   signedByName = null
 }) {
+  const plan = await ClinicalTreatmentPlan.findById(treatmentPlanId);
+  if (!plan || Number(plan.agency_id) !== Number(agencyId) || Number(plan.client_id) !== Number(clientId)) throw Object.assign(new Error('Treatment plan not found.'), { status: 404 });
+  await assertTreatmentPlanShareApproval(plan);
   const docId = safeInt(phiDocumentId);
   if (!docId) {
     const err = new Error('uploaded document id is required');

@@ -90,7 +90,9 @@ function decryptPayload(raw) {
 function toApiItem(row) {
   if (!row) return null;
   const payload = decryptPayload(row.payload_enc);
-  const status = normalizeStatus(row.status);
+  const missingDraft = Object.hasOwn(row, 'linked_draft_id') && row.draft_id && !row.linked_draft_id
+    && !row.clinical_note_id && normalizeStatus(row.status) !== 'signed';
+  const status = missingDraft ? 'not_started' : normalizeStatus(row.status);
   return {
     id: row.client_key || `srv_${row.id}`,
     serverId: Number(row.id),
@@ -101,7 +103,7 @@ function toApiItem(row) {
     officeEventId: row.office_event_id != null ? Number(row.office_event_id) : null,
     clinicalSessionId: row.clinical_session_id != null ? Number(row.clinical_session_id) : null,
     taskId: row.task_id != null ? Number(row.task_id) : null,
-    draftId: row.draft_id != null ? Number(row.draft_id) : null,
+    draftId: !missingDraft && row.draft_id != null ? Number(row.draft_id) : null,
     clinicalNoteId: row.clinical_note_id != null ? Number(row.clinical_note_id) : null,
     date: toDateOnly(row.date_of_service),
     serviceCode: row.service_code || null,
@@ -121,8 +123,8 @@ function toApiItem(row) {
     appointmentId: safeInt(payload.appointmentId),
     sourceTimezone: payload.sourceTimezone || null,
     addonServiceCodes: Array.isArray(payload.addonServiceCodes) ? payload.addonServiceCodes : [],
-    startedAt: row.started_at || null,
-    completedAt: row.completed_at || null,
+    startedAt: missingDraft ? null : row.started_at || null,
+    completedAt: missingDraft ? null : row.completed_at || null,
     signedAt: row.signed_at || null,
     updatedAt: row.updated_at || null,
     createdAt: row.created_at || null
@@ -205,19 +207,19 @@ class NoteAidWorkQueueItem {
       await this.purgeExpiredTerminal();
     }
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM note_aid_work_queue_items
-       WHERE user_id = ? ${agencyId ? "AND agency_id = ?" : ""}
+      `SELECT q.*,d.id AS linked_draft_id
+       FROM note_aid_work_queue_items q LEFT JOIN clinical_note_drafts d ON d.id=q.draft_id AND d.user_id=q.user_id
+       WHERE q.user_id = ? ${agencyId ? "AND q.agency_id = ?" : ""}
        ORDER BY
-         CASE status
+         CASE q.status
            WHEN 'not_started' THEN 0
            WHEN 'started' THEN 1
            WHEN 'completed' THEN 2
            WHEN 'signed' THEN 3
            ELSE 4
          END,
-         date_of_service IS NULL, date_of_service ASC,
-         id ASC`,
+         q.date_of_service IS NULL, q.date_of_service ASC,
+         q.id ASC`,
       agencyId ? [uid, agencyId] : [uid]
     );
     return (rows || []).map(toApiItem);
@@ -323,7 +325,7 @@ class NoteAidWorkQueueItem {
       return this.listForUser(uid, { purgeExpired: false });
     }
     const [existingRows] = await pool.execute(
-      `SELECT id, client_key FROM note_aid_work_queue_items WHERE user_id = ?`,
+      `SELECT id, client_key, clinical_session_id, office_event_id FROM note_aid_work_queue_items WHERE user_id = ?`,
       [uid]
     );
     const byKey = new Map((existingRows || []).map((r) => [String(r.client_key), Number(r.id)]));
@@ -353,6 +355,9 @@ class NoteAidWorkQueueItem {
     }
 
     const toDelete = (existingRows || [])
+      // A delayed browser snapshot cannot remove newly discovered scheduled
+      // work. Explicit row removal / Clear remain the intentional delete paths.
+      .filter((row) => !row.clinical_session_id && !row.office_event_id)
       .map((r) => Number(r.id))
       .filter((id) => id && !keepIds.has(id));
     if (toDelete.length) {
@@ -363,7 +368,7 @@ class NoteAidWorkQueueItem {
       );
     }
 
-    return out;
+    return this.listForUser(uid, { purgeExpired: false });
   }
 
   static async appendForUser(userId, items = []) {

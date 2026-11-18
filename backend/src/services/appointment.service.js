@@ -270,7 +270,7 @@ async function createLockedAppointment({
   for (const client of bookingClients) await assertClientServiceSchedulingActive({ agencyId:aid, providerUserId,
     clientId:client.id, businessType:businessType || (['learning','tutoring'].includes(client.client_type)?'learning':null), source, providerScheduleEventId,officeEventId });
   if (!businessType || ['mental_health', 'healthcare'].includes(businessType)) {
-    await requireClientSessionBooking(aid, providerUserId);
+    await requireClientSessionBooking(aid, providerUserId, undefined, { actorUserId: createdByUserId });
   }
   let actualPlaceOfService=null;
   if (serviceLocationId) {
@@ -502,7 +502,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   assertNoShowUsesSignedWorkflow(existing,patch.status,{trustedFinalization:allowPendingNoShow});
   assertAppointmentOutcomePreserved(existing,patch);
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
-    await requireClientSessionBooking(existing.agencyId, patch.providerUserId);
+    await requireClientSessionBooking(existing.agencyId, patch.providerUserId, undefined, { actorUserId });
   }
   if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR workflow for this appointment while shared clinical and billing orchestration is being connected.'), { status: 409 });
   if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {

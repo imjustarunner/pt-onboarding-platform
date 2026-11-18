@@ -29,7 +29,7 @@
         <strong v-else>{{ dateOfService || '—' }}</strong>
       </div>
       <div class="na-quick-session__cell na-quick-session__cell--code">
-        <span class="lbl">Code</span>
+        <div class="lbl na-quick-session__code-label">Service <slot name="service-information" /></div>
         <select
           v-if="editable && displayCodeChoices.length"
           class="na-quick-session__select"

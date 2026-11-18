@@ -217,3 +217,13 @@ it('sends clinical enrollment recovery for the QA family to AuricWell',async()=>
  await requestPasswordRecoveryEmail({targetUser:user,enrollment:{agencyId:450,channel:'counseling'}});
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({html:expect.stringContaining('https://auricwell.com/auricwell-qa-demo/reset-password/reset-token')}));
 });
+
+it('routes Group Forgot Password only to the recorded personal inbox and never issues a token without it',async()=>{
+ Object.assign(user,{role:'provider',status:'ACTIVE_EMPLOYEE',is_active:1,work_email:'individual@tenant.example',email:'individual@tenant.example',login_is_group_email:1,sso_password_override:1,personal_email:'personal@example.net'});
+ await requestPasswordRecoveryEmail({email:user.work_email});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({to:'personal@example.net',text:expect.stringContaining('individual@tenant.example')}));
+ m.send.mockClear();m.token.mockClear();user.personal_email=null;
+ expect((await requestPasswordRecoveryEmail({email:user.work_email})).outcome).toBe('no_recipient');expect(m.send).not.toHaveBeenCalled();expect(m.token).not.toHaveBeenCalled();
+ user.personal_email=user.work_email;
+ expect((await requestPasswordRecoveryEmail({email:user.work_email})).outcome).toBe('no_recipient');expect(m.send).not.toHaveBeenCalled();
+});

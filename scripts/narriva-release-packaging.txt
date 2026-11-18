@@ -1,0 +1,89 @@
+Narriva release overlay packaging (instructions only; no deployment is automatic)
+
+Use the final tested worktree and paired freshly built frontend/dist. Resolve both
+current production image digests through authorized Cloud Run/Artifact Registry
+metadata and verify their build commit matches --base-commit. The packager does
+not access cloud credentials, inspect environment values, build images or deploy.
+
+Before the final frontend build, prepare its public configuration without copying
+an entire developer .env file or printing a public site key:
+
+  node scripts/prepare-public-frontend-build-env.mjs --origin https://app.itsco.health --build-id RELEASE_BUILD_ID --output /private/tmp/UNIQUE_PUBLIC_BUILD.env
+
+Export/source only this generated allowlist for that build: VITE_API_URL,
+VITE_APP_BUILD_ID, VITE_RECAPTCHA_SITE_KEY and VITE_RECAPTCHA_USE_ENTERPRISE.
+The helper reads the public recovery-status configuration and fails closed if
+it is unavailable. It never writes a Stripe key from an unverified developer
+file. Runtime public login/intake configuration remains authoritative. Remove
+the temporary public env file after the final build no longer needs it.
+
+Run after the final source commit and frontend build, using actual pinned refs:
+
+  node scripts/package-narriva-release.mjs \
+    --worktree /private/tmp/pt-narriva-rollout-20261117 \
+    --source-commit FULL_FINAL_COMMIT \
+    --base-commit FULL_VERIFIED_PRODUCTION_COMMIT \
+    --backend-base REGISTRY/BACKEND@sha256:VERIFIED_DIGEST \
+    --frontend-base REGISTRY/FRONTEND@sha256:VERIFIED_DIGEST \
+    --backend-image REGISTRY/BACKEND:UNIQUE_RELEASE_TAG \
+    --frontend-image REGISTRY/FRONTEND:UNIQUE_RELEASE_TAG \
+    --project PROJECT_ID
+
+The build ID is read from dist/version.json and must equal its required backend
+build ID. An uncommitted tree requires explicit --allow-dirty; the manifest then
+records dirty paths and full payload fingerprints, rather than claiming those
+bytes are an exact committed revision. Backend package/lock must match the pinned
+base commit, or use a normal image build with reviewed dependencies instead.
+
+The backend context streams runtime source (excluding tests/scripts), the new
+migrations, and every recursively required pure frontend module. Existing image
+dependencies, scripts, uploads, Chromium/fonts and print assets are preserved.
+The frontend context streams the complete fresh dist plus nginx.conf. It keeps
+all public/generated assets, installs both generated nginx includes, removes
+those configs from public serving, and runs nginx -t during the overlay build.
+No static file is omitted merely because a similarly named file exists in base.
+No second dist tree or dependency directory is created. Preflight reports bytes
+and available disk; the final manifest records archive hashes and compressed sizes.
+
+Review both generated Dockerfiles, cloudbuild JSON files and manifest.json. Each
+Cloud Build config explicitly uses github-deployer@PROJECT_ID.iam.gserviceaccount.com
+with CLOUD_LOGGING_ONLY. Do not substitute the default compute builder account.
+Use an existing authorized staging bucket (do not provision new IAM as a shortcut):
+
+  gcloud storage cp OUTPUT/backend-context.tar.gz gs://EXISTING_RELEASE_BUCKET/UNIQUE_PREFIX/backend-context.tar.gz
+  gcloud storage cp OUTPUT/frontend-context.tar.gz gs://EXISTING_RELEASE_BUCKET/UNIQUE_PREFIX/frontend-context.tar.gz
+  gcloud builds submit gs://EXISTING_RELEASE_BUCKET/UNIQUE_PREFIX/backend-context.tar.gz --config OUTPUT/backend.cloudbuild.json --project PROJECT_ID --region REGION
+  gcloud builds submit gs://EXISTING_RELEASE_BUCKET/UNIQUE_PREFIX/frontend-context.tar.gz --config OUTPUT/frontend.cloudbuild.json --project PROJECT_ID --region REGION
+
+After successful builds, resolve each new output tag to its immutable digest.
+Deploy candidate revisions to the existing services with --no-traffic --tag TAG
+and unique --revision-suffix values. Preserve their established runtime identity,
+networking, secrets references and existing environment. Do not export/dump env.
+For the backend retain the HTTP startup probe on /readyz, port8080. Set the public
+APP_BUILD_ID to the paired frontend build ID via --update-env-vars (never a full
+--set-env-vars replacement). The only optional model settings introduced are
+CLINICAL_NOTE_MODEL (code default gemini-4-hydrogen) and
+CLINICAL_NOTE_VERTEX_LOCATION (Gemini4 code default us). A stale configured model
+overrides the default: deliberately set these two public options when needed.
+CLINICAL_AI_PRIVACY_APPROVED/project/ADC and existing secret references remain
+under the current reviewed privacy configuration; do not weaken that gate.
+
+On candidate startup the existing bootstrap runs additive migrations, then the
+new Narriva schema guard requires success logs and real columns for the required
+rollout tables plus a valid settings singleton. Failure keeps readiness503 before
+app workers start. Check the candidate's sanitized [startup:narriva] schema log,
+/readyz ready/appLoaded/build ID, frontend /version.json and initial assets. Test
+the exact candidate tag, not whichever revision happens to be latest. Complete
+synthetic Narriva checks and a normal authorized human/provider workflow review;
+do not mint an application session or operate as an application superadministrator.
+Promote only the two specific validated revisions after required approval. These
+instructions deliberately include no automatic update-traffic command.
+
+Retain the manifest/digests with the release record. Remove temporary compressed
+contexts after their cloud builds and evidence retention no longer need them;
+keep the worktree while it contains unfinished/user work.
+
+Official command references:
+https://docs.cloud.google.com/sdk/gcloud/reference/builds/submit
+https://docs.cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts
+https://docs.cloud.google.com/run/docs/rollouts-rollbacks-traffic-migration

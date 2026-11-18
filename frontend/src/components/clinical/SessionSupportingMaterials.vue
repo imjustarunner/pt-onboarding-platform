@@ -1,6 +1,6 @@
 <template>
-  <details v-if="Number(clinicalSessionId)" class="session-materials" @toggle="onToggle">
-    <summary>Supporting materials</summary>
+  <component :is="flat ? 'section' : 'details'" v-if="Number(clinicalSessionId)" class="session-materials" @toggle="onToggle">
+    <summary v-if="!flat">Supporting materials</summary><header v-else><h3>Supporting materials</h3><p>Upload photos or documents for this session.</p></header>
     <div v-if="opened" class="materials-body">
       <p>Worksheets and other files for this session stay together here. Sharing to a client’s Documents is optional.</p>
       <p v-if="loading" role="status">Loading supporting materials…</p>
@@ -49,21 +49,22 @@
       <p v-if="notice" role="status">{{ notice }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
     </div>
-  </details>
+  </component>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
-const props = defineProps({ clinicalSessionId: { type: [Number, String], required: true }, transport: { type: Object, default: null } });
+const props = defineProps({ flat: Boolean, clinicalSessionId: { type: [Number, String], required: true }, transport: { type: Object, default: null } });
 // A public fixture can supply local transport; production retains the authenticated API.
 const client = props.transport || api;
-const opened = ref(false), loaded = ref(false), loading = ref(false), busy = ref(false), materials = ref([]);
+const opened = ref(props.flat), loaded = ref(false), loading = ref(false), busy = ref(false), materials = ref([]);
 const title = ref(''), file = ref(null), inputKey = ref(0), includeInDocuments = ref(false);
 const recipients = ref([]), recipientsLoading = ref(false), recipientIds = ref([]), reviewed = ref(false);
 const error = ref(''), notice = ref('');
 const sharingMaterial = ref(null);
 let generation = 0;
+onMounted(() => { if (props.flat) load(); });
 const base = () => `/clinical-data/sessions/${Number(props.clinicalSessionId)}/materials`;
 const guardians = computed(() => recipients.value.filter(person => person.kind === 'guardian'));
 const allGuardiansSelected = computed(() => guardians.value.length > 0 && guardians.value.every(person => recipientIds.value.includes(person.id)));

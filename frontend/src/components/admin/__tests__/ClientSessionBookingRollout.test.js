@@ -1,7 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ClientSessionBookingRollout from '../ClientSessionBookingRollout.vue';
-const api=vi.hoisted(()=>({get:vi.fn(),put:vi.fn()}));
+const api=vi.hoisted(()=>({get:vi.fn(),put:vi.fn(),post:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:api}));
 const data={policy:{revision:2,entries:[{providerUserId:2,enabled:true}]},providers:[{id:1,name:'Ryn Test'},{id:2,name:'Other Provider'}]};
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data});api.put.mockResolvedValue({data:{policy:{revision:3,entries:[...data.policy.entries,{providerUserId:1,enabled:true}]}}});});
@@ -25,3 +25,28 @@ describe('provider booking rollout',()=>{
   expect(w.text()).toContain('0/10 selected');expect(api.get).toHaveBeenLastCalledWith('/appointments/booking-rollout',{params:{agencyId:3}});w.unmount();
  });
 });
+
+it('shows the sign-in readiness gap and a real account-review link without pretending to provision identities',async()=>{
+ const w=mount(ClientSessionBookingRollout,{props:{agencyId:2}});await flushPromises();
+ expect(w.text()).toContain('does not create a Google Group or change Google sign-in');
+ expect(w.text()).toContain('support and administrators can book on behalf');
+ expect(w.find('.rollout-provider a').attributes('href')).toBe('/admin/users/1?tab=account&section=workspace-security');
+ expect(api.put).not.toHaveBeenCalled();w.unmount();
+});
+
+ it('requires exact personal recipient confirmation before capturing a suspended provider identity',async()=>{
+  const readiness={targetEmail:'provider@itsco.health',recoveryEmail:'personal@example.net',originalWorkspace:{id:'google-701',email:'provider@itsco.health',suspended:true},conversion:null};
+  api.get.mockImplementation(async path=>({data:path.endsWith('/conversion')?readiness:data}));
+  api.post.mockResolvedValue({data:{...readiness,conversion:{id:'conversion-701',revision:1,state:'captured'}}});
+  const w=mount(ClientSessionBookingRollout,{props:{agencyId:2}});await flushPromises();
+  await w.findAll('.rollout-provider a')[1].trigger('click');await flushPromises();
+  const panel=w.find('.account-conversion');expect(panel.text()).toContain('personal@example.net');
+  const capture=()=>panel.findAll('button').find(button=>button.text()==='Capture preserved identity');expect(capture().attributes('disabled')).toBeDefined();
+  await panel.find('input[type=email]').setValue('personal@example.net');await panel.find('input[type=checkbox]').setValue(true);await capture().trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/appointments/booking-rollout/providers/1/conversion/capture',expect.objectContaining({confirmed:true,confirmRecoveryEmail:'personal@example.net',originalWorkspaceUserId:'google-701'}));
+  expect(w.text()).toContain('Verify address release');expect(api.put).not.toHaveBeenCalled();w.unmount();
+ });
+ it('does not show pending account conversions as enabled even if a prior rollout write succeeded',async()=>{
+  api.get.mockResolvedValue({data:{policy:{revision:3,entries:[{providerUserId:1,enabled:true}]},providers:[{id:1,name:'Provider',accountConversionPending:true}]}});
+  const w=mount(ClientSessionBookingRollout,{props:{agencyId:2}});await flushPromises();expect(w.text()).toContain('0 enabled · 1 coming soon');w.unmount();
+ });

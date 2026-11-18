@@ -20,6 +20,8 @@ import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAll
 import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { resolveClinicalToolId } from '../config/clinicalNoteToolRouting.js';
+import { loadNarrivaSettings } from '../services/narrivaPlatformSettings.service.js';
+import { resolveNarrivaGenerator } from '../config/narrivaGeneratorPolicy.js';
 import {
   getKnowledgeBaseContext,
   noteAidKnowledgeBaseOptions
@@ -34,6 +36,8 @@ import {
 } from '../services/billingRules.service.js';
 import { callPrivateSessionText, createSessionPrivacyContext } from '../services/sessionAiPrivacy.service.js';
 import { buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
+import { assertNarrivaPreGeneration } from '../services/narrivaReview.service.js';
+import { providerConversionPending,providerHasGroupPasswordAccess } from '../services/clientSessionBookingRollout.service.js';
 import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
@@ -55,9 +59,11 @@ import {clientPayerServiceEligibility} from '../services/clientPayerServiceEligi
 import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import {linkedServiceRelationship} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 import NoteAidAgencyCatalog from '../models/NoteAidAgencyCatalog.model.js';
-import { isQuickCopyDraft } from '../utils/therapyNotesQuickGenerator.js';
+import { isQuickCopyDraft, assertQuickCopyStaff, therapyNotesQuickGeneratorEnabled } from '../utils/therapyNotesQuickGenerator.js';
+import { noteWriterContextPolicy } from '../utils/noteWriterContextPolicy.js';
 import { generateTherapyNotesQuickCopy } from './therapyNotesQuickGenerator.controller.js';
 import { loadTerminationHistory, validateTermination, TERMINATION_REASONS } from '../services/noteAidTermination.service.js';
+import { assertEncounterTreatmentPlanEligibility } from '../services/treatmentPlanEncounterEligibility.service.js';
 
 async function collectClientPhiNames(client) {
   const guardians = client?.id ? await ClientGuardian.listForClient(client.id) : [];
@@ -514,11 +520,18 @@ export const getClinicalNotesContext = async (req, res, next) => {
       ? filterServiceCodesForCredential(eligibleServiceCodes, tier, credentialOverrides, grantedServiceCodes)
       : eligibleServiceCodes;
     const audioAgreementTemplates = await listAgencyAudioAgreementTemplates({ agencyId });
+    let quickCopyEnabled = false;
+    try {
+      assertQuickCopyStaff(req.user);
+      quickCopyEnabled = therapyNotesQuickGeneratorEnabled(agency, await NoteAidAgencyCatalog.listSettings(agencyId));
+    } catch (error) { if (error.status !== 403) throw error; }
+    const writerPolicy = noteWriterContextPolicy({ agencyId, providerUserId:req.user.id, featureFlags, careEligibility, quickCopyEnabled, conversionPending:!!(await providerConversionPending(agencyId,req.user.id)),accountReady:await providerHasGroupPasswordAccess(agencyId,req.user.id) });
     res.json({
       providerCredentialText: providerCredentialText || '',
       derivedTier: tier,
       hcbsCategory: hcbs.category || null,
       careEligibility,
+      ...writerPolicy,
       eligibleServiceCodes: careEligibility.canProvideCare ? visibleServiceCodes : [],
       restrictedServiceCodes: OPT_IN_SERVICE_CODES,
       grantedServiceCodes,
@@ -1269,12 +1282,19 @@ export const generateClinicalNote = async (req, res, next) => {
     const generationSessionContext={agencyId,clientId:clientId || savedGenerationDraft?.client_id,providerUserId:req.user.id,
       clinicalSessionId:clinicalSessionId || savedGenerationDraft?.clinical_session_id,officeEventId:officeEventId || savedGenerationDraft?.office_event_id,
       dateOfService:dateOfService || savedGenerationDraft?.date_of_service,serviceCode:serviceCode || savedGenerationDraft?.service_code};
-    const requiresProgressSession = fullProgressNoteRequiresSession({ toolId: req.body?.toolId || savedGenerationMeta.toolId
-      || resolveClinicalToolId({ serviceCode: documentationServiceCode || generationSessionContext.serviceCode, programId }),
+    const generatorSettings=await loadNarrivaSettings();
+    const generatorServiceCode=documentationServiceCode || generationSessionContext.serviceCode;
+    const serviceBackedNarriva=narrivaWorkflow && !!String(generatorServiceCode || '').trim();
+    const mappedGeneratorToolId=resolveNarrivaGenerator({serviceCode:generatorServiceCode,sessionMode:programId?'group':'individual'},generatorSettings.configuration);
+    if(serviceBackedNarriva && !mappedGeneratorToolId)throw Object.assign(new Error(`No Narriva generator is linked to service ${generatorServiceCode}. Ask a platform administrator to link it in Narriva generators settings. Your draft is preserved.`),{status:409,code:'NARRIVA_GENERATOR_NOT_MAPPED'});
+    if(serviceBackedNarriva && terminationRequested)throw Object.assign(new Error('Create the termination document from the client chart without a progress-session service code. Your saved session has not changed.'),{status:409,code:'NARRIVA_CHART_ACTION_CONTEXT_REQUIRED'});
+    const requiresProgressSession = fullProgressNoteRequiresSession({ toolId: serviceBackedNarriva?mappedGeneratorToolId:(req.body?.toolId || savedGenerationMeta.toolId
+      || resolveClinicalToolId({ serviceCode: generatorServiceCode, programId },generatorSettings.configuration)),
       serviceCode: documentationServiceCode || generationSessionContext.serviceCode, noteKind: req.body?.noteKind || savedGenerationMeta.noteKind });
+    let validatedGenerationSession=null;
     const assertGenerationSessionCurrent=async()=>{
-      if(requiresProgressSession)await requireActualProgressSession(generationSessionContext);
-      else if(generationSessionContext.clinicalSessionId || generationSessionContext.officeEventId)await resolveClinicalDraftSessionContext(generationSessionContext);
+      if(requiresProgressSession)validatedGenerationSession=await requireActualProgressSession(generationSessionContext);
+      else if(generationSessionContext.clinicalSessionId || generationSessionContext.officeEventId)validatedGenerationSession=await resolveClinicalDraftSessionContext(generationSessionContext);
     };
     await assertGenerationSessionCurrent();
     await requireTestingEligibility({agencyId,userId:req.user.id,serviceCodes:[generationSessionContext.serviceCode],clientId:generationSessionContext.clientId,serviceDate:generationSessionContext.dateOfService});
@@ -1390,12 +1410,17 @@ export const generateClinicalNote = async (req, res, next) => {
     }
 
     const providerInputText = inputText;
+    let treatmentPlanEligibility = null;
+    const encounterToolId = serviceBackedNarriva?mappedGeneratorToolId:(requestedToolId || resolveClinicalToolId({ serviceCode, programId },generatorSettings.configuration));
+    if (clientId && !terminationRequested && (isProgressNoteToolId(encounterToolId) || isProgressNoteToolId(resolveClinicalToolId({ serviceCode, programId },generatorSettings.configuration)))) {
+      treatmentPlanEligibility = await assertEncounterTreatmentPlanEligibility({ agencyId, clientId, dateOfService });
+    }
     let termination = null;
     let terminationHistory = null;
     if (terminationRequested) {
       await assertTerminationClientAccess(req, agencyId, clientId);
       termination = validateTermination(typeof req.body.termination === 'string' ? JSON.parse(req.body.termination) : req.body.termination);
-      terminationHistory = await loadTerminationHistory({ agencyId, clientId });
+      terminationHistory = await loadTerminationHistory({ agencyId, clientId, throughDate: dateOfService });
       inputText = [terminationHistory.text, 'Additional provider history:', inputText,
         `Provider-selected reason: ${TERMINATION_REASONS[termination.reason]}. ${termination.details || ''}`,
         `Provider recommendation: ${termination.recommendation}`].join('\n\n');
@@ -1429,10 +1454,11 @@ export const generateClinicalNote = async (req, res, next) => {
       ? objectiveRatingsContext
       : '';
 
-    // Explicit toolId (Note Workspace category → gem) wins over service-code routing.
+    // Linked Narriva sessions use the platform's service mapping. Explicit chart
+    // actions without a service and the legacy quick-copy flow retain their writer.
     const toolId = effectiveAutoSelect
       ? 'clinical_code_decider'
-      : (requestedToolId || resolveClinicalToolId({ serviceCode:documentationServiceCode || serviceCode, programId }));
+      : (serviceBackedNarriva?mappedGeneratorToolId:(requestedToolId || resolveClinicalToolId({ serviceCode:documentationServiceCode || serviceCode, programId },generatorSettings.configuration)));
     const tool = getNoteAidToolById(toolId);
     if (!tool) {
       return res.status(400).json({ error: { message: 'No tool configured for this note type' } });
@@ -1642,7 +1668,12 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
 
-    const { text, modelName, latencyMs, finishReason } = await generateClinicalText({ tool, prompt, privacyContext,
+    const narrivaPreflight = req.body?.writerMode === 'narriva' && isProgressNoteToolId(toolId) && generationSessionContext.clinicalSessionId
+      ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText })
+      : null;
+    if (narrivaPreflight?.consentStatement) prompt += `\n\nClinician-confirmed consent and setting (include in the note):\n${narrivaPreflight.consentStatement}`;
+    if (narrivaPreflight?.clinicalContext) prompt += `\n\nCurrent clinical context from the exact clinician-confirmed saved source (use these current facts instead of conflicting historical plan context; never infer a new diagnosis):\n${JSON.stringify(narrivaPreflight.clinicalContext)}`;
+    const { text, modelName, latencyMs, finishReason } = await generateClinicalText({ tool, prompt, privacyContext, generatorGuidance: narrivaGuidance,
       ...(req.sessionTranscription ? {vertexOnly:true,sensitive:true} : {}) });
 
     if (terminationRequested && finishReason && finishReason !== 'STOP') {
@@ -1669,16 +1700,18 @@ export const generateClinicalNote = async (req, res, next) => {
       sections,
       meta: {
         toolId,
+        narrivaPreflight,
         underlyingServiceCode:isProBonoServiceCode(serviceCode)?documentationServiceCode:null,
         guidanceSnapshot:narrivaGuidance?{guidanceHash:narrivaGuidance.guidanceHash,serviceReferenceHash:narrivaGuidance.serviceReferenceHash,
           serviceCode:narrivaGuidance.documentationCode,source:narrivaGuidance.clinicalReference?.source || narrivaGuidance.reference?.source,
           supportingDocumentCount:narrivaGuidance.supportCoverage?.documentCount || 0,supportCoverageComplete:narrivaGuidance.supportCoverageComplete}:null,
         termination,
         terminationHistory: terminationHistory?.counts || null,
+        treatmentPlanEligibility,
         encounterAge: intakeTool ? encounterAge : null,
         sessionContext: { durationMinutes: Number(req.body?.durationMinutes) || null },
-        billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes}).primaryUnits,
-        billingAddons: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes}).addons,
+        billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).primaryUnits,
+        billingAddons: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).addons,
         model: modelName,
         aidId: aidIdRaw || null,
         latencyMs,
@@ -1702,11 +1735,12 @@ export const generateClinicalNote = async (req, res, next) => {
     if(['narriva','smart_notes'].includes(mobileWriterMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:String(req.body?.inputText || ''),serviceCode,writerMode:mobileWriterMode});
     const outputJson = JSON.stringify(outputObj);
     const storedInputText =
-      (transcriptSource === 'audio' || usedAudioTranscript) ? null : (mobileWriterMode ? String(req.body?.inputText || '').trim() : terminationRequested ? providerInputText : inputText);
+      (transcriptSource === 'audio' || usedAudioTranscript) ? null : (mobileWriterMode || req.body?.writerMode === 'narriva' ? String(req.body?.inputText || '').trim() : terminationRequested ? providerInputText : inputText);
     const encryptedInputText = maybeEncryptText(storedInputText);
     const encryptedOutputJson = maybeEncryptText(outputJson);
     if(req.sessionTranscription && !isChatEncryptionConfigured()) throw Object.assign(new Error('Secure note storage is not configured.'),{status:503});
     await assertGenerationSessionCurrent();
+    if (narrivaPreflight) await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText });
 
     let draft = null;
     if (draftId) {
@@ -1726,6 +1760,7 @@ export const generateClinicalNote = async (req, res, next) => {
       draft = await ClinicalNoteDraft.updateForUser({
         draftId,
         userId: req.user.id,
+        ...(narrivaWorkflow ? { expectedSnapshot: savedGenerationDraft } : {}),
         patch: {
           agencyId,
           clientId: clientId || undefined,
@@ -1739,6 +1774,7 @@ export const generateClinicalNote = async (req, res, next) => {
           outputJson: encryptedOutputJson
         }
       });
+      if (!draft && narrivaWorkflow) throw Object.assign(new Error('The saved narrative or session changed during generation. Your newer content was preserved. Submit it for compliance check again.'), { status: 409, code: 'NARRIVA_GENERATION_SOURCE_CHANGED' });
     }
 
     if (!draft) {

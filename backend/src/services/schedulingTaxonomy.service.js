@@ -297,6 +297,7 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
 export async function validateSchedulingSelection({
   clientIds = [],
   enforceSessionRollout = false,
+  actorUserId = null,
   agencyId = null,
   providerId = null,
   userRole,
@@ -314,7 +315,7 @@ export async function validateSchedulingSelection({
   const normalizedServiceCode = normalizeCode(serviceCode);
   if (enforceSessionRollout && DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) {
     if (normalizedServiceCode === 'TUTORING') await requireClientSessionBooking(agencyId, providerId, undefined, {businessType:'tutoring'});
-    else await requireClientSessionBooking(agencyId, providerId);
+    else await requireClientSessionBooking(agencyId, providerId, undefined, { actorUserId });
   }
   await requireTestingEligibility({agencyId,userId:providerId,serviceCodes:[normalizedServiceCode],serviceDate:scheduledStartAt});
   if (DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) await requireClientServiceKind({ agencyId, providerId, clientIds,

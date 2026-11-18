@@ -1,12 +1,12 @@
 <template>
   <section class="narriva-compliance" aria-label="Narriva Clinical Compliance Check" :aria-busy="busy">
-    <header><div><img :src="NARRIVA_BRAND.compliance" alt="Narriva Compliance by AuricWell" /><h2>Narriva Clinical Compliance Check <span>5 checks</span></h2></div><img class="narriva-compliance__shield" :src="verified ? NARRIVA_BRAND.verified : NARRIVA_BRAND.notVerified" :alt="verified ? 'Narriva checks passed' : 'Not verified'" /></header>
+    <header><div><img :src="NARRIVA_BRAND.compliance" alt="Narriva Compliance by AuricWell" /><h2>{{ preGeneration ? 'Confirm your session content' : 'Narriva Clinical Compliance Check' }} <span>5 checks</span></h2></div><img class="narriva-compliance__shield" :src="verified ? NARRIVA_BRAND.verified : NARRIVA_BRAND.notVerified" :alt="verified ? 'Narriva checks passed' : 'Not verified'" /></header>
     <p v-if="error" class="narriva-compliance__error" role="alert">{{ error }}</p>
     <p v-if="review?.message" class="narriva-compliance__hint">{{review.message}}</p>
     <p v-if="testMode" class="narriva-compliance__hint"><strong>Test result only.</strong> This does not verify a chart note or enable signing.</p>
-    <p v-if="!review && !busy" class="narriva-compliance__hint">Generate your note to check its documentation. A check is confirmed only after Narriva returns its result.</p>
+    <p v-if="!review && !busy" class="narriva-compliance__hint">Submit your session narrative for compliance check. Confirm the details here before generating the note.</p>
     <p v-if="review?.status === 'stale'" class="narriva-compliance__error">The note changed. Run the checks again before Quick Sign.</p>
-    <section v-if="review || busy" class="narriva-score" :class="{ 'narriva-score--passed': verified }" aria-label="Documentation quality score">
+    <section v-if="!preGeneration && (review || busy)" class="narriva-score" :class="{ 'narriva-score--passed': verified }" aria-label="Documentation quality score">
       <div class="narriva-score__summary"><div><span>Documentation quality</span><strong v-if="scoring">{{ scoring.score }}<small>%</small></strong><strong v-else class="narriva-score__unavailable">{{ busy ? 'Checking…' : 'Score unavailable' }}</strong></div><div><strong>{{ scoreOutcome }}</strong><p v-if="scoring">Required score: {{ scoring.threshold }}% · All 5 required checks must also pass.</p><p v-else>A saved-note review must return a score before verification is available.</p></div></div>
       <p v-if="scoring?.explanation">{{ scoring.explanation }}</p>
       <div v-if="mandatoryBlockers.length || scoring?.mandatoryPassed === false" class="narriva-score__blockers"><strong>Required checks blocking Narriva verification</strong><ul v-if="mandatoryBlockers.length"><li v-for="check in mandatoryBlockers" :key="check.id">{{ check.label }} · {{ label(check.status) }}</li></ul><p v-else>The required checks have not been confirmed. Run the checks again.</p></div>
@@ -21,7 +21,8 @@
           <p>{{ finding.message }}</p>
           <p v-if="finding.bypassed || finding.status === 'bypassed'" class="narriva-check__bypass-record">Kept as written. {{ finding.bypassReason || finding.reason || '' }} Quick Sign is unavailable.</p>
           <template v-else>
-            <button v-if="finding.action && finding.action !== 'none'" type="button" :disabled="busy || readOnly" @click="$emit('action', { checkId: check.id, finding })">{{ actionLabel(finding.action) }}</button>
+            <slot name="finding" :check-id="check.id" :finding="finding" />
+            <button v-if="!$slots.finding && finding.action && finding.action !== 'none'" type="button" :disabled="busy || readOnly" @click="$emit('action', { checkId: check.id, finding })">{{ actionLabel(finding.action) }}</button>
             <button v-if="finding.canBypass && !readOnly" type="button" :disabled="busy" @click="openBypass = openBypass === finding.id ? '' : finding.id">Keep my note as it is</button>
             <form v-if="openBypass === finding.id && finding.canBypass && !readOnly" @submit.prevent="bypass(finding)"><label>Reason for keeping this note<textarea v-model="reasons[finding.id]" rows="2" minlength="5" maxlength="2000" required :disabled="busy" /></label><small>This records your decision and removes Quick Sign eligibility.</small><button type="submit" :disabled="busy || (reasons[finding.id]?.trim().length || 0) < 5">Record decision</button></form>
           </template>
@@ -36,14 +37,15 @@
       <template v-else-if="review.longitudinal.advisories?.length"><ul><li v-for="(advisory,index) in review.longitudinal.advisories" :key="advisory.id || index"><strong>{{ advisory.message }}</strong><p v-if="advisory.recommendation">{{ advisory.recommendation }}</p></li></ul><p>These observations support clinician review. A treatment-plan change, referral, or discharge requires clinical judgment.</p></template>
       <p v-else>{{ review.longitudinal.status === 'insufficient' || review.longitudinal.status === 'insufficient_data' ? 'Not enough comparable recorded sessions to assess a trend.' : 'No longitudinal review prompts were returned for the available recorded scores.' }}</p>
     </section>
+    <section v-if="review?.priorDecisions?.length" class="narriva-check__bypass-record" aria-label="Supervisor review flags"><strong>Kept as is · supervisor review</strong><ul><li v-for="decision in review.priorDecisions" :key="decision.id">{{ decision.message }}<p>Provider decision: {{ decision.reason }}</p></li></ul><p>Quick Sign is unavailable for this note.</p></section>
     <p v-if="!testMode" class="narriva-compliance__hint narriva-signing-scope">These results determine Narriva verification and Quick Sign eligibility. Ordinary clinician signing still requires the record’s clinical requirements, any required risk assessment and attestations. Signing does not mark these checks passed or approve billing.</p>
-    <footer><span v-if="testMode">{{ busy ? 'Checking this test…' : 'Test only · no chart approval or Quick Sign eligibility.' }}</span><span v-else-if="review?.quickSignEligible === true && verified" class="narriva-compliance__eligible"><img :src="NARRIVA_BRAND.quickSign" alt="Narriva Quick Sign Approved" /></span><span v-else-if="review?.status === 'bypassed'">Review decisions saved. Use the standard signature review.</span><span v-else-if="verified">Documentation checks passed.</span><span v-else>{{ busy ? 'Checking the current note…' : readOnly ? 'Saved submission findings · review with the signed note.' : 'Review the findings. Narriva verification and Quick Sign remain unavailable until the required checks pass.' }}</span><button v-if="(review || error) && !readOnly" type="button" :disabled="busy" @click="$emit('retry')">{{ busy ? 'Checking…' : 'Run checks again' }}</button></footer>
+    <footer><span v-if="preGeneration && ['passed','bypassed'].includes(review?.status)">{{ review.status === 'bypassed' ? 'Confirmed with recorded decisions · supervisor review required.' : 'Confirmed content is ready for the writer.' }}</span><span v-else-if="testMode">{{ busy ? 'Checking this test…' : 'Test only · no chart approval or Quick Sign eligibility.' }}</span><span v-else-if="review?.quickSignEligible === true && verified" class="narriva-compliance__eligible"><img :src="NARRIVA_BRAND.quickSign" alt="Narriva Quick Sign Approved" /></span><span v-else-if="review?.status === 'bypassed'">Review decisions saved. Use the standard signature review.</span><span v-else-if="verified">Documentation checks passed.</span><span v-else>{{ busy ? 'Checking the current note…' : readOnly ? 'Saved submission findings · review with the signed note.' : 'Review the findings. Narriva verification and Quick Sign remain unavailable until the required checks pass.' }}</span><button v-if="(review || error) && !readOnly" type="button" :disabled="busy" @click="$emit('retry')">{{ busy ? 'Checking…' : 'Run checks again' }}</button><slot name="generate" /></footer>
   </section>
 </template>
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { NARRIVA_BRAND, NARRIVA_CHECKS } from '../../config/narrivaBrand.js';
-const props = defineProps({ review: { type: Object, default: null }, busy: Boolean, error: { type: String, default: '' }, readOnly: Boolean, riskAssessmentRequired:Boolean, testMode:Boolean });
+const props = defineProps({ review: { type: Object, default: null }, busy: Boolean, error: { type: String, default: '' }, readOnly: Boolean, riskAssessmentRequired:Boolean, testMode:Boolean, preGeneration:Boolean });
 const emit = defineEmits(['retry', 'resolve', 'action']);
 const reasons = reactive({}), openBypass = ref('');
 watch(() => props.review?.id, () => { openBypass.value=''; for(const key of Object.keys(reasons))delete reasons[key]; });
@@ -53,7 +55,7 @@ const scoring = computed(() => {
   const value = props.review?.scoring;
   return value && typeof value.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 100 && value.threshold === 70 ? value : null;
 });
-const verified = computed(() => !props.busy && props.review?.status === 'passed' && scoring.value?.passed === true && scoring.value.mandatoryPassed === true && scoring.value.qualityPassed !== false && scoring.value.score >= scoring.value.threshold && checks.value.every(check => check.status === 'passed'));
+const verified = computed(() => !props.busy && props.review?.status === 'passed' && checks.value.every(check => check.status === 'passed') && (props.preGeneration || scoring.value?.passed === true && scoring.value.mandatoryPassed === true && scoring.value.qualityPassed !== false && scoring.value.score >= scoring.value.threshold));
 const mandatoryBlockers = computed(() => checks.value.filter(check => check.status !== 'passed'));
 const scoreOutcome = computed(() => {
   if (props.busy || ['pending', 'running'].includes(props.review?.status)) return 'Review in progress';

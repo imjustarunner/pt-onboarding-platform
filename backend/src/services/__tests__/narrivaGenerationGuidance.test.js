@@ -1,3 +1,4 @@
+vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:1,configuration:{mappings:{'97535':'clinical_code_decider'},generators:{}}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:1})}));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn(),agencies:vi.fn(),care:vi.fn(),client:vi.fn(),guardians:vi.fn(),
@@ -21,6 +22,15 @@ vi.mock('../billingRules.service.js',async importOriginal=>({...await importOrig
 vi.mock('../clinicalKnowledgeBase.service.js',()=>({getKnowledgeBaseContext:m.knowledge,getKnowledgeBaseEvidence:m.knowledge,noteAidKnowledgeBaseOptions:value=>value}));
 vi.mock('../sessionAiPrivacy.service.js',()=>({callPrivateSessionText:m.model,createSessionPrivacyContext:()=>({redact:async value=>value})}));
 vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:m.audit}));
+// This suite exercises source guidance after an independently checked encounter
+// and preflight. Keep real treatment-plan eligibility rules with approved source
+// records; preflight authorization has its own exact-content integration suite.
+vi.mock('../../models/clinical/ClinicalTreatmentPlan.model.js',()=>({default:{
+ listByClient:async()=>[{id:31,status:'active'}],
+ findById:async()=>({id:31,agency_id:2,client_id:10,status:'active',effective_date:'2026-11-01',goals:[]})
+}}));
+vi.mock('../treatmentPlanRenewal.service.js',async importOriginal=>({...await importOriginal(),loadRenewalPolicy:async()=>({renewAfterDays:90})}));
+vi.mock('../narrivaReview.service.js',()=>({assertNarrivaPreGeneration:vi.fn(async()=>({reviewId:81,keptAsIs:false,decisions:[],consentStatement:null}))}));
 
 // The controller, shared guidance packer, exact service reference, authoring tool,
 // credential checks, prompt builder, section parser and encryption remain real.
@@ -55,6 +65,12 @@ beforeEach(()=>{
 afterEach(()=>vi.unstubAllEnvs());
 
 describe('actual clinical generator shared service guidance boundary',()=>{
+ it('preserves a newer autosave when the generation snapshot no longer matches and never creates a replacement draft',async()=>{
+  const before=structuredClone(saved);m.updateDraft.mockResolvedValueOnce(null);
+  const {res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);
+  expect(res.json).toHaveBeenCalledWith({error:expect.objectContaining({code:'NARRIVA_GENERATION_SOURCE_CHANGED'})});
+  expect(m.updateDraft).toHaveBeenCalledWith(expect.objectContaining({expectedSnapshot:before}));expect(m.createDraft).not.toHaveBeenCalled();expect(saved).toEqual(before);
+ });
  it('blocks an unlinked progress draft before model dispatch or draft mutation',async()=>{
   saved={...saved,client_id:null,clinical_session_id:null,office_event_id:null};
   const before=structuredClone(saved);

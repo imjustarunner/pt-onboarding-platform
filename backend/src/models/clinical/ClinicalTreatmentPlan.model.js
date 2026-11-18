@@ -31,13 +31,22 @@ async function persistObjectiveInterventions(conn, objectiveId, interventions) {
 }
 
 class ClinicalTreatmentPlan {
+  static async updateDraftObjectiveInterventions({ objectiveId, agencyId, clientId, actorUserId, interventions }) {
+    const [result] = await clinicalPool.execute(`UPDATE clinical_treatment_plan_objectives o
+      INNER JOIN clinical_treatment_plan_goals g ON g.id=o.goal_id
+      INNER JOIN clinical_treatment_plans p ON p.id=g.treatment_plan_id
+      SET o.interventions_json=? WHERE o.id=? AND p.agency_id=? AND p.client_id=?
+      AND p.created_by_user_id=? AND p.status='draft'`,
+    [JSON.stringify(parseInterventionsField(interventions)), objectiveId, agencyId, clientId, actorUserId]);
+    return Number(result.affectedRows) > 0;
+  }
   static async create({
     agencyId,
     clientId,
     clinicalSessionId = null,
     clinicalNoteId = null,
     title = 'Treatment Plan',
-    status = 'active',
+    status = 'draft',
     dischargePlan = null,
     presentingProblem = null,
     prescribedFrequency = null,
@@ -49,6 +58,9 @@ class ClinicalTreatmentPlan {
     effectiveDate = null,
     supersedesImportedDraftId = null
   }) {
+    // New clinical content stays pending until the provider and supervisor review
+    // this exact version. Existing historical active records are left intact.
+    if (['active', 'final', 'finalized', 'approved', 'signed'].includes(String(status || '').toLowerCase())) status = 'draft';
     const conn = await clinicalPool.getConnection();
     try {
       await conn.beginTransaction();
@@ -221,14 +233,14 @@ class ClinicalTreatmentPlan {
     }
   }
 
-  static async findById(id) {
-    const [rows] = await clinicalPool.execute(
+  static async findById(id, database = clinicalPool) {
+    const [rows] = await database.execute(
       `SELECT * FROM clinical_treatment_plans WHERE id = ? LIMIT 1`,
       [id]
     );
     const plan = rows?.[0];
     if (!plan) return null;
-    const [goals] = await clinicalPool.execute(
+    const [goals] = await database.execute(
       `SELECT * FROM clinical_treatment_plan_goals
        WHERE treatment_plan_id = ?
        ORDER BY goal_index ASC`,
@@ -236,7 +248,7 @@ class ClinicalTreatmentPlan {
     );
     const outGoals = [];
     for (const g of goals || []) {
-      const [objs] = await clinicalPool.execute(
+      const [objs] = await database.execute(
         `SELECT * FROM clinical_treatment_plan_objectives
          WHERE goal_id = ?
          ORDER BY objective_index ASC`,
@@ -252,7 +264,7 @@ class ClinicalTreatmentPlan {
     }
     let planDiagnoses = [];
     try {
-      const [dxRows] = await clinicalPool.execute(
+      const [dxRows] = await database.execute(
         `SELECT pd.id, pd.treatment_plan_id, pd.diagnosis_id, pd.sort_order, pd.is_primary, pd.justification,
                 d.icd10_code, d.description
          FROM clinical_treatment_plan_diagnoses pd
@@ -285,19 +297,21 @@ class ClinicalTreatmentPlan {
    * Update or insert the "Prescribed Frequency of Treatment" block inside discharge_plan.
    */
   static async updatePrescribedFrequency({ planId, agencyId, clientId, prescribedFrequency } = {}) {
-    const id = Number(planId || 0);
-    const aid = Number(agencyId || 0);
-    const cid = Number(clientId || 0);
+    const id = Number(planId || 0), aid = Number(agencyId || 0), cid = Number(clientId || 0);
     if (!id || !aid || !cid) return null;
-    const plan = await this.findById(id);
-    if (!plan || Number(plan.agency_id) !== aid || Number(plan.client_id) !== cid) {
-      const err = new Error('Treatment plan not found');
-      err.status = 404;
-      throw err;
-    }
-    const sections = splitTreatmentPlanSections(plan);
-    await persistTreatmentPlanSections(clinicalPool, { planId: id, agencyId: aid, clientId: cid, sections: { ...sections, prescribedFrequency: String(prescribedFrequency || '').trim() } });
-    return this.findById(id);
+    const conn = await clinicalPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[locked]] = await conn.execute('SELECT id,status FROM clinical_treatment_plans WHERE id=? AND agency_id=? AND client_id=? FOR UPDATE', [id, aid, cid]);
+      if (!locked) throw Object.assign(new Error('Treatment plan not found'), { status: 404 });
+      if (locked.status !== 'draft') throw Object.assign(new Error('Create a treatment-plan revision before changing an approved plan frequency.'), { status: 409 });
+      const plan = await this.findById(id, conn);
+      const sections = splitTreatmentPlanSections(plan);
+      await persistTreatmentPlanSections(conn, { planId: id, agencyId: aid, clientId: cid, sections: { ...sections, prescribedFrequency: String(prescribedFrequency || '').trim() } });
+      await conn.commit();
+      return this.findById(id);
+    } catch (error) { await conn.rollback(); throw error; }
+    finally { conn.release(); }
   }
 
   static async updateObjectiveKioskPrompts(objectiveId, { kioskPrompt, kioskPromptOther } = {}) {
@@ -461,6 +475,8 @@ class ClinicalTreatmentPlan {
     const conn = await clinicalPool.getConnection();
     try {
       await conn.beginTransaction();
+      const [[locked]] = await conn.execute('SELECT id,status FROM clinical_treatment_plans WHERE id=? FOR UPDATE', [pid]);
+      if (!locked || locked.status !== 'draft') throw Object.assign(new Error('Create a pending treatment-plan revision before changing approved plan diagnoses.'), { status: 409 });
       try {
         await conn.execute(`DELETE FROM clinical_treatment_plan_diagnoses WHERE treatment_plan_id = ?`, [pid]);
         let primaryId = Number(primaryDiagnosisId || 0) || null;
@@ -512,7 +528,7 @@ class ClinicalTreatmentPlan {
    * - goal_text change → supersede goal, insert new goal + require new objectives
    */
   static async amend({ planId, agencyId, clientId, goals = [] }) {
-    const plan = await this.findById(planId);
+    let plan = await this.findById(planId);
     if (!plan) throw new Error('Treatment plan not found');
     if (Number(plan.agency_id) !== Number(agencyId) || Number(plan.client_id) !== Number(clientId)) {
       throw new Error('Treatment plan does not belong to this agency/client');
@@ -521,6 +537,9 @@ class ClinicalTreatmentPlan {
     const conn = await clinicalPool.getConnection();
     try {
       await conn.beginTransaction();
+      const [[locked]] = await conn.execute('SELECT id,status FROM clinical_treatment_plans WHERE id=? AND agency_id=? AND client_id=? FOR UPDATE', [planId, agencyId, clientId]);
+      if (!locked || locked.status !== 'draft') throw Object.assign(new Error('Create a pending treatment-plan revision before changing an approved plan.'), { status: 409 });
+      plan = await this.findById(planId, conn);
       const existingGoals = plan.goals || [];
 
       for (const incoming of goals || []) {

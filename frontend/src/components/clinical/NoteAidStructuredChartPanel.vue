@@ -45,6 +45,8 @@
           <button type="button" class="na-chart__btn" @click="$emit('mse-all-not-assessed')">All Not Assessed</button>
         </div>
       </div>
+      <NoteAidMseHistoryPicker :history="mseHistory" @apply="applyHistoricalMse" />
+      <p v-if="mse.source?.sourceDate" class="muted tiny">Reviewed findings from {{ mse.source.sourceDate }}; confirmed for this session.</p>
       <div class="na-mse-grid">
         <div
           v-for="def in mseDomainDefs"
@@ -273,6 +275,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue';
+import NoteAidMseHistoryPicker from './NoteAidMseHistoryPicker.vue';
 import {
   MSE_DOMAIN_DEFS,
   RISK_DOMAIN_DEFS,
@@ -287,6 +290,7 @@ const props = defineProps({
   diagnoses: { type: Array, default: () => [] },
   diagnosticJustification: { type: String, default: '' },
   mse: { type: Object, default: () => ({ domains: {} }) },
+  mseHistory: { type:Array, default:()=>[] },
   risk: {
     type: Object,
     default: () => ({ patientDeniesAll: false, items: {}, areas: [], protectiveFactors: [], notes: '' })
@@ -309,6 +313,10 @@ const emit = defineEmits([
 ]);
 
 const mseDomainDefs = MSE_DOMAIN_DEFS;
+function applyHistoricalMse(row) {
+  if(!row.confirmedForCurrentSession)return;
+  emit('update:mse',{...row.mse,source:{type:'prior_note',noteId:row.noteId,sourceDate:row.sourceDate,confirmedForCurrentSession:true}});
+}
 const riskDomainDefs = RISK_DOMAIN_DEFS;
 const protectiveFactorChoices = PROTECTIVE_FACTOR_OPTIONS;
 

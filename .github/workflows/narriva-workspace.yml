@@ -54,3 +54,23 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.narriva-guidance.config.js --maxWorkers=3
       - name: Verify clinical signature, amendment and claim boundaries
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js --maxWorkers=3
+      - name: Verify plan lifecycle and runtime packaging
+        run: |
+          node --test --test-force-exit backend/src/services/__tests__/narrivaPlanLifecycle.test.js backend/src/services/__tests__/clinicalNoteHydrogenTransport.test.js
+          node scripts/check-backend-runtime-shared-imports.mjs
+      - name: Verify rollout access, session recovery and exports
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.narriva-session-integrity.config.js --maxWorkers=3
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.narriva-rollout-access.config.js --maxWorkers=3
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.narriva-platform-export.config.js --maxWorkers=3
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.narriva-risk.config.js --maxWorkers=3
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.provider-conversion.config.js --maxWorkers=3
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.password-recovery.config.js --maxWorkers=3
+      - name: Verify plan, MSE and rollout interfaces
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.narriva-plan-lifecycle.config.js --maxWorkers=3
+          node node_modules/vitest/vitest.mjs run --config vitest.narriva-mse.config.js --maxWorkers=3
+          node node_modules/vitest/vitest.mjs run --config vitest.narriva-session-integrity.config.js --maxWorkers=3
+          node node_modules/vitest/vitest.mjs run --config vitest.narriva-rollout-access.config.js --maxWorkers=3
+          node node_modules/vitest/vitest.mjs run --config vitest.narriva-platform-export.config.js --maxWorkers=3

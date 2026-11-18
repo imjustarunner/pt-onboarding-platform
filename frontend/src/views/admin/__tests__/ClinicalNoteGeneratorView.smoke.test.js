@@ -180,11 +180,85 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   });
 
   it('keeps the legacy guidance aid on the explicit service without asking AI to choose a billed code',async()=>{
-    const {wrapper,state}=await workspace('code_decider');state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.noteWriterMode='narriva';await nextTick();state.selectedServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();expect(state.generateBlockedReason).toBe('');expect(state.generateDisabled).toBe(false);vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('autoSelectCode')).toBe('false');expect(request[1].get('serviceCode')).toBe('90837');expect(request[1].get('toolId')).toBeNull();wrapper.unmount();
+    const {wrapper,state}=await workspace('code_decider');state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.noteWriterMode='narriva';await nextTick();state.selectedServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();expect(state.generateBlockedReason).toBe('');expect(state.generateDisabled).toBe(false);vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));state.narrivaReview={id:404,phase:'pre_generation',status:'passed'};await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('preflightReviewId')).toBe('404');expect(request[1].get('autoSelectCode')).toBe('false');expect(request[1].get('serviceCode')).toBe('90837');expect(request[1].get('toolId')).toBeNull();wrapper.unmount();
   });
 
   it('generates Pro Bono documentation from the explicitly chosen clinical service while retaining its funding code',async()=>{
-    const {wrapper,state}=await workspace('code_decider');state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.noteWriterMode='narriva';await nextTick();state.otherServiceCode='PRO-BONO SERVICE';state.selectedServiceCode='__other__';state.narrivaUnderlyingServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('serviceCode')).toBe('PRO-BONO SERVICE');expect(request[1].get('underlyingServiceCode')).toBe('90837');expect(request[1].get('autoSelectCode')).toBe('false');wrapper.unmount();
+    const {wrapper,state}=await workspace('code_decider');state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.noteWriterMode='narriva';await nextTick();state.otherServiceCode='PRO-BONO SERVICE';state.selectedServiceCode='__other__';state.narrivaUnderlyingServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));state.narrivaReview={id:405,phase:'pre_generation',status:'passed'};await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('preflightReviewId')).toBe('405');expect(request[1].get('serviceCode')).toBe('PRO-BONO SERVICE');expect(request[1].get('underlyingServiceCode')).toBe('90837');expect(request[1].get('autoSelectCode')).toBe('false');wrapper.unmount();
+  });
+
+  it('persists inline clinical context for the note, rechecks it, and restores it without changing the plan', async () => {
+    const { wrapper, state } = await workspace('psychotherapy');
+    const plan = { id: 10, agency_id: 7, client_id: 202, status: 'active', effective_date: '2026-10-20', presenting_problem: 'The plan concern remains unchanged.', goals: [] };
+    const existingDiagnosis = { id: 14, icd10_code: 'F43.9', description: 'Existing diagnosis', justification: 'Existing provider justification.', is_primary: 1 };
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/clients/202' ? { id: 202, agency_id: 7, client_type: 'clinical' } : url.endsWith('/chart') ? { latestPlan: plan, plans: [plan], diagnoses: [existingDiagnosis] } : {} }));
+    state.selectedClientId = 202; state.selectedClient = { id: 202, agency_id: 7, client_type: 'clinical' };
+    state.sessionClinicalSessionId = 90; state.sessionAppointmentId = 190; state.dateOfService = '2026-11-06';
+    await flushPromises();
+    state.latestTreatmentPlan = plan; state.chartDiagnoses = [existingDiagnosis]; state.inputText = 'The clinician documented the actual intervention and response.';
+    await state.applyNarrivaInlineUpdate({ presentingProblem: 'Recent worry interferes with sleep and school participation.' });
+    await state.applyNarrivaInlineUpdate({ diagnosis: { icd10_code: 'F41.1', description: 'Generalized anxiety disorder', justification: 'Provider confirmed duration, symptoms and functional impact.' } });
+    vi.mocked(api.post).mockImplementation(async url => ({ data: url === '/narriva/reviews' ? { review: { id: 72, phase: 'pre_generation', status: 'passed' } } : { draft: { id: 66, updated_at: '2026-11-06T12:00:00Z' } } }));
+    await state.saveDraftNow();
+    const saved = vi.mocked(api.post).mock.calls.find(([url]) => url === '/clinical-notes/drafts')[1];
+    expect(saved.outputJson.meta.narrivaContext).toMatchObject({ presentingProblem: 'Recent worry interferes with sleep and school participation.', presentingProblemOverride: 'Recent worry interferes with sleep and school participation.' });
+    expect(saved.outputJson.meta.structuredChart.diagnoses.map(row => row.icd10_code)).toEqual(['F43.9', 'F41.1']);
+    expect(saved.outputJson.meta.structuredChart.diagnosticJustification).toContain('Provider confirmed duration');
+    expect(state.latestTreatmentPlan.presenting_problem).toBe('The plan concern remains unchanged.');
+    await state.runNarrivaChecks({ phase: 'pre_generation' });
+    expect(vi.mocked(api.post).mock.calls.find(([url]) => url === '/narriva/reviews')[1]).toMatchObject({ draftId: 66, phase: 'pre_generation' });
+    await state.loadDraftIntoWorkspace({ id: 66, client_id: 202, agency_id: 7, clinical_session_id: 90, service_code: '90834', input_text: saved.inputText, output_json: saved.outputJson });
+    await flushPromises();
+    expect(state.chartPresentingProblem).toBe('Recent worry interferes with sleep and school participation.');
+    expect(state.chartDiagnoses.map(row => row.icd10_code)).toEqual(['F43.9', 'F41.1']);
+    state.resetClientClinicalContext(); expect(state.sessionPresentingProblemOverride).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('limits inline diagnosis authorship to the existing service and credential policy', async () => {
+    const { wrapper, state } = await workspace('h0031_additional');
+    state.derivedTier = 'bachelors';
+    state.chartDiagnoses = [{ id: 14, icd10_code: 'F43.9', justification: 'An authorized existing diagnosis remains on file.' }];
+    await nextTick();
+    await state.applyNarrivaInlineUpdate({ diagnosis: { icd10_code: 'F41.1', description: 'Generalized anxiety disorder', justification: 'This attempted new F diagnosis must not be authored here.' } });
+    expect(state.chartDiagnoses.map(row => row.icd10_code)).toEqual(['F43.9']);
+    await state.applyNarrivaInlineUpdate({ diagnosis: { icd10_code: 'Z63.9', description: 'Problem related to primary support group', justification: 'Provider documented the support concern and its impact.' } });
+    expect(state.chartDiagnoses.map(row => row.icd10_code)).toEqual(['F43.9', 'Z63.9']);
+    state.selectedAidId = 'h0004_note'; await nextTick();
+    await state.applyNarrivaInlineUpdate({ diagnosis: { icd10_code: 'Z60.9', description: 'Social environment concern', justification: 'A chart-only service must not author a new diagnosis.' } });
+    expect(state.chartDiagnoses.map(row => row.icd10_code)).toEqual(['F43.9', 'Z63.9']);
+    wrapper.unmount();
+  });
+
+  it.each(['narrative', 'participants', 'consent'])('preserves current %s edits when an older generation finishes', async (changedField) => {
+    const { wrapper, state } = await workspace('code_decider');
+    state.sessionClinicalSessionId = 90; state.sessionAppointmentId = 190; state.noteWriterMode = 'narriva';
+    await nextTick();
+    state.selectedServiceCode = '90837'; state.initials = 'SYN'; state.dateOfService = '2026-11-06';
+    state.inputText = 'Original synthetic account of the intervention and response.';
+    state.narrivaConsentConfirmed = true;
+    state.outputObj = { sections: { Narrative: 'Previously reviewed synthetic note.' }, meta: { manualSections: true } };
+    await nextTick();
+    state.narrivaReview = { id: 408, phase: 'pre_generation', status: 'passed' };
+    let finish;
+    vi.mocked(api.post).mockImplementation(async url => url === '/clinical-notes/generate'
+      ? await new Promise(resolve => { finish = resolve; }) : { data: {} });
+    const generating = state.generateNote();
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    if (changedField === 'narrative') state.inputText = 'New clinician content entered while the writer was running.';
+    if (changedField === 'participants') { state.sessionParticipants = 'Client and Others'; state.sessionParticipantsDetail = 'Mother'; }
+    if (changedField === 'consent') state.narrivaConsentConfirmed = false;
+    await nextTick();
+    finish({ data: { outputJson: { sections: { Narrative: 'Stale output from the original content.' } }, draftId: 61 } });
+    await generating; await flushPromises();
+    expect(state.outputObj.sections.Narrative).toBe('Previously reviewed synthetic note.');
+    expect(state.generateError).toContain('changed while generating');
+    expect(state.narrivaReview).toBeNull();
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/narriva/reviews')).toBe(false);
+    if (changedField === 'narrative') expect(state.inputText).toContain('New clinician content');
+    if (changedField === 'participants') expect(state.sessionParticipantsDetail).toBe('Mother');
+    if (changedField === 'consent') expect(state.narrivaConsentConfirmed).toBe(false);
+    wrapper.unmount();
   });
 
   it('cannot reintroduce morning, unverified or Pro Bono99051 through a toggle or schedule-seeded merge',async()=>{
@@ -330,7 +404,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally { wrapper.unmount(); }
   });
 
-  it('opens a real H0004 session from the client to-do list with the three writing methods', async () => {
+  it('opens a real H0004 session with a collapsed writer choice and three available methods', async () => {
     const { wrapper, state } = await workspace('', { realWriterChooser: true });
     try {
       state.beginCreateNote();
@@ -342,6 +416,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(state.selectedAidId).toBe('h0004_note');
       expect(state.needsActualProgressSession).toBe(false);
       expect(wrapper.findComponent({ name: 'NarrivaModeChooser' }).exists()).toBe(true);
+      expect(wrapper.find('.narriva-modes__options').exists()).toBe(false);
+      await wrapper.get('.narriva-modes__summary button').trigger('click');
       const writers = wrapper.find('.narriva-modes__options');
       expect(writers.findAll('button')).toHaveLength(3);
       expect(writers.text()).toContain('Manual writer');
@@ -375,6 +451,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(state.dateOfService).toBe('2026-11-16');
       expect(state.sessionStartTimeLocal).toBe('08:30');
       expect(state.sessionEndTimeLocal).toBe('09:30');
+      expect(wrapper.find('.narriva-modes__options').exists()).toBe(false);
+      await wrapper.get('.narriva-modes__summary button').trigger('click');
       expect(wrapper.find('.narriva-modes__options').findAll('button')).toHaveLength(3);
       expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).exists()).toBe(false);
     } finally { wrapper.unmount(); }
@@ -673,7 +751,39 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/clinical-notes/generate')).toBe(false);
     state.latestTreatmentPlan = { id: 81, status: 'active', effective_date: '2020-01-01', goals: [{ goal_text: 'Coping', objectives: [{ objective_text: 'Practice coping' }] }] };
     expect(state.generateDisabled).toBe(true);
-    expect(state.generateBlockedReason).toContain('older than');
+    expect(state.encounterPlanEligibility.code).toBe('treatment_plan_expired');
+    wrapper.unmount();
+  });
+
+  it('uses the seven-day treatment-plan exception without backdating or selecting a pending revision', async () => {
+    const { wrapper, state } = await workspace('psychotherapy');
+    state.selectedClientId = 202;
+    state.dateOfService = '2026-11-16';
+    await flushPromises();
+    const approved = { id: 10, agency_id: 7, client_id: 202, status: 'active', effective_date: '2026-11-17', goals: [{ id: 1, goal_text: 'A goal', objectives: [{ id: 2, objective_text: 'An objective' }] }] };
+    state.chartTreatmentPlans = [{ ...approved, id: 12, status: 'draft', effective_date: '2026-11-19' }, { ...approved, id: 11, status: 'draft', effective_date: '2026-11-18' }, approved];
+    state.planDraftEditorId = 11;
+    state.latestTreatmentPlan = approved;
+    await nextTick();
+    expect(state.progressPlanIsCurrent).toBe(true);
+    expect(state.encounterPlanEligibility).toMatchObject({ planId: 10, planDate: '2026-11-17', dateOfService: '2026-11-16', latePlan: true });
+    expect(state.planAwaitingReview.id).toBe(11);
+    state.planDraftEditorId = 999;
+    expect(state.planAwaitingReview.id).toBe(12);
+    expect(state.latestTreatmentPlan.id).toBe(10);
+    state.dateOfService = '2026-11-09';
+    await nextTick();
+    expect(state.progressPlanIsCurrent).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('feeds MSE history from authorized signed findings and excludes later sessions', async () => {
+    const { wrapper, state } = await workspace('psychotherapy');
+    state.dateOfService = '2026-11-16';
+    await flushPromises();
+    state.chartMseHistory = [{ noteId: 10, sourceDate: '2026-11-15', mse: { domains: { appearance: { status: 'selected', option: 'Neat' } } } }, { noteId: 11, sourceDate: '2026-11-18', mse: { domains: { appearance: { status: 'selected', option: 'Neat' } } } }];
+    await nextTick();
+    expect(state.authorizedMseHistory.map(row => row.noteId)).toEqual([10]);
     wrapper.unmount();
   });
 
@@ -978,7 +1088,9 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(Object.keys(state.outputObj.sections)).toEqual(['Reason for Termination', 'Treatment Modality and Interventions', 'Treatment Goals and Outcome', 'Recommendations']);
     state.terminationReason = 'goals_achieved';
     state.onTerminationReasonChange();
-    expect(state.terminationRecommendation).toContain('presenting problem returns');
+    expect(state.terminationRecommendation).toBe('');
+    expect(state.canConfirmAndSign).toBe(false);
+    state.terminationRecommendation = 'Return for assessment if the presenting problem returns; continue the agreed home practice.';
     state.sectionOverrides['Treatment Modality and Interventions'] = 'CBT was applied throughout treatment.';
     state.sectionOverrides['Treatment Goals and Outcome'] = 'The documented goals and objectives were achieved.';
     state.planFrequencyBaseline = 'Weekly';
@@ -988,9 +1100,14 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     const approved = JSON.parse(state.buildApprovedPayloadText());
     expect(approved.sections['Reason for Termination']).toBe('Treatment goals achieved');
     expect(approved.sections.Recommendations).toBe(state.terminationRecommendation);
+    delete state.sectionOverrides.Recommendations;
+    state.outputObj.sections.Recommendations = 'Generated care recommendations integrate the documented treatment course and provider guidance.';
+    await nextTick();
+    expect(JSON.parse(state.buildApprovedPayloadText()).sections.Recommendations).toBe(state.outputObj.sections.Recommendations);
     state.terminationReason = 'transfer';
     state.onTerminationReasonChange();
-    expect(state.terminationRecommendation).toBe('');
+    expect(state.terminationRecommendation).toBe(approved.sections.Recommendations);
+    state.terminationRecommendation = '';
     expect(state.canConfirmAndSign).toBe(false);
     wrapper.unmount();
   });
@@ -1114,6 +1231,9 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     state.selectedClient = { id: 22, agency_id: 7 };
     await flushPromises();
     state.sessionClinicalSessionId = 9; state.sessionAppointmentId = 109;
+    state.dateOfService = '2026-11-03';
+    state.chartTreatmentPlans = [{ id: 91, agency_id: 7, client_id: 22, status: 'active', effective_date: '2026-10-20', goals: [] }];
+    state.latestTreatmentPlan = state.chartTreatmentPlans[0];
     state.outputObj = { sections: { Subjective: 'Client report.', Objective: 'Session observations.', Interventions: 'Skills practice', Plan: 'Terminate treatment.' }, meta: { manualSections: true } };
     await nextTick();
     state.noteTreatmentRecommendation = 'terminate';
@@ -1121,6 +1241,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     state.notePrescribedFrequency = '';
     expect(state.canConfirmAndSign).toBe(false);
     state.terminationNextStep = 'after_progress';
+    state.narrivaConsentConfirmed = true;
     expect(state.canConfirmAndSign).toBe(true);
     state.attestAccurateAndComplete = true;
     state.attestMedicallyNecessary = true;

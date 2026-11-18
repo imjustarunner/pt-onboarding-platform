@@ -170,7 +170,8 @@ class ClinicalNoteDraft {
   static async updateForUser({
     draftId,
     userId,
-    patch = {}
+    patch = {},
+    expectedSnapshot = null
   }) {
     const id = safeInt(draftId);
     const uid = safeInt(userId);
@@ -244,10 +245,15 @@ class ClinicalNoteDraft {
     if (!updates.length) return this.findByIdForUser({ draftId: id, userId: uid });
 
     values.push(id, uid);
+    // Generated text must never overwrite a newer autosave or a deleted/archived
+    // draft. Compare the original persisted bytes and scope in the same UPDATE.
+    const snapshotColumns = ['agency_id', 'client_id', 'office_event_id', 'clinical_session_id', 'service_code', 'program_id', 'date_of_service', 'input_text', 'output_json', 'archived_at'];
+    const snapshotWhere = expectedSnapshot ? snapshotColumns.map(column => ['input_text', 'output_json'].includes(column) ? `BINARY ${column} <=> BINARY ?` : `${column} <=> ?`).join(' AND ') : '';
+    if (expectedSnapshot) values.push(...snapshotColumns.map(column => expectedSnapshot[column] ?? null));
     const [result] = await pool.execute(
       `UPDATE clinical_note_drafts
        SET ${updates.join(', ')}
-       WHERE id = ? AND user_id = ?
+       WHERE id = ? AND user_id = ?${snapshotWhere ? ` AND ${snapshotWhere}` : ''}
        LIMIT 1`,
       values
     );
@@ -448,12 +454,30 @@ class ClinicalNoteDraft {
     // Do not filter by workspace agency_id — drafts are often stamped with the
     // client's tenant while the request sends the current workspace.
 
-    const [result] = await pool.execute(
-      `DELETE FROM clinical_note_drafts
-       WHERE ${where.join(' AND ')}`,
-      params
-    );
-    return Number(result?.affectedRows || 0);
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      // Deleting an unsigned draft does not delete its appointment or ToDo.
+      // Reset references in the same transaction so reloads cannot retain a
+      // deleted draft as the session's current work item.
+      await connection.execute(
+        `UPDATE note_aid_work_queue_items q JOIN clinical_note_drafts d
+           ON d.id=q.draft_id AND d.user_id=q.user_id
+         SET q.draft_id=NULL,q.status='not_started',q.started_at=NULL,q.completed_at=NULL
+         WHERE q.user_id=? AND d.id IN (${ids.map(() => '?').join(',')})
+           AND q.status<>'signed' AND q.clinical_note_id IS NULL`,params
+      );
+      const [result] = await connection.execute(
+        `DELETE FROM clinical_note_drafts WHERE ${where.join(' AND ')}`,params
+      );
+      await connection.commit();
+      return Number(result?.affectedRows || 0);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   /** Hard-delete every Documentation Hub draft for one clinician (does not touch chart notes). */

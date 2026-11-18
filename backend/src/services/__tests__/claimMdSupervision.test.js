@@ -15,11 +15,21 @@ describe('supervised billing policy',()=>{
     expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
     expect(documentReviewRequirement({...v.note,note_type:'CONTACT_NOTE'},{nonBillableReview:'none',noteTypes:[]})).toEqual({mandatoryReview:true,reviewRequested:true});
   });
-  it('allows independent discretionary review for every non-service note type',()=>{
-    for (const selected of NONBILLABLE_TYPES) {
+  it('allows independent discretionary review for other non-service note types',()=>{
+    const discretionaryTypes=NONBILLABLE_TYPES.filter(type=>type!=='TREATMENT_PLAN');
+    for (const selected of discretionaryTypes) {
       const policy=normalizeSupervisionPolicy({cosignTiming:'after_submission',cosignDueDays:7,nonBillableReview:'selected',noteTypes:[selected]});
-      for(const type of NONBILLABLE_TYPES)expect(documentReviewRequirement({note_type:type},policy).reviewRequested).toBe(type===selected);
+      for(const type of discretionaryTypes)expect(documentReviewRequirement({note_type:type},policy).reviewRequested).toBe(type===selected);
       expect(documentReviewRequirement({note_type:selected},{...policy,nonBillableReview:'none'},[selected])).toEqual({mandatoryReview:true,reviewRequested:true});
+    }
+  });
+  it('always requires treatment-plan supervisor review despite discretionary exclusions',()=>{
+    for(const mode of ['none','selected','all']) {
+      const policy=normalizeSupervisionPolicy({cosignTiming:'after_submission',cosignDueDays:7,nonBillableReview:mode,noteTypes:['CONTACT_NOTE']});
+      for(const note of [{note_type:'TREATMENT_PLAN'},{note_type:'Treatment Plan'},{metadata_json:{noteType:'TREATMENT_PLAN'}}]) {
+        expect(documentReviewRequirement(note,policy)).toEqual({mandatoryReview:true,reviewRequested:true});
+        expect(isNonBillableDocument(note)).toBe(true);
+      }
     }
   });
   it('requires amendment sign-off even for excluded non-service note types',()=>{

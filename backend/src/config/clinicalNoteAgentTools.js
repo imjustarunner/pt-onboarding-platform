@@ -1,3 +1,4 @@
+import { DEFAULT_CLINICAL_NOTE_MODEL } from './clinicalNoteModel.js';
 // Clinical Note Agent tools sourced from Clinical_Note_Agent.md (full gem instructions).
 import {
   TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
@@ -145,7 +146,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_h0004_note',
@@ -250,7 +251,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', '90791_intake_plan'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_nlu_docs',
@@ -293,7 +294,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     ].join('\n'),
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'termination'],
-    model: 'gemini-2.5-pro',
+    model: DEFAULT_CLINICAL_NOTE_MODEL,
     temperature: 0.2,
     maxOutputTokens: 16000
   },
@@ -338,7 +339,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'treatment_summary'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro',
+    model: DEFAULT_CLINICAL_NOTE_MODEL,
     sectionSchema: 'treatment_summary'
   },
   {
@@ -352,7 +353,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'skill_builders_plan'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_tpt_plan',
@@ -365,7 +366,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'TPT'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_h0032_consult',
@@ -402,7 +403,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'psychotherapy'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_family_note',
@@ -415,7 +416,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'family_sessions'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_h0004_plan',
@@ -428,7 +429,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'H0004_plan'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_individual_plan',
@@ -441,7 +442,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'H2014_individual'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_h0023_full_packet',
@@ -466,7 +467,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'psychotherapy_plan'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   },
   {
     id: 'clinical_cs_note_build',
@@ -492,7 +493,7 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     kbFolders: ['shared', 'psychotherapy'],
     temperature: 0.2,
     maxOutputTokens: 4000,
-    model: 'gemini-2.5-pro'
+    model: DEFAULT_CLINICAL_NOTE_MODEL
   }
 ];
 

@@ -24,6 +24,10 @@ it('uses source-local DOS rather than the UTC calendar date across midnight and 
   expect(await resolve({ dateOfService: '2026-11-01' })).toMatchObject({ id: 140 });
   expect(await resolve({ dateOfService: '2026-11-02' })).toBeNull();
 });
+it('preserves an explicit ISO timezone offset instead of appending another UTC suffix',async()=>{
+ sessions.findById.mockResolvedValue({...canonical,scheduled_start_at:'2026-10-19T09:00:00-06:00'});
+ expect(await resolve({clinicalSessionId:140})).toMatchObject({id:140});
+});
 it('requires the precise appointment when multiple same-day sessions match', async () => {
   database.execute.mockResolvedValue([[canonical, { ...canonical, id: 141, appointment_id: 85 }]]);
   await expect(resolve({})).rejects.toMatchObject({ status: 409, message: expect.stringContaining('More than one appointment') });

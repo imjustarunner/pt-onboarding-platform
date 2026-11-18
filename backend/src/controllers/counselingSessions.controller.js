@@ -338,7 +338,7 @@ export async function createSession(req, res) {
     }
 
     await assertCanCreateCounselingSession(req, agencyId);
-    await requireClientSessionBooking(agencyId, providerUserId);
+    await requireClientSessionBooking(agencyId, providerUserId, undefined, { actorUserId: req.user.id });
 
     const roomUniqueName = `counseling-${agencyId}-${Date.now()}`;
     const vonageSessionId = null;

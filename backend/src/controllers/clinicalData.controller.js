@@ -17,6 +17,7 @@ import ClinicalEligibilityService from '../services/clinicalEligibility.service.
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import pool from '../config/database.js';
 import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+import { protectNarrivaPreflightMetadata } from '../services/narrivaRiskAssessment.service.js';
 import {
   getPrimaryClinicalDiagnosis,
   attachDiagnosisToClinicalNote
@@ -306,7 +307,7 @@ export const createSessionNote = async (req, res, next) => {
         : null;
     const notePayload = notePayloadRaw != null ? maybeEncryptNotePayload(notePayloadRaw) : null;
     const noteTypeRaw = req.body?.noteType ? String(req.body.noteType).trim() : null;
-    const metadata = {
+    let metadata = {
       ...(req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}),
       noteType: noteTypeRaw,
       templateVersion: req.body?.templateVersion ? String(req.body.templateVersion).trim() : null,
@@ -339,7 +340,8 @@ export const createSessionNote = async (req, res, next) => {
     }
 
     const draftIdMeta = parseIntValue(metadata.draftId);
-    if (metadata.quickCopyOnly === true || (draftIdMeta && isQuickCopyDraft(await ClinicalNoteDraft.findByIdForUser({ draftId: draftIdMeta, userId: req.user.id })))) {
+    const sourceDraft=draftIdMeta?await ClinicalNoteDraft.findByIdForUser({ draftId: draftIdMeta, userId: req.user.id }):null;
+    if (metadata.quickCopyOnly === true || isQuickCopyDraft(sourceDraft)) {
       throw Object.assign(new Error('Therapy Notes generator notes stay separate from clinical signing. Review and copy their sections into your documentation system.'), { status: 409 });
     }
     // Service changes lock this same encounter row. Keep the current context,
@@ -366,6 +368,13 @@ export const createSessionNote = async (req, res, next) => {
         assertActualProgressSessionSnapshot(currentSession,{providerUserId:req.user.id});
       }
     };
+    const protectPreflight=async()=>{
+      if(sourceDraft && (Number(sourceDraft.agency_id)!==Number(session.agency_id) || Number(sourceDraft.client_id)!==Number(session.client_id)
+        || sourceDraft.clinical_session_id && Number(sourceDraft.clinical_session_id)!==Number(session.id))) {
+        throw Object.assign(new Error('The saved draft belongs to a different client or session. Open its original appointment.'),{status:409});
+      }
+      metadata=await protectNarrivaPreflightMetadata({metadata,draft:sourceDraft,session,authorUserId:req.user.id,notePayload:notePayloadRaw});
+    };
     let note = null;
     if (draftIdMeta) {
       note = await ClinicalNote.findByDraftId({
@@ -387,6 +396,7 @@ export const createSessionNote = async (req, res, next) => {
           return res.json({ ok: true, note });
         }
         assertProgressSource();
+        await protectPreflight();
         note = await ClinicalNote.updatePayload({
           noteId: note.id,
           title,
@@ -397,6 +407,7 @@ export const createSessionNote = async (req, res, next) => {
     }
     if (!note) {
       assertProgressSource();
+      await protectPreflight();
       note = await ClinicalNote.create({
         clinicalSessionId: session.id,
         agencyId: session.agency_id,

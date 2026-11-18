@@ -28,8 +28,21 @@ describe('client session booking rollout authorization',()=>{
 it('lets a scoped admin discover agency tutoring booking without pretending the admin is a provider',async()=>{
  m.providers.mockResolvedValue([{id:1496}]);m.access.mockResolvedValue({enabled:true,availableBusinessTypes:['tutoring']});const res=response(),next=vi.fn();
  await getClientSessionBookingAccess({user:{id:1807,role:'admin'},query:{agencyId:453,providerUserId:1807,scope:'agency',businessType:'any'}},res,next);
- expect(m.access).toHaveBeenCalledWith(453,1496,undefined,{businessType:'any'});expect(res.json).toHaveBeenCalledWith(expect.objectContaining({enabled:true,availableBusinessTypes:['tutoring']}));expect(m.save).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
+ expect(m.access).toHaveBeenCalledWith(453,1496,undefined,{businessType:'any',actorUserId:1807});expect(res.json).toHaveBeenCalledWith(expect.objectContaining({enabled:true,availableBusinessTypes:['tutoring']}));expect(m.save).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
 });
 it('does not give a provider the agency-wide scheduling capability',async()=>{
  const next=vi.fn();await getClientSessionBookingAccess({user:{id:1496,role:'provider'},query:{agencyId:453,scope:'agency'}},response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.providers).not.toHaveBeenCalled();
+});
+
+it('lets ITSCO support discover staff booking capability while keeping activation admin-only',async()=>{
+ m.providers.mockResolvedValue([{id:13}]);m.access.mockResolvedValue({enabled:true,availableBusinessTypes:['mental_health']});
+ const req={user:{id:5,role:'support'},query:{agencyId:2,scope:'agency'},body:{agencyId:2,providerUserIds:[13],enabled:true}},res=response(),next=vi.fn();
+ await getClientSessionBookingAccess(req,res,next);
+ expect(next).not.toHaveBeenCalled();expect(m.access).toHaveBeenCalledWith(2,13,undefined,{businessType:'any',actorUserId:5});
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({enabled:true}));
+ await putClientSessionBookingRollout(req,response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.save).not.toHaveBeenCalled();
+});
+it('does not grant support an agency-wide capability in other practices',async()=>{
+ const next=vi.fn();await getClientSessionBookingAccess({user:{id:5,role:'support'},query:{agencyId:7,scope:'agency'}},response(),next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.providers).not.toHaveBeenCalled();
 });

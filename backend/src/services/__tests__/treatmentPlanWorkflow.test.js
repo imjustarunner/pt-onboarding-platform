@@ -75,3 +75,19 @@ test('editing a question atomically revokes its verification', async (t) => {
   assert.deepEqual(query.params, ['Revised question?', 88]);
   assert.doesNotMatch(query.sql, /kiosk_prompt_other_verified_at = NULL/);
 });
+test('renewal suggests a missing focus from the last five signed sessions with verified local evidence references', async t => {
+  const notes = Array.from({ length: 6 }, (_, i) => ({ id: 100 + i, provider_signed_at: `2026-11-${10 + i}`, note_payload: JSON.stringify({ sections: { Subjective: i ? 'PrivateSyntheticName describes anxiety before presentations.' : 'PrivateSyntheticName described low mood.', Interventions: i ? 'Anxiety coping rehearsal.' : 'Supportive discussion.' } }) }));
+  t.mock.method(clinicalPool, 'execute', async sql => sql.includes('FROM clinical_notes') ? [notes] : [[]]);
+  let count = 0;
+  const currentPlan = { goals: [{ goal_text: 'Communication', objectives: [{ id: 900, objective_text: 'Practice communication', scale_start: 2, scale_target: 8 }] }] };
+  const result = await proposeTreatmentPlanUpdate({ agencyId: 4, clientId: 50, currentPlan, generate: async options => {
+    assert.equal(options.model, 'gemini-4-hydrogen'); assert.equal(options.vertexOnly, true); assert.equal(options.allowModelFallback, false);
+    assert.ok(!options.prompt.includes('PrivateSyntheticName')); count++;
+    return { text: JSON.stringify(count === 1 ? { recommendation: 'Review communication practice.' } : { suggestions: [{ theme: 'anxiety management', suggestedGoal: 'Consider improving management of presentation anxiety.', suggestedObjective: 'Practice a provider-selected anxiety coping strategy.', rationale: 'Anxiety was mentioned in recent sessions.', sessionRefs: ['session_2', 'session_4', 'invented_ref'] }] }) };
+  } });
+  assert.equal(count, 2); assert.equal(result.recentSessionsConsidered, 5);
+  assert.equal(result.newFocusSuggestions.length, 1);
+  assert.deepEqual(result.newFocusSuggestions[0].evidence.map(item => item.clinicalNoteId), [101, 103]);
+  assert.equal(result.proposed.effectiveDate, null);
+  assert.equal(result.newFocusSuggestions[0].requiresProviderReview, true);
+});

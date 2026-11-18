@@ -1,0 +1,13 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({user:vi.fn(),agency:vi.fn(),token:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])},onTableWrite:vi.fn()}));
+vi.mock('../../models/User.model.js',()=>({default:{findByEmail:m.user}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findBySlug:m.agency,findByPortalUrl:vi.fn()}}));
+vi.mock('../../services/googleOAuth.service.js',()=>({createSignedState:vi.fn(),verifySignedState:()=>({orgSlug:'itsco',redirectUri:'https://synthetic.example/api/auth/google/callback'}),exchangeCodeForTokens:async()=>({id_token:'synthetic-unit-test-token'}),getGoogleAuthorizeUrl:vi.fn(),getGoogleOAuthClient:()=>({verifyIdToken:async()=>({getPayload:()=>({email:'provider@itsco.health',email_verified:true})})})}));
+vi.mock('../../services/productIdentity.service.js',async original=>({...await original(),signFullSuiteToken:m.token}));
+import {googleOAuthCallback} from '../auth.controller.js';
+beforeEach(()=>{vi.clearAllMocks();m.agency.mockResolvedValue({id:2,feature_flags:{googleSsoAllowedDomains:['other.example']}});});
+const req=()=>({query:{code:'synthetic-code',state:'synthetic-state'},get:()=>null,protocol:'https'});
+const res=()=>({redirect:vi.fn(),status:vi.fn().mockReturnThis(),send:vi.fn()});
+it.each([true,1,'1'])('blocks Group identities before issuing any Google SSO session (%s)',async flag=>{m.user.mockResolvedValue({id:701,role:'provider',login_is_group_email:flag});const response=res(),next=vi.fn();await googleOAuthCallback(req(),response,next);expect(next).not.toHaveBeenCalled();expect(response.redirect).toHaveBeenCalledWith(302,expect.stringContaining('password+sign-in'));expect(m.token).not.toHaveBeenCalled();});
+it('keeps unrelated password-override hybrid accounts on their normal Google policy path',async()=>{m.user.mockResolvedValue({id:701,role:'provider',login_is_group_email:0,sso_password_override:1});const response=res();await googleOAuthCallback(req(),response,vi.fn());expect(response.redirect).toHaveBeenCalledWith(302,expect.stringContaining('not+allowed+for+this+organization'));expect(m.token).not.toHaveBeenCalled();});

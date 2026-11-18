@@ -264,6 +264,55 @@ export function filterWorkQueueForRightPanel(items) {
   return (items || []).filter((i) => isRightPanelStatus(deriveWorkQueueDocStatus(i)));
 }
 
+/** One unfinished-work list for My Work and its counts, including saved drafts
+ * whose server queue row has not yet been materialized. Never persist this
+ * projection: draft-only rows retain the draft that must be opened directly. */
+export function buildMyWorkItems({ drafts = [], workQueueItems = [] } = {}) {
+  const rows = [];
+  for (const item of workQueueItems || []) {
+    if (!isRightPanelStatus(deriveWorkQueueDocStatus(item))) continue;
+    const existing = rows.find(row => draftMatchesWorkQueueItem(
+      { ...row, id: row.draftId, client_id: row.clientId }, item
+    ));
+    if (existing) {
+      if (!existing.draftId && item.draftId) Object.assign(existing, item);
+      continue;
+    }
+    rows.push({ ...item });
+  }
+  for (const draft of drafts || []) {
+    if (draft.archived_at || deriveDraftDocStatus(draft) !== DOC_STATUS.STARTED) continue;
+    const existing = rows.find(item => draftMatchesWorkQueueItem(draft, item));
+    if (existing) {
+      existing.draftId = existing.draftId || draft.id;
+      existing.status = DOC_STATUS.STARTED;
+      existing.docStatus = DOC_STATUS.STARTED;
+      continue;
+    }
+    rows.push({
+      id: `draft_work_${draft.id}`, draftOnly: true, draftId: draft.id,
+      clientId: draft.client_id || draft.clientId || null,
+      agencyId: draft.agency_id || draft.agencyId || null,
+      clinicalSessionId: draft.clinical_session_id || draft.clinicalSessionId || null,
+      officeEventId: draft.office_event_id || draft.officeEventId || null,
+      clientName: draft.client_full_name || draft.clientFullName || draft.initials || 'Draft note',
+      date: toWorkQueueDateOnly(draft.date_of_service || draft.dateOfService),
+      serviceCode: draft.service_code || draft.serviceCode || '',
+      status: DOC_STATUS.STARTED, docStatus: DOC_STATUS.STARTED,
+      startedAt: draft.created_at || null, updatedAt: draft.updated_at || null,
+      rawDraft: draft
+    });
+  }
+  return rows;
+}
+
+export function myWorkCounts(items = []) {
+  return {
+    notStarted: items.filter(item => deriveWorkQueueDocStatus(item) === DOC_STATUS.NOT_STARTED).length,
+    inProgress: items.filter(item => deriveWorkQueueDocStatus(item) === DOC_STATUS.STARTED).length
+  };
+}
+
 /**
  * Normalize legacy composite sort keys (date_asc / tenant) into field + direction.
  * @returns {{ field: 'date'|'client'|'status'|'code'|'agency', direction: 'asc'|'desc' }}
@@ -474,14 +523,16 @@ export function sessionDedupeKeys(row = {}) {
   if (noteId > 0) keys.push(`note:${noteId}`);
   const draftId = Number(row.draftId || row.raw?.draftId || 0);
   if (draftId > 0) keys.push(`draft:${draftId}`);
-  const oe = Number(row.officeEventId || row.office_event_id || 0);
-  if (oe > 0) keys.push(`oe:${oe}`);
   const cid = Number(row.clientId || row.client_id || 0);
+  const oe = Number(row.officeEventId || row.office_event_id || 0);
+  if (oe > 0) keys.push(`oe:${oe}:client:${cid}`);
   const dos = String(row.date_of_service || row.dateOfService || row.date || '').slice(0, 10);
   const code = normalizeSessionServiceCode(row.service_code || row.serviceCode || row.noteKind);
-  if (cid > 0 && dos && code) keys.push(`cdc:${cid}:${dos}:${code}`);
   const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
   if (cs > 0) keys.push(`cs:${cs}`);
+  // Two appointments on the same day are distinct. Date/code are a legacy
+  // fallback only when neither record carries a saved session identity.
+  if (!oe && !cs && cid > 0 && dos && code) keys.push(`cdc:${cid}:${dos}:${code}`);
   // Do NOT add bare client+date keys — that collapses a new in-progress ToDo with an
   // unrelated signed note from the same day and hides the client from In progress.
   if (!keys.length && row.id) keys.push(`row:${row.id}`);
@@ -497,6 +548,8 @@ export function sessionDedupeKey(row = {}) {
 
 /** Match a ToDo to its session even after it acquires a draft/note ID. */
 export function workQueueSessionKey(item = {}) {
+  const sessionId = Number(item.clinicalSessionId || item.clinical_session_id || 0);
+  if (sessionId > 0) return `cs:${sessionId}`;
   return sessionDedupeKey({
     officeEventId: item.officeEventId,
     clinicalSessionId: item.clinicalSessionId,
@@ -512,9 +565,16 @@ export function draftMatchesWorkQueueItem(draft, item) {
   const itemClient = Number(item.clientId || item.client_id || 0);
   const draftClient = Number(draft.client_id || draft.clientId || 0);
   if (itemClient && draftClient && itemClient !== draftClient) return false;
+  const itemAgency = Number(item.agencyId || item.agency_id || 0);
+  const draftAgency = Number(draft.agency_id || draft.agencyId || 0);
+  if (itemAgency && draftAgency && itemAgency !== draftAgency) return false;
+  const itemSession = Number(item.clinicalSessionId || item.clinical_session_id || 0);
+  const draftSession = Number(draft.clinical_session_id || draft.clinicalSessionId || 0);
+  if (itemSession && draftSession) return itemSession === draftSession;
   const itemOe = Number(item.officeEventId || item.office_event_id || 0);
   const draftOe = Number(draft.office_event_id || draft.officeEventId || 0);
   if (itemOe && draftOe && itemOe !== draftOe) return false;
+  if (itemOe && draftOe) return itemOe === draftOe && itemClient > 0 && itemClient === draftClient;
   if (item.draftId && String(draft.id) === String(item.draftId)) {
     return !itemClient || !draftClient || itemClient === draftClient;
   }

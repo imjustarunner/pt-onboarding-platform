@@ -20,9 +20,7 @@ async function link(){if(busy.value||!confirmed.value||!selected.value)return;co
  if(run===generation){emit('linked',data.draft);await load();}}
  catch(e){if(run===generation)error.value=e.response?.data?.error?.message||e.message||'The draft could not be linked. Your text is preserved.';}finally{busy.value=false;}}
 </script>
-<template><section v-if="state?.linked && state.context" class="draft-appointment-repair" aria-label="Linked appointment">
- <strong>{{label(state.context)}}</strong><p>Clinical session #{{state.context.clinicalSessionId}} · Linked appointment. Confirm documented times and duration before signing.</p>
-</section><section v-if="state && !state.linked || error" class="draft-appointment-repair">
+<template><section v-if="state && !state.linked || error" class="draft-appointment-repair">
  <h3>Link this draft to its appointment</h3><p>This draft has no booked encounter. Choose its matching appointment explicitly. Its client, provider, local service date and code must agree. Existing notes and text are preserved.</p>
  <p v-if="state && !state.options.length">{{state.message || 'No unsigned matching appointment was found. Review the client, date and service code, or open the correct appointment from the schedule.'}}</p>
  <template v-if="state?.options.length"><label>Appointment<select v-model="selected" :disabled="busy"><option value="">Choose an appointment</option><option v-for="row in state.options" :key="row.clinicalSessionId" :value="row.clinicalSessionId">{{label(row)}}</option></select></label>

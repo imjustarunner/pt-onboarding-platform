@@ -75,7 +75,7 @@ it('validates and persists the selected tenant when a clinical session uses anot
  const req={user:{id:501,role:'super_admin'},body:{agencyId:377,officeLocationId:1,clientId:81,startAt:'2026-11-26T15:00:00',endAt:'2026-11-26T16:00:00',recurrence:'BIWEEKLY',bookedOccurrenceCount:6,appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'90837'}};
  const res=response(),next=vi.fn();await createOfficeBookingRequest(req,res,next);
  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
- expect(m.rollout).toHaveBeenCalledWith(377,501);
+ expect(m.rollout).toHaveBeenCalledWith(377,501,undefined,{actorUserId:501});
  expect(m.selection).toHaveBeenCalledWith(expect.objectContaining({agencyId:377,enforceSessionRollout:true}));
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({recurrence:'BIWEEKLY',sessionContext:expect.objectContaining({agencyId:377})}));
 });

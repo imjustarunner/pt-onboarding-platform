@@ -1,3 +1,4 @@
+import { DEFAULT_CLINICAL_NOTE_MODEL } from './clinicalNoteModel.js';
 import { CLINICAL_INTERVENTION_SEED } from './clinicalInterventionSeed.js';
 import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.js';
 
@@ -289,7 +290,7 @@ export function applySharedNoteAidToolContracts(tools) {
     if (isSoipProgressNoteToolId(id)) {
       next.outputInstructions = PROGRESS_NOTE_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 4000);
-      next.model = tool.model || 'gemini-2.5-pro';
+      next.model = tool.model || DEFAULT_CLINICAL_NOTE_MODEL;
       next.sectionSchema = 'soip';
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('MACHINE OUTPUT CONTRACT') && id !== 'clinical_psychotherapy_note') {
@@ -310,7 +311,7 @@ export function applySharedNoteAidToolContracts(tools) {
     if (id === 'clinical_h0031_intake') {
       next.outputInstructions = H0031_INTAKE_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 8000);
-      next.model = tool.model || 'gemini-2.5-pro';
+      next.model = tool.model || DEFAULT_CLINICAL_NOTE_MODEL;
       next.sectionSchema = 'h0031_intake';
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('H0031 INTAKE CONTRACT')) {
@@ -328,7 +329,7 @@ export function applySharedNoteAidToolContracts(tools) {
     if (isTreatmentPlanToolId(id) && id !== 'clinical_90791_intake_plan') {
       next.outputInstructions = getOutputInstructionsForTool(id) || TREATMENT_PLAN_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 4000);
-      next.model = tool.model || 'gemini-2.5-pro';
+      next.model = tool.model || DEFAULT_CLINICAL_NOTE_MODEL;
       next.sectionSchema = 'treatment_plan';
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('MACHINE OUTPUT CONTRACT')) {

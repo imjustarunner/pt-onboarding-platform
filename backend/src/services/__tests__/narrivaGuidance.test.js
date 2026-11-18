@@ -1,3 +1,4 @@
+vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:0,configuration:{}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:0})}));
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({agency:vi.fn(),custom:vi.fn(),access:vi.fn(),knowledge:vi.fn()}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));

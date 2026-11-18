@@ -2,6 +2,7 @@
  * Mirror of frontend noteAidBillingAddons for backend generate / claim metadata.
  */
 import {evaluate99051Schedule} from './clinicalAfterHoursPolicy.js';
+import {isProBonoFunding} from './clinicalFundingPolicy.js';
 import {resolveLinkedServiceBilling} from '../../../frontend/src/navigation/linkedServiceBilling.js';
 export const ADDON_CODES = {
   INTERACTIVE_COMPLEXITY: '90785',
@@ -84,7 +85,8 @@ export function isEligibleFor90785(primaryCode, { isExtendedEncounter = false } 
   return CODES_ELIGIBLE_FOR_90785.has(String(primaryCode || '').toUpperCase());
 }
 
-export function shouldSuggest99051(startAt, { timeZone } = {}) {
+export function shouldSuggest99051(startAt, { timeZone, primaryCode, metadata } = {}) {
+  if(isProBonoFunding({serviceCode:primaryCode,metadata}))return false;
   const schedule=evaluate99051Schedule({startAt,timeZone});
   return schedule.eligible&&schedule.reason!=='weekday_morning_start';
 }
@@ -95,7 +97,8 @@ export function resolveNoteAidBillingCodes({
   includeInteractiveComplexity = false,
   includeAfterHours99051 = false,
   sessionStartAt = null,
-  timeZone = null
+  timeZone = null,
+  metadata = null
 } = {}) {
   let code = String(primaryCode || '').trim().toUpperCase();
   let primaryUnits = 1;
@@ -139,7 +142,7 @@ export function resolveNoteAidBillingCodes({
   }
   if (wantIc) addons.push({ code: ADDON_CODES.INTERACTIVE_COMPLEXITY, units: 1 });
 
-  if (includeAfterHours99051&&shouldSuggest99051(sessionStartAt,{timeZone})) {
+  if (code && !['90785','90840','99051'].includes(code) && shouldSuggest99051(sessionStartAt,{timeZone,primaryCode:code,metadata})) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });
   }else if(includeAfterHours99051){
     warnings.push('99051 was not added: verify a saved source timezone and a start outside regular weekday09:00–17:00 hours or a weekend start; weekday mornings require separately verified payer authorization for 99051.');

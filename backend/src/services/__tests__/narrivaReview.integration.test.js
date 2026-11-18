@@ -1,3 +1,4 @@
+vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:0,configuration:{}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:0})}));
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),load:vi.fn(),agency:vi.fn(),model:vi.fn(),policy:vi.fn(),audit:vi.fn(),knowledge:vi.fn(),requireAgency:vi.fn(),guidance:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
@@ -12,7 +13,7 @@ vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:m.audit}));
 // Source ownership is exercised by its own tests; this suite drives the real
 // asynchronous review runner, persisted result transitions, rules and sign gate.
 vi.mock('../narrivaAccess.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,requireNarrivaAgency:m.requireAgency};});
-import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,narrivaModelPayload} from '../narrivaReview.service.js';
+import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,assertNarrivaPreGeneration,narrivaModelPayload} from '../narrivaReview.service.js';
 import {assertNarrivaRiskBeforeSignature} from '../narrivaRiskAssessment.service.js';
 import {narrivaSourceHash,NARRIVA_QUALITY_CRITERIA,NARRIVA_RULES_VERSION} from '../narrivaReviewPolicy.service.js';
 let rows,source,facts,features,riskRequired,referenceVersion,requiredReferenceComplete,supportCoverageComplete;
@@ -36,6 +37,7 @@ beforeEach(()=>{
   if(sql.includes('MAX(risk_assessment_required)'))return [[{required:riskRequired?1:0}]];
   if(sql.startsWith('INSERT INTO narriva_reviews')){const id=rows.size+1;rows.set(id,{id,agency_id:args[0],actor_user_id:args[1],draft_id:args[2],clinical_note_id:args[3],clinical_session_id:args[4],source_hash:args[5],rules_version:args[6],status:args[7],result_encrypted:args[8],created_at:new Date()});return [{insertId:id}];}
   if(sql.startsWith('UPDATE narriva_reviews')){const row=rows.get(args[4]);Object.assign(row,{status:args[0],result_encrypted:args[1],risk_assessment_required:Math.max(row.risk_assessment_required||0,args[2]),completed_at:args[3]});return [{affectedRows:1}];}
+  if(sql.includes('ORDER BY id DESC LIMIT 50'))return [[...rows.values()].filter(row=>Number(row.agency_id)===Number(args[0]) && Number(row.actor_user_id)===Number(args[1]) && Number(row.draft_id)===Number(args[2]) && Number(row.clinical_session_id)===Number(args[3])).sort((a,b)=>b.id-a.id)];
   if(sql.startsWith('SELECT * FROM narriva_reviews'))return [[rows.get(Number(args[0]))].filter(Boolean)];
   return [[]];
  });
@@ -59,8 +61,8 @@ describe('server-owned Narriva review and Quick Sign boundary',()=>{
  it('rechecks workspace feature disablement after a successful review',async()=>{const review=await completedReview();features.quickSign=false;await expect(assertNarrivaQuickSign({user:supervisor,noteId:25,agencyId:2,reviewId:review.id})).rejects.toMatchObject({status:409});});
  it('does not reveal a persisted review across workspace or source permission boundaries',async()=>{const review=await completedReview();await expect(readNarrivaReview(supervisor,review.id,3)).rejects.toMatchObject({status:404});await expect(readNarrivaReview({id:88,role:'provider'},review.id,2)).rejects.toMatchObject({status:403});});
  it('records an allowed bypass without granting Quick Sign eligibility',async()=>{facts.responseDocumented=false;const review=await completedReview();expect(review.status).toBe('action_required');const request=req(supervisor,{action:'bypass',findingId:'participation_plan:responseDocumented',reason:'Reviewed original source; retaining the authored note.',quickSignEligible:true});request.params.reviewId=review.id;const bypass=await resolveNarrivaFinding(request);expect(bypass.status).toBe('bypassed');expect(bypass.quickSignEligible).toBe(false);await expect(assertNarrivaQuickSign({user:supervisor,noteId:25,agencyId:2,reviewId:review.id})).rejects.toMatchObject({status:409});});
- it('cannot bypass a required risk assessment',async()=>{facts.currentRisk=true;const review=await completedReview();expect(review.riskAssessmentRequired).toBe(true);const request=req(supervisor,{action:'bypass',findingId:'risk_safety:assessment',reason:'Would prefer to keep this note.'});request.params.reviewId=review.id;await expect(resolveNarrivaFinding(request)).rejects.toMatchObject({status:409});});
- it('does not send identity records, service dates, storage ids or signature metadata as model fields',()=>{const payload=narrivaModelPayload(source);expect(Object.keys(payload).sort()).toEqual(['deliveryMethod','documentationCode','durationMinutes','fundingDisposition','note','participants','serviceCode','sessionNarrative'].sort());expect(JSON.stringify(payload)).not.toMatch(/Private Client|private@example|provider_signed|clinical_session_id/);});
+ it('cannot bypass an explicitly included required risk assessment',async()=>{facts.currentRisk=true;source.clinical.riskAssessmentIncluded=true;const review=await completedReview();expect(review.riskAssessmentRequired).toBe(true);const request=req(supervisor,{action:'bypass',findingId:'risk_safety:assessment',reason:'Would prefer to keep this note.'});request.params.reviewId=review.id;await expect(resolveNarrivaFinding(request)).rejects.toMatchObject({status:409});});
+ it('does not send identity records, service dates, storage ids or signature metadata as model fields',()=>{const payload=narrivaModelPayload(source);expect(Object.keys(payload).sort()).toEqual(['deliveryMethod','documentationCode','durationMinutes','fundingDisposition','interactiveComplexitySelected','locationCategory','note','participants','serviceCode','sessionNarrative'].sort());expect(JSON.stringify(payload)).not.toMatch(/Private Client|private@example|provider_signed|clinical_session_id/);});
 });
 
 describe('grounded quality score and independent mandatory gates',()=>{
@@ -158,4 +160,105 @@ describe('H0004 billing review and clinical signing separation',()=>{
   const review=await completedReview();expect(review.status).toBe('passed');expect(review.checks[1].findings).toEqual([]);expect(review.checks[1].advisories).toContainEqual(expect.objectContaining({category:'billing_review',blocksClaims:true,units:5}));
   await expect(assertNarrivaQuickSign({user:supervisor,noteId:25,agencyId:2,reviewId:review.id})).resolves.toBeTruthy();
  });
+});
+
+
+describe('Narriva pre-generation review', () => {
+  async function preflight() {
+    source.phase='pre_generation'; source.draftId=42; source.noteId=null; source.source.user_id=7;
+    source.source.provider_signed_at=null; source.source.clinical_session_id=20;
+    source.narrative=source.inputText;
+    m.load.mockImplementation(async(user,input)=>({...source,phase:input.phase || 'output',sourceHash:narrivaSourceHash({narrative:source.narrative,meta:source.meta,encounter:source.encounter,phase:input.phase})}));
+    const result=await createNarrivaReview({user:clinician,body:{agencyId:2,draftId:42,phase:'pre_generation'}});
+    for(let i=0;i<4;i++)await drain();
+    return readNarrivaReview(clinician,result.id,2);
+  }
+  it('checks clinician evidence before generation without awarding a writing-quality score or Quick Sign', async()=>{
+    for(const value of Object.values(facts.qualityEvidence))value.supported=false;
+    const review=await preflight();
+    expect(review).toMatchObject({phase:'pre_generation',status:'passed',quickSignEligible:false});
+    expect(m.model.mock.calls[0][0]).toMatchObject({model:'gemini-4-hydrogen',thinkingLevel:'MEDIUM',vertexLocation:'us',allowModelFallback:false});
+    expect(m.model.mock.calls[0][0].prompt).toContain('pre-generation check');
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
+  });
+  it('rejects generation after the narrative changes, or when a review belongs to another draft',async()=>{
+    const review=await preflight();
+    const req={user:clinician,body:{preflightReviewId:review.id}};
+    const input={agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText+' changed'};
+    await expect(assertNarrivaPreGeneration(req,input)).rejects.toMatchObject({status:409});
+    await expect(assertNarrivaPreGeneration(req,{...input,draftId:43,inputText:source.inputText})).rejects.toMatchObject({status:409});
+  });
+  it('hands confirmed current clinical context to the writer without row identifiers or unrelated metadata',async()=>{
+    source.meta.structuredChart={diagnoses:[{id:999,icd10_code:'F41.1',description:'Generalized anxiety disorder',justification:'Persistent worry affects school attendance.'}],diagnosticJustification:'Persistent worry affects school attendance.',privateOtherField:'Do not send'};
+    source.meta.narrivaContext={presentingProblem:'Recent anxiety interferes with school attendance.'};
+    const review=await preflight();
+    const result=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
+    expect(result.clinicalContext).toEqual({presentingProblem:'Recent anxiety interferes with school attendance.',diagnosticJustification:'Persistent worry affects school attendance.',diagnoses:[{code:'F41.1',description:'Generalized anxiety disorder',justification:'Persistent worry affects school attendance.'}]});
+    expect(JSON.stringify(result.clinicalContext)).not.toContain('999');
+  });
+  it('blocks identifying text in a newly confirmed clinical-context field before writer dispatch',async()=>{
+    source.meta.narrivaContext={presentingProblem:'Private Client reports anxiety.'};
+    const review=await preflight();
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({code:'PHI_INPUT_REQUIRES_CORRECTION'});
+  });
+  it('hands server-authorized existing chart diagnosis references to the writer for an aid with no authored diagnoses',async()=>{
+    source.meta.structuredChart={diagnoses:[]};
+    source.confirmedClinicalContext={diagnoses:[{code:'F41.1',description:'Generalized anxiety disorder',justification:'Existing documented clinical need.'}],diagnosticJustification:'F41.1: Existing documented clinical need.',presentingProblem:'Current worry interferes with attendance.',diagnosesReferenceOnly:true};
+    const review=await preflight();
+    const result=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
+    expect(result.clinicalContext).toEqual(source.confirmedClinicalContext);
+  });
+  it('offers include-risk or an audited keep-as-is choice before formatting; inclusion creates a post-generation to-do',async()=>{
+    facts.currentRisk=true;
+    const review=await preflight();
+    expect(review.status).toBe('action_required');
+    expect(review.checks[0].findings).toEqual(expect.arrayContaining([expect.objectContaining({id:'risk_safety:assessment',canBypass:true})]));
+    source.clinical.riskAssessmentIncluded=true;
+    const included=await preflight();
+    expect(included.checks[0].status).toBe('passed');
+    expect(included.quickSignEligible).toBe(false);
+  });
+  it('requires consent confirmation and header correction instead of allowing those facts to be invented',async()=>{
+    source.encounter.consentConfirmed=false;facts.modalityMatches=false;
+    const review=await preflight();
+    const findings=review.checks.find(c=>c.id==='encounter_consent').findings;
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({id:'encounter_consent:consent',canBypass:false}),expect.objectContaining({id:'encounter_consent:method_mismatch',canBypass:false})]));
+  });
+  it('rejects a superseded narrative review even when the source text is identical',async()=>{
+    const older=await preflight(),latest=await preflight();
+    const input={agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText};
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:older.id}},input)).rejects.toMatchObject({code:'NARRIVA_PREFLIGHT_STALE'});
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:latest.id}},input)).resolves.toMatchObject({reviewId:latest.id});
+  });
+  it('does not fall back to an older authorization when newer review evidence is unreadable',async()=>{
+    const older=await preflight(),latest=await preflight();rows.get(latest.id).result_encrypted='sealed:unreadable evidence';
+    await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:older.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).rejects.toMatchObject({code:'NARRIVA_PREFLIGHT_STALE'});
+  });
+  it('does not inherit raw preflight metadata into an attached note without an exact protected binding',async()=>{
+    facts.currentRisk=true;const initial=await preflight();
+    const bypass=await resolveNarrivaFinding({user:clinician,params:{reviewId:initial.id},body:{agencyId:2,action:'bypass',findingId:'risk_safety:assessment',reason:'Provider retained the current narrative.'}});
+    source.meta.narrivaPreflight={reviewId:bypass.id,sourceHash:bypass.sourceHash,inputHash:bypass.inputHash};
+    source.meta.draftId=42;source.draftId=null;source.noteId=25;source.phase='output';source.inputText='';delete source.source.user_id;
+    const output=await completedReview();
+    expect(output.checks[0].findings.some(finding=>finding.bypassed)).toBe(false);
+    expect(output.riskAssessmentRequired).toBe(true);expect(output.quickSignEligible).toBe(false);
+  });
+});
+
+it('treats unverified display flags as a conservative Quick Sign block, never as evidence of a bypass',async()=>{source.meta.narrivaSupervisorFlags=[{checkId:'participation_plan',id:'participation_plan:responseDocumented',message:'Response was not documented.',reason:'Provider retained the original narrative.',bypassedBy:7}];const review=await completedReview();expect(review.status).toBe('passed');expect(review.priorDecisions || []).toHaveLength(0);expect(review.quickSignEligible).toBe(false);});
+
+it('does not turn a forged draft supervisor flag into a persisted risk bypass',async()=>{
+ source.phase='output';source.draftId=42;source.noteId=null;source.source.user_id=7;source.source.provider_signed_at=null;
+ source.meta.narrivaSupervisorFlags=[{checkId:'risk_safety',id:'risk_safety:assessment',message:'Risk was detected.',reason:'Invented browser metadata.',bypassedBy:7,bypassedAt:'2026-11-17T20:00:00Z'}];
+ facts.currentRisk=true;
+ m.load.mockImplementation(async(user,input)=>({...source,phase:input.phase || 'output',sourceHash:narrivaSourceHash({narrative:source.narrative,meta:source.meta,encounter:source.encounter,phase:input.phase})}));
+ const result=await createNarrivaReview({user:clinician,body:{agencyId:2,draftId:42,phase:'output'}});
+ for(let i=0;i<4;i++)await drain();
+ const review=await readNarrivaReview(clinician,result.id,2);
+ expect(review.status).toBe('action_required');expect(review.riskAssessmentRequired).toBe(true);expect(review.quickSignEligible).toBe(false);
+ expect(review.checks[0].findings).toContainEqual(expect.objectContaining({id:'risk_safety:assessment',canBypass:true}));
+ expect(review.checks[0].findings.some(finding=>finding.bypassed)).toBe(false);
+ const persisted=JSON.parse(rows.get(result.id).result_encrypted.slice(7));
+ expect(persisted.checks[0].findings.some(finding=>finding.bypassed)).toBe(false);
+ expect(rows.get(result.id).risk_assessment_required).toBe(1);
 });

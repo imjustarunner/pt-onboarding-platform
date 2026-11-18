@@ -34,6 +34,10 @@ ARG VITE_APP_BUILD_ID=dev
 ENV VITE_APP_BUILD_ID=$VITE_APP_BUILD_ID
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_RECAPTCHA_SITE_KEY=""
+ARG VITE_RECAPTCHA_USE_ENTERPRISE=false
+ENV VITE_RECAPTCHA_SITE_KEY=$VITE_RECAPTCHA_SITE_KEY
+ENV VITE_RECAPTCHA_USE_ENTERPRISE=$VITE_RECAPTCHA_USE_ENTERPRISE
 
 # Vite chunk rendering needs more heap than Node's default in constrained CI builders.
 ENV NODE_OPTIONS=--max-old-space-size=8192
@@ -123,6 +127,10 @@ COPY backend/src ./src
 # stays permanently on 503 "Server is loading". Copy the whole directory so
 # any future files added there are included automatically.
 COPY frontend/src/navigation/ /frontend/src/navigation/
+# Narriva shares pure documentation rules with the frontend. Copy their complete
+# import graph into the matching runtime path; none of these modules uses Vue.
+COPY frontend/src/utils/csNoteBuild.js frontend/src/utils/noteAidMseCatalog.js frontend/src/utils/noteAidMseHistory.js frontend/src/utils/treatmentGoalAchievement.js frontend/src/utils/treatmentPlanEncounterEligibility.js /frontend/src/utils/
+COPY frontend/src/config/clinicalInterventionSeed.js /frontend/src/config/clinicalInterventionSeed.js
 # Mark these files as ES modules so Node resolves named exports correctly.
 # Without this, Node treats the .js files as CommonJS and named imports fail.
 RUN echo '{"type":"module"}' > /frontend/package.json

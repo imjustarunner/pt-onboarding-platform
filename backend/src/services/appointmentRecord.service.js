@@ -85,7 +85,7 @@ export async function createAppointmentRecord(
   actorUserId,
   db,
 ) {
-  await requireClientSessionBooking(agencyId, data.providerUserId, db);
+  await requireClientSessionBooking(agencyId, data.providerUserId, db, { actorUserId });
   await assertSharedAppointmentAvailable(agencyId, data, clientId, null, db);
   const appointment = await Appointment.create(
     {
@@ -131,7 +131,7 @@ export async function updateAppointmentRecord(
       "This appointment changed in the shared backend. Refresh before saving.",
     );
   if (Number(data.providerUserId) !== Number(current.data.providerUserId)) {
-    await requireClientSessionBooking(agencyId, data.providerUserId, db);
+    await requireClientSessionBooking(agencyId, data.providerUserId, db, { actorUserId });
   }
   // Preserve canonical care/calendar/package links until their shared workflow
   // orchestration is connected. Do not silently bypass their own invariants.

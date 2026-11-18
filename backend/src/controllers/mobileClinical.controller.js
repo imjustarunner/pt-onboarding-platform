@@ -189,7 +189,7 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
-   treatmentPlan,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
+   credentialTier:care.credentialTier,treatmentPlan,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
  }catch(error){next(error);}
 };
 
