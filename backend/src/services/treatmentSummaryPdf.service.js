@@ -131,6 +131,7 @@ export async function generateTreatmentSummaryPdf({
     includeVersion: false
   });
   return DocumentSigningService.convertHTMLToPDF(branded.html, {
+    networkIsolation: true, disableFallback: true,
     ...(branded.pdfOptions || {}),
     documentType: 'treatment_summary',
     branding: { agencyId }

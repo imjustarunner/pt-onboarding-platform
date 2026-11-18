@@ -1,3 +1,4 @@
+import { logAuditEvent } from './auditEvent.service.js';
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import Agency from '../models/Agency.model.js';
@@ -52,5 +53,6 @@ export async function tutoringSessionPdf(req, sessionId, dependencies = {}) {
   const bytes = await render({ client, agency, recordType: 'tutoring', singleDocument: true, recordTitle: 'Tutoring Session Record', names,
     notes: [{ note: record, session: { scheduled_start_at: start ? utcMysqlToIso(start) : null, scheduled_end_at: end ? utcMysqlToIso(end) : null, source_timezone: timeZone }, addenda: history }] });
   await (dependencies.audit || clinicalAudit)({ req, kind: 'tutoring', sessionId: Number(sessionId), agencyId: note.agency_id, actor: `user-${req.user.id}` }, 'tutoring_session_pdf_exported', { noteId: note.id });
+  await (dependencies.downloadAudit || logAuditEvent)(req, { required: true, actionType: 'tutoring_session_pdf_download', agencyId: note.agency_id, metadata: { clientId: Number(note.client_id), noteId: note.id, sessionId: Number(sessionId), noticeVersion: req.headers?.['x-record-download-notice'] || null, deliveryStage: 'prepared_for_download' } });
   return { bytes, filename: `tutoring-session-${Number(sessionId)}.pdf` };
 }

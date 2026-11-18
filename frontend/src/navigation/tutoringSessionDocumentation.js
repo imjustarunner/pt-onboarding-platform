@@ -14,27 +14,42 @@ const limited = (value, label, max = 1000) => {
   if ((value || '').length > max) fail(`${label} must be ${max} characters or fewer.`);
   return text(value);
 };
-export function planFocusAreas(bundle) {
-  return (bundle?.goals || []).flatMap(goal => {
+export function planFocusAreas(bundle, brief = null) {
+  const areas = (bundle?.goals || []).flatMap(goal => {
     const objectives = (bundle.objectives || []).filter(objective => Number(objective.plan_goal_id) === Number(goal.id));
     return (objectives.length ? objectives : [null]).map(objective => ({
       key: objective ? `objective:${objective.id}` : `goal:${goal.id}`,
       planGoalId: Number(goal.id), planObjectiveId: objective ? Number(objective.id) : null,
       title: objective?.title || goal.title, description: objective?.description || '',
       goalTitle: goal.title, criteria: goal.success_criteria || '',
-      skillKey: goal.skill_key || null, skillLabel: goal.skill_label || goal.title
+      origin: 'Learning plan', skillKey: goal.skill_key || null, skillLabel: goal.skill_label || goal.title
     }));
   });
+  if (brief && Number(brief.learning_plan_id) === Number(bundle?.plan?.id)) {
+    for (const [index, activity] of (brief.planned_activities_json || []).entries()) {
+      const goal = (bundle.goals || []).find(item => Number(item.id) === Number(activity.goalId));
+      if (!goal || !text(activity.title)) continue;
+      areas.push({ key: `activity:${brief.id}:${index}`, planGoalId: Number(goal.id), planObjectiveId: null,
+        title: activity.title, description: text(activity.suggestedFocus), goalTitle: goal.title, criteria: goal.success_criteria || '',
+        skillKey: goal.skill_key || null, skillLabel: goal.skill_label || goal.title, origin: 'Session brief' });
+    }
+  }
+  return areas;
 }
-export function planStrategies(bundle) {
+export function planStrategies(bundle, brief = null) {
   const entries = bundle?.plan?.instructional_strategies_json || [];
-  return (Array.isArray(entries) ? entries : []).map((entry, index) => ({
+  const strategies = (Array.isArray(entries) ? entries : []).map((entry, index) => ({
     key: String(index), label: typeof entry === 'string' ? entry.trim() : text(entry?.title) || text(entry?.strategy) || text(entry?.description) || text(entry?.label)
   })).filter(entry => entry.label);
+  if (brief && Number(brief.learning_plan_id) === Number(bundle?.plan?.id)) for (const [index, entry] of (brief.guide_json?.interventionStrategies || []).entries()) {
+    const label = typeof entry === 'string' ? entry.trim() : text(entry?.title) || text(entry?.description);
+    if (label && !strategies.some(strategy => strategy.label === label)) strategies.push({ key: `brief:${brief.id}:${index}`, label });
+  }
+  return strategies;
 }
-export function assembleLearningSession(bundle, input = {}) {
+export function assembleLearningSession(bundle, input = {}, brief = null) {
   if (!Array.isArray(input.areas) || input.areas.length < 1 || input.areas.length > 100) fail('Select at least one learning-plan objective.');
-  const focus = planFocusAreas(bundle), strategies = planStrategies(bundle), seen = new Set();
+  const focus = planFocusAreas(bundle, brief), strategies = planStrategies(bundle, brief), seen = new Set();
   const areas = input.areas.map(selection => {
     if (!selection || seen.has(selection.key)) fail('Select each objective only once.');
     seen.add(selection.key);

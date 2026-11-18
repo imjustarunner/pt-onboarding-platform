@@ -4,7 +4,7 @@
     <p v-if="error" class="error" role="alert">{{ error }} <button type="button" :disabled="saving" @click="load">Reload</button></p>
     <template v-if="!loading && !error">
       <label v-if="tracks.length > 1" class="subject">Subject<select v-model="subjectId" :disabled="saving || !!existing?.student_subject_id"><option v-for="track in tracks" :key="track.subject.id" :value="Number(track.subject.id)">{{ track.subject.subject_label }}</option></select></label>
-      <LearningPlanSessionChecklist v-if="bundle && !planChanged" :key="`${clientId}-${sessionId}-${subjectId}-${bundle.plan.id}`" :bundle="bundle" :initial-checklist="existing?.metadata_json?.planChecklist || null" :previous-note="existing" :saving="saving" :status="status" @dirty="status = ''" @save="saveChecklist" />
+      <LearningPlanSessionChecklist v-if="bundle && !planChanged" :key="`${clientId}-${sessionId}-${subjectId}-${bundle.plan.id}`" :bundle="bundle" :brief="scopedBrief" :initial-checklist="existing?.metadata_json?.planChecklist || null" :previous-note="existing" :saving="saving" :status="status" @dirty="status = ''" @save="saveChecklist" />
       <p v-else-if="planChanged" role="alert">This saved session uses an earlier learning plan. Its note is preserved below. Review that plan before changing historical results.</p>
       <template v-else><p>No approved learning plan is available for this subject. A private general session note can be saved here; it will not rate learning-plan progress.</p><label class="general">Session observation<textarea v-model="generalNote" rows="3" maxlength="20000" :disabled="saving" /></label><button :disabled="saving || !sessionId" @click="saveGeneral">Save session observation</button><p role="status">{{ status }}</p></template>
       <button v-if="existing?.id" type="button" :disabled="downloading || saving" @click="downloadPdf">{{ downloading ? 'Preparing PDF…' : 'Download saved record PDF' }}</button>
@@ -14,31 +14,34 @@
   </section>
 </template>
 <script setup>
+import { confirmRecordDownload, RECORD_DOWNLOAD_NOTICE_VERSION } from '../../utils/recordDownloadNotice';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import * as los from '../../services/tutoringLearningOs';
 import LearningPlanSessionChecklist from './LearningPlanSessionChecklist.vue';
 const props = defineProps({ clientId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], default: null }, sessionId: { type: [Number, String], default: null }, sessionType: { type: String, default: 'virtual' }, initialSubjectId: { type: [Number, String], default: null }, request: { type: Function, default: null } });
 const emit = defineEmits(['saved']);
+const sessionBrief = ref(null);
 const tracks = ref([]), subjectId = ref(null), existing = ref(null), loading = ref(false), saving = ref(false), error = ref(''), status = ref(''), generalNote = ref(''), downloading = ref(false);
 let generation = 0;
 const bundle = computed(() => tracks.value.find(track => Number(track.subject.id) === Number(subjectId.value))?.bundle || null);
+const scopedBrief = computed(() => Number(sessionBrief.value?.learning_plan_id) === Number(bundle.value?.plan.id) && Number(sessionBrief.value?.student_subject_id) === Number(subjectId.value) && Number(sessionBrief.value?.client_id) === Number(props.clientId) && (!props.agencyId || Number(sessionBrief.value?.agency_id) === Number(props.agencyId)) ? sessionBrief.value : null);
 const planChanged = computed(() => !!existing.value?.metadata_json?.planChecklist && Number(existing.value.learning_plan_id) !== Number(bundle.value?.plan.id));
 async function load() {
-  const token = ++generation; loading.value = true; error.value = ''; status.value = ''; tracks.value = []; existing.value = null; generalNote.value = ''; subjectId.value = null;
+  const token = ++generation; loading.value = true; error.value = ''; status.value = ''; tracks.value = []; existing.value = null; generalNote.value = ''; subjectId.value = null; sessionBrief.value = null;
   try {
     let context;
     if (props.request) context = await props.request('/learning-note-context');
     else {
-      const [overview, saved] = await Promise.all([los.fetchLearningOverview(props.clientId, { agencyId: props.agencyId }), props.sessionId ? los.getSessionNote(props.sessionId) : Promise.resolve({ note: null })]);
+      const [overview, saved, briefing] = await Promise.all([los.fetchLearningOverview(props.clientId, { agencyId: props.agencyId }), props.sessionId ? los.getSessionNote(props.sessionId) : Promise.resolve({ note: null }), props.sessionId ? los.getSessionBrief(props.sessionId) : Promise.resolve({ brief: null })]);
       const found = await Promise.all((overview.subjects || []).map(async row => {
         const { plans = [] } = await los.listSubjectPlans(row.subject.id);
         const active = plans.find(plan => plan.status === 'active' && plan.approved_at);
         return { subject: row.subject, bundle: active ? await los.getLearningPlan(active.id) : null };
       }));
-      context = { tracks: found, note: saved.note };
+      context = { tracks: found, note: saved.note, brief: briefing.brief };
     }
     if (token !== generation) return;
-    tracks.value = context.tracks || []; existing.value = context.note || null; generalNote.value = existing.value?.summary || '';
+    sessionBrief.value = context.brief || null; tracks.value = context.tracks || []; existing.value = context.note || null; generalNote.value = existing.value?.summary || '';
     subjectId.value = Number(existing.value?.student_subject_id || props.initialSubjectId || tracks.value.find(track => track.bundle)?.subject.id || tracks.value[0]?.subject.id) || null;
   } catch (cause) { if (token === generation) error.value = cause.response?.data?.error?.message || cause.message; }
   finally { if (token === generation) loading.value = false; }
@@ -57,9 +60,9 @@ async function persist(payload) {
 function saveChecklist(value) { return persist({ ...value, documentationMode: 'learning_plan_checklist', studentSubjectId: Number(subjectId.value), learningPlanId: bundle.value.plan.id }); }
 function saveGeneral() { return persist({ clientId: Number(props.clientId), agencyId: Number(props.agencyId) || undefined, summary: generalNote.value }); }
 async function downloadPdf() {
-  if (downloading.value) return; const token = generation; downloading.value = true;
+  if (downloading.value || !confirmRecordDownload()) return; const token = generation; downloading.value = true;
   try {
-    const data = props.request ? await props.request('/note/pdf', 'get', undefined, { responseType: 'blob' }) : await los.downloadSessionNotePdf(props.sessionId);
+    const data = props.request ? await props.request('/note/pdf', 'get', undefined, { responseType: 'blob', headers: { 'X-Record-Download-Notice': RECORD_DOWNLOAD_NOTICE_VERSION } }) : await los.downloadSessionNotePdf(props.sessionId);
     if (token !== generation) return;
     const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
     const link = document.createElement('a'); link.href = url; link.download = `tutoring-session-${Number(props.sessionId)}.pdf`; link.click();

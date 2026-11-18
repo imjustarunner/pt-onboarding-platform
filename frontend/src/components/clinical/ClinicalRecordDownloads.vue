@@ -8,15 +8,17 @@
   </div>
 </template>
 <script setup>
+import { confirmRecordDownload, RECORD_DOWNLOAD_NOTICE_VERSION } from '../../utils/recordDownloadNotice';
 import { ref } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, clientId: { type: [Number, String], default: null }, noteId: { type: [Number, String], default: null }, draftId: { type: [Number, String], default: null } });
 const busy = ref(''), error = ref(''), includeDrafts = ref(false), from = ref(''), to = ref('');
 async function download(kind) {
+  if (!confirmRecordDownload()) return;
   busy.value = kind; error.value = '';
   try {
     const endpoint = kind === 'draft' ? `/clinical-notes/drafts/${props.draftId}/pdf` : kind === 'note' ? `/medical-billing/notes/${props.noteId}/pdf` : `/medical-billing/clients/${props.clientId}/record-pdf`;
-    const { data } = await api.get(endpoint, { params: { agencyId: Number(props.agencyId), includeDrafts: includeDrafts.value || undefined, from: from.value || undefined, to: to.value || undefined }, responseType: 'blob' });
+    const { data } = await api.get(endpoint, { params: { agencyId: Number(props.agencyId), includeDrafts: includeDrafts.value || undefined, from: from.value || undefined, to: to.value || undefined }, responseType: 'blob', headers: { 'X-Record-Download-Notice': RECORD_DOWNLOAD_NOTICE_VERSION } });
     const url = URL.createObjectURL(data), anchor = document.createElement('a');
     anchor.href = url; anchor.download = kind === 'draft' ? `workspace-draft-${props.draftId}.pdf` : kind === 'note' ? `clinical-note-${props.noteId}.pdf` : `medical-record-${props.clientId}.pdf`;
     document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);

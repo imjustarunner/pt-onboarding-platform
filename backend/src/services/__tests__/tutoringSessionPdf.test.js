@@ -5,6 +5,7 @@ vi.mock('../../models/Agency.model.js', () => ({ default: {} }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/TutoringSessionLearning.model.js', () => ({ TutoringSessionNote: {} }));
 vi.mock('../clinicalRecordPdf.service.js', () => ({ generateClinicalRecordPdf: vi.fn() }));
+vi.mock('../auditEvent.service.js', () => ({ logAuditEvent: vi.fn() }));
 vi.mock('../clinicalSessionAudit.service.js', () => ({ clinicalAudit: vi.fn() }));
 vi.mock('../recordClientIdentity.service.js', () => ({ recordClientDemographics: vi.fn(), recordClientGuardians: vi.fn() }));
 import { tutoringSessionPdf } from '../tutoringSessionPdf.service.js';

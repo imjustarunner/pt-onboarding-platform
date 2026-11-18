@@ -262,7 +262,8 @@ export async function getBriefForSession(req, res, next) {
   try {
     await requireTutorSession(req,req.params.sessionId);
     const brief = await los.TutoringSessionBrief.findBySession(req.params.sessionId);
-    res.json({ brief });
+    if (brief) { await requireTutorSession(req, req.params.sessionId, { client_id: brief.client_id, agency_id: brief.agency_id }); await assertLearningClientAccess(req, brief.client_id, brief.agency_id); }
+    res.set('Cache-Control', 'no-store').json({ brief });
   } catch (e) {
     next(e);
   }

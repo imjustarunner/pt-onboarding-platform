@@ -179,8 +179,8 @@ class TutoringSessionBrief {
     return this.normalize(rows[0] || null);
   }
 
-  static async findBySession(sessionId) {
-    const [rows] = await pool.execute(
+  static async findBySession(sessionId, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM tutoring_session_briefs WHERE session_id = ? ORDER BY id DESC LIMIT 1`,
       [sessionId]
     );

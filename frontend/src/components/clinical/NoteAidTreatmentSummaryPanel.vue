@@ -68,6 +68,7 @@
 </template>
 
 <script setup>
+import { confirmRecordDownload, RECORD_DOWNLOAD_NOTICE_VERSION } from '../../utils/recordDownloadNotice';
 import ClinicalNoteCosignReview from './ClinicalNoteCosignReview.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { supervisorNoteSections } from '../../utils/supervisorNoteReview.js';
@@ -140,6 +141,7 @@ async function fetchPdfBlob() {
 }
 
 async function downloadPdf() {
+  if (!confirmRecordDownload()) return;
   error.value = '';
   success.value = '';
   busy.value = 'pdf';

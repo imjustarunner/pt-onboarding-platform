@@ -1,3 +1,4 @@
+import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {issueNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
@@ -53,6 +54,7 @@ import {
 } from '../utils/noteAidClientAgency.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey } from '../services/noteAidSignedSessions.service.js';
+import { buildClinicalIntakeSourceContext } from '../services/noteAidIntakeSources.service.js';
 import { buildUnattachedQuestionnaireContext } from '../services/noteAidQuestionnaireContext.service.js';
 import { CRISIS_90839_SERVICE_DESCRIPTION, resolveNoteAidBillingCodes } from '../utils/noteAidBillingAddons.js';
 import {clientPayerServiceEligibility} from '../services/clientPayerServiceEligibility.service.js';
@@ -1574,12 +1576,21 @@ export const generateClinicalNote = async (req, res, next) => {
     if (intakeTool && encounterAge != null) prompt = [prompt, '', intakeAgeInstruction(encounterAge)].join('\n');
 
     const ATTACH_QUESTIONNAIRE_TOOLS = new Set([
-      'clinical_90791_intake_plan',
-      'clinical_h0031_intake',
       'clinical_h0031_additional',
       'clinical_treatment_summary'
     ]);
     let questionnaireInstruments = [];
+    let intakeSources = [];
+    if (generationSessionContext.clientId && intakeTool) {
+      const intakeClientId = generationSessionContext.clientId;
+      await requireNarrivaClient(req.user, agencyId, intakeClientId);
+      let intakeContext;
+      try { intakeContext = await buildClinicalIntakeSourceContext({ agencyId, clientId: intakeClientId }); }
+      catch (error) { if (error.status === 413) throw error; throw Object.assign(new Error('Enrollment or assessment sources could not be read securely. No incomplete intake was generated. Please retry.'), { status: 503, code: 'INTAKE_SOURCES_UNAVAILABLE' }); }
+      prompt = [prompt, '', intakeContext.contextText].join('\n\n');
+      questionnaireInstruments = intakeContext.instruments;
+      intakeSources = intakeContext.sources;
+    }
     if (clientId && ATTACH_QUESTIONNAIRE_TOOLS.has(toolId)) {
       try {
         const qCtx = await buildUnattachedQuestionnaireContext({ agencyId, clientId });
@@ -1708,6 +1719,7 @@ export const generateClinicalNote = async (req, res, next) => {
         termination,
         terminationHistory: terminationHistory?.counts || null,
         treatmentPlanEligibility,
+        intakeSources: intakeTool ? intakeSources : undefined,
         encounterAge: intakeTool ? encounterAge : null,
         sessionContext: { durationMinutes: Number(req.body?.durationMinutes) || null },
         billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).primaryUnits,
@@ -1723,6 +1735,7 @@ export const generateClinicalNote = async (req, res, next) => {
         questionnaireInstruments: questionnaireInstruments.length
           ? questionnaireInstruments.map((i) => ({
             instrumentKey: i.instrumentKey,
+            sourceRef: i.sourceRef || null, complete: i.complete ?? null, total: i.total ?? null, selfHarmItem: i.selfHarmItem ?? null,
             text: String(i.text || '').slice(0, 2000)
           }))
           : undefined

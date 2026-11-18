@@ -13,7 +13,7 @@ import { clinicalAudit } from './clinicalSessionAudit.service.js';
 import * as workspace from './therapyWorkspace.service.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { buildPublicFormBrandingForAgencyId } from './publicFormBranding.service.js';
-import { TutoringSessionNote } from '../models/TutoringSessionLearning.model.js';
+import { TutoringSessionNote, TutoringSessionBrief } from '../models/TutoringSessionLearning.model.js';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const terminal = new Set(['canceled','cancelled','canceled_by_client','canceled_by_provider','canceled_by_guardian','canceled_by_organization','late_canceled','no_show','rescheduled','voided','draft']);
@@ -251,5 +251,7 @@ export async function bookedTutoringLearningContext(ctx) {
  }
  const note=await TutoringSessionNote.findBySession(session.id);
  if(note&&(Number(note.client_id)!==ctx.clientId||Number(note.agency_id)!==Number(ctx.appointment.agencyId)))throw fail(409,'This note requires a record-link review. Its contents were kept.');
- return {tracks,note};
+ const savedBrief=await TutoringSessionBrief.findBySession(session.id);
+ const brief=savedBrief&&Number(savedBrief.client_id)===ctx.clientId&&Number(savedBrief.agency_id)===Number(ctx.appointment.agencyId)?savedBrief:null;
+ return {tracks,note,brief};
 }

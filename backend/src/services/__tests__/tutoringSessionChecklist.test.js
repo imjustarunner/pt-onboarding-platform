@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { getConnection: vi.fn() } }));
 vi.mock('../../models/StudentLearningPlan.model.js', () => ({ default: { findActiveBySubject: vi.fn(), getPlanBundle: vi.fn() } }));
-vi.mock('../../models/TutoringSessionLearning.model.js', () => ({ AcademicSkillEvidence: { create: vi.fn() }, TutoringSessionNote: { findBySession: vi.fn(), create: vi.fn(), update: vi.fn() } }));
+vi.mock('../../models/TutoringSessionLearning.model.js', () => ({ AcademicSkillEvidence: { create: vi.fn() }, TutoringSessionBrief: { findBySession: vi.fn(async()=>null) }, TutoringSessionNote: { findBySession: vi.fn(), create: vi.fn(), update: vi.fn() } }));
 vi.mock('../clinicalSessionAudit.service.js', () => ({ clinicalAudit: vi.fn() }));
 import pool from '../../config/database.js';
 import StudentLearningPlan from '../../models/StudentLearningPlan.model.js';
-import { AcademicSkillEvidence, TutoringSessionNote } from '../../models/TutoringSessionLearning.model.js';
+import { AcademicSkillEvidence, TutoringSessionNote, TutoringSessionBrief } from '../../models/TutoringSessionLearning.model.js';
 import { saveLearningPlanSessionNote } from '../tutoringSessionChecklist.service.js';
 import { assembleLearningSession, checklistMasteryReview } from '../../../../frontend/src/navigation/tutoringSessionDocumentation.js';
-import { bundle, planChecklist } from '../../../../frontend/previews/learning-session/fixture.js';
+import { bundle, planChecklist, brief } from '../../../../frontend/previews/learning-session/fixture.js';
 const subject = { id: 18, agency_id: 90002, client_id: 90004, primary_tutor_user_id: 100 };
 const payload = () => ({ documentationMode: 'learning_plan_checklist', studentSubjectId: 18, learningPlanId: 801, sessionId: 1001, planChecklist: structuredClone(planChecklist) });
 let db, stored, nextId;
 beforeEach(() => {
-  vi.clearAllMocks(); stored = null; nextId = 1;
+  vi.clearAllMocks(); TutoringSessionBrief.findBySession.mockResolvedValue(null); stored = null; nextId = 1;
   db = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn(async sql => sql.includes('FROM learning_class_sessions') ? [[{ id: 1001, organization_id: 90002, provider_user_id: 100, student_subject_id: 18 }]] : [[{ client_id: 90004 }]]) };
   pool.getConnection.mockResolvedValue(db);
   StudentLearningPlan.findActiveBySubject.mockResolvedValue(bundle.plan);
@@ -114,6 +114,16 @@ describe('plan-only tutoring documentation', () => {
     db.execute.mockImplementation(async sql => sql.includes('FROM learning_class_sessions') ? [[{ id: 1001, organization_id: 90002, provider_user_id: 100, student_subject_id: 18, delivery_context: 'in_person' }]] : [[{ client_id: 90004 }]]);
     await saveLearningPlanSessionNote({ ...payload(), sessionType: 'virtual' }, 100, { subject });
     expect(TutoringSessionNote.create.mock.calls[0][0].sessionType).toBe('in_person');
+  });
+
+  it('uses actual matching session-brief focuses and strategies while rejecting stale or foreign brief selections', async () => {
+    TutoringSessionBrief.findBySession.mockResolvedValue(brief);
+    const input = payload(); input.planChecklist.areas = [{ key: 'activity:701:1', rating: 'developing', strategyKeys: ['brief:701:0'], result: 'Observed guided practice' }];
+    const result = await saveLearningPlanSessionNote(input,100,{subject});
+    expect(result.note.summary).toContain('Guided word-problem practice: 2/4');
+    expect(result.note.summary).toContain('Think-aloud modeling');
+    TutoringSessionBrief.findBySession.mockResolvedValue({...brief,client_id:999});
+    await expect(saveLearningPlanSessionNote(input,100,{subject})).rejects.toThrow('no longer belongs');
   });
 
 });

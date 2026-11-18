@@ -1,9 +1,10 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
-vi.mock('../../../services/tutoringLearningOs', () => ({ fetchLearningOverview: vi.fn(), listSubjectPlans: vi.fn(), getLearningPlan: vi.fn(), getSessionNote: vi.fn(), saveSessionNote: vi.fn(), downloadSessionNotePdf: vi.fn() }));
+vi.mock('../../../services/tutoringLearningOs', () => ({ fetchLearningOverview: vi.fn(), listSubjectPlans: vi.fn(), getLearningPlan: vi.fn(), getSessionNote: vi.fn(), getSessionBrief: vi.fn(), saveSessionNote: vi.fn(), downloadSessionNotePdf: vi.fn() }));
+import * as los from '../../../services/tutoringLearningOs';
 import Panel from '../TutoringSessionLearningPanel.vue';
 import Checklist from '../LearningPlanSessionChecklist.vue';
-import { bundle } from '../../../../previews/learning-session/fixture';
+import { bundle, brief } from '../../../../previews/learning-session/fixture';
 const context = (title = 'Mathematics') => ({ tracks: [{ subject: { id: 18, subject_label: title }, bundle }], note: null });
 describe('scheduled tutoring session documentation', () => {
   it('uses the booked-room transport and saves against the actual session and plan', async () => {
@@ -32,4 +33,13 @@ describe('scheduled tutoring session documentation', () => {
     await wrapper.get('textarea').setValue('Homework observation'); await wrapper.get('button').trigger('click'); await flushPromises();
     expect(request).toHaveBeenCalledWith('/note', 'put', expect.objectContaining({ summary: 'Homework observation' }));
   });
+  it('loads the desktop session brief and exposes its actual saved focus areas', async () => {
+    los.fetchLearningOverview.mockResolvedValue({subjects:[{subject:{id:18,subject_label:'Mathematics'}}]});
+    los.getSessionNote.mockResolvedValue({note:null});los.getSessionBrief.mockResolvedValue({brief});
+    los.listSubjectPlans.mockResolvedValue({plans:[bundle.plan]});los.getLearningPlan.mockResolvedValue(bundle);
+    const wrapper=mount(Panel,{props:{clientId:90004,agencyId:90002,sessionId:1001}});await flushPromises();
+    expect(wrapper.text()).toContain('Guided word-problem practice');expect(wrapper.text()).toContain('Session brief');
+    expect(los.getSessionBrief).toHaveBeenCalledWith(1001);
+  });
+
 });

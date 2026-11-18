@@ -53,7 +53,7 @@ export function createClinicalRecordExporter(dependencies = {}) {
   const intakeDocuments = dependencies.intakeDocuments || (id => import('../models/IntakeSubmissionDocument.model.js').then(model => model.default.listSignedForClient(id)));
   const renderArtifact = dependencies.renderArtifact || (async html => {
     const service = (await import('./documentSigning.service.js')).default;
-    return service.convertHTMLToPDF(String(html).replace(/<details(?![^>]*\bopen\b)/gi, '<details open'), { disableFallback: true, documentType: 'clinical_record_supporting_document' });
+    return service.convertHTMLToPDF(String(html).replace(/<details(?![^>]*\bopen\b)/gi, '<details open'), { disableFallback: true, networkIsolation: true, documentType: 'clinical_record_supporting_document' });
   });
   const audit = dependencies.audit || logAuditEvent;
   const recordDemographics = dependencies.recordDemographics || recordClientDemographics;
@@ -222,7 +222,7 @@ export function createClinicalRecordExporter(dependencies = {}) {
     }
     const recordTitle = singleDocument ? notes[0]?.note.title || 'Clinical note' : 'Full medical record';
     const bytes = await render({ agency, client, notes, plans, diagnoses, names, manifest, attachments, recordTitle, includeDrafts, singleDocument });
-    await audit(req, { actionType: singleDocument ? 'clinical_note_pdf_exported' : 'clinical_medical_record_pdf_exported', agencyId, clientId: Number(clientId), metadata: { noteId: positive(noteId), draftId: positive(draftId), noteCount: notes.length, planCount: plans.length, attachmentCount: attachments.length, includeDrafts, from: from || null, to: to || null } });
+    await audit(req, { required: true, actionType: singleDocument ? 'clinical_note_pdf_exported' : 'clinical_medical_record_pdf_exported', agencyId, clientId: Number(clientId), metadata: { clientId: Number(clientId), actorRole: req.user.role, noticeVersion: req.headers?.['x-record-download-notice'] || null, deliveryStage: 'prepared_for_download', noteId: positive(noteId), draftId: positive(draftId), noteCount: notes.length, planCount: plans.length, attachmentCount: attachments.length, includeDrafts, from: from || null, to: to || null } });
     return { bytes, filename: draftId ? `workspace-draft-${draftId}.pdf` : noteId ? `clinical-note-${noteId}.pdf` : `medical-record-${clientId}.pdf` };
   };
 }

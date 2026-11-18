@@ -1760,47 +1760,10 @@ export const downloadTreatmentSummaryPdf = async (req, res, next) => {
       });
     }
 
-    const {
-      generateTreatmentSummaryPdf,
-      extractNotePayloadText
-    } = await import('../services/treatmentSummaryPdf.service.js');
-
-    let providerName = '';
-    let supervisorName = '';
-    try {
-      const User = (await import('../models/User.model.js')).default;
-      if (note.provider_signed_by_user_id) {
-        const u = await User.findById(note.provider_signed_by_user_id);
-        providerName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
-      } else if (note.created_by_user_id) {
-        const u = await User.findById(note.created_by_user_id);
-        providerName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
-      }
-      if (note.supervisor_cosigned_by_user_id) {
-        const u = await User.findById(note.supervisor_cosigned_by_user_id);
-        supervisorName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
-      }
-    } catch {
-      // names optional
-    }
-
-    const entriesText = formatNoteEntriesForExport(note.clinical_version_addenda || await listNoteAddenda(note.id));
-    const revised = Number(note.clinical_version_number) > 1;
-    const authorSignature = note.clinical_version_signatures?.find(signature => ['author_sign', 'initial_author_sign'].includes(signature.action));
-    const authorAcknowledgement = note.clinical_version_signatures?.find(signature => signature.action === 'author_acknowledge');
-    const versionDetails = note.clinical_version_id ? `Clinical version ${note.clinical_version_number}${revised && !authorSignature ? '\nThe responsible supervisor signed this amendment.' : ''}${authorAcknowledgement ? `\nOriginal author reviewed and acknowledged this version: ${authorAcknowledgement.signedAt}` : ''}` : '';
-    const pdf = await generateTreatmentSummaryPdf({
-      agencyId: note.agency_id,
-      bodyText: [versionDetails, extractNotePayloadText(note), entriesText].filter(Boolean).join('\n\n'),
-      title: note.title || 'Treatment Summary',
-      clientInitials: meta?.structuredChart?.clientInitials || meta?.initials || '',
-      dateOfService: meta?.dateOfService || null,
-      providerName,
-      supervisorName,
-      providerSignedAt: revised ? authorSignature?.signedAt || null : note.provider_signed_at || null,
-      supervisorSignedAt: note.supervisor_cosigned_at || null
-    });
-
+    const { default: exportClinicalRecord } = await import('../services/clinicalRecordExport.service.js');
+    const result = await exportClinicalRecord(req, { agencyId: note.agency_id, noteId });
+    const pdf = result.bytes;
+    res.setHeader('Cache-Control', 'no-store');
     const filename = `treatment-summary-${noteId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

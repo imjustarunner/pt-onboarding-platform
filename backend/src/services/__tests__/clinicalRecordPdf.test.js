@@ -124,4 +124,11 @@ describe('clinical record PDF content and attachments', () => {
     expect(record).toContain('Current plan results'); expect(record).toContain('Earlier saved results'); expect(record).not.toContain('[object Object]');
   });
 
+  it('omits the pronouns field and gives the trained note sections and MSE separate smaller blocks', () => {
+    const html = buildClinicalRecordHtml({ client: { full_name:'Example',pronouns:'PRIVATE_PRONOUN_FIELD' }, notes:[{ note:{ note_payload: JSON.stringify({sections:{Subjective:'Reported facts',Objective:'Observed facts',Interventions:'Psychoeducation',Plan:'Provider plan','Mental Status Examination':'Assessed domains'}}) } }] });
+    expect(html).not.toContain('PRIVATE_PRONOUN_FIELD');expect(html).not.toContain('<dt>Pronouns</dt>');
+    expect(html).toContain('note-section--mse');expect(html).toContain('font-size:9pt');expect(html).toContain('font-size:8pt');
+    expect(html.match(/<section class="note-section/g)).toHaveLength(5);
+  });
+
 });

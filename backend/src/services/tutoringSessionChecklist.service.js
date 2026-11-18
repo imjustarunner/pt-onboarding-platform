@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import StudentLearningPlan from '../models/StudentLearningPlan.model.js';
-import { AcademicSkillEvidence, TutoringSessionNote } from '../models/TutoringSessionLearning.model.js';
+import { AcademicSkillEvidence, TutoringSessionNote, TutoringSessionBrief } from '../models/TutoringSessionLearning.model.js';
 import { assembleLearningSession } from '../../../frontend/src/navigation/tutoringSessionDocumentation.js';
 import { clinicalAudit } from './clinicalSessionAudit.service.js';
 
@@ -21,7 +21,9 @@ export async function saveLearningPlanSessionNote(payload, actorUserId, { subjec
     if (!active || Number(active.id) !== Number(payload.learningPlanId)) throw fail(409, 'The approved learning plan has changed or is unavailable. Reload the plan before saving.');
     const bundle = await StudentLearningPlan.getPlanBundle(active.id, db);
     if (!bundle || Number(bundle.plan.client_id) !== Number(subject.client_id) || Number(bundle.plan.agency_id) !== Number(subject.agency_id) || Number(bundle.plan.student_subject_id) !== Number(subject.id) || bundle.plan.status !== 'active' || !bundle.plan.approved_at) throw fail(409, 'An approved active learning plan is required.');
-    const checklist = assembleLearningSession(bundle, payload.planChecklist);
+    const loadedBrief = await TutoringSessionBrief.findBySession(session.id, db);
+    const brief = loadedBrief && Number(loadedBrief.learning_plan_id) === Number(active.id) && Number(loadedBrief.agency_id) === Number(subject.agency_id) && Number(loadedBrief.client_id) === Number(subject.client_id) && Number(loadedBrief.student_subject_id) === Number(subject.id) ? loadedBrief : null;
+    const checklist = assembleLearningSession(bundle, payload.planChecklist, brief);
     const existing = await TutoringSessionNote.findBySession(session.id, db);
     if (existing && (Number(existing.client_id) !== Number(subject.client_id) || Number(existing.agency_id) !== Number(subject.agency_id) || (existing.student_subject_id && Number(existing.student_subject_id) !== Number(subject.id)) || (payload.id && Number(existing.id) !== Number(payload.id)))) throw fail(409, 'This session note needs a record-link review. The saved content was kept.');
     if (payload.id && !existing) throw fail(409, 'The original note could not be found for this session. Reload before saving.');

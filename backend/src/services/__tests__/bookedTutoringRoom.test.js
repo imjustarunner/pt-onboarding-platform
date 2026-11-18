@@ -11,7 +11,7 @@ vi.mock('../clinicalVideo.service.js',()=>({requireClinicalVideoMonitoring:vi.fn
 vi.mock('../vonageVideo.service.js',()=>({default:{createSession:vi.fn()}}));
 vi.mock('../clinicalSessionAudit.service.js',()=>({clinicalAudit:vi.fn()}));
 vi.mock('../publicFormBranding.service.js',()=>({buildPublicFormBrandingForAgencyId:vi.fn(async()=>({agencyName:'NLU QA'}))}));
-vi.mock('../../models/TutoringSessionLearning.model.js',()=>({TutoringSessionNote:{findBySession:vi.fn(),create:vi.fn(),update:vi.fn()}}));
+vi.mock('../../models/TutoringSessionLearning.model.js',()=>({TutoringSessionBrief:{findBySession:vi.fn(async()=>null)},TutoringSessionNote:{findBySession:vi.fn(),create:vi.fn(),update:vi.fn()}}));
 vi.mock('../therapyWorkspace.service.js',()=>({readWorkspace:vi.fn(),appendWorkspace:vi.fn(),recordWorkspaceDownload:vi.fn()}));
 vi.mock('../../controllers/learningClassSessions.controller.js',()=>({completeLearningSession:vi.fn()}));
 import pool from '../../config/database.js';

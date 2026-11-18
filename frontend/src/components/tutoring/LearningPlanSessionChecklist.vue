@@ -1,11 +1,11 @@
 <template>
   <section class="learning-checklist">
     <header><div><h3>Session learning record</h3><p>{{ bundle.plan.title }} <span class="plan-label">Approved learning plan</span></p></div><span class="selection-count">{{ selections.length }} selected</span></header>
-    <p class="help">Choose the objectives you addressed, check the strategies used, and rate today’s performance.</p>
-    <label v-if="areas.length > 6" class="search">Find an objective<input v-model="search" type="search" placeholder="Search learning-plan objectives" /></label>
+    <p class="help">Choose learning or session focuses from the saved plan and session brief. Check strategies used and rate today’s performance.</p>
+    <label v-if="areas.length > 6" class="search">Find a focus<input v-model="search" type="search" placeholder="Search learning and session focuses" /></label>
     <div class="focus-list">
       <article v-for="area in filteredAreas" :key="area.key" :class="['focus', { selected: entries[area.key]?.selected }]">
-        <label class="focus-toggle"><input v-model="entries[area.key].selected" type="checkbox" :disabled="saving" @change="changed" /><span><strong>{{ area.title }}</strong><small v-if="area.planObjectiveId">{{ area.goalTitle }}</small></span></label>
+        <label class="focus-toggle"><input v-model="entries[area.key].selected" type="checkbox" :disabled="saving" @change="changed" /><span><strong>{{ area.title }}</strong><small>{{ area.goalTitle }} · {{ area.origin }}</small></span></label>
         <div v-if="entries[area.key].selected" class="focus-body">
           <p v-if="area.description" class="help">{{ area.description }}</p>
           <p v-if="area.criteria" class="criteria"><strong>Plan target:</strong> {{ area.criteria }}</p>
@@ -29,21 +29,21 @@
 <script setup>
 import { computed, reactive, ref, useId, watch } from 'vue';
 import { SESSION_RATINGS, planFocusAreas, planStrategies, assembleLearningSession } from '../../navigation/tutoringSessionDocumentation';
-const props = defineProps({ bundle: { type: Object, required: true }, initialChecklist: { type: Object, default: null }, previousNote: { type: Object, default: null }, saving: Boolean, status: { type: String, default: '' } });
+const props = defineProps({ bundle: { type: Object, required: true }, brief: { type: Object, default: null }, initialChecklist: { type: Object, default: null }, previousNote: { type: Object, default: null }, saving: Boolean, status: { type: String, default: '' } });
 const emit = defineEmits(['save', 'dirty']);
 const inputId = useId(), entries = reactive({}), observation = ref(''), participantDetails = ref(''), search = ref(''), replaceExistingNote = ref(false);
-const areas = computed(() => planFocusAreas(props.bundle)), strategies = computed(() => planStrategies(props.bundle));
+const areas = computed(() => planFocusAreas(props.bundle, props.brief)), strategies = computed(() => planStrategies(props.bundle, props.brief));
 const filteredAreas = computed(() => areas.value.filter(area => `${area.title} ${area.goalTitle}`.toLowerCase().includes(search.value.toLowerCase())));
 const selections = computed(() => areas.value.filter(area => entries[area.key]?.selected).map(area => ({ key: area.key, rating: entries[area.key].rating, strategyKeys: entries[area.key].strategyKeys, result: entries[area.key].result })));
 const input = computed(() => ({ version: 1, areas: selections.value, observation: observation.value, participantDetails: participantDetails.value }));
-const assembled = computed(() => { try { return { preview: assembleLearningSession(props.bundle, input.value) }; } catch (error) { return { message: error.message }; } });
+const assembled = computed(() => { try { return { preview: assembleLearningSession(props.bundle, input.value, props.brief) }; } catch (error) { return { message: error.message }; } });
 const preview = computed(() => assembled.value.preview), validationMessage = computed(() => assembled.value.message);
 const needsReplacement = computed(() => !!props.previousNote?.summary && !props.previousNote?.metadata_json?.planChecklist);
 const nextStep = key => SESSION_RATINGS.find(rating => rating.key === entries[key]?.rating)?.next;
 function changed() { emit('dirty'); }
 function ratingChanged(key) { if (entries[key].rating === 'not_observed') { entries[key].strategyKeys = []; entries[key].result = ''; } changed(); }
 function save() { if (preview.value) emit('save', { planChecklist: input.value, replaceExistingNote: replaceExistingNote.value }); }
-watch(() => [props.bundle, props.initialChecklist], () => {
+watch(() => [props.bundle, props.brief, props.initialChecklist], () => {
   for (const key of Object.keys(entries)) delete entries[key];
   for (const area of areas.value) {
     const stored = props.initialChecklist?.areas?.find(item => item.key === area.key);

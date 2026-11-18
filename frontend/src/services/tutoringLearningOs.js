@@ -1,4 +1,5 @@
 import api from './api';
+import { RECORD_DOWNLOAD_NOTICE_VERSION } from '../utils/recordDownloadNotice';
 
 const BASE = '/tutoring-learning-os';
 
@@ -271,6 +272,6 @@ export async function tutorAssist(payload) {
 }
 
 export async function downloadSessionNotePdf(sessionId) {
-  const { data } = await api.get(`${BASE}/sessions/${sessionId}/note/pdf`, { responseType: 'blob' });
+  const { data } = await api.get(`${BASE}/sessions/${sessionId}/note/pdf`, { responseType: 'blob', headers: { 'X-Record-Download-Notice': RECORD_DOWNLOAD_NOTICE_VERSION } });
   return data;
 }

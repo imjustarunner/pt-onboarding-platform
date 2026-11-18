@@ -410,6 +410,7 @@ app.use(cors({
     'X-Guest-Invoice-Token',
     'X-Counseling-Access',
     'X-Requested-With',
+    'X-Record-Download-Notice',
     'X-Noteworthy-Request',
     'X-Organization-Agreement',
     'X-Agency-Id',

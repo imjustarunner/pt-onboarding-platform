@@ -1,49 +1,42 @@
 {
-  "status": "Local review only; main push and live deployment remain stopped at the user request.",
-  "branch": "codex/narriva-rollout-20261117",
+  "status": "Validated; user authorized main push and live deployment on 2026-11-18. Deployment pending merged-main validation.",
   "fictionalDataOnly": true,
-  "agencyBrandingOnly": true,
+  "liveModelExecutedForPdfFixtures": false,
+  "sectionContracts": {
+    "psychotherapy": "Actual four SOIP headers",
+    "90791": "Actual 24-section intake contract",
+    "H0031": "Actual intake contract, omitting MSE",
+    "academicTutoring": "Actual approved-plan and matching saved session-brief schema"
+  },
   "pageCounts": {
     "itsco90837": 1,
     "nluTutoring": 1,
-    "innerStrength90791": 2
-  },
-  "tutoringRatings": {
-    "1-2": "Revisit",
-    "3-4": "Move forward",
-    "not_observed": "Progress unchanged"
+    "innerStrength90791": 3,
+    "innerStrengthH0031": 3
   },
   "validation": {
-    "learningDocumentationBackend": {
-      "files": 6,
-      "passed": 84
-    },
-    "clinicalPlatformExportRegression": {
-      "files": 7,
-      "passed": 62
-    },
-    "learningDocumentationFrontend": {
-      "files": 3,
-      "passed": 20
-    },
-    "existingWorkspaceAndBookedSessionFrontend": {
-      "files": 2,
-      "passed": 24
-    },
-    "note": "Suite counts overlap; these are not a unique combined test count.",
-    "backendSharedRuntimeImports": 50,
-    "runtimeCopiesComplete": true,
-    "pdfPageAndTextChecks": "passed",
-    "desktopAnd390pxBrowserInteractions": "passed"
+    "learningDocumentationBackend": 86,
+    "clinicalPlatformExportRegression": 63,
+    "sourceAndPrivacyBackend": 36,
+    "intakeNodeTests": 40,
+    "learningDocumentationFrontend": 23,
+    "desktopAndMobileBrowser": "passed",
+    "note": "Suite counts overlap. No production chart was used for the fixtures."
   },
-  "candidateImages": "Earlier zero-traffic candidates require rebuilding to include these changes.",
+  "privacyConfigurationRead": {
+    "approvalAttested": true,
+    "model": "gemini-4-hydrogen",
+    "region": "us",
+    "secretValuesPrinted": false
+  },
   "sha256": {
-    "itsco-90837-psychotherapy.pdf": "2185c09d727065b030fb0efdcfe6b6408f88936346e7d4fa27cb0ad3bf1d945e",
-    "nlu-tutoring.pdf": "e69afb2668d30ef431af4717af4e821229c4fbef3eddc326a35d5faf43e3de73",
-    "inner-strength-90791-intake.pdf": "4a4bcbc61167ade5ded56bfa267785ef565ca3938a7aa9bc24529cba25fd7086",
-    "samples.json": "2b879983e0d317e470930cef7257bac6e962b19547b91c00b529c58021ba0991",
-    "nlu-learning-session-preview.html": "5f0afe039dcff1f34f2306b6f0daab2d59c8abfefe03b009e5b0cb3dcfd5a10c",
-    "nlu-learning-session-desktop.png": "ace5d927956e6b0a71b43ff0ed922841821dc4d0757eef65ece7d3e2ac120442",
-    "nlu-learning-session-mobile.png": "1ee9916878a41430e82a9a75ab3aa92c31accc5b6e154284aa70629f041001a9"
+    "itsco-90837-psychotherapy.pdf": "0b904fe4a6ae11de25bc4322701da2c6dc1e8e2e66061118ce677166645a3035",
+    "nlu-tutoring.pdf": "d223be462edbd10a75eb8fedf45ae6246b5808db9ff991d91a559c3e1afa2ce6",
+    "inner-strength-90791-intake.pdf": "3eb8823760a9f8203c282bf256553e6f497ecf3effbb03043c84baf4cd9d9948",
+    "inner-strength-h0031-assessment.pdf": "0fc12099520d90489e563a2855d376a63ad3e5ef33e541d07f77c511a1a70aed",
+    "samples.json": "43a58162b3c718c9fc1397ed899179068c88aa81e7500ed9e564988fdcae8d9f",
+    "nlu-learning-session-preview.html": "9307f7f1e10520a1887952aa0df3bf2884b75dd7434a6c2ce649ae50156668df",
+    "nlu-learning-session-desktop.png": "56c0d068126df9df72a2d96fb348aac3a7e966eb93aa29ea15e6842643ceca1a",
+    "nlu-learning-session-mobile.png": "787e19f11a6cd57ac08c6109b45cc38497abbef666c9d5b3281bedc605c34449"
   }
 }
