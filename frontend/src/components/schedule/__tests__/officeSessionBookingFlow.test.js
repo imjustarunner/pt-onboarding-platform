@@ -16,6 +16,7 @@ import Header from '../AppointmentHeaderFields.vue';
 import Logo from '../ScheduleAgencyLogo.vue';
 import Preview from '../DefaultNotificationPreview.vue';
 import SupervisionBody from '../SupervisionBody.vue';
+import AppointmentScheduleCheck from '../AppointmentScheduleCheck.vue';
 
 const serviceLocations = [
   { id: 51, name: 'Office', place_of_service: '11', location_kind: 'office_pos', billing_office_location_id: 88, physical_office_location_id: 8, billing_office_name: 'Main office', street_address: '123 Main St' },
@@ -39,6 +40,27 @@ beforeEach(() => {
   mocks.patch.mockResolvedValue({ data: { ok: true } });
 });
 afterEach(async () => { wrapper?.unmount(); await flushPromises(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+it.each(['provider','admin','support'])('keeps a December 3 Denver 5 PM appointment at 5 PM when a %s opens it',async role=>{
+ mocks.user={id:7,role};mocks.agency={id:2,slug:'test',organization_type:'agency',timezone:'America/Denver'};
+ const event={id:910,eventId:910,kind:'PERSONAL_EVENT',eventKind:'PERSONAL_EVENT',label:'Client session',agencyId:2,providerId:7,appointmentId:821,clientId:2031,canEdit:true,canReschedule:true,startAt:'2026-12-04T00:00:00Z',endAt:'2026-12-04T01:00:00Z',timeZone:'America/Denver',isClientSession:true};
+ const appointment={id:821,agencyId:2,providerUserId:7,status:'scheduled',businessType:'mental_health',modality:'TELEHEALTH',serviceCode:'90837',sourceTimezone:'America/Denver',startAt:'2026-12-04 00:00:00',endAt:'2026-12-04 01:00:00',addonServiceCodes:['99051']};
+ const base=mocks.get.getMockImplementation();mocks.get.mockImplementation((path,...args)=>path==='/appointments/821'?Promise.resolve({data:{appointment}}):base(path,...args));
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:true,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'},AppointmentScheduleCheck:false}}});await flushPromises();
+ const s=wrapper.vm.$.setupState;s.weekStart='2026-11-30';s.summary={weekStart:'2026-11-30',scheduleEvents:[event]};await nextTick();
+ expect(s.cellBlocks('Thursday',17,0).some(b=>b.appointmentId===821)).toBe(true);
+ expect(s.cellBlocks('Thursday',10,0).some(b=>b.appointmentId===821)).toBe(false);
+ expect(s.quarterClockLabel('2026-12-04T00:15:00Z')).toMatch(/^(5|17):15(?:\s*PM)?$/i);
+ await s.openAppointmentEditInScheduleModal({item:event,dayName:'Thursday',hour:17});await flushPromises();
+ expect(s.editorDateYmd).toBe('2026-12-03');expect(s.editorStartTime).toBe('17:00');
+ expect(s.editorSavedSchedule.id).toBe(821);expect(wrapper.findComponent(AppointmentScheduleCheck).find('[role="alert"]').exists()).toBe(false);
+ expect(mocks.patch).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
+ event.startAt='2026-12-03T17:00:00Z';event.endAt='2026-12-03T18:00:00Z';
+ await s.openAppointmentEditInScheduleModal({item:event,dayName:'Thursday',hour:10});await flushPromises();
+ expect(s.editorStartTime).toBe('10:00');
+ expect(wrapper.findComponent(AppointmentScheduleCheck).get('[role="alert"]').text()).toContain('different times');
+ expect(mocks.patch).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
+});
 
 it('carries the reserved office, room, biweekly cadence and billing location into the session and keeps them after selecting a client', async () => {
   const track = vi.fn();

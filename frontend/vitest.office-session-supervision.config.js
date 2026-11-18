@@ -15,6 +15,8 @@ export default defineConfig({
       'src/services/__tests__/sharedReads.test.js',
       'src/components/schedule/__tests__/supervisionScheduler.test.js',
       'src/components/schedule/__tests__/supervisionActionDialog.test.js',
+      'src/components/schedule/__tests__/appointmentScheduleCheck.test.js',
+      'src/utils/__tests__/noteAidBillingAddons.test.js',
       'src/components/schedule/__tests__/supervisionNotificationSettings.test.js',
       'src/components/schedule/__tests__/AppointmentEditorShell.test.js',
       'src/components/schedule/__tests__/MeetingSettingsEditor.test.js',

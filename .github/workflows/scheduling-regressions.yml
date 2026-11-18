@@ -352,6 +352,7 @@ jobs:
           src/views/__tests__/MyMeetingsView.test.js
           src/components/schedule/__tests__/supervisionScheduler.test.js
           src/components/schedule/__tests__/supervisionActionDialog.test.js
+          src/components/schedule/__tests__/appointmentScheduleCheck.test.js
           src/components/schedule/__tests__/SupervisionRecordPanel.test.js
           src/components/schedule/__tests__/SupervisionProgress.test.js
           src/components/supervision/__tests__/SupervisionHoursRefresh.test.js
