@@ -49,6 +49,7 @@ beforeEach(() => {
   pool.getConnection.mockResolvedValue(lock);
   pool.query.mockImplementation((...args)=>pool.execute(...args));
   pool.execute.mockImplementation(async sql => {
+    if (sql.includes('clinical_work_archive_resources')) return [[]];
     if (sql.includes('FROM session_reminder_')) return [[]];
     if (sql.includes('FROM platform_session_notification_settings')) return [[]];
     if (sql.includes('FROM agency_session_notification_settings')) return [[{ channels_enabled_json: { email: true, sms: true },
