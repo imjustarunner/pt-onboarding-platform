@@ -46,6 +46,7 @@ export function cancellationClientDetails(facts = {}, { requireReason = true } =
 
 export function buildCancellationNotification(appointment, facts, resolved = {}) {
   const noShow = facts.eventType === 'no_show';
+  const learning=['tutoring','learning'].includes(appointment.businessType);
   const details = cancellationClientDetails(facts, { requireReason: !noShow });
   if (facts.guardianSummary && facts.guardianCancellationOperationId) {
     const summary=facts.guardianSummary,count=Number(summary.count),fee=Number(summary.totalFeeCents||0);
@@ -77,12 +78,12 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   const feeText = Number.isFinite(feeCents) && feeCents > 0
     ? `A ${noShow ? 'missed-appointment' : 'cancellation'} fee of ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(feeCents / 100)} was recorded. Review your balance and any payment arrangement in your portal.` : '';
   const paragraphs = [
-    noShow ? `Our records show the appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} on ${when} (${appointment.sourceTimezone || 'America/Denver'}) was missed. Contact your care team if this needs to be corrected.` : moved ? `Your appointment has moved from ${when} (${appointment.sourceTimezone || 'America/Denver'}) to ${appointmentTimeLabel(resolved.replacement.startAt, resolved.replacement.sourceTimezone || appointment.sourceTimezone)} (${resolved.replacement.sourceTimezone || appointment.sourceTimezone || 'America/Denver'}). The previous time is no longer scheduled.` : `Your appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} scheduled for ${when} (${appointment.sourceTimezone || 'America/Denver'}) has been canceled.`,
+    noShow ? `Our records show the appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} on ${when} (${appointment.sourceTimezone || 'America/Denver'}) was missed. Contact your ${learning?'learning team':'care team'} if this needs to be corrected.` : moved ? `Your appointment has moved from ${when} (${appointment.sourceTimezone || 'America/Denver'}) to ${appointmentTimeLabel(resolved.replacement.startAt, resolved.replacement.sourceTimezone || appointment.sourceTimezone)} (${resolved.replacement.sourceTimezone || appointment.sourceTimezone || 'America/Denver'}). The previous time is no longer scheduled.` : `Your appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} scheduled for ${when} (${appointment.sourceTimezone || 'America/Denver'}) has been canceled.`,
     ...(!noShow ? [`Reason: ${details.clientFacingReason}`] : []),
     moved ? 'Please sign in to see your updated appointment and any other schedule changes.'
       : `${followUpText}${['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(details.followUpAction) ? '' : ` ${nextText}`} Please sign in to see any updates to your appointments.`,
     ...(details.followUpMessage ? [details.followUpMessage] : []),
-    'If you have questions, you can contact your care team. Please use a secure conversation for clinical details.'
+    learning?'If you have questions, contact your learning team or Support through the portal.':'If you have questions, you can contact your care team. Please use a secure conversation for clinical details.'
   ];
   const portalUrl = resolved.portalUrl;
   const links = portalUrl ? `<p><a href="${escapeHtml(portalUrl)}">${resolved.offer?.status === 'open' ? 'View available reschedule options' : 'Review my appointments'}</a></p>${resolved.offer?.status === 'open' && resolved.nextAppointment ? `<p><a href="${escapeHtml(portalUrl + '&offerAction=keep_next')}">See you next session — ${escapeHtml(resolved.nextAppointment.displayWhen)}</a></p><p>Confirm this choice in your portal to decline the replacement offer and keep your next session.</p>` : ''}` : '';

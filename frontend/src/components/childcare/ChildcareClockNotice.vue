@@ -32,9 +32,10 @@ const onChildcarePage=computed(()=>/\/childcare(?:\/|$)/.test(router.currentRout
 let generation=0,timer,previousFocus,punchKey=null;
 const when=shift=>parseUtcInstant(shift.clockedInAt)?.toLocaleString('en-US',{timeZone:shift.timezone||'America/Denver',timeZoneName:'short'})||'the recorded start';
 const message=e=>e.response?.data?.error?.message||'Your clock status could not be updated. Review the shift before retrying.';
-const marker=shift=>`childcare-clock-reminder:${auth.user?.id}:${localStorage.getItem('sessionId')||'current'}:${shift.id}:${shift.clockedInAt}`;
-function acknowledged(shift){try{return sessionStorage.getItem(marker(shift))==='1';}catch{return false;}}
-function dismiss(){if(prompt.value)try{sessionStorage.setItem(marker(prompt.value),'1');}catch{}prompt.value=null;previousFocus?.focus?.();}
+const acknowledgedClocks=new Set();
+const marker=shift=>`${auth.user?.id}:${shift.id}:${shift.clockedInAt}`;
+function acknowledged(shift){return acknowledgedClocks.has(marker(shift));}
+function dismiss(){if(prompt.value)acknowledgedClocks.add(marker(prompt.value));prompt.value=null;previousFocus?.focus?.();}
 async function refresh(){
  const token=++generation,uid=auth.user?.id;
  if(!auth.isAuthenticated||!uid){clocks.value=[];prompt.value=null;lookupError.value='';return;}
@@ -64,7 +65,7 @@ async function clockOut(){
 }
 function trapFocus(event){const nodes=[...(dialog.value?.querySelectorAll('button:not(:disabled),input,[tabindex="0"]')||[])];if(!nodes.length)return;const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.value)){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
 const visibleRefresh=()=>{if(document.visibilityState==='visible')refresh();};
-watch(()=>[auth.user?.id,auth.isAuthenticated],()=>{generation++;clocks.value=[];prompt.value=null;error.value='';lookupError.value='';refresh();},{immediate:true,flush:'sync'});
+watch(()=>[auth.user?.id,auth.isAuthenticated],()=>{generation++;acknowledgedClocks.clear();clocks.value=[];prompt.value=null;error.value='';lookupError.value='';refresh();},{immediate:true,flush:'sync'});
 onMounted(()=>{window.addEventListener('childcare-clock-changed',refresh);document.addEventListener('visibilitychange',visibleRefresh);timer=window.setInterval(visibleRefresh,60000);});
 onBeforeUnmount(()=>{generation++;window.clearInterval(timer);window.removeEventListener('childcare-clock-changed',refresh);document.removeEventListener('visibilitychange',visibleRefresh);});
 </script>

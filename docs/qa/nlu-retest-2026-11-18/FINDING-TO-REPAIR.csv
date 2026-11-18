@@ -1,0 +1,24 @@
+fix,source_state,engineering_finding,live_result
+1,PARTIAL,"No-show due-work query, independent deadline drain, exact-session tutoring family/provider copy. Late-cancel parity and actual inbox verification remain open.",NOT RUN
+2,PARTIAL,Deadline/banner/disabled-Undo explanation and due-query repair. Policy fee amounts are not invented or seeded; approved setup and actual consequence retest remain.,NOT RUN
+3,IMPLEMENTED,Past-deadline confirmation and immediate scoped finalization after releasing the signing lock.,NOT RUN
+4,IMPLEMENTED,"Required undo reason, append-only who/time/reason, immediate refresh and defaulted tutoring outreach fields.",NOT RUN
+5,IMPLEMENTED,New declaration after undo; encrypted archive of the earlier signed workflow and separate note references.,NOT RUN
+6,PARTIAL,Final-outcome time/status guards and read-only UI; internal statuses omitted. Dedicated same-week Reschedule remains open.,NOT RUN
+7,OPEN,Same-calendar-week makeup/rescheduling workflow is not implemented in this batch.,NOT RUN
+8,OPEN,Automatic makeup hold/waiver and exactly-one package-credit reconciliation are not implemented.,NOT RUN
+9,PARTIAL,"Shared subject/service context, Online/Virtual labels, normal-case tutoring titles. Historical missing subjects are not inferred; complete wording sweep remains.",NOT RUN
+10,PARTIAL,"NLU room branding, no clinical billing card on tutoring, common copy cleanup. Full mixed-service UI/logo/legal wording needs fresh audit.",NOT RUN
+11,IMPLEMENTED,Configured default duration no longer becomes a minimum; tutoring preserves a user-selected 30-minute end.,NOT RUN
+12,IMPLEMENTED,Midnight end represented as next-day 00:00 throughout the edited booking payloads.,NOT RUN
+13,PARTIAL,Exact quarter-hour immediate same-day/past room allocation and in-person subject key. Future approval and room/automatic-history consistency remain open.,NOT RUN
+14,IMPLEMENTED,Canonical read-only outcome overlay survives released office reservation. Partial source coverage is visible.,NOT RUN
+15,PARTIAL,Recorded session attendance drives parent display/history and joins; attended/signed sessions cannot move. Unknown past attendance remains for review; fee/credit history detail still open.,NOT RUN
+16,PARTIAL,"Three-field drafts, explicit sign/share, immutable encrypted family publication, scoped portal summaries and enrollment goal. Selected worksheet publication remains open.",NOT RUN
+17,PARTIAL,"Per-appointment Session Hub, in-person entry, scoped context, collapsible rails, compact media and retained draft. Recording/consent and full material parity remain open.",NOT RUN
+18,IMPLEMENTED,"Exact family join window, ended-session suppression, current service/permission context, internal router links.",NOT RUN
+19,OPEN,Receipt R-453-7 needs current inbox/delivery reconciliation; no payment or message was duplicated. Complete billing-reference/email sweep remains.,NOT RUN
+20,IMPLEMENTED,"Completed shift rejects new punches; reload reminder, exact finalize deep link, sticky composer and visible claim counts.",NOT RUN
+21,VERIFY EXISTING,Current main already contains the provider-selector repair from b081a498c. New common subject/context fixes are included; fresh staff booking is required.,NOT RUN
+22,PARTIAL,"Neutral initial payload, stale-response/save isolation, real in-person live-presence lease and stationary Stay signed in. Actual reported resume failures require deployed retest.",NOT RUN
+23,PRESERVED,Existing family denial of tutor attendance undo remains enforced; fresh negative verification remains required.,NOT RUN

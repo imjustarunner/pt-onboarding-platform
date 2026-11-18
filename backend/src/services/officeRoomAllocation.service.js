@@ -198,8 +198,8 @@ export async function allocateOfficeRoom(db, input) {
     if (
       !start ||
       !end ||
-      start.slice(14, 19) !== "00:00" ||
-      end.slice(14, 19) !== "00:00" ||
+      (!input.exactAppointmentWindow && (start.slice(14, 19) !== "00:00" || end.slice(14, 19) !== "00:00")) ||
+      (input.exactAppointmentWindow && (Number(start.slice(14,16))%15!==0 || Number(end.slice(14,16))%15!==0 || start.slice(17)!=="00" || end.slice(17)!=="00")) ||
       (end.slice(0, 10) !== start.slice(0, 10) &&
         !(
           end.slice(0, 10) === addDaysYmd(start.slice(0, 10), 1) &&
@@ -214,7 +214,7 @@ export async function allocateOfficeRoom(db, input) {
       startDate: start.slice(0, 10),
       startHour: Number(start.slice(11, 13)),
       endHour:
-        end.slice(0, 10) > start.slice(0, 10) ? 24 : Number(end.slice(11, 13)),
+        end.slice(0, 10) > start.slice(0, 10) ? 24 : Number(end.slice(11, 13)) + (input.exactAppointmentWindow && Number(end.slice(14,16))>0 ? 1 : 0),
     });
   }
   if (

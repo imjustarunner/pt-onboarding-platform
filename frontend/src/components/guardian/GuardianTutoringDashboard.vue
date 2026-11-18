@@ -133,7 +133,8 @@
       </section>
 
       <section v-if="progressAllowed" class="gtd-card gtd-summary">
-        <h3>Recent session summary</h3>
+        <h3>Recent session summary</h3><LearningAttendanceHistory :data="dashboard.attendanceHistory" />
+        <article v-for="summary in dashboard.signedSessionSummaries||[]" :key="summary.id"><strong>{{summary.subjectLabel}} tutoring · #{{summary.appointmentId}}</strong><p>{{summary.summary.workedOn}}</p><p>{{summary.summary.howItWent}}</p><p>Practice at home: {{summary.summary.homePractice}}</p><small>Signed by {{summary.authorName}} · {{formatWhen(summary.signedAt)}}</small></article>
         <div v-if="latestUpdate">
           <div class="gtd-muted">{{ formatWhen(latestUpdate.at) }} · {{ latestUpdate.subjectLabel }}</div>
           <p>{{ latestUpdate.text }}</p>
@@ -142,7 +143,7 @@
           <strong>{{ dashboard.publishedReports[0].title }}</strong>
           <p class="gtd-muted">{{ dashboard.publishedReports[0].subjectLabel }}</p>
         </div>
-        <p v-else class="gtd-muted">Session updates from your tutor will show here.</p>
+        <p v-else-if="!dashboard.signedSessionSummaries?.length" class="gtd-muted">Session updates from your tutor will show here.</p>
       </section>
     </div>
 
@@ -197,6 +198,7 @@
 </template>
 
 <script setup>
+import LearningAttendanceHistory from '../tutoring/LearningAttendanceHistory.vue';
 import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
 import {inject,unref} from 'vue';
 const careContext=inject('portalCareContext',null);

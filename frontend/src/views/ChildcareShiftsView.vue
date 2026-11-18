@@ -1,6 +1,6 @@
 <template>
   <main class="childcare-page">
-    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><button type="button" :disabled="loading || busy" @click="load">Refresh</button></header>
+    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><button type="button" @click="addSticky">Add a sticky</button><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading childcare shifts…</p>
@@ -34,11 +34,11 @@
           <ul class="caregivers"><li v-for="person in selected.providers || []" :key="person.userId">{{ person.firstName }} {{ person.lastName }} · {{ person.clockedIn ? 'Clocked in' : person.clockedOut ? 'Clocked out' : 'Not clocked in' }}</li></ul>
           <template v-if="selected.status !== 'cancelled' && selected.status !== 'canceled'">
             <fieldset v-if="isAssigned || context.canManage || context.canApprove"><legend>Were the scheduled {{ selected.plannedChildren }} children present?</legend><label class="check"><input v-model="countChoice" type="radio" value="planned" name="childcare-count" />Yes, {{ selected.plannedChildren }} children</label><label class="check"><input v-model="countChoice" type="radio" value="actual" name="childcare-count" />A different number</label><label v-if="countChoice === 'actual'">Actual children present<input v-model="actualCount" type="number" min="0" step="1" /></label><label class="check"><input v-model="countChoice" type="radio" value="later" name="childcare-count" />Attendance needs review; record my time now</label></fieldset>
-            <div class="actions"><button v-if="isAssigned && !clockedIn" type="button" :disabled="busy" @click="punch('clock-in')">Clock in</button><button v-if="isAssigned && clockedIn" type="button" :disabled="busy" @click="punch('clock-out')">Clock out</button><button v-if="isAssigned || context.canManage || context.canApprove" type="button" :disabled="busy || countChoice === 'later'" @click="saveAttendance">Record attendance change</button><button v-if="canEdit" type="button" :disabled="busy" @click="editShift">Edit schedule</button><button v-if="canEdit" type="button" :disabled="busy" @click="cancelShift">Cancel shift</button></div>
+            <div class="actions"><button v-if="isAssigned && !clockedIn && selected.status!=='completed'" type="button" :disabled="busy" @click="punch('clock-in')">Clock in</button><button v-if="isAssigned && clockedIn" type="button" :disabled="busy" @click="punch('clock-out')">Clock out</button><button v-if="isAssigned || context.canManage || context.canApprove" type="button" :disabled="busy || countChoice === 'later'" @click="saveAttendance">Record attendance change</button><button v-if="canEdit" type="button" :disabled="busy" @click="editShift">Edit schedule</button><button v-if="canEdit" type="button" :disabled="busy" @click="cancelShift">Cancel shift</button></div>
           </template>
           <p v-if="selected.myParticipation?.clockedInAt">Clocked in: {{ instant(selected.myParticipation.clockedInAt, selected.timezone) }}</p><p v-if="selected.myParticipation?.clockedOutAt">Clocked out: {{ instant(selected.myParticipation.clockedOutAt, selected.timezone) }}</p>
           <form v-if="(context.canManage || context.canApprove) && selected.attendanceReviewRequired" class="review" @submit.prevent="resolveAttendance"><h3>Review attendance</h3><label>Reviewed actual child count<input v-model="reviewCount" type="number" min="0" step="1" required /></label><label>Count applied from ({{ selected.timezone }})<input v-model="reviewEffectiveLocal" type="datetime-local" required /></label><label>Review explanation<textarea v-model="reviewNote" required maxlength="2000" placeholder="Explain how the recorded attendance and work intervals were verified." /></label><p>The original observations and punches stay in history. This records a reviewed count for the stated work interval.</p><button type="submit" :disabled="busy">Record attendance review</button></form>
-          <section class="work-review"><h3>Recorded work and childcare sign-off</h3>
+          <section id="childcare-finalize" tabindex="-1" class="work-review"><h3>Recorded work and childcare sign-off</h3>
             <p>Clocking out records time. The employee submits their work, then a separate authorized reviewer signs off. Payroll approval remains separate.</p>
             <template v-if="isAssigned">
               <p>Your submission: {{ownWorkReview?.status || 'Not submitted'}}</p><p v-if="ownWorkReview?.status==='draft'">The recorded work changed. Review and submit the current intervals again.</p>
@@ -72,10 +72,14 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, zonedDatetimeLocalToIso, isoToZonedDatetimeLocal, formatViewerEventWhen, parseUtcInstant } from '../utils/timezones';
+import { useMomentumStickiesStore } from '../store/momentumStickies';
+import { nextTick } from 'vue';
 import { CHILDCARE_BANDS, childcareCountPayload, childcareMoney } from '../utils/childcarePresentation';
 
 const props = defineProps({ agencyId: { type: Number, default: null }, http: { type: Object, default: null }, shiftId: { type: Number, default: null }, userId: { type: Number, default: null } });
 const route = useRoute(), router = useRouter(), agencyStore = useAgencyStore(), auth = useAuthStore();
+function addSticky(){const stickies=useMomentumStickiesStore();stickies.requestExpandOverlay();stickies.requestCreateNewSticky();}
+async function focusFinalize(){if(route.query.focus!=='finalize')return;await nextTick();const el=document.getElementById('childcare-finalize');el?.scrollIntoView?.({block:'start',behavior:'smooth'});el?.focus?.();}
 const http = computed(() => props.http || api);
 const agencyId = computed(() => Number(props.agencyId || agencyStore.currentAgency?.id) || null);
 const context = ref(null), shifts = ref([]), selected = ref(null), pay = ref(null), eligibleStaff = ref([]);
@@ -225,6 +229,8 @@ async function cancelShift() {
 }
 watch(agencyId, load, { immediate: true });
 watch(() => props.shiftId, id => { if (id && context.value) openShift(id); });
+watch(()=>[route.query.shiftId,route.query.focus],async()=>{const id=Number(route.query.shiftId);if(id&&context.value){await openShift(id);await focusFinalize();}});
+watch(()=>selected.value?.id,focusFinalize);
 </script>
 
 <style scoped>

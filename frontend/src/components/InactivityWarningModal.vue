@@ -47,8 +47,6 @@
             <div
               v-if="!suppressActions || isClockedIn"
               class="iw-actions"
-              :class="{ 'iw-actions--roam': !isClockedIn && !suppressActions }"
-              :style="isClockedIn || suppressActions ? null : stayBtnStyle"
             >
               <button
                 v-if="isClockedIn"
@@ -181,34 +179,11 @@ function onMobileChange(e) { isMobile.value = e.matches; }
 onMounted(() => mobileQuery?.addEventListener('change', onMobileChange));
 onUnmounted(() => {
   mobileQuery?.removeEventListener('change', onMobileChange);
-  clearTimeout(reshuffleTimer);
 });
 
 // ── Desktop: video state ──────────────────────────────────────────────────────
 const useVideo = ref(true);
 const videoRef = ref(null);
-
-// ── Desktop: random stay-button position ─────────────────────────────────────
-const stayBtnStyle = ref({});
-let reshuffleTimer = null;
-
-function randomStayPosition() {
-  const minX = 2, maxX = 62;
-  const minY = 3, maxY = 72;
-  const x = Math.floor(Math.random() * (maxX - minX + 1)) + minX;
-  const y = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
-  stayBtnStyle.value = { left: `${x}%`, top: `${y}%`, right: 'auto', bottom: 'auto' };
-}
-
-function scheduleReshuffle() {
-  clearTimeout(reshuffleTimer);
-  if (isClockedIn.value) return;
-  const delay = 3000 + Math.random() * 3000;
-  reshuffleTimer = setTimeout(() => {
-    randomStayPosition();
-    scheduleReshuffle();
-  }, delay);
-}
 
 // ── Branding ──────────────────────────────────────────────────────────────────
 const tenantKey = computed(() => {
@@ -260,15 +235,10 @@ watch(
   () => sessionLockStore.warningActive,
   async (active) => {
     if (!active) {
-      clearTimeout(reshuffleTimer);
-      clockOutBusy.value = false;
+          clockOutBusy.value = false;
       return;
     }
     useVideo.value = true;
-    if (!auricWell && !isMobile.value && !isClockedIn.value) {
-      randomStayPosition();
-      scheduleReshuffle();
-    }
     await nextTick();
     if (isMobile.value) return;
     const el = videoRef.value;

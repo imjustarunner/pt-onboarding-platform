@@ -1,0 +1,6 @@
+<template><section class="learning-attendance" aria-label="Tutoring attendance history"><h3>Attendance history</h3><p v-if="data?.totals">{{data.totals.attended}} attended · {{data.totals.missed}} missed · {{data.totals.lateCancelled}} late cancellations · {{data.totals.cancelled}} cancelled<span v-if="data.totals.pendingReview"> · {{data.totals.pendingReview}} awaiting review</span></p><p v-if="!data?.entries?.length">No recorded sessions yet.</p><ol><li v-for="entry in data?.entries||[]" :key="entry.id"><strong>#{{entry.id}} · {{entry.serviceLabel}} · {{entry.displayStatus}}</strong><p>{{when(entry)}} · {{entry.providerName}}</p></li></ol><p v-if="data?.hasMore">Showing the latest 100 sessions. Contact Support for earlier attendance.</p></section></template>
+<script setup>
+defineProps({data:Object});
+const when=e=>new Date(e.startAt).toLocaleString('en-US',{timeZone:e.timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
+</script>
+<style scoped>.learning-attendance{padding:16px;border:1px solid #ccdce7;border-radius:12px;background:#fff}.learning-attendance ol{padding:0;list-style:none;max-height:360px;overflow:auto}.learning-attendance li{padding:12px 0;border-top:1px solid #e0e8ed}.learning-attendance p{margin:6px 0}</style>

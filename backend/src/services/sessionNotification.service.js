@@ -1402,11 +1402,11 @@ export async function processDueChangeNotifications({ limit = 20, agencyId = nul
        WHERE status = 'pending' AND fire_at <= NOW()
          AND (? IS NULL OR agency_id = ?)
        ORDER BY fire_at ASC
-       LIMIT ?`,
-      [agencyId, agencyId, Math.max(1, Math.min(50, Number(limit) || 20))]
+       LIMIT ${Math.max(1, Math.min(50, Math.floor(Number(limit) || 20)))}`,
+      [agencyId, agencyId]
     );
   } catch {
-    return { processed: 0 };
+    return { processed: 0, coverage:'incomplete', code:'SCHEDULE_CHANGE_SOURCE_UNAVAILABLE' };
   }
   for (const r of rows || []) {
     try {

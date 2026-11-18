@@ -1,3 +1,4 @@
+import {appointmentServiceLabel,isLearningAppointment} from './appointmentPresentation.js';
 import {parseUtcDate} from './officeEventDateTime.util.js';
 export function noShowReviewTiming(appointment,now=new Date(),settings={}) {
   const start=parseUtcDate(appointment.startAt),end=parseUtcDate(appointment.endAt);
@@ -7,6 +8,8 @@ export function noShowReviewTiming(appointment,now=new Date(),settings={}) {
   return {suggestedWaitMinutes,undoAfterEndMinutes,started:+now>=+start,earlyConfirmationRequired:+now<+suggestedAt,undoUntil:undoUntil.toISOString(),notifyAt:undoUntil.toISOString(),canUndo:+now<+undoUntil};
 }
 export function noShowDeclarationNarrative(appointment,timing,comments='') {
+  const title=isLearningAppointment(appointment)?appointmentServiceLabel(appointment):appointment.title||'scheduled session';
   const deadline=new Date(timing.undoUntil).toLocaleString('en-US',{timeZone:appointment.sourceTimezone||'America/Denver',timeZoneName:'short'});
-  return `The ${appointment.businessType==='tutoring'?'tutor':'provider'} recorded appointment #${appointment.id} (${appointment.title||'scheduled session'}) as a no-show. This declaration may be undone until ${deadline} if the client arrives. No missed-session fee or package credit has been applied. If it is not undone, the reviewed missed-session policy will be applied after that time and the client will be notified, with a copy to the provider. No service is asserted by this declaration.${String(comments||'').trim()?` Additional comments: ${String(comments).trim()}`:''}`;
+  if(timing.canUndo===false)return `The ${appointment.businessType==='tutoring'?'tutor':'provider'} recorded appointment #${appointment.id} (${title}) as a no-show. The correction window closed at ${deadline}. The reviewed missed-session policy takes effect now and the client will be notified, with a copy to the provider. No service is asserted by this declaration.${String(comments||'').trim()?` Additional comments: ${String(comments).trim()}`:''}`;
+  return `The ${appointment.businessType==='tutoring'?'tutor':'provider'} recorded appointment #${appointment.id} (${title}) as a no-show. This declaration may be undone until ${deadline} if the client arrives. No missed-session fee or package credit has been applied. If it is not undone, the reviewed missed-session policy will be applied after that time and the client will be notified, with a copy to the provider. No service is asserted by this declaration.${String(comments||'').trim()?` Additional comments: ${String(comments).trim()}`:''}`;
 }

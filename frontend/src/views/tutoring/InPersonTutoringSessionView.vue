@@ -1,7 +1,9 @@
 <template>
-  <div class="ipts-page" :style="themeVars">
-    <div class="ipts-shell">
-      <header class="ipts-topbar">
+  <div class="ipts-page" :class="{'ipts-page--embedded':embedded}" :style="themeVars">
+    <p v-if="loading" role="status">Loading this student’s Session Hub…</p>
+    <p v-if="errorMessage && !payload.session" role="alert">{{errorMessage}} <button @click="loadPayload">Try again</button></p>
+    <div v-if="payload.session && !loading" class="ipts-shell">
+      <header v-if="!embedded" class="ipts-topbar">
         <div class="ipts-brand-block">
           <div class="ipts-brand-mark">
             <img v-if="displayLogoUrl" :src="displayLogoUrl" :alt="`${brandName} logo`" class="ipts-brand-logo" />
@@ -488,7 +490,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import {
   askInPersonAi,
-  createDemoInPersonPayload,
+  createEmptyInPersonPayload,
   endInPersonSession,
   fetchInPersonMaterialResponse,
   fetchInPersonPlan,
@@ -497,7 +499,10 @@ import {
   startInPersonSession
 } from '../../services/inPersonTutoring';
 
+import {startLiveMeetingPresence} from '../../utils/liveMeetingPresence';
+let stopPresence=null;
 const route = useRoute();
+const props=defineProps({sessionIdOverride:{type:[String,Number],default:null},embedded:Boolean});
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 
@@ -539,11 +544,12 @@ function mixHex(first, second, weight = 0.5) {
     .join('')}`.toUpperCase();
 }
 
-const sessionId = computed(() => String(route.params.sessionId || '').trim());
+const sessionId = computed(() => String(props.sessionIdOverride || route.params.sessionId || '').trim());
 const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
 
-const payload = ref(createDemoInPersonPayload('live-demo'));
-const loading = ref(false);
+const payload = ref(createEmptyInPersonPayload());
+const loading = ref(true);
+let loadGeneration=0;
 const errorMessage = ref('');
 const saveMessage = ref('');
 const selectedMaterialId = ref(null);
@@ -638,9 +644,11 @@ function onLearningNoteSaved(result) {
 }
 
 async function linkInPersonPlanLearning(result) {
+  const epoch=loadGeneration,id=Number(sessionId.value);
   const { linkInPersonPlan } = await import('../../services/tutoringLearningOs.js');
+  if(epoch!==loadGeneration)return;
   await linkInPersonPlan({
-    sessionId: Number(sessionId.value),
+    sessionId: id,
     studentSubjectId: result.note?.student_subject_id,
     goalIds: (result.evidence || []).map((e) => e.plan_goal_id).filter(Boolean)
   });
@@ -806,17 +814,19 @@ function ensureMaterialForNav(navId) {
 }
 
 async function loadPayload() {
+  const generation=++loadGeneration,id=sessionId.value;
+  payload.value=createEmptyInPersonPayload();selectedMaterialId.value=null;aiPrompt.value='';aiReply.value='';activeResponseValues.value={};whiteboardDraft.value=[];errorMessage.value='';saveMessage.value='';
+  if(autosaveTimer.value)clearTimeout(autosaveTimer.value);if(whiteboardAutosaveTimer.value)clearTimeout(whiteboardAutosaveTimer.value);
   if (!sessionId.value) {
-    payload.value = createDemoInPersonPayload('live-demo');
-    selectedMaterialId.value = sortedMaterials.value[0]?.id || null;
-    pdfPageState.value = { currentPage: 1, totalPages: 0 };
-    hydrateWhiteboardFromPlan();
+    loading.value=false;errorMessage.value='Open a booked tutoring session from your calendar.';
     return;
   }
   loading.value = true;
   errorMessage.value = '';
   try {
-    payload.value = await fetchInPersonPlan(sessionId.value);
+    const result = await fetchInPersonPlan(id);
+    if(generation!==loadGeneration||id!==sessionId.value)return;
+    payload.value = result;
     leftCollapsed.value = !!payload.value.plan.layoutPrefs.leftCollapsed;
     rightCollapsed.value = !!payload.value.plan.layoutPrefs.rightCollapsed;
     focusMode.value = !!payload.value.plan.layoutPrefs.focusMode;
@@ -826,31 +836,37 @@ async function loadPayload() {
     pdfPageState.value = { currentPage: 1, totalPages: 0 };
     hydrateWhiteboardFromPlan();
   } catch (error) {
+    if(generation!==loadGeneration)return;
+    payload.value=createEmptyInPersonPayload();
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not load the in-person tutoring session.';
   } finally {
-    loading.value = false;
+    if(generation===loadGeneration)loading.value = false;
   }
 }
 
 async function startSession() {
+  const epoch=loadGeneration;
   if (!sessionId.value || !canModerate.value) return;
   startingSession.value = true;
   try {
-    const session = await startInPersonSession(sessionId.value);
+    const session = await startInPersonSession(sessionId.value);if(epoch!==loadGeneration)return;
     if (session) payload.value.session = session;
     saveMessage.value = 'In-person tutoring session started.';
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not start the tutoring session.';
   } finally {
+    if(epoch!==loadGeneration)return;
     startingSession.value = false;
   }
 }
 
 async function endSession() {
+  const epoch=loadGeneration;
   if (!sessionId.value || !canModerate.value) return;
   endingSession.value = true;
   try {
-    const result = await endInPersonSession(sessionId.value);
+    const result = await endInPersonSession(sessionId.value);if(epoch!==loadGeneration)return;
     if (result?.session) payload.value.session = result.session;
     saveMessage.value = result?.message || 'Tutoring session ended.';
     if (result?.payrollDraft?.status === 'submitted') {
@@ -861,13 +877,17 @@ async function endSession() {
     }
     errorMessage.value = result?.payrollWarning ? `Session saved. Payroll needs review: ${result.payrollWarning}` : '';
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not end the tutoring session.';
   } finally {
+    if(epoch!==loadGeneration)return;
     endingSession.value = false;
   }
 }
 
 async function loadActiveResponse() {
+  const epoch=loadGeneration,materialId=selectedMaterial.value?.id;
+  if(autosaveTimer.value)clearTimeout(autosaveTimer.value);
   hydratingResponse.value = true;
   if (!sessionId.value || !selectedMaterial.value || !payload.value.student?.clientId) {
     activeResponseValues.value = {};
@@ -882,20 +902,23 @@ async function loadActiveResponse() {
     return;
   }
   try {
-    const result = await fetchInPersonMaterialResponse(sessionId.value, selectedMaterial.value.id, payload.value.student.clientId);
+    const result = await fetchInPersonMaterialResponse(sessionId.value, selectedMaterial.value.id, payload.value.student.clientId);if(epoch!==loadGeneration||materialId!==selectedMaterial.value?.id)return;
     responseClientId.value = result.clientId;
     activeResponseValues.value = { ...(result.response?.fieldValues || {}) };
     saveState.value = 'saved';
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not load the saved tutoring response.';
     activeResponseValues.value = {};
     saveState.value = 'error';
   } finally {
+    if(epoch!==loadGeneration)return;
     hydratingResponse.value = false;
   }
 }
 
 async function flushResponse(status = 'draft') {
+  const epoch=loadGeneration;
   if (!sessionId.value || !selectedMaterial.value || !responseClientId.value || !canModerate.value) return;
   if (!['document_template', 'session_pdf', 'user_document', 'activity'].includes(selectedMaterial.value.materialType)) return;
   saveState.value = 'saving';
@@ -905,8 +928,10 @@ async function flushResponse(status = 'draft') {
       responseValues: activeResponseValues.value,
       status
     });
+    if(epoch!==loadGeneration)return;
     saveState.value = 'saved';
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     saveState.value = 'error';
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Autosave failed for the active tutoring material.';
   }
@@ -922,18 +947,21 @@ function scheduleAutosave() {
 }
 
 async function saveNotes() {
+  const epoch=loadGeneration;
   if (!sessionId.value || !canModerate.value) return;
   savingPlan.value = true;
   try {
     payload.value.plan.whiteboardData = {
       strokes: cloneJson(whiteboardDraft.value) || []
     };
-    payload.value = await saveInPersonPlan(sessionId.value, payload.value.plan);
+    const saved=await saveInPersonPlan(sessionId.value, payload.value.plan);if(epoch!==loadGeneration)return;payload.value=saved;
     hydrateWhiteboardFromPlan();
     saveMessage.value = 'Tutor notes saved.';
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not save tutor notes.';
   } finally {
+    if(epoch!==loadGeneration)return;
     savingPlan.value = false;
   }
 }
@@ -948,6 +976,7 @@ function scheduleWhiteboardAutosave() {
 }
 
 async function saveWhiteboardNow(showToast = false) {
+  const epoch=loadGeneration;
   if (!sessionId.value || !canModerate.value) return;
   if (whiteboardAutosaveTimer.value) clearTimeout(whiteboardAutosaveTimer.value);
   const nextWhiteboard = { strokes: cloneJson(whiteboardDraft.value) || [] };
@@ -957,6 +986,7 @@ async function saveWhiteboardNow(showToast = false) {
       whiteboardData: nextWhiteboard,
       shareWhiteboardWithGuardian: payload.value.plan.shareWhiteboardWithGuardian
     });
+    if(epoch!==loadGeneration)return;
     payload.value.plan.whiteboardData = cloneJson(result.plan?.whiteboardData || nextWhiteboard) || { strokes: [] };
     payload.value.plan.shareWhiteboardWithGuardian = !!(result.plan?.shareWhiteboardWithGuardian ?? payload.value.plan.shareWhiteboardWithGuardian);
     const savedStrokes = cloneJson(payload.value.plan.whiteboardData?.strokes || []) || [];
@@ -970,6 +1000,7 @@ async function saveWhiteboardNow(showToast = false) {
         : 'Whiteboard saved.';
     }
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     whiteboardSaveState.value = 'error';
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not save the whiteboard.';
   }
@@ -981,14 +1012,17 @@ function updateWhiteboardShare(checked) {
 }
 
 async function submitAiPrompt() {
+  const epoch=loadGeneration;
   if (!aiPrompt.value || !sessionId.value) return;
   aiLoading.value = true;
   try {
-    const result = await askInPersonAi(sessionId.value, { prompt: aiPrompt.value, history: [] });
+    const result = await askInPersonAi(sessionId.value, { prompt: aiPrompt.value, history: [] });if(epoch!==loadGeneration)return;
     aiReply.value = result.assistantText || 'No AI response returned.';
   } catch (error) {
+    if(epoch!==loadGeneration)return;
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not reach the tutoring assistant.';
   } finally {
+    if(epoch!==loadGeneration)return;
     aiLoading.value = false;
   }
 }
@@ -1109,7 +1143,9 @@ clockInterval = setInterval(() => {
   sessionTick.value = Date.now();
 }, 1000);
 
+watch(()=>[payload.value.session?.id,payload.value.session?.status,payload.value.session?.actual_started_at],()=>{stopPresence?.();stopPresence=null;if(payload.value.session?.actual_started_at&&['live','in_progress'].includes(payload.value.session?.status))stopPresence=startLiveMeetingPresence();});
 onBeforeUnmount(() => {
+  loadGeneration++;stopPresence?.();
   if (clockInterval) clearInterval(clockInterval);
   if (autosaveTimer.value) clearTimeout(autosaveTimer.value);
   if (whiteboardAutosaveTimer.value) clearTimeout(whiteboardAutosaveTimer.value);

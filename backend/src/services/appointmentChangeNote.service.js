@@ -28,7 +28,7 @@ export async function blockAppointmentChangeClaims(appointment, eventType) {
 
 // Caller holds the appointment workflow lock. Clinical transaction makes signature,
 // nonbillable flag and content inseparable; retry looks up the original signed note.
-export async function attachAppointmentChangeNotes({ appointment, narrative, eventType, actorUserId, signedAt, kind = 'change' }) {
+export async function attachAppointmentChangeNotes({ appointment, narrative, eventType, actorUserId, signedAt, kind = 'change', declarationId = null }) {
   const noteType = kind === 'waiver' ? 'APPOINTMENT_WAIVER' : 'APPOINTMENT_CHANGE';
   const conn = await clinicalPool.getConnection();
   try {
@@ -42,15 +42,15 @@ export async function attachAppointmentChangeNotes({ appointment, narrative, eve
     for (const session of sessions) {
       const [existing] = await conn.execute(
         `SELECT id FROM clinical_notes WHERE clinical_session_id = ? AND agency_id = ?
-         AND note_type = '${noteType}' AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.appointmentId')) = ? LIMIT 1`,
-        [session.id, appointment.agencyId, String(appointment.id)]
+         AND note_type = '${noteType}' AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.appointmentId')) = ? ${declarationId?"AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.noShowReviewId')) = ?":''} LIMIT 1`,
+        [session.id, appointment.agencyId, String(appointment.id),...(declarationId?[String(declarationId)]:[])]
       );
       let id = existing[0]?.id;
       if (!id) {
         const payload = maybeEncryptNotePayload(narrative);
         const metadata = { payloadEncrypted: payload !== narrative, source: 'appointment_change', appointmentId: appointment.id, eventType,
           noteType, nonBillable: true, requiresSupervisorCosign: false,
-          signedByUserId: actorUserId, signedAt };
+          signedByUserId: actorUserId, signedAt, ...(declarationId?{noShowReviewId:declarationId}:{}) };
         const [created] = await conn.execute(
           `INSERT INTO clinical_notes (clinical_session_id, agency_id, client_id, title, note_payload,
            metadata_json, created_by_user_id, note_type, content_hash, provider_signed_at,

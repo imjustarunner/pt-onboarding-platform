@@ -8,7 +8,7 @@ const context={url:path=>'https://tenant.example/'+path};
 function fixture(){const db={execute:vi.fn(async()=>[[{id:9}]])},authorize=vi.fn(async()=>client),conference=vi.fn();return {db,authorize,conference};}
 it('uses the same saved external destination in the reminder and the authorized portal join',async()=>{
  const d=fixture();const result=await appointmentJoinEmail({appointment,clientId:22,to:'guardian@example.test',context},d);
- expect(result.url).toBe(await guardianAppointmentJoin(appointment,client,d.db));expect(result.text).toContain(appointment.externalMeetingUrl);expect(result.text).not.toContain('/tutoring-session/');expect(d.conference).not.toHaveBeenCalled();
+ expect(result.url).toBe(await guardianAppointmentJoin(appointment,client,d.db,{includeFutureDestination:true}));expect(result.text).toContain(appointment.externalMeetingUrl);expect(result.text).not.toContain('/tutoring-session/');expect(d.conference).not.toHaveBeenCalled();
 });
 it('omits room links and telephone credentials for contacts, disabled relationships, and limited service access',async()=>{
  for(const mode of ['contact','revoked','limited','billing']){

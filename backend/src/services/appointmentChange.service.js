@@ -1022,8 +1022,9 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
   facts = { ...facts, reviewedAttendanceOutcome: newNoShow, noShowReviewActive:newNoShow };
   if (newNoShow) facts = { ...facts, notificationMode:'send', clientFacingReason: `This appointment was recorded as missed. Contact your ${original?.businessType==='tutoring'?'tutoring team':'provider or support team'} if this needs to be corrected.`, followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
   if (original && !futureAppointment(original,parseUtcDate(actor.cancellationAt)||new Date()) && facts.eventType !== 'no_show') facts = { ...facts, officeReservationDisposition:null,notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
+  if(original?.businessType==='tutoring'&&facts.eventType==='no_show'){facts={...facts,outreach:facts.outreach?.length?facts.outreach:['not_required'],reasonKnown:typeof facts.reasonKnown==='boolean'?facts.reasonKnown:false};}
   validateAppointmentChangeFacts(facts, actor);
-  return runSignedAppointmentChange(appointmentId, facts, actor, {
+  const result = await runSignedAppointmentChange(appointmentId, facts, actor, {
     previewChange: async (...args) => {
       const preview = await previewAppointmentChange(...args);
       if (['private_slots', 'portal_booking'].includes(facts.followUpAction)) {
@@ -1035,6 +1036,7 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
       if (facts.eventType === 'no_show') {
         const timing=noShowReviewTiming(preview.appointment,new Date(),preview.evaluation||{});
         if(!timing.started)throw Object.assign(new Error('This appointment has not started.'),{status:400});
+        if(!timing.canUndo&&facts.expiredNoShowConfirmed!==true)throw Object.assign(new Error('The undo window has already passed, so this takes effect now. Confirm the reviewed outcome and immediate family notice before signing.'),{status:409,code:'EXPIRED_NO_SHOW_CONFIRMATION_REQUIRED'});
         if(timing.earlyConfirmationRequired&&facts.earlyNoShowConfirmed!==true)throw Object.assign(new Error(`It is suggested that you allow at least ${timing.suggestedWaitMinutes} minutes for the client to arrive. Are you sure you want to record a no-show?`),{status:409,code:'EARLY_NO_SHOW_CONFIRMATION_REQUIRED'});
         cancellationClientDetails(facts, { requireReason: false });
       }
@@ -1047,6 +1049,12 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
     prepareChange: facts.useSchoolSupportHour === true ? reserveCancellationSchoolSupport : null,
     notifyChange: (id, signedFacts, signerId) => notifyAppointmentCancellation(id, signedFacts, signerId)
   });
+  if(result.noShowReview?.canUndo===false) {
+    const {processDueAppointmentNoShows,getAppointmentNoShowReview}=await import('./appointmentNoShowReview.service.js');
+    await processDueAppointmentNoShows({appointmentId,limit:1});
+    return {...result,appointment:await getAppointmentBundle(appointmentId),noShowReview:await getAppointmentNoShowReview(appointmentId)};
+  }
+  return result;
 }
 
 // Invoked by the due worker under the same appointment-change lock. The signed

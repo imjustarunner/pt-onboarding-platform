@@ -273,7 +273,7 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
       const services = (await TenantService.listForAgency(agencyId,{includeInactive:false}))
         .filter(row=>row.businessType==='tutoring'&&row.serviceCode==='TUTORING'&&row.isActive!==false&&(!tenantServiceId||Number(row.id)===Number(tenantServiceId)));
       if (services.length===1) visibleServiceCodes.push({code:'TUTORING',label:services[0].name,
-        tenantServiceId:services[0].id,isBillable:false,defaultNoteType:null,minDurationMinutes:services[0].defaultDurationMinutes||null});
+        tenantServiceId:services[0].id,isBillable:false,defaultNoteType:null,minDurationMinutes:null,defaultDurationMinutes:services[0].defaultDurationMinutes||null});
     }
   }
   if(providerId && visibleServiceCodes.some(row=>requiresTestingRole(row.code))) {

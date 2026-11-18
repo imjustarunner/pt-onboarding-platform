@@ -1,3 +1,5 @@
+import {assertAppointmentOutcomePreserved} from '../utils/appointmentOutcomeGuard.js';
+import {assertLearningScheduleEditable} from '../utils/learningScheduleGuard.js';
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 import {ensureClientService} from '../services/clientServiceEnrollment.service.js';
@@ -197,7 +199,7 @@ class Appointment {
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT ap.id, ap.agency_id AS appointment_agency_id, ap.${linkColumn} AS provider_schedule_event_id, ap.status, ap.notes, ap.modality,
-              ap.clinical_session_id, ap.service_code, ap.tenant_service_id, ap.office_event_id, ap.source_timezone,
+              ap.clinical_session_id, ap.service_code, ap.tenant_service_id, ap.office_event_id, ap.source_timezone,ap.business_type,ap.learning_context_json,
               (SELECT CASE WHEN COUNT(DISTINCT p.client_id)=1 THEN MIN(p.client_id) ELSE NULL END
                FROM appointment_participants p WHERE p.appointment_id=ap.id) AS client_id,
               (SELECT COALESCE(NULLIF(c.full_name, ''), c.initials) FROM appointment_participants p
@@ -222,6 +224,7 @@ class Appointment {
           notes: r.notes != null ? String(r.notes) : null,
           clinicalSessionId:Number(r.clinical_session_id || 0) || null,
           serviceCode:r.service_code ? String(r.service_code) : null,
+          businessType:r.business_type||null,learningContext:parseJsonSafe(r.learning_context_json),
           tenantServiceId:Number(r.tenant_service_id || 0) || null,
           officeEventId:Number(r.office_event_id || 0) || null,
           clientId:Number(r.client_id || 0) || null,
@@ -374,6 +377,8 @@ class Appointment {
   static async updateInAvailableWindow(id, patch = {}, expected = null, { executor = pool, agencyId = null } = {}) {
     const existing = await this.findById(id, { executor });
     if (!existing) return null;
+    assertAppointmentOutcomePreserved(existing,patch);
+    await assertLearningScheduleEditable(executor,existing,patch);
     const instant = value => value instanceof Date ? +value : Date.parse(String(value).replace(' ', 'T').replace(/Z?$/, 'Z'));
     if (expected && (Number(existing.providerUserId) !== Number(expected.providerUserId)
         || instant(existing.startAt) !== instant(expected.startAt) || instant(existing.endAt) !== instant(expected.endAt)

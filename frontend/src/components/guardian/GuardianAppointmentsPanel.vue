@@ -10,7 +10,7 @@
     <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">{{ ft("Family notification settings") }}</button>
     <details v-if="!familyNotifications && !preview && preferences">
       <summary>{{ ft("My reminder preferences") }}</summary>
-      <p>{{ ft("These choices apply to your notifications. Each other recipient has their own choices. Turning texts on requires recorded SMS consent and a working practice number; ask the care team for a consent link if needed. Reply STOP to stop texts from the program.") }}</p>
+      <p>{{ ft("These choices apply to your notifications. Each other recipient has their own choices. Turning texts on requires recorded SMS consent and a working practice number; ask the team for a consent link if needed. Reply STOP to stop texts from the program.") }}</p>
       <label><input v-model="preferences.channels.email" type="checkbox" /> {{ ft("Email reminders") }}</label>
       <label><input v-model="preferences.channels.sms" type="checkbox" /> {{ ft("Text reminders to my consented number") }}</label>
       <label><input v-model="preferences.optionalRemindersEnabled" type="checkbox" /> {{ ft("Additional reminders") }}</label>
@@ -23,18 +23,20 @@
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
     <p v-else-if="!appointments.length">{{ ft("No appointments are scheduled yet. Contact your team to arrange the next visit.") }} <button type="button" @click="$emit('help')">{{ ft("Contact your team") }}</button></p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
-      <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : a.modality === 'VIRTUAL' ? ft('Online') : a.modality }} · {{ ft(a.status.replaceAll('_',' ')) }}</p>
-      <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">{{ ft("Join online appointment →") }}</a>
+      <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : ['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(a.modality) ? ft('Online') : a.modality }} · {{ ft(a.displayStatus||a.status.replaceAll('_',' ')) }}</p>
+      <router-link v-if="a.joinUrl && !/^https?:/.test(a.joinUrl)" :to="a.joinUrl" class="join-appointment">{{ ft("Join online appointment →") }}</router-link>
+      <a v-if="a.joinUrl && /^https?:/.test(a.joinUrl)" :href="a.joinUrl" target="_blank" rel="noopener noreferrer">{{ft("Join online appointment →")}}</a>
       <SecureSessionCommentButton v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :client-id="clientId" :learning="['tutoring','learning'].includes(a.businessType)" />
       <SecureSessionCommentTip v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :start-at="a.startAt" :user-id="authStore.user?.id" :self="authStore.user?.role === 'client'" />
+      <p v-if="a.serviceLabel">{{a.serviceLabel}}</p><router-link v-if="a.hubUrl&&!a.joinUrl" :to="a.hubUrl">View session details</router-link>
       <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
       <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
-      <p v-if="a.serviceSetting?.isSchool">{{ ft("No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.") }}</p>
+      <p v-if="a.serviceSetting?.isSchool">{{ ft("No confirmation is needed. If your child will be absent, let the team know below and report the absence to school as usual.") }}</p>
       <p v-if="a.canceledBy">Canceled by {{ ['tutoring','learning'].includes(a.businessType) && a.canceledBy === 'client' ? 'you or your family' : a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
       <section v-if="a.replacementOffer" class="replacement-offer" :aria-label="ft('Private replacement offer')">
         <h4>{{ ft("Private replacement offer") }}</h4>
         <p v-if="a.replacementOffer.nextAppointment">Your next {{ a.replacementOffer.nextAppointment.recurring ? 'recurring ' : '' }}appointment is {{ a.replacementOffer.nextAppointment.displayWhen }} ({{ a.replacementOffer.nextAppointment.timeZone }}). It remains scheduled.</p>
-        <p v-else>No next appointment is currently scheduled. Sign in to check for updates or message your care team with questions.</p>
+        <p v-else>No next appointment is currently scheduled. Sign in to check for updates or message your team with questions.</p>
         <template v-if="a.replacementOffer.status === 'open'">
           <p>Choose one time by {{ when(a.replacementOffer.expiresAt, a.timeZone) }}, or decline. These times are reserved for invited clients and may be offered to more than one person. Availability is checked when you select; the first completed selection reserves a time. Reserving a time schedules your replacement appointment immediately. Your provider will reach out if there are any changes to their schedule. Other recurring appointments stay scheduled.</p>
           <div v-for="slot in a.replacementOffer.slots" :key="slot.key" class="offer-time">
@@ -50,7 +52,7 @@
         </template>
         <div v-else-if="['requested','booking'].includes(a.replacementOffer.status)"><p>{{ ft("We’re finishing your reservation automatically. No provider approval is needed. Your selection is held while booking finishes.") }}</p><button type="button" :disabled="busy" @click="respondToOffer(a, 'select')">{{ ft("Refresh reservation") }}</button></div>
         <p v-else-if="a.replacementOffer.status === 'confirmed'">{{ ft("Your time has been reserved. Your provider will reach out if there are any changes to their schedule. See your upcoming appointments for the details.") }}</p>
-        <p v-else-if="a.replacementOffer.status === 'declined_by_team'">The care team could not confirm this replacement. Contact support for other options. Your other appointments remain scheduled.</p>
+        <p v-else-if="a.replacementOffer.status === 'declined_by_team'">The team could not confirm this replacement. Contact support for other options. Your other appointments remain scheduled.</p>
         <p v-else-if="a.replacementOffer.status === 'declined'">{{ ft("You declined this offer. Other appointments remain unchanged.") }}</p>
         <p v-else>{{ ft("This offer has expired. It did not change or cancel your other appointments. Please contact support if you need another time.") }}</p>
       </section>
@@ -65,7 +67,7 @@
         <label>{{ ft("Action") }} <select v-model="draft(a).type" @change="actionTypeChanged(a)"><option value="cancel">{{ ft("Cancel appointment") }}</option><option value="reschedule">{{ ft("Request rescheduling") }}</option></select></label>
         <label v-if="draft(a).type === 'cancel'">{{ ft("Cancel") }} <select v-model="draft(a).scope" @change="clearReview(a)"><option value="single">{{ ft("Only this appointment") }}</option><option value="future">{{ ft("All future sessions in this recurring series") }}</option></select></label>
         <label>{{ ft("Reason (required)") }}<textarea v-model="draft(a).reason" required maxlength="2000" rows="2" /></label>
-        <p>{{ ft("Your reason will be visible to the authorized guardians and care team.") }}</p>
+        <p>{{ ft("Your reason will be visible to the authorized guardians and team.") }}</p>
         <section v-if="draft(a).type === 'cancel' && draft(a).review" aria-label="Cancellation fee review">
           <p><strong>{{ draft(a).review.totalFeeCents ? ft('Cancellation fee: {amount}', {amount:money(draft(a).review.totalFeeCents)}) : ft('No cancellation fee applies.') }}</strong></p>
           <p v-for="fee in draft(a).review.fees" :key="fee.appointmentId">{{ ft('Appointment #{id}: {amount}', {id: fee.appointmentId, amount:money(fee.feeCents)}) }}</p>

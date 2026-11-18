@@ -1,3 +1,7 @@
+import {appointmentAttendanceView,appointmentServiceLabel} from '../utils/appointmentPresentation.js';
+import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
+import {learningAttendanceHistory} from './learningAttendanceHistory.service.js';
+import {listPublishedTutoringSummaries} from './tutoringNotePublication.service.js';
 import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import pool from '../config/database.js';
 import StudentSubject from '../models/StudentSubject.model.js';
@@ -40,15 +44,27 @@ function subjectLabelForKey(key) {
  * Enroll a student in a subject learning track.
  */
 export async function enrollStudentSubject(payload, actorUserId) {
+  const enrollmentGoal=String(payload.enrollmentGoal||'').trim();
+  if(enrollmentGoal.length>2000)throw Object.assign(new Error('Keep the learning goal within 2,000 characters.'),{status:400});
   const label = payload.subjectLabel || subjectLabelForKey(payload.subjectKey);
-  const subject = await StudentSubject.create(
+  const db=enrollmentGoal?await pool.getConnection():null;
+  let subject;
+  try{
+    if(db)await db.beginTransaction();
+    subject = await StudentSubject.create(
     {
       ...payload,
       subjectLabel: label,
       status: payload.status || 'baseline_needed'
     },
-    actorUserId
+    actorUserId,db||pool
   );
+    if(enrollmentGoal){
+      const plan=await StudentLearningPlan.create({agencyId:subject.agency_id,clientId:subject.client_id,studentSubjectId:subject.id,title:`${label} learning plan`,status:'draft',metadata:{source:'subject_enrollment',baselinePending:true}},actorUserId,db);
+      await StudentLearningPlan.addGoal({learningPlanId:plan.id,studentSubjectId:subject.id,title:enrollmentGoal,status:'not_assessed',metadata:{source:'subject_enrollment',recordedByUserId:actorUserId}},db);
+      await db.commit();
+    }
+  }catch(error){if(db)await db.rollback();throw error;}finally{db?.release();}
 
   // Default package milestones: baseline now, probe after 4 sessions, plan review after 6
   try {
@@ -782,7 +798,7 @@ export async function getLearningOverview(clientId,{agencyId=null,providerId=nul
       currentFocus: skillMap.find((sk) => !['secure', 'mastered', 'generalized'].includes(sk.status)) || null
     });
   }
-  return { subjects: overview };
+  return { subjects: overview,attendanceHistory:await learningAttendanceHistory(clientId,{agencyId,providerId}) };
 }
 
 /** Secure/mastered ratings count as independent mastery measures. */
@@ -1638,7 +1654,7 @@ export async function getGuardianLearningSnapshot(clientId,{agencyId=null,provid
     workspaceLite.practice = await TutoringPracticeAssignment.listBySubject(s.id).catch(() => []);
     const notes = await TutoringSessionNote.listBySubject(s.id, { limit: 5 });
     workspaceLite.recentParentUpdates = notes
-      .filter((n) => n.parent_update_draft)
+      .filter((n) => n.parent_update_draft && ['shared','published'].includes(n.status))
       .map((n) => ({
         id: n.id,
         sessionId: n.session_id,
@@ -1656,15 +1672,16 @@ export async function getGuardianLearningSnapshot(clientId,{agencyId=null,provid
  */
 // null intentionally aggregates authorized agency work. Zero represents an
 // explicitly selected service awaiting assignment and must never become null.
-export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null}={}) {
+export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null,serviceId=null,portalContext=null}={}) {
   const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId});
   let upcomingSessions = [];
   let recentSessions = [];
   try {
     const [upcoming] = await pool.execute(
-      `SELECT s.id, s.title, s.status, s.delivery_context, s.starts_at, s.ends_at, s.provider_user_id,
+      `SELECT s.id, bridge.appointment_id AS appointmentId, s.title, s.status, s.delivery_context, s.starts_at, s.ends_at, s.provider_user_id,
               CONCAT(u.first_name, ' ', u.last_name) AS provider_name
        FROM learning_class_sessions s
+       LEFT JOIN tutoring_appointment_sessions bridge ON bridge.session_id=s.id
        JOIN learning_program_classes klass ON klass.id=s.learning_class_id
        JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
        LEFT JOIN users u ON u.id = s.provider_user_id
@@ -1681,9 +1698,10 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
   }
   try {
     const [past] = await pool.execute(
-      `SELECT s.id, s.title, s.status, s.delivery_context, s.starts_at, s.ends_at, s.provider_user_id,
+      `SELECT s.id, bridge.appointment_id AS appointmentId, s.title, s.status, s.delivery_context, s.starts_at, s.ends_at, s.provider_user_id,
               CONCAT(u.first_name, ' ', u.last_name) AS provider_name
        FROM learning_class_sessions s
+       LEFT JOIN tutoring_appointment_sessions bridge ON bridge.session_id=s.id
        JOIN learning_program_classes klass ON klass.id=s.learning_class_id
        JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
        LEFT JOIN users u ON u.id = s.provider_user_id
@@ -1700,26 +1718,35 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
 
   // The scheduling system is authoritative for booked appointments. Learning
   // rooms supplement it; their IDs are never treated as appointment IDs.
-  const [appointments] = await pool.execute(`SELECT DISTINCT a.id,a.agency_id,a.provider_user_id,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality,a.video_room_mode,a.external_meeting_url,
+  const [appointments] = await pool.execute(`SELECT DISTINCT a.id,a.agency_id,a.provider_user_id,a.business_type AS businessType,a.learning_context_json AS learningContext,a.start_at AS starts_at,a.end_at AS ends_at,a.status,a.modality,a.video_room_mode,a.external_meeting_url, ls.status AS learningStatus,ls.actual_started_at AS learningStartedAt,ls.actual_ended_at AS learningEndedAt,
       a.source_timezone AS time_zone,CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name
     FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id
+    LEFT JOIN tutoring_appointment_sessions binding ON binding.appointment_id=a.id
+    LEFT JOIN learning_class_sessions ls ON ls.id=binding.session_id AND ls.provider_user_id=a.provider_user_id AND EXISTS(SELECT 1 FROM learning_program_classes pc WHERE pc.id=ls.learning_class_id AND pc.organization_id=a.agency_id)
     JOIN clients c ON c.id=ap.client_id
     LEFT JOIN users u ON u.id=a.provider_user_id
     WHERE ap.client_id=? AND (? IS NULL OR a.agency_id=?) AND (? IS NULL OR a.provider_user_id=?) AND a.business_type IN ('learning','tutoring') AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR)
-      AND a.status<>'draft' ORDER BY a.start_at DESC LIMIT 200`, [clientId,agencyId,agencyId,providerId??null,providerId??null]);
+      AND a.status<>'draft' ${serviceId?"AND CAST(JSON_UNQUOTE(JSON_EXTRACT(a.learning_context_json,'$.serviceEnrollmentId')) AS UNSIGNED)=?":''} ORDER BY a.start_at DESC LIMIT 200`, [clientId,agencyId,agencyId,providerId??null,providerId??null,...(serviceId?[serviceId]:[])]);
   const now = Date.now();
-  const canonical = await Promise.all(appointments.map(async ({external_meeting_url,video_room_mode,...a}) => ({...a, source:'appointment', title:'Tutoring appointment', delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:a.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning'},pool)})));
-  upcomingSessions=upcomingSessions.filter(r=>!canonical.some(a=>+new Date(a.starts_at)===+new Date(r.starts_at)&&a.provider_name===r.provider_name&&!['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)));
+  const canonical = await Promise.all(appointments.map(async ({external_meeting_url,video_room_mode,...a}) => {
+    const state=appointmentAttendanceView({...a,startAt:a.starts_at,endAt:a.ends_at},{learningSession:{status:a.learningStatus,actual_started_at:a.learningStartedAt,actual_ended_at:a.learningEndedAt}});
+    return {...a,...state,source:'appointment',title:appointmentServiceLabel({...a,businessType:a.businessType||'tutoring'}),delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,learningContext:a.learningContext,businessType:a.businessType||'tutoring',videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:state.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning',permissions_json:portalContext?.permissions||{canViewAppointments:false},service:portalContext?.service,services:portalContext?.services},pool)};
+  }));
+  // A timestamp is never a record link. Canonical appointments replace only
+  // their explicitly bridged learning room; unlinked room history stays distinct.
+  const canonicalIds=new Set(canonical.map(a=>Number(a.id)));
   const merge = (rooms, booked, direction, limit) => {
-    const rows = rooms.map(r => ({...r,source:'learning_session'}));
-    for (const a of booked) if (!rows.some(r => +new Date(r.starts_at) === +new Date(a.starts_at) && r.provider_name === a.provider_name)) rows.push(a);
-    return rows.sort((a,b) => direction * (+new Date(a.starts_at)-+new Date(b.starts_at))).slice(0,limit);
+    const rows=(serviceId?[]:rooms.filter(r=>!r.appointmentId||!canonicalIds.has(Number(r.appointmentId)))).map(r=>({...r,source:'learning_session',joinUrl:null}));
+    rows.push(...booked);
+    return rows.sort((a,b)=>direction*(+parseUtcDate(a.starts_at)-+parseUtcDate(b.starts_at))).slice(0,limit);
   };
-  upcomingSessions = merge(upcomingSessions, canonical.filter(a => +new Date(a.starts_at)>=now && ['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status)),1,8);
-  recentSessions = merge(recentSessions, canonical.filter(a => +new Date(a.starts_at)<now),-1,5);
+  const activeStatuses=['scheduled','confirmed','client_confirmed','in_progress'];
+  upcomingSessions=merge(upcomingSessions,canonical.filter(a=>+parseUtcDate(a.starts_at)>=now&&activeStatuses.includes(a.status)),1,8);
+  recentSessions=merge(recentSessions,canonical.filter(a=>+parseUtcDate(a.starts_at)<now||!activeStatuses.includes(a.status)),-1,5);
   let [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM client_service_enrollments s JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.is_active=1 AND s.service_kind='tutoring' AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId??null,providerId??null]);
   if(!assigned)[[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM student_subjects s JOIN users u ON u.id=s.primary_tutor_user_id WHERE s.client_id=? AND s.status NOT IN ('completed','discharged') AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId??null,providerId??null]);
 
+  if(portalContext?.permissions?.canViewAppointments===false){upcomingSessions=[];recentSessions=[];}
   const allPractice = (feed.subjects || []).flatMap((s) =>
     (s.practice || []).map((a) => ({
       ...a,
@@ -1753,6 +1780,8 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
     subjects: feed.subjects,
     upcomingSessions,
     recentSessions,
+    attendanceHistory:await learningAttendanceHistory(clientId,{agencyId,providerId:portalContext?.permissions?.canViewAppointments===false?0:providerId,serviceId}),
+    signedSessionSummaries:await listPublishedTutoringSummaries(clientId,{agencyId,providerId,serviceId}),
     nextSession: upcomingSessions[0] || null,
     assignedTutor: assigned?.name || null,
     practice: allPractice,

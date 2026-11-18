@@ -38,7 +38,6 @@ export async function requireLinkedTutoringCompletion(binding,session) {
   if (!session.actual_started_at) throw fail(session.status==='ended'
     ? 'This ended visit has no recorded start. Ask the office to review attendance and billing; the existing records were kept.'
     : 'Start this tutoring session before completing it. No new charge or package credit has been posted.');
-  await requireQaOutcomeElapsed(binding.appointment,'completed');
 }
 
 export async function settleLinkedTutoringCompletion(binding,actorUserId) {
@@ -53,6 +52,7 @@ export async function settleLinkedTutoringCompletion(binding,actorUserId) {
           || clients.length!==1 || clients[0]!==binding.clientId
           || !['scheduled','confirmed','client_confirmed','in_progress','completed'].includes(current.status))
         return {billingWarning:'This appointment was canceled or changed. Billing needs office review; no completion charge was posted.'};
+      await requireQaOutcomeElapsed(current,'completed');
       const {settleAppointment}=await import('./appointment.service.js');
       const result=await settleAppointment(binding.appointment.id,{outcome:'completed',actorUserId});
       return {billingSettlement:result?.settlement||null};

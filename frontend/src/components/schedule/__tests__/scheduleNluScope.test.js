@@ -59,3 +59,11 @@ it('subtracts a booked appointment from the visible virtual opening without chan
  expect(state.summary.virtualWorkingHours[0].startTime).toBe('09:00:00');
  expect(state.summary.virtualWorkingHours[0].endTime).toBe('12:00:00');
 });
+
+it('keeps a chosen thirty-minute tutoring duration and accepts midnight as the end of the service day',async()=>{
+ const state=await mountGrid(true);state.requestType='individual_session';state.editorPracticeCategory='tutoring';state.editorTenantServices=[{id:320,businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60}];state.editorTenantServiceId=320;
+ state.modalHour=16;state.modalStartHour=16;state.modalStartMinute=0;state.modalEndHour=16;state.modalEndMinute=30;await flushPromises();
+ state.onEditorPrimaryServiceCode('TUTORING');await flushPromises();expect(state.modalEndHour).toBe(16);expect(state.modalEndMinute).toBe(30);
+ state.modalHour=23;state.modalStartHour=23;state.modalStartMinute=0;state.onEditorEndTime('00:00');await flushPromises();expect(state.modalEndHour).toBe(24);expect(state.editorEndTime).toBe('00:00');
+});
+it('shows a read-only final record and hides internal status choices',async()=>{const state=await mountGrid(true);state.stackDetailsItems=[{eventId:598,eventKind:'PERSONAL_EVENT',clientId:2545,businessType:'tutoring'}];state.scheduleEventEditId=598;state.requestType='edit_schedule_event';state.editorAppointmentId=370;state.editorAgencyId=453;state.editorStatus='no_show';await flushPromises();expect(state.editorOutcomeReadOnly).toBe(true);expect(state.editorWorkspaceTabs.map(t=>t.id)).not.toContain('edit');expect(state.editorPublicStatusOptions.map(s=>s.value)).not.toEqual(expect.arrayContaining(['BOOKED','ASSIGNED','TEMPORARY']));expect(state.requestSubmitDisabled).toBe(true);});

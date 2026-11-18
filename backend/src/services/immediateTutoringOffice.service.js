@@ -41,7 +41,7 @@ export async function bookImmediateTutoringOffice(input){
    if(prior){event=prior;appointment=await Appointment.findByOfficeEventId(event.id);}
    else{
     await assertAppointmentWindowAvailable(db,{agencyId:input.agencyId,providerUserId:input.providerId,startAt:start,endAt:end,status:'scheduled',sourceTimezone:tz});
-    const allocation=await allocateOfficeRoom(db,{officeId:input.office.id,providerId:input.providerId,roomId:input.roomId||null,roomType:'tutoring',startAt:start,endAt:end,recurrence:'ONCE',occurrenceCount:1});
+    const allocation=await allocateOfficeRoom(db,{officeId:input.office.id,providerId:input.providerId,roomId:input.roomId||null,roomType:'tutoring',startAt:start,endAt:end,recurrence:'ONCE',occurrenceCount:1,exactAppointmentWindow:true});
     event=await OfficeEvent.withRoomSlotLock({roomId:allocation.roomId,startAt:start,endAt:end},async conn=>{
      const [rows]=await conn.execute("SELECT * FROM office_events WHERE room_id=? AND start_at<? AND end_at>? AND status<>'CANCELLED' FOR UPDATE",[allocation.roomId,end,start]);
      if(rows.some(row=>!available(row)))throw fail('This office is already assigned or booked for part of that time. Choose another available room.');

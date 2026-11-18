@@ -40,7 +40,7 @@ const normalizeObjective = (row) => {
 };
 
 class StudentLearningPlan {
-  static async create(payload, actorUserId) {
+  static async create(payload, actorUserId, db = pool) {
     const {
       agencyId,
       clientId,
@@ -59,7 +59,7 @@ class StudentLearningPlan {
       metadata = null
     } = payload;
 
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO student_learning_plans
        (agency_id, client_id, student_subject_id, evaluation_summary_id, title, status,
         strengths_json, priority_needs_json, instructional_strategies_json,
@@ -86,11 +86,11 @@ class StudentLearningPlan {
         actorUserId || null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId,db);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM student_learning_plans WHERE id = ? LIMIT 1`, [id]);
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(`SELECT * FROM student_learning_plans WHERE id = ? LIMIT 1`, [id]);
     return normalizePlan(rows[0] || null);
   }
 
@@ -170,7 +170,7 @@ class StudentLearningPlan {
     return this.findById(id);
   }
 
-  static async addGoal(payload) {
+  static async addGoal(payload, db = pool) {
     const {
       learningPlanId,
       studentSubjectId,
@@ -188,7 +188,7 @@ class StudentLearningPlan {
       metadata = null
     } = payload;
 
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO student_learning_plan_goals
        (learning_plan_id, student_subject_id, learning_goal_id, title, description, skill_key, skill_label,
         baseline_text, success_criteria, measurement_method, status, sort_order, standards_refs_json, metadata_json)
@@ -210,11 +210,11 @@ class StudentLearningPlan {
         metadata ? JSON.stringify(metadata) : null
       ]
     );
-    return this.findGoalById(result.insertId);
+    return this.findGoalById(result.insertId,db);
   }
 
-  static async findGoalById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM student_learning_plan_goals WHERE id = ? LIMIT 1`, [id]);
+  static async findGoalById(id, db = pool) {
+    const [rows] = await db.execute(`SELECT * FROM student_learning_plan_goals WHERE id = ? LIMIT 1`, [id]);
     return normalizeGoal(rows[0] || null);
   }
 

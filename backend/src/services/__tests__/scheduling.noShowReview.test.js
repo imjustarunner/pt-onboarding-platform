@@ -35,13 +35,13 @@ it('requires confirmation before fifteen minutes, then defers all money and noti
 it('keeps one declaration on retries and undoes it without rewriting the saved signed snapshot or applying a consequence',async()=>{
  await declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496);const original=row.snapshot_json;
  await declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496);expect(events).toHaveLength(1);
- await undoAppointmentNoShow(90,1496);expect(appointment.status).toBe('scheduled');expect(row.state).toBe('undone');expect(row.snapshot_json).toBe(original);
- await undoAppointmentNoShow(90,1496);expect(events.filter(e=>e.action==='no_show_undone')).toHaveLength(1);
+ await undoAppointmentNoShow(90,1496,'Client arrived; recording the performed session.');expect(appointment.status).toBe('scheduled');expect(row.state).toBe('undone');expect(row.snapshot_json).toBe(original);
+ await undoAppointmentNoShow(90,1496,'Client arrived; recording the performed session.');expect(events.filter(e=>e.action==='no_show_undone')).toHaveLength(1);
  vi.setSystemTime(new Date('2030-01-01T18:15:00Z'));expect(await processDueAppointmentNoShows()).toEqual([]);expect(m.finalize).not.toHaveBeenCalled();
 });
 it('closes undo at the exact deadline and finalizes the frozen reviewed consequence once with a system audit actor',async()=>{
  await declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496);vi.setSystemTime(new Date('2030-01-01T18:10:00Z'));
- await expect(undoAppointmentNoShow(90,1496)).rejects.toMatchObject({status:409});await processDueAppointmentNoShows();await processDueAppointmentNoShows();
+ await expect(undoAppointmentNoShow(90,1496,'Client arrived; recording the performed session.')).rejects.toMatchObject({status:409});await processDueAppointmentNoShows();await processDueAppointmentNoShows();
  expect(m.finalize).toHaveBeenCalledTimes(1);expect(m.finalize.mock.calls[0][1].preview.consequence.feeCents).toBe(2200);expect(events.at(-1)).toMatchObject({actorId:null,actorType:'system',action:'no_show_finalized',metadata:{requestedByUserId:1496}});
 });
 it('withholds finalization and notification when the appointment changed',async()=>{
@@ -52,3 +52,6 @@ it('rejects a declaration before start and preserves the full date-specific revi
  vi.setSystemTime(new Date('2030-01-01T16:59:00Z'));await expect(declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496)).rejects.toMatchObject({status:400});expect(row).toBeNull();
  expect(noShowReviewTiming(appointment,new Date('2030-01-01T17:15:00Z'))).toMatchObject({earlyConfirmationRequired:false,canUndo:true});expect(await getAppointmentNoShowReview(90)).toBeNull();
 });
+
+it('requires an undo reason and permits a new declaration after withdrawal without reusing its signature',async()=>{await declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496);await expect(undoAppointmentNoShow(90,1496,'')).rejects.toMatchObject({status:400});expect(appointment.status).toBe('no_show_pending');await undoAppointmentNoShow(90,1496,'Client arrived, then corrected the attendance report.');await declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496);expect(events.map(e=>e.action)).toEqual(['no_show_declared','no_show_undone','no_show_declared']);expect(events[1].metadata.reason).toContain('Client arrived');expect(appointment.status).toBe('no_show_pending');});
+it('cannot mark a stale scheduled tutoring record missed after attendance was actually recorded',async()=>{appointment.businessType='tutoring';const original=db.execute.getMockImplementation();db.execute.mockImplementation((sql,p)=>sql.includes('AS attendance_started')?Promise.resolve([[{attendance_started:1,note_signed:0}]]):original(sql,p));await expect(declareAppointmentNoShow(appointment,{earlyNoShowConfirmed:true},preview,1496)).rejects.toMatchObject({code:'ATTENDED_SESSION_LOCKED'});expect(row).toBeNull();expect(m.finalize).not.toHaveBeenCalled();});

@@ -4,6 +4,7 @@ const m=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),state:null,failNote:false,r
 vi.mock('../../../services/api',()=>({default:Object.assign(m.request,{get:m.get})}));
 vi.mock('vue-router',()=>({useRoute:()=>m.route}));
 vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{name:'Next Level Up'}})}));
+vi.mock('../InPersonTutoringSessionView.vue',()=>({default:{props:['sessionIdOverride','embedded'],template:'<div>In-person tools</div>'}}));
 import Entry from '../VirtualTutoringSessionView.vue';
 const Workspace={props:['video','isHost','learning'],emits:['connected'],template:'<button @click="$emit(\'connected\')">Connect test transport</button>'};
 let wrapper;
