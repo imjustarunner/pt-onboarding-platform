@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
 vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeEncryptNotePayload: (v) => `encrypted:${v}` }));
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { attachAppointmentChangeNotes, blockAppointmentChangeClaims } from '../appointmentChangeNote.service.js';
