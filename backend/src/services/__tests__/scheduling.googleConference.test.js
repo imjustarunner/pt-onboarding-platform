@@ -22,11 +22,12 @@ it('reports availability from the current event without changing Google settings
 });
 it('includes Google phone details only for an opted-in Google meeting and an invited recipient',async()=>{
  const event={id:1,agency_id:6,provider_id:20,google_event_id:'google-id',google_meet_link:raw.conferenceData.entryPoints[0].uri,platform_video_link:0,meeting_settings_json:{includeGoogleDialIn:true}};
- const db={execute:vi.fn(async()=>[[{id:1}]])},conference=vi.fn(async()=>({...googleMeetingConference(raw),status:'available'}));
- expect((await optionalGoogleMeetingDialIn(event,9,{db,conference})).provider).toBe('google_meet');
- db.execute.mockResolvedValue([[]]);expect(await optionalGoogleMeetingDialIn(event,99,{db,conference})).toBeNull();
+ const db={execute:vi.fn(async()=>[[{id:1}]])},conference=vi.fn(async()=>({...googleMeetingConference(raw),status:'available'})),authorize=vi.fn(async()=>true);
+ expect((await optionalGoogleMeetingDialIn(event,9,{db,conference,authorize})).provider).toBe('google_meet');
+ authorize.mockResolvedValueOnce(false);expect(await optionalGoogleMeetingDialIn(event,9,{db,conference,authorize})).toBeNull();
+ db.execute.mockResolvedValue([[]]);expect(await optionalGoogleMeetingDialIn(event,99,{db,conference,authorize})).toBeNull();
  conference.mockClear();
- expect(await optionalGoogleMeetingDialIn({...event,platform_video_link:1},9,{db,conference})).toBeNull();
- expect(await optionalGoogleMeetingDialIn({...event,meeting_settings_json:{}},9,{db,conference})).toBeNull();
+ expect(await optionalGoogleMeetingDialIn({...event,platform_video_link:1},9,{db,conference,authorize})).toBeNull();
+ expect(await optionalGoogleMeetingDialIn({...event,meeting_settings_json:{}},9,{db,conference,authorize})).toBeNull();
  expect(conference).not.toHaveBeenCalled();
 });
