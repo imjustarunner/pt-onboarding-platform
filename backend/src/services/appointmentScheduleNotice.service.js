@@ -28,6 +28,7 @@ const defaults = {
   attendance: async a => (await import('./replacementBookingConfirmation.service.js')).replacementAttendanceDetails(a),
   participants: async id => (await import('../models/Appointment.model.js')).default.listParticipants(id),
   tenant: async id => (await import('./sessionNotification.service.js')).getTenantSettings(id),
+  joinEmail: async input => (await import('./appointmentJoinEmail.service.js')).appointmentJoinEmail(input),
   reviewedRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(...args),
   operational: async (...args) => (await import('./dayCancellationEmail.service.js')).reviewedDayCancellationContext(...args),
   individualReview: async (...args) => (await import('./appointmentCancellationEmail.service.js')).prepareIndividualCancellationReview(...args),
@@ -272,7 +273,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const signedLetter = entries[0]?.payload?.facts?.reviewedMessage?.[target?.role === 'client' ? 'client' : target?.role === 'guardian' ? 'guardian' : ''];
         if (signedLetter?.text) recipientMessage = { ...recipientMessage, subject: signedLetter.subject || recipientMessage.subject, text: signedLetter.text,
           html: `<p>${String(signedLetter.text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])).replaceAll('\n', '<br>')}</p>` };
-        const body = channel === 'sms' ? recipientMessage.sms : recipientMessage.text;
+        let body = channel === 'sms' ? recipientMessage.sms : recipientMessage.text;
         const [delivery] = await db.execute(`INSERT INTO appointment_schedule_notice_deliveries (batch_id,channel,message_json,recipient_key) VALUES (?,?,?,?)`, [batchId,channel,d.encrypt(JSON.stringify(recipientMessage)),target?.key || 'default']);
         try {
           const individualEmail=channel==='email' && !!individualReview;
@@ -286,6 +287,15 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           if (sentTargets.has(targetKey)) {
             await db.execute("UPDATE appointment_schedule_notice_deliveries SET status='skipped',error_message='Shared destination already processed' WHERE id=?",[delivery.insertId]);
             continue;
+          }
+          if(channel==='email'&&!providerCopy&&recipient&&entries.every(entry=>!entry.cancellation)){
+            let addedJoin=false;
+            for(const entry of entries){
+              const join=await d.joinEmail({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
+              if(join){addedJoin=true;recipientMessage={...recipientMessage,text:`${recipientMessage.text}\n\n${join.text}`,html:`${recipientMessage.html}${join.html}`};}
+            }
+            body=recipientMessage.text;
+            if(addedJoin)await db.execute('UPDATE appointment_schedule_notice_deliveries SET message_json=? WHERE id=?',[d.encrypt(JSON.stringify(recipientMessage)),delivery.insertId]);
           }
           communication = await d.communication({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,
             templateType:individualEmail?'session_cancellation':'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,

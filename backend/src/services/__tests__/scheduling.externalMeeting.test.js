@@ -1,14 +1,26 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(async id=>({id}))}}));
+vi.mock('../scheduleCalendarPolicy.service.js',()=>({usesGoogleSchedule:vi.fn(async()=>false)}));
+import {usesGoogleSchedule} from '../scheduleCalendarPolicy.service.js';
 import {validateExternalMeeting,validExternalMeetingUrl} from '../appointmentExternalMeeting.service.js';
 import {guardianAppointmentJoin} from '../guardianVirtualJoin.js';
 import Appointment from '../../models/Appointment.model.js';
 let db;
-beforeEach(()=>{vi.restoreAllMocks();db={execute:vi.fn(async()=>[[{slug:'nlu'}]])};});
+beforeEach(()=>{vi.restoreAllMocks();usesGoogleSchedule.mockResolvedValue(false);db={execute:vi.fn(async()=>[[{slug:'nlu'}]])};});
 it('allows NLU to mark a virtual appointment external before its link is known',async()=>{
- await expect(validateExternalMeeting({agencyId:6,videoRoomMode:'external',modality:'TELEHEALTH'},db)).resolves.toBeNull();
+ await expect(validateExternalMeeting({agencyId:6,providerUserId:20,videoRoomMode:'external',modality:'TELEHEALTH'},db)).resolves.toBeNull();
  expect(db.execute).toHaveBeenCalledWith(expect.any(String),[6]);
- await expect(validateExternalMeeting({agencyId:6,videoRoomMode:'external',modality:'TELEHEALTH',externalMeetingUrl:'https://video.example.test/session'},db)).resolves.toBe('https://video.example.test/session');
+ await expect(validateExternalMeeting({agencyId:6,providerUserId:20,videoRoomMode:'external',modality:'TELEHEALTH',externalMeetingUrl:'https://video.example.test/session'},db)).resolves.toBe('https://video.example.test/session');
+});
+it('rejects an external meeting for the scheduled SSO provider regardless of the booking staff account',async()=>{
+ usesGoogleSchedule.mockResolvedValue(true);
+ await expect(validateExternalMeeting({agencyId:6,providerUserId:20,videoRoomMode:'external',modality:'TELEHEALTH'},db)).rejects.toHaveProperty('status',403);
+ expect(usesGoogleSchedule).toHaveBeenCalledWith({id:20});
+});
+it('does not allow external links when the provider sign-in policy cannot be verified',async()=>{
+ usesGoogleSchedule.mockRejectedValue(Error('Unavailable'));
+ await expect(validateExternalMeeting({agencyId:6,providerUserId:20,videoRoomMode:'external',modality:'TELEHEALTH'},db)).rejects.toHaveProperty('status',403);
 });
 it('keeps the feature scoped to NLU and rejects unsafe URL schemes',async()=>{
  db.execute.mockResolvedValue([[{slug:'itsco'}]]);await expect(validateExternalMeeting({agencyId:2,videoRoomMode:'external',modality:'TELEHEALTH'},db)).rejects.toHaveProperty('status',403);

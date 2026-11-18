@@ -35,6 +35,7 @@
       @update:recurrenceFrequency="emit('update:recurrenceFrequency', $event)"
       @update:videoRoomMode="emit('update:videoRoomMode', $event)"
       @update:externalMeetingUrl="emit('update:externalMeetingUrl',$event)"
+      @update:includeGoogleDialIn="emit('update:includeGoogleDialIn',$event)"
       @update:notificationMode="emit('update:notificationMode', $event)"
       @update:customReminders="emit('update:customReminders', $event)"
       @update:schedulingNotes="emit('update:schedulingNotes', $event)"
@@ -244,6 +245,7 @@ const props = defineProps({
   bookSessionLayout: { type: Boolean, default: false },
   videoRoomMode: { type: String, default: 'unique_session' },
   externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
+  includeGoogleDialIn:Boolean,googleDialInStatus:{type:String,default:''},
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
   customReminders: { type: Array, default: () => [] },
@@ -291,6 +293,7 @@ const emit = defineEmits([
   'update:virtualCreateMeetLink',
   'update:videoRoomMode',
   'update:externalMeetingUrl',
+  'update:includeGoogleDialIn',
   'update:notificationMode',
   'update:customReminders',
   'update:schedulingNotes',
@@ -381,6 +384,7 @@ const headerProps = computed(() => ({
     : undefined,
   videoRoomMode: props.videoRoomMode,
   externalMeetingsEnabled:props.externalMeetingsEnabled,externalMeetingUrl:props.externalMeetingUrl,serviceCodeMessage:props.serviceCodeMessage,
+  includeGoogleDialIn:props.includeGoogleDialIn,googleDialInStatus:props.googleDialInStatus,
   showNotifications: props.showNotifications,
   notificationMode: props.notificationMode,
   customReminders: props.customReminders,

@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
-vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 501, role: 'provider', credential: 'LPC' })) } }));
+vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 501, role: 'provider', credential: 'LPC' })), getAgencies:vi.fn(async()=>[]) } }));
 vi.mock('../schedulingTaxonomy.service.js', () => ({ getSchedulingBookingMetadata: vi.fn(), validateSchedulingSelection: vi.fn() }));
 vi.mock('../medicalBillingDefaults.service.js', () => ({ ensureAgencyMedicalBillingDefaults: vi.fn(), filterCodesForProviderTier: rows => rows, parseAllowedCredentialTiers: () => ['intern_plus'] }));
 vi.mock('../tenantServiceSuiteDefaults.service.js', () => ({ ensureTenantServiceSuitesForAgency: vi.fn() }));

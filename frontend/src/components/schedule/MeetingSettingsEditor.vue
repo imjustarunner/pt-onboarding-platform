@@ -5,6 +5,7 @@
     <div class="settings-checks">
       <label v-for="(label, key) in labels" :key="key"><input type="checkbox" :checked="current[key]" :disabled="disabled || (key === 'compensation' && !canEdit)" @change="change(key, $event.target.checked)" /> {{ label }}</label>
     </div>
+    <p>Google Meet phone instructions are included only when Google returns a number and PIN for this meeting. This option does not enable phone access in Google Workspace.</p>
     <fieldset><legend>Confirm reminders</legend>
       <p>A booking invitation is sent when email invitations are enabled.</p>
       <label v-for="option in reminderOptions" :key="option.key"><input type="checkbox" :checked="(current.reminders || []).includes(option.key)" :disabled="disabled" @change="toggleReminder(option.key, $event.target.checked)" /> {{ option.label }}</label>
@@ -20,7 +21,7 @@ import api from '../../services/api';
 const props = defineProps({ agencyId: Number, type: { type: String, default:'general' }, modelValue: Object, disabled: Boolean });
 const emit = defineEmits(['update:modelValue']);
 const types = ref([]), canEdit = ref(false), editingDefaults = ref(false), defaultsDraft = ref({}), saving = ref(false), error = ref(''), customMinutes = ref(null);
-const labels = { dialIn:'Allow phone dial-in', agenda:'Agenda', goals:'Goals', actionItems:'Action items', attendance:'Track attendance', transcription:'Transcribe by default', screenShare:'Allow everyone to share their screen', compensation:'Attendance time claims for eligible participants' };
+const labels = { dialIn:'Allow phone dial-in for app video', includeGoogleDialIn:'Include available Google Meet phone instructions in emails and reminders', agenda:'Agenda', goals:'Goals', actionItems:'Action items', attendance:'Track attendance', transcription:'Transcribe by default', screenShare:'Allow everyone to share their screen', compensation:'Attendance time claims for eligible participants' };
 const fallback = () => ({agenda:props.type!=='interview',goals:props.type!=='interview',actionItems:props.type!=='interview',dialIn:false,attendance:true,transcription:true,screenShare:true,compensation:['huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(props.type),reminders:['business_days_3',1440,5]});
 const current = computed(() => editingDefaults.value ? defaultsDraft.value : (props.modelValue || types.value.find(t=>t.key===props.type)?.settings || fallback()));
 const reminderOptions = computed(() => [...new Set(['business_days_3',1440,5,...(current.value.reminders||[])])].map(key=>({key,label:key==='business_days_3'?'3 business days before':key===1440?'24 hours before':`${key} minutes before`}))); 

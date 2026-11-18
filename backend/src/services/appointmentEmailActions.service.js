@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {appointmentJoinEmail} from './appointmentJoinEmail.service.js';
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import { applyAppointmentReply } from './appointmentReply.service.js';
@@ -106,10 +107,10 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:message || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`;
   const actions=appointmentEmailActions(setting.isSchool).filter(action=>action!=='confirm'||ask);
   const links=actionUrl?actions.map(action=>({label:setting.isSchool?'Cancel school session':actionLabels[action],url:`${actionUrl}?action=${action}`})):setting.isSchool?[]:[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];
-  if(!setting.isSchool&&['learning','tutoring'].includes(String(appointment.businessType||'').toLowerCase())&&['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(appointment.modality||'').toUpperCase()))links.push({label:'Join tutoring session',url:context.url(`tutoring-session/appointment/${Number(appointment.id)}?clientId=${Number(clientId)}&agencyId=${Number(appointment.agencyId)}`)});
+  const join=setting.isSchool?null:await appointmentJoinEmail({appointment,clientId,to,context});
   const footer=setting.isSchool?`${actionUrl?'If your dependent cannot attend, use the cancel button.':'This is an informational notice. Contact the guardian or care team about a cancellation.'} Please report school absences directly to the school as usual.`:actionUrl?`${ask?'Confirm directly from this email. ':''}Cancellation and new-time requests open a review page. No sign-in is needed. Any cancellation policy will still apply.`:'Sign in to view your appointment or contact your team about a change.';
-  return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${links.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}\n\n${footer}${optOut.text}`,
-    html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${appointmentActionsHtml(links)}<p>${e(footer)}</p>${optOut.html}`};
+  return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${links.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}${join?`\n\n${join.text}`:''}\n\n${footer}${optOut.text}`,
+    html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${appointmentActionsHtml(links)}${join?.html||''}<p>${e(footer)}</p>${optOut.html}`};
 }
 
 export async function sendAppointmentEmail(input) {

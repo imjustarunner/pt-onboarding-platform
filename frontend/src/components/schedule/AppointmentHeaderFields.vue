@@ -141,10 +141,12 @@
             @change="emit('update:videoRoomMode', String($event.target.value || 'unique_session'))"
           >
             <template v-if="externalMeetingsEnabled"><option v-if="videoRoomMode!=='external'" :value="videoRoomMode">Existing session link</option><option value="external">Use external link</option></template>
-            <template v-else><option value="unique_session">Unique link for this session</option><option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option></template>
+            <template v-else><option v-if="videoRoomMode==='external'" value="external" disabled>Previously saved external meeting</option><option value="unique_session">Unique link for this session</option><option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option></template>
           </select>
           <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
           <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
+          <label v-if="googleDialInStatus==='available' || includeGoogleDialIn"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (!includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include Google Meet phone instructions in emails and reminders</label>
+          <p v-if="googleDialInStatus==='not_verified'" class="ahf-hint">Google Meet phone details could not be verified. Phone instructions will be omitted until Google provides them.</p>
         </div>
 
         <p
@@ -703,6 +705,7 @@ const props = defineProps({
   recurrenceFrequencyOptions: { type: Array, default: () => [{ value: 'ONCE', label: 'Does not repeat' }] },
   videoRoomMode: { type: String, default: 'unique_session' },
   externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
+  includeGoogleDialIn:Boolean,googleDialInStatus:{type:String,default:''},
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
   customReminders: { type: Array, default: () => [] },
@@ -738,6 +741,7 @@ const emit = defineEmits([
   'update:recurrenceFrequency',
   'update:videoRoomMode',
   'update:externalMeetingUrl',
+  'update:includeGoogleDialIn',
   'update:notificationMode',
   'update:customReminders',
   'update:schedulingNotes',

@@ -198,6 +198,7 @@ async function createLockedAppointment({
   othersPresentNames = null,
   videoRoomMode = 'unique_session',
   externalMeetingUrl = null,
+  includeGoogleDialIn = false,
   notificationMode = 'default',
   customReminders = [],
   createdByUserId = null,
@@ -214,7 +215,8 @@ async function createLockedAppointment({
   deferScheduleNotice = false
 } = {}) {
   customReminders = normalizeCustomSessionReminders(customReminders);
-  externalMeetingUrl=await validateExternalMeeting({agencyId,videoRoomMode,externalMeetingUrl,modality});
+  if(typeof includeGoogleDialIn!=='boolean')throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'),{status:400});
+  externalMeetingUrl=await validateExternalMeeting({agencyId,providerUserId,videoRoomMode,externalMeetingUrl,modality});
   if (customReminders.length) notificationMode = 'customizable';
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
@@ -388,6 +390,7 @@ async function createLockedAppointment({
     othersPresentNames,
     videoRoomMode,
     externalMeetingUrl,
+    includeGoogleDialIn,
     notificationMode,
     createdByUserId,
     serviceCode: serviceCode || service?.serviceCode || null,
@@ -476,7 +479,8 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
   }
   if (!existing) return null;
-  if (patch.videoRoomMode !== undefined || patch.externalMeetingUrl !== undefined || (existing.videoRoomMode === 'external' && patch.modality !== undefined)) {
+  if(patch.includeGoogleDialIn!==undefined&&typeof patch.includeGoogleDialIn!=='boolean')throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'),{status:400});
+  if (patch.videoRoomMode !== undefined || patch.externalMeetingUrl !== undefined || (existing.videoRoomMode === 'external' && (patch.modality !== undefined || patch.providerUserId !== undefined))) {
     const externalMeetingUrl = patch.videoRoomMode !== undefined && patch.videoRoomMode !== 'external' && patch.externalMeetingUrl === undefined
       ? null : patch.externalMeetingUrl === undefined ? existing.externalMeetingUrl : patch.externalMeetingUrl;
     patch.externalMeetingUrl = await validateExternalMeeting({ ...existing, ...patch, externalMeetingUrl });

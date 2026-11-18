@@ -2,6 +2,10 @@ import {beforeEach,it,expect,vi} from 'vitest';
 import crypto from 'node:crypto';
 import {standardizeEmailButtons} from '../../utils/emailActionButton.js';
 const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),appointment:vi.fn(),reply:vi.fn(),setting:vi.fn(),context:vi.fn(),send:vi.fn()}));
+vi.mock('../appointmentJoinEmail.service.js',()=>({appointmentJoinEmail:vi.fn(async({appointment,clientId,context})=>{
+ if(!['learning','tutoring'].includes(appointment.businessType)||!['VIRTUAL','TELEHEALTH'].includes(appointment.modality))return null;
+ const url=context.url(`tutoring-session/appointment/${appointment.id}?clientId=${clientId}&agencyId=${appointment.agencyId}`);return {url,text:`Join tutoring session: ${url}`,html:`<a href="${url}">Join tutoring session</a>`};
+})}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:m.appointment}}));
 vi.mock('../appointmentReply.service.js',()=>({applyAppointmentReply:m.reply}));

@@ -6,6 +6,7 @@ import { invitationEvents } from './meetingInvitations.service.js';
 import { canJoinTeamMeeting,roomUnavailable } from './meetingJoinPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import {googleMeetingConference} from '../utils/googleMeetingConference.js';
 const issuer='personal-team-meeting-invitation',audience='team-meeting';
 const key=()=>createHmac('sha256',config.jwt.secret).update(issuer).digest();
 const hash=t=>createHash('sha256').update(String(t)).digest('hex');
@@ -16,7 +17,11 @@ export async function resolveTeamMeetingInvitationAccess(token,now=new Date()){
  const invitation=rows[0];if(!invitation||invitation.meeting_type!=='team_meeting')return null;
  const event=(await invitationEvents(invitation)).find(e=>!e.meeting_completed_at&&(parseUtcDate(e.end_at)>now||Number(e.has_live_presence)===1));
  if(!event||!await canJoinTeamMeeting(event,invitation.user_id))throw fail(410,'This invitation is no longer available.');
- if(event.platform_video_link!=null&&!Number(event.platform_video_link))return {joinUrl:null,meeting:{title:event.title,when:String(event.start_at),location:event.location_text||event.google_meet_link||''}};
+ if(event.platform_video_link!=null&&!Number(event.platform_video_link)){
+  const google=googleMeetingConference({hangoutLink:event.google_meet_link}).meetLink;
+  if(google)return {joinUrl:google};
+  return {joinUrl:null,meeting:{title:event.title,when:String(event.start_at),location:event.location_text||''}};
+ }
  const blocked=roomUnavailable(event);if(blocked)throw fail(blocked.status,blocked.error.message);
  const expiresIn=12*60*60;
  return {joinUrl:`${await tenantMeetingBase(event.agency_id)}/join/team-meeting/${event.id}`,teamMeetingAccess:{eventId:Number(event.id),expiresAt:now.getTime()+expiresIn*1000,token:jwt.sign({invitationId:Number(invitation.id),invitationHash:hash(token),eventId:Number(event.id)},key(),{algorithm:'HS256',issuer,audience,subject:String(invitation.user_id),expiresIn})}};

@@ -2,6 +2,7 @@ import { googleScheduleAllowedForEmail, GOOGLE_SCHEDULE_DISABLED } from './sched
 import { google } from '../utils/googleApis.js';
 import { randomUUID } from 'crypto';
 import pool from '../config/database.js';
+import {googleMeetingConference} from '../utils/googleMeetingConference.js';
 import {
   GOOGLE_WORKSPACE_SCOPES,
   parseGoogleWorkspaceServiceAccountFromEnv,
@@ -156,7 +157,7 @@ export class GoogleCalendarService {
     }
   }
 
-  static async getEvent({ subjectEmail, calendarId = 'primary', eventId } = {}) {
+  static async getEvent({ subjectEmail, calendarId = 'primary', eventId, timeoutMs = 5000 } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -170,7 +171,7 @@ export class GoogleCalendarService {
         calendarId,
         eventId: eid,
         fields: 'id,summary,description,location,htmlLink,start,end,status,conferenceData,hangoutLink'
-      });
+      },{timeout:timeoutMs,retry:false});
       const ev = r?.data;
       if (!ev) return { ok: false, reason: 'event_not_found' };
 
@@ -194,6 +195,7 @@ export class GoogleCalendarService {
           endAt,
           allDay,
           meetLink,
+          googleConference:googleMeetingConference(ev),
           status: String(ev?.status || 'confirmed').toLowerCase()
         }
       };

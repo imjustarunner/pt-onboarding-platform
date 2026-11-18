@@ -17,7 +17,7 @@ export function parseMeetingSettings(raw) {
 export function normalizeMeetingSettings(raw, defaults = defaultMeetingSettings()) {
   const input = parseMeetingSettings(raw);
   const result = { ...defaults };
-  for (const key of ['agenda','goals','actionItems','attendance','transcription','screenShare','compensation','dialIn']) {
+  for (const key of ['agenda','goals','actionItems','attendance','transcription','screenShare','compensation','dialIn','includeGoogleDialIn']) {
     if (input[key] !== undefined) {
       if (typeof input[key] !== 'boolean') throw Object.assign(new Error(`Invalid meeting setting: ${key}`), { status: 400 });
       result[key] = input[key];

@@ -27,6 +27,7 @@ import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
 import pool from '../config/database.js';
+import {externalMeetingPolicy} from '../services/appointmentExternalMeeting.service.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import OfficeRoom from '../models/OfficeRoom.model.js';
@@ -3589,6 +3590,7 @@ export const getBookingMetadata = async (req, res, next) => {
 
     return res.json({
       careEligibility: metadata.careEligibility,
+      meetingPolicy: await externalMeetingPolicy({agencyId:policyAgencyId,provider:requestedProvider}),
       providerId: requestedProviderId,
       agencyId: policyAgencyId,
       credentialTier: metadata.credentialTier,

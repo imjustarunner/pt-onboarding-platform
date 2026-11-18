@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {optionalGoogleMeetingDialIn} from './googleMeetingDialIn.service.js';
 import { personalDialIn } from './meetingDialIn.service.js';
 import { dialInContext } from './meetingDialInContext.service.js';
 import { dialInConfigured, dialInError } from './meetingDialInPolicy.js';
@@ -12,6 +13,8 @@ import Vonage from './vonage.service.js';
 import SmsLog from '../models/NotificationSmsLog.model.js';
 
 export async function optionalMeetingDialIn(event,userId) {
+  const google=await optionalGoogleMeetingDialIn(event,userId);
+  if(google)return google;
   if (!dialInConfigured()) return null;
   const type = event.meeting_type==='supervision' || event.supervisor_user_id ? 'supervision' : 'team-meeting';
   try { return await personalDialIn(type,event.id,userId); }

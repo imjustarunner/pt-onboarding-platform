@@ -2058,6 +2058,8 @@
           :video-room-mode="editorVideoRoomMode"
           :external-meetings-enabled="editorExternalMeetingsEnabled"
           :external-meeting-url="editorExternalMeetingUrl"
+          :include-google-dial-in="editorIncludeGoogleDialIn"
+          :google-dial-in-status="editorGoogleDialInStatus"
           :service-code-message="bookingMetadataError || (!bookingMetadataLoading && !bookingPrimaryServiceCodeOptions.length ? 'No service codes are available for this provider, agency and client. Review provider care access, credentials and service assignments.' : '')"
           :show-notifications="editorUseBookSessionLayout"
           :notification-mode="editorNotificationMode"
@@ -2094,6 +2096,7 @@
           @update:recurrenceWeekdays="editorRecurrenceWeekdays = $event"
           @update:videoRoomMode="editorVideoRoomMode = $event"
           @update:externalMeetingUrl="editorExternalMeetingUrl=$event"
+          @update:includeGoogleDialIn="editorIncludeGoogleDialIn=$event"
           @update:notificationMode="editorNotificationMode = $event"
           @update:customReminders="editorCustomReminders = $event"
           @update:schedulingNotes="requestNotes = $event"
@@ -14396,10 +14399,15 @@ const editorSchoolOverlapNames=computed(() => {
 });
 const editorVideoRoomMode = ref('unique_session');
 const editorExternalMeetingUrl=ref('');
+const editorIncludeGoogleDialIn=ref(false),editorGoogleDialInStatus=ref('');
+const bookingMeetingPolicy=ref(null);
 const editorExternalMeetingsEnabled=computed(()=>{
  const id=Number(editorAgencyId.value||effectiveAgencyId.value);
  const agency=[agencyStore.currentAgency,...(agencyStore.userAgencies||[]),...(selfScheduleAgencyOptions.value||[])].find(row=>Number(row?.id)===id);
- return [agency?.slug,agency?.portal_url,agency?.portalUrl,Number(agencyStore.currentAgency?.id)===id?route.params?.organizationSlug:null].some(value=>['nlu','nextlevelup','nextleveluplcc','next-level-up'].includes(String(value||'').toLowerCase()));
+ const providerId=Number(scheduleActorUserId.value||props.userId);
+ const policy=bookingMeetingPolicy.value;
+ const nonSso=Number(policy?.providerId)===providerId&&Number(policy?.agencyId)===id?policy.usesGoogleSso===false:Number(rawSummary.value?.providerId)===providerId&&rawSummary.value?.googleCalendarEnabled===false;
+ return nonSso&&[agency?.slug,agency?.portal_url,agency?.portalUrl,Number(agencyStore.currentAgency?.id)===id?route.params?.organizationSlug:null].some(value=>['nlu','nextlevelup','nextleveluplcc','next-level-up'].includes(String(value||'').toLowerCase()));
 });
 const editorNotificationMode = ref('default');
 const editorCustomReminders = ref([]);
@@ -16181,7 +16189,8 @@ async function loadEditorReminders() {
         editorRecordReference.value=appointment.scheduleReference || '';
         editorHydratingAppointment.value=true;
         const firstHydration = editorAppointmentBaseline.value?.id !== apptId || !editorAppointmentBaseline.value?.hydrated;
-        if(firstHydration && JSON.stringify([editorVideoRoomMode.value,editorExternalMeetingUrl.value])===videoSnapshot){editorVideoRoomMode.value=appointment.videoRoomMode||'unique_session';editorExternalMeetingUrl.value=appointment.externalMeetingUrl||'';}
+        if(firstHydration && JSON.stringify([editorVideoRoomMode.value,editorExternalMeetingUrl.value])===videoSnapshot){editorVideoRoomMode.value=appointment.videoRoomMode||'unique_session';editorExternalMeetingUrl.value=appointment.externalMeetingUrl||'';editorIncludeGoogleDialIn.value=appointment.includeGoogleDialIn===true;}
+        editorGoogleDialInStatus.value=appointment.googleDialInStatus||'';
         if (firstHydration && JSON.stringify([editorNotificationMode.value, editorCustomReminders.value]) === notificationSnapshot) {
           editorNotificationMode.value = appointment.notificationMode || 'default';
           editorCustomReminders.value = Array.isArray(appointment.customReminders) ? appointment.customReminders.map(row => ({ ...row })) : [];
@@ -16195,7 +16204,7 @@ async function loadEditorReminders() {
         );
         if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.status || 'scheduled');
         editorStatusBaseline.value=String(appointment.status || 'scheduled');
-        editorAppointmentBaseline.value={id:apptId,hydrated:true,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),videoRoomMode:appointment.videoRoomMode || 'unique_session',externalMeetingUrl:appointment.externalMeetingUrl || '',notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
+        editorAppointmentBaseline.value={id:apptId,hydrated:true,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),videoRoomMode:appointment.videoRoomMode || 'unique_session',externalMeetingUrl:appointment.externalMeetingUrl || '',includeGoogleDialIn:appointment.includeGoogleDialIn===true,notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
         if (!edited) {
           if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
           if (appointment.serviceCode || appointment.billing?.serviceCode) bookingServiceCode.value=String(appointment.serviceCode || appointment.billing.serviceCode);
@@ -16497,6 +16506,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorAppointmentBaseline.value=null;
   editorVideoRoomMode.value = String(defaults.videoRoomMode || (mode === 'create' && editorExternalMeetingsEnabled.value && editorModality.value === 'TELEHEALTH' ? 'external' : 'unique_session'));
   editorExternalMeetingUrl.value=String(defaults.externalMeetingUrl||'');
+  editorIncludeGoogleDialIn.value=defaults.includeGoogleDialIn===true;editorGoogleDialInStatus.value='';
   editorNotificationMode.value = String(defaults.notificationMode || 'default');
   editorCustomReminders.value = Array.isArray(defaults.customReminders) ? defaults.customReminders.map(row => ({ ...row })) : [];
   editorOthersPresentNames.value = String(defaults.othersPresentNames || '');
@@ -17044,6 +17054,7 @@ const normalizeBookingSelectionPayload = () => {
     status: 'scheduled',
     videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     externalMeetingUrl:editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:null,
+    includeGoogleDialIn:editorIncludeGoogleDialIn.value,
     notificationMode: String(editorNotificationMode.value || 'default'),
     customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
     othersPresentNames: String(editorOthersPresentNames.value || '').trim() || null,
@@ -17171,6 +17182,7 @@ const loadBookingMetadataForProvider = async () => {
     for(const result of eligibility){const allowed=new Set(result.data.serviceCodes || []);codes=codes.filter(item=>allowed.has(typeof item==='string'?item:String(item.code || item.service_code || item.serviceCode || '')));}
     if (requestId !== bookingMetadataRequest) return;
     if(eligibility.length && bookingServiceCode.value && !codes.some(item=>(typeof item==='string'?item:item.code)===bookingServiceCode.value))bookingServiceCode.value='';
+    bookingMeetingPolicy.value=data?.meetingPolicy?{...data.meetingPolicy,agencyId:params.agencyId}:null;
     const careEnabled = params.businessType === 'tutoring' ? (data?.careEligibility?.canProvideTutoring || data?.careEligibility?.canProvideCare) : data?.careEligibility?.canProvideCare;
     bookingMetadataError.value=[data?.careEligibility && !careEnabled?data.careEligibility.reason:null,...eligibility.map(result=>result.data.message)].filter(Boolean).join(' ');
     bookingMetadata.value = {
@@ -22379,6 +22391,7 @@ const completePlatformVirtualSessionBooking = async ({
       status: 'scheduled',
       videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
       externalMeetingUrl:editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:undefined,
+      includeGoogleDialIn:editorIncludeGoogleDialIn.value,
       notificationMode: String(editorNotificationMode.value || 'default'),
       customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
       othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
@@ -26687,6 +26700,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       if(baseline && baseline.id===Number(editorAppointmentId.value)){
         const next={serviceCode:String(bookingServiceCode.value || ''),tenantServiceId:Number(editorTenantServiceId.value || 0),serviceLocationId:Number(editorServiceLocationId.value || 0),modality:String(editorModality.value || '')};
         for(const key of Object.keys(next))if(next[key] && next[key]!==baseline[key])clinicalPatch[key]=next[key];
+        if(editorIncludeGoogleDialIn.value!==(baseline.includeGoogleDialIn===true))clinicalPatch.includeGoogleDialIn=editorIncludeGoogleDialIn.value;
         if (editorVideoRoomMode.value !== (baseline.videoRoomMode || 'unique_session') || editorExternalMeetingUrl.value !== (baseline.externalMeetingUrl || '')) {
           clinicalPatch.videoRoomMode = editorVideoRoomMode.value;
           clinicalPatch.externalMeetingUrl = editorVideoRoomMode.value === 'external' ? editorExternalMeetingUrl.value.trim() || null : null;

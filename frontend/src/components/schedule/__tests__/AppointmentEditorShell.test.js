@@ -24,3 +24,10 @@ it('preserves platform meeting choices for other agencies',()=>{
  const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',videoRoomMode:'unique_session'}});
  expect(w.findAll('option').some(option=>option.attributes('value')==='external')).toBe(false);expect(w.findAll('option').some(option=>option.attributes('value')==='unique_session')).toBe(true);w.unmount();
 });
+it('offers Google phone instructions only after availability is verified and forwards the saved preference',async()=>{
+ const w=shallowMount(AppointmentHeaderFields,{props:{showModality:true,modality:'TELEHEALTH',googleDialInStatus:'available'}});
+ const checkbox=w.findAll('label').find(label=>label.text().includes('Include Google Meet phone')).get('input');
+ await checkbox.setValue(true);expect(w.emitted('update:includeGoogleDialIn')).toEqual([[true]]);w.unmount();
+ const shell=shallowMount(AppointmentEditorShell,{props:{includeGoogleDialIn:true,googleDialInStatus:'available'}});
+ const header=shell.getComponent(AppointmentHeaderFields);expect(header.props('includeGoogleDialIn')).toBe(true);header.vm.$emit('update:includeGoogleDialIn',false);expect(shell.emitted('update:includeGoogleDialIn')).toEqual([[false]]);shell.unmount();
+});

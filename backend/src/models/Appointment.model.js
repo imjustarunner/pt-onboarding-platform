@@ -92,6 +92,7 @@ class Appointment {
       othersPresentNames: r.others_present_names != null ? String(r.others_present_names) : null,
       videoRoomMode: normalizeVideoRoomMode(r.video_room_mode, 'unique_session'),
       externalMeetingUrl:r.external_meeting_url || null,
+      includeGoogleDialIn:Number(r.include_google_dial_in)===1,
       notificationMode: normalizeNotificationMode(r.notification_mode, 'default'),
       serviceCode: r.service_code ? String(r.service_code).toUpperCase() : null,
       addonServiceCodes: (() => {
@@ -258,6 +259,9 @@ class Appointment {
     const externalColumns = videoRoomMode === 'external' ? ', external_meeting_url' : '';
     const externalValues = videoRoomMode === 'external' ? ', ?' : '';
     const externalParams = videoRoomMode === 'external' ? [row.externalMeetingUrl || null] : [];
+    const dialInColumn=row.includeGoogleDialIn===true?', include_google_dial_in':'';
+    const dialInValue=row.includeGoogleDialIn===true?', ?':'';
+    const dialInParams=row.includeGoogleDialIn===true?[1]:[];
     const baseParams = [
       Number(row.agencyId),
       row.parentAgencyId || null,
@@ -292,8 +296,8 @@ class Appointment {
            office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
            cancellation_policy_id, cancel_deadline_at,
            source, title, notes, others_present_names, video_room_mode, notification_mode,
-           created_by_user_id, updated_by_user_id${learningColumns}${externalColumns}
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues}${externalValues})`,
+           created_by_user_id, updated_by_user_id${learningColumns}${externalColumns}${dialInColumn}
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${learningValues}${externalValues}${dialInValue})`,
         [
           ...baseParams.slice(0, 22),
           othersPresentNames,
@@ -302,12 +306,13 @@ class Appointment {
           baseParams[22],
           baseParams[23],
           ...learningParams,
-          ...externalParams
+          ...externalParams,
+          ...dialInParams
         ]
       );
       return this.findById(result.insertId, { executor });
     } catch (e) {
-      if(videoRoomMode==='external')throw e;
+      if(videoRoomMode==='external'||row.includeGoogleDialIn===true)throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `INSERT INTO appointments (
@@ -387,6 +392,8 @@ class Appointment {
     const writesExternalLink = videoRoomMode === 'external' || existing.videoRoomMode === 'external';
     const externalUpdate = writesExternalLink ? ', external_meeting_url = ?' : '';
     const externalParams = writesExternalLink ? [videoRoomMode === 'external' ? next.externalMeetingUrl || null : null] : [];
+    const dialInUpdate=patch.includeGoogleDialIn!==undefined?', include_google_dial_in = ?':'';
+    const dialInParams=patch.includeGoogleDialIn!==undefined?[patch.includeGoogleDialIn===true?1:0]:[];
     // Compare the reviewed schedule in the UPDATE itself. This also rejects a
     // writer that changed the row after the shared provider lock's read.
     const participantCompare = expected?.expectedParticipantClientId ? ' AND (SELECT COUNT(*) FROM appointment_participants p WHERE p.appointment_id=appointments.id AND p.client_id IS NOT NULL)=1 AND EXISTS (SELECT 1 FROM appointment_participants p WHERE p.appointment_id=appointments.id AND p.client_id=?)' : '';
@@ -405,7 +412,7 @@ class Appointment {
            cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
            canceled_at = ?, canceled_by_user_id = ?,
            title = ?, notes = ?,
-           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate},
+           others_present_names = ?, video_room_mode = ?, notification_mode = ?${externalUpdate}${dialInUpdate},
            updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?${compare}`,
         [
@@ -437,13 +444,14 @@ class Appointment {
           videoRoomMode,
           notificationMode,
           ...externalParams,
+          ...dialInParams,
           next.updatedByUserId || null,
           Number(id), ...compareParams
         ]
       );
       if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     } catch (e) {
-      if(videoRoomMode==='external'||existing.videoRoomMode==='external')throw e;
+      if(videoRoomMode==='external'||existing.videoRoomMode==='external'||patch.includeGoogleDialIn!==undefined)throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [result] = await executor.execute(
         `UPDATE appointments SET

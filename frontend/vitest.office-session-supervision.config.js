@@ -17,6 +17,8 @@ export default defineConfig({
       'src/components/schedule/__tests__/supervisionActionDialog.test.js',
       'src/components/schedule/__tests__/supervisionNotificationSettings.test.js',
       'src/components/schedule/__tests__/AppointmentEditorShell.test.js',
+      'src/components/schedule/__tests__/MeetingSettingsEditor.test.js',
+      'src/components/guardian/__tests__/GuardianAppointmentsPanel.test.js',
       'src/components/schedule/__tests__/meetingDateReschedule.test.js',
       'src/components/schedule/__tests__/meetingTimeEntry.test.js',
       'src/components/schedule/__tests__/scheduleQuarterHourFlow.test.js',

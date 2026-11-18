@@ -29,11 +29,12 @@ function harness() {
     if (sql.startsWith('UPDATE appointment_schedule_notices SET status=')) {
       const n=notices.find(n=>n.id===p.at(-1));if(n && (!sql.includes("AND status='pending'") || n.status==='pending')) {n.status=sql.match(/status='([^']+)'/)[1];if(sql.includes('batch_id=?'))n.batch_id=p[0];}return [{}];
     }
+    if (sql.startsWith('UPDATE appointment_schedule_notice_deliveries SET message_json=')) {deliveries.find(d=>d.id===p[1]).message_json=p[0];return [{}];}
     if (sql.startsWith('UPDATE appointment_schedule_notice_deliveries')) {Object.assign(deliveries.find(d=>d.id===p[6]),Object.fromEntries(['status','recipient_address','communication_id','external_message_id','error_message','sent_at'].map((k,i)=>[k,p[i]])));return [{}];}
     if (sql.startsWith('UPDATE appointment_reminders') || sql.startsWith('UPDATE appointment_change_notification_queue')) return [{}];
     throw new Error(`Unimplemented test SQL: ${sql}`);
   }) };
-  const deps={database,serviceBlocked:vi.fn(async()=>false),now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
+  const deps={database,joinEmail:vi.fn(async()=>null),serviceBlocked:vi.fn(async()=>false),now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
     encrypt:s=>JSON.stringify({encrypted:Buffer.from(s).toString('base64')}),decrypt:s=>Buffer.from(JSON.parse(s).encrypted,'base64').toString(),
     appointment:vi.fn(async id=>appointments.get(Number(id))),participants:vi.fn(async()=>[{clientId:8}]),
     tenant:vi.fn(async()=>({channelsEnabled:{sms:true},changeNotify:{channels:['email','sms'],bufferMinutes:15}})),
@@ -48,6 +49,13 @@ function harness() {
 }
 
 describe('one durable schedule update per client after edits settle',()=>{
+  it('includes the authorized join destination and phone instructions in both the outgoing email and its encrypted delivery record',async()=>{
+    const h=harness();h.appointments.get(1).status='scheduled';h.deps.joinEmail.mockResolvedValue({text:'Join: https://video.example.test/session\nGoogle Meet PIN: 123456789',html:'<a href="https://video.example.test/session">Join session</a>'});
+    await h.service.queue(1,{eventType:'created'});h.advance(15);await h.service.process(1);
+    expect(h.deps.sendEmail.mock.calls[0][0].text).toContain('Google Meet PIN');
+    const email=h.deliveries.find(d=>d.channel==='email');expect(JSON.parse(h.deps.decrypt(email.message_json)).text).toContain('video.example.test/session');
+    expect(h.deps.communication.mock.calls[0][0].body).toContain('video.example.test/session');
+  });
   it('uses server-reviewed affiliated guardians for individual cancellation email without granting portal or SMS access',async()=>{
     const h=harness();const recipients=[{key:'guardian:9',userId:9,email:'one@example.test',operationalOnly:true},{key:'guardian:10',userId:10,email:'two@example.test',operationalOnly:true}];
     h.deps.individualReview.mockResolvedValue({appointmentId:1,signedAt:'2030-01-01 10:00:00',factsHash:'saved',providerId:5,clientId:8,contacts:recipients,recipients});

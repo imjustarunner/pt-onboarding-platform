@@ -31,7 +31,7 @@ beforeEach(() => {
     url.includes('/service-code-eligibility') ? {serviceCodes:['90837']} :
     url.includes('/booking-access') ? { enabled: true } :
     url.includes('/booking-locations') ? { serviceLocations } :
-    url.includes('/booking-metadata') ? { serviceLocations, serviceCodes: [{ code: '90837', label: 'Psychotherapy', allowedPlaceOfService: ['11', '12', '02', '10'] }] } :
+    url.includes('/booking-metadata') ? { meetingPolicy:{providerId:7,usesGoogleSso:false,externalLinksAllowed:true}, serviceLocations, serviceCodes: [{ code: '90837', label: 'Psychotherapy', allowedPlaceOfService: ['11', '12', '02', '10'] }] } :
     url === '/offices' ? [{ id: 8, name: 'Main office', agencyIds: [2, 377] }] :
     url.includes('agencies') ? [] : {}
   }));
@@ -301,7 +301,7 @@ it.each([
  const base=mocks.get.getMockImplementation();
  mocks.get.mockImplementation((path,...args)=>path.includes('/virtual-session-clients')?Promise.resolve({data:{clients:[{id:81,full_name:'Synthetic Client'}]}}):base(path,...args));
  mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:'external',externalMeetingUrl:url||null,providerScheduleEventId:910}}:{}}));
- wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6,bookingClientId:81},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
  const s=wrapper.vm.$.setupState;
  s.weekStart='2026-11-23';s.modalDay='Thursday';s.modalHour=15;s.modalStartHour=15;s.modalEndHour=16;s.selectedActionAgencyId=6;
  s.modalContext={agencyId:6,dateYmd:'2026-11-26',hour:15,assignedProviderId:7};s.showRequestModal=true;await flushPromises();
@@ -309,8 +309,8 @@ it.each([
  s.editorPracticeCategory=businessType;s.editorModality='TELEHEALTH';s.bookingModality='TELEHEALTH';await flushPromises();
  s.editorTenantServices=[{id:320,businessType,serviceCode:businessType==='tutoring'?'TUTORING':'90837',name:'Configured service',defaultDurationMinutes:60}];
  s.editorTenantServiceId=320;await flushPromises();
- s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
- s.editorExternalMeetingUrl=url;s.clientSessionBookingEnabled=true;await nextTick();
+ s.editorExternalMeetingUrl=url;s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
+ expect(s.editorExternalMeetingUrl).toBe(url);s.clientSessionBookingEnabled=true;await nextTick();
  expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:'external'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe('Schedule');
  await s.submitRequest();await flushPromises();
  expect(s.modalError).toBe('');
@@ -333,4 +333,11 @@ it('opens an existing external appointment and saves an added link to that same 
  s.editorExternalMeetingUrl='https://video.example.test/added';await nextTick();await s.saveScheduleStackItem(event,{scope:'single'});await flushPromises();
  expect(s.scheduleEventEditError).toBe('');expect(mocks.patch).toHaveBeenCalledWith('/appointments/821',expect.objectContaining({videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/added'}),expect.any(Object));
  expect(mocks.post.mock.calls.some(([path])=>path==='/appointments')).toBe(false);
+});
+it('does not offer external links for the scheduled SSO provider when booking staff have a different login policy',async()=>{
+ mocks.agency={id:6,slug:'nlu',organization_type:'agency'};
+ const base=mocks.get.getMockImplementation();mocks.get.mockImplementation((url,...args)=>url.includes('/booking-metadata')?Promise.resolve({data:{meetingPolicy:{providerId:7,usesGoogleSso:true,externalLinksAllowed:false},serviceCodes:[{code:'90837'}]}}):base(url,...args));
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ s.weekStart='2026-11-23';s.selectedActionAgencyId=6;s.modalDay='Thursday';s.modalHour=15;s.modalEndHour=16;s.modalContext={agencyId:6,dateYmd:'2026-11-26',hour:15};s.showRequestModal=true;await flushPromises();
+ s.onQuickActionSelect({id:'individual_session'});await flushPromises();expect(s.editorExternalMeetingsEnabled).toBe(false);expect(s.editorVideoRoomMode).toBe('unique_session');
 });

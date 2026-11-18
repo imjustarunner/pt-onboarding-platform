@@ -12,6 +12,14 @@ afterEach(()=>vi.useRealTimers());
 it('exchanges a personal email token for meeting-only identity without a login token',async()=>{const result=await resolveTeamMeetingInvitationAccess(invitation.join_token);expect(result.joinUrl).toBe('https://tenant.example/join/team-meeting/9');const access=await validateTeamMeetingAccess(result.teamMeetingAccess.token,{eventId:9,action:'video-token'});expect(access.user.id).toBe(8);expect(()=>jwt.verify(result.teamMeetingAccess.token,'test-login-secret')).toThrow();});
 it('rejects unrelated meeting IDs and general account actions',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:10,action:'video-token'})).rejects.toMatchObject({status:403});expect(teamMeetingRequest('PUT','/9/participants/7')).toBeNull();expect(teamMeetingRequest('GET','/users/8')).toBeNull();});
 it('rechecks the current roster on each request',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);m.canJoin.mockResolvedValue(false);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:9,action:'video-token'})).rejects.toMatchObject({status:403});});
+it('opens the saved Google Meet destination after checking the personal invitation and current roster',async()=>{
+ Object.assign(event,{platform_video_link:0,google_meet_link:'https://meet.google.com/abc-defg-hij'});
+ expect(await resolveTeamMeetingInvitationAccess(invitation.join_token)).toEqual({joinUrl:event.google_meet_link});
+ m.canJoin.mockResolvedValue(false);await expect(resolveTeamMeetingInvitationAccess(invitation.join_token)).rejects.toHaveProperty('status',410);
+});
+it.each(['javascript:alert(1)','https://evil.example/meet','https://user:password@meet.google.com/abc-defg-hij'])('does not redirect a meeting invitation to an untrusted Google URL: %s',async url=>{
+ Object.assign(event,{platform_video_link:0,google_meet_link:url});expect((await resolveTeamMeetingInvitationAccess(invitation.join_token)).joinUrl).toBeNull();
+});
 it('revokes a previously issued grant when its personal token rotates',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);invitation.join_token='r'.repeat(32);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:9,action:'video-token'})).rejects.toMatchObject({status:410});});
 it('allows calendar guest admission only through its own scoped meeting path',()=>{expect(teamMeetingRequest('POST','/9/calendar-guests/4/admit')).toEqual({eventId:9,action:'calendar-guests/4/admit'});});
 it('scopes question display requests to the invited meeting; controller still checks interviewer authority',()=>{

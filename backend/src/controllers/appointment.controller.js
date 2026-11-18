@@ -109,6 +109,9 @@ export const getAppointment = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, bundle.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    const {appointmentGoogleConference}=await import('../services/appointmentJoinEmail.service.js');
+    const conference=await appointmentGoogleConference(bundle);
+    bundle.googleDialInStatus=conference.status;
     const {default:scheduleReferences}=await import('../services/scheduleRecordReference.service.js');
     const references=await scheduleReferences.ensure([{type:'appointment',id}]);
     bundle.scheduleReference=references.get(`appointment:${id}`)||null;
@@ -187,6 +190,7 @@ export const createAppointmentHandler = async (req, res, next) => {
           othersPresentNames: req.body?.othersPresentNames || req.body?.others_present_names || null,
           videoRoomMode: req.body?.videoRoomMode || req.body?.video_room_mode || 'unique_session',
           externalMeetingUrl:req.body?.externalMeetingUrl || null,
+          includeGoogleDialIn:req.body?.includeGoogleDialIn ?? false,
           notificationMode: req.body?.notificationMode || req.body?.notification_mode || 'default',
           customReminders: req.body?.customReminders || [],
           serviceCode: req.body?.serviceCode || req.body?.service_code || null,
