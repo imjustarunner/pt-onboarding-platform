@@ -29,7 +29,7 @@ export function buildStaffPollEmail({ event, agency, user, followup = false }) {
   const options = event.votingConfig.options || [];
   const intro = `Hi ${user.first_name || 'there'},`;
   const invitation = 'Please sign in with your work account to vote. Your response helps the organizer plan.';
-  const optIn = 'Skip the extra email next time: opt in to vote by text. We promise not to spam you. Poll texts are optional, and you can reply NOPOLLS to turn off only poll texts. Review and save your enrollment preferences to opt in.';
+  const optIn = 'Prefer to vote by text? You can opt in to poll texts. We promise not to spam you. Poll texts are optional, and you can reply NOPOLLS to turn off only poll texts. Review and save your enrollment preferences to opt in.';
   return {
     subject: `${followup ? 'Reminder — team poll' : 'Team poll'}: ${event.title}`,
     text: `${intro}\n\n${event.title}\n${question}\n${options.map(o => `• ${o.label}`).join('\n')}\n\n${invitation}\nVote: ${voteUrl}\n\n${optIn}\nOpt in to vote by text: ${optInUrl}`,
