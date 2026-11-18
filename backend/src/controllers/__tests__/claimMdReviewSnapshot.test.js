@@ -1,3 +1,7 @@
+vi.mock('../../services/auditEvent.service.js', () => ({logAuditEvent:vi.fn(async()=>({id:900}))}));
+vi.mock('../../services/narrivaAccess.service.js', () => ({requireNarrivaClient:vi.fn(async()=>({id:2297,agency_id:450,full_name:'Synthetic client'}))}));
+vi.mock('../../models/Agency.model.js', () => ({default:{findById:vi.fn(async id=>({id,name:'Synthetic practice'}))}}));
+vi.mock('../../services/clinicalRecordPdf.service.js', async original=>({...await original(),generateClinicalRecordPdf:m.pdf}));
 import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ main: vi.fn(), clinical: vi.fn(), find: vi.fn(), policy: vi.fn(), approved: vi.fn(), summary: vi.fn(), pdf: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.main }, onTableWrite: vi.fn() }));
@@ -11,6 +15,8 @@ vi.mock('../../services/clinicalNoteVersionBilling.service.js', async original =
 vi.mock('../../services/clinicalNoteVersion.service.js', async original => ({ ...await original(), getRevisionSummary: m.summary, ensureLegacyVersion: m.summary }));
 vi.mock('../../services/treatmentSummaryPdf.service.js', () => ({ generateTreatmentSummaryPdf: m.pdf, extractNotePayloadText: note => note.note_payload }));
 vi.mock('../../services/familyBillingEncryption.service.js', async original => ({ ...await original(), encryptFamilyBilling: vi.fn(() => 'Synthetic encrypted review'), decryptFamilyBilling: vi.fn(() => ({})) }));
+import { buildClinicalRecordHtml } from '../../services/clinicalRecordPdf.service.js';
+import { logAuditEvent } from '../../services/auditEvent.service.js';
 import { getClinicalNoteById, downloadTreatmentSummaryPdf } from '../medicalBilling.controller.js';
 import { getSuperviseeReviewDocument, recordSuperviseeDocumentReview, listSuperviseeDocumentReviews } from '../supervisedBilling.controller.js';
 import { loadReviewDocument } from '../../services/clinicalReviewDocument.service.js';
@@ -92,8 +98,13 @@ it('exports the approved narrative and its actual version signatures without att
   const res = response(), next = vi.fn();
   await downloadTreatmentSummaryPdf({ user: { id: 9, role: 'super_admin' }, params: { noteId: '444' }, query: { agencyId: '450' } }, res, next);
   expect(next).not.toHaveBeenCalled();
-  expect(m.pdf).toHaveBeenCalledWith(expect.objectContaining({ bodyText: expect.stringContaining('Approved supervisor amendment'), providerSignedAt: null, supervisorSignedAt: '2026-11-03T19:00:00Z' }));
-  expect(m.pdf.mock.calls[0][0].bodyText).toContain('Clinical version 2');
+  const exported = m.pdf.mock.calls[0][0];
+  expect(exported.notes[0].note).toMatchObject({note_payload:'Approved supervisor amendment',clinical_version_number:2});
+  const html = buildClinicalRecordHtml(exported);
+  expect(html).toContain('Approved supervisor amendment');expect(html).toContain('approved version 2');
+  expect(html).not.toContain('Provider electronically signed:');expect(html).toContain('Clinical supervisor electronically signed:');
+  expect(html).toContain('2026-11-03T19:00:00Z');
+  expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({user:{id:9,role:'super_admin'}}),expect.objectContaining({required:true,actionType:'clinical_note_pdf_exported'}));
   expect(res.send).toHaveBeenCalled();
 });
 
