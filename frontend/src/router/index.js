@@ -3811,7 +3811,7 @@ const routes = [
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
-  { path: '/practice-transition', name: 'PracticeTransition', component: () => import('../views/PracticeTransitionView.vue'), meta: { hideNav: true, requiresAuth: true, requiresRole: ['admin','super_admin'] } },
+  { path: '/practice-transition', name: 'PracticeTransition', component: () => import('../views/PracticeTransitionView.vue'), meta: { hideNav: true, practiceTransitionWorkspace: true, requiresAuth: true, requiresRole: ['admin','super_admin'] } },
   {
     path: '/auricwell-operations',
     name: 'AuricWellOperations',
@@ -5654,7 +5654,7 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (platformHost && !hostPortalEarly && authStore.isAuthenticated && to.meta.requiresAuth &&
-      !routeWorkspaceSlug && isSuperadminRole(authStore.user?.role)) {
+      !to.meta.practiceTransitionWorkspace && !routeWorkspaceSlug && isSuperadminRole(authStore.user?.role)) {
     agencyStore.setPlatformMode();
     organizationStore.clearOrganization();
     brandingStore.setActiveRouteSlug('');
@@ -5690,7 +5690,7 @@ router.beforeEach(async (to, from, next) => {
   // that tenant. Scope a flat authenticated route to an actual membership
   // before the host-branding fallback can select the host's live agency.
   if (hostPortalEarly && authStore.isAuthenticated && !isSuperadminRole(authStore.user?.role)
-      && to.meta.requiresAuth && !to.meta.organizationSlug && !to.meta.fundthred
+      && to.meta.requiresAuth && !to.meta.organizationSlug && !to.meta.fundthred && !to.meta.practiceTransitionWorkspace
       && !userHasSlugAccess(hostPortalEarly, agencyStore, authStore)) {
     const ownSlug = getDefaultOrganizationSlug();
     if (ownSlug && ownSlug !== hostPortalEarly) {
@@ -5706,7 +5706,8 @@ router.beforeEach(async (to, from, next) => {
     hostPortalEarly &&
     authStore.isAuthenticated &&
     to.meta.requiresAuth &&
-    !to.meta.organizationSlug
+    !to.meta.organizationSlug &&
+    !to.meta.practiceTransitionWorkspace
   ) {
     const currentKey = getAgencyPortalKey(agencyStore.currentAgency);
     if (currentKey !== hostPortalEarly) {
@@ -6101,6 +6102,7 @@ router.beforeEach(async (to, from, next) => {
     !allowUnscopedDashboard &&
     !allowUnscopedNotifications &&
     !allowUnscopedDocumentSigning &&
+    !to.meta.practiceTransitionWorkspace &&
     to.name !== 'DependentPortal' &&
     !to.meta.fundthred
   ) {
@@ -6219,6 +6221,7 @@ router.beforeEach(async (to, from, next) => {
     authStore.isAuthenticated &&
     !isSchoolCareBridgePath(to.path) &&
     hasProviderMobileAccess(authStore.user) &&
+    !to.meta.practiceTransitionWorkspace &&
     isStandalonePwa() &&
     isLikelyMobileViewport() &&
     to.meta.requiresAuth
