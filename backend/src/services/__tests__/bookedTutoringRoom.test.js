@@ -1,3 +1,5 @@
+vi.mock('../../models/StudentSubject.model.js',()=>({default:{listByClient:vi.fn(async()=>[]),findById:vi.fn()}}));
+vi.mock('../../models/StudentLearningPlan.model.js',()=>({default:{findActiveBySubject:vi.fn(),getPlanBundle:vi.fn()}}));
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:vi.fn(),listParticipants:vi.fn()}}));
@@ -65,3 +67,6 @@ it('requires an active matching tutoring assignment even when a family opens a c
 it('stores a full monitored video ID separately without overwriting legacy room evidence',async()=>{const full='2_MX5synthetic-'+ 'A'.repeat(150);Video.createSession.mockResolvedValue(full);session.twilio_room_sid='retained-twilio';session.vonage_session_id='retained-older-video';const ctx=await room.bookedTutoringAccess(tutor,359);await room.openBookedTutoringRoom(ctx);const updates=db.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE learning_class_sessions SET booked_media_id'));expect(updates[0][1]).toEqual([full,600]);expect(updates[0][0]).not.toMatch(/twilio_room_sid|vonage_session_id/);});
 
 it('denies a copied link when the family only has a different subject service with the same tutor',async()=>{Appointment.findById.mockResolvedValue({...a,learningContext:{serviceEnrollmentId:1038}});assertLearningClientAccess.mockResolvedValue({services:[{id:1039,provider_user_id:1496,service_kind:'tutoring',is_active:1}]});await expect(room.bookedTutoringAccess(parent,359)).rejects.toMatchObject({status:403});});
+
+it('keeps plan-checklist context private to the assigned tutor',async()=>{const ctx=await room.bookedTutoringAccess(parent,359);await expect(room.bookedTutoringLearningContext(ctx)).rejects.toMatchObject({status:403});});
+it('withholds a mismatched legacy note from learning-context responses',async()=>{TutoringSessionNote.findBySession.mockResolvedValue({id:22,client_id:9999,agency_id:453});const ctx=await room.bookedTutoringAccess(tutor,359);await expect(room.bookedTutoringLearningContext(ctx)).rejects.toMatchObject({status:409});});

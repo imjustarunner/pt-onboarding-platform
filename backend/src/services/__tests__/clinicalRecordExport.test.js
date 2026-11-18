@@ -1,3 +1,4 @@
+vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn(async () => []) } }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {}, onTableWrite: () => () => {} }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: {} }));

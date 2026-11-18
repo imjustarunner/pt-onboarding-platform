@@ -2,6 +2,7 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
+import { recordClientDemographics, recordClientGuardians } from './recordClientIdentity.service.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
@@ -55,6 +56,8 @@ export function createClinicalRecordExporter(dependencies = {}) {
     return service.convertHTMLToPDF(String(html).replace(/<details(?![^>]*\bopen\b)/gi, '<details open'), { disableFallback: true, documentType: 'clinical_record_supporting_document' });
   });
   const audit = dependencies.audit || logAuditEvent;
+  const recordDemographics = dependencies.recordDemographics || recordClientDemographics;
+  const recordGuardians = dependencies.recordGuardians || recordClientGuardians;
 
   return async function exportClinicalRecord(req, { noteId = null, draftId = null, clientId = null, agencyId, includeDrafts = false, from = '', to = '' } = {}) {
     agencyId = positive(agencyId);
@@ -84,6 +87,9 @@ export function createClinicalRecordExporter(dependencies = {}) {
       includeDrafts = !row.provider_signed_at || includeDrafts;
     }
     const client = await access(req.user, agencyId, positive(clientId));
+    const [demographics, guardians] = await Promise.all([recordDemographics(client), recordGuardians(positive(clientId))]);
+    client.recordDemographics = demographics;
+    client.recordGuardians = guardians;
     const agency = await findAgency(agencyId);
     if (!agency) throw fail(404, 'Clinical workspace not found.');
     if (!sourceNotes) {

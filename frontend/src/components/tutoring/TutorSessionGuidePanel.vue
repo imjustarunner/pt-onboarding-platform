@@ -139,106 +139,25 @@
           </ul>
         </div>
 
-        <div class="tsg-card">
-          <h3>Session summary draft</h3>
-          <textarea v-model="note.summary" rows="3" placeholder="Live takeaways for the session note…" />
-        </div>
       </section>
 
-      <!-- Right: live tools -->
-      <aside class="tsg-rail tsg-right">
-        <section class="tsg-card">
-          <h3>Live observation notes</h3>
-          <textarea v-model="note.strengthsObserved" rows="2" placeholder="Strengths observed" />
-          <textarea v-model="note.challengesObserved" rows="2" placeholder="Challenges / watch-fors" />
-          <textarea v-model="liveObservation" rows="2" placeholder="Quick observation…" />
-        </section>
-
-        <section class="tsg-card">
-          <h3>Engagement / confidence</h3>
-          <label class="tsg-scale">Engagement
-            <input v-model.number="engagement.engagement" type="range" min="1" max="5" />
-            <span>{{ engagement.engagement }}</span>
-          </label>
-          <label class="tsg-scale">Confidence
-            <input v-model.number="engagement.confidence" type="range" min="1" max="5" />
-            <span>{{ engagement.confidence }}</span>
-          </label>
-          <label class="tsg-scale">Participation
-            <input v-model.number="engagement.participation" type="range" min="1" max="5" />
-            <span>{{ engagement.participation }}</span>
-          </label>
-        </section>
-
-        <section class="tsg-card">
-          <h3>Mastery evidence tracker</h3>
-          <div v-for="g in goals" :key="g.id" class="tsg-chip-row">
-            <span>{{ g.title }}</span>
-            <select v-model="ratings[g.id]">
-              <option value="">—</option>
-              <option v-for="r in ratingOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
-            </select>
-          </div>
-          <p v-if="!goals.length" class="tsg-muted">Enroll a subject and approve a learning plan first.</p>
-        </section>
-
-        <section class="tsg-card">
-          <h3>AI assist</h3>
-          <div class="tsg-actions">
-            <button type="button" class="tsg-btn" :disabled="saving" @click="runAssist('explain')">Generate explanation</button>
-            <button type="button" class="tsg-btn" :disabled="saving" @click="runAssist('intervene')">Suggest intervention</button>
-            <button type="button" class="tsg-btn" :disabled="saving" @click="runAssist('recap')">Draft recap</button>
-          </div>
-          <p v-if="assistDraft?.coachText" class="tsg-assist">{{ assistDraft.coachText }}</p>
-          <p v-if="assistDraft?.familyText" class="tsg-muted"><em>Family:</em> {{ assistDraft.familyText }}</p>
-        </section>
-
-        <section class="tsg-card">
-          <h3>How it went</h3>
-          <div class="tsg-how">
-            <label v-for="opt in howItWentOptions" :key="opt" class="tsg-radio">
-              <input type="radio" v-model="note.howItWent" :value="opt" />
-              {{ opt }}
-            </label>
-          </div>
-          <textarea v-model="note.nextSteps" rows="2" placeholder="Next steps" />
-          <textarea v-model="note.homework" rows="2" placeholder="Homework notes (optional — practice can auto-assign)" />
-          <label class="tsg-check">
-            <input type="checkbox" v-model="assignPractice" />
-            Assign practice for parents until next session
-          </label>
-        </section>
-      </aside>
+      <aside class="tsg-rail tsg-right"><section class="tsg-card"><h3>Teaching support</h3><label>Current learning need<textarea v-model="liveObservation" rows="2" placeholder="Optional context for teaching support" /></label><div class="tsg-actions"><button type="button" class="tsg-btn" :disabled="saving" @click="runAssist('explain')">Explain a concept</button><button type="button" class="tsg-btn" :disabled="saving" @click="runAssist('intervene')">Suggest a strategy</button></div><p v-if="assistDraft?.coachText" class="tsg-assist">{{ assistDraft.coachText }}</p></section></aside>
     </div>
 
-    <footer class="tsg-footer">
-      <button type="button" class="tsg-btn primary" :disabled="saving || (!studentSubjectId && !sessionId)" @click="saveNote">
-        {{ saving ? 'Saving…' : 'Save session notes' }}
-      </button>
-      <button type="button" class="tsg-btn" :disabled="saving || !studentSubjectId" @click="draftFamilyRecap">
-        Draft family recap
-      </button>
-      <button type="button" class="tsg-btn" :disabled="saving || !studentSubjectId" @click="saveNote">
-        Complete &amp; assign practice
-      </button>
-      <a v-if="scheduleHref" class="tsg-btn" :href="scheduleHref">Schedule next session</a>
-      <span v-if="lastSave?.practiceAssignment" class="tsg-ok">
-        Practice assigned: {{ lastSave.practiceAssignment.title }}
-        <template v-if="lastSave.practiceAssignment.due_at">
-          · due {{ formatDate(lastSave.practiceAssignment.due_at) }}
-        </template>
-      </span>
-    </footer>
+    <TutoringSessionLearningPanel v-if="showDocumentation && sessionId" :client-id="clientId" :agency-id="agencyId" :session-id="sessionId" :session-type="sessionType" :initial-subject-id="initialSubjectId" @saved="emit('saved', $event)" />
+    <p v-else-if="showDocumentation" class="tsg-muted">Open the student’s scheduled session to save learning-plan results.</p>
+    <footer v-if="scheduleHref" class="tsg-footer"><a class="tsg-btn" :href="scheduleHref">Schedule next session</a></footer>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { GOAL_RATING_OPTIONS } from '@/constants/tutoringLearningOs';
+import TutoringSessionLearningPanel from './TutoringSessionLearningPanel.vue';
 import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';
 
 const props = defineProps({
+  showDocumentation: { type: Boolean, default: true },
   agencyId: { type: [Number,String], default:null },
   clientId: { type: [Number, String], required: true },
   sessionId: { type: [Number, String], default: null },
@@ -256,18 +175,13 @@ const studentSubjectId = ref(props.initialSubjectId ? Number(props.initialSubjec
 const brief = ref(null);
 const workspace = ref(null);
 const goals = ref([]);
-const ratings = reactive({});
 const plannedDone = reactive({});
 const saving = ref(false);
 const loading = ref(true);
 const error = ref('');
 const successMsg = ref('');
-const lastSave = ref(null);
 const assistDraft = ref(null);
 const liveObservation = ref('');
-const assignPractice = ref(true);
-const ratingOptions = GOAL_RATING_OPTIONS;
-const howItWentOptions = ['Exceeded', 'Met', 'Partially Met', 'Not Yet'];
 const casStandards = ref([]);
 const packageEntitlements = ref([]);
 const packageTotals = ref({
@@ -275,21 +189,6 @@ const packageTotals = ref({
   sessionsReserved: 0,
   sessionsPurchased: 0,
   activePackages: 0
-});
-
-const note = reactive({
-  howItWent: 'Met',
-  summary: '',
-  strengthsObserved: '',
-  challengesObserved: '',
-  nextSteps: '',
-  homework: ''
-});
-
-const engagement = reactive({
-  engagement: 3,
-  confidence: 3,
-  participation: 3
 });
 
 const guide = computed(() => brief.value?.guide_json || {});
@@ -363,11 +262,7 @@ async function loadPackageBalance() {
 }
 
 async function loadAll() {
-  if (!studentSubjectId.value) {
-    if(props.sessionId){try{const data=await los.getSessionNote(props.sessionId);if(data.note){note.summary=data.note.summary||'';note.strengthsObserved=data.note.strengths_observed||'';note.challengesObserved=data.note.challenges_observed||'';note.nextSteps=data.note.next_steps||'';note.homework=data.note.homework||'';}}catch(e){error.value=e.response?.data?.error?.message||'Session notes could not be loaded.';}}
-    loading.value = false;
-    return;
-  }
+  if (!studentSubjectId.value) { loading.value = false; return; }
   loading.value = true;
   error.value = '';
   try {
@@ -375,29 +270,13 @@ async function loadAll() {
     if (props.sessionId) {
       const existing = await los.getSessionBrief(props.sessionId);
       brief.value = existing.brief || null;
-      const existingNote = await los.getSessionNote(props.sessionId);
-      if (existingNote.note) {
-        note.summary = existingNote.note.summary || '';
-        note.strengthsObserved = existingNote.note.strengths_observed || '';
-        note.challengesObserved = existingNote.note.challenges_observed || '';
-        note.nextSteps = existingNote.note.next_steps || '';
-        note.homework = existingNote.note.homework || '';
-        note.howItWent = existingNote.note.how_it_went_json?.rating || 'Met';
-        const eng = existingNote.note.how_it_went_json || {};
-        if (eng.engagement) engagement.engagement = Number(eng.engagement) || 3;
-        if (eng.confidence) engagement.confidence = Number(eng.confidence) || 3;
-        if (eng.participation) engagement.participation = Number(eng.participation) || 3;
-      }
     }
     workspace.value = await los.fetchSubjectWorkspace(studentSubjectId.value);
     const plans = await los.listSubjectPlans(studentSubjectId.value);
-    const active = (plans.plans || []).find((p) => p.status === 'active') || plans.plans?.[0];
+    const active = (plans.plans || []).find((p) => p.status === 'active' && p.approved_at);
     if (active) {
       const bundle = await los.getLearningPlan(active.id);
       goals.value = bundle.goals || [];
-      for (const g of goals.value) {
-        if (ratings[g.id] == null) ratings[g.id] = '';
-      }
     } else {
       goals.value = [];
     }
@@ -408,9 +287,6 @@ async function loadAll() {
       q: goals.value[0]?.title || undefined
     });
     casStandards.value = cas.standards || [];
-    if (!brief.value && studentSubjectId.value) {
-      await regenBrief();
-    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message;
   } finally {
@@ -452,96 +328,14 @@ async function runAssist(action) {
   if (!studentSubjectId.value) return;
   saving.value = true;
   try {
-    const focusGoal = goals.value.find((g) => ratings[g.id]) || goals.value[0];
+    const focusGoal = goals.value[0];
     const result = await los.tutorAssist({
       action,
       studentSubjectId: studentSubjectId.value,
       planGoalId: focusGoal?.id || null,
-      observation: [liveObservation.value, note.challengesObserved, note.summary].filter(Boolean).join(' · ')
+      observation: liveObservation.value
     });
     assistDraft.value = result.draft;
-    if (action === 'recap' && result.draft?.familyText) {
-      // Keep for save — parent update can use this
-      note.nextSteps = note.nextSteps || result.draft.practiceBullets?.join('; ') || note.nextSteps;
-    }
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message;
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function draftFamilyRecap() {
-  await runAssist('recap');
-  if (assistDraft.value?.familyText) {
-    successMsg.value = 'Family recap drafted — save notes to attach the parent update.';
-  }
-}
-
-async function saveNote() {
-  if (!studentSubjectId.value && !props.sessionId) return;
-  saving.value = true;
-  error.value = '';
-  successMsg.value = '';
-  try {
-    const evidenceChips = goals.value
-      .filter((g) => ratings[g.id])
-      .map((g) => ({
-        planGoalId: g.id,
-        skillKey: g.skill_key,
-        skillLabel: g.skill_label || g.title,
-        rating: ratings[g.id]
-      }));
-
-    const plannedActivities = (brief.value?.planned_activities_json || []).map((a, i) => ({
-      ...a,
-      completed: !!plannedDone[i]
-    }));
-
-    const result = await los.saveSessionNote({
-      clientId:Number(props.clientId),agencyId:Number(props.agencyId),
-      studentSubjectId: studentSubjectId.value,
-      sessionId: props.sessionId ? Number(props.sessionId) : null,
-      sessionBriefId: brief.value?.id || null,
-      learningPlanId: brief.value?.learning_plan_id || null,
-      sessionType: props.sessionType,
-      attendanceStatus: 'present',
-      generalSupport: !studentSubjectId.value,
-      assignPractice: assignPractice.value,
-      howItWent: {
-        rating: note.howItWent,
-        plannedActivities,
-        engagement: engagement.engagement,
-        confidence: engagement.confidence,
-        participation: engagement.participation,
-        liveObservation: liveObservation.value || null
-      },
-      summary: note.summary,
-      strengthsObserved: note.strengthsObserved,
-      challengesObserved: note.challengesObserved,
-      nextSteps: note.nextSteps,
-      homework: note.homework,
-      parentUpdateDraft: assistDraft.value?.familyText || undefined,
-      evidenceChips
-    });
-
-    if (props.sessionType === 'in_person' && props.sessionId) {
-      try {
-        await los.linkInPersonPlan({
-          sessionId: Number(props.sessionId),
-          studentSubjectId: studentSubjectId.value,
-          goalIds: evidenceChips.map((c) => c.planGoalId).filter(Boolean)
-        });
-      } catch {
-        // non-blocking
-      }
-    }
-
-    lastSave.value = result;
-    successMsg.value = result.practiceAssignment
-      ? `Saved. Practice assigned: ${result.practiceAssignment.title}`
-      : 'Note saved. Progress updated.';
-    emit('saved', result);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message;
   } finally {
@@ -551,7 +345,6 @@ async function saveNote() {
 
 watch(studentSubjectId, () => {
   brief.value = null;
-  lastSave.value = null;
   loadAll();
 });
 

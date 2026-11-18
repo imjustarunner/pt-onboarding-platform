@@ -140,6 +140,7 @@
             <template v-if="activeNav === 'guide' && canModerate && payload.student?.clientId">
               <TutorSessionGuidePanel
                 :client-id="payload.student.clientId"
+                :show-documentation="false"
                 :session-id="sessionId"
                 session-type="in_person"
                 :student-name="payload.student?.name || ''"
@@ -426,7 +427,7 @@
             <div class="ipts-card-head">
               <div>
                 <h2>Learning plan note</h2>
-                <p>Session brief, evidence chips, and Save note &amp; update progress.</p>
+                <p>Select plan objectives, record results, and save the session narrative.</p>
               </div>
             </div>
             <TutoringSessionLearningPanel

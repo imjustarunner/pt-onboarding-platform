@@ -1,3 +1,5 @@
+import { checklistMasteryReview } from '../../../frontend/src/navigation/tutoringSessionDocumentation.js';
+import { saveLearningPlanSessionNote } from './tutoringSessionChecklist.service.js';
 import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import pool from '../config/database.js';
 import StudentSubject from '../models/StudentSubject.model.js';
@@ -345,7 +347,7 @@ export async function generateSessionBrief({ studentSubjectId, sessionId = null 
 /**
  * Save note and update progress (evidence chips → goal statuses + parent draft).
  */
-export async function saveNoteAndUpdateProgress(notePayload, actorUserId) {
+export async function saveNoteAndUpdateProgress(notePayload, actorUserId, req = null) {
   const subject = await StudentSubject.findById(notePayload.studentSubjectId);
   if (!subject) {
     const err = new Error('Student subject not found');
@@ -353,7 +355,19 @@ export async function saveNoteAndUpdateProgress(notePayload, actorUserId) {
     throw err;
   }
 
+  if (notePayload.documentationMode === 'learning_plan_checklist') return saveLearningPlanSessionNote(notePayload, actorUserId, { subject, req });
+
+  const priorNote = notePayload.sessionId ? await TutoringSessionNote.findBySession(notePayload.sessionId) : notePayload.id ? await TutoringSessionNote.findById(notePayload.id) : null;
+  if (priorNote?.metadata_json?.documentationMode === 'learning_plan_checklist') throw Object.assign(new Error('Use the learning-plan checklist to update this session note.'), { status: 409 });
+  if (notePayload.id && (!priorNote || Number(priorNote.id) !== Number(notePayload.id) || Number(priorNote.client_id) !== Number(subject.client_id) || Number(priorNote.agency_id) !== Number(subject.agency_id) || Number(priorNote.student_subject_id) !== Number(subject.id))) throw Object.assign(new Error('This note belongs to a different session or learning subject.'), { status: 403 });
   const chips = notePayload.evidenceChips || [];
+  if (!Array.isArray(chips) || chips.length > 100) throw Object.assign(new Error('Keep session evidence within 100 plan areas.'), { status: 400 });
+  if (chips.length) {
+    const activePlan = await StudentLearningPlan.findActiveBySubject(subject.id);
+    const bundle = activePlan ? await StudentLearningPlan.getPlanBundle(activePlan.id) : null;
+    if (!bundle || (notePayload.learningPlanId && Number(notePayload.learningPlanId) !== Number(activePlan.id)) || Number(bundle.plan.client_id) !== Number(subject.client_id) || Number(bundle.plan.agency_id) !== Number(subject.agency_id) || chips.some(chip => !bundle.goals.some(goal => Number(goal.id) === Number(chip.planGoalId)))) throw Object.assign(new Error('Session evidence must belong to this student’s active learning plan. Reload the session.'), { status: 409 });
+    notePayload = { ...notePayload, learningPlanId: activePlan.id };
+  }
   if (!notePayload.generalSupport && chips.length === 0 && notePayload.requireGoalEvidence !== false) {
     // Allow save but flag — instructional sessions should normally have evidence
   }
@@ -798,6 +812,8 @@ const MASTERY_MIN_PCT = 0.8;
  */
 export async function evaluateGoalMastery(planGoalId) {
   const evidence = await AcademicSkillEvidence.listByGoal(planGoalId, { limit: 30 });
+  const checklistReview = checklistMasteryReview(planGoalId, evidence);
+  if (checklistReview) return checklistReview;
   const chronological = [...evidence].reverse();
   const rated = chronological.filter((e) => e.rating);
   const positive = rated.filter((e) => MASTERY_POSITIVE.has(String(e.rating)));

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PDFDocument, PDFName, PDFDict, PDFArray } from 'pdf-lib';
 vi.mock('../documentSigning.service.js', () => ({ default: {} }));
-vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeDecryptNotePayload: value => value }));
+vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeDecryptNotePayload: vi.fn(value => String(value ?? '')) }));
 vi.mock('../packetBrandChrome.service.js', () => ({ resolvePacketBrandChrome: vi.fn(async () => ({})) }));
-import { buildClinicalRecordHtml, clinicalValueHtml, generateClinicalRecordPdf, clinicalRecordPrintOptions } from '../clinicalRecordPdf.service.js';
+import { buildClinicalRecordHtml, clinicalValueHtml, generateClinicalRecordPdf, clinicalRecordPrintOptions, clientRecordIdentity, documentedClinicalContext, clinicalPayloadHtml } from '../clinicalRecordPdf.service.js';
 describe('clinical record PDF content and attachments', () => {
   it('renders nested clinical responses, explicit negative findings, and amendments without exposing signing proofs', () => {
     const html = buildClinicalRecordHtml({ agency: { id: 2, name: 'Fictional Practice' }, client: { full_name: 'Synthetic Client' }, includeDrafts: true, notes: [{ note: { id: 4, title: 'Progress note', metadata_json: { structuredChart: { consentConfirmed: false, riskAssessment: { findings: [{ label: 'Risk assessed', response: 'Historical only' }] }, generationReceipt: 'SECRET_PROOF' } }, note_payload: JSON.stringify({ sections: { Subjective: 'Source <script>not executable</script>', Objective: { responseToInterventions: ['Practiced a skill', 'Reported change'] } } }) }, addenda: [{ entry_kind: 'correction', body: 'Corrected factual detail', entry_reason: 'Clarified encounter context', created_by_user_id: 8, author_signed_at: '2026-11-17' }], revisions: [] }] });
@@ -97,4 +97,31 @@ describe('clinical record PDF content and attachments', () => {
     expect(html).toContain(start.toISOString());
     expect(html).toContain(end.toISOString());
   });
+  it('prints clinical client demographics, participants, diagnoses and presenting problem from the exact note', () => {
+    const html = buildClinicalRecordHtml({ singleDocument: true,
+      client: { id: 12, full_name: 'Fictional Client', identifier_code: 'DEMO-12', date_of_birth: '2000-01-02', contact_phone: '303-555-0100', email: 'client@example.test', address_street: '1 Example Lane', address_city: 'Denver', recordGuardians: [{ name: 'Example Guardian', relationship: 'Parent' }], ssn: 'DO_NOT_PRINT', access_token: 'DO_NOT_PRINT' },
+      notes: [{ note: { provider_signed_at: '2026-11-18', note_payload: 'Recorded session', metadata_json: { sessionContext: { participants: 'Client and mother', participantsDetail: 'Example Mother, parent; present for the first ten minutes' }, narrivaPreflight: { clinicalContext: { presentingProblem: 'Original reason for care', diagnoses: [{ code: 'F41.1', description: 'Original documented diagnosis' }], diagnosticJustification: 'Original documented justification' } } } } }] });
+    for (const value of ['DEMO-12', '2000-01-02', '303-555-0100', 'client@example.test', '1 Example Lane', 'Example Guardian', 'Client and mother', 'Example Mother', 'Original reason for care', 'F41.1', 'Original documented justification']) expect(html).toContain(value);
+    expect(html).not.toContain('DO_NOT_PRINT');
+  });
+  it('does not backfill old notes with a current diagnosis or invent an academic diagnosis', () => {
+    const html = buildClinicalRecordHtml({ client: { diagnoses: [{ code: 'NEW-DIAGNOSIS' }] }, notes: [{ note: { note_payload: 'Original note', metadata_json: {} } }] });
+    expect(html).toContain('Not recorded in this note.'); expect(html).not.toContain('NEW-DIAGNOSIS');
+    const academic = buildClinicalRecordHtml({ recordType: 'tutoring', notes: [{ note: { note_payload: 'Learning-plan results', metadata_json: {} } }] });
+    expect(academic).not.toContain('Not recorded in this note.</span></dd></div><div class="field field--wide"><dt>Diagnoses');
+    expect(academic).not.toContain('<dt>Diagnostic justification</dt>');
+  });
+  it('uses an allowlist for demographics and retains per-diagnosis justification', () => {
+    expect(clientRecordIdentity({ id: 5, recordDemographics: { contactPhone: '555-0100', dateOfBirth: '2000-01-01', ssn: 'private' }, password: 'private' })).toMatchObject({ recordNumber: '5', phone: '555-0100', dateOfBirth: '2000-01-01' });
+    expect(clientRecordIdentity({ date_of_birth: new Date('2000-01-01T00:00:00Z') }).dateOfBirth).toBe('2000-01-01');
+    expect(documentedClinicalContext({}, { structuredChart: { diagnoses: [{ code: 'F41.1', justification: 'Source criteria' }] } }).diagnosticJustification).toBe('F41.1: Source criteria');
+  });
+
+  it('serializes structured tutoring summaries and historical responses before the string-based decryptor', () => {
+    const html = clinicalPayloadHtml({ sections: { 'Session summary': 'Observed decimal results', criteria: ['Selected objective', 'Recorded performance'] } });
+    expect(html).toContain('Observed decimal results'); expect(html).toContain('Selected objective'); expect(html).not.toContain('[object Object]');
+    const record = buildClinicalRecordHtml({ recordType: 'tutoring', notes: [{ note: { saved_at: '2026-11-18', note_payload: { sections: { 'Session summary': 'Current plan results' } } }, addenda: [{ body: { summary: 'Earlier saved results' } }] }] });
+    expect(record).toContain('Current plan results'); expect(record).toContain('Earlier saved results'); expect(record).not.toContain('[object Object]');
+  });
+
 });

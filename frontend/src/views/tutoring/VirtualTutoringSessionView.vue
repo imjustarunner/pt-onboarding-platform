@@ -15,12 +15,13 @@
     <section v-if="state.host" class="attendance" aria-label="Tutoring attendance"><h2>Waiting room · Appointment #{{ state.appointmentId }}</h2><p v-if="!waiting.length">No participants are waiting for this appointment.</p><article v-for="visit in waiting" :key="visit.id"><span>{{visit.displayName}}</span><button :disabled="busy||!connected" @click="admit(visit.id)">Admit to this session</button></article><p v-for="visit in admitted" :key="visit.id">{{visit.displayName}} · Admitted {{formatTime(visit.admittedAt)}}</p><button v-if="state.sessionId&&!ended" :disabled="busy" @click="confirmingEnd=true">End this tutoring session</button><details v-if="state.visits?.length"><summary>Attendance history</summary><p v-for="visit in state.visits" :key="visit.id">{{visit.displayName}} · {{visit.status}} · Admitted {{formatTime(visit.admittedAt)}} · Left {{formatTime(visit.endedAt)}} · Connected video: {{visit.mediaDurationSeconds==null?'Not confirmed':`${visit.mediaDurationSeconds} seconds`}}</p></details></section>
     <TherapySessionWorkspace v-if="video" :key="video.sessionId" :video="video" :is-host="state.host" :started-at="state.startedAt" :branding="state.branding" product-name="Tutoring" learning :request="workspaceRequest" @connected="connected=true" @disconnected="reconnect" @meeting-ended="reconnect" @leave-request="state.host ? confirmingEnd=true : leave()" />
    </template>
-   <section v-if="state.host&&state.sessionId" class="session-note"><h2>Private tutoring session notes</h2><p>These notes stay with appointment #{{state.appointmentId}}. A subject or generated plan is not required.</p><label>Session note<textarea v-model="note" rows="6" maxlength="20000" /></label><button :disabled="savingNote||!noteLoaded" @click="saveNote">{{savingNote?'Saving…':'Save session notes'}}</button><p role="status">{{noteStatus}}</p></section>
+   <section v-if="state.host&&state.sessionId" class="session-note"><TutoringSessionLearningPanel :key="state.sessionId" :client-id="state.clientId" :agency-id="state.agencyId" :session-id="state.sessionId" :request="request" session-type="virtual" /></section>
   </template>
   <section v-if="confirmingEnd" role="dialog" aria-modal="true" aria-label="End booked tutoring session"><h2>End appointment #{{state.appointmentId}} for everyone?</h2><p>This closes only this tutoring session and records its actual end time.</p><button :disabled="busy" @click="finish">End session for everyone</button><button :disabled="busy" @click="confirmingEnd=false">Keep session open</button></section>
  </main>
 </template>
 <script setup>
+import TutoringSessionLearningPanel from '../../components/tutoring/TutoringSessionLearningPanel.vue';
 import AppointmentNoShowStatus from '../../components/schedule/AppointmentNoShowStatus.vue';
 import {ref,computed,onMounted,onBeforeUnmount} from 'vue';
 import {useRoute} from 'vue-router';
@@ -29,7 +30,6 @@ import TherapySessionWorkspace from '../../components/meetings/TherapySessionWor
 import api from '../../services/api';
 const route=useRoute(),agencies=useAgencyStore();
 const state=ref(null),loading=ref(true),error=ref(''),video=ref(null),connected=ref(false),wantsJoin=ref(false),busy=ref(false),confirmingEnd=ref(false),billingWarning=ref('');
-const note=ref(''),noteLoaded=ref(false),savingNote=ref(false),noteStatus=ref('');
 let appointmentId=Number(route.params.appointmentId),timer,stopped=false,polling=false;
 const scopedAgency=computed(()=>Number(agencies.currentAgency?.id)===Number(state.value?.agencyId)?agencies.currentAgency:null);
 const brand=computed(()=>state.value?.branding?.agencyName||scopedAgency.value?.name||'Tutoring'),logo=computed(()=>state.value?.branding?.agencyLogoUrl||state.value?.branding?.logoUrl||scopedAgency.value?.logo_url||'');
@@ -41,11 +41,10 @@ const formatTime=value=>value?new Intl.DateTimeFormat('en-US',{month:'short',day
 const scheduleLabel=computed(()=>formatTime(state.value?.startAt));
 const path=suffix=>`/tutoring-sessions/${appointmentId}${suffix||''}`;
 const params=()=>Object.fromEntries(['agencyId','clientId','serviceId'].filter(k=>route.query[k]).map(k=>[k,route.query[k]]));
-const request=(suffix,method='get',body)=>api({url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true}).then(r=>r.data);
+const request=(suffix,method='get',body,options={})=>api({...options,url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true}).then(r=>r.data);
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
 async function refresh(){if(stopped||polling||!appointmentId)return;polling=true;try{state.value=await request('');if(ended.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
- if(state.value.host&&state.value.sessionId&&!noteLoaded.value){const data=await request('/note');note.value=data.note?.summary||'';noteLoaded.value=true;}
- }catch(e){if([401,403,404,410].includes(e.response?.status)){state.value=null;video.value=null;connected.value=false;wantsJoin.value=false;note.value='';noteLoaded.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;}}
+ }catch(e){if([401,403,404,410].includes(e.response?.status)){state.value=null;video.value=null;connected.value=false;wantsJoin.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;}}
 async function action(fn){if(busy.value)return;busy.value=true;error.value='';try{await fn();}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}}
 async function join(){await action(async()=>{const data=await request('/join','post');wantsJoin.value=true;if(data.token)video.value=data;await refresh();});}
 async function admit(id){await action(async()=>{await request(`/admit/${id}`,'post');await refresh();});}
@@ -53,7 +52,6 @@ async function reconnect(){connected.value=false;video.value=null;await refresh(
 async function leave(){await action(async()=>{await request('/leave','post');video.value=null;wantsJoin.value=false;connected.value=false;await refresh();});}
 async function finish(){await action(async()=>{const data=await request('/end','post');video.value=null;connected.value=false;wantsJoin.value=false;confirmingEnd.value=false;billingWarning.value=data.billingWarning||'';await refresh();});}
 async function copyJoinLink(){try{await navigator.clipboard.writeText(new URL(`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/tutoring-session/appointment/${appointmentId}`,window.location.origin).href);}catch{error.value='The join link could not be copied. Open this appointment from the family portal.';}}
-async function saveNote(){savingNote.value=true;noteStatus.value='';try{await request('/note','put',{summary:note.value});noteStatus.value='Session notes saved.';}catch(e){noteStatus.value=e.response?.data?.error?.message||'The note was not saved. Your text is kept; retry saving.';}finally{savingNote.value=false;}}
 onMounted(async()=>{try{if(!appointmentId&&route.params.sessionId){const {data}=await api.get(`/learning-class-sessions/sessions/${Number(route.params.sessionId)}`);appointmentId=Number(data.appointmentId);}if(!appointmentId)throw new Error('Open this session from its booked appointment. Ask Support to review any older unlinked visit.');await refresh();timer=setInterval(refresh,5000);}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{loading.value=false;}});
 onBeforeUnmount(()=>{stopped=true;clearInterval(timer);});
 </script>

@@ -269,3 +269,8 @@ export async function tutorAssist(payload) {
   const { data } = await api.post(`${BASE}/ai/tutor-assist`, payload);
   return data;
 }
+
+export async function downloadSessionNotePdf(sessionId) {
+  const { data } = await api.get(`${BASE}/sessions/${sessionId}/note/pdf`, { responseType: 'blob' });
+  return data;
+}

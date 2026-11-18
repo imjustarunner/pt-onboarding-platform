@@ -36,6 +36,7 @@ router.post('/session-briefs', ctrl.generateBrief);
 router.get('/sessions/:sessionId/brief', ctrl.getBriefForSession);
 router.patch('/session-briefs/:briefId', ctrl.updateBrief);
 router.post('/session-notes', ctrl.saveSessionNote);
+router.get('/sessions/:sessionId/note/pdf', ctrl.downloadSessionNotePdf);
 router.get('/sessions/:sessionId/note', ctrl.getNoteForSession);
 router.post('/sessions/link-in-person-plan', ctrl.linkInPersonPlan);
 

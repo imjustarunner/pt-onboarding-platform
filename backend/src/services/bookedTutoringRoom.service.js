@@ -1,3 +1,6 @@
+import StudentSubject from '../models/StudentSubject.model.js';
+import StudentLearningPlan from '../models/StudentLearningPlan.model.js';
+import { saveLearningPlanSessionNote } from './tutoringSessionChecklist.service.js';
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import User from '../models/User.model.js';
@@ -220,6 +223,12 @@ export async function bookedTutoringNote(ctx, input = null) {
   const existing=await TutoringSessionNote.findBySession(session.id,db);
   if(existing&&(Number(existing.client_id)!==ctx.clientId||Number(existing.agency_id)!==Number(ctx.appointment.agencyId)))throw fail(409,'This note requires a record-link review. Its contents were kept.');
   if(input===null)return {note:existing};
+  if(input.documentationMode==='learning_plan_checklist'){
+   const subject=await StudentSubject.findById(input.studentSubjectId);
+   if(!subject||Number(subject.client_id)!==ctx.clientId||Number(subject.agency_id)!==Number(ctx.appointment.agencyId))throw fail(403,'This learning plan belongs to a different student or tutor.');
+   return saveLearningPlanSessionNote({...input,sessionId:session.id},ctx.req.user.id,{subject,db,req:ctx.req});
+  }
+  if(existing?.metadata_json?.documentationMode==='learning_plan_checklist')throw fail(409,'Use the learning-plan checklist to update this session note.');
   if(typeof input.summary!=='string'||input.summary.length>20000)throw fail(400,'Write a session note of up to 20,000 characters.');
   const body={summary:input.summary,status:'saved',generalSupport:!session.student_subject_id};
   for(const field of ['strengthsObserved','challengesObserved','nextSteps','homework']){if(input[field]!==undefined){if(typeof input[field]!=='string'||input[field].length>20000)throw fail(400,'Keep each session note field within 20,000 characters.');body[field]=input[field];}}
@@ -227,4 +236,20 @@ export async function bookedTutoringNote(ctx, input = null) {
   await audit(ctx,session,'tutoring_session_note_saved',{noteId:note.id},db);
   return {note};
  });
+}
+
+// Assigned-host context only; family participants never receive private notes.
+export async function bookedTutoringLearningContext(ctx) {
+ if(!ctx.host)throw fail(403,'Learning-session documentation is private to the assigned tutor.');
+ const session=await linkedSession(ctx);
+ if(!session)throw fail(409,'Open this booked session before recording learning results.');
+ const subjects=(await StudentSubject.listByClient(ctx.clientId,{agencyId:ctx.appointment.agencyId})).filter(subject=>(!session.student_subject_id||Number(subject.id)===Number(session.student_subject_id))&&(session.student_subject_id||!subject.primary_tutor_user_id||Number(subject.primary_tutor_user_id)===Number(ctx.appointment.providerUserId)));
+ const tracks=[];
+ for(const subject of subjects){
+  const active=await StudentLearningPlan.findActiveBySubject(subject.id);
+  tracks.push({subject,bundle:active?.approved_at?await StudentLearningPlan.getPlanBundle(active.id):null});
+ }
+ const note=await TutoringSessionNote.findBySession(session.id);
+ if(note&&(Number(note.client_id)!==ctx.clientId||Number(note.agency_id)!==Number(ctx.appointment.agencyId)))throw fail(409,'This note requires a record-link review. Its contents were kept.');
+ return {tracks,note};
 }

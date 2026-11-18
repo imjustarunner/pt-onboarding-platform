@@ -10,13 +10,24 @@ const parseJson = (value, fallback = null) => {
   }
 };
 
+// A saved checklist revision supersedes earlier evidence for that note, while
+// leaving every original evidence row available in its history.
+const currentEvidencePredicate = `NOT EXISTS (
+  SELECT 1 FROM tutoring_session_notes current_note
+  WHERE current_note.id = academic_skill_evidence.session_note_id
+   AND JSON_UNQUOTE(JSON_EXTRACT(current_note.metadata_json, '$.documentationMode')) = 'learning_plan_checklist'
+   AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(academic_skill_evidence.metadata_json, '$.documentationMode')), '') <> 'learning_plan_checklist'
+    OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(academic_skill_evidence.metadata_json, '$.checklistRevision')), '')
+       <> COALESCE(JSON_UNQUOTE(JSON_EXTRACT(current_note.metadata_json, '$.checklistRevision')), '-1'))
+)`;
+
 class AcademicSkillEvidence {
   static normalize(row) {
     if (!row) return null;
     return { ...row, metadata_json: parseJson(row.metadata_json, {}) };
   }
 
-  static async create(payload) {
+  static async create(payload, db = pool) {
     const {
       agencyId,
       clientId,
@@ -37,7 +48,7 @@ class AcademicSkillEvidence {
       metadata = null
     } = payload;
 
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO academic_skill_evidence
        (agency_id, client_id, student_subject_id, learning_plan_id, plan_goal_id, learning_evidence_id,
         session_id, session_note_id, evidence_type, skill_key, skill_label, rating, score_value,
@@ -63,18 +74,18 @@ class AcademicSkillEvidence {
         metadata ? JSON.stringify(metadata) : null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM academic_skill_evidence WHERE id = ? LIMIT 1`, [id]);
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(`SELECT * FROM academic_skill_evidence WHERE id = ? LIMIT 1`, [id]);
     return this.normalize(rows[0] || null);
   }
 
   static async listBySubject(studentSubjectId, { limit = 100 } = {}) {
     const lim = Math.min(Math.max(Number(limit) || 100, 1), 500);
     const [rows] = await pool.execute(
-      `SELECT * FROM academic_skill_evidence WHERE student_subject_id = ? ORDER BY observed_at DESC, id DESC LIMIT ${lim}`,
+      `SELECT * FROM academic_skill_evidence WHERE student_subject_id = ? AND ${currentEvidencePredicate} ORDER BY observed_at DESC, id DESC LIMIT ${lim}`,
       [studentSubjectId]
     );
     return rows.map((r) => this.normalize(r));
@@ -84,7 +95,7 @@ class AcademicSkillEvidence {
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const [rows] = await pool.execute(
       `SELECT * FROM academic_skill_evidence
-       WHERE plan_goal_id = ?
+       WHERE plan_goal_id = ? AND ${currentEvidencePredicate}
        ORDER BY observed_at DESC, id DESC
        LIMIT ${lim}`,
       [planGoalId]
@@ -96,7 +107,7 @@ class AcademicSkillEvidence {
     const [rows] = await pool.execute(
       `SELECT DATE(observed_at) AS day, rating, COUNT(*) AS cnt
        FROM academic_skill_evidence
-       WHERE student_subject_id = ?
+       WHERE student_subject_id = ? AND ${currentEvidencePredicate}
        GROUP BY DATE(observed_at), rating
        ORDER BY day ASC`,
       [studentSubjectId]
@@ -253,8 +264,8 @@ class TutoringSessionNote {
        (agency_id, client_id, student_subject_id, learning_plan_id, session_id, session_brief_id,
         attendance_status, session_type, how_it_went_json, evidence_chips_json, strengths_observed,
         challenges_observed, summary, next_steps, homework, general_support, parent_update_draft,
-        status, metadata_json, created_by_user_id, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        status, metadata_json, created_by_user_id, updated_by_user_id, saved_at, saved_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, IF(?, UTC_TIMESTAMP(), NULL), ?)`,
       [
         agencyId,
         clientId,
@@ -276,7 +287,9 @@ class TutoringSessionNote {
         status,
         metadata ? JSON.stringify(metadata) : null,
         actorUserId || null,
-        actorUserId || null
+        actorUserId || null,
+        ['saved', 'progress_updated'].includes(status) ? 1 : 0,
+        ['saved', 'progress_updated'].includes(status) ? actorUserId || null : null
       ]
     );
     return this.findById(result.insertId, db);
@@ -306,6 +319,7 @@ class TutoringSessionNote {
 
   static async update(id, payload, actorUserId, db = pool) {
     const map = {
+      studentSubjectId: 'student_subject_id',
       learningPlanId: 'learning_plan_id',
       sessionId: 'session_id',
       sessionBriefId: 'session_brief_id',
@@ -345,7 +359,7 @@ class TutoringSessionNote {
       values.push(payload.metadata ? JSON.stringify(payload.metadata) : null);
     }
     if (payload.status === 'saved' || payload.status === 'progress_updated') {
-      updates.push('saved_at = COALESCE(saved_at, NOW())');
+      updates.push('saved_at = UTC_TIMESTAMP()');
       updates.push('saved_by_user_id = ?');
       values.push(actorUserId || null);
     }
