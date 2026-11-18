@@ -1,5 +1,21 @@
 // Shared by the exchange UI and API (this directory ships in the backend image).
 export const exchangeStaffRole = role => ['staff', 'support', 'admin', 'super_admin'].includes(String(role || '').trim().toLowerCase());
+export function canRequestExchangeListing(listing, { user, requests = [] } = {}) {
+  const provider = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(user?.role) || user?.has_provider_access;
+  return !!provider && (!listing.isDemo || listing.demoRequestAllowed === true)
+    && ['open', 'requested'].includes(listing.status) && listing.viewerFit?.canRequest === true
+    && Number(listing.currentProviderUserId) !== Number(user?.id)
+    && (!listing.targetProviderUserId || Number(listing.targetProviderUserId) === Number(user?.id))
+    && !requests.some(request => Number(request.listingId) === Number(listing.id) && request.status === 'pending');
+}
+export function exchangeNavigationCounts(listings, requests, user) {
+  const available = [...new Map(listings.map(row => [Number(row.id), row])).values()]
+    .filter(row => canRequestExchangeListing(row, { user }));
+  return {
+    matches: available.filter(row => row.viewerFit?.matched === true || row.viewerFit?.status === 'match').length,
+    requestable: available.filter(row => canRequestExchangeListing(row, { user, requests })).length
+  };
+}
 export const exchangeRequestNeedsPlan = fit => (fit?.adjustments || []).some(reason => ['format_availability','office_location'].includes(reason.code));
 export const exchangeRequestPlanValid = (fit, message) => !exchangeRequestNeedsPlan(fit) || (typeof message === 'string' && message.trim().length >= 20 && message.trim().length <= 2000);
 

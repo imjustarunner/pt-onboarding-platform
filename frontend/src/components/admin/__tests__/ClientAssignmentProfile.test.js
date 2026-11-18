@@ -17,8 +17,8 @@ it('includes shared physical offices in both agency and account defaults',async(
  get.mockImplementation(async url=>({data:url==='/offices'?offices:[]}));await wrapper.vm.loadTenantCatalog(2);await wrapper.vm.loadClientBookingDefaultsOptions();
  expect(wrapper.vm.officeOptionsForTenant(2).map(office=>office.id)).toEqual([9]);expect(wrapper.vm.clientOfficeOptions.map(office=>office.id)).toEqual([9]);
 });
-it('preserves education fields when saving a clinical chart',async()=>{
- await render();await wrapper.vm.startEditOverview();await wrapper.vm.saveOverview();expect(put).toHaveBeenCalledWith('/clients/7',expect.objectContaining({school_year:'2026-2027',skills:true}));
+it('preserves existing education fields when there are no profile changes to save',async()=>{
+ await render();await wrapper.vm.startEditOverview();await wrapper.vm.saveOverview();expect(put).not.toHaveBeenCalled();
 });
 it('shows Assignments as the first overview action and uses agency wording',async()=>{
  await render();expect(wrapper.vm.profileQuickActions[0].id).toBe('assignments');expect(wrapper.vm.tabs.find(tab=>tab.id==='account').description).toContain('Assignments');
@@ -118,4 +118,11 @@ it('leaves completed import review immediately and offers the saved assignments 
  expect(wrapper.emitted('updated')).toContainEqual([{keepOpen:true}]);
  await wrapper.vm.openAssignmentDraft();await flushPromises();expect(wrapper.vm.showPanel('assignments')).toBe(true);expect(wrapper.vm.reviewAssignmentDraft).toBe(true);
  resolveRefresh({data:{requiresRecordImport:true,recordsImportStatus:'complete',setupComplete:false}});await done;
+});
+
+it('reopens selected areas of a completed native chart in the temporary first tab',async()=>{
+ wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:7,agency_id:2,client_type:'clinical',status:'CURRENT'},agencyId:2},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot name="header" /><slot /></div>'}}}});await flushPromises();wrapper.vm.myAgencies=[{id:2}];wrapper.vm.recordsImportSetup={requiresRecordImport:false,setupComplete:true,recordsImportStatus:'complete'};await flushPromises();expect(wrapper.vm.showRecordsImportTab).toBe(false);
+ expect(wrapper.vm.canLaunchRecordUpdate).toBe(true);await wrapper.vm.onRecordsUpdateStarted({selectedSections:['contacts','insurance']});await flushPromises();
+ expect(wrapper.vm.showRecordsImportTab).toBe(true);expect(wrapper.vm.tabs[0].id).toBe('bring-up-to-date');expect(wrapper.vm.chartHub).toBe('bring-up-to-date');
+ expect(wrapper.findComponent({name:'ClientEhrBringUpToDatePanel'}).props('onlySections')).toEqual(['contacts','insurance']);
 });

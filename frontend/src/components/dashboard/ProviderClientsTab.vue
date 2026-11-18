@@ -6,30 +6,30 @@
         :key="sec.id"
         type="button"
         role="tab"
-        :aria-selected="activeSection === sec.id"
+        :aria-selected="activeSection === sec.id" :aria-label="sectionBadgeLabel(sec)"
         :class="['pct-cat-tab', { 'is-active': activeSection === sec.id }]"
         @click="setSection(sec.id)"
       >
-        <span class="pct-cat-icon" aria-hidden="true" v-html="sectionIcons[sec.iconKey]" />
+        <span class="pct-cat-icon-wrap"><span class="pct-cat-icon" aria-hidden="true" v-html="sectionIcons[sec.iconKey]" /><span v-if="Number(sec.leftBadge)>0" class="pct-cat-badge pct-cat-badge--left" :title="sec.leftBadgeTitle">{{sec.leftBadge}}</span><span v-if="Number(sec.badge)>0" class="pct-cat-badge" :title="sec.badgeTitle">{{sec.badge}}</span></span>
         <span class="pct-cat-label">{{ sec.label }}</span>
-        <span v-if="Number(sec.badge) > 0 || sec.id === 'all' || sec.id === 'school' || sec.id === 'office' || sec.id === 'new'" class="pct-cat-badge">{{ sec.badge }}</span>
+
       </button>
     </nav>
 
     <ProviderEnrollmentWaitlist
-      v-if="!profileEmbed && Number(currentUserId) === Number(authStore.user?.id) && ['all','office','new'].includes(activeSection)"
+      v-if="!profileEmbed && Number(currentUserId) === Number(authStore.user?.id)" v-show="activeSection==='waitlist'" @loaded="waitlistCount=$event.count"
       :provider-id="Number(currentUserId)"
-      :initially-expanded="String(route.query.waitlist || '') === '1'"
+      :initially-expanded="true"
       :agency-ids="officeWaitlistAgencyIds"
     />
 
     <ReferralDirectoryPanel v-if="!profileEmbed && activeSection === 'referrals'" embedded />
 
-    <ClientCheckinSubmissions v-else-if="!profileEmbed && activeSection === 'checkins'" :create-client-to="providerOnboardingTo" />
+    <ClientCheckinSubmissions v-else-if="!profileEmbed && activeSection === 'checkins'" :create-client-to="providerOnboardingTo" @updated="loadCheckinCount" />
 
-    <ClientExchangePanel v-else-if="!profileEmbed && activeSection === 'exchange'" />
+    <ClientExchangePanel v-else-if="!profileEmbed && activeSection === 'exchange'" @counts="acceptExchangeCounts" />
 
-    <template v-else-if="!profileEmbed || activeSection === 'all' || activeSection === 'school' || activeSection === 'office' || activeSection === 'new'">
+    <template v-else-if="activeSection!=='waitlist' && (!profileEmbed || activeSection === 'all' || activeSection === 'school' || activeSection === 'office' || activeSection === 'new')">
       <header class="pct-page-header">
         <div class="pct-page-header__text">
           <h2 class="pct-page-title">{{ sectionTitle }}</h2>
@@ -142,7 +142,7 @@
       <template v-if="activeSection === 'all'">
         <div v-if="error" class="error">{{ error }}</div>
         <div v-if="officeError" class="error">{{ officeError }}</div>
-        <div v-else-if="!loading && !officeLoading && sortedCombinedClientsList.length === 0" class="muted empty-state">
+        <div v-if="!loading && !officeLoading && sortedCombinedClientsList.length === 0 && !officeError" class="muted empty-state">
           No clients assigned to this provider yet.
         </div>
         <div v-else class="office-clients-table-wrap">
@@ -364,7 +364,7 @@
           </span>
         </div>
         <div v-if="officeError" class="error">{{ officeError }}</div>
-        <div v-else-if="!officeLoading && currentOfficeClients.length === 0" class="muted empty-state">
+        <div v-if="!officeLoading && currentOfficeClients.length === 0 && !officeError" class="muted empty-state">
           No in-office clients yet (non–Place of Service 03 billing lines).
         </div>
         <div v-else class="office-clients-table-wrap">
@@ -550,7 +550,7 @@ const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
-const VALID_SECTIONS = new Set(['all', 'school', 'office', 'new', 'exchange', 'referrals', 'checkins']);
+const VALID_SECTIONS = new Set(['all', 'school', 'office', 'new', 'exchange', 'referrals', 'checkins','waitlist']);
 
 function normalizeSection(raw) {
   const s = String(raw || '').trim().toLowerCase();
@@ -586,9 +586,11 @@ const agencyId = computed(() => {
 });
 
 /** Membership agencies for cross-tenant caseload (exclude nested schools/programs when possible). */
+const serverMemberships=ref(null);
+let rosterLoadVersion=0;
 const membershipAgencies = computed(() => {
-  const raw = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
-  const list = raw.length
+  const raw = serverMemberships.value || (Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []);
+  const list = serverMemberships.value !== null || raw.length
     ? raw
     : (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : []);
   return (list || [])
@@ -596,12 +598,13 @@ const membershipAgencies = computed(() => {
       const id = Number(a?.id || 0);
       if (!id) return null;
       const type = String(a?.organization_type || a?.organizationType || 'agency').toLowerCase();
-      if (type && type !== 'agency' && type !== 'tenant') return null;
+      if (['school','program'].includes(type)||[false,0,'0'].includes(a.is_active)||Number(a.is_archived)===1) return null;
       return a;
     })
     .filter(Boolean);
 });
 
+const caseloadAgencies=computed(()=>props.subjectAgencyId?[membershipAgencies.value.find(a=>Number(a.id)===Number(props.subjectAgencyId))||{id:Number(props.subjectAgencyId)}]:membershipAgencies.value.length?membershipAgencies.value:agencyId.value?[{id:Number(agencyId.value)}]:[]);
 const officeWaitlistAgencyIds = computed(() => {
   if (membershipAgencies.value.length) {
     return membershipAgencies.value.filter(agency => !isSchoolCareBridgeOnly(agency)).map(agency => Number(agency.id));
@@ -1016,7 +1019,15 @@ const newClientsCount = computed(
   () => pendingClientsFiltered.value.length + pendingOfficeClients.value.length
 );
 
+const exchangeCounts=ref({matches:null,requestable:null}),checkinCount=ref(null),waitlistCount=ref(null);
+let countGeneration=0,checkinGeneration=0;
+function sectionBadgeLabel(section){return [section.label,Number(section.leftBadge)>0?`${section.leftBadge} matches`:'',Number(section.badge)>0?`${section.badge} ${section.badgeTitle||'clients'}`:''].filter(Boolean).join(', ');}
+async function loadCheckinCount(){if(props.profileEmbed)return;const own=++checkinGeneration;try{const {data}=await api.get('/kiosk/client-checkins/counts',{skipGlobalLoading:true});if(own===checkinGeneration)checkinCount.value=Number(data.unassigned)||0;}catch{if(own===checkinGeneration)checkinCount.value=null;}}
+async function loadNavigationCounts(){if(props.profileEmbed)return;const own=++countGeneration,ids=officeWaitlistAgencyIds.value;void loadCheckinCount();const results=await Promise.allSettled(ids.map(agencyId=>api.get('/client-exchange/counts',{params:{agencyId},skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId)}})));if(own!==countGeneration)return;const ok=results.filter(r=>r.status==='fulfilled');exchangeCounts.value=ok.length?{matches:ok.reduce((sum,r)=>sum+(Number(r.value.data?.matches)||0),0),requestable:ok.reduce((sum,r)=>sum+(Number(r.value.data?.requestable)||0),0)}:{matches:null,requestable:null};}
+function acceptExchangeCounts(data){const ids=officeWaitlistAgencyIds.value.map(Number).sort().join(',');if(data.complete&&(data.agencyIds||[]).map(Number).sort().join(',')===ids)exchangeCounts.value={matches:data.matches,requestable:data.requestable};}
 const sectionIcons = {
+  waitlist:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+
   all: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   school: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   office: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22V12h6v10"/><path d="M8 6h.01M16 6h.01M12 6h.01M8 10h.01M16 10h.01M12 10h.01"/></svg>',
@@ -1046,7 +1057,7 @@ const primarySections = computed(() => {
     { id: 'school', label: 'School Clients', iconKey: 'school', badge: schoolCount },
     { id: 'office', label: 'Office Clients', iconKey: 'office', badge: currentOfficeClients.value.length || 0 },
     { id: 'new', label: 'New Clients', iconKey: 'new', badge: newClientsCount.value || 0 },
-    { id: 'exchange', label: 'Client Exchange', iconKey: 'exchange', badge: 0 }
+    { id: 'exchange', label: 'Client Exchange', iconKey: 'exchange', leftBadge:exchangeCounts.value.matches,leftBadgeTitle:'Matched to you',badge:exchangeCounts.value.requestable,badgeTitle:'You can request' }
   ];
 });
 
@@ -1065,7 +1076,8 @@ const allSections = computed(() => {
   }
   return [
     ...primarySections.value,
-    { id: 'checkins', label: 'Recurring check-ins', iconKey: 'office', badge: 0 },
+    { id: 'checkins', label: 'Recurring check-ins', iconKey: 'office', badge:checkinCount.value,badgeTitle:'Unassigned visits' },
+    {id:'waitlist',label:'My waitlist',iconKey:'waitlist',badge:waitlistCount.value,badgeTitle:'People waiting'},
     { id: 'referrals', label: 'Referral directory', iconKey: 'referrals', badge: 0 },
   ];
 });
@@ -1328,6 +1340,7 @@ const loadOfficeAcceptance = async () => {
 };
 
 const loadOfficeClients = async () => {
+  const version=rosterLoadVersion,providerId=currentUserId.value;
   if (!currentUserId.value) {
     officeClients.value = [];
     assignedProviderClients.value = [];
@@ -1338,7 +1351,8 @@ const loadOfficeClients = async () => {
   officeError.value = '';
   try {
     await refreshSchoolAffiliatedClientIds();
-    const agencyIds = (membershipAgencies.value || [])
+    if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
+    const agencyIds = (caseloadAgencies.value || [])
       .map((a) => Number(a.id))
       .filter((id) => id > 0);
     const idsToFetch = agencyIds.length
@@ -1355,15 +1369,19 @@ const loadOfficeClients = async () => {
           api
             .get('/clients', {
               params: { agency_id: aid, provider_id: currentUserId.value, includeServiceContext: 1 },
+              headers:{'X-Agency-Id':String(aid)},
               skipGlobalLoading: true
             })
             .then((r) => ({ aid, rows: Array.isArray(r.data) ? r.data : r.data?.items || [] }))
-            .catch(() => ({ aid, rows: [] }))
+            .catch(() => ({ aid, rows: [], failed:true }))
         )
       ),
       loadOfficeAcceptance(),
       loadBillingPosFlags()
     ]);
+    if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
+    const failures=(responses||[]).filter(r=>r.failed);
+    if(failures.length)officeError.value='Some agency caseloads could not be loaded: '+failures.map(r=>caseloadAgencies.value.find(a=>Number(a.id)===r.aid)?.name||`agency #${r.aid}`).join(', ')+'. Refresh to retry.';
     const byId = new Map();
     for (const { aid, rows } of responses || []) {
       for (const raw of rows || []) {
@@ -1382,15 +1400,16 @@ const loadOfficeClients = async () => {
     assignedProviderClients.value = Array.from(byId.values());
     officeClients.value = assignedProviderClients.value.filter((c) => isPosOfficeClient(c));
   } catch (e) {
+    if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
     officeClients.value = [];
     officeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load office clients';
   } finally {
-    officeLoading.value = false;
-    emitPendingCount();
+    if(version===rosterLoadVersion&&providerId===currentUserId.value){officeLoading.value = false;emitPendingCount();}
   }
 };
 
 async function refreshSchoolAffiliatedClientIds() {
+  const version=rosterLoadVersion,providerId=currentUserId.value;
   // Preserve affiliation IDs already discovered via billing/COA so my-roster gaps
   // do not wipe "In School" for historically school-affiliated clients.
   const ids = new Set(schoolAffiliatedClientIds.value || []);
@@ -1406,6 +1425,7 @@ async function refreshSchoolAffiliatedClientIds() {
     list.map((s) =>
       api
         .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
+          headers:{'X-Agency-Id':String(s.caseloadAgencyId||agencyId.value)},
           params: rosterParams,
           skipGlobalLoading: true,
         })
@@ -1419,23 +1439,22 @@ async function refreshSchoolAffiliatedClientIds() {
       if (id) ids.add(id);
     }
   }
-  schoolAffiliatedClientIds.value = ids;
+  if(version===rosterLoadVersion&&providerId===currentUserId.value)schoolAffiliatedClientIds.value = ids;
   return ids;
 }
 
 const loadSchools = async () => {
-  if (!agencyId.value || !currentUserId.value) return;
-  const params = { agencyId: agencyId.value };
-  try {
-    const r = props.profileEmbed
-      ? await api.get(`/payroll/users/${currentUserId.value}/assigned-schools`, { params })
-      : await api.get('/payroll/me/assigned-schools', { params });
-    schools.value = Array.isArray(r.data) ? r.data : [];
-  } catch (e) {
-    schools.value = [];
-    // Surface on All/School views; office clients can still load via /clients.
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load assigned schools';
-  }
+  const version=rosterLoadVersion,providerId=currentUserId.value;
+  if (!currentUserId.value) return;
+  const scopes=caseloadAgencies.value;
+  const results=await Promise.allSettled(scopes.map(async agency=>{
+    const params={agencyId:Number(agency.id)},config={params,skipGlobalLoading:true,headers:{'X-Agency-Id':String(agency.id)}};
+    const r=props.profileEmbed?await api.get(`/payroll/users/${currentUserId.value}/assigned-schools`,config):await api.get('/payroll/me/assigned-schools',config);
+    return (Array.isArray(r.data)?r.data:[]).map(school=>({...school,caseloadAgencyId:Number(agency.id)}));
+  }));
+  if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
+  schools.value=[...new Map(results.filter(r=>r.status==='fulfilled').flatMap(r=>r.value).map(school=>[Number(school.schoolOrganizationId),school])).values()];
+  if(results.some(r=>r.status==='rejected'))error.value='Some agency school assignments could not be loaded. Refresh to retry.';
   applySchoolQuery();
 };
 
@@ -1446,6 +1465,7 @@ function applySchoolQuery() {
 }
 
 const loadAllRosters = async () => {
+  const version=rosterLoadVersion,providerId=currentUserId.value;
   const list = schools.value || [];
   if (list.length === 0) {
     allClients.value = [];
@@ -1457,6 +1477,7 @@ const loadAllRosters = async () => {
         list.map((s) =>
         api
           .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
+            headers:{'X-Agency-Id':String(s.caseloadAgencyId||agencyId.value)},
             params: {
               ...sbParams,
               ...(rosterProviderUserId.value ? { providerUserId: rosterProviderUserId.value } : {}),
@@ -1467,6 +1488,7 @@ const loadAllRosters = async () => {
           .catch(() => ({ school: s, rows: null }))
       )
     );
+    if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
     schoolRosters.value = Object.fromEntries(results.map(({ school, rows }) => [Number(school.schoolOrganizationId), rows]));
     const byId = new Map();
     for (const { school, rows } of results) {
@@ -1482,7 +1504,7 @@ const loadAllRosters = async () => {
     }
     allClients.value = Array.from(byId.values());
   } catch {
-    allClients.value = [];
+    if(version===rosterLoadVersion&&providerId===currentUserId.value)allClients.value = [];
   }
 };
 
@@ -1526,32 +1548,20 @@ const loadTerminatedOfficeExtras = async () => {
 };
 
 const loadPendingClients = async () => {
-  if (!agencyId.value || !currentUserId.value) {
-    pendingClients.value = [];
-    pendingError.value = '';
-    emitPendingCount();
-    return;
-  }
-  try {
-    pendingError.value = '';
-    const r = await api.get('/compliance-corner/pending-clients', {
-      params: {
-        agencyId: Number(agencyId.value),
-        providerUserId: Number(currentUserId.value),
-        minPendingEnteredAt: MIN_PENDING_DATE,
-      },
-      skipGlobalLoading: true,
-    });
-    pendingClients.value = Array.isArray(r.data?.results) ? r.data.results : [];
-  } catch (e) {
-    pendingClients.value = [];
-    pendingError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending school clients';
-  } finally {
-    emitPendingCount();
-  }
+  const version=rosterLoadVersion,providerId=currentUserId.value;
+  if (!providerId) {pendingClients.value=[];pendingError.value='';emitPendingCount();return;}
+  const results=await Promise.allSettled(caseloadAgencies.value.map(agency=>api.get('/compliance-corner/pending-clients',{
+    params:{agencyId:Number(agency.id),providerUserId:Number(providerId),minPendingEnteredAt:MIN_PENDING_DATE},
+    headers:{'X-Agency-Id':String(agency.id)},skipGlobalLoading:true
+  })));
+  if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
+  pendingClients.value=[...new Map(results.filter(r=>r.status==='fulfilled').flatMap(r=>Array.isArray(r.value.data?.results)?r.value.data.results:[]).map(row=>[Number(row.id),row])).values()];
+  pendingError.value=results.some(r=>r.status==='rejected')?'Some agency pending clients could not be loaded. Refresh to retry.':'';
+  emitPendingCount();
 };
 
 const load = async () => {
+  const version=++rosterLoadVersion,providerId=currentUserId.value;
   try {
     loading.value = true;
     error.value = '';
@@ -1561,26 +1571,32 @@ const load = async () => {
       selectedFiscalYearStart.value = fiscalYearOptions.value[0]?.startYmd || '';
     }
 
+    if(!props.profileEmbed){try{const response=await api.get('/users/me/agencies',{skipGlobalLoading:true});if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;if(Array.isArray(response.data))serverMemberships.value=response.data;}catch{if(version===rosterLoadVersion)error.value='Agency memberships could not be refreshed. Your loaded caseload may be incomplete; refresh to retry.';}}
+    if(version!==rosterLoadVersion)return;
+    void loadNavigationCounts();
     schoolRosters.value = {};
     allClients.value = [];
     await loadSchools();
+    if(version!==rosterLoadVersion)return;
     const tasks = [loadOfficeClients(), loadSessionTotals()];
     if (!props.profileEmbed) {
       tasks.push(loadPendingClients());
     }
     await Promise.all(tasks);
+    if(version!==rosterLoadVersion)return;
     await loadAllRosters();
+    if(version!==rosterLoadVersion)return;
     await loadTerminatedOfficeExtras();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';
   } finally {
-    loading.value = false;
+    if(version===rosterLoadVersion)loading.value = false;
   }
 };
 
 const refreshCurrentScope = () => {
   if (activeSection.value === 'office' || activeSection.value === 'new') {
-    return Promise.all([loadOfficeClients(), loadPendingClients(), loadSessionTotals(), loadTerminatedOfficeExtras()]);
+    return Promise.all([loadOfficeClients(), loadPendingClients(), loadSessionTotals(), loadTerminatedOfficeExtras(),loadNavigationCounts()]);
   }
   if (activeSection.value === 'all') {
     return load();
@@ -1600,11 +1616,12 @@ onMounted(() => {
   const fromQuery = normalizeSection(
     route.query.clients || props.initialSection || (props.profileEmbed ? 'all' : 'school')
   );
-  activeSection.value = fromQuery;
+  activeSection.value = String(route.query.waitlist||'')==='1'&&!props.profileEmbed?'waitlist':fromQuery;
   load();
 });
 
 onUnmounted(() => {
+  countGeneration++;checkinGeneration++;rosterLoadVersion++;
   allColumnsOpen.value = false;
 });
 
@@ -1627,6 +1644,7 @@ watch(showTerminated, () => {
   loadTerminatedOfficeExtras().catch(() => {});
 });
 watch(() => currentUserId.value, () => {
+  serverMemberships.value=null;exchangeCounts.value={matches:null,requestable:null};checkinCount.value=null;waitlistCount.value=null;
   selectedSchoolOrgId.value = 'all';
   load();
 });
@@ -1702,6 +1720,7 @@ watch(skillBuildersOnlyFilter, async () => {
   border-bottom-color: var(--pct-green);
 }
 
+.pct-cat-icon-wrap{position:relative;display:inline-flex;padding:0 28px}.pct-cat-icon-wrap .pct-cat-badge{top:-8px;right:0}.pct-cat-badge--left{right:auto!important;left:0!important}
 .pct-cat-icon {
   display: flex;
   align-items: center;

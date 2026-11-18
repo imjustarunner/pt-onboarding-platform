@@ -33,10 +33,9 @@ it('opens the status editor from Received and saves the selected status without 
  await render();await wrapper.setProps({client:{...wrapper.props('client'),gender:'Male',organization_id:450,agency_name:'Example agency',client_status_id:7,client_status_key:'received',client_status_label:'Received'}});await flushPromises();
  wrapper.vm.cancelEditOverview();await wrapper.vm.onHubChange('overview');await flushPromises();
  const badge=wrapper.get('button[aria-label="Change client status"]');expect(badge.text()).toContain('Received');await badge.trigger('click');await flushPromises();
- expect(wrapper.vm.effectiveHubSub).toBe('profile');expect(wrapper.get('select[aria-label="Client sex"]').element.value).toBe('male');
- const organization=wrapper.get('select[aria-label="Client organization"]');expect(organization.element.selectedOptions[0].textContent).toBe('Example agency');
- await wrapper.get('select[aria-label="Client status"]').setValue('11');await wrapper.vm.saveOverview();
- expect(put).toHaveBeenCalledWith('/clients/2277',expect.objectContaining({client_status_id:11,gender:'male',organization_id:450}));
+ expect(wrapper.vm.headerStatusOpen).toBe(true);expect(wrapper.vm.chartHub).toBe('overview');
+ const editor=wrapper.findComponent({name:'ClientStatusEditor'});expect(editor.props('client')).toMatchObject({gender:'Male',organization_id:450,client_status_id:7});
+
 });
 it('shows None for no organization and preserves unsaved profile changes when the status badge is clicked',async()=>{
  await render();wrapper.vm.overviewForm.gender='female';await wrapper.get('button[aria-label="Change client status"]').trigger('click');await flushPromises();

@@ -33,11 +33,11 @@ async function render() {
   wrapper = shallowMount(ProviderClientsTab, { global: { plugins: [router], stubs: { ProviderEnrollmentWaitlist: false } } });
   await flushPromises();
 }
-it('requests only full-agency waitlists from provider Office Clients and displays a complete empty count', async () => {
+it('requests only full-agency waitlists from provider Office Clients without displaying a zero badge', async () => {
   await render();
   expect(m.get.mock.calls.filter(([url]) => url.endsWith('/enrollment-waitlist')).map(([, options]) => options.params.agencyId)).toEqual([450]);
   const waitlist = wrapper.findComponent(ProviderEnrollmentWaitlist);
-  expect(waitlist.get('.pew-count').text()).toBe('0');
+  expect(waitlist.find('.pew-count').exists()).toBe(false);expect(waitlist.isVisible()).toBe(false);
   expect(waitlist.find('[role="alert"]').exists()).toBe(false);
 });
 it('does not fall back to a SchoolCareBridge-only current agency when no full-agency memberships exist', async () => {

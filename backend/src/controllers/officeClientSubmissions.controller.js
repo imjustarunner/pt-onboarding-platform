@@ -7,6 +7,16 @@ import { checkinSeries } from '../utils/officeCheckinSeries.js';
 const json=v=>typeof v==='string'?JSON.parse(v):v;
 const action = fn => async(req,res,next)=>{try{res.set('Cache-Control','no-store');await fn(req,res);}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}};
 export const completeForms = action(async(req,res)=>res.json(await completeClientSubmission({locationId:Number(req.params.locationId),key:req.body?.submissionKey,answers:req.body?.answers,skippedFormIds:req.body?.skippedFormIds})));
+export const countSubmissions = action(async (req, res) => {
+  const [[row]] = await pool.execute(
+    `SELECT COUNT(*) AS unassigned FROM office_client_checkin_submissions s
+     WHERE s.provider_id=? AND s.client_id IS NULL
+       AND EXISTS (SELECT 1 FROM user_agencies ua
+         WHERE ua.user_id=s.provider_id AND ua.agency_id=s.agency_id AND ua.is_active=1)`,
+    [req.user.id]
+  );
+  res.json({ unassigned: Number(row?.unassigned || 0) });
+});
 export const listSubmissions = action(async(req,res)=>{
   const [rows]=await pool.execute(`SELECT s.id,s.event_id,s.agency_id,s.provider_id,s.office_location_id,s.scheduled_start_at,s.scheduled_end_at,s.client_id,s.clinical_session_id,s.forms_json,s.answers_json,s.forms_unavailable,s.completed_at,s.created_at,l.name location_name,l.timezone,c.full_name,c.initials,c.identifier_code FROM office_client_checkin_submissions s JOIN office_locations l ON l.id=s.office_location_id LEFT JOIN clients c ON c.id=s.client_id WHERE s.provider_id=? AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=s.provider_id AND ua.agency_id=s.agency_id AND ua.is_active=1) ORDER BY s.scheduled_start_at DESC,s.id DESC LIMIT 2000`,[req.user.id]);
   res.json({submissions:rows.map(r=>{const feedback=readSubmissionAnswers(r.answers_json);return {...r,series:checkinSeries(r),forms_json:json(r.forms_json),answers_json:feedback.answers,skipped_form_ids:feedback.skippedFormIds};}),truncated:rows.length===2000});

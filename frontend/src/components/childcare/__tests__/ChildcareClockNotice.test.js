@@ -1,15 +1,22 @@
 import {mount,flushPromises} from '@vue/test-utils';
 import {reactive} from 'vue';
 import {it,expect,vi,beforeEach,afterEach} from 'vitest';
-const state=vi.hoisted(()=>({auth:null,get:vi.fn(),post:vi.fn(),push:vi.fn()}));
+const state=vi.hoisted(()=>({auth:null,get:vi.fn(),post:vi.fn(),push:vi.fn(),route:null}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>state.auth}));
 vi.mock('../../../services/api',()=>({default:{get:state.get,post:state.post}}));
-vi.mock('vue-router',()=>({useRouter:()=>({push:state.push})}));
+vi.mock('vue-router',()=>({useRouter:()=>({push:state.push,currentRoute:state.route})}));
 import View from '../ChildcareClockNotice.vue';
 let wrapper;
 const shift={id:3,agencySlug:'nlu-qa-demo',agencyId:453,title:'QA childcare',timezone:'America/Denver',plannedChildren:2,clockedInAt:'2026-11-17T16:00:37Z'};
-beforeEach(()=>{sessionStorage.clear();localStorage.setItem('sessionId','test-sign-in');state.auth=reactive({user:{id:1496},isAuthenticated:true});state.get.mockReset().mockResolvedValue({data:{shifts:[shift]}});state.post.mockReset().mockResolvedValue({data:{}});state.push.mockReset();});
+beforeEach(()=>{sessionStorage.clear();localStorage.setItem('sessionId','test-sign-in');state.auth=reactive({user:{id:1496},isAuthenticated:true});state.get.mockReset().mockResolvedValue({data:{shifts:[shift]}});state.post.mockReset().mockResolvedValue({data:{}});state.push.mockReset();state.route=reactive({value:{path:'/nlu/dashboard'}});});
 afterEach(()=>{wrapper?.unmount();document.body.innerHTML='';});
 it('prompts on sign-in, audits Stay and keeps a persistent exact-shift clock action without clocking out',async()=>{wrapper=mount(View,{attachTo:document.body});await flushPromises();expect(document.body.textContent).toContain('You’re still clocked in');await [...document.querySelectorAll('button')].find(b=>b.textContent==='Stay clocked in').click();await flushPromises();expect(state.post).toHaveBeenCalledWith('/childcare/shifts/3/clock-reminder-choice',{choice:'stay'});expect(document.querySelector('[role=dialog]')).toBeNull();expect(wrapper.text()).toContain('You’re clocked in');await wrapper.get('button').trigger('click');expect(state.push).toHaveBeenCalledWith({path:'/nlu-qa-demo/childcare',query:{shiftId:'3',focus:'clock-out'}});expect(state.post.mock.calls.some(([url])=>url.endsWith('/clock-out'))).toBe(false);});
 it('records real clock-out with attendance pending and navigates to finalize the same shift',async()=>{wrapper=mount(View,{attachTo:document.body});await flushPromises();await document.querySelector('input[value=later]').click();await flushPromises();await [...document.querySelectorAll('button')].find(b=>b.textContent==='Clock out now').click();await flushPromises();const call=state.post.mock.calls.find(([url])=>url.endsWith('/clock-out'));expect(call[0]).toBe('/childcare/shifts/3/clock-out');expect(call[1]).toEqual({idempotencyKey:expect.any(String)});expect(state.push).toHaveBeenCalledWith({path:'/nlu-qa-demo/childcare',query:{shiftId:'3',focus:'finalize'}});});
 it('clears another account’s clock state synchronously on sign-out',async()=>{wrapper=mount(View,{attachTo:document.body});await flushPromises();state.auth.user=null;state.auth.isAuthenticated=false;await flushPromises();expect(wrapper.text()).toBe('');expect(document.querySelector('[role=dialog]')).toBeNull();});
+
+it('does not show a floating clock lookup failure on unrelated pages and clears it after recovery',async()=>{
+ state.get.mockRejectedValueOnce(new Error('Unavailable'));wrapper=mount(View,{attachTo:document.body});await flushPromises();expect(wrapper.find('aside').exists()).toBe(false);state.route.value.path='/nlu/childcare';await flushPromises();expect(wrapper.text()).toContain('clock status is unavailable');state.get.mockResolvedValue({data:{shifts:[]}});await wrapper.get('button').trigger('click');await flushPromises();expect(wrapper.find('aside').exists()).toBe(false);expect(state.post).not.toHaveBeenCalled();
+});
+it('retains the last confirmed active shift if the background refresh fails without clocking out',async()=>{
+ wrapper=mount(View,{attachTo:document.body});await flushPromises();state.get.mockRejectedValue(new Error('Unavailable'));window.dispatchEvent(new Event('childcare-clock-changed'));await flushPromises();expect(wrapper.text()).toContain('You’re clocked in');expect(wrapper.text()).toContain('last confirmed active shift');expect(document.querySelector('[role=dialog]')).not.toBeNull();expect(state.post).not.toHaveBeenCalled();
+});

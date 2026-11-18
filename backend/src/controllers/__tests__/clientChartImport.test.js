@@ -79,3 +79,9 @@ it('reads only the authenticated account editor’s assignment draft without ret
  m.read.mockClear();request.user.role='provider';const next=vi.fn();await getChartImportDraft(request,res(),next);
  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.read).not.toHaveBeenCalled();
 });
+
+it('opens only selected areas under the authenticated actor and protects billing areas',async()=>{
+ const request=req();request.body={sections:[],selectedSections:['contacts','insurance']};
+ await startChartRecordsImport(request,res(),vi.fn());expect(m.start).toHaveBeenCalledWith({clientId:12,agencyId:2},[],10,{selectedSections:['contacts','insurance']});
+ m.start.mockClear();request.user.role='provider';const next=vi.fn();await startChartRecordsImport(request,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.start).not.toHaveBeenCalled();
+});

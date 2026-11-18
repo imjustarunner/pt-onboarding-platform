@@ -1,17 +1,17 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ existing:vi.fn(),claim:vi.fn(),scope:vi.fn(),client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
+const mocks = vi.hoisted(() => ({ lists:vi.fn(), myRequests:vi.fn(), existing:vi.fn(),claim:vi.fn(),scope:vi.fn(),client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssignedClientAccess: mocks.access, resolveClientRecordAccess: mocks.recordAccess }));
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
-vi.mock('../../services/clientExchange.service.js', () => ({ listOpenClientReferrals:mocks.existing,createRequest:mocks.claim,getExchangeListingScope:mocks.scope,createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
+vi.mock('../../services/clientExchange.service.js', () => ({ listListings:mocks.lists,listMyRequests:mocks.myRequests,listOpenClientReferrals:mocks.existing,createRequest:mocks.claim,getExchangeListingScope:mocks.scope,createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
 vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
 vi.mock('../../services/clientExchangeCurrentAudit.service.js', () => ({ currentExchangeAudit: async audit => audit }));
 vi.mock('../../services/clientExchangeAudit.service.js',()=>({getExchangeAudit:mocks.audit,recordExchangeView:mocks.view}));
 vi.mock('../../services/clientExchangeWaivers.service.js', () => ({ changeExchangeWaiver: mocks.waiver }));
 vi.mock('../../services/clientExchangeSharing.service.js', () => ({ previewExchangeShare: mocks.sharePreview, sendExchangeShare: mocks.share }));
-import { createRequest,saveMatchingWaiver, previewShare, shareListing, getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
+import { getNavigationCounts, createRequest,saveMatchingWaiver, previewShare, shareListing, getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.existing.mockResolvedValue([]); mocks.execute.mockResolvedValue([[{authorized:1}]]); mocks.view.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -148,4 +148,21 @@ it('returns existing referral references only after the client record access che
  mocks.recordAccess.mockResolvedValue({ok:false,status:403});const denied=response();await previewClientSummary(req,denied,vi.fn());expect(mocks.existing).not.toHaveBeenCalled();
  mocks.recordAccess.mockResolvedValue({ok:true});mocks.summary.mockResolvedValue({});mocks.existing.mockResolvedValue([{id:18,referralKind:'transfer',serviceType:'individual',status:'open'}]);
  const allowed=response();await previewClientSummary(req,allowed,vi.fn());expect(mocks.existing).toHaveBeenCalledWith({clientId:4,agencyId:2});expect(allowed.json.mock.calls[0][0].existingListings[0].id).toBe(18);
+});
+
+it('returns only personal navigation counts using current membership and request eligibility',async()=>{
+ const req={user:{id:7,role:'provider'},query:{agencyId:2,viewerUserId:999}};
+ const eligible={status:'open',viewerFit:{canRequest:true,status:'match'}};
+ mocks.lists.mockResolvedValue([{...eligible,id:1},{...eligible,id:1},{...eligible,id:2},{...eligible,id:3,currentProviderUserId:7},{...eligible,id:4,targetProviderUserId:99},{...eligible,id:5,isDemo:true},{id:6,status:'open',viewerFit:{canRequest:true,status:'eligible'}},{...eligible,id:7,viewerFit:{canRequest:false,status:'match'}}]);
+ mocks.myRequests.mockResolvedValue([{listingId:2,status:'pending'}]);
+ const response=resCounts();await getNavigationCounts(req,response,vi.fn());
+ expect(mocks.lists).toHaveBeenCalledWith({agencyId:2,status:'open,requested',viewerUserId:7,viewerRole:'provider',personalFit:true});
+ expect(mocks.myRequests).toHaveBeenCalledWith({agencyId:2,requestingProviderUserId:7});
+ expect(response.json).toHaveBeenCalledWith({matches:2,requestable:2});expect(response.set).toHaveBeenCalledWith('Cache-Control','no-store');
+});
+function resCounts(){return {...response(),set:vi.fn().mockReturnThis()};}
+it('denies counts for revoked agency membership and validates the agency before loading listings',async()=>{
+ mocks.execute.mockResolvedValue([[]]);const req={user:{id:7,role:'provider',agencies:[{id:2}]},query:{agencyId:2}};
+ const response=resCounts();await getNavigationCounts(req,response,vi.fn());expect(response.status).toHaveBeenCalledWith(403);expect(mocks.lists).not.toHaveBeenCalled();
+ req.query.agencyId='bad';await getNavigationCounts(req,response,vi.fn());expect(response.status).toHaveBeenCalledWith(400);
 });

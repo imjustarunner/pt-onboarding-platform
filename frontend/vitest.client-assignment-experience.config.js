@@ -4,6 +4,8 @@ export default defineConfig({
  root:new URL('.',import.meta.url).pathname,plugins:[vue()],
  resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},
  test:{environment:'jsdom',setupFiles:['./src/test/setup.js'],include:[
+  'src/components/admin/clientChart/__tests__/ClientStatusEditor.test.js','src/components/admin/clientChart/__tests__/ClientRecordsUpdateLauncher.test.js',
+  'src/components/dashboard/__tests__/ProviderClientsNavigation.test.js',
   'src/utils/__tests__/clientRosterContext.test.js',
   'src/utils/__tests__/bookingCatalogCache.test.js',
   'src/components/clients/__tests__/ClientPersonalPortalInvite.test.js',

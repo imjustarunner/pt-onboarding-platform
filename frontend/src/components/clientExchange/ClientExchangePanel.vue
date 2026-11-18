@@ -339,7 +339,8 @@
 
 <script setup>
 import {exchangeRequestNeedsPlan,exchangeRequestPlanValid} from '../../navigation/clientExchangePolicy.js';
-import { exchangeStaffRole } from '../../navigation/clientExchangePolicy.js';
+import { exchangeStaffRole,canRequestExchangeListing,exchangeNavigationCounts } from '../../navigation/clientExchangePolicy.js';
+const emit=defineEmits(['counts']);
 import { rateLimitRetryAt } from '../../utils/rateLimitRetry.js';
 import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
 import SchoolStaffingWaitlists from '../school/SchoolStaffingWaitlists.vue';
@@ -456,11 +457,8 @@ function isCurrentProviderFor(listing) {
 function hasPendingClaim(listing) {
   return myRequests.value.some(r => r.listingId === listing.id && r.status === 'pending');
 }
-function canRequest(listing) {
-  const providerRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(authStore.user?.role) || authStore.user?.has_provider_access;
-  if ((listing.isDemo && !listing.demoRequestAllowed) || !providerRole || !['open', 'requested'].includes(listing.status) || listing.viewerFit?.canRequest !== true) return false;
-  return !isCurrentProviderFor(listing) && !hasPendingClaim(listing) && (!listing.targetProviderUserId || Number(listing.targetProviderUserId) === Number(currentUserId.value));
-}
+function canRequest(listing) {return canRequestExchangeListing(listing,{user:authStore.user,requests:myRequests.value});}
+
 function clientRecordPath(listing) {
   const agency = agencies.value.find(a => Number(a.id) === Number(listing.agencyId));
   const slug = agency?.slug || route.params?.organizationSlug;
@@ -509,6 +507,7 @@ async function load() {
     listings.value=[...new Map(successful.flatMap(result=>result.listings).map(row=>[row.id,row])).values()];
     myRequests.value=[...new Map(successful.flatMap(result=>result.requests).map(row=>[row.id,row])).values()];
     const missing=ids.filter((id,index)=>results[index].status==='rejected');
+    emit('counts',{...exchangeNavigationCounts(listings.value,myRequests.value,authStore.user),agencyIds:ids,complete:!missing.length});
     if(missing.length)error.value=`Some agencies could not be loaded: ${missing.map(id=>agencies.value.find(a=>Number(a.id)===id)?.name||id).join(', ')}. Refresh to retry.`;
     const linked = listings.value.find(l => l.id === Number(route.query?.listingId));
     if (linked && !selectedListingId.value) {

@@ -1,6 +1,6 @@
 import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
 import { isDemoExchangeListing, isDemoExchangeClient } from '../services/clientExchangeDemo.service.js';
-import { exchangeStaffRole } from '../../../frontend/src/navigation/clientExchangePolicy.js';
+import { exchangeStaffRole, exchangeNavigationCounts } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { createExchangeReferral } from '../services/clientExchangeReferral.service.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
@@ -35,6 +35,22 @@ async function assertAgencyAccess(req, agencyId) {
     return Boolean(rows?.[0]);
   } catch {
     return false;
+  }
+}
+
+/** GET /api/client-exchange/counts?agencyId= */
+export async function getNavigationCounts(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) return res.status(403).json({ error: { message: 'Forbidden' } });
+    const [listings, requests] = await Promise.all([
+      ClientExchange.listListings({ agencyId, status: 'open,requested', viewerUserId: req.user.id, viewerRole: req.user.role, personalFit: true }),
+      ClientExchange.listMyRequests({ agencyId, requestingProviderUserId: req.user.id })
+    ]);
+    res.set('Cache-Control', 'no-store').json(exchangeNavigationCounts(listings, requests, req.user));
+  } catch (error) {
+    next(error);
   }
 }
 

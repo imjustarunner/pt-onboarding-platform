@@ -13,11 +13,13 @@ async function write(scope,state,db,expectedRevision){
  if(Number(result.affectedRows)!==1)throw fail(409,'This records import changed in another window. Reload its saved progress before finishing.');
  return state;
 }
-export async function beginClientChartImport(scope,sections,actorId,{db=pool}={}){
+export async function beginClientChartImport(scope,sections,actorId,{db=pool,selectedSections=null}={}){
  if(!Array.isArray(sections)||sections.length>chartSections.length||sections.some(key=>!chartSections.includes(key)))throw fail(400,'Choose valid record sections to import.');
  const previous=await current(scope,db);
+ if(selectedSections!==null&&(!Array.isArray(selectedSections)||!selectedSections.length||selectedSections.some(key=>!chartSections.includes(key))))throw fail(400,'Select valid record sections to update.');
+ const selection=selectedSections===null?(previous.status==='pending'?previous.selectedSections:null):[...new Set(selectedSections)];
  const revision=Number(previous.revision||0);
- return write(scope,{status:'pending',revision:revision+1,sections:[...new Set(sections)],startedAt:previous.startedAt||new Date().toISOString(),startedByUserId:previous.startedByUserId||actorId,updatedByUserId:actorId},db,revision);
+ return write(scope,{status:'pending',revision:revision+1,sections:[...new Set(sections)],...(selection?{selectedSections:[...new Set([...selection,...sections])]}:{}),startedAt:previous.startedAt||new Date().toISOString(),startedByUserId:previous.startedByUserId||actorId,updatedByUserId:actorId},db,revision);
 }
 export async function completeClientChartImport(scope,actorId,{db=pool,readRecord=null,allowedSections=chartSections,ifPending=false,keptBlankSections=[],inTransaction=false,setCurrent=markRecordsClientCurrent}={}){
  if(!inTransaction&&(db.getConnection||db.beginTransaction)){

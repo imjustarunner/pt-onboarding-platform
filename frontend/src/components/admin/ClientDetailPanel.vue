@@ -198,7 +198,7 @@
         <section v-if="chartHub==='schedule' && canScheduleClient" class="detail-section"><ClientSchedulePanel :key="client.id" :client="client" /></section>
         <section v-if="chartHub==='bring-up-to-date' && showRecordsImportTab" class="detail-section">
           <p v-if="!canFinishChartSetup || !recordsImportSetup" role="status">Loading this client’s saved import…</p>
-          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
+          <ClientEhrBringUpToDatePanel v-else ref="recordsImportPanel" :key="`records-import-${client.id}`" embedded open :client-id="client.id" :agency-id="client.agency_id" :client-label="client.full_name || ''" :record-status="recordsImportSectionStatus" :only-sections="recordsImportSetup.recordsImportSelectedSections||null" @section-imported="onChartSetupUpdated" @done="onRecordsImportDone" />
         </section>
 
         <div
@@ -247,6 +247,7 @@
               </section>
             </template>
           </ClientOverviewHub>
+          <section v-if="canLaunchRecordUpdate || canTerminate" class="quick-actions"><h3>Quick Actions</h3><div class="actions-grid"><ClientRecordsUpdateLauncher v-if="canLaunchRecordUpdate" :client-id="client.id" :agency-id="client.agency_id" :account-access="canEditAccount" @started="onRecordsUpdateStarted" /><button v-if="canTerminate && !isClientArchived" type="button" class="btn btn-danger" @click="openTerminateModal">Terminate client</button></div></section>
           <p v-if="chartReceiptError && !showPanel('records')" class="error" role="alert">
             {{ chartReceiptError }}
             <a v-if="chartReceiptFallbackUrl" :href="chartReceiptFallbackUrl" target="_blank" rel="noopener">Open the enrollment receipt</a>
@@ -665,6 +666,7 @@
                     <template v-if="editingOverview">
                       <select ref="statusSelectEl" v-model="overviewForm.client_status_id" class="inline-select" aria-label="Client status">
                         <option :value="''">—</option>
+                        <option v-if="overviewForm.client_status_id && !overviewClientStatuses.some(s=>String(s.id)===String(overviewForm.client_status_id))" :value="overviewForm.client_status_id" disabled>{{client.client_status_label || 'Saved legacy status'}} (current)</option>
                         <option v-for="s in overviewClientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
                       </select>
                       <div v-if="isTerminatedStatusSelected" class="termination-reason-field" style="margin-top: 10px;">
@@ -1078,7 +1080,7 @@
 
           <div v-if="(canEditAccount && editingOverview) || (canTerminate && !editingOverview)" class="quick-actions">
             <h3>Quick Actions</h3>
-            <div class="actions-grid">
+            <div class="actions-grid"><ClientRecordsUpdateLauncher v-if="canLaunchRecordUpdate" :client-id="client.id" :agency-id="client.agency_id" :account-access="canEditAccount" @started="onRecordsUpdateStarted" />
               <button
                 v-if="canTerminate && !isClientArchived"
                 class="btn btn-danger"
@@ -1113,6 +1115,7 @@
           </div>
         </div>
 
+        <ClientStatusEditor v-if="headerStatusOpen" :key="client.id" :client="client" @close="headerStatusOpen=false" @saved="onHeaderStatusSaved" />
         <ClientUpdateModal :open="clientUpdateModalOpen" :client-id="client?.id" :agency-id="client?.agency_id" :client-name="client?.full_name || client?.initials || ''" :guardian-email="guardianIntakeEmail || ''" :guardian-name="guardianIntakeName || ''" @close="clientUpdateModalOpen = false" @sent="clientUpdateModalOpen = false" />
         <ClientRenewalPushModal
           :open="clientRenewalModalOpen"
@@ -2921,6 +2924,8 @@ import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
 import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
+import ClientRecordsUpdateLauncher from './clientChart/ClientRecordsUpdateLauncher.vue';
+import ClientStatusEditor from './clientChart/ClientStatusEditor.vue';
 import ClientQuickActions from './clientChart/ClientQuickActions.vue';
 import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
@@ -4383,6 +4388,8 @@ const overviewAlertItems = computed(() => {
   return items.slice(0, 6);
 });
 
+const canLaunchRecordUpdate=computed(()=>hasAgencyAccess.value&&['super_admin','admin','support','provider','provider_plus'].includes(roleNorm.value)&&!isClientArchived.value&&!isClientTerminated.value);
+async function onRecordsUpdateStarted(progress){recordsImportSetup.value={...recordsImportSetup.value,requiresRecordImport:true,recordsImportStatus:'pending',recordsImportSelectedSections:progress.selectedSections};setChartNav('bring-up-to-date');emit('updated',{keepOpen:true});}
 const recordsImportPanel=ref(null),savedAssignmentPanel=ref(null),pendingAssignmentDraft=ref(false),reviewAssignmentDraft=ref(false);
 let assignmentDraftRequest=0;
 async function loadPendingAssignmentDraft(){const id=Number(props.client?.id),own=++assignmentDraftRequest;if(!canEditAccount.value||!['super_admin','admin','support'].includes(roleNorm.value)){pendingAssignmentDraft.value=false;return;}try{const {data}=await api.get(`/clients/${id}/chart-import/drafts/assignments`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.client.agency_id)}});if(own===assignmentDraftRequest&&id===Number(props.client?.id))pendingAssignmentDraft.value=!!data?.draft?.value?.text;}catch{/* Draft details stay private if account access is unavailable. */}}
@@ -4397,7 +4404,7 @@ const recordsImportHint=computed(()=>{
   return data?.recordsImport?.status==='pending'||props.client?.renewal_flags?.recordsImportPending===true||props.client?.renewalFlags?.recordsImportPending===true;
  }catch{return false;}
 });
-const showRecordsImportTab=computed(()=>['super_admin','admin','support','staff','provider','provider_plus','supervisor','clinical_practice_assistant'].includes(roleNorm.value) && (recordsImportSetup.value ? canFinishChartSetup.value && recordsImportSetup.value.requiresRecordImport && recordsImportSetup.value.recordsImportStatus!=='complete' && (recordsImportSetup.value.recordsImportStatus==='pending'||!recordsImportSetup.value.setupComplete) : recordsImportHint.value));
+const showRecordsImportTab=computed(()=>['super_admin','admin','support','staff','provider','provider_plus','supervisor','clinical_practice_assistant'].includes(roleNorm.value) && (recordsImportSetup.value ? canFinishChartSetup.value && (recordsImportSetup.value.requiresRecordImport || recordsImportSetup.value.recordsImportStatus==='pending') && recordsImportSetup.value.recordsImportStatus!=='complete' && (recordsImportSetup.value.recordsImportStatus==='pending'||!recordsImportSetup.value.setupComplete) : recordsImportHint.value));
 const recordsImportSectionStatus=computed(()=>({demographics:recordsImportSetup.value?.demographicsOnFile?'done':'missing',intake:recordsImportSetup.value?.intakeOnFile?'done':'missing',plan:recordsImportSetup.value?.planOnFile?'done':'missing'}));
 let recordsImportLoad=0;
 async function loadRecordsImportSetup(selectFirst=false){
@@ -5478,6 +5485,7 @@ const saveSkills = async () => {
 };
 
 const overviewStatusIdAtEditStart = ref('');
+const overviewFormAtEditStart=ref(null);
 
 const hydrateOverviewForm = () => {
   overviewForm.value.full_name = String(props.client?.full_name || '');
@@ -5546,6 +5554,7 @@ const startEditOverview = async (scrollToFields = false) => {
   profileDetailsPulseHint.value = false;
   hydrateOverviewForm();
   overviewStatusIdAtEditStart.value = overviewForm.value.client_status_id || '';
+  overviewFormAtEditStart.value=JSON.parse(JSON.stringify(overviewForm.value));
   loadOverviewOptions();
   fetchDocChecklist();
   if (scrollToFields) {
@@ -5560,12 +5569,11 @@ const startEditOverview = async (scrollToFields = false) => {
 };
 
 const statusSelectEl=ref(null);
-async function editHeaderStatus(){
-  if(!canEditAccount.value || await saveClientWorkspaceDrafts()===false)return;
-  if(!editingOverview.value)await startEditOverview();else setChartNav('account','profile');
-  await nextTick();
-  statusSelectEl.value?.scrollIntoView?.({block:'center',behavior:'smooth'});statusSelectEl.value?.focus();
-}
+const headerStatusOpen=ref(false);
+async function editHeaderStatus(){if(canEditAccount.value && await saveClientWorkspaceDrafts()!==false)headerStatusOpen.value=true;}
+function onHeaderStatusSaved(client){headerStatusOpen.value=false;overviewForm.value.client_status_id=String(client.client_status_id||'');overviewStatusIdAtEditStart.value=overviewForm.value.client_status_id;emit('updated',{keepOpen:true,client});}
+watch(()=>Number(props.client?.id),()=>headerStatusOpen.value=false);
+
 
 const cancelEditOverview = () => {
   editingOverview.value = false;
@@ -5643,6 +5651,8 @@ const saveOverview = async () => {
         ? Number(overviewForm.value.client_status_id)
         : null;
     }
+    for(const key of Object.keys(payload))if(key!=='client_status_id'&&overviewFormAtEditStart.value&&JSON.stringify(overviewFormAtEditStart.value[key])===JSON.stringify(overviewForm.value[key]))delete payload[key];
+    if(!Object.keys(payload).length){editingOverview.value=false;return;}
     await api.put(`/clients/${props.client.id}`, payload);
     const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
     emit('updated', { keepOpen: true, client: refreshed });

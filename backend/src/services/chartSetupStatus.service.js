@@ -79,6 +79,7 @@ export async function loadChartSetupStatus({ client, actorUserId = null } = {}) 
     }
   }
   return {
+    recordsImportSelectedSections:(()=>{try{const state=(typeof client.onboarding_docs_json==='string'?JSON.parse(client.onboarding_docs_json):client.onboarding_docs_json)?.recordsImport;return state?.status==='pending'&&Array.isArray(state.selectedSections)?state.selectedSections:null;}catch{return null;}})(),
     recordsImportStatus: (()=>{try{return (typeof client.onboarding_docs_json==='string'?JSON.parse(client.onboarding_docs_json):client.onboarding_docs_json)?.recordsImport?.status||null;}catch{return null;}})(),
     requiresRecordImport: !isAppNativeOfficeClient(client),
     demographicsOnFile,

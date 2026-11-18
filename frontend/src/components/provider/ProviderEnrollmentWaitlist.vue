@@ -3,9 +3,9 @@
     <div class="pew-heading">
       <button type="button" class="pew-toggle" :aria-expanded="expanded" :aria-controls="listId" @click="expanded = !expanded">
         <span>{{ staffView ? 'Provider waitlists' : 'My waitlist' }}</span>
-        <strong v-if="loaded" class="pew-count">{{ requests.length }}</strong>
-        <span v-else class="pew-checking">{{ loading ? 'Checking…' : 'Unavailable' }}</span>
-        <span v-if="loaded" class="pew-count-caption">{{ requests.length === 1 ? 'person waiting' : 'people waiting' }}</span>
+        <strong v-if="loaded && requests.length" class="pew-count">{{ requests.length }}</strong>
+        <span v-if="!loaded" class="pew-checking">{{ loading ? 'Checking…' : 'Unavailable' }}</span>
+        <span v-if="loaded && requests.length" class="pew-count-caption">{{ requests.length === 1 ? 'person waiting' : 'people waiting' }}</span>
         <span class="pew-chevron" aria-hidden="true">{{ expanded ? '▴' : '▾' }}</span>
       </button>
       <button v-if="loaded || error" type="button" class="pew-refresh" :disabled="loading" aria-label="Refresh provider waitlist" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>

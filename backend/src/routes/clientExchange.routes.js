@@ -6,6 +6,7 @@ import * as ctrl from '../controllers/clientExchange.controller.js';
 const router = express.Router();
 router.use(authenticate, requireExchangeAccess);
 router.post('/referrals', ctrl.createReferral);
+router.get('/counts',ctrl.getNavigationCounts);
 
 router.get('/clients/:clientId/summary', ctrl.previewClientSummary);
 router.put('/clients/:clientId/service-preferences', ctrl.saveServicePreferences);

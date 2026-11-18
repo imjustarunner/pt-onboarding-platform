@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({current:vi.fn()}));
 vi.mock('../clientRecordsStatus.service.js',()=>({markRecordsClientCurrent:m.current}));
 vi.mock('../../config/database.js',()=>({default:{}}));
-vi.mock('../clientChartImport.service.js',()=>({chartSections:['demographics','comments','insurance','intake','plan'],readChartRecord:vi.fn()}));
+vi.mock('../clientChartImport.service.js',()=>({chartSections:['demographics','comments','contacts','insurance','intake','plan'],readChartRecord:vi.fn()}));
 import {beginClientChartImport,completeClientChartImport} from '../clientChartImportProgress.service.js';
 const scope={clientId:12,agencyId:2};let state,db,readRecord;
 beforeEach(()=>{m.current.mockReset().mockResolvedValue({id:3,key:'current',label:'Current'});state=null;db={execute:vi.fn(async(sql,args)=>{if(sql.startsWith('SELECT'))return[[{import_state:state}]];state=JSON.parse(args[0]);return[{affectedRows:1}];})};readRecord=vi.fn().mockResolvedValue({value:{text:'Synthetic imported section',imported:true}});});
@@ -45,4 +45,12 @@ it('records explicitly blank sections but refuses to discard a saved unimported 
  await expect(completeClientChartImport(scope,10,{db,readRecord,keptBlankSections:['intake']})).rejects.toHaveProperty('status',409);
  readRecord.mockResolvedValue({value:{text:'',imported:true}});
  expect(await completeClientChartImport(scope,10,{db,readRecord,keptBlankSections:['intake','plan']})).toMatchObject({status:'complete',keptBlankSections:['intake','plan']});
+});
+it('reopens a completed chart for selected areas and retains that choice while importing',async()=>{
+ await beginClientChartImport(scope,['demographics'],10,{db});await completeClientChartImport(scope,10,{db,readRecord});
+ const reopened=await beginClientChartImport(scope,[],10,{db,selectedSections:['contacts','insurance']});expect(reopened).toMatchObject({status:'pending',selectedSections:['contacts','insurance'],sections:[]});
+ const pending=await beginClientChartImport(scope,['contacts'],10,{db});expect(pending.selectedSections).toEqual(['contacts','insurance']);readRecord.mockResolvedValue({value:{imported:true}});readRecord.mockClear();await completeClientChartImport(scope,10,{db,readRecord});expect(readRecord).toHaveBeenCalledExactlyOnceWith(scope,'contacts',10);
+});
+it('rejects empty or unknown manual update selections',async()=>{
+ await expect(beginClientChartImport(scope,[],10,{db,selectedSections:[]})).rejects.toHaveProperty('status',400);await expect(beginClientChartImport(scope,[],10,{db,selectedSections:['made_up']})).rejects.toHaveProperty('status',400);
 });

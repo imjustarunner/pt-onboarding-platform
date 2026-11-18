@@ -25,7 +25,9 @@ function requireSectionAccess(req, section) {
 export async function startChartRecordsImport(req,res,next){try{
  const scope=await scopeOf(req),sections=req.body?.sections;
  if(Array.isArray(sections))for(const section of sections)requireSectionAccess(req,section);
- const progress=await beginClientChartImport(scope,sections,Number(req.user.id));
+ const selectedSections=req.body?.selectedSections??null;
+ if(Array.isArray(selectedSections))for(const section of selectedSections)requireSectionAccess(req,section);
+ const progress=await (selectedSections===null?beginClientChartImport(scope,sections,Number(req.user.id)):beginClientChartImport(scope,sections,Number(req.user.id),{selectedSections}));
  await logAuditEvent(req,{actionType:'client_records_import_started',agencyId:scope.agencyId,targetType:'client',targetId:scope.clientId});
  res.set('Cache-Control','no-store').json({progress});
 }catch(error){next(error);}}
