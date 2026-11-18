@@ -6,6 +6,7 @@ import {noShowReviewTiming} from '../utils/noShowReviewTiming.js';
 import {maybeEncryptNotePayload,maybeDecryptNotePayload} from './clinicalNoteCrypto.service.js';
 import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
+import {assertClinicalWorkActive,attachClinicalWorkArchives} from './clinicalWorkArchiveRead.service.js';
 
 const sql=value=>new Date(value).toISOString().slice(0,23).replace('T',' ');
 const fail=(message,status=409,code='NO_SHOW_REVIEW_REQUIRED')=>Object.assign(new Error(message),{status,code});
@@ -38,6 +39,7 @@ export async function declareAppointmentNoShow(appointment,facts,preview,actorUs
   const db=await pool.getConnection();
   try {
     await db.beginTransaction();
+    await assertClinicalWorkActive({id:appointment.id,archiveResourceType:'appointment'},{db,currentRead:true});
     const [[current]]=await db.execute('SELECT status,start_at,end_at,provider_user_id,agency_id FROM appointments WHERE id=? FOR UPDATE',[appointment.id]);
     if(!current||Number(current.agency_id)!==Number(appointment.agencyId)||Number(current.provider_user_id)!==Number(appointment.providerUserId))throw fail('This appointment changed. Review its current attendance.');
     if(isLearningAppointment(appointment)&&await hasLearningAttendanceEvidence(db,appointment.id))throw fail('This tutoring session has recorded attendance or a signed summary. Open its Session Hub; it cannot be marked as a no-show.',409,'ATTENDED_SESSION_LOCKED');
@@ -62,6 +64,7 @@ export async function undoAppointmentNoShow(appointmentId,actorUserId,reason) {
   return locked(appointmentId,async db=>{
     await db.beginTransaction();
     try {
+      await assertClinicalWorkActive({id:appointmentId,archiveResourceType:'appointment'},{db,currentRead:true});
       const [[appointment]]=await db.execute('SELECT id,status FROM appointments WHERE id=? FOR UPDATE',[appointmentId]);
       const [[row]]=await db.execute('SELECT * FROM appointment_no_show_reviews WHERE appointment_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE',[appointmentId]);
       if(!row)throw fail('There is no pending no-show to undo.');
@@ -85,9 +88,10 @@ export async function processDueAppointmentNoShows({agencyId=null,appointmentId=
       const [[row]]=await db.execute('SELECT * FROM appointment_no_show_reviews WHERE appointment_id=? ORDER BY id DESC LIMIT 1',[item.appointment_id]);
       if(!row||!['pending','finalizing'].includes(row.state)||+parseUtcDate(row.notify_at)>Date.now())return {appointmentId:item.appointment_id,skipped:true};
       const snapshot=decode(row.snapshot_json),current=await Appointment.findById(row.appointment_id);
+      const [archive]=await attachClinicalWorkArchives([{id:row.appointment_id,archiveResourceType:'appointment'}],{db});
       const matches=current&&Number(current.agencyId)===Number(row.agency_id)&&Number(current.providerUserId)===Number(row.provider_user_id)&&+parseUtcDate(current.startAt)===+parseUtcDate(snapshot.appointment.startAt)&&+parseUtcDate(current.endAt)===+parseUtcDate(snapshot.appointment.endAt)&&['no_show_pending','no_show'].includes(current.status);
       const attended=current&&isLearningAppointment(current)&&await hasLearningAttendanceEvidence(db,current.id);
-      if(!matches||attended){await db.execute("UPDATE appointment_no_show_reviews SET state='review' WHERE id=?",[row.id]);await event(db,row,'no_show_finalization_needs_review',null,{reason:'The appointment or attendance changed; no new consequence or notice was applied.'});return {appointmentId:row.appointment_id,reviewRequired:true};}
+      if(!matches||attended||archive.administrativeArchive){await db.execute("UPDATE appointment_no_show_reviews SET state='review' WHERE id=?",[row.id]);await event(db,row,'no_show_finalization_needs_review',null,{reason:archive.administrativeArchive?'This appointment is archived; no consequence or notice was applied.':'The appointment or attendance changed; no new consequence or notice was applied.'});return {appointmentId:row.appointment_id,reviewRequired:true};}
       await db.execute("UPDATE appointment_no_show_reviews SET state='finalizing' WHERE id=?",[row.id]);
       const {finalizeAppointmentNoShow}=await import('./appointmentChange.service.js');
       const result=await finalizeAppointmentNoShow(current,snapshot,row);

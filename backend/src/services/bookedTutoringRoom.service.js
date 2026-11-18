@@ -14,6 +14,7 @@ import {publishTutoringNote,getPublishedTutoringNote} from './tutoringNotePublic
 import {appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {getLearningOverview} from './tutoringLearningOs.service.js';
 import { TutoringSessionNote } from '../models/TutoringSessionLearning.model.js';
+import {assertClinicalWorkActive} from './clinicalWorkArchiveRead.service.js';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const terminal = new Set(['canceled','cancelled','canceled_by_client','canceled_by_provider','canceled_by_guardian','canceled_by_organization','late_canceled','no_show','rescheduled','voided','draft','no_show_pending']);
@@ -66,6 +67,7 @@ function requireOpen(ctx) {
  if (ctx.appointment.status==='completed') throw fail(410,'This tutoring session has ended.');
 }
 async function lockAppointment(ctx,db) {
+ await assertClinicalWorkActive({id:ctx.appointment.id,archiveResourceType:'appointment'},{db,currentRead:true});
  const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id,start_at,end_at,modality,service_code,business_type FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
  if (!current || Number(current.provider_user_id)!==Number(ctx.appointment.providerUserId)||Number(current.agency_id)!==Number(ctx.appointment.agencyId)) throw fail(409,'The tutor assignment changed. Reopen the appointment.');
  if((current.start_at&&utcMysqlToIso(current.start_at)!==utcMysqlToIso(ctx.appointment.startAt))||(current.end_at&&utcMysqlToIso(current.end_at)!==utcMysqlToIso(ctx.appointment.endAt)))throw fail(409,'This appointment was rescheduled. Reopen the current booking from your calendar.');
