@@ -38,6 +38,7 @@ beforeEach(() => {
     if (sql.startsWith('SELECT status,evidence_json,expires_at')) return pool.execute(sql, values);
     if (sql.startsWith('SELECT evidence_json FROM sms_permission_events')) return [[]];
     if (sql.startsWith('SELECT evidence_json,updated_at')) return [[]];
+    if (sql.includes('FROM sms_consent_requests') && sql.includes('family_quick_start')) return [[]];
     if (sql.includes("VALUES (?,?,?,'opted_in',?,NULL)")) {
       const [scope,phone,purpose,details]=values;
       permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));

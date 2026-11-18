@@ -10,6 +10,8 @@ export default {
   'src/services/__tests__/familyPortalEmail.notificationChoices.test.js',
   'src/services/__tests__/clientSmsStartConsent.test.js',
   'src/services/__tests__/clientSmsStartIntegration.test.js',
+  'src/services/__tests__/messaging.compliance.test.js',
+  'src/utils/__tests__/assignedSmartDisclosure.test.js',
   'src/services/__tests__/guardianWorkspace.test.js',
   'src/services/__tests__/guardianSignaturePreview.test.js',
   'src/controllers/__tests__/publicIntakeConsentSession.test.js'
