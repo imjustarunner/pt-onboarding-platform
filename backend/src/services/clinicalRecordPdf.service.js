@@ -2,6 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import crypto from 'node:crypto';
 import DocumentSigningService from './documentSigning.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { agencyDocumentPresentation } from './documentAgencyBranding.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const parse = value => { if (value && typeof value === 'object') return value; try { return JSON.parse(value); } catch { return value; } };
@@ -12,11 +13,18 @@ export function clinicalValueHtml(value, depth = 0) {
   if (value instanceof Date) return `<time datetime="${escape(value.toISOString())}">${escape(value.toISOString())}</time>`;
   if (typeof value === 'string' && /^data:(?:image|application)\/[\w.+-]+;base64,/i.test(value)) return '<em>File data is retained in the original supporting document.</em>';
   if (depth > 12) throw Object.assign(new Error('A clinical field is nested too deeply to export safely.'), { status: 422 });
-  if (Array.isArray(value)) return `<ol>${value.map(item => `<li>${clinicalValueHtml(item, depth + 1)}</li>`).join('')}</ol>`;
-  if (typeof value === 'object') return `<dl>${Object.entries(value).filter(([key]) => !internal.test(key)).map(([key, item]) => {
+  if (Array.isArray(value)) {
+    const items = value.map(item => clinicalValueHtml(item, depth + 1)).filter(Boolean);
+    return items.length ? `<ol>${items.map(item => `<li>${item}</li>`).join('')}</ol>` : '';
+  }
+  if (typeof value === 'object') {
+    const fields = Object.entries(value).filter(([key]) => !internal.test(key)).map(([key, item]) => {
     const body = clinicalValueHtml(item, depth + 1);
-    return body ? `<div class="field"><dt>${escape(humanize(key))}</dt><dd>${body}</dd></div>` : '';
-  }).join('')}</dl>`;
+    const compact = ['string', 'number', 'boolean'].includes(typeof item) && !String(item).includes('\n') && String(item).length < 100;
+    return body ? `<div class="field${compact ? ' field--compact' : ' field--wide'}"><dt>${escape(humanize(key))}</dt><dd>${body}</dd></div>` : '';
+    }).join('');
+    return fields ? `<dl>${fields}</dl>` : '';
+  }
   return `<span>${escape(typeof value === 'boolean' ? value ? 'Yes' : 'No' : value).replace(/\n/g, '<br/>')}</span>`;
 }
 export function clinicalPayloadHtml(payload) {
@@ -24,16 +32,36 @@ export function clinicalPayloadHtml(payload) {
   const value = parse(plain);
   return clinicalValueHtml(value?.sections || value?.text || value);
 }
-function signatureHtml(note, names = {}) {
+function signatureHtml(note, names = {}, recordType = 'clinical') {
   const versionSignatures = note.clinical_version_signatures || [];
   const author = versionSignatures.find(signature => ['author_sign', 'initial_author_sign'].includes(signature.action));
   const supervisor = versionSignatures.find(signature => ['supervisor_sign', 'initial_supervisor_sign'].includes(signature.action));
   const revised = Number(note.clinical_version_number) > 1;
   const signed = revised ? author?.signedAt : note.provider_signed_at;
   const authorId = author?.actorUserId || note.provider_signed_by_user_id || note.created_by_user_id;
-  return `<aside class="signatures"><strong>Signature record</strong><p>${signed ? `Provider electronically signed: ${escape(names[authorId] || `User ${authorId}`)} · ${escape(signed)}` : revised ? 'Provider signature is not present on this amendment; see the amendment approval below.' : 'Unsigned draft — provider signature not recorded.'}</p>${supervisor?.signedAt || note.supervisor_cosigned_at ? `<p>Clinical supervisor electronically signed: ${escape(names[supervisor?.actorUserId || note.supervisor_cosigned_by_user_id] || 'Authorized supervisor')} · ${escape(supervisor?.signedAt || note.supervisor_cosigned_at)}</p>` : ''}</aside>`;
+  const role = recordType === 'tutoring' ? 'Tutor' : 'Provider';
+  return `<aside class="signatures"><strong>Signature record</strong><p>${signed ? `${role} electronically signed: ${escape(names[authorId] || `User ${authorId}`)} · ${escape(signed)}` : revised ? `${role} signature is not present on this amendment; see the amendment approval below.` : `Unsigned draft — ${role.toLowerCase()} signature not recorded.`}</p>${supervisor?.signedAt || note.supervisor_cosigned_at ? `<p>${recordType === 'tutoring' ? 'Supervisor' : 'Clinical supervisor'} electronically signed: ${escape(names[supervisor?.actorUserId || note.supervisor_cosigned_by_user_id] || 'Authorized supervisor')} · ${escape(supervisor?.signedAt || note.supervisor_cosigned_at)}</p>` : ''}</aside>`;
 }
-export function buildClinicalRecordHtml({ client = {}, agency = {}, notes = [], plans = [], diagnoses = [], manifest = [], names = {}, exportedAt = new Date().toISOString(), recordTitle = 'Medical record', includeDrafts = false, singleDocument = false } = {}) {
+const agencyName = agency => String(agency.official_name || agency.name || 'Clinical practice').trim();
+const brandColors = agency => agencyDocumentPresentation(agency, { primaryColor: '#283e4b', accentColor: '#61717c' });
+
+/** Compact, tenant-only print identity; no platform or generator branding. */
+export function clinicalRecordPrintOptions({ agency = {}, brand = {}, client = {}, recordType = 'clinical', sample = false } = {}) {
+  const name = escape(agencyName(agency)), colors = brandColors(agency);
+  const logo = [brand.headerLogoDataUrl, brand.headerImageDataUrl].find(value => /^data:image\/(?:png|jpe?g|webp);base64,[a-z\d+/=\s]+$/i.test(String(value || '')));
+  const kind = recordType === 'tutoring' ? 'Learning record' : 'Clinical record';
+  const person = escape(client.full_name || [client.first_name, client.last_name].filter(Boolean).join(' '));
+  const birth = client.date_of_birth ? ` · DOB ${escape(String(client.date_of_birth).slice(0, 10))}` : '';
+  return {
+    format: 'Letter', printBackground: true, displayHeaderFooter: true,
+    margin: { top: '0.72in', right: '0.48in', bottom: '0.48in', left: '0.48in' },
+    headerTemplate: `<div style="width:100%;margin:0 0.48in;padding:0 0 6px;border-bottom:1.5px solid ${colors.primaryColor};display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:Arial,sans-serif;color:#24323b;"><div style="width:43%;height:34px;display:flex;align-items:center;">${logo ? `<img alt="${name}" src="${logo}" style="max-width:210px;max-height:34px;object-fit:contain;object-position:left center;" />` : `<strong style="font-size:13px;">${name}</strong>`}</div><div style="text-align:right;max-width:57%;"><strong style="font-size:11px;">${name}</strong><div style="font-size:8px;margin-top:3px;">${sample ? 'FICTIONAL SAMPLE · ' : ''}${kind} · Confidential</div></div></div>`,
+    footerTemplate: `<div style="width:100%;margin:0 0.48in;padding-top:5px;border-top:1px solid #d7dee2;display:flex;justify-content:space-between;gap:12px;font-family:Arial,sans-serif;font-size:8px;color:#52606b;"><div>${name} · Confidential${sample ? ' · Fictional sample' : ''}${person ? `<div style="margin-top:2px;">${person}${birth}</div>` : ''}</div><span style="white-space:nowrap;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`
+  };
+}
+
+export function buildClinicalRecordHtml({ client = {}, agency = {}, notes = [], plans = [], diagnoses = [], manifest = [], names = {}, exportedAt = new Date().toISOString(), recordTitle = 'Medical record', includeDrafts = false, singleDocument = false, recordType = 'clinical', sample = false } = {}) {
+  const colors = brandColors(agency);
   const clientName = client.full_name || [client.first_name, client.last_name].filter(Boolean).join(' ') || 'Client';
   const body = notes.map(({ note, session = {}, addenda = [], revisions = [] }, index) => {
     const metadata = parse(note.metadata_json) || {}, chart = metadata.structuredChart || {}, encounter = metadata.sessionContext || {};
@@ -44,8 +72,13 @@ export function buildClinicalRecordHtml({ client = {}, agency = {}, notes = [], 
       endTime: chart.endTime || encounter.endTimeLocal || session.scheduled_end_at, durationMinutes: chart.durationMinutes ?? encounter.durationMinutes ?? session.duration_minutes,
       timeZone: session.source_timezone || agency.timezone, participants: chart.participants || encounter.participants || metadata.participants,
       location: chart.locationLabel || encounter.locationLabel || metadata.locationLabel, placeOfService: chart.placeOfService || session.place_of_service,
-      provider: names[note.provider_signed_by_user_id || note.created_by_user_id], diagnosis: note.diagnostic_justification ? { diagnosticJustification: note.diagnostic_justification } : null };
-    const metadataLabels = { structuredChart: 'Structured clinical findings', sessionContext: 'Confirmed encounter details', narrivaContext: 'Provider-confirmed clinical context', narrivaPreflight: 'Clinical review exceptions', smartGuide: 'Clinician guided responses', smartNoteGuide: 'Clinician guided responses', termination: 'Termination details' };
+      [recordType === 'tutoring' ? 'tutor' : 'provider']: names[note.provider_signed_by_user_id || note.created_by_user_id], diagnosis: note.diagnostic_justification ? { diagnosticJustification: note.diagnostic_justification } : null };
+    const localClock = value => typeof value === 'string' && /^\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?$/i.test(value.trim());
+    if (localClock(header.startTime) && localClock(header.endTime)) {
+      header.time = `${header.startTime}–${header.endTime}${header.durationMinutes != null ? ` · ${header.durationMinutes} min` : ''}${header.timeZone ? ` · ${header.timeZone}` : ''}`;
+      for (const key of ['startTime', 'endTime', 'durationMinutes', 'timeZone']) delete header[key];
+    }
+    const metadataLabels = { structuredChart: recordType === 'tutoring' ? 'Learning evidence and responses' : 'Structured clinical findings', sessionContext: 'Confirmed encounter details', narrivaContext: 'Provider-confirmed clinical context', narrivaPreflight: 'Clinical review exceptions', smartGuide: 'Clinician guided responses', smartNoteGuide: 'Clinician guided responses', termination: 'Termination details' };
     const repeatedHeaderFields = new Set(['durationMinutes', 'participants', 'locationLabel', 'startTime', 'endTime', 'startTimeLocal', 'endTimeLocal', 'placeOfService']);
     const clinicalMetadata = Object.fromEntries(['structuredChart', 'sessionContext', 'narrivaContext', 'narrivaPreflight', 'consentConfirmed', 'interactiveComplexity', 'interactiveComplexityReason', 'riskAssessment', 'mse', 'smartGuide', 'smartNoteGuide', 'questionnaireResponses', 'formAnswers', 'structuredResponses', 'treatmentGoals', 'goalRatings', 'termination'].filter(key => metadata[key] != null).map(key => {
       const value = ['structuredChart', 'sessionContext'].includes(key) && typeof metadata[key] === 'object' ? Object.fromEntries(Object.entries(metadata[key]).filter(([field]) => !repeatedHeaderFields.has(field))) : metadata[key];
@@ -53,13 +86,22 @@ export function buildClinicalRecordHtml({ client = {}, agency = {}, notes = [], 
     }));
     const entries = addenda.map(entry => `<section class="amendment"><h3>${escape(({ addendum: 'Addendum', correction: 'Amendment / correction', late_entry: 'Late entry' })[entry.entry_kind] || 'Historical entry')}</h3><p>Entered ${escape(entry.created_at)} by ${escape(names[entry.created_by_user_id] || `User ${entry.created_by_user_id}`)}${entry.author_signed_at ? ` · author signed ${escape(entry.author_signed_at)}` : ' · signature not recorded'}</p>${entry.entry_reason ? `<p><strong>Reason:</strong> ${escape(entry.entry_reason)}</p>` : ''}${clinicalPayloadHtml(entry.body)}</section>`).join('');
     const history = revisions.filter(revision => Number(revision.id) !== Number(note.clinical_version_id) && (revision.approval || revision.status === 'original' || includeDrafts)).map(revision => `<section class="amendment"><h3>Clinical version ${escape(revision.revisionNumber)} — ${escape(revision.status)}</h3><p>${escape(revision.reason || 'Original clinical record')} · entered ${escape(revision.createdAt)}</p>${clinicalPayloadHtml(revision.snapshot?.notePayload)}${clinicalValueHtml({ approval: revision.approval, signatures: revision.signatures?.map(signature => ({ action: signature.action, signedBy: names[signature.actorUserId] || `User ${signature.actorUserId}`, signedAt: signature.signedAt })) })}</section>`).join('');
-    return `<article class="note${draft ? ' draft' : ''}${singleDocument && index === 0 ? ' single-document-note' : ''}"><p class="eyebrow">${draft ? 'UNSIGNED DRAFT — NOT A SIGNED CLINICAL RECORD' : 'Clinical note'}${note.clinical_version_number ? ` · approved version ${escape(note.clinical_version_number)}` : ''}</p><h2>${escape(note.title || 'Clinical note')}</h2><div class="encounter-header">${clinicalValueHtml(header)}</div><section>${clinicalPayloadHtml(note.note_payload)}</section>${payload?.meta ? `<h3>Documented responses</h3>${clinicalValueHtml(payload.meta)}` : ''}${Object.keys(clinicalMetadata).length ? `<details open><summary>Confirmed encounter details and structured responses</summary>${clinicalValueHtml(clinicalMetadata)}</details>` : ''}${signatureHtml(note, names)}${entries}${history}</article>`;
+    return `<article class="note${draft ? ' draft' : ''}${singleDocument && index === 0 ? ' single-document-note' : ''}"><p class="eyebrow">${draft ? 'UNSIGNED DRAFT — NOT A SIGNED CLINICAL RECORD' : recordType === 'tutoring' ? 'Tutoring note' : 'Clinical note'}${note.clinical_version_number ? ` · approved version ${escape(note.clinical_version_number)}` : ''}</p>${singleDocument && index === 0 ? '' : `<h2>${escape(note.title || 'Clinical note')}</h2>`}<div class="encounter-header">${clinicalValueHtml(header)}</div><section>${clinicalPayloadHtml(note.note_payload)}</section>${payload?.meta ? `<h3>Documented responses</h3>${clinicalValueHtml(payload.meta)}` : ''}${Object.entries(clinicalMetadata).map(([label, value]) => label === metadataLabels.structuredChart || label === metadataLabels.sessionContext ? clinicalValueHtml(value) : clinicalValueHtml({ [label]: value })).filter(Boolean).map(content => `<section class="structured-responses">${content}</section>`).join('')}${signatureHtml(note, names, recordType)}${entries}${history}</article>`;
   }).join('');
   const planBody = plans.map(plan => `<article class="note${plan.status === 'draft' ? ' draft' : ''}"><p class="eyebrow">Treatment plan · ${escape(plan.status)}${!plan.provider_signed_at ? ' · provider signature not recorded' : ''}</p><h2>${escape(plan.title || 'Treatment plan')}</h2>${clinicalValueHtml({ effectiveDate: plan.effective_date, presentingProblem: plan.presentingProblem || plan.presenting_problem, diagnosis: plan.planDiagnoses?.map(diagnosis => ({ code: diagnosis.icd10_code, description: diagnosis.description, justification: diagnosis.justification })), diagnosticJustification: plan.diagnosticJustification || plan.diagnostic_justification, prescribedFrequency: plan.prescribedFrequency || plan.prescribed_frequency, goals: plan.goals, dischargePlan: plan.dischargePlan || plan.discharge_plan, providerSignedAt: plan.provider_signed_at, supervisorSignedAt: plan.supervisor_signed_at || plan.supervisor_cosigned_at, providerSignoff: plan.providerSignoff, supervisorSignoff: plan.supervisorSignoff, historicalRecordOnFile: plan.legacyRecordOnFile })}</article>`).join('');
-  return `<style>html,body{background:#fff!important;color-scheme:light}body{font-family:Arial,sans-serif;color:#17324a;font-size:10.5pt;line-height:1.5}h1{font-size:25pt;color:#123d66}h2{font-size:17pt;border-bottom:2px solid #d4a62c;padding-bottom:7px}h3{font-size:12pt;color:#164f7e}.cover{padding:18px 0 24px}.cover>dl,.encounter-header>dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px}.encounter-header{padding:8px 14px;border:1px solid #d1dce6;border-radius:8px;background:#f5f8fb}.encounter-header .field{margin:3px 0}.single-document-note{page-break-before:auto!important}.eyebrow{font-size:9pt;letter-spacing:.06em;text-transform:uppercase;color:#536b7e}.note{page-break-before:always}.field{margin:8px 0;break-inside:auto}dt{font-weight:bold;color:#264960}dd{margin:3px 0 7px 12px;overflow-wrap:anywhere}dl dl{margin-left:8px}ol{padding-left:24px}.signatures,.amendment{margin-top:22px;border-top:1px solid #c5d3de;padding-top:12px;break-inside:auto}.draft{border-top:4px solid #b96223}.draft>.eyebrow{color:#a24f12}table{border-collapse:collapse;width:100%;font-size:9pt}th,td{text-align:left;border-bottom:1px solid #d1dce6;padding:9px;overflow-wrap:anywhere}summary{font-weight:bold;margin-top:18px}</style><section class="cover"><p class="eyebrow">${escape(agency.name || 'Clinical practice')} · confidential clinical information</p><h1>${escape(recordTitle)}</h1><h2>${escape(clientName)}</h2>${clinicalValueHtml({ dateOfBirth: client.date_of_birth, recordPrepared: exportedAt, agency: agency.name, noteCount: notes.length, treatmentPlanCount: plans.length })}<p>Approved clinical content is shown with its signature and amendment history. ${includeDrafts ? 'Unsigned drafts and proposed changes are clearly identified.' : 'Unsigned progress notes and unapproved proposed amendments are excluded. Treatment plans display their recorded signature state.'} Original attached files are embedded in this PDF; supported PDFs and images also appear as appendix pages.</p></section>${body}${diagnoses.length ? `<article class="note"><h2>Diagnosis history</h2>${clinicalValueHtml(diagnoses)}</article>` : ''}${planBody}${singleDocument && !manifest.length ? '' : `<article class="note"><h2>Supporting documents and attachment manifest</h2>${manifest.length ? `<table><thead><tr><th>Document</th><th>Included content</th><th>Integrity</th></tr></thead><tbody>${manifest.map(item => `<tr><td>${escape(item.name)}</td><td>${escape(item.disposition)}</td><td>${item.sha256 ? escape(item.sha256) : escape(item.reason || '')}</td></tr>`).join('')}</tbody></table>` : '<p>No supporting documents were linked to the exported scope.</p>'}</article>`}`;
+  const identity = clinicalValueHtml({ dateOfBirth: client.date_of_birth, prepared: exportedAt, ...(!singleDocument ? { notes: notes.length, treatmentPlans: plans.length } : {}) });
+  const legend = singleDocument ? '' : `<p class="record-scope">Approved content includes its signature and amendment history. ${includeDrafts ? 'Unsigned drafts and proposed changes are identified.' : 'Unsigned progress notes and proposed amendments are excluded; treatment plans show their recorded approval state.'} Attachment originals are embedded; supported PDFs and images also follow as appendix pages.</p>`;
+  return `<title>${escape(agencyName(agency))} · ${escape(recordTitle)}</title><style>
+    html,body{background:#fff!important;color-scheme:light}body{font-family:Arial,Helvetica,sans-serif;color:#25343d;font-size:9.5pt;line-height:1.26;margin:0}
+    *{box-sizing:border-box}h1{font-size:18pt;line-height:1.14;color:${colors.primaryColor};margin:0 0 5px}h2{font-size:13pt;color:${colors.primaryColor};border-bottom:1px solid #cbd5dc;padding-bottom:4px;margin:11px 0 7px}h3{font-size:10pt;color:${colors.primaryColor};margin:8px 0 4px}
+    .cover{padding:0 0 7px;margin-bottom:5px;border-bottom:1px solid ${colors.accentColor}}.cover h2{font-size:11pt;display:inline-block;margin:0 12px 3px 0;border:0;padding:0}.cover>dl{margin:2px 0;display:flex;flex-wrap:wrap;gap:3px 18px}.cover>dl>.field{margin:0;display:flex;gap:5px}.cover>dl dd{margin:0}.cover>dl dt{font-weight:normal;color:#52606b}
+    .encounter-header{padding:6px 9px;border:1px solid #d1dce2;border-radius:4px;background:#f6f8f9;margin:5px 0 9px}.encounter-header>dl{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 14px}.encounter-header .field{margin:0}.encounter-header dt{font-size:8pt;font-weight:normal;color:#52606b}.encounter-header dd{margin:1px 0 0;font-weight:600}
+    .single-document-note>.eyebrow{display:none}.eyebrow{font-size:7.5pt;letter-spacing:.035em;text-transform:uppercase;color:#52606b;margin:3px 0 5px}.note{page-break-before:always}.single-document-note{page-break-before:auto!important}.field{margin:2px 0;min-width:0}.field--wide{grid-column:1/-1}.field--compact>dt,.field--compact>dd{display:inline}.field--compact>dt::after{content:": "}.field--compact>dd{margin:0}.encounter-header .field--compact>dt,.encounter-header .field--compact>dd{display:block}.encounter-header .field--compact>dt::after{content:none}.structured-responses{margin-top:7px}dt{font-weight:600;color:${colors.primaryColor}}dd{margin:2px 0 0;overflow-wrap:anywhere}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 16px;margin:0}dl dl{margin-top:3px}ol{padding-left:18px;margin:3px 0}li{margin-bottom:3px}
+    .signatures,.amendment{margin-top:9px;border-top:1px solid #cbd5dc;padding-top:6px}.signatures{font-size:8.5pt;break-inside:avoid}.signatures p{margin:3px 0}.amendment p{margin:4px 0}.draft{border-top:2px solid #936027}.draft>.eyebrow{color:#80551f}p{margin:4px 0}.record-scope{font-size:8pt;color:#52606b;margin-top:6px}.sample-note{font-size:8pt;color:#52606b;margin:2px 0 5px}table{border-collapse:collapse;width:100%;font-size:8.5pt}th,td{text-align:left;border-bottom:1px solid #d1dce6;padding:5px;overflow-wrap:anywhere}summary{font-weight:600;font-size:8.5pt;margin-top:7px}details>dl{margin-top:4px}h1,h2,h3,dt,summary{break-after:avoid}section>dl>.field--wide{break-inside:auto}
+  </style><section class="cover"><h1>${escape(recordTitle)}</h1><h2>${escape(clientName)}</h2>${identity}${legend}</section>${body}${diagnoses.length ? `<article class="note"><h2>Diagnosis history</h2>${clinicalValueHtml(diagnoses)}</article>` : ''}${planBody}${singleDocument && !manifest.length ? '' : `<article class="note"><h2>Supporting documents and attachment manifest</h2>${manifest.length ? `<table><thead><tr><th>Document</th><th>Included content</th><th>Integrity</th></tr></thead><tbody>${manifest.map(item => `<tr><td>${escape(item.name)}</td><td>${escape(item.disposition)}</td><td>${item.sha256 ? escape(item.sha256) : escape(item.reason || '')}</td></tr>`).join('')}</tbody></table>` : '<p>No supporting documents were linked to the exported scope.</p>'}</article>`}`;
 }
 
-export async function generateClinicalRecordPdf(input, { renderHtml } = {}) {
+export async function generateClinicalRecordPdf(input, { renderHtml, resolveBrand = async agency => (await import('./packetBrandChrome.service.js')).resolvePacketBrandChrome(agency) } = {}) {
   const attachments = input.attachments || [];
   if (attachments.reduce((total, attachment) => total + (attachment.buffer?.length || 0), 0) > 100 * 1024 * 1024) throw Object.assign(new Error('This record exceeds the 100 MB export limit. Export a smaller date range.'), { status: 413 });
   const manifest = [...(input.manifest || [])];
@@ -83,12 +125,24 @@ export async function generateClinicalRecordPdf(input, { renderHtml } = {}) {
     renderable.push({ ...attachment, pages, image });
   }
   const html = buildClinicalRecordHtml({ ...input, manifest });
-  let bytes;
-  if (renderHtml) bytes = await renderHtml(html);
-  else {
-    const branded = await DocumentSigningService.applyPacketBrandChromeToHtml(html, { agencyId: input.agency.id, includeVersion: false });
-    bytes = await DocumentSigningService.convertHTMLToPDF(branded.html, { ...branded.pdfOptions, disableFallback: true, documentType: 'clinical_medical_record', branding: { agencyId: input.agency.id } });
+  let brand = await resolveBrand(input.agency || {});
+  const sourceLogo = [brand?.headerLogoDataUrl, brand?.headerImageDataUrl].find(value => /^data:image\/(?:png|jpe?g|webp);base64,/i.test(String(value || '')));
+  if (sourceLogo) {
+    // Print-sized copy only; uploaded agency artwork remains untouched. Large
+    // poster-resolution logos should not inflate every clinical-note download.
+    try {
+      const { default: sharp } = await import('sharp');
+      const buffer = await sharp(Buffer.from(sourceLogo.split(',')[1], 'base64')).resize({ width: 630, height: 102, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+      brand = { ...brand, headerLogoDataUrl: `data:image/png;base64,${buffer.toString('base64')}` };
+    } catch {
+      // A damaged logo must not prevent access to the clinical record. The
+      // agency's own name remains the header identity, with no platform fallback.
+      brand = { ...brand, headerLogoDataUrl: null, headerImageDataUrl: null };
+    }
   }
+  const pdfOptions = clinicalRecordPrintOptions({ ...input, brand });
+  const bytes = renderHtml ? await renderHtml(html, pdfOptions)
+    : await DocumentSigningService.convertHTMLToPDF(html, { ...pdfOptions, disableFallback: true, documentType: 'clinical_medical_record', branding: { agencyId: input.agency?.id } });
   const pdf = await PDFDocument.load(bytes);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const basePageCount = pdf.getPageCount();
@@ -103,7 +157,9 @@ export async function generateClinicalRecordPdf(input, { renderHtml } = {}) {
     }
   }
   for (let index = basePageCount; index < pdf.getPageCount(); index++) pdf.getPage(index).drawText(`CONFIDENTIAL - Clinical record attachment | Page ${index + 1} of ${pdf.getPageCount()}`, { x: 28, y: 12, size: 7, font, color: rgb(.25, .33, .4) });
-  pdf.setTitle(input.recordTitle || 'Medical record');
-  pdf.setSubject('Clinical record with amendment history and original supporting files');
+  pdf.setTitle(`${agencyName(input.agency || {})} — ${input.recordTitle || 'Medical record'}`);
+  pdf.setAuthor(agencyName(input.agency || {}));
+  pdf.setCreator(agencyName(input.agency || {}));
+  pdf.setSubject(`${input.recordType === 'tutoring' ? 'Learning' : 'Clinical'} record with amendment history and original supporting files`);
   return pdf.save();
 }
