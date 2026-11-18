@@ -4,6 +4,7 @@ import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
 import {DEFAULT_STANDARD_QUESTIONS,normalizeQuestionList} from './interviewHub.service.js';
 import {jobInterviewSettings} from '../utils/jobInterviewSettingsPolicy.js';
+import {appendPlotlineHiringEvent} from './plotlineHiringAudit.service.js';
 
 export function parsePostingInterviewSettings(body) {
   if(body?.interviewGuideJson===undefined)return undefined;
@@ -24,6 +25,7 @@ export async function updateJobWithInterviewQuestions({agencyId,jobId,patch,sett
       title:`${patch.title || job.title} interview guide`,questionsJson:settings.questions,scorecardCriteriaJson:settings.criteria,
       createdByUserId:actorUserId,executor:conn});
     const saved=await HiringJobDescription.findById(jobId,conn);
+    await appendPlotlineHiringEvent(conn,{agencyId,actorUserId,action:'plotline.job_updated',objectId:jobId,metadata:{jobId,questionsUpdated:settings!==undefined}});
     await conn.commit();return saved;
   }catch(error){await conn.rollback();throw error;}finally{conn.release();}
 }
@@ -47,6 +49,7 @@ export async function replaceJobWithInterviewQuestions({previousJobId,input,preh
       createdByUserId:input.createdByUserId,executor:conn});
     await HiringJobDescription.updateById(previousJobId,{isActive:false},conn);
     const saved=await HiringJobDescription.findById(created.id,conn);
+    await appendPlotlineHiringEvent(conn,{agencyId:input.agencyId,actorUserId:input.createdByUserId,action:'plotline.job_version_created',objectId:created.id,metadata:{jobId:created.id,previousJobId}});
     await conn.commit();return saved;
   }catch(error){await conn.rollback();throw error;}finally{conn.release();}
 }
@@ -75,6 +78,7 @@ export async function createJobWithInterviewQuestions(input,{db=pool}={}) {
     if(typeof questions==='string')questions=JSON.parse(questions);
     await InterviewHubJobQuestionSet.saveDefaultForJob({agencyId:input.agencyId,jobDescriptionId:job.id,title:`${job.title} interview guide`,
       questionsJson:starterInterviewQuestions(template?{standard_questions_json:questions}:null),createdByUserId:input.createdByUserId,onlyIfMissing:true,executor:conn});
+    await appendPlotlineHiringEvent(conn,{agencyId:input.agencyId,actorUserId:input.createdByUserId,action:'plotline.job_created',objectId:job.id,metadata:{jobId:job.id}});
     await conn.commit();
     return job;
   }catch(error){await conn.rollback();throw error;}

@@ -3,6 +3,9 @@
  */
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import {readAgencyAccess} from './agencyAccessProfiles.service.js';
+import {applyAgencyAccess} from '../utils/agencyAccessPolicy.js';
+import {getUserCapabilities} from '../utils/capabilities.js';
 
 const HIRE_STATUSES = new Set([
   'PROSPECTIVE',
@@ -58,7 +61,7 @@ function attentionTab(bucket, days) {
   return 'progress';
 }
 
-export async function loadPipelineBoard({ userId, role } = {}) {
+export async function loadPipelineBoard({ userId, role, agencyId = null } = {}) {
   const r = String(role || '').toLowerCase();
   let agencies = [];
   try {
@@ -71,7 +74,7 @@ export async function loadPipelineBoard({ userId, role } = {}) {
     .map((a) => ({ id: Number(a.id), name: a.name || `Agency ${a.id}` }))
     .filter((a) => a.id);
 
-  if (!agencies.length && (r === 'super_admin' || r === 'support')) {
+  if (!agencies.length && r === 'super_admin') {
     const [rows] = await pool.execute(
       `SELECT id, name FROM agencies
        WHERE (organization_type IS NULL OR organization_type = 'agency')
@@ -80,6 +83,19 @@ export async function loadPipelineBoard({ userId, role } = {}) {
        LIMIT 80`
     );
     agencies = (rows || []).map((a) => ({ id: Number(a.id), name: a.name }));
+  }
+
+  if (agencyId != null) agencies = agencies.filter(a => a.id === Number(agencyId));
+  // Each company needs its own hiring grant; the selected role cannot grant
+  // aggregate access to private hiring records at another membership.
+  if (r !== 'super_admin' && agencies.length) {
+    const user = await User.findById(userId);
+    const permitted = await Promise.all(agencies.map(async agency => {
+      const access = await readAgencyAccess(userId, agency.id);
+      const scopedUser = applyAgencyAccess(user, access);
+      return !!access && getUserCapabilities(scopedUser, {effectiveRole: access.role || scopedUser?.role}).canManageHiring;
+    }));
+    agencies = agencies.filter((_, index) => permitted[index]);
   }
 
   if (!agencies.length) {
@@ -117,6 +133,7 @@ export async function loadPipelineBoard({ userId, role } = {}) {
        (
          SELECT COUNT(*) FROM tasks t
          WHERE t.assigned_to_user_id = u.id
+           AND t.assigned_to_agency_id = a.id
            AND t.task_type = 'document'
            AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
            AND t.status != 'completed'
@@ -124,6 +141,7 @@ export async function loadPipelineBoard({ userId, role } = {}) {
        (
          SELECT COUNT(*) FROM tasks t
          WHERE t.assigned_to_user_id = u.id
+           AND t.assigned_to_agency_id = a.id
            AND t.task_type = 'document'
            AND t.document_action_type = 'signature'
            AND t.status != 'completed'
@@ -134,10 +152,14 @@ export async function loadPipelineBoard({ userId, role } = {}) {
      LEFT JOIN hiring_profiles hp ON hp.id = (
        SELECT hp_latest.id FROM hiring_profiles hp_latest
        WHERE hp_latest.candidate_user_id = u.id
+         AND (hp_latest.job_description_id IS NULL OR EXISTS (
+           SELECT 1 FROM hiring_job_descriptions scoped_job
+           WHERE scoped_job.id = hp_latest.job_description_id AND scoped_job.agency_id = a.id
+         ))
        ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
        LIMIT 1
      )
-     LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+     LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = a.id
      WHERE a.id IN (${placeholders})
        AND (u.is_archived = 0 OR u.is_archived IS NULL)
        AND u.status != 'ARCHIVED'

@@ -31,3 +31,10 @@ jobs:
           SKIP_DB_CONNECT: '1'
       - name: Customer setup and shared brand checks
         run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-self-service.config.js
+      - name: Hiring company scope, audit and form recovery
+        run: frontend/node_modules/.bin/vitest run --config backend/vitest.plotline-r3.config.js
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+          SKIP_DB_CONNECT: '1'
+      - name: Interviewer entry and round 4 UI regressions
+        run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-r4.config.js

@@ -32,7 +32,9 @@
     </div>
 
     <PeopleOpsPipelineCard
+      v-if="effectiveAgencyId"
       class="hd-pipeline-board"
+      :agency-id="effectiveAgencyId"
       :hiring-path="orgPath('/admin/hiring')"
     />
 
@@ -381,7 +383,11 @@ function goOnboarding() {
   router.push(orgPath('/admin/onboarding'));
 }
 
+let loadVersion = 0;
 async function load() {
+  const version = ++loadVersion;
+  const agencyId = effectiveAgencyId.value;
+  stats.value = {openJobs:0,totalApplicants:0,pendingReviews:0,upcomingInterviewsCount:0,stageCounts:{},jobs:[],upcomingInterviews:[],recentApplicants:[],pipeline:[]};
   if (!effectiveAgencyId.value) {
     error.value = 'Select an agency to view hiring stats.';
     return;
@@ -389,7 +395,8 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const r = await api.get('/hiring/dashboard', { params: { agencyId: effectiveAgencyId.value } });
+    const r = await api.get('/hiring/dashboard', { params: { agencyId } });
+    if (version !== loadVersion) return;
     stats.value = {
       openJobs: r.data?.openJobs || 0,
       totalApplicants: r.data?.totalApplicants || 0,
@@ -402,9 +409,10 @@ async function load() {
       pipeline: r.data?.pipeline || []
     };
   } catch (e) {
+    if (version !== loadVersion) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load hiring dashboard';
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 

@@ -288,7 +288,7 @@ export async function scheduleHiringInterview({
     ignoreScheduleHolds
   }, async () => true);
 
-  try {
+  if (sendInvites) try {
     const gcal = await GoogleCalendarService.createProviderScheduleEvent({
       subjectEmail: calendarSender,
       startAt: wallStart.includes('T') ? wallStart : wallStart.replace(' ', 'T'),
@@ -489,6 +489,7 @@ export async function scheduleHiringInterview({
     flow,
     scheduleEvent: saved,
     publicJoinUrl,
-    hostJoinUrl, delivery, calendarWarning
+    hostJoinUrl, delivery, calendarWarning,
+    calendar: { requested: !!sendInvites, created: !!googleEventId }
   };
 }

@@ -1505,6 +1505,10 @@ async function resolveAndRedirect() {
     );
     const data = resp?.data || {};
     const slug = String(data.orgSlug || '').trim();
+    if (route.query?.staff === '1' && data.isInterviewer !== true) {
+      error.value = 'Your signed-in account is not an assigned interviewer or hiring manager for this interview.';
+      return 'error';
+    }
     // Assigned interviewers keep their current authenticated origin. Tenant
     // branding still comes from the event; cookies cannot cross tenant domains.
     if (data.canonicalJoinUrl && data.isInterviewer !== true) {

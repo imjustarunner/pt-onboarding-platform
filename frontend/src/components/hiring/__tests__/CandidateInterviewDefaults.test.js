@@ -19,12 +19,13 @@ it('selects the applied job guide and exposes the inline editor in the interview
 it('submits the individual questions chosen in the candidate scheduler',async()=>{
  wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45,jobTitle:'Counselor'},global:{stubs:{RouterLink:true}}});await flushPromises();
  await wrapper.get('[aria-label="Next question set"]').trigger('click');
- await wrapper.findAll('button').find(button=>button.text()==='Schedule & send invitations').trigger('click');await flushPromises();
+ await wrapper.findAll('button').find(button=>button.text()==='Save without sending').trigger('click');await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/hiring/interview-hub/interviews',expect.objectContaining({candidateUserId:31,jobQuestionSetId:null,questionSelection:[{setId:null,questionKey:'motivation',fingerprint:'starter'}]}));
 });
 it('disables invitations after a failed preview while allowing save without sending and cancel',async()=>{
  wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45,jobTitle:'Counselor'},global:{stubs:{RouterLink:true}}});await flushPromises();
  wrapper.findComponent(Preview).vm.$emit('availability',false);await flushPromises();
+ await wrapper.findAll('input[type=checkbox]').at(-1).setValue(true);
  const submit=()=>wrapper.findAll('button').find(button=>button.text()==='Schedule & send invitations');
  expect(submit().attributes('disabled')).toBeDefined();
  await wrapper.findAll('input[type=checkbox]').at(-1).setValue(false);
@@ -34,7 +35,7 @@ it('disables invitations after a failed preview while allowing save without send
 it('requires saving or canceling pending job question edits before scheduling',async()=>{
  wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45},global:{stubs:{RouterLink:true}}});await flushPromises();
  wrapper.findComponent(Guide).vm.$emit('dirty-change',true);await flushPromises();
- expect(wrapper.findAll('button').find(button=>button.text()==='Schedule & send invitations').attributes('disabled')).toBeDefined();
+ expect(wrapper.findAll('button').find(button=>button.text()==='Save without sending').attributes('disabled')).toBeDefined();
  expect(wrapper.text()).toContain('Save or cancel the edited job questions');expect(api.post).not.toHaveBeenCalled();
 });
 it('shows the scheduled interview snapshot separately from the job’s current default',async()=>{
@@ -43,4 +44,17 @@ it('shows the scheduled interview snapshot separately from the job’s current d
  wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45},global:{stubs:{RouterLink:true}}});await flushPromises();
  expect(wrapper.get('.cip-saved-questions').text()).toContain('Previously saved interview question');
  expect(wrapper.get('.cip-saved-questions').text()).not.toContain('Applied job question?');
+});
+it('uses a separate same-origin staff link and keeps the candidate link distinct',async()=>{
+ const original=api.get.getMockImplementation();
+ api.get.mockImplementation(async(url,...args)=>url.endsWith('/interviews')?{data:{data:[{id:50,status:'scheduled',public_join_url:'https://plotlinepo.com/interview/juniper/video/candidate-token',host_join_url:'https://plotlinepo.com/interview/juniper/video/staff-token',interviewer_user_ids_json:[]}]}}:original(url,...args));
+ wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:463},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(wrapper.findAll('a').find(a=>a.text()==='Join as interviewer').attributes('href')).toBe('/interview/juniper/video/staff-token?staff=1');
+ expect(wrapper.findAll('a').find(a=>a.attributes('href')?.includes('candidate-token')).text()).toContain('candidate-token');
+});
+it('defaults to no sends and requires a current successful preview before enabling invitations',async()=>{
+ wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45},global:{stubs:{RouterLink:true}}});await flushPromises();
+ const checkbox=wrapper.findAll('input[type=checkbox]').at(-1);expect(checkbox.element.checked).toBe(false);
+ await checkbox.setValue(true);const submit=()=>wrapper.findAll('button').find(b=>b.text()==='Schedule & send invitations');expect(submit().attributes('disabled')).toBeDefined();
+ wrapper.findComponent(Preview).vm.$emit('availability',true);await flushPromises();expect(submit().attributes('disabled')).toBeUndefined();
 });

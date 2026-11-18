@@ -1078,10 +1078,15 @@ export const getDashboardStats = async (req, res, next) => {
 
 export const getPipelineBoard = async (req, res, next) => {
   try {
+    const raw = req.query?.agencyId ?? req.user?.scopedAgencyId;
+    if (raw != null && !/^[1-9]\d*$/.test(String(raw))) return res.status(400).json({ error: { message: 'Choose a valid company.' } });
+    const agencyId = raw == null ? null : Number(raw);
+    if (agencyId) await ensureAgencyAccess(req, agencyId);
     const { loadPipelineBoard } = await import('../services/hiringPipelineBoard.service.js');
     const board = await loadPipelineBoard({
       userId: req.user?.id,
-      role: req.user?.role
+      role: req.user?.role,
+      agencyId
     });
     res.json(board);
   } catch (e) {
@@ -1173,7 +1178,7 @@ export const createCandidate = async (req, res, next) => {
     const appliedRole = req.body?.appliedRole !== undefined ? String(req.body.appliedRole || '').trim() : null;
     const source = req.body?.source !== undefined ? String(req.body.source || '').trim() : null;
     const stage = req.body?.stage !== undefined ? String(req.body.stage || '').trim() : 'applied';
-    const role = req.body?.role ? String(req.body.role).trim() : 'provider';
+    const role = req.plotlineCompanyId ? 'staff' : (req.body?.role ? String(req.body.role).trim() : 'provider');
     const jobDescriptionId = req.body?.jobDescriptionId !== undefined && req.body?.jobDescriptionId !== null && req.body?.jobDescriptionId !== ''
       ? parseIntParam(req.body.jobDescriptionId)
       : null;

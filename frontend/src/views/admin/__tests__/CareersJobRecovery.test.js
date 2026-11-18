@@ -53,3 +53,13 @@ it('recovers failed list reads after server-confirmed resume without changing sa
   window.dispatchEvent(new Event('pt:session-resumed'));await flushPromises();
   expect(wrapper.text()).toContain('Retained guide job');expect(state.post).not.toHaveBeenCalled();
 });
+it('shows structured About text in the saved job row',async()=>{
+ saved.push({id:42,title:'Consultant',isActive:true,descriptionText:null,descriptionSections:{aboutTheRole:'Saved structured role description'}});
+ await start();expect(wrapper.get('#job-42').text()).toContain('Saved structured role description');
+});
+it('confirms the saved form ID on the jobs page without silently navigating away',async()=>{
+ saved.push({id:42,title:'Consultant',isActive:true});await start();state.post.mockResolvedValue({data:{created:true,link:{id:364}}});
+ await wrapper.findAll('#job-42 button').find(b=>b.text()==='Create form').trigger('click');await flushPromises();
+ expect(wrapper.get('.job-form-notice').text()).toContain('Application form #364 is ready for job #42');
+ expect(state.post).toHaveBeenCalledWith('/intake-links/from-job/42');expect(jobPosts()).toHaveLength(0);
+});

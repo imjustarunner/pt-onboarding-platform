@@ -44,6 +44,7 @@
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+    <p v-if="formNotice" role="status" class="job-form-notice">{{ formNotice }}</p>
 
     <section v-if="showPageSettings" class="panel agency-careers-panel">
       <div class="config-header">
@@ -319,11 +320,11 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in jobRows" :key="row.id">
+          <tr v-for="row in jobRows" :key="row.id" :id="`job-${row.id}`">
             <td>
               <button type="button" class="job-edit-link" @click="openEdit(row)">{{ row.title }}</button>
               <div class="muted small">Job #{{ row.id }}</div>
-              <div class="muted small">{{ row.descriptionText || 'No description yet.' }}</div>
+              <div class="muted small">{{ row.descriptionText || row.descriptionSections?.aboutTheRole || 'No description yet.' }}</div>
             </td>
             <td>
               <span class="pill" :class="schedulePillClass(row)">
@@ -838,6 +839,7 @@ const savingEdit = ref(false);
 const savingAgencyCareers = ref(false);
 const error = ref('');
 const createNotice = ref('');
+const formNotice = ref('');
 const createError = ref('');
 const pendingJob = ref(null);
 const createUncertain = ref(false);
@@ -1589,6 +1591,8 @@ const openForm = async (row) => {
       const ensured = await ensureApplicationLink(row.id);
       linkId = Number(ensured?.id || 0) || null;
       await refresh();
+      formNotice.value = `Application form #${linkId} is ready for job #${row.id} (${row.title}). Select Form in that row to open the editor.`;
+      return;
     }
     if (!linkId) {
       error.value = 'Unable to create/open the digital form for this job.';

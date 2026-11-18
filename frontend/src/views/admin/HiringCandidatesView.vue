@@ -28,6 +28,7 @@
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+    <p v-if="createNotice" role="status">{{ createNotice }}</p>
 
     <div class="grid" :class="{ 'grid--embedded': embeddedDetailOnly }" data-tour="hiring-grid">
       <div v-if="!embeddedDetailOnly" class="panel list-panel" data-tour="hiring-list-panel">
@@ -125,6 +126,7 @@
                   <div class="detail-role muted">
                     {{ detail.jobDescription?.title || detail.profile?.applied_role || 'Applicant' }}
                   </div>
+                  <div class="detail-role muted">Applicant #{{ detail.user?.id }} · {{ agencyChoices.find(a => Number(a.id) === Number(effectiveAgencyId))?.name || `Company #${effectiveAgencyId}` }}<span v-if="detail.jobDescription?.id"> · Job #{{ detail.jobDescription.id }}</span> · Account role: {{ detail.user?.role || 'Not available' }}</div>
                   <div class="detail-meta contact-meta">
                     <span v-if="detail.user?.personal_email || detail.user?.email">{{ detail.user?.personal_email || detail.user?.email }}</span>
                     <span v-if="detail.user?.phone_number">{{ detail.user.phone_number }}</span>
@@ -2062,6 +2064,8 @@ const closeCreate = () => {
   showCreate.value = false;
 };
 
+const createNotice = ref('');
+watch(effectiveAgencyId, () => { createNotice.value = ''; });
 const createApplicant = async () => {
   if (!effectiveAgencyId.value) {
     createError.value = 'No agency selected. Please pick an agency in the header selector and try again.';
@@ -2085,6 +2089,7 @@ const createApplicant = async () => {
     }
     const r = await api.post('/hiring/candidates', body);
     const newId = r.data?.user?.id;
+    createNotice.value = `Applicant #${newId} ${r.data?.reusedExistingAccount ? 'reused' : 'created'}${r.data?.profile?.job_description_id ? ` for job #${r.data.profile.job_description_id}` : ''}.`;
     closeCreate();
     await refresh();
     if (newId) await selectCandidate(newId);

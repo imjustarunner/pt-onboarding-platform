@@ -65,7 +65,7 @@ describe('interview scheduling delivery', () => {
   it('reports calendar failures while retaining a usable emailed interview', async () => { m.calendar.mockResolvedValue({ ok: false }); const result = await scheduleHiringInterview(args); expect(result.calendarWarning).toContain('Calendar invitation was not created'); expect(result.delivery.sent).toBe(true); });
   it('fails before any meeting or delivery if PO is missing', async () => { m.sender.mockRejectedValue(new Error('PO missing')); await expect(scheduleHiringInterview(args)).rejects.toThrow('PO missing'); expect(m.calendar).not.toHaveBeenCalled(); expect(m.event).not.toHaveBeenCalled(); });
   it('validates candidate tenancy and rejects candidates as interviewers', async () => { m.agencies.mockResolvedValue([{ id: 9 }]); await expect(scheduleHiringInterview(args)).rejects.toThrow('Candidate is not'); m.agencies.mockResolvedValue([{ id: 4 }]); await expect(scheduleHiringInterview({ ...args, interviewerUserIds: [30] })).rejects.toThrow('candidate cannot'); expect(m.event).not.toHaveBeenCalled(); });
-  it('saves without sending invitations when requested', async () => { const result = await scheduleHiringInterview({ ...args, sendInvites: false }); expect(m.invite).not.toHaveBeenCalled(); expect(m.calendar.mock.calls[0][0].sendUpdates).toBe('none'); expect(m.append.mock.calls[0][0].sendUpdates).toBe('none'); expect(m.append.mock.calls[0][0].attendeeDetails).toBeNull(); expect(result.delivery.sent).toBe(false); });
+  it('saves without sending invitations when requested', async () => { const result = await scheduleHiringInterview({ ...args, sendInvites: false }); expect(m.invite).not.toHaveBeenCalled(); expect(m.calendar).not.toHaveBeenCalled(); expect(m.append).not.toHaveBeenCalled(); expect(result.delivery.sent).toBe(false); });
   it('books over an app schedule hold when the scheduler confirms', async () => {
     await scheduleHiringInterview({ ...args, overrideScheduleHolds: true });
     expect(m.window.mock.calls[0][0].ignoreScheduleHolds).toBe(true);
@@ -85,4 +85,8 @@ describe('interview scheduling delivery', () => {
     expect(m.invite).not.toHaveBeenCalled();
     expect(m.remove).toHaveBeenCalledWith(expect.objectContaining({ subjectEmail: '11@tenant.org', eventId: 'calendar-1', sendUpdates: 'none' }));
   });
+});
+it('save without sending never touches Google Calendar and reports an explicit not-requested result',async()=>{
+ const result=await scheduleHiringInterview({...args,sendInvites:false});
+ expect(m.calendar).not.toHaveBeenCalled();expect(m.append).not.toHaveBeenCalled();expect(m.invite).not.toHaveBeenCalled();expect(result.calendarWarning).toBeNull();expect(result.calendar).toEqual({requested:false,created:false});
 });

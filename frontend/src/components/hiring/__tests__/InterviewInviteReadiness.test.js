@@ -12,3 +12,10 @@ it('reports sender preview failure to the scheduling form and permits explicit r
   state.post.mockResolvedValue({data:{data:{from:'verified@example.test',subject:'QA',html:'<p>QA</p>'}}});
   await wrapper.get('button').trigger('click');await flushPromises();expect(wrapper.emitted('availability').at(-1)).toEqual([true]);
 });
+it('invalidates readiness when the recipient changes and ignores a stale preview',async()=>{
+ let resolve;state.post.mockImplementationOnce(()=>new Promise(r=>resolve=r));
+ wrapper=mount(Preview,{props:{agencyId:463,candidateUserId:9}});await wrapper.get('button').trigger('click');
+ await wrapper.setProps({candidateUserId:10});
+ resolve({data:{data:{from:'verified@example.test',html:'<p>Wrong candidate preview</p>'}}});await flushPromises();
+ expect(wrapper.find('iframe').exists()).toBe(false);expect(wrapper.emitted('availability').at(-1)).toEqual([false]);
+});

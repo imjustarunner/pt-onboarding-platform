@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {appendPlotlineHiringEvent} from '../services/plotlineHiringAudit.service.js';
 import { sqlUnicodeParam } from '../utils/mysqlCollation.js';
 
 class IntakeLink {
@@ -115,6 +116,8 @@ class IntakeLink {
         [data.jobDescriptionId, data.organizationId]
       );
       const link = existing ? await this.findById(existing.id, connection) : await this.create(data, connection);
+      if (!existing) await appendPlotlineHiringEvent(connection,{agencyId:data.organizationId,actorUserId:data.createdByUserId,
+        action:'plotline.job_application_form_created',objectId:link.id,metadata:{jobId:data.jobDescriptionId,formId:link.id}});
       await connection.commit();
       return { link, created: !existing };
     } catch (error) {

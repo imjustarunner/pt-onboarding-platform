@@ -13,19 +13,22 @@
   </div>
 </template>
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: [Number, String], candidateUserId: [Number, String], title: String, startsAt: String, durationMinutes: Number, timezone: String, interviewerUserIds: Array });
 const emit = defineEmits(['availability']);
 const loading = ref(false);
 const error = ref('');
 const email = ref(null);
-watch(() => [props.agencyId, props.candidateUserId, props.title, props.startsAt, props.durationMinutes, props.timezone, props.interviewerUserIds], () => { email.value = null; error.value = ''; }, { deep: true });
+let previewVersion = 0;
+onBeforeUnmount(() => { previewVersion++; });
+watch(() => [props.agencyId, props.candidateUserId, props.title, props.startsAt, props.durationMinutes, props.timezone, props.interviewerUserIds], () => { previewVersion++; email.value = null; error.value = ''; loading.value = false; emit('availability', false); }, { deep: true });
 async function preview() {
+  const version = ++previewVersion;
   loading.value = true; error.value = ''; email.value = null; emit('availability', false);
-  try { const r = await api.post('/hiring/interview-hub/invite-preview', { ...props }); email.value = r.data.data; emit('availability', !!email.value); }
-  catch (e) { error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Could not prepare the invitation preview.'; }
-  finally { loading.value = false; }
+  try { const r = await api.post('/hiring/interview-hub/invite-preview', { ...props }); if(version!==previewVersion)return; email.value = r.data.data; emit('availability', !!email.value); }
+  catch (e) { if(version===previewVersion)error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Could not prepare the invitation preview.'; }
+  finally { if(version===previewVersion)loading.value = false; }
 }
 </script>
 <style scoped>

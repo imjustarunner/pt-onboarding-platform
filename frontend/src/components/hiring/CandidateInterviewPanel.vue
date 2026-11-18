@@ -99,9 +99,9 @@
         <h4>{{ interviewCardTitle(selected) }}</h4>
         <div class="cip-detail-actions">
           <a
-            v-if="selected.public_join_url"
+            v-if="interviewStaffLink(selected)"
             class="btn btn-primary btn-sm"
-            :href="selected.public_join_url"
+            :href="interviewStaffLink(selected)"
             target="_blank"
             rel="noopener"
           >
@@ -212,7 +212,7 @@
             </li>
           </ul>
         </div>
-        <div v-if="meetingTranscript || artifact.transcript_summary" class="notes-block">
+        <div v-if="meetingSummaryFromNotes || artifact.transcript_summary" class="notes-block">
           <h5>Interview summary & quoted artifacts</h5>
           <pre class="pre transcript-pre">{{ artifact.transcript_summary || meetingSummaryFromNotes }}</pre>
         </div>
@@ -285,6 +285,7 @@ import InterviewInvitePreview from './InterviewInvitePreview.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { interviewStaffLink } from '../../utils/interviewStaffLink';
 import { useAuthStore } from '../../store/auth';
 import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
 import { buildHiringInterviewTitle } from '../../utils/hiringInterviewTitle.js';
@@ -329,7 +330,7 @@ const interviewQuestions=ref(null),questionsReady=ref(false),questionsVersion=re
 const guideDirty=ref(false);
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
-const sendInvites = ref(true);
+const sendInvites = ref(false);
 const invitationAvailable = ref(null);
 const interviewRound = ref('initial');
 const roundLabelCustom = ref('');
@@ -381,7 +382,7 @@ const scheduleTitlePreview = computed(() => buildHiringInterviewTitle({
 
 const canSubmitSchedule = computed(() => {
   if(guideDirty.value)return false;
-  if (sendInvites.value && invitationAvailable.value === false) return false;
+  if (sendInvites.value && invitationAvailable.value !== true) return false;
   if (interviewRound.value === 'other' && !roundLabelCustom.value.trim()) return false;
   return true;
 });
@@ -438,6 +439,8 @@ function suggestRoundFromExisting() {
 }
 
 function openScheduleForm() {
+  sendInvites.value = false;
+  invitationAvailable.value = false;
   showSchedule.value = true;
   scheduleError.value = '';
   scheduleHoldOverridable.value = false;
@@ -594,7 +597,7 @@ async function saveInterviewEdit() {
 
 async function scheduleInterview(overrideScheduleHolds = false) {
   if(guideDirty.value)return;
-  if (sendInvites.value && invitationAvailable.value === false) return;
+  if (sendInvites.value && invitationAvailable.value !== true) return;
   scheduling.value = true;
   scheduleError.value = '';
   scheduleHoldOverridable.value = false;
@@ -621,7 +624,7 @@ async function scheduleInterview(overrideScheduleHolds = false) {
       overrideScheduleHolds: overrideScheduleHolds === true
     });
     const outcome = response.data?.data || {};
-    deliveryNotice.value = ['Interview scheduled.', outcome.delivery?.sent ? (outcome.delivery.redirected ? 'Email sent to the configured test recipient.' : 'Candidate invitation sent.') : outcome.delivery?.reason, outcome.calendarWarning].filter(Boolean).join(' ');
+    deliveryNotice.value = ['Interview scheduled.', outcome.delivery?.sent ? (outcome.delivery.redirected ? 'Email sent to the configured test recipient.' : 'Candidate invitation sent.') : outcome.delivery?.reason, outcome.calendar?.requested === false ? 'Calendar sync was not requested.' : outcome.calendarWarning].filter(Boolean).join(' ');
     selectedId.value = outcome.interview?.id || null;
     showSchedule.value = false;
     await loadInterviews();

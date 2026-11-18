@@ -355,7 +355,7 @@ const scheduleForm = ref({
   timezone: 'America/Denver',
   durationMinutes: 60,
   interviewerUserIds: [],
-  sendInvites: true,
+  sendInvites: false,
   interviewRound: 'initial',
   roundLabelCustom: ''
 });
@@ -433,7 +433,7 @@ const filteredInterviews = computed(() => {
 
 const invitationAvailable = ref(null);
 const canSubmitSchedule = computed(() => {
-  if (scheduleForm.value.sendInvites && invitationAvailable.value === false) return false;
+  if (scheduleForm.value.sendInvites && invitationAvailable.value !== true) return false;
   if (!scheduleForm.value.candidateUserId || !scheduleForm.value.startsAt || !questionsReady.value) return false;
   if (scheduleForm.value.interviewRound === 'other' && !scheduleForm.value.roundLabelCustom.trim()) return false;
   return true;
@@ -725,6 +725,7 @@ async function removeJobSet(s) {
 }
 
 async function openScheduleModal() {
+  invitationAvailable.value = false;
   error.value = '';
   scheduleError.value = '';
   scheduleHoldOverridable.value = false;
@@ -735,7 +736,7 @@ async function openScheduleModal() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver',
     durationMinutes: 60,
     interviewerUserIds: [],
-      sendInvites: true,
+      sendInvites: false,
     interviewRound: 'initial',
     roundLabelCustom: ''
   };

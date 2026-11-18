@@ -45,7 +45,7 @@ it('joins a shared supervision link as the signed-in recipient',async()=>{
 it.each([401,403,423])('opens the applicant invitation when staff auth fails with %s, without requesting a login',async status=>{
  m.get.mockImplementation(async url=>{if(url.startsWith('/meeting-calendar/'))return {data:{title:'Interview',interview:true}};throw {response:{status,data:{error:{code:'HIRE_ACTIVATION_REQUIRED'}}}};});
  const w=mountEntry();await vi.waitFor(()=>expect(w.text()).toContain('Applicant interview'));
- expect(w.text()).toContain('s'.repeat(32));expect(w.findComponent({name:'RouterLink'}).props('to')).toEqual({path:'/login',query:{redirect:m.route.fullPath}});expect(m.setAuth).not.toHaveBeenCalled();
+ expect(w.text()).toContain('s'.repeat(32));expect(w.findComponent({name:'RouterLink'}).props('to')).toEqual({path:'/login',query:{redirect:m.route.fullPath+'?staff=1'}});expect(m.setAuth).not.toHaveBeenCalled();
  expect(m.get.mock.calls.some(([url])=>url==='/users/me')).toBe(false);w.unmount();
 });
 it('keeps assigned interviewers in their staff workspace on the same invitation',async()=>{
@@ -65,3 +65,15 @@ it('shows shared-link status to guests without implying that copying opened the 
 it('does not show a join form for an invalid shared link',async()=>{m.get.mockRejectedValue({response:{status:404,data:{error:{message:'Meeting unavailable'}}}});const w=mountEntry();await flushPromises();expect(w.text()).toContain('Meeting unavailable');expect(w.find('form').exists()).toBe(false);w.unmount();});
 it('uses tracked member entry on a shared link without creating an anonymous guest',async()=>{m.get.mockImplementation(async url=>({data:url==='/users/me'?{id:8,role:'provider'}:{guestLinkEnabled:true,title:'Team meeting'}}));m.post.mockResolvedValue({data:{identified:true}});const w=mountEntry();await vi.waitFor(()=>expect(w.text()).toContain('Identified meeting workspace'));expect(m.post).toHaveBeenCalledWith(`/team-meetings/${'s'.repeat(32)}/shared-link-entry`,{},expect.any(Object));expect(m.post.mock.calls.some(([url])=>url.endsWith('/guests'))).toBe(false);w.unmount();});
 it('offers untracked guest entry when a signed-in account is not eligible for this meeting',async()=>{m.get.mockImplementation(async url=>({data:url==='/users/me'?{id:8,role:'provider'}:{guestLinkEnabled:true,title:'Team meeting'}}));m.post.mockResolvedValue({data:{identified:false,guestReason:'This account is not eligible for tracked attendance.'}});const w=mountEntry();await flushPromises();expect(w.text()).toContain('This account is not eligible for tracked attendance');expect(w.text()).toContain('Request to join as guest');w.unmount();});
+it.each([401,403,423])('never falls back to candidate identity when staff entry authentication fails (%s)',async status=>{
+ m.route.params={interviewAgencySlug:'juniper',eventId:'s'.repeat(32)};m.route.query={staff:'1'};m.route.fullPath='/interview/juniper/video/'+m.route.params.eventId+'?staff=1';
+ m.get.mockRejectedValue({response:{status}});
+ const w=mountEntry();await flushPromises();expect(w.text()).toContain('Join as interviewer');expect(w.text()).not.toContain('Applicant interview');
+ expect(m.get.mock.calls.map(([url])=>url)).toEqual(['/users/me']);expect(m.post).not.toHaveBeenCalled();
+ expect(w.findComponent({name:'RouterLink'}).props('to')).toEqual({path:'/juniper/login',query:{redirect:m.route.fullPath}});w.unmount();
+});
+it('uses the authenticated workspace for an explicit staff link without opening a candidate lobby',async()=>{
+ m.route.params={eventId:'h'.repeat(32)};m.route.query={staff:'1'};m.get.mockResolvedValue({data:{id:1434}});
+ const w=mountEntry();await vi.waitFor(()=>expect(w.text()).toContain('Identified meeting workspace'));
+ expect(m.get.mock.calls.map(([url])=>url)).toEqual(['/users/me']);expect(m.post).not.toHaveBeenCalled();w.unmount();
+});

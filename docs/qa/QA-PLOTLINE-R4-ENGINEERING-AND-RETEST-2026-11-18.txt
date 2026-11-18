@@ -1,0 +1,118 @@
+PLOTLINE ROUND 4 — ENGINEERING REVIEW AND NARROW RETEST
+November 18, 2026 · America/Denver (MST, UTC-07:00)
+
+The original CSV is evidence, not a set of engineering instructions. Preserve
+its 19 PASS / 11 FAIL / 4 BLOCKED / 1 NOT RUN rows and original screenshots.
+Engineering checks below do not replace an authenticated live browser retest.
+Use the release receipt accompanying this file to confirm rollout completion.
+
+WHAT ENGINEERING CONFIRMED AND CHANGED
+- T28: the interviewer button used public_join_url (the candidate link), even
+  though host_join_url existed. It now uses the staff link on the signed-in
+  origin with explicit staff entry. Missing/expired/locked staff authentication
+  offers the company's normal login, never an automatic candidate identity.
+  An authenticated account without interviewer/hiring permission is denied.
+  The product boundary permits this company's interview meeting resources,
+  while still denying general meetings and other companies' interview events.
+- T16: the pipeline card requested the account's cross-company aggregate. The
+  selected-company dashboard now requests only its company. The backend also
+  checks each company's hiring grant, scopes document tasks and job references,
+  and removes the support/no-memberships fallback to every company. Switching
+  companies clears old results and ignores delayed responses. The aggregate
+  was not evidence that an unaffiliated customer had access; test that separately.
+- T26/T31: Save without sending no longer calls Google Calendar. It returns a
+  clear calendar-not-requested result. Both schedulers start with invitations
+  OFF. Sending needs an explicitly selected checkbox and a current successful
+  sender preview. Changed recipient/details invalidate the prior preview.
+- T15: new Plotline job creation/update/version and application-form creation
+  append company activity in the same transaction as those writes. Automation
+  attribution uses the authenticated actor. Reusing a form does not duplicate
+  its creation event. An audit failure rolls back the mutation. Existing gaps
+  for job #42/form #364 are preserved; no historical events were manufactured.
+- T03/T08/T20: the Plotline footer displays its loaded frontend build; structured
+  About text appears in job rows; form creation confirms saved form/job IDs on
+  the jobs page before opening the editor. Applicant creation reports its saved
+  ID; profile headers show applicant/company/job IDs and the actual account role.
+  Plotline applicant resolution already uses Staff; no existing roles changed.
+- T23/T27/T29: the preceding question-save release already labels company vs
+  Plotline starters accurately and displays the booked question snapshot in the
+  interview detail separately from the job's current default. Retest the latest
+  build; a round 4 screenshot predating that release cannot verify those changes.
+
+PRESERVE THE EXISTING FIXTURES
+- Jordan 1434 remains the owner-reserved qa_automation fixture. Use its ordinary
+  vault login; no human/superadministrator identity or copied/forged session.
+- Juniper Consulting QA company 463; Maple Studio QA company 464. No third org.
+- Keep all seven Juniper jobs, including #42 QUESTIONS-A and #43 QUESTIONS-B,
+  their question sets, old Guide Retest jobs, Quinn, Rory and interview event
+  #646. Do not recreate the already successful writes or reset their history.
+- Do not use real ITSCO/NLU postings or clinical clients for this lane. Do not
+  send invitations, configure an unverified sender, publish careers pages,
+  provision mailboxes, change clocks, or add credentials/roles to force a pass.
+- Screenshots and reports must redact candidate/staff bearer links and secrets.
+
+RETEST AFTER BOTH DEPLOYMENTS ARE CONFIRMED
+1. Preserve unsaved text, then refresh normally. Record the footer build and
+   current /version.json + /api/app-version identifiers. They may be newer than
+   this repair if another release follows; compare frontend.requiredBackendBuildId
+   with backend.buildId, and confirm the repair is included. Do not require the
+   obsolete round 3 hash forever or treat an in-flight rollout as final readiness.
+2. Open Juniper Hiring from navigation. Record company 463 and its pipeline
+   counts. Switch to Maple 464 and back. Names, jobs, counts and task states
+   belong only to the chosen company; stale results must disappear. No need to
+   create a new applicant to inspect the current counts.
+3. Open Rory's Interviews tab. Record exact applicant/interview IDs plus event
+   #646. Confirm 'Questions saved for this interview' contains the booked copy
+   (round 4 saved three questions), while the job guide reflects later edits
+   (round 4 later saved four). Record actual text/order; do not rewrite it just
+   to match this summary. The time was Nov 20, 2 PM America/Chicago / 1 PM Denver.
+4. Choose Join as interviewer as Jordan. It must stay on the authenticated origin
+   and enter the authorized staff workspace, never 'You: Rory'. Inspect the
+   saved guide there. Leave normally; no fabricated human interview/attendance.
+   In an independently signed-out browser, the STAFF link offers normal login
+   and cannot open the candidate room. Keep the candidate link a separate lane.
+   A true unauthorized-account denial requires a separate scoped QA identity.
+5. Open then cancel a new scheduler for Rory, in both applicant and Hub entry
+   paths. Invitations start OFF; checking them cannot enable Send until a fresh
+   successful preview. The known unresolved sender preview should fail clearly.
+   Do not make another booking merely to recheck the no-send label; event #646
+   stays unchanged. A future authorized booking must say calendar not requested.
+6. Open jobs #42/#43: saved About text should be visible. Use their existing
+   forms without re-creation. If another missing form is explicitly in scope,
+   Create form saves exactly once and confirms IDs; the Form button then opens
+   the editor. The editor's unsupported catalog requests remain a separate defect.
+7. To verify new job/form creation activity, use at most ONE additional tagged
+   synthetic job QA-PL1118-R5-AUDIT only if that marker is absent and this extra
+   fixture is within the original caps. No publication or applicants required.
+   Alternatively inspect an authorized meaningful metadata update to an existing
+   QA posting. Company activity must name the actor, exact job/form and time,
+   with a job link. Repeated form recovery must not add another creation event.
+   Old #42/#364 gaps remain explicit. Do not rewrite old audit rows or invent an
+   incident actor. Do not force an audit outage in production; rollback is an
+   engineering fixture test.
+8. Record PASS / FAIL / BLOCKED / NOT RUN per original row and new subcase,
+   exact object IDs, build, MST time, click path and safe screenshots. Retain
+   original round 4 statuses separately from fresh outcomes.
+
+STILL OPEN / NOT PROVEN
+- T07: Digital Forms requests generic email/field catalogs unavailable under the
+  standalone product boundary. Creating a job form succeeds; full editor use is
+  not signed off. No product gate was removed to conceal this finding.
+- T10: explicit draft/active posting controls and a job account-role control
+  remain a separate product/UI requirement. No mass posting/status change made.
+- T14: real invitation delivery blocked by the missing active verified po@
+  sender. No sender identity or delivery proof was fabricated; no email sent.
+- T26: location/meeting/calendar controls remain a separate scheduling UI gap.
+- T33: independent-actor and A-only/B-only access tests need distinct authorized
+  scoped QA accounts. Same-user tabs prove stale detection, not those boundaries.
+- T34: public applications/receipts, negative references and full company 464
+  repetition were NOT RUN in this limited round. The clinical and onboarding
+  plans' existing prerequisites, constraints and open findings still apply.
+- T05 is historical evidence of the old silent write, not a reason to duplicate
+  job #42. Session recovery and stale-question PASS evidence stay preserved.
+- T02's old static QA attribution boundary omits the later self-created companies.
+  It labels evidence; it grants no access. Membership/hiring permissions remain
+  the authorization controls. Original attribution records were not rewritten.
+
+No schema migration, application login, live job/person/role edit, real message,
+calendar write or production audit-history change was performed by engineering.

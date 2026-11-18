@@ -3,12 +3,12 @@
     <div class="pop-head">
       <div>
         <h2>Onboarding &amp; Hiring Pipeline</h2>
-        <p class="pop-sub">Applicants across every agency you belong to — no org switch required.</p>
+        <p class="pop-sub">{{ agencyId ? 'Hiring activity for the selected company.' : 'Applicants across your authorized agencies.' }}</p>
       </div>
       <button type="button" class="pop-link" @click="$emit('navigate', hiringPath)">Open hiring</button>
     </div>
 
-    <div v-if="agencies.length > 1" class="pop-toggles" role="group" aria-label="Filter by agency">
+    <div v-if="!agencyId && agencies.length > 1" class="pop-toggles" role="group" aria-label="Filter by agency">
       <button
         type="button"
         class="pop-chip"
@@ -101,6 +101,7 @@ import api from '../../../services/api';
 
 const props = defineProps({
   orderStyle: { type: Object, default: null },
+  agencyId: { type: [Number, String], default: null },
   hiringPath: { type: String, default: '/admin/hiring' }
 });
 
@@ -116,6 +117,7 @@ const candidates = ref([]);
 const selectedAgencyIds = ref([]);
 const tab = ref('needs');
 const bucketFilter = ref(null);
+let loadVersion = 0;
 
 const kpiCards = computed(() => [
   { key: 'newApplicants', label: 'New Applicants', count: filteredCounts.value.newApplicants || 0 },
@@ -197,10 +199,13 @@ function openCandidate(row) {
 }
 
 async function load() {
+  const version = ++loadVersion;
   loading.value = true;
   error.value = '';
+  agencies.value = []; candidates.value = []; counts.value = {}; selectedAgencyIds.value = [];
   try {
-    const { data } = await api.get('/hiring/pipeline-board');
+    const { data } = await api.get('/hiring/pipeline-board', props.agencyId ? { params: { agencyId: props.agencyId } } : undefined);
+    if (version !== loadVersion) return;
     agencies.value = data?.agencies || [];
     counts.value = data?.counts || {};
     candidates.value = data?.candidates || [];
@@ -208,13 +213,14 @@ async function load() {
       selectedAgencyIds.value = agencies.value.map((a) => a.id);
     }
   } catch (e) {
+    if (version !== loadVersion) return;
     error.value = e?.response?.data?.error?.message || 'Could not load hiring pipeline.';
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 
-watch(() => props.hiringPath, () => {});
+watch(() => props.agencyId, load);
 
 onMounted(load);
 </script>

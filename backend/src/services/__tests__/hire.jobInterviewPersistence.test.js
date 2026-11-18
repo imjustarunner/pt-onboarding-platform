@@ -8,6 +8,8 @@ let sql;
 beforeEach(()=>{
  sql=new DatabaseSync(':memory:');
  sql.exec(`CREATE TABLE hiring_job_descriptions(id INTEGER PRIMARY KEY AUTOINCREMENT,agency_id INTEGER,title TEXT,description_text TEXT,description_sections_json TEXT,posted_date TEXT,application_deadline TEXT,city TEXT,state TEXT,education_level TEXT,role_type TEXT,is_featured INTEGER,tags_json TEXT,application_page_json TEXT,storage_path TEXT,original_name TEXT,mime_type TEXT,is_active INTEGER,created_by_user_id INTEGER,publish_at TEXT,unpublish_at TEXT,schedule_text TEXT,credential_mode TEXT,interview_question_set_id INTEGER,prehire_config_json TEXT);
+ CREATE TABLE plotline_companies(agency_id INTEGER PRIMARY KEY);
+ CREATE TABLE plotline_audit_events(id INTEGER PRIMARY KEY AUTOINCREMENT,agency_id INTEGER,actor_user_id INTEGER,action TEXT,object_id TEXT,metadata_json TEXT,created_at TEXT);
  CREATE TABLE interview_hub_templates(id INTEGER PRIMARY KEY,agency_id INTEGER,is_default INTEGER,standard_questions_json TEXT);
  CREATE TABLE interview_hub_job_question_sets(id INTEGER PRIMARY KEY AUTOINCREMENT,agency_id INTEGER,job_description_id INTEGER,title TEXT,questions_json TEXT,scorecard_criteria_json TEXT,is_active INTEGER,created_by_user_id INTEGER,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
  const execute=async(statement,args=[])=>{const prepared=sql.prepare(statement.replace(/ FOR UPDATE/g,'').replace(/ LIMIT 1(?=\s*$)/i,''));return /^\s*SELECT/i.test(statement)?[prepared.all(...args)]:[{insertId:Number(prepared.run(...args).lastInsertRowid)}];};
@@ -95,4 +97,15 @@ it('validates the multipart question settings before modifying a posting',()=>{
  expect(parsePostingInterviewSettings({})).toBeUndefined();
  expect(parsePostingInterviewSettings({interviewGuideJson:'{"questions":["Saved question"],"criteria":null}'}).questions).toEqual([{key:'job_q_1',text:'Saved question'}]);
  for(const value of ['not json','null','{"questions":[""]}'])expect(()=>parsePostingInterviewSettings({interviewGuideJson:value})).toThrow();
+});
+it('records committed Plotline job changes with the real automation actor and rolls back on audit failure',async()=>{
+ sql.exec('INSERT INTO plotline_companies VALUES(6)');
+ const job=await create('Audited consultant');
+ const event=sql.prepare('SELECT * FROM plotline_audit_events').get();
+ expect(event.action).toBe('plotline.job_created');expect(event.object_id).toBe(String(job.id));
+ expect(JSON.parse(event.metadata_json).automationActor).toMatchObject({kind:'qa_automation',actorUserId:1434});
+ sql.exec("CREATE TRIGGER audit_down BEFORE INSERT ON plotline_audit_events BEGIN SELECT RAISE(ABORT,'audit unavailable'); END");
+ await expect(updateJobWithInterviewQuestions({agencyId:6,jobId:job.id,patch:{title:'Must roll back'},actorUserId:1434},{db:state.db})).rejects.toThrow('audit unavailable');
+ expect(sql.prepare('SELECT title FROM hiring_job_descriptions WHERE id=?').get(job.id).title).toBe('Audited consultant');
+ expect(sql.prepare('SELECT COUNT(*) n FROM plotline_audit_events').get().n).toBe(1);
 });

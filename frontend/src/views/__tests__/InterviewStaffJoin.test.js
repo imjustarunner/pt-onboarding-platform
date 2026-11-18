@@ -36,3 +36,8 @@ it('keeps a branded staff interview on its route and previews the question share
  expect(wrapper.findComponent({name:'InterviewQuestionCard'}).props('question').text).toBe('What are you learning in your current role?');
  expect(wrapper.get('.interview-question-preview').text()).toContain('Applicant’s question view');
 });
+it('denies a non-interviewer staff entry without redirecting or joining as an applicant',async()=>{
+ m.interviewer=false;m.route.query={staff:'1'};
+ wrapper=shallowMount(Join,{global:{plugins:[createPinia()]}});await flushPromises();await flushPromises();
+ expect(wrapper.text()).toContain('not an assigned interviewer');expect(m.replace).not.toHaveBeenCalled();expect(m.get.mock.calls.some(([url])=>url.endsWith('/video-token'))).toBe(false);
+});

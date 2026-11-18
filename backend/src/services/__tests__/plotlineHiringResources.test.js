@@ -13,10 +13,18 @@ beforeEach(()=>{
     INSERT INTO intake_links VALUES(10,463,'agency','job_application'),(11,464,'agency','job_application'),(12,463,'agency','intake');
     CREATE TABLE document_templates(id INTEGER PRIMARY KEY,agency_id INTEGER,is_user_specific INTEGER);
     INSERT INTO document_templates VALUES(20,463,0),(21,464,0),(22,463,1);`);
+  fixture.sql.exec(`CREATE TABLE provider_schedule_events(id INTEGER,agency_id INTEGER,kind TEXT,meeting_subtype TEXT,host_join_token TEXT,participant_join_token TEXT);
+    INSERT INTO provider_schedule_events VALUES(646,463,'TEAM_MEETING','interview','staff-token','candidate-token'),(647,464,'TEAM_MEETING','interview','other-staff','other-candidate'),(648,463,'TEAM_MEETING','general','general-staff','general-guest');`);
   policy=createPlotlineCompanyPolicy({db:fixture.db,now:()=>new Date('2026-11-18T17:00:00Z')});
 });
 afterEach(()=>fixture.close());
 describe('Plotline job dependencies stay scoped to the chosen company',()=>{
+  it('permits only this company’s interview resources through the meeting product boundary',async()=>{
+    for(const path of ['/api/team-meetings/join-info/staff-token','/api/team-meetings/646/video-token','/api/team-meetings/646/workspace','/api/team-meetings/646/interview-question'])
+      await expect(policy.assertRequest(request(path))).resolves.toBeUndefined();
+    for(const path of ['/api/team-meetings/647/video-token','/api/team-meetings/other-staff/workspace','/api/team-meetings/648/video-token','/api/team-meetings/types','/api/team-meetings'])
+      await expect(policy.assertRequest(request(path))).rejects.toMatchObject({code:'PLOTLINE_PRODUCT_BOUNDARY'});
+  });
   it.each(['/api/onboarding-packages','/api/document-templates'])('scopes the read catalog %s',async path=>{
     const req=request(path);await policy.assertRequest(req);
     expect(req.query.agencyId).toBe('463');expect(req.plotlineHiringAgencyId).toBe(463);
