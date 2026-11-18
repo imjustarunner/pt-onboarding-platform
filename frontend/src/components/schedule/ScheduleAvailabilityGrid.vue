@@ -1862,6 +1862,7 @@
           >
             <SecureSessionCommentButton v-if="editorIsClinical && canUseSessionComments(authStore.user?.role) && Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0) || null" :learning="editorIsLearning" />
             <GuardianAppointmentRequests v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
+            <AppointmentScheduleCheck v-if="editorSavedSchedule?.id === Number(editorAppointmentId)" :appointment="editorSavedSchedule" :calendar-event="editorCalendarSchedule" :time-zone="bookingTimezoneIana" />
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
               :when-date-label="editorInfoWhenDateLabel"
@@ -5673,6 +5674,7 @@
     </div>
 
     <SupervisionScheduleActionDialog v-if="supervisionActionDraft" :key="supervisionActionDraft.mode"
+      :teleport-to="fullscreenActive && fullscreenRoot ? fullscreenRoot : 'body'"
       :mode="supervisionActionDraft.mode" :name="selectedSupvSession?.counterpartyName || 'Supervision'"
       :when="supervisionActionDraft.when" :target-when="supervisionActionDraft.targetWhen"
       :recurring="!!selectedSupvSession?.recurrenceSeriesId" :future="supervisionActionDraft.future"
@@ -5949,6 +5951,7 @@ import { rateLimitRetryAt } from '../../utils/rateLimitRetry';
 import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import SupervisionScheduleHistory from './SupervisionScheduleHistory.vue';
 import SupervisionScheduleActionDialog from './SupervisionScheduleActionDialog.vue';
+import AppointmentScheduleCheck from './AppointmentScheduleCheck.vue';
 import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
 import SupervisionRsvpSummary from './SupervisionRsvpSummary.vue';
 import { supervisionProgress } from '../../utils/supervisionProgress.js';
@@ -11168,7 +11171,7 @@ const roundDateToNearestQuarter = (raw) => {
 const quarterClockLabel = (raw) => {
   const d = roundDateToNearestQuarter(raw);
   if (!d) return '';
-  return formatScheduleClock(`${pad2(h)}:${pad2(m)}`, scheduleTimeFormat.value);
+  return formatScheduleClock(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`, scheduleTimeFormat.value);
 };
 
 /** Clock label for this schedule cell (15- or 60-min), used for Therapy Notes / ebusy titles and row prefixes. */
@@ -14390,6 +14393,11 @@ const editorClinicalSessionId = ref(0);
 const editorClinicalNoteId = ref(0);
 const editorClaimId = ref(0);
 const editorAppointmentId = ref(0);
+const editorSavedSchedule = ref(null);
+const editorCalendarSchedule = computed(() => {
+  if (isScheduleEventEditMode.value) return editingScheduleStackItem.value;
+  return (rawSummary.value?.officeEvents || []).find(row => Number(row.id) === Number(editorOfficeEventId.value)) || null;
+});
 const editorLearningDetails=ref(null);
 const editorOthersPresentNames = ref('');
 const editorNotificationsScheduleEventId = computed(() => {
@@ -16238,6 +16246,7 @@ async function loadEditorReminders() {
       if (Number(editorAppointmentId.value || 0) !== apptId) return;
       const appointment = appointmentRes?.data?.appointment;
       if (appointment) {
+        editorSavedSchedule.value = {id:apptId,startAt:appointment.startAt,endAt:appointment.endAt};
         editorRecordReference.value=appointment.scheduleReference || '';
         editorHydratingAppointment.value=true;
         const firstHydration = editorAppointmentBaseline.value?.id !== apptId || !editorAppointmentBaseline.value?.hydrated;
@@ -16543,6 +16552,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorHydratingAppointment.value = true;
   // Never treat a schedule-event / supervision id as an appointment id.
   editorAppointmentId.value = Number(defaults.appointmentId || 0) || 0;
+  editorSavedSchedule.value = null;
   editorReminderNotice.value = '';
   editorRecordReference.value = '';
   editorExtraReminderAvailableAt.value = '';

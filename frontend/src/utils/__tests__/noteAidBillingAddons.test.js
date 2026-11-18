@@ -102,6 +102,12 @@ describe('resolveNoteAidBillingCodes', () => {
 });
 
 describe('99051 after hours', () => {
+  it('distinguishes December 3 Denver 5 PM from 10 AM without using the existing add-on as time evidence', () => {
+    const zone={timeZone:'America/Denver'};
+    expect(shouldSuggest99051('2026-12-04T00:00:00Z',zone)).toBe(true);
+    expect(shouldSuggest99051('2026-12-03T17:00:00Z',zone)).toBe(false);
+    expect(serverSchedule({startAt:'2026-12-03 17:00:00',...zone}).localStartTime).toBe('10:00');
+  });
   it('qualifies starts outside the shared weekday9–5 schedule and weekends using the explicit saved timezone', () => {
     const zone={timeZone:'America/Denver'};
     expect(shouldSuggest99051('2026-11-09T14:30:00Z',zone)).toBe(false);
