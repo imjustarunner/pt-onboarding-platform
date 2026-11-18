@@ -38,3 +38,71 @@ it('uses an explicitly fictional review source only with the current server capa
 it('cannot forge a fictional review in a normal coverage form without the server capability',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[]}}));const w=mount(Coverage,{props:{agencyId:450,clientId:22}});await flushPromises();expect(w.find('option[value=synthetic_qa]').exists()).toBe(false);w.vm.$.setupState.draft.source='synthetic_qa';await w.get('form').trigger('submit');await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('unavailable for this client');w.unmount();
 });
+
+it('waits for the current coverage sources before offering a review or accepting submission',async()=>{
+ let resolveCoverage;
+ api.get.mockImplementation(url=>url.endsWith('billing-offices')?Promise.resolve({data:{items:[]}}):new Promise(resolve=>{resolveCoverage=resolve;}));
+ const w=mount(Coverage,{props:{agencyId:450,clientId:2452}});await flushPromises();
+ expect(w.text()).toContain('Loading saved coverage and verification sources');
+ expect(w.find('form').exists()).toBe(false);
+ await w.vm.$.setupState.review();expect(api.post).not.toHaveBeenCalled();
+ resolveCoverage({data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}});await flushPromises();
+ expect(w.find('form').exists()).toBe(true);
+ expect(w.find('option[value="synthetic_qa"]').exists()).toBe(true);
+ w.unmount();
+});
+
+it('makes a fictional review available without waiting for the electronic billing-office lookup',async()=>{
+ let resolveOffices;
+ api.get.mockImplementation(url=>url.endsWith('billing-offices')?new Promise(resolve=>{resolveOffices=resolve;}):Promise.resolve({data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}}));
+ const w=mount(Coverage,{props:{agencyId:450,clientId:2452}});await flushPromises();
+ expect(w.find('option[value="synthetic_qa"]').exists()).toBe(true);
+ expect(w.findAll('form select')[1].element.value).toBe('synthetic_qa');
+ expect(w.find('form button').attributes('disabled')).toBeUndefined();
+ expect(w.findAll('button').find(b=>b.text()==='Check primary eligibility').attributes('disabled')).toBeDefined();
+ resolveOffices({data:{items:[]}});await flushPromises();w.unmount();
+});
+
+it('keeps the review closed after a coverage load failure and offers a normal retry',async()=>{
+ let attempts=0;
+ api.get.mockImplementation(async url=>{
+  if(url.endsWith('billing-offices'))return {data:{items:[]}};
+  if(++attempts===1)throw {response:{data:{error:{message:'Coverage history temporarily unavailable'}}}};
+  return {data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}};
+ });
+ const w=mount(Coverage,{props:{agencyId:450,clientId:2452}});await flushPromises();
+ expect(w.text()).toContain('Coverage history temporarily unavailable');expect(w.find('form').exists()).toBe(false);
+ await w.findAll('button').find(b=>b.text()==='Load verification history').trigger('click');await flushPromises();
+ expect(w.find('option[value="synthetic_qa"]').exists()).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
+
+it('discards an old client capability when coverage resolves after switching clients',async()=>{
+ let resolveOld;
+ api.get.mockImplementation(url=>{
+  if(url.endsWith('billing-offices'))return Promise.resolve({data:{items:[]}});
+  if(url.includes('/2452/'))return new Promise(resolve=>{resolveOld=resolve;});
+  return Promise.resolve({data:{checks:[],blockers:[],syntheticQaReviewAvailable:false}});
+ });
+ const w=mount(Coverage,{props:{agencyId:450,clientId:2452}});await flushPromises();
+ await w.setProps({clientId:2436});await flushPromises();
+ resolveOld({data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}});await flushPromises();
+ expect(w.find('option[value="synthetic_qa"]').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
+
+it('keeps one review in flight while the saved result refreshes independently of billing offices',async()=>{
+ let resolveSave,resolveRefresh,resolveOffices;let coverageReads=0,officeReads=0;
+ api.get.mockImplementation(url=>{
+  if(url.endsWith('billing-offices'))return ++officeReads===1?Promise.resolve({data:{items:[]}}):new Promise(resolve=>{resolveOffices=resolve;});
+  if(++coverageReads===1)return Promise.resolve({data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}});
+  return new Promise(resolve=>{resolveRefresh=resolve;});
+ });
+ api.post.mockImplementation(()=>new Promise(resolve=>{resolveSave=resolve;}));
+ const w=mount(Coverage,{props:{agencyId:450,clientId:2452}});await flushPromises();
+ await w.get('textarea').setValue('Fictional policies reviewed, without payer contact.');
+ await w.get('form').trigger('submit');await w.vm.$.setupState.review();expect(api.post).toHaveBeenCalledTimes(1);
+ resolveSave({data:{syntheticOnly:true,id:48}});await flushPromises();
+ expect(w.find('form').exists()).toBe(false);await w.vm.$.setupState.review();expect(api.post).toHaveBeenCalledTimes(1);
+ resolveRefresh({data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}});await flushPromises();
+ expect(w.emitted('saved')).toHaveLength(1);expect(w.text()).toContain('Fictional QA review recorded');
+ resolveOffices({data:{items:[]}});await flushPromises();w.unmount();
+});
