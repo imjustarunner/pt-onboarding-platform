@@ -4,6 +4,7 @@
  * Uses configured Events/Technology service identities and the normal mail gates.
  */
 import pool from '../config/database.js';
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import { listCompanyEventInvitees, resolveCompanyEventAudienceUserIds } from '../services/companyEventAudience.service.js';
 import { listCompanyEventInvitations, deliverCompanyEventInvitation, sendCompanyEventInvitationEmail } from '../services/companyEventInvitations.service.js';
 import { invitationResponse } from '../utils/companyEventReminders.js';
@@ -17,6 +18,7 @@ const actor='codex.conversa_splash_repair.20261118', operation='conversa-splash-
 const mode=process.argv.includes('--remind')?'remind':process.argv.includes('--notify-rachel')?'notify':'preview';
 const principal=process.env.AUTHORIZED_CLOUD_PRINCIPAL;
 if(mode!=='preview'&&!principal)throw Error('Set AUTHORIZED_CLOUD_PRINCIPAL to the actual authorized Cloud IAM principal.');
+const accepted=result=>notificationTransportReceipt(result,agencyId).accepted && !result?.redirected && !result?.held;
 const json=value=>typeof value==='string'?JSON.parse(value):value||{};
 async function append(eventId,userId,phase,details){
   await pool.execute(`INSERT INTO company_event_automation_audit
@@ -51,7 +53,7 @@ async function remind(event,agency){
         // A reply can arrive while the receipt is being prepared.
         if(!(await unanswered(event)).some(u=>u.id===user.id)){await append(event.id,user.id,'finished',{status:'answered_before_send',communicationId:comm.id});continue;}
         const sent=await sendStaffPollEmail({event:{...event,agencyId,votingConfig:json(event.voting_config_json)},agency,user,to,actorUserId:null,followup:true,receiptId:comm.id});
-        outcome={status:sent?.id&&!sent.skipped&&!sent.held&&!sent.pendingApproval?'sent':'needs_review',communicationId:comm.id,reason:sent?.reason||null};
+        outcome={status:accepted(sent)?'sent':'needs_review',communicationId:comm.id,reason:sent?.reason||null};
         await pool.execute(`INSERT INTO company_event_dispatch_logs(company_event_id,user_id,channel,dispatch_type,occurrence_key,status,status_reason,sent_at,payload_json)
           VALUES (?,?,'email','poll_followup',?,?,?,IF(?='sent',UTC_TIMESTAMP(),NULL),?)`,
           [event.id,user.id,`manual:${operation}`,outcome.status==='sent'?'sent':'failed',outcome.reason,outcome.status,JSON.stringify({communicationId:comm.id,automationActor:actor,operationKey:operation})]);
@@ -77,7 +79,7 @@ async function notifyRachel(){
   const text=`Hi Rachel,\n\nThank you for flagging the missing splash screens. The fixes are live and ready to use.\n\nInvited staff with an unanswered poll or RSVP will now see one Conversa prompt at a time when they sign in. They can answer right there or dismiss it until their next login. Once they respond, that prompt stops appearing.\n\nDelivery history now shows each splash display, how many times someone has seen it, and when they dismissed it, opened the details, or replied. These records start with this update.\n\nWe also fixed the Colorado Springs poll email sender. Poll invitations and reminders now use the configured ITSCO Events address, including when email is selected. Your Denver event emails were already sending successfully. The requested email-only reminders have been processed for invitees who still had not responded; their individual outcomes are in delivery history.\n\nThe login prompts are separate from scheduled announcements, so you do not need to move Denver’s December 3 announcement to make the RSVP prompt appear now. Texting continues through the existing setup.\n\nOne setting to review: the Colorado Springs poll currently closes December 15, while two date choices are December 11 and 12. You may want to move the voting deadline earlier.\n\nThanks for helping us make this easier for everyone.\n\nITSCO Technology Team`;
   const to=user.work_email||user.email,comm=await receipt(0,user,to,'technology_poll_splash_update',subject);
   const result=await sendEmailFromIdentity({senderIdentityId:identity.id,to,subject,text,source:'auto',generatedByUserId:null,userId:user.id,templateType:'technology_poll_splash_update',existingCommunicationId:comm.id,preloggedReceipt:true});
-  const outcome={status:result?.id&&!result.skipped&&!result.held&&!result.pendingApproval?'sent':'needs_review',communicationId:comm.id,reason:result?.reason||null};
+  const outcome={status:accepted(result)?'sent':'needs_review',communicationId:comm.id,reason:result?.reason||null};
   await append(0,user.id,'finished',outcome);return outcome;
 }
 try{
