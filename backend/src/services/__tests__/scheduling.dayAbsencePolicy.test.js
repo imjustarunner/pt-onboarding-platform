@@ -84,3 +84,13 @@ it('bulk agenda reads retain provider identity, exact slots and cancellations wi
  expect(rows.find(r=>r.clientId===9)).toMatchObject({canceled:true,id:5,delivery:{held:1}});
  expect(rows.find(r=>r.providerId===7&&r.date==='2026-11-04').slots[0]).toMatchObject({startAt:'2026-11-04T17:28:00Z',endAt:'2026-11-04T18:21:00Z'});
 });
+
+it('uses one weekly roster read and expands only each assigned weekday across a DST boundary',async()=>{
+ const roster={readWeek:vi.fn(async()=>[{provider_id:7,client_id:1,school_id:451,client_name:'Fixture',school_name:'Cedar',service_day:'Monday',slots:[{id:1,startTime:'10:00:00',endTime:'11:00:00'}]}]),list:vi.fn(),readMany:vi.fn()};
+ const history={list:vi.fn(async()=>[])};const service=createSchoolSoftScheduleCalendar({roster,history});
+ const options={agencyId:450,providerId:7,startDate:'2026-10-26',endDate:'2026-11-09',timeZone:'America/Denver',appointments:[]};
+ const rows=await service.list(options);
+ expect(roster.readWeek).toHaveBeenCalledTimes(1);expect(roster.list).not.toHaveBeenCalled();
+ expect(rows.map(r=>[r.date,r.slots[0].startAt])).toEqual([['2026-10-26','2026-10-26T16:00:00Z'],['2026-11-02','2026-11-02T17:00:00Z']]);
+ const bulk=await service.listMany({...options,providerIds:[7]});expect(bulk.map(r=>r.date)).toEqual(rows.map(r=>r.date));expect(roster.readMany).not.toHaveBeenCalled();
+});

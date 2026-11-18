@@ -568,7 +568,9 @@ class CommunicationConversation {
       LEFT JOIN mailbox_access i ON i.id=c.inbox_id
       LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
       WHERE ${noticeWhere.join(' AND ')} LIMIT 18446744073709551615)`;
-    where.push(policy.correspondence);
+    // The accessible derived table enforces every visibility predicate first.
+    // LIMIT prevents MySQL merging the flags back into the outer SUMs, which
+    // otherwise rerun correlated unread checks for every badge on each row.
     const uid = Number.isSafeInteger(Number(userId)) && Number(userId) > 0 ? Number(userId) : 0;
     const [rows] = await pool.execute(`WITH ${mailboxAccessCteSql()}
       SELECT /*+ MAX_EXECUTION_TIME(12000) */ inbox_id,channel,COUNT(*) AS total,
@@ -593,8 +595,9 @@ class CommunicationConversation {
         FROM ${accessible} c
         LEFT JOIN mailbox_access i ON i.id=c.inbox_id
         LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
-        WHERE ${where.join(' AND ')}) visible
-      GROUP BY inbox_id,channel`,[...params,...params]);
+        WHERE ${policy.correspondence}
+        LIMIT 18446744073709551615) visible
+      GROUP BY inbox_id,channel`,params);
     const summary = { needsAttention:0,waitingOnOthers:0,followUpsDue:0,assignedToYou:0,unknownSenders:0,snoozed:0,unread:0,
       unreadByInbox:{},unreadByChannel:{},unreadViews:{all:0,unread:0,assigned:0,starred:0,snoozed:0,needs_reply:0,waiting:0,follow_up:0,unknown:0,tickets:0,group_email:0,school_groups:0},channels:{all:0} };
     for (const row of rows) {
@@ -611,13 +614,15 @@ class CommunicationConversation {
     summary.unreadViews.all=summary.unread;
     summary.unreadViews.unread=summary.unread;
     const [noticeRows] = await pool.execute(`WITH ${mailboxAccessCteSql()}
-      SELECT /*+ MAX_EXECUTION_TIME(12000) */ ${policy.category} AS category,COUNT(*) AS n
-      FROM ${accessible} c LEFT JOIN mailbox_access i ON i.id=c.inbox_id
-      LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
-      WHERE ${noticeWhere.join(' AND ')} AND ${policy.category} IN ('provider_assignments','enrollment_packets')
-        AND NOT EXISTS (SELECT 1 FROM communication_conversation_reads nr WHERE nr.conversation_id=c.id AND nr.user_id=${uid}
+      SELECT /*+ MAX_EXECUTION_TIME(12000) */ category,COUNT(*) AS n
+      FROM (SELECT ${policy.category} AS category
+        FROM ${accessible} c LEFT JOIN mailbox_access i ON i.id=c.inbox_id
+        LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
+        WHERE NOT EXISTS (SELECT 1 FROM communication_conversation_reads nr WHERE nr.conversation_id=c.id AND nr.user_id=${uid}
           AND nr.last_read_at>=COALESCE(c.last_message_at,c.created_at) AND COALESCE(nr.forced_unread,0)=0)
-      GROUP BY category`, [...params,...params]);
+        LIMIT 18446744073709551615) classified
+      WHERE category IN ('provider_assignments','enrollment_packets')
+      GROUP BY category`, params);
     summary.reviewByCategory = Object.fromEntries(INBOX_REVIEW_CATEGORIES.map(category => [category, 0]));
     for (const row of noticeRows) if (INBOX_REVIEW_CATEGORIES.includes(row.category)) summary.reviewByCategory[row.category] = Number(row.n || 0);
     return summary;

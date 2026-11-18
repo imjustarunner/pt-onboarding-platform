@@ -6047,9 +6047,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
     } catch (closureErr) {
       console.warn('[schedule-summary] school day closures failed', closureErr?.message || closureErr);
     }
+    const knownScheduleAgencies = new Map((await getProviderAgencies()).map(agency => [Number(agency.id), agency]));
     for (const aid of scheduleAgencyIdSet) {
-      const agency = await Agency.findById(aid);
-      const timeZone = agency?.timezone || 'America/Denver';
+      const knownAgency = knownScheduleAgencies.get(Number(aid));
+      const timeZone = knownAgency?.timezone || (await Agency.findById(aid))?.timezone || 'America/Denver';
       fullPayload.schoolSoftSessions.push(...await schoolSoftScheduleCalendar.list({
         agencyId: aid, providerId, startDate: weekStart, endDate: weekEnd, timeZone
       }));

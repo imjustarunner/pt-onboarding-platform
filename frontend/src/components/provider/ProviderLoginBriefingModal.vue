@@ -524,6 +524,7 @@ async function loadBriefing() {
     };
 
     const scheduleParams = {
+      skipOfficeMaterialize: true, skipGoogleSync: true,
       weekStart: mondayYmd(),
       includeAllAgencies: 0,
       ...(agencyId ? { agencyId } : {})

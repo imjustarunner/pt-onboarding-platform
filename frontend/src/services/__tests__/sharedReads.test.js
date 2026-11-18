@@ -46,3 +46,9 @@ it('refreshes the office grid after a booking instead of joining an older read',
  const old=read(config({url:'/office-schedule/locations/1/weekly-grid'}));await Promise.resolve();await read(config({method:'post',url:'/office-schedule/booking-requests'}));
  const fresh=read(config({url:'/office-schedule/locations/1/weekly-grid'}));await Promise.resolve();expect(network).toHaveBeenCalledTimes(3);finishes.forEach(f=>f({data:{}}));await Promise.all([old,fresh]);
 });
+
+it.each(['/communications/attention-summary','/appointments/staff-alerts','/dashboard/school-closures'])('shares simultaneous background reads for %s without sharing a different scope',async url=>{
+ let finish;const network=vi.fn(()=>new Promise(resolve=>{finish=resolve;}));const read=createSharedReadAdapter(network,uri);
+ const one=read(config({url,params:{agencyId:2}})),two=read(config({url,params:{agencyId:2}}));await Promise.resolve();expect(network).toHaveBeenCalledTimes(1);
+ finish({data:{}});await Promise.all([one,two]);
+});

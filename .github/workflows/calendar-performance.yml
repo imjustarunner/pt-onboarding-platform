@@ -1,0 +1,58 @@
+name: Calendar performance regressions
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/schedule/**'
+      - 'frontend/src/utils/scheduleSummary*'
+      - 'frontend/src/services/sharedReads.js'
+      - 'backend/src/models/CommunicationConversation.model.js'
+      - 'backend/src/services/cancellationSchoolRoster.service.js'
+      - 'backend/src/services/schoolSoftScheduleCalendar.service.js'
+      - 'backend/src/services/__tests__/calendarPerformance.mysql.test.js'
+      - '.github/workflows/calendar-performance.yml'
+  pull_request:
+    paths:
+      - 'frontend/src/utils/scheduleSummary*'
+      - 'backend/src/models/CommunicationConversation.model.js'
+      - '.github/workflows/calendar-performance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  calendar-performance:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      CALENDAR_PERFORMANCE_MYSQL_HOST: '127.0.0.1'
+      TZ: America/Denver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies without production build
+        run: |
+          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix frontend --ignore-scripts
+      - name: Badge query privacy and school roster regression tests in MySQL
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.calendar-performance.config.js
+      - name: Calendar caching, stale responses and responsive navigation
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.schedule-startup.config.js --maxWorkers=2

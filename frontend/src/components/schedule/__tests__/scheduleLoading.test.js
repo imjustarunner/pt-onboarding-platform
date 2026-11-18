@@ -97,7 +97,7 @@ it('waits for Retry-After and recovers an initially throttled calendar automatic
   const get = m.get.getMockImplementation();
   let reads = 0;
   m.get.mockImplementation(async (url, options) => {
-    if (url.includes('/schedule-summary') && ++reads === 1) {
+    if (url.includes('/schedule-summary') && options.params.weekStart === summary.weekStart && ++reads === 1) {
       throw { response: { status: 429, headers: { 'retry-after': '60' } } };
     }
     return get(url, options);
@@ -146,7 +146,8 @@ it('keeps the calendar mounted with inline progress while a refresh is pending',
     ? new Promise(resolve => { resolveSchedule = resolve; }) : get(url, options));
   const refreshing = state.load({ forceRefresh: true });
   await flushPromises();
-  expect(state.loading).toBe(true);
+  expect(state.loading).toBe(false);
+  expect(state.refreshingSchedule).toBe(true);
   expect(state.summary).toMatchObject(summary);
   expect(wrapper.find('.sched-grid-wrap').element).toBe(grid);
   expect(wrapper.find('.sched-corner-loading').text()).toContain('Refreshing');
@@ -773,4 +774,65 @@ it('forces a new single-agency calendar read after saving while the older read i
   pending[1]({data:{...summary,updatedMarker:true}});await fresh;
   pending[0]({data:summary});await older;
   expect(state.summary.updatedMarker).toBe(true);
+});
+
+
+it('keeps week navigation and the current calendar usable throughout a slow refresh', async()=>{
+ const state=await mount();await vi.advanceTimersByTimeAsync(500);await flushPromises();
+ const base=m.get.getMockImplementation();let finish;
+ m.get.mockImplementation((url,config)=>url.includes('/schedule-summary')?new Promise(r=>{finish=r;}):base(url,config));
+ const refresh=state.load({forceRefresh:true});await flushPromises();
+ expect(state.loading).toBe(false);expect(state.refreshingSchedule).toBe(true);expect(state.summary.weekStart).toBe('2026-10-12');
+ const next=wrapper.find('button[aria-label="Next week"]');expect(next.attributes('disabled')).toBeUndefined();
+ setScheduleSummary(`7|all|2026-10-19|monday|${state.googleBusyPreference}|${state.googleEventsPreference}|false||tz:America/Denver`,{...summary,weekStart:'2026-10-19'});
+ await next.trigger('click');expect(state.summary.weekStart).toBe('2026-10-19');expect(state.loading).toBe(false);
+ finish({data:summary});await refresh;expect(state.summary.weekStart).toBe('2026-10-19');
+});
+it('preloads adjacent weeks, reuses them on navigation, and warms onward from a cache hit', async()=>{
+ const base=m.get.getMockImplementation();
+ m.get.mockImplementation((url,config)=>url.includes('/schedule-summary')?Promise.resolve({data:{...summary,weekStart:config.params.weekStart}}):base(url,config));
+ const state=await mount();await vi.advanceTimersByTimeAsync(850);await flushPromises();
+ const reads=()=>m.get.mock.calls.filter(([url])=>url.includes('/schedule-summary'));
+ expect(reads().map(([,c])=>c.params.weekStart)).toEqual(['2026-10-12','2026-10-19','2026-10-05']);
+ state.nextWeek();await flushPromises();expect(state.summary.weekStart).toBe('2026-10-19');expect(state.loading).toBe(false);expect(reads()).toHaveLength(3);
+ await vi.advanceTimersByTimeAsync(850);expect(reads().at(-1)[1].params.weekStart).toBe('2026-10-26');
+ state.prevWeek();await flushPromises();expect(state.summary.weekStart).toBe('2026-10-12');expect(state.loading).toBe(false);
+});
+it('allows navigating away from an uncached week while its request is pending without painting the old week',async()=>{
+ const state=await mount();await vi.advanceTimersByTimeAsync(500);await flushPromises();
+ const base=m.get.getMockImplementation();let finish;
+ m.get.mockImplementation((url,config)=>url.includes('/schedule-summary')?new Promise(r=>{finish=r;}):base(url,config));
+ state.nextWeek();await flushPromises();expect(state.summary).toBeNull();expect(state.loading).toBe(true);
+ const previous=wrapper.find('button[aria-label="Previous week"]');expect(previous.attributes('disabled')).toBeUndefined();
+ await previous.trigger('click');expect(state.summary.weekStart).toBe('2026-10-12');expect(state.loading).toBe(false);
+ finish({data:{...summary,weekStart:'2026-10-19'}});await flushPromises();expect(state.summary.weekStart).toBe('2026-10-12');
+});
+
+it('does not let an incidental cached read supersede an explicit refresh', async()=>{
+ const state=await mount();await vi.advanceTimersByTimeAsync(500);await flushPromises();const base=m.get.getMockImplementation();let finish;
+ m.get.mockImplementation((url,config)=>url.includes('/schedule-summary')?new Promise(r=>{finish=r;}):base(url,config));
+ const refresh=state.load({forceRefresh:true});const watcherRead=state.load();
+ finish({data:{...summary,marker:'updated'}});await Promise.all([refresh,watcherRead]);expect(state.summary.marker).toBe('updated');
+});
+it('polls quietly after freshness expires, without overlapping a slow current-week read',async()=>{
+ vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout','setInterval','clearInterval']});
+ const base=m.get.getMockImplementation();let currentReads=0,finish;
+ m.get.mockImplementation((url,config)=>{
+  if(!url.includes('/schedule-summary'))return base(url,config);
+  if(config.params.weekStart===summary.weekStart && ++currentReads>1)return new Promise(r=>{finish=r;});
+  return Promise.resolve({data:{...summary,weekStart:config.params.weekStart}});
+ });
+ const state=await mount();await vi.advanceTimersByTimeAsync(90000);expect(currentReads).toBe(1);
+ await vi.advanceTimersByTimeAsync(45000);expect(currentReads).toBe(2);expect(state.loading).toBe(false);expect(state.refreshingSchedule).toBe(true);
+ await vi.advanceTimersByTimeAsync(45000);expect(currentReads).toBe(2);finish({data:summary});await flushPromises();
+});
+
+it('keeps cached staff alerts for the selected week when another week finishes late',async()=>{
+ const state=await mount();await vi.advanceTimersByTimeAsync(500);state.mergeDiscoveredScheduleAgencies([2]);
+ const base=m.get.getMockImplementation();let finish;
+ m.get.mockImplementation((url,config)=>url==='/appointments/staff-alerts' ? (config.params.windowStart.startsWith('2026-10-12')?Promise.resolve({data:{alerts:[{appointmentId:1,text:'Current week'}]}}):new Promise(r=>{finish=r;})) : base(url,config));
+ state.summary={...summary,scheduleAgencyIds:[2]};await state.loadScheduleStaffAlerts({type:'appointment-staff-alert-changed'});await flushPromises();
+ state.summary={...summary,weekStart:'2026-10-19',scheduleAgencyIds:[2]};await flushPromises();expect(finish).toBeTypeOf('function');
+ state.summary={...summary,scheduleAgencyIds:[2]};await flushPromises();expect(state.scheduleStaffAlerts[0].text).toBe('Current week');
+ finish({data:{alerts:[{appointmentId:2,text:'Other week'}]}});await flushPromises();expect(state.scheduleStaffAlerts[0].text).toBe('Current week');
 });

@@ -25,6 +25,7 @@ export function createSchoolSoftScheduleCalendar({ roster = cancellationSchoolRo
     if(!slots.length&&school.some(link=>Number(link.client_id)===Number(row.client_id)))return null;
     return slots;
   }
+  const weekdayOf = date => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
   async function list({ agencyId, providerId, startDate, endDate, timeZone, appointments = null }) {
     if (!appointments) {
       const [rows] = await database.execute(`SELECT p.client_id,a.start_at FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id
@@ -34,12 +35,13 @@ export function createSchoolSoftScheduleCalendar({ roster = cancellationSchoolRo
       const dateOf = value => new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(value instanceof Date ? value : new Date(String(value).replace(' ','T')+'Z'));
       appointments = rows.map(r => ({ clientId:Number(r.client_id), date:dateOf(r.start_at) }));
     }
+    const weeklyRoster = roster.readWeek ? await roster.readWeek({ agencyId, providerId }) : null;
     const saved = await history.list({ agencyId, providerId, startDate, endDate });
     const linked=await replacements(agencyId,[providerId]);
     const results = new Map();
     const key = (date, clientId, schoolId) => `${agencyId}:${providerId}:${date}:${clientId}:${schoolId}`;
     for (let date = startDate, days = 0; date < endDate && days < 32; date = addDaysYmd(date, 1), days++) {
-      for (const row of await roster.list({ agencyId, providerId, date })) {
+      for (const row of (weeklyRoster ? weeklyRoster.filter(row => String(row.service_day || '').trim().toLowerCase() === weekdayOf(date).toLowerCase()) : await roster.list({ agencyId, providerId, date }))) {
         const slots=planning(row,date,providerId,linked,appointments.some(a=>Number(a.clientId)===Number(row.client_id)&&a.date===date));
         if(slots===null)continue;
         results.set(key(date,row.client_id,row.school_id), { key: key(date,row.client_id,row.school_id), agencyId, providerId,
@@ -65,8 +67,9 @@ export function createSchoolSoftScheduleCalendar({ roster = cancellationSchoolRo
     const key = (providerId,date,clientId,schoolId) => `${agencyId}:${providerId}:${date}:${clientId}:${schoolId}`;
     const booked = new Set(appointments.map(a => `${a.providerId}:${a.date}:${a.clientId}`));
     const linked=await replacements(agencyId,providerIds);
+    const weeklyRoster = roster.readWeek ? await roster.readWeek({ agencyId, providerIds }) : null;
     for (let date=startDate, days=0; date<endDate && days<32; date=addDaysYmd(date,1), days++) {
-      for (const row of await roster.readMany({agencyId,providerIds,date})) {
+      for (const row of (weeklyRoster ? weeklyRoster.filter(row => String(row.service_day || '').trim().toLowerCase() === weekdayOf(date).toLowerCase()) : await roster.readMany({agencyId,providerIds,date}))) {
         const providerId=Number(row.provider_id), clientId=Number(row.client_id), schoolId=Number(row.school_id);
         const slots=planning(row,date,providerId,linked,booked.has(`${providerId}:${date}:${clientId}`));
         if(slots===null)continue;

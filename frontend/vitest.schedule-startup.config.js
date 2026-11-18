@@ -8,6 +8,7 @@ export default defineConfig({ plugins:[vue()], resolve:{alias:{'@':new URL('./sr
 'src/utils/__tests__/scheduleLocationProjection.test.js',
 'src/utils/__tests__/scheduleClientNames.test.js',
 'src/utils/__tests__/scheduleSummaryRequests.test.js',
+'src/utils/__tests__/scheduleSummaryCache.test.js',
 'src/utils/__tests__/scheduleSummaryPrefetch.test.js',
 'src/views/__tests__/DashboardScheduleStartup.test.js',
 'src/components/meetings/__tests__/MeetingTimeClaimsPanel.test.js'

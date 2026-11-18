@@ -1,3 +1,4 @@
+import { clearScheduleSummaryCache } from '../utils/scheduleSummaryCache';
 import { clearUnifiedInboxCache } from '../utils/unifiedInboxCache';
 import { clearClientManagementWorkspaces } from '../utils/clientManagementWorkspace.js';
 import { defineStore } from 'pinia';
@@ -129,6 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = null;
     clearUnifiedInboxCache();
+    clearScheduleSummaryCache();
     user.value = null;
     localStorage.removeItem('user');
     try {

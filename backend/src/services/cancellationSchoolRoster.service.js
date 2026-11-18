@@ -49,8 +49,8 @@ export async function sendRosterEmail({ agencyId, clientId, ...message }) {
 export function createCancellationSchoolRosterService(overrides = {}) {
   const d = { database: pool, contacts: (...args) => cancellationRecipients.review(...args),
     permitted: (...args) => cancellationRecipients.permitted(...args), sendEmail: sendRosterEmail, history: schoolAbsenceHistory, receipts:cancellationEmailReceipts, ...overrides };
-  async function readRoster({ agencyId, providerId, providerIds = null, date }) {
-    if (providerIds && !providerIds.length) return [];
+  async function readRoster({ agencyId, providerId, providerIds = null, date, weekdays = null }) {
+    if ((providerIds && !providerIds.length) || (weekdays && !weekdays.length)) return [];
     const weekday = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
     const [rows] = await d.database.execute(`SELECT ${providerIds ? "cpa.provider_user_id AS provider_id," : ""}cpa.id AS assignment_id,cpa.client_id,cpa.organization_id AS school_id,
       cpa.service_day,cpa.updated_at,c.status,c.full_name AS client_name,c.initials AS client_initials,s.status_key AS client_status_key,s.label AS client_status_label,
@@ -66,13 +66,13 @@ export function createCancellationSchoolRosterService(overrides = {}) {
       LEFT JOIN client_statuses s ON s.id=c.client_status_id
       LEFT JOIN soft_schedule_slots ss ON ss.client_id=cpa.client_id AND ss.school_organization_id=cpa.organization_id
         AND ss.provider_user_id=cpa.provider_user_id AND BINARY ss.weekday=BINARY cpa.service_day
-      WHERE cpa.provider_user_id ${providerIds ? `IN (${providerIds.map(()=>"?").join(",")})` : "=?"} AND cpa.service_day=? AND cpa.is_active=1
-      ORDER BY cpa.client_id,cpa.organization_id,cpa.id`, [agencyId, ...(providerIds || [providerId]), weekday]);
+      WHERE cpa.provider_user_id ${providerIds ? `IN (${providerIds.map(()=>"?").join(",")})` : "=?"} AND cpa.service_day ${weekdays ? `IN (${weekdays.map(()=>"?").join(",")})` : "=?"} AND cpa.is_active=1
+      ORDER BY cpa.client_id,cpa.organization_id,cpa.id`, [agencyId, ...(providerIds || [providerId]), ...(weekdays || [weekday])]);
     const clients = new Map();
     for (const row of rows.filter(r => !['ARCHIVED','INACTIVE'].includes(r.status) && !hasTerminalClientStatus(r)
       && !['waitlist','inactive'].includes(String(r.client_status_key || '').toLowerCase()))) {
       const { slot_id, start_time, end_time, slot_note, slot_updated_at, ...assignment } = row;
-      const key = `${providerIds ? row.provider_id + ":" : ""}${row.client_id}:${row.school_id}`;
+      const key = `${weekdays ? String(row.service_day).trim().toLowerCase() + ":" : ""}${providerIds ? row.provider_id + ":" : ""}${row.client_id}:${row.school_id}`;
       if (!clients.has(key)) clients.set(key, { ...assignment, slots: [] });
       if (slot_id && !clients.get(key).slots.some(s => s.id === Number(slot_id))) clients.get(key).slots.push({ id: Number(slot_id), startTime: start_time, endTime: end_time, note: slot_note, updatedAt: slot_updated_at });
     }
@@ -153,6 +153,7 @@ export function createCancellationSchoolRosterService(overrides = {}) {
       throw error;
     }
   }
-  return { list, readMany, review, send };
+  const readWeek = args => readRoster({ ...args, weekdays: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] });
+  return { list, readMany, readWeek, review, send };
 }
 export const cancellationSchoolRoster = createCancellationSchoolRosterService();

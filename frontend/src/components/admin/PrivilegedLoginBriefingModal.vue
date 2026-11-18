@@ -759,6 +759,7 @@ async function loadBriefing() {
 
     const ticketParams = primaryAgencyId ? { agencyId: primaryAgencyId } : {};
     const scheduleParams = {
+      skipOfficeMaterialize: true, skipGoogleSync: true,
       weekStart: mondayYmd(),
       ...(primaryAgencyId ? { agencyId: primaryAgencyId } : {})
     };

@@ -108,3 +108,10 @@ it('keeps separate assignments for two providers in a bulk read and sends nothin
  expect(s.sendEmail).not.toHaveBeenCalled();expect(s.history.begin).not.toHaveBeenCalled();
  const before=s.database.execute.mock.calls.length;expect(await s.service.readMany({...args,providerIds:[]})).toEqual([]);expect(s.database.execute).toHaveBeenCalledTimes(before);
 });
+
+it('reads a weekly roster once and keeps different weekdays for the same client separate',async()=>{
+ const s=setup();s.setRows([{...row,slot_id:1,start_time:'09:00:00',end_time:'10:00:00'},{...row,service_day:'Friday',slot_id:2,start_time:'11:00:00',end_time:'12:00:00'}]);
+ const rows=await s.service.readWeek({agencyId:2,providerId:505});
+ expect(s.database.execute).toHaveBeenCalledTimes(1);expect(s.database.execute.mock.calls[0][1]).toEqual([2,505,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']);
+ expect(rows.map(r=>[r.service_day,r.slots[0].id])).toEqual([['Wednesday',1],['Friday',2]]);
+});

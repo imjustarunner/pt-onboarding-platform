@@ -110,10 +110,10 @@
               Today
             </button>
             <div class="sched-nav-arrows">
-              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" :title="isDayOrAgendaSpan ? 'Go to the previous day' : 'Go to the previous week'" data-tour="my-schedule-previous" @click="prevWeek" :disabled="loading">
+              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" :title="isDayOrAgendaSpan ? 'Go to the previous day' : 'Go to the previous week'" data-tour="my-schedule-previous" @click="prevWeek">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" :title="isDayOrAgendaSpan ? 'Go to the next day' : 'Go to the next week'" data-tour="my-schedule-next" @click="nextWeek" :disabled="loading">
+              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" :title="isDayOrAgendaSpan ? 'Go to the next day' : 'Go to the next week'" data-tour="my-schedule-next" @click="nextWeek">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
             </div>
@@ -246,10 +246,10 @@
             Today
           </button>
           <div class="sched-nav-arrows">
-            <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" @click="prevWeek" :disabled="loading">
+            <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" @click="prevWeek">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" @click="nextWeek" :disabled="loading">
+            <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" @click="nextWeek">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
@@ -258,7 +258,7 @@
             <svg class="sched-nav-date-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
             </svg>
-            <input class="sched-nav-date-input" type="date" :value="weekJumpDateValue" :disabled="loading" aria-label="Jump to week" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" />
+            <input class="sched-nav-date-input" type="date" :value="weekJumpDateValue" aria-label="Jump to week" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" />
           </label>
           <button class="sched-nav-icon-btn" type="button" aria-label="Refresh schedule" title="Reload this week’s schedule from the server" @click="load({ forceRefresh: true })" :disabled="loading">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -630,7 +630,7 @@
         <div id="sched-settings-layout" aria-labelledby="sched-tab-layout" role="tabpanel" v-show="activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
           <h3>Display</h3>
           <label class="sched-client-names"><span>Time format</span><select v-model="scheduleTimeFormat" class="sched-select" aria-label="Time format" @change="saveClientNameDisplay"><option value="12h">12-hour · 8 AM</option><option value="24h">24-hour · 08:00</option></select></label>
-          <label class="sched-inline compact"><span>Jump to date</span><input type="date" :value="weekJumpDateValue" :disabled="loading" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" /></label>
+          <label class="sched-inline compact"><span>Jump to date</span><input type="date" :value="weekJumpDateValue" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" /></label>
           <button
             type="button"
             class="sched-pill"
@@ -1044,7 +1044,7 @@
         data-tour="my-schedule-agenda"
       >
         <div class="sched-agenda__nav">
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="shiftFocusedDay(-1)">
+          <button type="button" class="btn btn-secondary btn-sm" @click="shiftFocusedDay(-1)">
             ← Previous day
           </button>
           <div class="sched-agenda__when">
@@ -1054,7 +1054,7 @@
             <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click="openDayNote(agendaDayName)">Email this day</button>
             <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(agendaDayName)">Cancel day…</button>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="shiftFocusedDay(1)">
+          <button type="button" class="btn btn-secondary btn-sm" @click="shiftFocusedDay(1)">
             Next day →
           </button>
         </div>
@@ -5925,7 +5925,7 @@ import { canScheduleTraining } from '../../utils/scheduledTraining';
 import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
-import { prefetchNextScheduleWeek } from '../../utils/scheduleSummaryPrefetch.js';
+import { prefetchAdjacentScheduleWeeks } from '../../utils/scheduleSummaryPrefetch.js';
 import ScheduleCalendarMenu from './ScheduleCalendarMenu.vue';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
@@ -5955,7 +5955,7 @@ import AppointmentScheduleCheck from './AppointmentScheduleCheck.vue';
 import SupervisionRecordPanel from './SupervisionRecordPanel.vue';
 import SupervisionRsvpSummary from './SupervisionRsvpSummary.vue';
 import { supervisionProgress } from '../../utils/supervisionProgress.js';
-import { getScheduleSummary, getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
+import { getScheduleSummaryStale, scheduleSummaryRevision, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
 import {calendarWallDate,calendarSessionState} from '../../utils/calendarWallClock.js';
 import {
@@ -6523,6 +6523,7 @@ const openAllDayBlock = (event, block, day) => {
 };
 
 const loading = ref(false);
+const refreshingSchedule = ref(false);
 const error = ref('');
 const rawSummary = ref(null);
 const recentlySavedAppointments = ref({});
@@ -8131,7 +8132,8 @@ onMounted(() => {
   schedSoftRefreshTimer = setInterval(() => {
     if (!canPollWorkspace()) return;
     if (document.visibilityState === 'hidden') return;
-    void load({ forceRefresh: true });
+    if (loadInFlight) return;
+    void load();
     void loadSelectedOfficeGrid();
   }, 45 * 1000);
 });
@@ -10000,12 +10002,22 @@ const filterSummaryByActiveAgencies = (data) => {
 
 let loadInFlight = null;
 let loadInFlightKey = '';
+let loadInFlightForced = false;
 const scheduleRetryPending = ref(false);
 let scheduleRetryTimer = null;
 let scheduleRetryDeadline = 0;
 let scheduleRetryAttempts = 0;
 let scheduleDisposed = false;
 let nextWeekPrefetchTimer = null;
+let displayedScheduleKey = '';
+function warmAdjacentWeeks(config, cacheKey, generation, uid) {
+  if (viewMode.value === 'office_layout' || props.mode !== 'self') return;
+  clearTimeout(nextWeekPrefetchTimer);
+  nextWeekPrefetchTimer = setTimeout(() => {
+    void prefetchAdjacentScheduleWeeks(`/users/${uid}/schedule-summary`, config, cacheKey,
+      () => !scheduleDisposed && generation === scheduleReadGeneration && props.userId === uid);
+  }, 800);
+}
 function waitForScheduleRetry(deadline) {
   clearTimeout(scheduleRetryTimer);
   scheduleRetryDeadline = deadline;
@@ -10040,14 +10052,19 @@ const tagPersonalSummary = data => {
   return tagged;
 };
 let scheduleReadGeneration = 0;
-function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, snapshot }) {
+const googleSummaryAttempts = new Map();
+function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, snapshot, force = false }) {
   if (!snapshot?.googleCalendarEnabled || !snapshot.googleSyncPending || props.hideOfficeAndCalendarIntegration) return;
+  if (!force && Date.now() - (googleSummaryAttempts.get(cacheKey) || 0) < 90000) return;
   // The app calendar has already rendered. Google reconciliation must not hold its spinner.
-  const current = () => !scheduleDisposed && generation === scheduleReadGeneration && props.userId === uid && weekStart.value === week;
+  const revision = scheduleSummaryRevision(uid);
+  const current = () => !scheduleDisposed && revision === scheduleSummaryRevision(uid) && generation === scheduleReadGeneration && props.userId === uid && weekStart.value === week;
   const params = { weekStart: week, timeZone: bookingTimezoneIana.value, weekStartsOn: effectiveWeekStartsOn.value, includeAllAgencies: 'true', skipOfficeMaterialize: 'true',
     skipGoogleSync: 'false', includeGoogleBusy: googleBusyPreference.value ? 'true' : 'false', includeGoogleEvents: googleEventsPreference.value ? 'true' : 'false' };
   setTimeout(async () => {
     if (!current()) return;
+    googleSummaryAttempts.set(cacheKey, Date.now());
+    while (googleSummaryAttempts.size > 12) googleSummaryAttempts.delete(googleSummaryAttempts.keys().next().value);
     try {
       const { data } = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, { params, timeout: 15000, skipGlobalLoading: true });
       if (!current() || !data || rawSummary.value !== snapshot) return;
@@ -10082,12 +10099,29 @@ const load = async ({ forceRefresh = false } = {}) => {
   const useAllAgencies = props.mode === 'self';
   const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}`;
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
-  const flightKey = `${forceRefresh ? 'force|' : ''}${cacheKey}`;
-  if (loadInFlight && loadInFlightKey === flightKey) {
+  const revision = scheduleSummaryRevision(uid);
+  const flightKey = `${cacheKey}|${revision}`;
+  if (loadInFlight && loadInFlightKey === flightKey && (!forceRefresh || loadInFlightForced)) {
     return loadInFlight;
   }
 
   scheduleReadGeneration = generation;
+  clearTimeout(nextWeekPrefetchTimer);
+  refreshingSchedule.value = false;
+  if (displayedScheduleKey !== cacheKey) {
+    summary.value = null;
+    loading.value = false;
+  }
+  displayedScheduleKey = cacheKey;
+  const personalReadConfig = {
+    params: {
+      weekStart: requestedWeekStart, timeZone: requestedTimeZone, weekStartsOn: effectiveWeekStartsOn.value,
+      includeAllAgencies: 'true', skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
+      skipGoogleSync: 'true', includeGoogleBusy: 'false', includeGoogleEvents: 'false',
+      ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
+        ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') } : {}))
+    }, skipGlobalLoading: true
+  };
   // A forced read bypasses cache freshness, but retains this exact calendar as
   // a fallback if a background refresh is throttled or temporarily unavailable.
   const stalePack = getScheduleSummaryStale(cacheKey);
@@ -10099,36 +10133,24 @@ const load = async ({ forceRefresh = false } = {}) => {
     tryOpenFocusScheduleEvent();
     if (stalePack.fresh && !forceRefresh) {
       scheduleReadGeneration = generation;
-      if (useAllAgencies) refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
+      if (useAllAgencies) {
+        refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value, force: forceRefresh });
+        warmAdjacentWeeks(personalReadConfig, cacheKey, generation, uid);
+      }
       return;
     }
   }
 
   const run = (async () => {
   try {
-    if (forceRefresh || !stalePack?.data) loading.value = true;
+    loading.value = !rawSummary.value;
+    refreshingSchedule.value = !!rawSummary.value;
     error.value = '';
 
     // Self / My Schedule: one cross-tenant request so every booking shows (and load stays fast).
     if (useAllAgencies) {
-      const resp = await getScheduleSummaryResponse(`/users/${props.userId}/schedule-summary`, {
-        params: {
-          weekStart: requestedWeekStart,
-          timeZone: requestedTimeZone,
-          weekStartsOn: effectiveWeekStartsOn.value,
-          includeAllAgencies: 'true',
-          // Skip office materialization on personal grid — big win for first paint.
-          skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
-          skipGoogleSync: 'true',
-          includeGoogleBusy: 'false',
-          includeGoogleEvents: 'false',
-          ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
-            ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-            : {}))
-        },
-        skipGlobalLoading: true
-      }, { fresh: forceRefresh });
-      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
+      const resp = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, personalReadConfig, { fresh: forceRefresh });
+      if (generation !== scheduleReadGeneration || revision !== scheduleSummaryRevision(uid) || uid !== props.userId || requestedWeek !== weekStart.value) return;
       const data = resp.data || null;
       if (data) {
         const tagged = tagPersonalSummary(data);
@@ -10137,17 +10159,8 @@ const load = async ({ forceRefresh = false } = {}) => {
         acknowledgeSavedAppointments(tagged);
         summary.value = tagged;
         loading.value = false;
-        refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
-        // Warm only the adjacent personal week after the visible one has painted.
-        // Reuse the normal cache and its write invalidation; never materialize other room weeks.
-        if (resp.config?.params && viewMode.value !== 'office_layout') {
-          clearTimeout(nextWeekPrefetchTimer);
-          const uid = props.userId;
-          nextWeekPrefetchTimer = setTimeout(() => {
-            void prefetchNextScheduleWeek(`/users/${uid}/schedule-summary`, resp.config, cacheKey,
-              () => !scheduleDisposed && props.userId === uid);
-          }, 800);
-        }
+        refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value, force: forceRefresh });
+        warmAdjacentWeeks(personalReadConfig, cacheKey, generation, uid);
       } else {
         summary.value = null;
       }
@@ -10166,7 +10179,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         },
         skipGlobalLoading: true
       }, { fresh: forceRefresh });
-      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
+      if (generation !== scheduleReadGeneration || revision !== scheduleSummaryRevision(uid) || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
       const data = resp.data || null;
       acknowledgeSavedAppointments(data);
       summary.value = data;
@@ -10198,7 +10211,7 @@ const load = async ({ forceRefresh = false } = {}) => {
           )
       );
 
-      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
+      if (generation !== scheduleReadGeneration || revision !== scheduleSummaryRevision(uid) || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
       const okOnes = results.filter((r) => r.ok && r.data);
       const first = okOnes[0]?.data || null;
       if (!first) {
@@ -10325,7 +10338,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.googleBusy = first.googleBusy || [];
       merged.googleBusyError = first.googleBusyError || null;
       merged.externalCalendars = first.externalCalendars || [];
-      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
+      if (generation !== scheduleReadGeneration || revision !== scheduleSummaryRevision(uid) || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
       acknowledgeSavedAppointments(merged);
       summary.value = merged;
       setScheduleSummary(cacheKey, merged);
@@ -10372,11 +10385,11 @@ const load = async ({ forceRefresh = false } = {}) => {
       nextTick(() => showOfficeReminder());
     }
   } catch (e) {
-    if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
+    if (generation !== scheduleReadGeneration || revision !== scheduleSummaryRevision(uid) || uid !== props.userId || requestedWeek !== weekStart.value) return;
     const status = Number(e?.response?.status || 0);
     const accessDenied = status === 401 || status === 403;
     if (accessDenied) { recentlySavedAppointments.value = {}; invalidateScheduleSummaryCacheForUser(props.userId); }
-    const keepCachedSchedule = !!stalePack?.data && !accessDenied;
+    const keepCachedSchedule = !!rawSummary.value && displayedScheduleKey === cacheKey && !accessDenied;
     if (!keepCachedSchedule) {
       summary.value = null;
     }
@@ -10392,12 +10405,13 @@ const load = async ({ forceRefresh = false } = {}) => {
       ? `${message} Showing the previously loaded schedule.`
       : message;
   } finally {
-    if (generation === scheduleReadGeneration) loading.value = false;
+    if (generation === scheduleReadGeneration) { loading.value = false; refreshingSchedule.value = false; }
   }
   })();
 
   loadInFlight = run;
   loadInFlightKey = flightKey;
+  loadInFlightForced = forceRefresh;
   try {
     await run;
     tryOpenFocusScheduleEvent();
@@ -10474,14 +10488,7 @@ watch(effectiveAgencyIds, () => {
 }, { deep: true });
 watch([googleBusyPreference, googleEventsPreference, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
 
-// Org chip toggles filter the already-loaded all-tenant payload (no refetch).
-watch(activeScheduleAgencyIds, () => {
-  if (props.mode !== 'self') return;
-  const cached = getScheduleSummary(
-    `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
-  );
-  if (cached) summary.value = cached;
-}, { deep: true });
+// Org chip toggles filter the computed summary without another request.
 
 // Once self agencies finish loading, kick the first all-tenant fetch if needed.
 watch(selfScheduleAgenciesLoaded, (loaded) => {
@@ -10620,6 +10627,7 @@ let staffAlertLoadVersion = 0;
 let staffAlertScope = '';
 let staffAlertAttemptAt = 0;
 let staffAlertInFlight = null;
+const staffAlertWeeks = new Map();
 const loadScheduleStaffAlerts = async (event) => {
   const providerId = Number(props.userId || 0);
   const start = summary.value?.weekStart || weekStart.value;
@@ -10627,8 +10635,18 @@ const loadScheduleStaffAlerts = async (event) => {
   if (!summary.value || !providerId || !start || !agencies.length || (summary.value.providerId && Number(summary.value.providerId) !== providerId)) {
     staffAlertLoadVersion += 1; staffAlertScope = ''; staffAlertInFlight = null; scheduleStaffAlerts.value = []; return;
   }
-  const scope = `${providerId}|${start}|${agencies.join(',')}`;
+  const revision = scheduleSummaryRevision(providerId);
+  const scope = `${providerId}|${start}|${agencies.join(',')}|${bookingTimezoneIana.value}|${revision}`;
   const force = event?.type === 'appointment-staff-alert-changed';
+  if (force) staffAlertWeeks.clear();
+  const cachedAlerts = staffAlertWeeks.get(scope);
+  if (!force && cachedAlerts && Date.now() - cachedAlerts.at < 30000) {
+    if (scope !== staffAlertScope) { staffAlertLoadVersion += 1; staffAlertInFlight = null; }
+    staffAlertScope = scope;
+    staffAlertAttemptAt = cachedAlerts.at;
+    scheduleStaffAlerts.value = cachedAlerts.alerts;
+    return;
+  }
   if (scope === staffAlertScope) {
     if (staffAlertInFlight) return staffAlertInFlight;
     if (!force && Date.now() - staffAlertAttemptAt < 30000) return;
@@ -10644,9 +10662,13 @@ const loadScheduleStaffAlerts = async (event) => {
   })));
   staffAlertInFlight = request;
   const results = await request;
-  if (version !== staffAlertLoadVersion) return;
+  if (version !== staffAlertLoadVersion || revision !== scheduleSummaryRevision(providerId)) return;
   staffAlertInFlight = null;
   scheduleStaffAlerts.value = results.flatMap(result => result.status === 'fulfilled' && Array.isArray(result.value?.data?.alerts) ? result.value.data.alerts : []);
+  if (results.every(result => result.status === 'fulfilled')) {
+    staffAlertWeeks.set(scope, {at: Date.now(), alerts: scheduleStaffAlerts.value});
+    while (staffAlertWeeks.size > 12) staffAlertWeeks.delete(staffAlertWeeks.keys().next().value);
+  }
 };
 const scheduleStaffAlertLookup = computed(() => {
   const map = new Map();
@@ -20310,7 +20332,7 @@ const isOfficeScopeSpecific = computed(() => Number(selectedOfficeLocationId.val
 const isOfficeScopeAll = computed(() => Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL);
 const officeGridLoading = ref(false);
 const scheduleCornerLoadingLabel = computed(() => {
-  const scheduleBusy = !!loading.value;
+  const scheduleBusy = !!loading.value || !!refreshingSchedule.value;
   const officeBusy = !props.hideOfficeAndCalendarIntegration
     && isOfficeScopeSpecific.value
     && !!officeGridLoading.value;
@@ -20320,7 +20342,7 @@ const scheduleCornerLoadingLabel = computed(() => {
   return '';
 });
 const scheduleCornerLoadingShortLabel = computed(() => {
-  const scheduleBusy = !!loading.value;
+  const scheduleBusy = !!loading.value || !!refreshingSchedule.value;
   const officeBusy = !props.hideOfficeAndCalendarIntegration
     && isOfficeScopeSpecific.value
     && !!officeGridLoading.value;

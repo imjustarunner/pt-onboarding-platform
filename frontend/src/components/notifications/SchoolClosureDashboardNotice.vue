@@ -22,12 +22,24 @@ import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null},splashAllowed:{type:Boolean,default:true}});
 const closures=ref([]),now=ref(Date.now()),reviewOpen=ref(false),saving=ref(false),error=ref(''),dismissButton=ref(null);
 let sequence=0,refreshTimer,timer,previousFocus;
+let pendingScope=null,pendingRead=null,lastSuccessAt=0;
 const active=computed(()=>closures.value.filter(item=>new Date(item.startsAt).getTime()<=now.value&&now.value<new Date(item.endsAt).getTime()));
 const pending=computed(()=>active.value.filter(item=>!item.splashDismissed));
 const modalVisible=computed(()=>props.splashAllowed&&active.value.length>0&&(reviewOpen.value||pending.value.length>0));
 const modalItems=computed(()=>reviewOpen.value?active.value:pending.value);
 function duration(item){const format=new Intl.DateTimeFormat('en-US',{timeZone:item.timeZone,dateStyle:'medium',timeStyle:'short'});return `${format.format(new Date(item.startsAt))} – ${format.format(new Date(item.endsAt))} (${item.timeZone})`;}
-async function load(){const request=++sequence;try{const {data}=await api.get('/dashboard/school-closures',{params:props.agencyId?{agencyId:props.agencyId}:undefined});if(request===sequence)closures.value=data.closures||[];}catch{if(request===sequence)closures.value=[];}}
+async function load(){
+ if(document.visibilityState==='hidden')return;
+ const scope=Number(props.agencyId)||0;
+ if(scope===pendingScope){if(pendingRead)return pendingRead;if(Date.now()-lastSuccessAt<30000)return;}
+ pendingScope=scope;lastSuccessAt=0;const request=++sequence;
+ pendingRead=(async()=>{try{
+  const {data}=await api.get('/dashboard/school-closures',{params:scope?{agencyId:scope}:undefined,skipGlobalLoading:true});
+  if(request===sequence){closures.value=data.closures||[];lastSuccessAt=Date.now();}
+ }catch{ /* Keep a previously loaded closure notice during a transient failure. */ }
+ finally{if(request===sequence)pendingRead=null;}})();
+ return pendingRead;
+}
 async function dismiss(){if(saving.value)return;saving.value=true;error.value='';try{for(const item of pending.value){await api.post(`/dashboard/school-closures/${item.eventId}/dismiss`,{revision:item.revision});item.splashDismissed=true;}reviewOpen.value=false;}catch{error.value='Could not save your acknowledgement. Please try again.';}finally{saving.value=false;}}
 watch(modalVisible,async visible=>{if(visible){previousFocus=document.activeElement;await nextTick();dismissButton.value?.focus();}else previousFocus?.focus?.();});
 watch(()=>props.agencyId,()=>{closures.value=[];reviewOpen.value=false;load();});

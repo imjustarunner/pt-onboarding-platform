@@ -6,8 +6,21 @@ import { invalidateScheduleSummaryRequests } from './scheduleSummaryRequests';
 
 const CACHE_TTL_MS = 90 * 1000;
 const SESSION_TTL_MS = 30 * 60 * 1000;
-const SESSION_PREFIX = 'sched_summary_v2:';
+const SESSION_PREFIX = 'sched_summary_v3:';
 const cache = new Map();
+const revisions = new Map();
+let cacheGeneration = 0;
+export function scheduleSummaryRevision(userId) {
+  return `${cacheGeneration}:${revisions.get(Number(userId)) || 0}:${scheduleCacheIdentity()}`;
+}
+function scheduleCacheIdentity() {
+  try {
+    return JSON.stringify([localStorage.getItem('sessionId'), JSON.parse(localStorage.getItem('user') || 'null')?.id, JSON.parse(localStorage.getItem('user') || 'null')?.role,
+      JSON.parse(localStorage.getItem('currentAgency') || 'null')?.id, sessionStorage.getItem('__pt_demo_window_user__')]);
+  } catch { return 'unavailable'; }
+}
+const scopedKey = key => `${key}|viewer:${scheduleCacheIdentity()}`;
+const MAX_WEEKS = 12;
 
 function sessionKey(key) {
   return `${SESSION_PREFIX}${key}`;
@@ -24,29 +37,31 @@ export function getScheduleSummary(key) {
  * - stale: sessionStorage hit older than memory TTL (paint, then refresh)
  */
 export function getScheduleSummaryStale(key) {
-  const entry = cache.get(key);
+  const storageKey = scopedKey(key);
+  const entry = cache.get(storageKey);
   if (entry?.data) {
     const age = Date.now() - Number(entry.at || 0);
-    if (age <= CACHE_TTL_MS) {
-      return { data: entry.data, fresh: true };
+    if (age <= SESSION_TTL_MS) {
+      return { data: entry.data, fresh: age <= CACHE_TTL_MS };
     }
   }
   try {
-    const raw = sessionStorage.getItem(sessionKey(key));
+    const raw = sessionStorage.getItem(sessionKey(storageKey));
     if (!raw) {
-      if (entry) cache.delete(key);
+      if (entry) cache.delete(storageKey);
       return null;
     }
     const parsed = JSON.parse(raw);
     if (!parsed?.data || !parsed?.at) return null;
     const storedAt = Number(parsed.at);
     if (!Number.isFinite(storedAt) || Date.now() - storedAt > SESSION_TTL_MS) {
-      sessionStorage.removeItem(sessionKey(key));
-      if (entry) cache.delete(key);
+      sessionStorage.removeItem(sessionKey(storageKey));
+      if (entry) cache.delete(storageKey);
       return null;
     }
     // Keep original timestamp so "fresh" stays false after memory TTL.
-    cache.set(key, { data: parsed.data, at: storedAt });
+    cache.set(storageKey, { data: parsed.data, at: storedAt });
+    while (cache.size > MAX_WEEKS) cache.delete(cache.keys().next().value);
     return {
       data: parsed.data,
       fresh: Date.now() - storedAt <= CACHE_TTL_MS
@@ -58,9 +73,28 @@ export function getScheduleSummaryStale(key) {
 
 export function setScheduleSummary(key, data) {
   const at = Date.now();
-  cache.set(key, { data, at });
+  const storageKey = scopedKey(key);
+  cache.delete(storageKey);
+  cache.set(storageKey, { data, at });
+  while (cache.size > MAX_WEEKS) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+    try { sessionStorage.removeItem(sessionKey(oldest)); } catch { /* optional storage */ }
+  }
   try {
-    sessionStorage.setItem(sessionKey(key), JSON.stringify({ data, at }));
+    // Bound storage across remounts/reloads, not only the current memory map.
+    const stored = [];
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const name = sessionStorage.key(i);
+      if (name?.startsWith(SESSION_PREFIX) && name !== sessionKey(storageKey)) {
+        let savedAt = 0;
+        try { savedAt = Number(JSON.parse(sessionStorage.getItem(name))?.at) || 0; } catch { /* expired */ }
+        stored.push({ name, at: savedAt });
+      }
+    }
+    stored.sort((a,b) => a.at - b.at);
+    while (stored.length >= MAX_WEEKS) sessionStorage.removeItem(stored.shift().name);
+    sessionStorage.setItem(sessionKey(storageKey), JSON.stringify({ data, at }));
   } catch {
     // quota / private mode — memory cache still works
   }
@@ -69,6 +103,7 @@ export function setScheduleSummary(key, data) {
 export function invalidateScheduleSummaryCacheForUser(userId) {
   const uid = Number(userId || 0);
   if (!uid) return;
+  revisions.set(uid, (revisions.get(uid) || 0) + 1);
   invalidateScheduleSummaryRequests(uid);
   const prefix = `${uid}|`;
   for (const key of [...cache.keys()]) {
@@ -87,12 +122,14 @@ export function invalidateScheduleSummaryCacheForUser(userId) {
 }
 
 export function clearScheduleSummaryCache() {
+  cacheGeneration += 1;
+  invalidateScheduleSummaryRequests();
   cache.clear();
   try {
     const toRemove = [];
     for (let i = 0; i < sessionStorage.length; i += 1) {
       const k = sessionStorage.key(i);
-      if (k && k.startsWith(SESSION_PREFIX)) toRemove.push(k);
+      if (k && (k.startsWith(SESSION_PREFIX) || k.startsWith('sched_summary_v2:'))) toRemove.push(k);
     }
     toRemove.forEach((k) => sessionStorage.removeItem(k));
   } catch {
