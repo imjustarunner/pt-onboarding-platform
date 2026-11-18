@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { createPinia } from 'pinia';
 import { mount, flushPromises } from '@vue/test-utils';
 
 const state = vi.hoisted(() => {
@@ -19,7 +20,7 @@ vi.mock('../AppWorkspace.vue', async () => {
 import App from '../App.vue';
 
 it('shows an explicit loading state while the private workspace files are pending, then removes it', async () => {
-  const wrapper = mount(App, { global: { stubs: { RouterView: true } } });
+  const wrapper = mount(App, { global: { plugins: [createPinia()], stubs: { RouterView: true } } });
   try {
     await flushPromises();
     expect(wrapper.get('[role="status"]').text()).toBe('Opening your workspace…');
