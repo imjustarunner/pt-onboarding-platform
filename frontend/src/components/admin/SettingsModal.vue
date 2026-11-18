@@ -868,7 +868,7 @@ const allCategories = [
     label: 'AURICWELL',
     items: [
       { id: 'auricwell-management', label: 'AuricWell operations', icon: '🌿', component: 'AuricWellManagement', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true },
-      { id: 'auricwell-transition', label: 'EHR Transition', icon: '📋', component: 'AuricWellTransitionPlan', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true }
+      { id: 'auricwell-transition', label: 'Open transition workspace', icon: '📋', component: 'AuricWellTransitionPlan', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true }
     ]
   },
   {

@@ -26,7 +26,7 @@ describe('weekly transition evidence', () => {
     expect(() => validateTransitionState(state, state)).toThrow('Reconcile');
     for (const t of Object.values(state.tasks)) Object.assign(t, { status: 'passed', owner: 'Verified reviewer', backup: 'Assigned backup', evidence: 'Restricted evidence reference' });
     state.metrics.families.completed = 0;
-    expect(() => validateTransitionState(state, state)).toThrow('denominator');
+    expect(() => validateTransitionState(state, state)).toThrow('every total');
   });
   it('ignores client-supplied ranking and cohort edits in an ordinary save', () => {
     const previous = emptyTransitionState(), input = structuredClone(previous);

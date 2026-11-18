@@ -22,9 +22,11 @@
 </template>
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue';
-import api from '../../services/api';
+import sharedApi from '../../services/api';
+import { transitionRequestScope } from '../../utils/transitionRequestScope';
 import { prepareMedicalArchive, uploadMedicalArchive } from '../../utils/auricwellMedicalArchive.js';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, clientId: { type: [Number, String], required: true }, clientLabel: { type: String, default: '' } });
+const api = transitionRequestScope(sharedApi, () => props.agencyId);
 const emit = defineEmits(['saved', 'busy']);
 const archive = ref(null), busy = ref(false), error = ref(''), progress = ref(''), identityConfirmed = ref(false), downloadVerified = ref(false), savedDocuments = ref([]), fallback = ref(''), fallbackSaved = ref(false), fileInput = ref(null);
 let generation = 0;

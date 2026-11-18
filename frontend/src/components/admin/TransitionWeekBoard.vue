@@ -1,138 +1,130 @@
 <template>
-  <section class="transition-board" aria-labelledby="transition-week-title">
-    <h2 id="transition-week-title">{{ board?.practice?.name || practiceName }} · readiness checklist</h2>
-    <p>{{ board?.practice?.focus || 'Review records, families, Google, texting, training, security and billing readiness.' }} Week of November 16–20 · Mountain Time.</p>
-    <p>Assign an owner and backup to every item. Keep client names and clinical details in their charts; use protected record references here. Passing a checklist records evidence; it does not send messages, remove accounts or cancel subscriptions.</p>
-    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-    <div class="board-toolbar"><button type="button" :disabled="busy || dirty" @click="load">Refresh evidence</button><button type="button" :disabled="busy || !dirty" @click="save">Save evidence</button><span v-if="dirty">Unsaved changes</span><span v-else-if="board">Saved revision {{ board.revision }}</span></div>
+  <section class="tw-board" aria-labelledby="transition-week-title">
+    <div class="tw-heading"><div><p class="tw-eyebrow">{{ practiceName }} · November 16–20, 2026</p><h1 id="transition-week-title">{{ agencyId===2 ? 'Move together, five at a time.' : 'Get everyone ready for the move.' }}</h1><p>{{ agencyId===2 ? 'Start with the lightest caseloads. Bring clients up to date, train each group, then move their daily work.' : agencyId===377 ? 'Bring existing client charts up to date, schedule their sessions, and finish the records and billing handoff.' : 'Finish provider updates, prepare clients and families, and move daily work into the app.' }}</p></div><div class="tw-save"><button type="button" :disabled="busy||hasUnsaved" @click="load">Refresh</button><button v-if="dirty" class="tw-primary" type="button" :disabled="busy" @click="save">Save checklist & videos</button><small v-if="dirty">Unsaved changes</small><small v-else-if="board">Changes saved</small></div></div>
+    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p><p v-if="busy&&!board">Loading the transition workspace…</p>
     <template v-if="board">
-      <p><strong>{{ passedCount }}/{{ board.catalog.length }} checklist items passed</strong> · {{ publishedVideos }}/{{ videoDefinitions.length }} training videos published. Unknown and unfinished items remain visible.</p>
-      <p v-if="agencyId === 2"><a href="#itsco-cohorts">Go to ITSCO groups of five</a> · {{ board.state.ranking ? `${cohortNumbers.length} named groups frozen` : 'Named groups pending verified session counts — not populated yet' }}</p>
-      <div class="metric-grid">
-        <fieldset v-for="(metric, key) in board.state.metrics" :key="key" :disabled="busy">
-          <legend>{{ metricLabels[key] }}</legend>
-          <label>Total <input :value="metric.total" type="number" min="0" placeholder="Unknown" @input="setCount(metric, 'total', $event)" /></label>
-          <label>Completed <input :value="metric.completed" type="number" min="0" @input="setCount(metric, 'completed', $event)" /></label>
-          <label>Blocked <input :value="metric.blocked" type="number" min="0" @input="setCount(metric, 'blocked', $event)" /></label>
-        </fieldset>
+      <datalist id="tw-staff-names"><option v-for="person in people" :key="person.id" :value="person.name" /></datalist>
+      <nav class="tw-tabs" aria-label="Transition work"><button v-for="tab in tabs" :key="tab.id" type="button" :aria-current="section===tab.id?'page':undefined" @click="switchSection(tab.id)">{{ tab.label }}<span v-if="tab.id==='videos'">{{ readyVideos }}/{{ board.videoCatalog?.length||0 }}</span><span v-if="tab.id==='tasks'">{{ passedCount }}/{{ board.catalog.length }}</span></button></nav>
+      <div v-show="section==='people'">
+        <section class="tw-priority"><span class="tw-priority-number">1</span><div><h2>Bring every employee’s clients up to date</h2><p>Choose a name to see existing clients. Assign records and scheduling owners, then check off each client.</p></div></section>
+        <p v-if="rosterError" role="alert">{{ rosterError }} <button @click="loadRoster" :disabled="busy">Try loading employees again</button></p>
+        <details v-if="agencyId===2" class="tw-ranking" :open="rankingOpen" @toggle="rankingOpen=$event.target.open">
+          <summary>{{ board.state.ranking ? 'Why people are in this order' : 'Review the session counts and confirm the groups' }}</summary>
+          <p>Lowest average completed sessions per week first. Count October 19–November 15 and divide by four. Ties use November 16–22 scheduled sessions, then employee ID.</p>
+          <p v-if="board.state.ranking">Confirmed {{ formatDate(board.state.ranking.frozenAt) }} · {{ board.state.ranking.sourceReference }}. This order is retained so completed group work stays with the same people.</p>
+          <template v-else>
+            <p>The app counts are a starting point. They may not include TherapyNotes sessions. Blank means unknown. Review every person, including employees who have no sessions, before confirming.</p>
+            <div class="tw-table-wrap"><table><thead><tr><th>Employee</th><th>Completed in app</th><th>Verified 4-week total</th><th>Upcoming week</th><th>Weekly average</th></tr></thead><tbody><tr v-for="row in rankingRows" :key="row.providerId"><th>{{ personName(row.providerId) }}</th><td>{{ people.find(p=>p.id===row.providerId)?.appCompleted??'—' }}</td><td><input :value="row.completedFourWeeks" :aria-label="`${personName(row.providerId)} completed sessions`" type="number" min="0" placeholder="Check count" @input="editCount(row,'completedFourWeeks',$event)" /></td><td><input :value="row.upcomingWeek" :aria-label="`${personName(row.providerId)} upcoming sessions`" type="number" min="0" placeholder="Check count" @input="editCount(row,'upcomingWeek',$event)" /></td><td>{{ row.completedFourWeeks===null?'Needs review':row.completedFourWeeks/4 }}</td></tr></tbody></table></div>
+            <label>Where did you check these counts? <input v-model="rankingSource" maxlength="1000" placeholder="For example: TherapyNotes completed-session report, reviewed November 18" @input="rankingDirty=true" /></label>
+            <label class="tw-inline"><input v-model="countsReviewed" type="checkbox" /> I checked the complete staff list and these counts against the source schedule.</label>
+            <div class="tw-actions"><button type="button" :disabled="busy||dirty||!rankingDirty" @click="saveRanking">Save counts for later</button><button class="tw-primary" type="button" :disabled="busy||dirty||!canFreeze" @click="freeze">Confirm order & create groups of five</button></div>
+          </template>
+        </details>
+        <div class="tw-group-layout">
+          <aside class="tw-group-nav" aria-label="Employee groups"><button v-for="group in groups" :key="group.number" type="button" :aria-current="selectedGroup===group.number?'page':undefined" @click="chooseGroup(group.number)"><span>{{ agencyId===2?`Group ${group.number}`:'Employees' }}</span><small>{{ group.rows.length }} {{ group.rows.length===1?'person':'people' }}{{ agencyId===2&&!board.state.ranking?' · proposed order':'' }}</small><small>{{ group.rows.map(r=>r.name.split(' ')[0]).join(', ') }}</small></button><p v-if="!people.length&&!rosterError">No active employees were found for this practice.</p></aside>
+          <div v-if="currentGroup" class="tw-group-content">
+            <div class="tw-heading"><div><p class="tw-eyebrow">{{ agencyId===2?`Group ${currentGroup.number}`:practiceName }}</p><h2>{{ agencyId===2?'Your next group':'Employee transitions' }}</h2><p v-if="currentGroup.rows.some(r=>r.unranked)" class="tw-muted">These employees joined after the order was confirmed. Their personal checklists are available; the transition lead must review their group before handoff.</p><p v-if="agencyId===2&&!board.state.ranking" class="tw-muted">Names are loaded. Review the counts above to confirm their order.</p></div><div class="tw-actions"><button type="button" :disabled="busy||hasUnsaved" @click="emailPeople(currentGroup.rows)">Email {{ agencyId===2?'group':'team' }}</button><button class="tw-primary" :disabled="busy||hasUnsaved" type="button" @click="openMeeting(currentGroup.rows,agencyId===2&&board.state.ranking?.rows.some(r=>r.cohort===currentGroup.number)?'groups':null,currentGroup.number)">Schedule / invite this {{ agencyId===2?'group':'team' }}</button></div></div>
+            <div class="tw-person-list"><article v-for="row in currentGroup.rows" :key="row.providerId" :class="['tw-person',{'is-selected':selectedPerson===row.providerId}]"><button type="button" class="tw-person-open" @click="choosePerson(row.providerId)"><span class="tw-avatar">{{ initials(row.name) }}</span><span><strong>{{ row.name }}</strong><small v-if="agencyId===2">{{ row.rank?`#${row.rank} · `:'' }}{{ row.weeklyAverage===null?'Session count needs review':`${row.weeklyAverage} sessions / week` }}{{ row.upcomingWeek!==null?` · ${row.upcomingWeek} upcoming`:'' }}</small><small>{{ ownerName(board.state.workspace.people[row.providerId]?.ownerUserId) }} · {{ doneCount(board.state.workspace.people[row.providerId],personSteps) }}/{{ personSteps.length }} steps done</small></span></button><button type="button" :disabled="busy||hasUnsaved" @click="openMeeting([row],'people',row.providerId)">Invite</button><button type="button" :disabled="busy||hasUnsaved" @click="emailPeople([row])">Email</button></article></div>
+            <details v-if="agencyId===2&&board.state.ranking?.rows.some(r=>r.cohort===selectedGroup)" class="tw-group-checks"><summary>Group {{ selectedGroup }} checklist & meetings · {{ doneCount(board.state.workspace.groups[selectedGroup],groupSteps) }}/{{ groupSteps.length }} done</summary><TransitionChecklist kind="groups" :item-key="selectedGroup" :row="board.state.workspace.groups[selectedGroup]" :people="people" :steps="groupSteps" :save-item="mutate" @dirty="setFormDirty('group',$event)" />
+              <TransitionMeetingStatus v-for="id in board.state.workspace.groups[selectedGroup]?.meetingIds||[]" :key="id" :event-id="id" :agency-id="agencyId" />
+              <details class="tw-handoff"><summary>Confirm the Google and TherapyNotes handoff</summary><ol><li v-for="(label,key) in stages" :key="key">{{ board.state.cohorts[selectedGroup]?.[key]?'✓ ':'' }}{{ label }}</li></ol><template v-if="nextStage"><label>What was checked? <textarea v-model="stageEvidence" maxlength="1500" rows="2" /></label><label v-if="nextStage==='observed'" class="tw-inline"><input v-model="observed" type="checkbox" /> This group completed one monitored workday; first-session support is arranged.</label><p v-if="selectedGroup>1&&!board.state.cohorts[selectedGroup-1]?.observed">Finish the previous group’s monitored workday before advancing this group.</p><button :disabled="busy||hasUnsaved||!stageEvidence.trim()||(selectedGroup>1&&!board.state.cohorts[selectedGroup-1]?.observed)" type="button" @click="advance">Confirm: {{ stages[nextStage] }}</button></template></details>
+            </details>
+            <section v-if="selectedPerson" class="tw-person-detail">
+              <div class="tw-heading"><div><p class="tw-eyebrow">Employee checklist</p><h2>{{ personName(selectedPerson) }}</h2></div><button type="button" :disabled="hasUnsaved||busy" @click="openTools(selectedPerson,'agenda')">{{ agencyId===377?'Schedule Inner Strength sessions':'Schedule sessions' }}</button></div>
+              <TransitionChecklist :key="`person-${selectedPerson}`" kind="people" :item-key="selectedPerson" :row="board.state.workspace.people[selectedPerson]" :people="people" :steps="personSteps" :save-item="mutate" @dirty="setFormDirty('person',$event)" />
+              <TransitionMeetingStatus v-for="id in board.state.workspace.people[selectedPerson]?.meetingIds||[]" :key="id" :event-id="id" :agency-id="agencyId" />
+              <div class="tw-heading tw-client-heading"><div><p class="tw-eyebrow">Top priority</p><h3>Bring these clients up to date</h3><p>{{ clients.length }} existing charts, including past clients. A chart being here does not mean its records or schedule are finished.</p></div><button :disabled="hasUnsaved||busy" type="button" @click="openTools(selectedPerson,'clients')">Update / import records</button></div>
+              <p v-if="clientsLoading">Loading assigned clients…</p><p v-if="clientsError" role="alert">{{ clientsError }} <button @click="loadClients">Retry</button></p>
+              <p v-if="!clientsLoading&&!clientsError&&!clients.length">No clients are currently assigned to this employee in this practice. Review assignments if clients are missing.</p>
+              <div class="tw-client-list"><details v-for="client in clients" :key="client.id"><summary><span>{{ client.name }}<small>{{ client.status }} · {{ client.nextAppointmentAt?`Next session: ${formatDate(client.nextAppointmentAt)}`:'No future session found in the app' }}</small></span><strong>{{ doneCount(clientState(client.id),clientSteps) }}/{{ clientSteps.length }}</strong></summary><div class="tw-client-actions"><a :href="chartHref(client.id)" target="_blank" rel="noopener">Open existing chart</a><button type="button" :disabled="hasUnsaved||busy" @click="openTools(selectedPerson,'agenda')">Schedule sessions</button></div><TransitionChecklist kind="clients" :item-key="`${selectedPerson}:${client.id}`" :row="clientState(client.id)" :people="people" :steps="clientSteps" :save-item="mutate" @dirty="setFormDirty(`client-${client.id}`,$event)" /></details></div>
+            </section>
+            <p v-else class="tw-empty">Select an employee to assign their transition work and see their clients.</p>
+          </div>
+        </div>
       </div>
-      <label>Show workstream <select v-model="category"><option value="">All workstreams</option><option v-for="value in categories" :key="value">{{ value }}</option></select></label>
-      <details class="video-section" :open="category === 'Training videos'">
-        <summary>Training videos · {{ publishedVideos }}/{{ videoDefinitions.length }} ready</summary>
-        <p>Assign a creator and due date, then track recording, editing, review and publication. Reuse an approved recording across practices where the workflow matches. Reading the guide or recording a video alone does not mark staff training complete.</p>
-        <article v-for="video in videoDefinitions" :key="video.id" class="transition-video">
-          <h3>{{ video.title }} <small>Suggested {{ video.minutes }} minutes · {{ video.role }}</small></h3><p>{{ video.outcome }}</p>
-          <fieldset :disabled="busy" @input="dirty = true" @change="dirty = true">
-            <label>Creator / owner <input v-model="board.state.videos[video.id].owner" maxlength="120" /></label>
-            <label>Due date <input v-model="board.state.videos[video.id].dueDate" type="date" /></label>
-            <label>Production status <select v-model="board.state.videos[video.id].status"><option v-for="status in videoStatuses" :key="status" :value="status">{{ status.replaceAll('_', ' ') }}</option></select></label>
-            <label>Independent reviewer <input v-model="board.state.videos[video.id].reviewer" maxlength="120" /></label>
-            <label class="wide">Watch link / authenticated learning page <input v-model="board.state.videos[video.id].url" maxlength="2000" placeholder="https://… or /my-learning/…" /></label>
-            <label class="wide">Review evidence <textarea v-model="board.state.videos[video.id].evidence" maxlength="1500" rows="2" /></label>
-            <label class="wide">Next action / blocker <textarea v-model="board.state.videos[video.id].nextAction" maxlength="800" rows="2" /></label>
-          </fieldset>
-          <p v-if="board.state.videos[video.id].completedAt">Published {{ new Date(board.state.videos[video.id].completedAt).toLocaleString() }}</p>
-          <a v-if="board.state.videos[video.id].status === 'published' && safeVideoUrl(board.state.videos[video.id].url)" :href="safeVideoUrl(board.state.videos[video.id].url)" target="_blank" rel="noopener noreferrer">Watch reviewed video</a>
-        </article>
-      </details>
-      <div class="task-list">
-        <article v-for="task in visibleTasks" :key="task.id" class="transition-task">
-          <h3>{{ task.title }}</h3><p>Due November {{ task.day }} · {{ task.role }}<span v-if="task.id === 'packet_complete'"> · Noon</span></p>
-          <p v-if="task.requires.length">Requires: {{ task.requires.map(id => board.catalog.find(t => t.id === id)?.title).join('; ') }}</p>
-          <fieldset :disabled="busy" @input="dirty = true" @change="dirty = true">
-            <label>Status <select v-model="board.state.tasks[task.id].status"><option v-for="status in statuses" :key="status" :value="status">{{ status.replace('_', ' ') }}</option></select></label>
-            <label>Owner <input v-model="board.state.tasks[task.id].owner" maxlength="120" /></label>
-            <label>Backup <input v-model="board.state.tasks[task.id].backup" maxlength="120" /></label>
-            <label class="wide">Evidence / protected reference <textarea v-model="board.state.tasks[task.id].evidence" maxlength="1500" rows="2" /></label>
-            <label class="wide">Next action and review date <textarea v-model="board.state.tasks[task.id].nextAction" maxlength="800" rows="2" /></label>
-          </fieldset>
-        </article>
-      </div>
-      <details v-if="agencyId === 2" id="itsco-cohorts" class="cohort-section" open>
-        <summary>ITSCO · frozen groups of five</summary>
-        <p>Rank the complete active roster using completed sessions October 19–November 15 divided by four. Ties use upcoming-week sessions, then provider ID. Missing counts require review. Complete Google, clinical and observed-workday stages in order.</p>
-        <template v-if="!board.state.ranking">
-          <p>Current provider IDs: {{ providers.map(p => `${p.id} (${p.first_name || p.name || ''} ${p.last_name || ''})`).join(', ') }}</p>
-          <label>Verified source reference <input v-model="rankingSource" maxlength="1000" :disabled="busy" /></label>
-          <label>Session counts CSV <textarea v-model="rankingCsv" rows="7" :disabled="busy" placeholder="providerId,completedFourWeeks,upcomingWeek&#10;Leave missing counts blank; do not substitute zero." /></label>
-          <button type="button" :disabled="busy || dirty || !rankingSource.trim() || !rankingCsv.trim()" @click="freeze">Freeze ranking and create groups</button>
-        </template>
-        <template v-else>
-          <p>Frozen {{ board.state.ranking.frozenAt }} · Source: {{ board.state.ranking.sourceReference }}</p>
-          <article v-for="number in cohortNumbers" :key="number" class="transition-task">
-            <h3>Group {{ number }}</h3>
-            <ul><li v-for="row in board.state.ranking.rows.filter(row => row.cohort === number)" :key="row.providerId">{{ row.rank }}. {{ row.name }} · #{{ row.providerId }} · {{ row.weeklyAverage }} sessions/week · {{ row.upcomingWeek }} upcoming</li></ul>
-            <p>{{ cohortProgress(number) }}</p>
-            <template v-if="nextStage(number)">
-              <label>Stage evidence <textarea v-model="cohortEvidence[number]" maxlength="1500" rows="2" :disabled="busy" /></label>
-              <label v-if="nextStage(number) === 'observed'"><input v-model="observed[number]" type="checkbox" :disabled="busy" /> An actual monitored workday is complete; first-session support is arranged where needed.</label>
-              <button type="button" :disabled="busy || dirty || !cohortEvidence[number]?.trim() || (number > 1 && !board.state.cohorts[number - 1]?.observed)" @click="advance(number)">Record {{ stageLabels[nextStage(number)] }}</button>
-            </template>
-          </article>
-        </template>
-      </details>
-      <p>Source archives include inactive and discharged clients. ERA transfers can require monitoring beyond Friday. Close NLU and Inner Strength independently; retain ITSCO access for remaining groups.</p>
-      <button type="button" :disabled="busy || !dirty" @click="save">Save evidence</button>
+      <section v-show="section==='tasks'" class="tw-practice-tasks">
+        <div class="tw-heading"><div><h2>Practice-wide checklist</h2><p>Assign a person, do the work, and record what was checked. These checks record readiness; account changes happen through their usual tools.</p></div><label>Show <select v-model="category"><option value="">All work</option><option v-for="value in categories" :key="value">{{ value }}</option></select></label></div>
+        <div class="tw-task-list"><details v-for="task in visibleTasks" :key="task.id" class="transition-task"><summary><span class="tw-task-status" :class="{done:board.state.tasks[task.id].status==='passed'}">{{ board.state.tasks[task.id].status==='passed'?'✓':'○' }}</span><span><strong>{{ taskTitle(task) }}</strong><small>{{ board.state.tasks[task.id].owner||'Needs an owner' }} · Due Nov {{ task.day }} · {{ statusLabels[board.state.tasks[task.id].status] }}</small></span></summary><fieldset :disabled="busy" @input="dirty=true" @change="dirty=true"><div class="tw-fields"><label>Status <select v-model="board.state.tasks[task.id].status"><option v-for="(label,status) in statusLabels" :key="status" :value="status">{{ label }}</option></select></label><label>Responsible person <input v-model="board.state.tasks[task.id].owner" list="tw-staff-names" maxlength="120" /></label><label>Backup person <input v-model="board.state.tasks[task.id].backup" list="tw-staff-names" maxlength="120" /></label></div><label>What was checked / where is the work? <textarea v-model="board.state.tasks[task.id].evidence" maxlength="1500" rows="2" /></label><label>Next step and follow-up date <textarea v-model="board.state.tasks[task.id].nextAction" maxlength="800" rows="2" /></label><p v-if="task.requires.length" class="tw-muted">Finish first: {{ task.requires.map(id=>taskTitle(board.catalog.find(t=>t.id===id)||{id,title:id})).join('; ') }}.</p></fieldset></details></div>
+        <details class="tw-totals"><summary>Progress totals · how many are done?</summary><p>Leave unknown totals blank. Complete means all required checks are finished.</p><div class="tw-fields"><fieldset v-for="(metric,key) in visibleMetrics" :key="key" :disabled="busy"><legend>{{ metricLabels[key] }}</legend><label>Total <input :value="metric.total" type="number" min="0" placeholder="Unknown" @input="setCount(metric,'total',$event)" /></label><label>Done <input :value="metric.completed" type="number" min="0" @input="setCount(metric,'completed',$event)" /></label><label>Needs help <input :value="metric.blocked" type="number" min="0" @input="setCount(metric,'blocked',$event)" /></label></fieldset></div></details>
+      </section>
+      <TransitionVideos v-show="section==='videos'" :board="board" :dirty="hasUnsaved" :busy="busy" :mutate="mutate" @dirty="dirty=true" />
+      <div v-if="email" class="tw-modal" role="dialog" aria-modal="true" aria-label="Email selected employees"><section class="tw-modal-body"><EmailComposer :compose-context="email" @close="email=null" /></section></div>
+      <TransitionMeeting v-if="meeting" :practice="practice" :people="people" :invitees="meeting.people" :actor-id="actorId" :label="meeting.label" :link-meeting="linkMeeting" @close="meeting=null" @saved="notice='Meeting linked. RSVP responses are available under the employee or group checklist.'" />
     </template>
   </section>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import {computed,defineAsyncComponent,onBeforeUnmount,ref,watch} from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencyId: { type: Number, required: true } });
-const board = ref(null), busy = ref(false), dirty = ref(false), error = ref(''), notice = ref(''), category = ref(''), providers = ref([]);
-const rankingCsv = ref(''), rankingSource = ref(''), cohortEvidence = ref({}), observed = ref({});
-const statuses = ['unverified', 'in_progress', 'passed', 'failed', 'deferred'];
-const videoStatuses = ['not_started','recording','editing','in_review','published','blocked'];
-const practiceName = computed(() => ({ 6: 'Next Level Up', 2: 'ITSCO', 377: 'Inner Strength' }[props.agencyId] || 'Practice'));
-const videoDefinitions = computed(() => board.value?.videoCatalog || []);
-const publishedVideos = computed(() => videoDefinitions.value.filter(v => board.value.state.videos?.[v.id]?.status === 'published').length);
-const passedCount = computed(() => board.value?.catalog.filter(t => board.value.state.tasks[t.id]?.status === 'passed').length || 0);
-function safeVideoUrl(value) {
-  try { const url = new URL(value, window.location.origin); return value && !value.startsWith('//') && (value.startsWith('/') || url.protocol === 'https:') && !url.username && !url.password ? url.href : null; } catch { return null; }
-}
-const metricLabels = { provider_updates: 'Provider updates', providers: 'Providers', source_charts: 'All source charts', families: 'Affected families', payer_routes: 'Payer routes' };
-const stageLabels = { google_ready: 'Google prerequisites ready', google_retired: 'Google access retired', clinical_ready: 'Clinical transition ready', ehr_retired: 'TherapyNotes workflow retired', observed: 'Monitored workday complete' };
-const categories = computed(() => [...new Set(board.value?.catalog.map(t => t.category) || [])]);
-const visibleTasks = computed(() => board.value?.catalog.filter(t => !category.value || t.category === category.value) || []);
-const cohortNumbers = computed(() => [...new Set(board.value?.state.ranking?.rows.map(row => row.cohort) || [])]);
-let generation = 0;
-const nextStage = number => Object.keys(stageLabels).find(stage => !board.value.state.cohorts[number]?.[stage]);
-const cohortProgress = number => Object.keys(stageLabels).filter(stage => board.value.state.cohorts[number]?.[stage]).map(stage => stageLabels[stage]).join(' → ') || 'No stage accepted yet';
-function setCount(metric, key, event) { metric[key] = event.target.value === '' ? null : Number(event.target.value); dirty.value = true; }
-async function load() {
-  if (dirty.value || busy.value) return;
-  const ticket = ++generation, agencyId = props.agencyId; busy.value = true; error.value = '';
-  try {
-    const result = await api.get('/provider-scheduling/transition-week', { params: { agencyId } });
-    if (ticket !== generation) return; board.value = result.data;
-    if (category.value && !board.value.catalog.some(t => t.category === category.value)) category.value = '';
-    if (agencyId === 2) { const result = await api.get('/provider-scheduling/providers', { params: { agencyId } }); if (ticket === generation) providers.value = result.data; }
-  } catch (e) { if (ticket === generation) error.value = e.response?.data?.error?.message || 'Unable to load transition evidence.'; }
-  finally { if (ticket === generation) busy.value = false; }
-}
-async function mutate(input) {
-  if (busy.value || !board.value) return;
-  const ticket = ++generation, agencyId = props.agencyId; busy.value = true; error.value = ''; notice.value = '';
-  try {
-    const { data } = await api.put('/provider-scheduling/transition-week', { agencyId, revision: board.value.revision, ...input });
-    if (ticket !== generation) return; board.value = data; dirty.value = false; notice.value = 'Transition evidence saved.';
-  } catch (e) { if (ticket === generation) error.value = e.response?.data?.error?.message || 'Unable to save. Your local evidence is retained; refresh only after preserving unsaved changes.'; }
-  finally { if (ticket === generation) busy.value = false; }
-}
-const save = () => mutate({ action: 'save', state: board.value.state });
-function freeze() {
-  const lines = rankingCsv.value.trim().split(/\r?\n/);
-  if (lines.shift()?.trim() !== 'providerId,completedFourWeeks,upcomingWeek') { error.value = 'Use the exact CSV header shown, with three numeric columns.'; return; }
-  const rows = lines.map(line => { const parts = line.split(',').map(s => s.trim()); return { providerId: parts.length === 3 && parts[0] ? Number(parts[0]) : null, completedFourWeeks: parts[1] ? Number(parts[1]) : null, upcomingWeek: parts[2] ? Number(parts[2]) : null }; });
-  void mutate({ action: 'freeze_ranking', rows, sourceReference: rankingSource.value });
-}
-const advance = number => mutate({ action: 'cohort', cohort: number, stage: nextStage(number), evidence: cohortEvidence.value[number], monitoredWorkdayConfirmed: observed.value[number] === true });
-defineExpose({ beforeNavigate: () => { if (!dirty.value && !busy.value) return true; error.value = 'Save transition evidence and wait for the request before leaving.'; return false; } });
-watch(() => props.agencyId, () => { generation++; board.value = null; providers.value = []; dirty.value = false; busy.value = false; error.value = ''; notice.value = ''; category.value = ''; rankingCsv.value = ''; rankingSource.value = ''; cohortEvidence.value = {}; observed.value = {}; void load(); }, { immediate: true });
-onBeforeUnmount(() => generation++);
+import TransitionChecklist from '../transition/TransitionChecklist.vue';
+import TransitionMeeting from '../transition/TransitionMeeting.vue';
+import TransitionMeetingStatus from '../transition/TransitionMeetingStatus.vue';
+import TransitionVideos from '../transition/TransitionVideos.vue';
+import {PERSON_STEPS,CLIENT_STEPS,GROUP_STEPS,STAGES,TASK_TITLES,STATUS_LABELS,previewTransitionGroups} from '../transition/transitionPresentation';
+const EmailComposer=defineAsyncComponent(()=>import('../../views/EmailComposerView.vue'));
+const email=ref(null);
+const props=defineProps({agencyId:{type:Number,required:true},actorId:{type:Number,default:0}});
+const emit=defineEmits(['open-tools']);
+const board=ref(null),busy=ref(false),dirty=ref(false),error=ref(''),notice=ref(''),people=ref([]),rosterError=ref(''),section=ref('people'),category=ref(''),selectedGroup=ref(1),selectedPerson=ref(null),clients=ref([]),clientsLoading=ref(false),clientsError=ref(''),formDirty=ref(new Set()),meeting=ref(null);
+const rankingRows=ref([]),rankingSource=ref(''),rankingDirty=ref(false),rankingOpen=ref(false),countsReviewed=ref(false),stageEvidence=ref(''),observed=ref(false);
+const statusLabels=STATUS_LABELS,stages=STAGES,clientSteps=CLIENT_STEPS;
+const personSteps=computed(()=>props.agencyId===377?PERSON_STEPS.filter(s=>!['google','login'].includes(s.id)):PERSON_STEPS);
+const groupSteps=GROUP_STEPS;
+const practiceName=computed(()=>({2:'ITSCO',6:'Next Level Up',377:'Inner Strength'}[props.agencyId]||'Practice'));
+const practice=computed(()=>({id:props.agencyId,name:practiceName.value,slug:{2:'itsco',6:'nlu',377:'tisi'}[props.agencyId]}));
+const tabs=computed(()=>[{id:'people',label:props.agencyId===2?'Groups & clients':'Employees & clients'},{id:'tasks',label:'Practice checklist'},{id:'videos',label:'Training videos'}]);
+const hasUnsaved=computed(()=>dirty.value||rankingDirty.value||formDirty.value.size>0);
+const passedCount=computed(()=>board.value?.catalog.filter(t=>board.value.state.tasks[t.id]?.status==='passed').length||0);
+const readyVideos=computed(()=>board.value?.videoCatalog?.filter(v=>board.value.state.videos[v.id]?.status==='published').length||0);
+const categories=computed(()=>[...new Set(board.value?.catalog.map(t=>t.category)||[])]);
+const visibleTasks=computed(()=>board.value?.catalog.filter(t=>!category.value||t.category===category.value)||[]);
+const visibleMetrics=computed(()=>Object.fromEntries(Object.entries(board.value?.state.metrics||{}).filter(([id])=>props.agencyId===6||id!=='provider_updates')));
+const metricLabels={provider_updates:'NLU provider updates',providers:'Employees',source_charts:'All source charts',families:'Affected families',payer_routes:'Payer payment-report routes'};
+const orderedPeople=computed(()=>{
+ if(props.agencyId!==2)return people.value.map(p=>({...p,providerId:p.id,rank:null,cohort:1,weeklyAverage:null,upcomingWeek:null}));
+ const frozen=board.value?.state.ranking?.rows;
+ if(!frozen)return previewTransitionGroups(people.value,rankingRows.value);
+ // Preserve named frozen groups; newly active staff are visible for review rather
+ // than silently inserted into a group already in progress.
+ const additions=people.value.filter(p=>!frozen.some(r=>r.providerId===p.id));
+ const last=Math.max(0,...frozen.map(r=>r.cohort));
+ return [...frozen,...additions.map((p,i)=>({...p,providerId:p.id,rank:null,cohort:last+1+Math.floor(i/5),weeklyAverage:null,upcomingWeek:null,unranked:true}))];
+});
+const groups=computed(()=>[...new Set(orderedPeople.value.map(p=>p.cohort))].map(number=>({number,rows:orderedPeople.value.filter(p=>p.cohort===number)})));
+const currentGroup=computed(()=>groups.value.find(g=>g.number===selectedGroup.value));
+const nextStage=computed(()=>Object.keys(stages).find(key=>!board.value?.state.cohorts[selectedGroup.value]?.[key]));
+const canFreeze=computed(()=>countsReviewed.value&&rankingSource.value.trim()&&rankingRows.value.length===people.value.length&&people.value.length>0&&rankingRows.value.every(r=>Number.isSafeInteger(r.completedFourWeeks)&&r.completedFourWeeks>=0&&Number.isSafeInteger(r.upcomingWeek)&&r.upcomingWeek>=0));
+const personName=id=>people.value.find(p=>p.id===Number(id))?.name||board.value?.state.ranking?.rows.find(p=>p.providerId===Number(id))?.name||`Employee #${id}`;
+const ownerName=id=>people.value.find(p=>p.id===id)?.name||'Assign a transition owner';
+const initials=name=>name.split(' ').filter(Boolean).map(p=>p[0]).slice(0,2).join('');
+const doneCount=(row,steps)=>steps.filter(s=>row?.checks?.[s.id]?.done).length;
+const taskTitle=task=>TASK_TITLES[task.id]||task.title;
+const formatDate=value=>new Date(String(value).includes('T')?value:String(value).replace(' ','T')+'Z').toLocaleString('en-US',{timeZone:'America/Denver',dateStyle:'medium',timeStyle:'short'});
+const clientState=id=>board.value.state.workspace.clients[`${selectedPerson.value}:${id}`];
+const chartHref=id=>`/${practice.value.slug}/admin/clients?agencyId=${props.agencyId}&clientId=${id}`;
+let generation=0,clientGeneration=0;
+function beforeNavigate(){if(!hasUnsaved.value&&!busy.value&&!meeting.value&&!email.value)return true;error.value='Save your changes and close the meeting editor before switching.';return false;}
+function switchSection(value){if(formDirty.value.size){error.value='Save the open employee or client checklist before switching tabs.';return;}section.value=value;}
+function chooseGroup(number){if(!beforeNavigate())return;selectedGroup.value=number;selectedPerson.value=null;clients.value=[];stageEvidence.value='';observed.value=false;clientGeneration++;}
+function choosePerson(id){if(selectedPerson.value===id)return;if(!beforeNavigate())return;selectedPerson.value=id;void loadClients();}
+function openTools(id,tab){if(beforeNavigate())emit('open-tools',{providerId:id,tab,practice:practice.value});}
+function setFormDirty(key,value){const next=new Set(formDirty.value);if(value)next.add(key);else next.delete(key);formDirty.value=next;}
+function normalize(data){data.state.workspace={people:{},groups:{},clients:{},rankingDraft:null,...data.state.workspace};data.videoCatalog||=[];data.state.videos||={};data.removedVideos||=[];return data;}
+async function loadRoster(){const ticket=generation,agencyId=props.agencyId;rosterError.value='';try{const {data}=await api.get('/provider-scheduling/transition-workspace/roster',{params:{agencyId}});if(ticket!==generation)return;people.value=data.people||[];const draft=board.value?.state.workspace.rankingDraft;rankingRows.value=people.value.map(p=>draft?.rows?.find(r=>r.providerId===p.id)||{providerId:p.id,completedFourWeeks:p.appCompleted>0?p.appCompleted:null,upcomingWeek:p.appUpcoming??null});rankingSource.value=draft?.sourceReference||'';}catch(e){if(ticket===generation)rosterError.value=e.response?.data?.error?.message||'Could not load employee names and session counts.';}}
+async function load(){if(hasUnsaved.value||busy.value)return;const ticket=++generation,agencyId=props.agencyId;busy.value=true;error.value='';try{const {data}=await api.get('/provider-scheduling/transition-week',{params:{agencyId}});if(ticket!==generation)return;board.value=normalize(data);await loadRoster();}catch(e){if(ticket===generation)error.value=e.response?.data?.error?.message||'Could not load the transition workspace.';}finally{if(ticket===generation)busy.value=false;}}
+async function loadClients(){const ticket=++clientGeneration,agencyId=props.agencyId,providerId=selectedPerson.value;clients.value=[];clientsError.value='';if(!providerId)return;clientsLoading.value=true;try{const {data}=await api.get('/provider-scheduling/transition-workspace/clients',{params:{agencyId,providerId}});if(ticket===clientGeneration)clients.value=data.clients||[];}catch(e){if(ticket===clientGeneration)clientsError.value=e.response?.data?.error?.message||'Could not load this employee’s clients.';}finally{if(ticket===clientGeneration)clientsLoading.value=false;}}
+async function mutate(input){if(busy.value)throw Error('Wait for the current save to finish.');if(dirty.value&&input.action!=='save')throw Error('Save the practice checklist and video edits first.');const ticket=generation,agencyId=props.agencyId;busy.value=true;error.value='';notice.value='';try{const {data}=await api.put('/provider-scheduling/transition-week',{agencyId,revision:board.value.revision,...input});if(ticket!==generation)throw Error('The selected practice changed. Reload this workspace.');board.value=normalize(data);if(input.action==='save')dirty.value=false;return data;}finally{if(ticket===generation)busy.value=false;}}
+async function act(input){try{return await mutate(input);}catch(e){error.value=e.response?.data?.error?.message||e.message||'Could not save. Your changes remain here.';return null;}}
+async function save(){if(await act({action:'save',state:board.value.state}))notice.value='Checklist and video changes saved.';}
+function setCount(metric,key,event){metric[key]=event.target.value===''?null:Number(event.target.value);dirty.value=true;}
+function editCount(row,key,event){row[key]=event.target.value===''?null:Number(event.target.value);rankingDirty.value=true;countsReviewed.value=false;}
+async function saveRanking(){if(await act({action:'ranking_draft',rows:rankingRows.value,sourceReference:rankingSource.value})){rankingDirty.value=false;notice.value='Session counts saved for review.';}}
+async function freeze(){if(await act({action:'freeze_workspace_ranking',rows:rankingRows.value,sourceReference:rankingSource.value})){rankingDirty.value=false;rankingOpen.value=false;selectedGroup.value=1;notice.value='Named groups confirmed. Work through one group at a time.';}}
+async function advance(){if(await act({action:'cohort',cohort:selectedGroup.value,stage:nextStage.value,evidence:stageEvidence.value,monitoredWorkdayConfirmed:observed.value})){stageEvidence.value='';observed.value=false;notice.value='Group handoff recorded.';}}
+function openMeeting(rows,kind,key){if(!beforeNavigate())return;meeting.value={people:rows.map(r=>({id:r.providerId,name:r.name})),kind,key,label:kind==='people'?personName(key):`Group ${key}`};}
+async function emailPeople(rows){if(!beforeNavigate())return;busy.value=true;error.value='';try{const {data}=await api.get('/provider-scheduling/transition-workspace/email-recipients',{params:{agencyId:props.agencyId,userIds:rows.map(r=>r.providerId).join(',')}});email.value={agencyId:props.agencyId,mode:'new',to:data.recipients.map(r=>r.email).join(', ')};}catch(e){error.value=e.response?.data?.error?.message||'Could not prepare the employee email.';}finally{busy.value=false;}}
+async function linkMeeting(eventId){if(meeting.value.kind){await mutate({action:'link_meeting',kind:meeting.value.kind,key:String(meeting.value.key),eventId});}else{for(const person of meeting.value.people)await mutate({action:'link_meeting',kind:'people',key:String(person.id),eventId});}}
+watch(()=>props.agencyId,()=>{generation++;clientGeneration++;board.value=null;people.value=[];dirty.value=false;rankingDirty.value=false;busy.value=false;formDirty.value=new Set();selectedPerson.value=null;selectedGroup.value=1;clients.value=[];clientsLoading.value=false;clientsError.value='';section.value='people';category.value='';meeting.value=null;email.value=null;error.value='';notice.value='';countsReviewed.value=false;rankingOpen.value=false;void load();},{immediate:true});
+onBeforeUnmount(()=>{generation++;clientGeneration++;});
+defineExpose({beforeNavigate});
 </script>
-<style scoped>
-.transition-board{padding:20px;border:1px solid var(--border,#ccd8e0);border-radius:12px;margin-bottom:24px;line-height:1.5}.board-toolbar,.metric-grid{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0}.transition-board label{display:grid;gap:5px}.transition-board input,.transition-board select,.transition-board textarea,.transition-board button{font:inherit;padding:8px;max-width:100%;box-sizing:border-box}.metric-grid fieldset{flex:1;min-width:150px;display:grid;gap:8px}.metric-grid input{width:100%}.transition-task{padding:14px 0;border-top:1px solid var(--border,#d7e1e8)}.transition-task h3{font-size:1rem;margin:4px 0}.transition-task p{font-size:.9rem}.transition-task fieldset{border:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.transition-task .wide{grid-column:1/-1}.transition-board button{cursor:pointer}.transition-board [role=alert]{color:var(--danger,#b42318)}.cohort-section{margin:20px 0}.cohort-section>label{margin:12px 0}.cohort-section summary{font-weight:700;cursor:pointer}@media(max-width:650px){.transition-task fieldset{grid-template-columns:1fr}.metric-grid{display:grid;grid-template-columns:1fr}.transition-board{padding:12px}}
-</style>
-<style scoped>.video-section{margin:18px 0;border:1px solid var(--border,#ccd8e0);padding:12px;border-radius:8px}.video-section summary{font-weight:700;cursor:pointer}.transition-video{border-top:1px solid var(--border,#ccd8e0);padding:14px 0}.transition-video small{display:block;font-weight:400}.transition-video fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border:0;padding:0}.transition-video .wide{grid-column:1/-1}@media(max-width:650px){.transition-video fieldset{grid-template-columns:1fr}}</style>

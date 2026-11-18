@@ -1,5 +1,5 @@
 import express from 'express';
-import { requireTransitionManager, getTransitionWeek, putTransitionWeek } from '../controllers/transitionWeek.controller.js';
+import { requireTransitionManager, requireTransitionPractice, getTransitionPractices, getTransitionRoster, getTransitionClients, getTransitionMeetings, getTransitionEmailRecipients, getTransitionWeek, putTransitionWeek } from '../controllers/transitionWeek.controller.js';
 import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
   listProvidersForScheduling,
@@ -11,8 +11,13 @@ import {
 
 const router = express.Router();
 
-router.get('/transition-week', authenticate, requireTransitionManager, getTransitionWeek);
-router.put('/transition-week', authenticate, requireTransitionManager, putTransitionWeek);
+router.get('/transition-workspace/practices', authenticate, getTransitionPractices);
+router.get('/transition-workspace/roster', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionRoster);
+router.get('/transition-workspace/clients', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionClients);
+router.get('/transition-workspace/email-recipients', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionEmailRecipients);
+router.get('/transition-workspace/meetings', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionMeetings);
+router.get('/transition-week', authenticate, requireTransitionManager, requireTransitionPractice, getTransitionWeek);
+router.put('/transition-week', authenticate, requireTransitionManager, requireTransitionPractice, putTransitionWeek);
 
 router.get('/providers', authenticate, requireAgencyAdmin, listProvidersForScheduling);
 router.get('/affiliated-providers', authenticate, requireAgencyAdmin, listProvidersAffiliatedWithSchool);

@@ -58,16 +58,18 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
-import api from '../../services/api';
+import sharedApi from '../../services/api';
+import { transitionRequestScope } from '../../utils/transitionRequestScope';
 import { deriveInitialsFromName } from '../../utils/noteAidWorkQueue.js';
 import { assignTransitionClient, sameTransitionClientName, transitionClientRows } from '../../utils/auricwellTransitionClient.js';
 import AuricWellClientImportPanel from './AuricWellClientImportPanel.vue';
 import AuricWellMedicalArchive from './AuricWellMedicalArchive.vue';
 import AuricWellAgendaImport from './AuricWellAgendaImport.vue';
 import AuricWellSchoolTransition from './AuricWellSchoolTransition.vue';
-const props = defineProps({ scopedAgencyId: { type: [Number, String], default: null } });
+const props = defineProps({ scopedAgencyId: { type: [Number, String], default: null }, contextAgency: { type: Object, default: null }, initialProviderId: { type: Number, default: null }, initialTab: { type: String, default: 'clients' } });
 const agencyStore = useAgencyStore(), authStore = useAuthStore();
-const agency = computed(() => { const current = agencyStore.currentAgency; return current && (!props.scopedAgencyId || Number(current.id) === Number(props.scopedAgencyId)) ? current : null; });
+const agency = computed(() => { const current = props.contextAgency || agencyStore.currentAgency; return current && (!props.scopedAgencyId || Number(current.id) === Number(props.scopedAgencyId)) ? current : null; });
+const api = transitionRequestScope(sharedApi, () => agency.value?.id);
 const canManage = computed(() => !!agency.value?.id && ['admin', 'super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const providers = ref([]), organizations = ref([]), providerId = ref(''), caseload = ref([]), currentClient = ref(null), sourceEhr = ref('TherapyNotes'), activeTab = ref('clients'), clientTab = ref('chart'), loading = ref(false), writing = ref(false), error = ref(''), notice = ref(''), identityPaste = ref(''), candidates = ref([]), searchComplete = ref(false), confirmedNew = ref(false), newOrganizationId = ref('');
 const identity = reactive({ fullName: '', dateOfBirth: '', phone: '' }), progress = reactive({});
@@ -90,11 +92,11 @@ const message = e => e.response?.data?.error?.message || e.message || 'Unable to
 function resetClient() { Object.keys(childBusy).forEach(key => { childBusy[key] = false; }); currentClient.value = null; identityPaste.value = ''; candidates.value = []; searchComplete.value = false; confirmedNew.value = false; Object.assign(identity, { fullName: '', dateOfBirth: '', phone: '' }); clientTab.value = 'chart'; notice.value = ''; }
 function beginClient() { if (!busy.value) resetClient(); }
 watch(() => agency.value?.id, () => { generation++; providerId.value = ''; providers.value = []; caseload.value = []; organizations.value = []; resetClient(); void loadContext(); }, { immediate: true });
-watch(providerId, () => { generation++; caseload.value = []; resetClient(); activeTab.value = 'clients'; void loadCaseload(); });
+watch(providerId, () => { generation++; caseload.value = []; resetClient(); activeTab.value = props.initialTab; void loadCaseload(); });
 async function loadContext() {
   if (!canManage.value) return;
   const id = generation, agencyId = Number(agency.value.id); loading.value = true; error.value = '';
-  try { const [providerResult, orgResult] = await Promise.all([api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true }), api.get(`/agencies/${agencyId}/affiliated-organizations`, { skipGlobalLoading: true })]); guard(id); providers.value = Array.isArray(providerResult.data) ? providerResult.data : []; organizations.value = (Array.isArray(orgResult.data) ? orgResult.data : []).filter(org => ['school', 'clinical', 'program'].includes(String(org.organization_type).toLowerCase())); if (providerId.value) await loadCaseload(); }
+  try { const [providerResult, orgResult] = await Promise.all([api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true }), api.get(`/agencies/${agencyId}/affiliated-organizations`, { skipGlobalLoading: true })]); guard(id); providers.value = Array.isArray(providerResult.data) ? providerResult.data : []; organizations.value = (Array.isArray(orgResult.data) ? orgResult.data : []).filter(org => ['school', 'clinical', 'program'].includes(String(org.organization_type).toLowerCase())); if (providerId.value) await loadCaseload(); else if (props.initialProviderId && providers.value.some(p => Number(p.id) === props.initialProviderId)) providerId.value = String(props.initialProviderId); }
   catch (e) { if (id === generation) error.value = message(e); } finally { if (id === generation) loading.value = false; }
 }
 async function loadCaseload() {

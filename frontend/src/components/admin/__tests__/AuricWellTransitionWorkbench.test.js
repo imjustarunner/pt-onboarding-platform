@@ -63,3 +63,10 @@ it('keeps partial agenda results visible without claiming a successful import', 
   await flushPromises(); expect(wrapper.get('[role=alert]').text()).toContain('One visit still needs review');
   expect(wrapper.text()).not.toContain('Agenda import saved.'); wrapper.unmount();
 });
+it('opens the named employee and scheduling tab in the workspace practice without changing global company settings',async()=>{
+ const wrapper=shallowMount(Workbench,{props:{contextAgency:{id:377,slug:'tisi',name:'Inner Strength'},scopedAgencyId:377,initialProviderId:7,initialTab:'agenda'}});await flushPromises();
+ expect(mocks.api.get).toHaveBeenCalledWith('/provider-scheduling/providers',expect.objectContaining({params:{agencyId:377}}));
+ expect(mocks.api.get).toHaveBeenCalledWith('/clients',expect.objectContaining({params:{agency_id:377,provider_id:7}}));
+ expect(wrapper.findComponent({name:'AuricWellAgendaImport'}).props('agencyId')).toBe(377);
+ expect(mocks.agency.currentAgency.id).toBe(2);wrapper.unmount();
+});

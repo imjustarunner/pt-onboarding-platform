@@ -4,7 +4,7 @@ const text = (value, limit) => typeof value === 'string' && value.length <= limi
 export function validateTransitionState(input, previous, agencyId = null, actorUserId = null) {
   if (!input || typeof input !== 'object') fail('Transition state is required.');
   const catalog = transitionTaskCatalog(agencyId);
-  const state = { tasks: { ...previous.tasks }, metrics: {}, videos: { ...previous.videos }, ranking: previous.ranking, cohorts: previous.cohorts };
+  const state = { ...previous, tasks: { ...previous.tasks }, metrics: {}, videos: { ...previous.videos }, ranking: previous.ranking, cohorts: previous.cohorts };
   for (const definition of catalog) {
     const row = input.tasks?.[definition.id];
     if (!row || !TRANSITION_STATUSES.includes(row.status)) fail('Choose a valid status for every task.');
@@ -16,7 +16,7 @@ export function validateTransitionState(input, previous, agencyId = null, actorU
     if (state.tasks[task.id].status === 'passed' && task.requires.some(id => state.tasks[id].status !== 'passed')) fail(`Complete prerequisites before passing: ${task.title}`);
   }
   if (state.tasks.owners.status === 'passed' && catalog.some(task => !state.tasks[task.id].owner || !state.tasks[task.id].backup)) fail('Assign every task an owner and backup before completing workstream assignments.');
-  for (const definition of transitionVideoCatalog(agencyId)) {
+  for (const definition of transitionVideoCatalog(agencyId, previous)) {
     const old = previous.videos?.[definition.id] || { ...emptyTransitionVideo(), dueDate: definition.dueDate };
     const row = input.videos?.[definition.id] || old;
     if (!TRANSITION_VIDEO_STATUSES.includes(row.status)) fail('Choose a valid video production status.');
@@ -25,7 +25,7 @@ export function validateTransitionState(input, previous, agencyId = null, actorU
     if (result.status !== 'not_started' && !result.owner) fail('Assign the video creator before starting production.');
     if (result.status === 'blocked' && !result.nextAction) fail('Blocked videos require a next action.');
     if (result.url) {
-      try { const url = new URL(result.url,'https://app.example.invalid'); if ((!result.url.startsWith('/') && url.protocol !== 'https:') || result.url.startsWith('//') || url.username || url.password || /[\r\n]/.test(result.url)) throw Error(); }
+      try { const url = new URL(result.url,'https://app.example.invalid'); if ((!result.url.startsWith('/') && url.protocol !== 'https:') || result.url.startsWith('//') || url.username || url.password || /[\\\u0000-\u0020]/.test(result.url)) throw Error(); }
       catch { fail('Use a permanent HTTPS or authenticated app link for the video.'); }
     }
     if (result.status === 'published') {
@@ -35,7 +35,7 @@ export function validateTransitionState(input, previous, agencyId = null, actorU
     } else { result.completedAt = null; result.completedByUserId = null; }
     state.videos[definition.id] = result;
   }
-  if (catalog.some(t => t.id === 'videos_ready') && state.tasks.videos_ready.status === 'passed' && transitionVideoCatalog(agencyId).some(v => state.videos[v.id].status !== 'published')) fail('Publish and review every required video before marking training videos ready.');
+  if (catalog.some(t => t.id === 'videos_ready') && state.tasks.videos_ready.status === 'passed' && transitionVideoCatalog(agencyId, previous).some(v => state.videos[v.id].status !== 'published')) fail('Publish and review every required video before marking training videos ready.');
   if (Number(agencyId) === 2 && state.tasks.cohort_ranking.status === 'passed' && !state.ranking) fail('The named ITSCO batches still need verified session counts and a frozen ranking.');
   for (const [taskId,stage] of [['cohort_google','google_retired'],['cohort_ehr','ehr_retired'],['cohort_observation','observed']]) {
     if (Number(agencyId) === 2 && state.tasks[taskId].status === 'passed' && !state.cohorts[1]?.[stage]) fail('Record actual first-cohort acceptance before checking off that stage.');
@@ -46,7 +46,7 @@ export function validateTransitionState(input, previous, agencyId = null, actorU
     if ((row.total === null && row.completed + row.blocked > 0) || (row.total !== null && row.completed + row.blocked > row.total)) fail('Reconcile completed and blocked counts with the total.');
     state.metrics[id] = { total: row.total, completed: row.completed, blocked: row.blocked };
   }
-  if (catalog.some(t => t.id === 'closure') && state.tasks.closure.status === 'passed' && TRANSITION_METRICS.some(id => state.metrics[id].total === null || state.metrics[id].completed !== state.metrics[id].total || state.metrics[id].blocked)) fail('Closure requires every denominator reconciled without blocked items.');
+  if (catalog.some(t => t.id === 'closure') && state.tasks.closure.status === 'passed' && TRANSITION_METRICS.filter(id => Number(agencyId) === 6 || id !== 'provider_updates').some(id => state.metrics[id].total === null || state.metrics[id].completed !== state.metrics[id].total || state.metrics[id].blocked)) fail('Before closing the subscription, confirm every total is known and all items are complete.');
   return state;
 }
 

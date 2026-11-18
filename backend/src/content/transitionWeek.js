@@ -4,6 +4,7 @@ export const TRANSITION_ROLES = ['Transition lead', 'People Operations / trainin
 // IDs are stable. Evidence and assignments live in the encrypted practice board.
 const task = (id, day, category, title, role, requires = []) => ({ id, day, category, title, role, requires });
 export const TRANSITION_TASKS = [
+  task('clients_current', '18', 'Client preparation', 'Bring every provider’s clients up to date: records, contacts, care plans and next steps', 'Records'),
   task('owners', '16', 'Coordination', 'Assign each workstream an owner, backup and protected work blocks', 'Transition lead'),
   task('rosters', '16', 'Coordination', 'Confirm active provider roster, source-account chart counts and subscriptions', 'Transition lead'),
   task('packet', '16', 'Provider updates', 'Finalize NLU announcements, handbook, individualized amendments and training links', 'People Operations / training'),
@@ -41,7 +42,7 @@ export const TRANSITION_TASKS = [
   task('era_monitor', '20', 'Billing', 'Finish required old/new receiver monitoring or verify independent continued access', 'Billing', ['era_receipt']),
   task('financial_reconcile', '20', 'Billing', 'Reconcile unfinished notes, claims, balances, disputes, refunds and secondary coverage', 'Billing'),
   task('closure', '20', 'Closure', 'Obtain lead sign-offs and authorized cancellation confirmation/final billing date', 'Transition lead', ['restore', 'restricted', 'family_ready', 'google_exit', 'security', 'clinical_acceptance', 'era_monitor', 'financial_reconcile']),
-  task('friday_report', '20', 'Coordination', 'Publish denominators, accepted/held providers, blockers, owners and next review dates', 'Transition lead')
+  task('friday_report', '20', 'Coordination', 'Share how many people and charts are finished, what is blocked, and who will finish the rest', 'Transition lead')
 ];
 
 export const TRANSITION_METRICS = ['provider_updates', 'providers', 'source_charts', 'families', 'payer_routes'];
@@ -53,25 +54,25 @@ export const TRANSITION_PRACTICES = [
 export const TRANSITION_VIDEO_STATUSES = ['not_started', 'recording', 'editing', 'in_review', 'published', 'blocked'];
 const video = (id, title, role, day, minutes, outcome, agencies = [6,2,377]) => ({ id, title, role, dueDate: `2026-11-${day}`, minutes, outcome, agencies });
 export const TRANSITION_VIDEOS = [
-  video('login', 'Sign in, verification and recovery without Google', 'Technology', '16', 5, 'Demonstrate own-account login, approved verification, recovery and shared-device lock.', [6,2]),
+  video('login', 'Sign in and recover your account without Google', 'Technology', '16', 5, 'Show password and six-digit code setup, recovery email, password reset and safe sign-out.', [6,2]),
   video('provider_update', 'Complete your provider update and required signatures', 'People Operations / training', '16', 6, 'Open the correct packet, review real amendments, save, return and verify completion.', [6]),
-  video('daily_workspace', 'Your daily app workspace and support', 'People Operations / training', '16', 5, 'Find My Schedule, My Work, Tasks, Messages, My Learning and report a useful issue.'),
-  video('scheduling', 'Book, reschedule and cancel the correct appointment', 'Clinical', '17', 8, 'Demonstrate occurrence versus series, time zone, rooms, conflicts and notifications.'),
-  video('school_schedule', 'School planning and real appointments', 'Clinical', '17', 7, 'Link the school slot to one canonical occurrence and review closures/capacity.', [2]),
-  video('telehealth', 'Join telehealth and test the family device', 'Technology', '17', 5, 'Two controlled participants actually join with usable microphone/camera and a fallback.'),
-  video('notes_plans', 'Charts, intake, notes and treatment plans', 'Clinical', '17', 10, 'Open the correct linked draft, save/reload, preserve source dates and review goals.'),
+  video('daily_workspace', 'Find your schedule, tasks, messages and help', 'People Operations / training', '16', 5, 'Show where to find daily work, training and help, and how to report a problem.'),
+  video('scheduling', 'Schedule, move or cancel client sessions', 'Clinical', '17', 8, 'Show how to change one visit or a repeating series, check rooms and times, and notify the family.'),
+  video('school_schedule', 'Schedule school sessions without duplicates', 'Clinical', '17', 7, 'Connect the school calendar to the correct appointment and check school closures and open slots.', [2]),
+  video('telehealth', 'Join telehealth and test the family device', 'Technology', '17', 5, 'Have two test users join, check sound and camera, and show what to do if the connection fails.'),
+  video('notes_plans', 'Charts, intake, notes and treatment plans', 'Clinical', '17', 10, 'Open the correct client, update their notes and plan, save, reopen and check that the work is there.'),
   video('sign_supervision', 'Signatures, cosigning and supervision', 'Clinical', '17', 6, 'Explain author/reviewer permissions and separate attendance, time, notes and payroll.'),
-  video('family_access', 'Family invitations, welcome and guardian privacy', 'Family support', '17', 7, 'Show separate guardian access, current recipients, welcome templates and assisted alternatives.'),
-  video('sms_start', 'Text START before account creation; STOP and HELP', 'Technology', '17', 7, 'Show original phone consent, pending identity review, current authority and suppression.'),
-  video('messages', 'Portal messages, email and optional phone relay', 'Technology', '17', 7, 'Review every named audience, distinguish secure portal from email, and show safe reply routing.'),
-  video('source_export', 'Export every required TherapyNotes record category', 'Records', '16', 8, 'Include inactive/discharged/unassigned charts and identify categories outside the clinical PDF.'),
-  video('archive_import', 'Match charts and upload/download the medical archive', 'Records', '17', 8, 'Preserve chart identity, authorship and dates; verify all volumes, manifests and retries.'),
-  video('drive_restore', 'Restricted Drive backup and restore verification', 'Technology', '17', 7, 'Verify approved storage, access, checksums, independent restoration and delta exports.'),
-  video('google_handoff', 'App email, calendar ownership and Google retirement', 'Technology', '17', 8, 'Prove mail, recovery and future meetings still work after authorized suspension.', [6,2]),
-  video('billing', 'Claims, insurance and balances during cutover', 'Billing', '17', 9, 'Route coverage problems, preserve open claims/copays and prevent duplicate billing.'),
-  video('era', 'ERA receiver changes and reconciliation', 'Billing', '17', 8, 'Separate claims, ERA and EFT; verify actual receipt, matching, deposits and monitoring.', [6,377]),
-  video('cohorts', 'ITSCO groups of five and monitored acceptance', 'Transition lead', '17', 7, 'Verify session counts, freeze named groups and complete Google/clinical/observation stages.', [2]),
-  video('closure', 'Go/no-go, downtime and subscription closure', 'Transition lead', '19', 7, 'Check evidence, name the temporary working system, reconcile and preserve source access.')
+  video('family_access', 'Family invitations, welcome and guardian privacy', 'Family support', '17', 7, 'Show how each guardian gets the right access and how to help a family that cannot use the portal.'),
+  video('sms_start', 'Text START before account creation; STOP and HELP', 'Technology', '17', 7, 'Show START before account signup, verify the guardian, and honor STOP even when a phone is shared.'),
+  video('messages', 'Portal messages, email and optional phone relay', 'Technology', '17', 7, 'Check who receives each message, explain secure messages versus email, and show how replies return.'),
+  video('source_export', 'Download the required records from TherapyNotes', 'Records', '16', 8, 'Include past and unassigned clients, and download records that are not included in the main clinical PDF.'),
+  video('archive_import', 'Bring records into the correct existing client chart', 'Records', '17', 8, 'Choose the existing client, keep original authors and dates, upload every file and open it to check it.'),
+  video('drive_restore', 'Back up records in Drive and test restoring them', 'Technology', '17', 7, 'Check who can access the backup, restore sample files, and copy records changed after the first export.'),
+  video('google_handoff', 'Move email and calendars before turning off Google', 'Technology', '17', 8, 'Test email, account recovery and upcoming meeting links before and after approved Google suspension.', [6,2]),
+  video('billing', 'Keep billing and insurance work moving', 'Billing', '17', 9, 'Resolve insurance questions, keep open claims and copays available, and avoid billing twice.'),
+  video('era', 'Move payer payment reports (ERAs) and check deposits', 'Billing', '17', 8, 'Explain claims, payment reports and bank deposits separately. Check new reports against actual payments.', [6,377]),
+  video('cohorts', 'How ITSCO groups move through the transition', 'Transition lead', '17', 7, 'Review session counts, confirm five-person groups, and check Google, app readiness and a supported workday.', [2]),
+  video('closure', 'Decide when to switch and cancel old subscriptions', 'Transition lead', '19', 7, 'Explain what must be finished, how to keep care working if a problem occurs, and when cancellation is safe.')
 ];
 const videoReady = task('videos_ready', '17', 'Training videos', 'Record, independently review and publish every required training video', 'People Operations / training');
 const cohortTasks = [
@@ -81,8 +82,9 @@ const cohortTasks = [
   task('cohort_observation', '19', 'ITSCO groups of five', 'Complete the first group’s monitored workday and assign first-session support', 'Clinical', ['cohort_ehr']),
   task('retain_access', '20', 'Closure', 'Keep ITSCO TherapyNotes access for remaining providers, archives and billing', 'Transition lead', ['rosters'])
 ];
-export function transitionVideoCatalog(agencyId) {
-  return TRANSITION_VIDEOS.filter(item => !agencyId || item.agencies.includes(Number(agencyId)));
+export function transitionVideoCatalog(agencyId, state = {}) {
+  const removed = new Set(state.removedVideoIds || []);
+  return [...TRANSITION_VIDEOS.filter(item => !agencyId || item.agencies.includes(Number(agencyId))), ...(state.customVideos || [])].filter(item => !removed.has(item.id));
 }
 export function transitionTaskCatalog(agencyId) {
   if (!agencyId) return TRANSITION_TASKS;
@@ -106,10 +108,10 @@ export function emptyTransitionState() {
     tasks: Object.fromEntries([...TRANSITION_TASKS, videoReady, ...cohortTasks].map(t => [t.id, { status: 'unverified', owner: '', backup: '', evidence: '', nextAction: '' }])),
     metrics: Object.fromEntries(TRANSITION_METRICS.map(id => [id, { total: null, completed: 0, blocked: 0 }])),
     videos: Object.fromEntries(TRANSITION_VIDEOS.map(v => [v.id, { ...emptyTransitionVideo(), dueDate: v.dueDate }])),
-    ranking: null, cohorts: {}
+    ranking: null, cohorts: {}, workspace: { people: {}, groups: {}, clients: {}, rankingDraft: null }, customVideos: [], removedVideoIds: []
   };
 }
 export function hydrateTransitionState(state) {
   const defaults = emptyTransitionState();
-  return { ...defaults, ...state, tasks: { ...defaults.tasks, ...state.tasks }, metrics: { ...defaults.metrics, ...state.metrics }, videos: { ...defaults.videos, ...state.videos } };
+  return { ...defaults, ...state, tasks: { ...defaults.tasks, ...state.tasks }, metrics: { ...defaults.metrics, ...state.metrics }, videos: { ...defaults.videos, ...state.videos }, workspace: { ...defaults.workspace, ...state.workspace } };
 }

@@ -3811,6 +3811,7 @@ const routes = [
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
+  { path: '/practice-transition', name: 'PracticeTransition', component: () => import('../views/PracticeTransitionView.vue'), meta: { hideNav: true, requiresAuth: true, requiresRole: ['admin','super_admin'] } },
   {
     path: '/auricwell-operations',
     name: 'AuricWellOperations',
@@ -5254,6 +5255,7 @@ function isFreshLoginWindow(now = Date.now()) {
 }
 
 router.beforeEach(async (to, from, next) => {
+  if (to.query.item === 'auricwell-transition' && to.path.endsWith('/admin/settings')) { next({ path: '/practice-transition', replace: true }); return; }
   // A guest payment capability does not use the visitor's application identity.
   if (to.meta.guestPaymentSurface === true) { next(); return; }
   if(/^\/mobile(?:\/|$)/.test(to.path)){window.location.replace(to.fullPath);next(false);return;}
