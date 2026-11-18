@@ -100,7 +100,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,
-      `ALTER TABLE provider_schedule_events ADD COLUMN agency_id INT, ADD COLUMN client_id INT, ADD COLUMN kind VARCHAR(32), ADD COLUMN recurrence_series_id VARCHAR(64), ADD COLUMN updated_by_user_id INT, ADD COLUMN meeting_completed_at DATETIME`,
+      `ALTER TABLE provider_schedule_events ADD COLUMN agency_id INT, ADD COLUMN client_id INT, ADD COLUMN kind VARCHAR(32), ADD COLUMN recurrence_series_id VARCHAR(64), ADD COLUMN recurrence_frequency VARCHAR(32), ADD COLUMN recurrence_policy VARCHAR(16), ADD COLUMN recurrence_index INT, ADD COLUMN updated_by_user_id INT, ADD COLUMN meeting_completed_at DATETIME`,
       `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,session_type VARCHAR(32) DEFAULT 'individual',start_at DATETIME,end_at DATETIME,status VARCHAR(32),cancel_reason VARCHAR(500),recurrence_series_id VARCHAR(64),finalized_at DATETIME,updated_at DATETIME)`
     ];
     for (const sql of lifecycleDdl) await pool.query(sql);
@@ -236,6 +236,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   });
   it('moves the same session across all three records and records the original plan exception', async () => {
     await pool.query("UPDATE office_events SET recurrence_group_id='original-series' WHERE id=20");
+    await pool.query("UPDATE provider_schedule_events SET recurrence_series_id='original-series',recurrence_frequency='WEEKLY',recurrence_policy='FINITE',recurrence_index=0 WHERE id=40");
     await move();
     const [[event]] = await pool.query('SELECT * FROM office_events WHERE id = 20');
     const [[appointment]] = await pool.query('SELECT * FROM appointments WHERE id = 10');
@@ -245,6 +246,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(event.standing_assignment_id).toBeNull();
     expect(event.booking_plan_id).toBeNull();
     expect(event.recurrence_group_id).toBeNull();
+    const [[calendar]] = await pool.query('SELECT recurrence_series_id,recurrence_frequency,recurrence_policy,recurrence_index FROM provider_schedule_events WHERE id=40');
+    expect(Object.values(calendar)).toEqual([null,null,null,null]);
     expect(appointment.start_at.toISOString()).toBe('2099-01-06T17:00:00.000Z');
     expect(session.scheduled_start_at.toISOString()).toBe(appointment.start_at.toISOString());
     expect(plan.skipped_dates_json).toEqual(['2099-01-05']);
