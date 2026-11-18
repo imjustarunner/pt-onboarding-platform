@@ -7,6 +7,7 @@ export default {
     'src/services/__tests__/scheduling.appointmentVideoPolicy.test.js',
     'src/services/__tests__/scheduling.clinicalEdit.test.js',
     'src/services/__tests__/scheduling.publicAvailability.test.js',
+    'src/services/__tests__/scheduling.ownedOfficeSession.test.js',
     'src/services/__tests__/meetingScheduleTimezone.test.js',
     'src/services/__tests__/supervisionRecurrenceEdit.test.js',
     'src/services/__tests__/supervisionReschedule.test.js',

@@ -14,7 +14,7 @@ import { scheduleSessionNotifications } from './sessionNotification.service.js';
 import { appointmentScheduleNotices } from './appointmentScheduleNotice.service.js';
 import { normalizeCustomSessionReminders, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
-import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
+import { clientScheduleInstantToUtcMysql, utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 
 const sqlTime = value => value instanceof Date ? value.toISOString().slice(0, 19).replace('T', ' ') : String(value || '').replace('T', ' ').replace(/Z$/, '').slice(0, 19);
@@ -24,9 +24,12 @@ const owned = (event, providerId) => event && Number(event.assigned_provider_id 
   && (!Number(event.booked_provider_id) || Number(event.booked_provider_id) === Number(providerId)) && event.slot_state !== 'COMPANY_HOLD';
 
 export function ownedOfficeSessionOccurrences({ startAt, endAt, timeZone, recurrence, occurrenceCount }) {
-  return expandAppointmentRecurrence({ startAt: `${sqlTime(startAt).replace(' ', 'T')}Z`, endAt: `${sqlTime(endAt).replace(' ', 'T')}Z`, timeZone,
-    recurrence, occurrenceCount: occurrenceCount || 1 }).map(row => ({ date: row.startAt.slice(0, 10),
-    startAt: wallMysqlToUtcMysql(row.startAt, timeZone), endAt: wallMysqlToUtcMysql(row.endAt, timeZone) }));
+  return expandAppointmentRecurrence({ startAt: utcMysqlToIso(startAt), endAt: utcMysqlToIso(endAt), timeZone,
+    recurrence, occurrenceCount: occurrenceCount || 1 }).map(row => {
+      const start = clientScheduleInstantToUtcMysql(row.startAt, timeZone);
+      const end = clientScheduleInstantToUtcMysql(row.endAt, timeZone);
+      return { date: utcDateToZonedYmd(utcMysqlToIso(start), timeZone), startAt: start, endAt: end };
+    });
 }
 async function reservationFor(db, input, occurrence) {
   const [events] = await db.execute(`SELECT * FROM office_events WHERE office_location_id=? AND room_id=?

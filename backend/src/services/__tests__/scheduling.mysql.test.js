@@ -58,7 +58,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       `CREATE TABLE provider_office_availability_request_slots (request_id INT,weekday INT,start_hour INT,end_hour INT,room_id INT)`,
       `CREATE TABLE provider_virtual_slot_availability (id INT PRIMARY KEY, source_event_id INT, is_active BOOLEAN)`,
       `CREATE TABLE provider_in_person_slot_availability (id INT PRIMARY KEY, source_event_id INT, is_active BOOLEAN)`,
-      `CREATE TABLE office_events (id INT AUTO_INCREMENT PRIMARY KEY, created_by_user_id INT, google_sync_status VARCHAR(30), office_location_id INT, room_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), status_outcome VARCHAR(30), standing_assignment_id INT, booking_plan_id INT, assigned_provider_id INT, booked_provider_id INT, client_id INT, clinical_session_id INT, updated_at DATETIME)`,
+      `CREATE TABLE office_events (id INT AUTO_INCREMENT PRIMARY KEY, created_by_user_id INT, google_sync_status VARCHAR(30), office_location_id INT, room_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), status_outcome VARCHAR(30), standing_assignment_id INT, booking_plan_id INT, recurrence_group_id VARCHAR(64) NULL, assigned_provider_id INT, booked_provider_id INT, client_id INT, clinical_session_id INT, billing_context_id BIGINT NULL, updated_at DATETIME)`,
       `CREATE TABLE appointments (id INT PRIMARY KEY, agency_id INT, provider_user_id INT, office_event_id INT, provider_schedule_event_id INT, package_entitlement_id INT, room_id INT, start_at DATETIME, end_at DATETIME, title VARCHAR(200), cancellation_fee_cents INT, status VARCHAR(30), updated_by_user_id INT, updated_at DATETIME)`,
       `CREATE TABLE provider_schedule_events (id INT PRIMARY KEY, reason_code VARCHAR(64) NULL, all_day BOOLEAN DEFAULT FALSE, start_date DATE, end_date DATE, event_timezone VARCHAR(80), provider_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), updated_at DATETIME)`,
       `CREATE TABLE office_booking_plans (id INT PRIMARY KEY, standing_assignment_id INT, booking_start_date DATE, active_until_date DATE, skipped_dates_json JSON, is_active BOOLEAN DEFAULT TRUE)`,
@@ -235,6 +235,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     const [[count]] = await pool.query('SELECT COUNT(*) AS n FROM practitioner_session_credit_ledger'); expect(count.n).toBe(1);
   });
   it('moves the same session across all three records and records the original plan exception', async () => {
+    await pool.query("UPDATE office_events SET recurrence_group_id='original-series' WHERE id=20");
     await move();
     const [[event]] = await pool.query('SELECT * FROM office_events WHERE id = 20');
     const [[appointment]] = await pool.query('SELECT * FROM appointments WHERE id = 10');
@@ -242,6 +243,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     const [[plan]] = await pool.query('SELECT * FROM office_booking_plans WHERE id = 3');
     expect(event.room_id).toBe(5);
     expect(event.standing_assignment_id).toBeNull();
+    expect(event.booking_plan_id).toBeNull();
+    expect(event.recurrence_group_id).toBeNull();
     expect(appointment.start_at.toISOString()).toBe('2099-01-06T17:00:00.000Z');
     expect(session.scheduled_start_at.toISOString()).toBe(appointment.start_at.toISOString());
     expect(plan.skipped_dates_json).toEqual(['2099-01-05']);

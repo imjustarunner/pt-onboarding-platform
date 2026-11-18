@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { reactive } from 'vue';
+import { createPinia } from 'pinia';
 import { mount, flushPromises } from '@vue/test-utils';
 
 const state = vi.hoisted(() => ({ auth: null, route: null, workspaceMounted: vi.fn() }));
@@ -16,7 +17,7 @@ beforeEach(() => {
   state.auth = reactive({ user: null, isAuthenticated: false });
   state.route = reactive({ name: 'Login', meta: {} });
 });
-const render = () => mount(App, { global: { stubs: {
+const render = () => mount(App, { global: { plugins: [createPinia()], stubs: {
   RouterView: { template: '<form aria-label="Sign in"><input name="username" /></form>' },
   PublicWebsiteShell: { template: '<section aria-label="Public website"><slot /></section>' },
   AssistantAppShell: { template: '<aside>Assistant workspace<slot /></aside>' }

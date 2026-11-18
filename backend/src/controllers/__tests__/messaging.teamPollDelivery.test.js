@@ -308,7 +308,7 @@ describe('Conversa participant poll presentation and internal event links', () =
   it('returns readable choice, channel, timestamp, agency, and deadline without revealing other staff replies', async () => {
     replies.set(2, response()); replies.set(5, { ...response(), id: 11, user_id: 5, response_body: 'Private staff comment', response_label: 'Private staff comment' });
     const res = await pollsForParticipant(); const poll = res.json.mock.calls[0][0][0];
-    expect(poll).toMatchObject({ agencyId: 4, closesAt: event.ends_at, canVote: true, results: null, resultsVisibility: 'after_close',
+    expect(poll).toMatchObject({ agencyId: 4, closesAt: new Date(event.ends_at).toISOString(), canVote: true, results: null, resultsVisibility: 'after_close',
       myResponse: { label: 'Tuesday', original: '1', key: '1', source: 'sms', receivedAt: '2026-11-09T18:00:00Z' } });
     expect(JSON.stringify(poll)).not.toContain('Private staff comment');
   });
@@ -326,7 +326,7 @@ describe('Conversa participant poll presentation and internal event links', () =
   });
   it('treats an expired deadline as closed and releases shared final totals without offering another vote', async () => {
     event.ends_at = '2026-01-02T12:00:00Z'; replies.set(2, response());
-    const res = await pollsForParticipant(); expect(res.json.mock.calls[0][0][0]).toMatchObject({ closedAt: event.ends_at, canVote: false, results: expect.any(Array) });
+    const res = await pollsForParticipant(); expect(res.json.mock.calls[0][0][0]).toMatchObject({ closedAt: new Date(event.ends_at).toISOString(), canVote: false, results: expect.any(Array) });
     const request = req(); request.body.resultsText = true;
     expect((await invoke('updateMyPollResultPreference', request)).status).toHaveBeenCalledWith(409);
   });
