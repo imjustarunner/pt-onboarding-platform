@@ -1,4 +1,4 @@
-import { listMyEventAnnouncements } from '../controllers/companyEventAnnouncements.controller.js';
+import { listMyEventAnnouncements, recordMyEventSplash } from '../controllers/companyEventAnnouncements.controller.js';
 import { openCompanyEventConversation } from '../controllers/companyEventConversation.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -14,6 +14,7 @@ import {
 
 const router = express.Router();
 router.get('/announcements/mine', authenticate, listMyEventAnnouncements);
+router.post('/announcements/interactions', authenticate, recordMyEventSplash);
 router.get('/page/:organizationSlug/:eventSlug', publicIntakeLimiter, getCompanyEventInvitationPreview);
 router.get('/page/:organizationSlug/:eventSlug/staff', authenticate, getCompanyEventStaffLink);
 router.post('/page/:organizationSlug/:eventSlug/staff/respond', authenticate, respondToCompanyEventStaffLink);

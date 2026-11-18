@@ -38,7 +38,7 @@ export async function companyEventEmailContext(event, db = pool) {
   return { agencies, identity };
 }
 
-export async function sendCompanyEventInvitationEmail({ event, invitation, user, actorUserId = null, kind = 'invitation', context = null, db = pool }) {
+export async function sendCompanyEventInvitationEmail({ event, invitation, user, actorUserId = null, kind = 'invitation', context = null, db = pool, receiptId = null }) {
   const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
   const resolved = context || await companyEventEmailContext(event, db);
   const to = String(user.work_email || user.email || '').trim();
@@ -46,7 +46,7 @@ export async function sendCompanyEventInvitationEmail({ event, invitation, user,
   const links = await resolveCompanyEventInvitationLinks(event, invitation.token, db);
   const message = companyEventInvitationEmail({ event, user, agencies: resolved.agencies, ...links, kind,
     mandatory: (readEventOperations(event).mandatoryUserIds || []).includes(Number(user.id || invitation.user_id)) });
-  return sendEmailFromIdentity({ senderIdentityId: resolved.identity.id, to, ...message, userId: Number(user.id || invitation.user_id),
+  return sendEmailFromIdentity({ senderIdentityId: resolved.identity.id, existingCommunicationId: receiptId, preloggedReceipt: !!receiptId, to, ...message, userId: Number(user.id || invitation.user_id),
     generatedByUserId: actorUserId, templateType: kind === 'invitation' ? 'company_event_invitation' : 'company_event_reminder', templateId: Number(event.id),
     source: actorUserId ? 'manual' : 'auto', linkUrl: links.detailsUrl });
 }

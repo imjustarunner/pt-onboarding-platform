@@ -1,4 +1,5 @@
 <template>
+  <StaffPollDeliveryHistory v-if="deliveryHistory" :history="deliveryHistory" @close="deliveryHistory = null" @refresh="viewDeliveryLogs({ id: deliveryHistory.eventId, title: deliveryHistory.title })" />
   <section class="company-events-manager">
     <header class="header-row">
       <div class="header-copy"><span class="eyebrow">BRING YOUR PEOPLE TOGETHER</span><h4>{{ title }}</h4><p class="header-description">Company gatherings, celebrations and shared plans. Every invitation has a place to land.</p><div class="header-status"><span class="status-dot" :class="{ ready: smsReadiness.ready }"></span><span>Event texting · {{ smsReadiness.message }}</span><router-link v-if="canManageTeam" :to="teamCommunicationsPath">Team texts &amp; polls ↗</router-link></div></div>
@@ -49,9 +50,10 @@
 
         <section v-show="activeStep === 'reminders'" class="editor-section">
           <div class="section-heading"><span class="eyebrow">KEEP EVERYONE IN THE LOOP</span><h3>A thoughtful reminder, at the right time</h3><p>RSVP nudges stop as soon as someone replies. Attendance reminders help those coming remember the event.</p></div>
+          <div class="schedule-card"><label class="feature-toggle"><input v-model="draft.loginSplashEnabled" type="checkbox" /><span><strong>Show an RSVP splash at every login</strong><small>One invitation at a time. Invitees may reply or dismiss until their next login. Stops after any RSVP.</small></span></label></div>
           <div class="schedule-card"><label class="feature-toggle"><input v-model="draft.reminderConfig.rsvp.enabled" type="checkbox" /><span><strong>Ask invitees to RSVP</strong><small>Only invited people who have not answered receive these.</small></span></label><div v-if="draft.reminderConfig.rsvp.enabled" class="schedule-options"><label class="lbl">Repeat every<input v-model.number="draft.reminderConfig.rsvp.intervalHours" class="input" type="number" min="12" max="720" step="12" /><small class="hint">Hours between nudges · 48 hours recommended</small></label><div class="channel-options"><label class="check-label"><input v-model="draft.reminderConfig.rsvp.channels.inApp" type="checkbox" />In-app</label><label class="check-label"><input v-model="draft.reminderConfig.rsvp.channels.email" type="checkbox" />Branded email</label><label class="check-label"><input v-model="draft.reminderConfig.rsvp.channels.sms" type="checkbox" />Eligible text</label></div></div></div>
           <div class="schedule-card"><label class="feature-toggle"><input v-model="draft.reminderConfig.enabled" type="checkbox" /><span><strong>Remind people who are attending</strong><small>Sent to Yes and Maybe responses, after the event date is set.</small></span></label><div v-if="draft.reminderConfig.enabled" class="schedule-options"><label class="lbl">Hours before the event<input v-model.trim="draft.reminderOffsetsRaw" class="input" placeholder="168, 24" /></label><small class="hint">Default: 7 days and 24 hours before. Add other hours separated by commas.</small><div class="channel-options"><label class="check-label"><input v-model="draft.reminderConfig.channels.inApp" type="checkbox" />In-app</label><label class="check-label"><input v-model="draft.reminderConfig.channels.email" type="checkbox" />Branded email</label><label class="check-label"><input v-model="draft.reminderConfig.channels.sms" type="checkbox" />Eligible text</label></div></div></div>
-          <div class="section-divider"></div><div class="section-heading"><span class="eyebrow">ON THEIR DASHBOARD</span><h3>Scheduled event announcements</h3><p>A splash is an event card on an invitee’s dashboard. Schedule several moments to share the plan. Only invited people see these.</p></div>
+          <div class="section-divider"></div><div class="section-heading"><span class="eyebrow">ON THEIR DASHBOARD</span><h3>Scheduled event announcements</h3><p>Scheduled announcements share event updates during the dates below. They are separate from the unanswered RSVP splash shown at login.</p></div>
           <div v-for="(announcement,index) in draft.dashboardAnnouncements" :key="announcement.id" class="announcement-card"><div class="announcement-heading"><strong>Announcement {{ index + 1 }}</strong><button type="button" class="text-button" @click="draft.dashboardAnnouncements.splice(index,1)">Remove</button></div><div class="grid"><label class="lbl">Show from<input :value="toLocalInput(announcement.scheduledAt)" type="datetime-local" class="input" @input="updateAnnouncementTime(announcement,'scheduledAt',$event.target.value)" /></label><label class="lbl">Hide after<input :value="toLocalInput(announcement.endsAt)" type="datetime-local" class="input" @input="updateAnnouncementTime(announcement,'endsAt',$event.target.value)" /></label></div><label class="lbl">Message<textarea v-model.trim="announcement.content" rows="2" class="input" maxlength="2000" placeholder="A note for the people you invited" /></label></div><button type="button" class="btn btn-secondary" @click="addAnnouncement">+ Schedule an announcement</button>
         </section>
 
@@ -78,6 +80,7 @@
 </template>
 
 <script setup>
+import StaffPollDeliveryHistory from '../conversa/StaffPollDeliveryHistory.vue';
 import { companyEventPageHref } from '../../utils/companyEventInvitationHost';
 import EventOperationsSettings from './EventOperationsSettings.vue';
 import EventPeoplePicker from './EventPeoplePicker.vue';
@@ -248,6 +251,7 @@ const defaultReminders = (existing = {}) => ({
 const emptyDraft = () => ({
   ...eventOperationsDraft(),
   isWorkEvent: false,
+  loginSplashEnabled: true,
   id: null,
   isActive: true,
   organizationId: 0,
@@ -494,6 +498,7 @@ const editEvent = (event) => {
     eventType: event.eventType || 'company_event',
     timezone: String(event.timezone || '').trim() || browserTimeZone(),
     splashContent: event.splashContent || '',
+    loginSplashEnabled: event.loginSplashEnabled !== false,
     startsAtLocal: toLocalInput(event.startsAt, event.timezone),
     endsAtLocal: toLocalInput(event.endsAt, event.timezone),
     recurrence: {
@@ -597,6 +602,7 @@ const saveEvent = async () => {
       description: draft.value.description,
       eventType: draft.value.eventType || 'company_event',
       splashContent: draft.value.splashContent,
+      loginSplashEnabled: draft.value.loginSplashEnabled,
       startsAt: startsAtIso,
       endsAt: endsAtIso,
       timezone,
@@ -734,14 +740,14 @@ const sendSmsVote = async (event) => {
   }
 };
 
+const deliveryHistory = ref(null);
 const viewDeliveryLogs = async (event) => {
   if (!props.agencyId || !event?.id) return;
   saving.value = true;
   error.value = '';
   try {
     const resp = await api.get(`/agencies/${props.agencyId}/company-events/${event.id}/delivery-logs`);
-    const summary = resp.data?.summary || {};
-    window.alert(`Delivery summary\nIn-app sent: ${summary.inAppSent || 0}\nIn-app failed: ${summary.inAppFailed || 0}\nSMS sent: ${summary.smsSent || 0}\nSMS failed: ${summary.smsFailed || 0}\nSMS skipped: ${summary.smsSkipped || 0}`);
+    deliveryHistory.value = { ...resp.data, title: event.title, eventId: event.id };
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load delivery logs';
   } finally {

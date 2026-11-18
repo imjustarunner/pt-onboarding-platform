@@ -2198,7 +2198,7 @@
         :load-items="loadOfficeToasts"
         :record-event="recordOfficeToastEvent"
       />
-      <CompanyEventAnnouncements v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive" :key="`event-updates-${user.id}`" :user-id="user.id" />
+      <CompanyEventAnnouncements v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive" :key="`event-updates-${user.id}`" :user-id="user.id" :visit-id="authStore.loginVisitId" :agency-id="agencyStore.currentAgency?.id" />
       <ActiveMeetingToasts v-if="isAuthenticated && !isFamilyPortalAccount && user?.id" :key="user.id" :user-id="user.id" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal

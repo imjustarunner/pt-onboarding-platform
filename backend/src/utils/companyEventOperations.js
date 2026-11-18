@@ -9,14 +9,14 @@ const DEFAULTS = Object.freeze({
   requiresPayment: false, paymentAmount: null, paymentPaid: false, paymentNotes: '',
   paymentPaidAt: null, paymentPaidByUserId: null,
   publicRegistrationEnabled: false, attendeeSmsEnabled: false, attendeeCheckInEnabled: false, countsTowardOutreachCommitment: false, staffAudienceScope: 'audience', coordinatorUserIds: [],
-  invitedAgencyIds: [], mandatoryUserIds: [], isWorkEvent: false, dateToBeDecided: false, dashboardAnnouncements: []
+  invitedAgencyIds: [], mandatoryUserIds: [], isWorkEvent: false, dateToBeDecided: false, loginSplashEnabled: true, dashboardAnnouncements: []
 });
 export function readEventOperations(row = {}) {
   let stored = row.operations_json;
   if (typeof stored === 'string') { try { stored = JSON.parse(stored); } catch { stored = {}; } }
   const value = { ...DEFAULTS, staffAudienceScope: String(row.event_type || '').startsWith('school_') ? 'outreach_due' : 'audience', ...(stored && typeof stored === 'object' ? stored : {}) };
   if (stored?.isWorkEvent === undefined && (Number(row.organization_id) > 0 || /^(school_|skills_group|skill_builders|program_|guardian_program_class)/i.test(String(row.event_type || '')))) value.isWorkEvent = true;
-  for (const key of ['requiresPayment', 'paymentPaid', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'isWorkEvent', 'dateToBeDecided']) {
+  for (const key of ['requiresPayment', 'paymentPaid', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'isWorkEvent', 'dateToBeDecided', 'loginSplashEnabled']) {
     value[key] = [true, 1, '1', 'true'].includes(value[key]);
   }
   return value;
@@ -28,7 +28,7 @@ export function normalizeEventOperations(body = {}, existing = {}, { actorUserId
     if (!['audience', 'outreach_due'].includes(body.staffAudienceScope)) throw invalid('Select an event staff audience');
     next.staffAudienceScope = body.staffAudienceScope;
   }
-  for (const key of ['requiresPayment', 'paymentPaid', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'isWorkEvent', 'dateToBeDecided']) {
+  for (const key of ['requiresPayment', 'paymentPaid', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'isWorkEvent', 'dateToBeDecided', 'loginSplashEnabled']) {
     if (body[key] !== undefined) {
       if (![true, false, 0, 1, '0', '1', 'true', 'false'].includes(body[key])) throw invalid(`${key} must be a checkbox value`);
       next[key] = [true, 1, '1', 'true'].includes(body[key]);

@@ -10,6 +10,12 @@ export function pollDeliveryHistory({ logs, smsDeliveries, emailDeliveries = [],
       sentAt: receipt?.sentAt || email?.sent_at || log.sentAt, deliveredAt: receipt?.deliveredAt || email?.delivered_at || null, failedAt: receipt?.failedAt || null };
   });
   for (const receipt of smsDeliveries) if (!matched.has(receipt.id)) history.push({ ...receipt, id: `sms-${receipt.id}`, channel: 'sms', viewedAt: null });
+  const loggedEmails = new Set(logs.filter(log=>log.channel==='email').map(log=>Number(log.communicationId)).filter(Boolean));
+  for (const email of emailDeliveries) if (!loggedEmails.has(Number(email.id)) && !logs.some(log=>log.externalId && log.externalId===email.external_message_id)) history.push({
+    id:`email-${email.id}`,userId:Number(email.user_id),name:users.find(user=>Number(user.id)===Number(email.user_id))?.name || [users.find(user=>Number(user.id)===Number(email.user_id))?.first_name,users.find(user=>Number(user.id)===Number(email.user_id))?.last_name].filter(Boolean).join(' '),
+    channel:'email',dispatchType:email.template_type?.endsWith('invitation')?'vote_invite':'poll_followup',status:email.delivery_status,statusReason:email.error_message,
+    createdAt:email.generated_at,sentAt:email.sent_at,deliveredAt:email.delivered_at
+  });
   history.sort((a,b) => time(b.createdAt) - time(a.createdAt));
   const firstInvitation = Math.min(...history.filter(log => log.dispatchType === 'vote_invite' && ['sent','delivered'].includes(log.status)).map(log => time(log.sentAt || log.createdAt)));
   return { logs: history, recipients: users.map(user => {

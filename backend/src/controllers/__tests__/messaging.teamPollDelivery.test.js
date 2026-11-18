@@ -5,7 +5,7 @@ vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAf
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ resolveScopedAgencyIdsForMyDashboard: async req => req.scopedAgencyIds || [4] }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 8, role: 'admin' })) } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: mock.agency } }));
-vi.mock('../../services/unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: mock.email, sendEmailFromIdentity: vi.fn() }));
+vi.mock('../../services/unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: mock.email, sendEmailFromIdentity: mock.email }));
 vi.mock('../../models/Notification.model.js', () => ({ default: { coalesceOrCreate: mock.notification, create: mock.notification } }));
 vi.mock('../../models/UserCommunication.model.js', () => ({ default: { create: mock.communication, updateDeliveryStatus: vi.fn() } }));
 vi.mock('../../services/vonage.service.js', () => ({ default: { sendSms: mock.sms } }));
@@ -20,6 +20,7 @@ vi.mock('../../services/companyEventSms.service.js', () => ({
   isCompanyEventSmsMuted: vi.fn(async () => false), getCompanyEventSmsReport: vi.fn(async () => ({ deliveries: [] }))
 }));
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
+vi.mock('../../services/companyEventInvitations.service.js', async importOriginal => ({ ...await importOriginal(), companyEventEmailContext: vi.fn(async()=>({identity:{id:1143},agencies:[]})) }));
 import * as controller from '../companyEvents.controller.js';
 import { resolveCompanyEventSmsSender } from '../../services/companyEventSms.service.js';
 let event, users, replies, emailInvited, linkedEvents, linkedAudiences;
@@ -37,7 +38,7 @@ beforeEach(() => {
   mock.agency.mockResolvedValue({ id: 4, slug: 'itsco', feature_flags: { smsNumbersEnabled: true, companyEventsEnabled: true, companyEventsSenderNumberId: 8 } });
   mock.email.mockResolvedValue({ id: 'email-accepted' });
   users = [member, { ...member, id: 3, personal_phone: '+13035550103', status: 'INACTIVE_EMPLOYEE' }, { ...member, id: 4, personal_phone: '+13035550104', role: 'school_staff' }, { ...member, id: 5, personal_phone: '+13035550105', notification_categories: { staff_communications_4: { choices: { polling: false } } } }];
-  event = { id: 20, agency_id: 4, event_type: 'team_poll', title: 'Team date', starts_at: '2026-01-01T12:00:00Z', ends_at: '2099-01-01T12:00:00Z', is_active: 1, sms_code: 'DATE', voting_config_json: { enabled: true, deliveryMode: 'both', viaSms: true, options: [{ key: '1', label: 'Tuesday' }, { key: '2', label: 'Friday' }] } };
+  event = { id: 20, agency_id: 4, event_type: 'team_poll', title: 'Team date', starts_at: '2026-01-01T12:00:00Z', ends_at: '2099-01-01T12:00:00Z', is_active: 1, sms_code: 'DATE', voting_config_json: { enabled: true, loginSplashEnabled: false, deliveryMode: 'both', viaSms: true, options: [{ key: '1', label: 'Tuesday' }, { key: '2', label: 'Friday' }] } };
   mock.sms.mockResolvedValue({ sid: 'mock-sms' }); mock.prepare.mockResolvedValue({}); mock.communication.mockResolvedValue({ id: 90 });
   mock.execute.mockImplementation(async (sql, args = []) => {
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
@@ -83,6 +84,21 @@ describe('team poll delivery and shared replies', () => {
       html: expect.stringContaining('Opt in to vote by text') }));
     expect(mock.email.mock.calls[0][0].html).toContain('https://app.itsco.health/staff-polls/20?agencyId=4');
     expect(mock.sms).not.toHaveBeenCalled();
+  });
+  it('sends explicitly selected email even when the recipient already has polling SMS consent', async () => {
+    ssoRecipients();delete users[0].notification_categories;event.voting_config_json.emailEnabled=true;
+    await invoke('sendCompanyEventVotingSms');expect(mock.sms).toHaveBeenCalledOnce();expect(mock.email).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:1143,to:'taylor@work.example'}));
+  });
+  it('allows an unanswered SMS invitee to reply in the app when login splashes are enabled', async () => {
+    event.voting_config_json.deliveryMode='sms';event.voting_config_json.loginSplashEnabled=true;
+    expect((await pollsForParticipant()).json.mock.calls[0][0][0]).toMatchObject({canVote:true,loginSplashEnabled:true});
+    const request=req();request.body.responseKey='1';await invoke('respondToMyCompanyEvent',request);expect(replies.get(2)).toMatchObject({response_key:'1'});
+  });
+  it('builds the login queue only from unanswered open polls, without loading shared vote totals', async () => {
+    event.voting_config_json.loginSplashEnabled=true;
+    expect(await controller.staffPollsForRequest(req(),{pendingOnly:true})).toEqual([expect.objectContaining({id:20,canVote:true,results:null,myResponse:null})]);
+    replies.set(2,{id:1,user_id:2,response_key:'1'});
+    expect(await controller.staffPollsForRequest(req(),{pendingOnly:true})).toEqual([]);
   });
   it('keeps enrolled SMS recipients off the fallback email path', async () => {
     ssoRecipients(); delete users[0].notification_categories;

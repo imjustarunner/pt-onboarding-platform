@@ -33,8 +33,9 @@ describe('event-linked modern vote mail',()=>{
     companyEventEmailContext.mockRejectedValue(Object.assign(new Error('Missing events sender'),{code:'event_sender_missing'}));
     await expect(sendStaffPollEmail(input)).rejects.toHaveProperty('code','event_sender_missing');expect(sendNotificationEmail).not.toHaveBeenCalled();
   });
-  it('preserves the established standalone poll email delivery',async()=>{
-    expect(await sendStaffPollEmail({...input,event:{...poll,votingConfig:{...poll.votingConfig,linkedEventId:null}}})).toEqual({id:'legacy'});
-    expect(sendNotificationEmail).toHaveBeenCalledWith(expect.objectContaining({templateType:'staff_poll_invitation',agencyId:2}));expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(companyEventEmailContext).not.toHaveBeenCalled();
+  it('routes standalone poll mail through the configured events identity rather than an unrelated test trigger',async()=>{
+    expect(await sendStaffPollEmail({...input,event:{...poll,votingConfig:{...poll.votingConfig,linkedEventId:null}}})).toEqual({id:'branded'});
+    expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({templateType:'staff_poll_invitation',senderIdentityId:42}));
+    expect(sendNotificationEmail).not.toHaveBeenCalled();
   });
 });

@@ -46,6 +46,8 @@ export const useAuthStore = defineStore('auth', () => {
         }
       })();
   const user = ref(storedUser);
+  const loginVisitId = ref(sessionStorage.getItem('eventSplashVisit') || crypto.randomUUID());
+  sessionStorage.setItem('eventSplashVisit', loginVisitId.value);
   let userRefreshGeneration = 0;
   if (isDemoWindowSession()) {
     token.value = getDemoWindowToken();
@@ -61,6 +63,8 @@ export const useAuthStore = defineStore('auth', () => {
   });
 
   const setAuth = (newToken, newUser, sessionId = null) => {
+    loginVisitId.value = crypto.randomUUID();
+    sessionStorage.setItem('eventSplashVisit', loginVisitId.value);
     // Never persist parent-shared storage from a window-scoped demo lab session.
     if (isDemoWindowSession()) {
       persistDemoWindowSession({
@@ -464,6 +468,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     isAuthenticated,
     setAuth,
+    loginVisitId,
     setWindowScopedAuth,
     clearAuth,
     login,

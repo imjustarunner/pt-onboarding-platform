@@ -3,15 +3,16 @@ import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import { isActiveTeamMember } from './conversaTeamRecipients.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { emailActionButton } from '../utils/emailActionButton.js';
-import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { companyEventEmailContext } from './companyEventInvitations.service.js';
 import { readEventOperations } from '../utils/companyEventOperations.js';
 
 const email = value => String(value || '').trim().toLowerCase();
 const esc = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const noPollingConsent = new Set(['no_phone', 'sms_opted_out', 'sms_staff_choice_off', 'sms_consent_required', 'sms_consent_review_required']);
 
-export function staffPollWorkEmail(user, agency) {
-  if (!isActiveTeamMember(user) || usesPasswordLogin(user) || !passwordRecoverySsoState(user, [agency]).ssoEnabled) return null;
+export function staffPollWorkEmail(user, agency, { selected = false } = {}) {
+  if (Number(user.login_is_group_email) === 1 || !isActiveTeamMember(user) || (!selected && (usesPasswordLogin(user) || !passwordRecoverySsoState(user, [agency]).ssoEnabled))) return null;
   // The canonical SSO login takes precedence over a stale work_email alias.
   const address = email(user.email || user.work_email);
   return /^[^\s<>@,;]+@[^\s<>@,;]+$/.test(address) && address !== email(user.personal_email) ? address : null;
@@ -27,7 +28,7 @@ export function buildStaffPollEmail({ event, agency, user, followup = false }) {
   const question = event.votingConfig.question || event.title;
   const options = event.votingConfig.options || [];
   const intro = `Hi ${user.first_name || 'there'},`;
-  const invitation = 'You are receiving this email because you are not enrolled in poll texts. Sign in with your work account to vote.';
+  const invitation = 'Please sign in with your work account to vote. Your response helps the organizer plan.';
   const optIn = 'Skip the extra email next time: opt in to vote by text. We promise not to spam you. Poll texts are optional, and you can reply NOPOLLS to turn off only poll texts. Review and save your enrollment preferences to opt in.';
   return {
     subject: `${followup ? 'Reminder — team poll' : 'Team poll'}: ${event.title}`,
@@ -36,7 +37,7 @@ export function buildStaffPollEmail({ event, agency, user, followup = false }) {
   };
 }
 
-export async function sendStaffPollEmail({ event, agency, user, to, actorUserId, followup = false }) {
+export async function sendStaffPollEmail({ event, agency, user, to, actorUserId, followup = false, receiptId = null }) {
   if (event.votingConfig?.linkedEventId) {
     const { linkedCompanyEventPollAudience } = await import('./companyEventLinkedPolls.service.js');
     const scope = await linkedCompanyEventPollAudience({ poll: event });
@@ -50,13 +51,14 @@ export async function sendStaffPollEmail({ event, agency, user, to, actorUserId,
     const context = await companyEventEmailContext(scope.parent);
     const { detailsUrl } = await resolveCompanyEventInvitationLinks(scope.parent, null);
     const voteUrl = `${detailsUrl}#event-polls-title`;
-    return sendEmailFromIdentity({ senderIdentityId: context.identity.id, to,
+    return sendEmailFromIdentity({ senderIdentityId: context.identity.id, existingCommunicationId: receiptId, preloggedReceipt: !!receiptId, to,
       ...companyEventVoteEmail({ parentEvent: scope.parent, poll: event, user, agencies: context.agencies, voteUrl, detailsUrl, followup,
         mandatory: (readEventOperations(scope.parent).mandatoryUserIds || []).includes(Number(user.id)) }),
       generatedByUserId: actorUserId, userId: Number(user.id), templateType: followup ? 'staff_poll_followup' : 'staff_poll_invitation',
-      templateId: Number(event.id), source: 'manual', linkUrl: voteUrl });
+      templateId: Number(event.id), source: actorUserId ? 'manual' : 'auto', linkUrl: voteUrl });
   }
-  return sendNotificationEmail({ agencyId: Number(agency.id), triggerKey: 'system_email_test',
+  const { identity } = await companyEventEmailContext({ ...event, agency_id: Number(agency.id) });
+  return sendEmailFromIdentity({ senderIdentityId: identity.id, existingCommunicationId: receiptId, preloggedReceipt: !!receiptId,
     to, ...buildStaffPollEmail({ event, agency, user, followup }), generatedByUserId: actorUserId,
-    userId: Number(user.id), templateType: followup ? 'staff_poll_followup' : 'staff_poll_invitation', templateId: Number(event.id), source: 'manual' });
+    userId: Number(user.id), templateType: followup ? 'staff_poll_followup' : 'staff_poll_invitation', templateId: Number(event.id), source: actorUserId ? 'manual' : 'auto' });
 }

@@ -17,7 +17,7 @@ export async function isEventCoordinator({ userId, agencyId, eventId = null }) {
 export async function validateEventOperations({ body, existing = {}, actorUserId, agencyId, canAssignCoordinators = false }) {
   const previous = readEventOperations({ event_type: body.eventType || (body.category ? `school_${body.category}` : ''), ...existing });
   const next = normalizeEventOperations(body, previous, { actorUserId });
-  const internalFieldsChanged = ['requiresPayment', 'paymentAmount', 'paymentPaid', 'paymentNotes', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'staffAudienceScope', 'invitedAgencyIds', 'mandatoryUserIds', 'isWorkEvent', 'dateToBeDecided', 'dashboardAnnouncements']
+  const internalFieldsChanged = ['requiresPayment', 'paymentAmount', 'paymentPaid', 'paymentNotes', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'staffAudienceScope', 'invitedAgencyIds', 'mandatoryUserIds', 'isWorkEvent', 'dateToBeDecided', 'loginSplashEnabled', 'dashboardAnnouncements']
     .some(key => JSON.stringify(next[key]) !== JSON.stringify(previous[key]));
   if (internalFieldsChanged) {
     const [actors] = actorUserId ? await pool.execute(`SELECT u.id FROM users u WHERE u.id = ? AND u.is_active = 1

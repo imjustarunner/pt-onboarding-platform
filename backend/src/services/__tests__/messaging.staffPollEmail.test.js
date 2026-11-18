@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: vi.fn() }));
-vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: vi.fn() }));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn() }));
 import { buildStaffPollEmail, pollEmailFallbackRecipient, staffPollWorkEmail } from '../staffPollEmail.service.js';
 const agency = { id: 2, slug: 'itsco', feature_flags: { googleSsoEnabled: true, googleSsoRequiredRoles: ['provider'] } };
 const user = { id: 5, role: 'provider', is_active: 1, status: 'ACTIVE_EMPLOYEE', membership_active: 1,

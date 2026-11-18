@@ -15,7 +15,7 @@ const events = ref([]), users = ref([]), loading = ref(false), busy = ref(false)
 const error = ref(''), notice = ref(''), reviewing = ref(null), delivery = ref(null);
 const smsSender = ref(null), pollPreview = ref(null);
 const localDateInput = value => { const date = new Date(value); if (!Number.isFinite(date.getTime())) return ''; return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
-const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, resultsVisibility: 'after_close', linkedEventId: '', closesAt: localDateInput(Date.now() + 30 * 86400000), allowOther: false, followupsEnabled: false, followupHours: '24,2' });
+const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', loginSplashEnabled: true, emailEnabled: false, shareResults: true, resultsVisibility: 'after_close', linkedEventId: '', closesAt: localDateInput(Date.now() + 30 * 86400000), allowOther: false, followupsEnabled: false, followupHours: '24,2' });
 const eventLinks = ref([]), linksLoading = ref(false), linksError = ref('');
 let linksRequest = 0, linksLoaded = false;
 async function loadEventLinks() {
@@ -36,6 +36,8 @@ function selectVisibleRecipients() {
 function edit(event) {
   editing.value = event;
   draft.value = { ...blank(), kind: event.votingConfig?.enabled ? 'poll' : 'text', title: event.title, message: event.splashContent || event.description || '', userIds: (event.audience?.userIds || []).filter(id => users.value.some(user => user.id === id)), question: event.votingConfig?.question || '', options: event.votingConfig?.options?.map(o => o.label) || ['Yes', 'No'], deliveryMode: event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal'), shareResults: event.votingConfig?.shareResults !== false, allowOther: !!event.votingConfig?.allowOther };
+  draft.value.loginSplashEnabled = event.votingConfig?.loginSplashEnabled !== false;
+  draft.value.emailEnabled = event.votingConfig?.emailEnabled === true || event.reminderConfig?.channels?.email === true;
   draft.value.closesAt = localDateInput(event.votingConfig?.closesAt || event.endsAt) || blank().closesAt;
   draft.value.resultsVisibility = event.votingConfig?.resultsVisibility || 'after_close';
   draft.value.linkedEventId = event.votingConfig?.linkedEventId || '';
@@ -82,10 +84,10 @@ async function create(reviewDelivery = false) {
       startsAt: existing?.startsAt || now.toISOString(), endsAt: poll ? new Date(draft.value.closesAt).toISOString() : existing?.endsAt || new Date(now.getTime() + 30 * 86400000).toISOString(),
       audience: { userIds: [...draft.value.userIds], groupIds: existing?.audience?.groupIds || [], roleKeys: existing?.audience?.roleKeys || [] },
       rsvpMode: poll ? 'custom_vote' : 'none',
-      votingConfig: { enabled: poll, deliveryMode: draft.value.deliveryMode, viaSms: poll && draft.value.deliveryMode !== 'internal', question: draft.value.question,
+      votingConfig: { enabled: poll, loginSplashEnabled: draft.value.loginSplashEnabled, emailEnabled: draft.value.emailEnabled, deliveryMode: draft.value.deliveryMode, viaSms: poll && draft.value.deliveryMode !== 'internal', question: draft.value.question,
         options: draft.value.options.map((label, i) => ({ key: existing?.votingConfig?.options?.[i]?.key || String(i + 1), label: label.trim() })),
         shareResults: draft.value.shareResults, resultsVisibility: draft.value.resultsVisibility, linkedEventId: poll ? Number(draft.value.linkedEventId) || null : null, closesAt: poll ? new Date(draft.value.closesAt).toISOString() : null, allowOther: draft.value.allowOther },
-      reminderConfig: poll ? { enabled: draft.value.followupsEnabled, anchor: 'poll_close', offsetsHours: offsets, channels: { inApp: draft.value.deliveryMode !== 'sms', sms: draft.value.deliveryMode !== 'internal' } } : existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
+      reminderConfig: poll ? { enabled: draft.value.followupsEnabled, anchor: 'poll_close', offsetsHours: offsets, channels: { inApp: draft.value.deliveryMode !== 'sms', sms: draft.value.deliveryMode !== 'internal', email: draft.value.emailEnabled } } : existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
     });
     if (g !== generation) return;
     const savedPoll = { ...saved, id: saved.id || existing?.id, title: draft.value.title };
@@ -196,6 +198,8 @@ watch(() => [props.agencyId, allowed.value], () => {
             <p v-if="draft.deliveryMode !== 'internal' && smsSender" :role="smsSender.ready ? undefined : 'alert'" class="team-note">{{ smsSender.label }}<span v-if="smsSender.ready"> · {{ smsSender.fromNumber }}</span></p>
             <p v-if="draft.deliveryMode !== 'internal'" class="team-note">{{ selectedSms }} selected members currently eligible for SMS; {{ draft.userIds.length - selectedSms }} unavailable for SMS. Poll texts use the staff notifications number. Reply NOPOLLS to stop poll texts only.</p>
             <p class="team-note">Save &amp; review delivery checks for recipients who still need an invitation, including newly added members. You can confirm delivery next. Save without sending only updates the poll.</p>
+            <label class="team-check"><input v-model="draft.loginSplashEnabled" type="checkbox" /> Show at each login until answered (dismissible)</label>
+            <label class="team-check"><input v-model="draft.emailEnabled" type="checkbox" /> Also send email invitations and follow-ups</label>
             <label class="team-check"><input v-model="draft.allowOther" type="checkbox" /> Allow written answers for review</label>
             <label>Voting deadline <input v-model="draft.closesAt" aria-label="Voting deadline" type="datetime-local" required /><small class="team-note">Your local time. This closes voting; it does not schedule an event.</small></label>
             <label class="team-check"><input v-model="draft.followupsEnabled" type="checkbox" /> Schedule follow-ups for invited people who have not replied</label>

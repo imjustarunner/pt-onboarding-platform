@@ -1,3 +1,4 @@
+import { splashHistory } from '../services/companyEventSplashes.service.js';
 import { isCompanyGathering, normalizeCompanyEventRsvp, personalCompanyEventMetadata, loadCompanyEventRsvpMap, companyGatheringSql, listCurrentCompanyGatherings } from '../services/companyEventPersonalAgenda.service.js';
 import { syncCompanyEventConversation, canManageEventConversation } from '../services/companyEventConversation.service.js';
 import { ensureCompanyEventPage } from '../services/companyEventPages.service.js';
@@ -316,7 +317,7 @@ function parseVotingConfig(raw) {
   const viaSms = pollUsesSms(value);
   const question = String(value.question || '').trim();
   const options = normalizeVotingOptions(value.options);
-  return { enabled, viaSms, deliveryMode, question, options, allowOther:value.allowOther===true, shareResults:value.shareResults!==false,
+  return { enabled, viaSms, deliveryMode, loginSplashEnabled: value.loginSplashEnabled !== false, emailEnabled: value.emailEnabled === true, question, options, allowOther:value.allowOther===true, shareResults:value.shareResults!==false,
     resultsVisibility: value.resultsVisibility === 'live' ? 'live' : 'after_close', linkedEventId: parsePositiveInt(value.linkedEventId) || null,
     closesAt: value.closesAt && Number.isFinite(new Date(value.closesAt).getTime()) ? new Date(value.closesAt).toISOString() : null };
 }
@@ -2591,13 +2592,15 @@ export const listCompanyEventDeliveryLogs = async (req, res, next) => {
     }));
     const audience = await getAudienceForEvent(eventId);
     const selected = new Set(await resolveRecipientUserIds(agencyId, eventId, audience));
-    const users = (await listActiveTeamMembers(agencyId)).filter(user => selected.has(Number(user.id)));
+    const users = (await listCompanyEventStaff(companyEventAgencyIds(event))).filter(user => selected.has(Number(user.id)));
     const [responses] = await pool.execute('SELECT user_id, source, received_at FROM company_event_responses WHERE company_event_id = ?', [eventId]);
     const [views] = await pool.execute('SELECT user_id, first_viewed_at, last_viewed_at FROM company_event_poll_views WHERE company_event_id = ?', [eventId]);
-    const [emailDeliveries] = await pool.execute(`SELECT id,user_id,external_message_id,delivery_status,sent_at,delivered_at FROM user_communications
-      WHERE agency_id = ? AND template_id = ? AND template_type IN ('staff_poll_invitation','staff_poll_followup') AND channel = 'email'`, [agencyId,eventId]);
+    const [emailDeliveries] = await pool.execute(`SELECT id,user_id,external_message_id,delivery_status,sent_at,delivered_at,generated_at,error_message,template_type FROM user_communications
+      WHERE agency_id = ? AND template_id = ? AND template_type IN ('staff_poll_invitation','staff_poll_followup','company_event_invitation','company_event_reminder') AND channel = 'email'`, [agencyId,eventId]);
+    const [eventDeliveries] = await pool.execute(`SELECT id,user_id,channel,delivery_kind,schedule_key,status,status_reason,created_at,completed_at FROM company_event_notification_deliveries WHERE company_event_id=? AND channel='inApp'`,[eventId]);
+    for (const delivery of eventDeliveries) logs.push({ id:`event-${delivery.id}`,userId:Number(delivery.user_id),name:users.find(u=>Number(u.id)===Number(delivery.user_id))?.name || 'Invitee',channel:'in_app',dispatchType:delivery.delivery_kind,occurrenceKey:delivery.schedule_key,status:delivery.status,statusReason:delivery.status_reason,createdAt:delivery.created_at,sentAt:delivery.status==='sent'?delivery.completed_at:null });
     res.json({ summary: await getEventDeliverySummary(eventId), smsCampaign,
-      ...pollDeliveryHistory({ logs, smsDeliveries: smsCampaign.deliveries || [], emailDeliveries, users, responses, views }) });
+      ...pollDeliveryHistory({ logs, smsDeliveries: smsCampaign.deliveries || [], emailDeliveries, users, responses, views }), splashViews: await splashHistory(eventId) });
   } catch (error) {
     next(error);
   }
@@ -2768,8 +2771,7 @@ async function hasPollEmailInvitation(eventId, userId) {
   return rows.length > 0;
 }
 
-export const listMyStaffPolls = async (req, res, next) => {
-  try {
+export async function staffPollsForRequest(req, { pendingOnly = false } = {}) {
     const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
     const visible = await listEventsVisibleToUser(Number(req.user.id), agencyIds, { excludeSkillsGroupLinkedEvents: true, includePollHistory: true, includeOwnedPolls: true });
     const polls = [];
@@ -2779,23 +2781,28 @@ export const listMyStaffPolls = async (req, res, next) => {
       const linkedScope = linkedCompanyEventId(row) ? await linkedCompanyEventPollAudience({ poll: row }) : null;
       const canManage = linkedScope ? !!linkedScope.parent && await canManageEventConversation(linkedScope.parent, req.user)
         : canManageConversaTeam(req.user) || Number(row.created_by_user_id) === Number(req.user.id);
-      if (!canManage && !pollUsesInternal(event.votingConfig) && !row.participated && !await hasPollEmailInvitation(event.id, req.user.id)) continue;
+      if (!canManage && !event.votingConfig.loginSplashEnabled && !pollUsesInternal(event.votingConfig) && !row.participated && !await hasPollEmailInvitation(event.id, req.user.id)) continue;
       const closedAt = pollClosedAt(event);
-      const responses = await reviewedPollResponses(event.id);
+      if (pendingOnly && (closedAt || row.participated || !event.votingConfig.loginSplashEnabled)) continue;
+      const responses = pendingOnly ? (await pool.execute('SELECT user_id,response_key FROM company_event_responses WHERE company_event_id=? AND user_id=?',[event.id,req.user.id]))[0] : await reviewedPollResponses(event.id);
+      if (pendingOnly && responses.length) continue;
       const linkedId = event.votingConfig.linkedEventId || (isStaffPollLinkedEvent(row) ? event.id : null);
       const linkedRow = linkedScope?.parent || (linkedId ? visible.find(({ row: candidate }) => Number(candidate.id) === linkedId && Number(candidate.agency_id) === event.agencyId)?.row : null);
       const linkedEvent = linkedId ? await visibleLinkedStaffEvent(linkedRow, Number(req.user.id)) : null;
-      polls.push({ deliveryMode: event.votingConfig.deliveryMode, id: event.id, agencyId: event.agencyId, title: event.title, question: event.votingConfig.question || event.title,
+      polls.push({ loginSplashEnabled:event.votingConfig.loginSplashEnabled, deliveryMode: event.votingConfig.deliveryMode, id: event.id, agencyId: event.agencyId, title: event.title, question: event.votingConfig.question || event.title,
         options: event.votingConfig.options, closedAt, closesAt: pollDeadline(event), scheduledClosing: !!event.votingConfig.closesAt, timezone: event.timezone,
-        canManage, canVote: !closedAt && await userIsInAudience({ userId: Number(req.user.id), audience: await getAudienceForEvent(event.id) }) && (pollUsesInternal(event.votingConfig) || !!row.participated || await hasPollEmailInvitation(event.id, req.user.id)),
+        canManage, canVote: !closedAt && await userIsInAudience({ userId: Number(req.user.id), audience: await getAudienceForEvent(event.id) }) && (event.votingConfig.loginSplashEnabled || pollUsesInternal(event.votingConfig) || !!row.participated || await hasPollEmailInvitation(event.id, req.user.id)),
         shareResults:event.votingConfig.shareResults, resultsVisibility: event.votingConfig.resultsVisibility, allowOther:event.votingConfig.allowOther,
         linkedEventId: linkedId, linkedEvent: linkedEvent ? { ...linkedEvent, available: true } : linkedId ? { available: false } : null,
         myResponse: participantPollResponse(responses.find(r => Number(r.user_id) === Number(req.user.id)), event.votingConfig.options),
-        results: canManage || sharedPollResultsAvailable(event.votingConfig, closedAt) ? summarizePollResponses(responses, event.votingConfig.options) : null,
-        resultsText: await getPollResultPreference(event.id, req.user.id) });
+        results: !pendingOnly && (canManage || sharedPollResultsAvailable(event.votingConfig, closedAt)) ? summarizePollResponses(responses, event.votingConfig.options) : null,
+        resultsText: pendingOnly ? false : await getPollResultPreference(event.id, req.user.id) });
     }
-    res.json(polls);
-  } catch (error) { next(error); }
+    return polls;
+}
+
+export const listMyStaffPolls = async (req,res,next) => {
+  try { res.json(await staffPollsForRequest(req)); } catch(error) { next(error); }
 };
 
 // Called only when a poll card is actually visible, never by the polling list GET.
@@ -3054,7 +3061,8 @@ async function pollRecipientChannels(user, plan) {
   if (invited && !invited.has(Number(user.id))) return { eligibility: null, emailTo: null, needsInternal: false, needsSms: false };
   const eligibility = sendSms || staffPollWorkEmail(user, agency)
     ? await teamSmsEligibility(user, { agencyId, from, eventId }) : null;
-  const emailTo = pollEmailFallbackRecipient(user, agency, eligibility);
+  const emailTo = (plan.event.votingConfig.emailEnabled || (plan.followup && plan.event.reminderConfig?.channels?.email))
+    ? staffPollWorkEmail(user, agency, { selected: true }) : pollEmailFallbackRecipient(user, agency, eligibility);
   return { eligibility, emailTo: !notified.has(`${Number(user.id)}:email`) ? emailTo : null,
     needsInternal: sendInternal && !notified.has(`${Number(user.id)}:in_app`),
     needsSms: sendSms && !notified.has(`${Number(user.id)}:sms`) };
@@ -4096,7 +4104,7 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
     if (pollClosedAt(event)) {
       return res.status(400).json({ error: { message: 'Voting is closed for this event' } });
     }
-    if (!pollUsesInternal(event.votingConfig) && !target.row.participated && !await hasPollEmailInvitation(eventId, userId)) return res.status(400).json({ error: { message: 'Online voting is not available for this poll.' } });
+    if (!event.votingConfig.loginSplashEnabled && !pollUsesInternal(event.votingConfig) && !target.row.participated && !await hasPollEmailInvitation(eventId, userId)) return res.status(400).json({ error: { message: 'Online voting is not available for this poll.' } });
     const reply=req.body?.responseKey||req.body?.response||'';
     const parsed = parseResponseInput(reply, event.votingConfig.options)||unmatchedPollReply(reply,event.votingConfig.allowOther);
     if (!parsed) {

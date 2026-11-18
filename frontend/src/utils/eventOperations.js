@@ -15,6 +15,7 @@ export const eventOperationsDraft = (event = {}) => ({
   // Leave the work classification to the server until this editor has an explicit value.
   isWorkEvent: event.isWorkEvent == null ? null : enabled(event.isWorkEvent),
   dateToBeDecided: enabled(event.dateToBeDecided),
+  loginSplashEnabled: event.loginSplashEnabled !== false,
   dashboardAnnouncements: Array.isArray(event.dashboardAnnouncements) ? event.dashboardAnnouncements.map(item => ({ ...item })) : []
 });
 

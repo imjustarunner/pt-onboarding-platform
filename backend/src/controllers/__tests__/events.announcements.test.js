@@ -1,32 +1,28 @@
-import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
+import {beforeEach,describe,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
-vi.mock('../../services/companyEventAudience.service.js',()=>({isCompanyEventInvitee:vi.fn()}));
+vi.mock('../../services/companyEventAudience.service.js',()=>({isCompanyEventInvitee:vi.fn(async()=>true)}));
+vi.mock('../companyEvents.controller.js',()=>({staffPollsForRequest:vi.fn(async()=>[])}));
 import pool from '../../config/database.js';
 import {isCompanyEventInvitee} from '../../services/companyEventAudience.service.js';
-import {listMyEventAnnouncements} from '../companyEventAnnouncements.controller.js';
-const announcement={id:'a1',scheduledAt:'2026-11-11T16:00:00Z',endsAt:'2026-11-12T16:00:00Z',content:'Current details'};
-const row={id:7,agency_id:2,is_active:1,title:'Anniversary',notification_id:401,notification_title:'Old heading',message:'Stale details',
-  audience_json:{displayType:'splash',announcementId:'a1',navigationUrl:'https://app.example.com/company-events/7/staff/private'},operations_json:{dashboardAnnouncements:[announcement]}};
-beforeEach(()=>{vi.clearAllMocks();vi.useFakeTimers({toFake:['Date']});vi.setSystemTime('2026-11-11T18:00:00Z');isCompanyEventInvitee.mockResolvedValue(true);pool.execute.mockResolvedValue([[structuredClone(row)]]);});
-afterEach(()=>vi.useRealTimers());
-async function invoke(){const res={json:vi.fn(),set:vi.fn()},next=vi.fn();await listMyEventAnnouncements({user:{id:5}},res,next);expect(next).not.toHaveBeenCalled();return res;}
-describe('scheduled private event splashes',()=>{
-  it('returns the notification id for dismissal and current event content',async()=>{
-    const res=await invoke();expect(res.json).toHaveBeenCalledWith([{id:401,title:'Anniversary',message:'Current details',url:row.audience_json.navigationUrl}]);
-    expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(pool.execute.mock.calls[0][1]).toEqual([5]);
-  });
-  it('omits a person who no longer belongs to the invited audience',async()=>{isCompanyEventInvitee.mockResolvedValue(false);expect((await invoke()).json).toHaveBeenCalledWith([]);});
-  it.each([
-    {name:'future',change:{scheduledAt:'2026-11-12T16:00:00Z'}},
-    {name:'expired',change:{endsAt:'2026-11-11T17:00:00Z'}}
-  ])('does not serve a $name announcement',async({change})=>{
-    pool.execute.mockResolvedValue([[{...row,operations_json:{dashboardAnnouncements:[{...announcement,...change}]}}]]);
-    expect((await invoke()).json).toHaveBeenCalledWith([]);expect(isCompanyEventInvitee).not.toHaveBeenCalled();
-  });
-  it('does not retain a deleted schedule because its old unread notification still exists',async()=>{
-    pool.execute.mockResolvedValue([[{...row,operations_json:{dashboardAnnouncements:[]}}]]);expect((await invoke()).json).toHaveBeenCalledWith([]);
-  });
-  it('deduplicates old notifications for the same currently scheduled announcement',async()=>{
-    pool.execute.mockResolvedValue([[row,{...row,notification_id:400}]]);expect((await invoke()).json.mock.calls[0][0]).toHaveLength(1);
-  });
+import {staffPollsForRequest} from '../companyEvents.controller.js';
+import {listMyEventAnnouncements,recordMyEventSplash} from '../companyEventAnnouncements.controller.js';
+import {splashLoginKey} from '../../services/companyEventSplashes.service.js';
+const event={id:7,agency_id:2,event_type:'staff_get_together',is_active:1,title:'Party',ends_at:'2099-12-05T00:00:00Z',response:null,operations_json:{dashboardAnnouncements:[{id:'a1',scheduledAt:'2099-12-01T00:00:00Z',endsAt:'2099-12-04T00:00:00Z',content:'Future announcement'}]}};
+const poll={id:8,agencyId:2,title:'Choose a date',question:'Which day?',options:[{key:'1',label:'Friday'}],canVote:true,closesAt:'2099-12-05T00:00:00Z'};
+const user={id:5,sessionId:'login-one'};
+let events,seen;
+beforeEach(()=>{vi.clearAllMocks();events=[structuredClone(event)];seen=[];staffPollsForRequest.mockResolvedValue([poll]);isCompanyEventInvitee.mockResolvedValue(true);pool.execute.mockImplementation(async(sql)=>sql.includes('JOIN company_event_invitations')?[events]:sql.includes('SELECT item_key')?[seen]:[[]]);});
+async function invoke(fn=listMyEventAnnouncements,request={user,query:{}}){const res={json:vi.fn(),set:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();await fn(request,res,next);expect(next).not.toHaveBeenCalled();return res;}
+describe('login polls and RSVP splashes',()=>{
+ it('queues pending polls and RSVPs without waiting for a scheduled announcement or unread notification',async()=>{const res=await invoke();expect(res.json.mock.calls[0][0].map(x=>x.id)).toEqual(['poll:8','rsvp:7']);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(pool.execute.mock.calls.every(([sql])=>!sql.includes('INSERT'))).toBe(true);});
+ it('stops polls after voting, closure, disabled splashes, or removed voting permission',async()=>{for(const patch of [{myResponse:{key:'1'}},{closedAt:'2026-01-01'},{loginSplashEnabled:false},{canVote:false}]){staffPollsForRequest.mockResolvedValue([{...poll,...patch}]);expect((await invoke()).json.mock.calls[0][0].every(item=>item.kind!=='poll')).toBe(true);}});
+ it('stops RSVPs after a yes, no, maybe, expired deadline or disabled login setting',async()=>{for(const patch of [{response:'yes'},{response:'no'},{response_key:'M'},{rsvp_deadline:'2020-01-01'},{operations_json:{loginSplashEnabled:false}}]){events=[{...event,...patch}];expect((await invoke()).json.mock.calls[0][0].every(item=>item.kind!=='rsvp')).toBe(true);}});
+ it('never shows an event to someone removed from the audience',async()=>{isCompanyEventInvitee.mockResolvedValue(false);staffPollsForRequest.mockResolvedValue([]);expect((await invoke()).json).toHaveBeenCalledWith([]);});
+ it('keeps undated event RSVPs open and excludes service programs',async()=>{events=[{...event,ends_at:null,operations_json:{dateToBeDecided:true}},{...event,id:9,event_type:'program_class'}];expect((await invoke()).json.mock.calls[0][0].filter(x=>x.kind==='rsvp').map(x=>x.eventId)).toEqual([7]);});
+ it('dismisses only this login and never mutates notification read state',async()=>{seen=[{item_key:'poll:8'}];expect((await invoke()).json.mock.calls[0][0].map(x=>x.id)).toEqual(['rsvp:7']);expect(pool.execute.mock.calls.find(([s])=>s.includes('SELECT item_key'))[1]).toEqual([5,splashLoginKey(user)]);expect(splashLoginKey(user)).not.toBe(splashLoginKey({...user,sessionId:'next-login'}));});
+ it('records one view idempotently for the authenticated actor',async()=>{const res=await invoke(recordMyEventSplash,{user,body:{itemId:'poll:8',displayId:'11111111-1111-4111-8111-111111111111',action:'viewed',userId:999}});expect(res.json).toHaveBeenCalledWith({ok:true});expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT IGNORE'),[8,5,splashLoginKey(user),'poll:8','11111111-1111-4111-8111-111111111111','poll']);});
+ it('rejects stale or unauthorized view records',async()=>{staffPollsForRequest.mockResolvedValue([]);expect((await invoke(recordMyEventSplash,{user,body:{itemId:'poll:8',displayId:'11111111-1111-4111-8111-111111111111',action:'viewed'}})).status).toHaveBeenCalledWith(404);});
+ it('cannot dismiss another account or login’s presentation',async()=>{expect((await invoke(recordMyEventSplash,{user,body:{itemId:'poll:8',displayId:'11111111-1111-4111-8111-111111111111',action:'dismissed'}})).status).toHaveBeenCalledWith(404);});
+ it('does not claim a reply until a real saved response exists',async()=>{pool.execute.mockResolvedValueOnce([[{company_event_id:8,kind:'poll'}]]).mockResolvedValueOnce([[]]);expect((await invoke(recordMyEventSplash,{user,body:{itemId:'poll:8',displayId:'11111111-1111-4111-8111-111111111111',action:'responded'}})).status).toHaveBeenCalledWith(409);});
+ it('records dismissal after an event closes, preserving the actual interaction',async()=>{pool.execute.mockResolvedValueOnce([[{company_event_id:8,kind:'poll'}]]);const res=await invoke(recordMyEventSplash,{user,body:{itemId:'poll:8',displayId:'11111111-1111-4111-8111-111111111111',action:'dismissed'}});expect(res.json).toHaveBeenCalledWith({ok:true});expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('dismissed_at=COALESCE'),[5,splashLoginKey(user),'poll:8','11111111-1111-4111-8111-111111111111']);});
 });

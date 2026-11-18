@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vites
 import mysql from 'mysql2/promise';
 vi.mock('../../config/database.js', () => ({ default: {}, onTableWrite: vi.fn() }));
 import fs from 'node:fs';
+import { recordSplashInteraction, filterLoginSplashes } from '../companyEventSplashes.service.js';
 import { withPollFollowupLock } from '../staffPollFollowups.service.js';
 import { saveStaffPotluckContribution } from '../staffEventPotluck.service.js';
 import { recordCompanyEventSmsDeliveryStatus } from '../companyEventSms.service.js';
@@ -24,6 +25,8 @@ describe.skipIf(!enabled)('poll closing and response edits in isolated MySQL', (
     await db.query('CREATE TABLE company_event_dispatch_logs (id INT PRIMARY KEY)');
     const migration=fs.readFileSync(new URL('../../../../database/migrations/1784_conversa_poll_delivery_visibility.sql',import.meta.url),'utf8');
     for(const sql of migration.split(';').map(value=>value.trim()).filter(Boolean)) await db.query(sql);
+    const splashMigration=fs.readFileSync(new URL('../../../../database/migrations/1850_company_event_login_splashes.sql',import.meta.url),'utf8');
+    for(const sql of splashMigration.split(';').map(value=>value.trim()).filter(Boolean)) await db.query(sql);
   });
   beforeEach(async () => {
     await db.query('DELETE FROM company_event_need_list_items');await db.query('DELETE FROM company_event_sms_deliveries');await db.query('DELETE FROM company_event_poll_views');
@@ -32,6 +35,20 @@ describe.skipIf(!enabled)('poll closing and response edits in isolated MySQL', (
     await vote('1');
   });
   afterAll(async () => { if (db) await db.end(); if (admin) { await admin.query(`DROP DATABASE ${database}`); await admin.end(); } });
+  it('counts actual displays, deduplicates retries, and brings dismissed items back next login',async()=>{
+    const item={id:'poll:20',eventId:20,kind:'poll'}, args={userId:2,loginKey:'a'.repeat(64),item,displayId:'11111111-1111-4111-8111-111111111111',db};
+    await recordSplashInteraction({...args,action:'viewed'});await recordSplashInteraction({...args,action:'viewed'});
+    expect((await db.query('SELECT * FROM company_event_splash_views'))[0]).toHaveLength(1);
+    await recordSplashInteraction({...args,action:'dismissed'});
+    const [[first]]=await db.query('SELECT dismissed_at FROM company_event_splash_views');
+    await recordSplashInteraction({...args,action:'dismissed'});
+    expect((await db.query('SELECT dismissed_at FROM company_event_splash_views'))[0][0].dismissed_at).toEqual(first.dismissed_at);
+    expect(await filterLoginSplashes([item],2,args.loginKey,db)).toEqual([]);
+    expect(await filterLoginSplashes([item],2,'b'.repeat(64),db)).toEqual([item]);
+    expect(await filterLoginSplashes([item],3,args.loginKey,db)).toEqual([item]);
+    await recordSplashInteraction({...args,displayId:'22222222-2222-4222-8222-222222222222',loginKey:'b'.repeat(64),action:'viewed'});
+    expect((await db.query('SELECT * FROM company_event_splash_views'))[0]).toHaveLength(2);
+  });
   it('updates the same response before closing', async () => {
     await vote('2'); const [rows] = await db.query('SELECT user_id,response_key,source FROM company_event_responses');
     expect(rows).toEqual([{ user_id: 2, response_key: '2', source: 'in_app' }]);
