@@ -86,15 +86,18 @@ function parseDateLoose(text) {
 }
 
 function parseAddressBlock(lines) {
-  const out = { street: null, city: null, state: null, zip: null };
+  const out = { street: null, unit:null,city: null, state: null, zip: null };
   if (!lines.length) return out;
   out.street = lines[0];
-  const cityLine = lines[1] || '';
-  const m = cityLine.match(/^(.+?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
+  const cityPattern=/^(.+?),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)(?:\s+(?:USA|US|United States))?\s*$/i;
+  const cityIndex=lines.findIndex((line,index)=>index>0&&cityPattern.test(line));
+  const cityLine = lines[cityIndex>0?cityIndex:1] || '';
+  const m = cityLine.match(cityPattern);
   if (m) {
-    out.city = m[1].trim();
+    out.city = m[1].replace(/,$/,'').trim();
     out.state = m[2].toUpperCase();
     out.zip = m[3];
+    if(cityIndex>1)out.unit=lines.slice(1,cityIndex).join(' ');
   } else if (cityLine) {
     out.city = cityLine;
   }
@@ -132,7 +135,8 @@ const LABEL_ALIASES = {
   'appointment reminder type': 'appointmentReminderType',
   'administrative sex': 'administrativeSex',
   sex: 'administrativeSex',
-  sexo: 'administrativeSex'
+  sexo: 'administrativeSex',
+  languages:'preferredLanguage','preferred language':'preferredLanguage',idioma:'preferredLanguage'
 };
 
 const STOP_AFTER = new Set([
@@ -218,6 +222,7 @@ export function parseDemographicsPaste(rawText) {
     fullName: null,
     dateOfBirth: null,
     addressStreet: null,
+    addressLine2:null,preferredLanguage:null,
     addressCity: null,
     addressState: null,
     addressZip: null,
@@ -280,6 +285,7 @@ export function parseDemographicsPaste(rawText) {
       const { values, nextIndex } = collectBlock(lines, i);
       const addr = parseAddressBlock(values);
       result.addressStreet = addr.street;
+      result.addressLine2=addr.unit;
       result.addressCity = addr.city;
       result.addressState = addr.state;
       result.addressZip = addr.zip;
@@ -324,6 +330,10 @@ export function parseDemographicsPaste(rawText) {
       result.administrativeSex = sanitizeAdministrativeSex(lines[i]);
       i += 1;
       continue;
+    }
+    if(field==='preferredLanguage'){
+      if(!labelKeyForLine(lines[i])&&!isStopLabel(lines[i]))result.preferredLanguage=lines[i];
+      i+=1;continue;
     }
   }
 
@@ -375,6 +385,7 @@ export function demographicsToClientPatch(parsed) {
   if (p.fullName) patch.full_name = p.fullName;
   if (p.dateOfBirth) patch.date_of_birth = p.dateOfBirth;
   if (p.addressStreet) patch.address_street = p.addressStreet;
+  if (p.addressLine2) patch.address_apt = p.addressLine2;
   if (p.addressCity) patch.address_city = p.addressCity;
   if (p.addressState) patch.address_state = p.addressState;
   if (p.addressZip) patch.address_zip = p.addressZip;
@@ -387,6 +398,7 @@ export function demographicsToClientPatch(parsed) {
     if (gender) patch.gender = gender;
   }
   if (p.grade) patch.grade = p.grade;
+  if (p.preferredLanguage) patch.preferred_language = p.preferredLanguage;
   if (p.textMessagesOk === true) patch.session_sms_opt_in = 1;
   if (p.textMessagesOk === false) patch.session_sms_opt_in = 0;
   return patch;

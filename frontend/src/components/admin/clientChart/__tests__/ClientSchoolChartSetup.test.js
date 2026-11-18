@@ -1,4 +1,9 @@
 import { requiresClientRecordImport } from '../../../../utils/clientRecordImport.js';
+it('removes the bring-up-to-date action after a completed import while retaining pending imports',()=>{
+ expect(requiresClientRecordImport({source:'BULK_IMPORT',onboarding_docs_json:{recordsImport:{status:'complete'}}})).toBe(false);
+ expect(requiresClientRecordImport({source:'ADMIN_CREATED',onboarding_docs_json:{recordsImport:{status:'pending'}}})).toBe(true);
+ expect(requiresClientRecordImport({source:'ADMIN_CREATED',client_type:'clinical'})).toBe(false);
+});
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { shallowMount, flushPromises } from '@vue/test-utils';
 const {get,post}=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));

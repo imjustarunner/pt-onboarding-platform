@@ -71,6 +71,7 @@ export async function saveChartImportDraft(req, res, next) {
     const value = { text, ...(typeof metadata.sourceDate === 'string' ? { sourceDate: metadata.sourceDate.slice(0, 10) } : {}),
       ...(typeof metadata.sourceAuthor === 'string' ? { sourceAuthor: metadata.sourceAuthor.slice(0, 255) } : {}),
       imported: metadata.imported === true,
+      ...(section==='insurance'?{coverageMode:metadata.coverageMode==='self_pay'?'self_pay':'insurance',selfPay:{code:String(metadata.selfPay?.code||'').slice(0,32),amount:String(metadata.selfPay?.amount||'').slice(0,32),basis:metadata.selfPay?.basis==='unit'?'unit':'visit',reason:String(metadata.selfPay?.reason||'').slice(0,2000),imported:metadata.selfPay?.imported===true}}:{}),
       needsReview: metadata.needsReview === true,
       ...(section === 'intake' && ['H0031','90791'].includes(metadata.serviceCode) ? { serviceCode: metadata.serviceCode } : {}),
       ...(coverageDrafts ? { coverageDrafts } : {}),

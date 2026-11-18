@@ -103,3 +103,11 @@ Appt RemindersText (SMS) and Email`);
 it('excludes copied contact activity receipts from the actual contact name',()=>{
  expect(parseChartContacts('Contacts\n+ New Contact\nsvgEdit\nPrimary Parent was added as a Patient Contact. Primary Parent\nMobile Phone(720) 555-0102Emailparent@example.test\nRelationshipMother')[0]).toMatchObject({fullName:'Primary Parent',email:'parent@example.test',relationshipType:'Mother'});
 });
+it('keeps each parent’s relationship attached to their own card without edit icons',()=>{
+ const contacts=parseChartContacts('Contacts\nPrimary Parent\nMobile Phone(303) 555-0101Emailprimary@example.test\nRelationshipMotherROI SignedNot signed\nAppt RemindersNo Reminders\nSecond Parent\nMobile Phone(303) 555-0101Emailsecond@example.test\nRelationshipFatherROI SignedNot signed\nAppt RemindersNo Reminders');
+ expect(contacts).toHaveLength(2);expect(contacts[0]).toMatchObject({fullName:'Primary Parent',relationshipType:'Mother',email:'primary@example.test'});expect(contacts[1]).toMatchObject({fullName:'Second Parent',relationshipType:'Father',email:'second@example.test'});
+});
+it('does not include insurance-card controls in a copied payer ID',()=>{
+ const policy=parseChartInsurance('Insurance carrier\nColorado Community Health Alliance\nPayer ID\nCOCHA Show Insurance Card\nMember ID\nSYNTHETIC').primary;
+ expect(policy.payerId).toBe('COCHA');expect(policy.memberId).toBe('SYNTHETIC');
+});

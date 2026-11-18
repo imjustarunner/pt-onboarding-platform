@@ -26,3 +26,8 @@ it('prepares both saved guardians and deduplicates their email within the select
  const result=await prepareGuardianAccountsForClients({actor:{id:1,role:'admin'},agencyId:2,clientIds:[12],dryRun:false});
  expect(result.results).toHaveLength(2);expect(batch.create).toHaveBeenCalledTimes(2);expect(result.invitationSent).toBe(false);
 });
+
+it('links siblings to the same existing parent login while each child’s new access remains disabled for review',async()=>{
+ const d=deps({id:5,role:'client_guardian'});const first=await prepareGuardianAccount({client:{id:12,agency_id:2},profile,actorUserId:7},d);const second=await prepareGuardianAccount({client:{id:13,agency_id:2},profile:{...profile,email:'parent@example.test'},actorUserId:7},d);
+ expect(first).toMatchObject({created:false,userId:5,requiresAccessReview:true});expect(second).toMatchObject({created:false,userId:5,requiresAccessReview:true});expect(d.User.create).not.toHaveBeenCalled();expect(d.ClientGuardian.upsertLink.mock.calls.map(([link])=>[link.clientId,link.guardianUserId,link.accessEnabled])).toEqual([[12,5,false],[13,5,false]]);
+});

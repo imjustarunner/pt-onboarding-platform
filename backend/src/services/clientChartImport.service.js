@@ -80,8 +80,12 @@ export async function importSupplementaryChartSection(scope, section, text, acto
       const emailKey = value => String(value || '').trim().toLowerCase();
       const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
       const email = emailKey(source.email || client.email), phone = phoneKey(source.contactPhone || client.contact_phone);
-      primaryContact = contacts.find(contact => /^(father|mother|parent|guardian|legal guardian|padre|madre|tutor)$/i.test(contact.relationshipType || '') &&
-        ((email && emailKey(contact.email) === email) || (phone && phoneKey(contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone) === phone)));
+      const parents = contacts.filter(contact => /^(father|mother|parent|guardian|legal guardian|padre|madre|tutor)$/i.test(contact.relationshipType || '') || /^guardian$/i.test(contact.contactType || ''));
+      const emailMatches = parents.filter(contact => email && emailKey(contact.email) === email);
+      const phoneMatches = parents.filter(contact => phone && phoneKey(contact.mobilePhone || contact.phone || contact.homePhone || contact.workPhone) === phone);
+      // Prefer the exact email over a household phone shared by two parents.
+      // Ambiguous contact details stay pending for explicit staff selection.
+      primaryContact = emailMatches.length === 1 ? emailMatches[0] : !emailMatches.length && phoneMatches.length === 1 ? phoneMatches[0] : null;
     }
     for (const contact of contacts) {
       const matches = existing.filter(row => nameKey(row.contact_full_name) === nameKey(contact.fullName));

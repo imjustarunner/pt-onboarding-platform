@@ -33,7 +33,7 @@ export async function getClientPayerReadiness(req, res, next) {
       const verified = hasInsurance && !!verification && verification.payerId === policy.payerId && verification.policyFingerprint === fingerprint(policy);
       let capabilities = {};
       try { capabilities = typeof matches[0]?.directory_snapshot_json === 'string' ? JSON.parse(matches[0].directory_snapshot_json) : matches[0]?.directory_snapshot_json || {}; } catch { /* Display unknown support until refreshed. */ }
-      return { position, hasInsurance, insurerName: policy?.insurerName || '', sourcePayerId: policy?.sourcePayerId || source.value?.[position]?.sourcePayerId || '',
+      return { position, hasInsurance, subscriberIsClient:policy?.relationshipToSubscriber==='self',insurerName: policy?.insurerName || '', sourcePayerId: policy?.sourcePayerId || source.value?.[position]?.sourcePayerId || '',
         payerId: policy?.payerId || '', linked: matches.length > 0 && (verified || insurance?.verifiedForClaims === true), directoryName: matches[0]?.directory_name || '', directoryCheckedAt: verified ? verification.checkedAt : matches[0]?.directory_checked_at || null,
         claimsSupport: capabilities['1500_claims'] || 'unknown', eligibilitySupport: capabilities.eligibility || 'unknown',
         missingFields: policy ? claimInsuranceIssues(policy) : ['Insurance is missing'] };
@@ -71,6 +71,8 @@ export async function searchClientPayers(req, res, next) {
       if(query && /^[0-9]{2,32}$/.test(query))payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerId:query})).payer));
       if((query||name).length>=2)payers.push(...asList((await fetchPayers({accountKey:connection.accountKey,payerName:query||name})).payer));
     } catch { directoryWarning='The live clearinghouse directory is unavailable. Agency payers are still shown; linking requires a fresh directory check.'; }
+    const matchScore=payer=>normalize(payer.name)===normalize(name)||normalize(payer.directoryName)===normalize(name)?100:normalize(name).split(' ').filter(word=>word.length>2&&normalize([payer.name,payer.directoryName,payer.note].join(' ')).includes(word)).length;
+    configured.sort((a,b)=>matchScore(b)-matchScore(a));
     const configuredIds=new Set(configured.filter(row=>row.payerId && row.verified).map(row=>row.payerId));
     const directory=[...new Map(payers.map(payer=>[String(payer.payerid),payer])).values()].filter(payer=>!configuredIds.has(String(payer.payerid))).slice(0,100).map(payer=>({...publicPayer(payer),source:'directory',verified:true}));
     res.set('Cache-Control','no-store').json({payers:[...configured,...directory],directoryWarning});

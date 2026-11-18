@@ -57,7 +57,7 @@ import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
 import { meaningfulProgram } from '../../utils/clientRosterContext.js';
-const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false } });
+const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false },initialAssignment:{type:Object,default:()=>({})} });
 const emit = defineEmits(['updated','loaded','busy','draft-change']);
 const auth=useAuthStore();
 const canAddService=computed(()=>['super_admin','admin','support','staff'].includes(auth.user?.role));
@@ -102,6 +102,7 @@ async function load() {
     services.value = serviceResult.value.data.services || [];
     availableServiceKinds.value = (serviceResult.value.data.availableServiceKinds || ['counseling']).filter(kind => serviceLabels[kind]);
     draft.value = newDraft(newServiceKinds.value[0] || 'counseling');
+    if(!activeServices.value.length && props.initialAssignment.providerId && availableServiceKinds.value.includes(props.initialAssignment.serviceKind))draft.value={...draft.value,serviceKind:props.initialAssignment.serviceKind,providerUserId:Number(props.initialAssignment.providerId),organizationId:Number(props.initialAssignment.organizationId)||0};
     if (props.startAssigning && canAddService.value && activeServices.value.length) edit(activeServices.value.find(service => !Number(service.provider_user_id)) || activeServices.value[0]);
   }
   else error.value = serviceResult.reason.response?.data?.error?.message || 'Services could not be loaded.';
@@ -173,9 +174,14 @@ function restoreWorkingDraft(value){
  const statusService=services.value.flatMap(service=>[service,...(service.providers||[]).map(provider=>({...service,...provider,id:provider.service_id}))]).find(service=>Number(service.id)===Number(value.statusEditId));
  if(statusService){statusEdit.value=statusService;statusDraft.value={...statusDraft.value,...value.statusDraft};}
 }
+watch(()=>props.initialAssignment,(current,previous)=>{
+ if(!previous||activeServices.value.length||Number(draft.value.providerUserId)!==Number(previous.providerId)||draft.value.serviceKind!==previous.serviceKind||draft.value.label)return;
+ draft.value={...newDraft(current.serviceKind||newServiceKinds.value[0]||'counseling'),providerUserId:Number(current.providerId)||0,organizationId:Number(current.organizationId)||0};
+},{deep:true});
 watch(()=>JSON.stringify(workingDraft()),()=>emit('draft-change'),{flush:'post'});
 const hasWorkingDraft=()=>editingServiceId.value!==null||!!statusEdit.value||hasServiceDraft.value;
-defineExpose({prepareLeave,workingDraft,restoreWorkingDraft,hasWorkingDraft});
+async function refresh(){const pending=hasWorkingDraft()?workingDraft():null;await load();if(!pending)return;if(pending.newService&&activeServices.value.some(service=>service.service_kind===pending.newService.serviceKind&&Number(service.provider_user_id)===Number(pending.newService.providerUserId)))delete pending.newService;restoreWorkingDraft(pending);}
+defineExpose({prepareLeave,workingDraft,restoreWorkingDraft,hasWorkingDraft,refresh});
 watch(() => [props.clientId, props.agencyId], load, { immediate: true });
 onBeforeUnmount(() => { ++sequence;emit('busy',false); });
 </script>

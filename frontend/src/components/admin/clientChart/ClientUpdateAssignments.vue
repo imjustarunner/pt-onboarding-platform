@@ -4,16 +4,16 @@
     <p v-if="loading" role="status">Loading assignments…</p>
     <p v-if="workingDraftNotice" role="status">{{ workingDraftNotice }}</p><p v-if="assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error" role="alert">{{ assignmentDrafts.state.loadError || assignmentDrafts.state.sections.assignments?.error }} <button type="button" :disabled="busy" @click="retryWorkingDraft">Retry saving these choices</button></p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" @click="load">Retry</button></p>
-    <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
+    <fieldset class="assignment-services" :disabled="loading || saving || suggesting"><ClientServiceEnrollments ref="servicesPanel" :key="`${agencyId}:${clientId}`" :client-id="clientId" :agency-id="agencyId" :organizations="scopedAffiliations" :initial-assignment="initialAssignment" :start-assigning="!!initialAssignment.providerId" @loaded="onServicesLoaded" @updated="onServicesUpdated" @busy="servicesBusy=$event" @draft-change="scheduleWorkingDraft" /></fieldset>
     <template v-if="loaded">
       <h4>Agency memberships · {{ agencyName }}</h4>
       <form class="assignment-defaults" @submit.prevent="saveDefaults">
         <h5>Default office &amp; place of service</h5>
-        <p>These defaults prefill scheduled sessions and claims for this agency.</p>
+        <p>Office chooses the physical appointment site. Place of service is the claim’s visit category (office, telehealth or home). Billing location supplies the claim’s service address and billing identity.</p>
         <div class="assignment-fields">
           <label>Default office<select v-model="draft.officeId" aria-label="Default office" :disabled="busy" @change="changeOffice"><option value="">Not set</option><option v-for="office in offices" :key="office.id" :value="String(office.id)">{{ office.name || office.label }}{{ office.street_address ? ` — ${office.street_address}` : '' }}</option></select></label>
           <label>Default place of service<select v-model="draft.pos" aria-label="Default place of service" :disabled="busy" @change="changePlaceOfService"><option value="">Not set</option><option value="11">11 — Office</option><option value="03">03 — School</option><option value="02">02 — Telehealth outside the home</option><option value="10">10 — Telehealth in the home</option><option value="12">12 — Patient’s residence</option><option value="49">49 — Independent clinic</option><option value="99">99 — Other place of service</option><option v-if="draft.pos && !['11','03','02','10','12','49','99'].includes(draft.pos)" :value="draft.pos">{{ draft.pos }}</option></select></label>
-          <label>Default billing location<select v-model="draft.serviceLocationId" aria-label="Default billing location" :disabled="busy || !canReadBilling" @change="touched"><option value="">Not set</option><option v-if="draft.serviceLocationId && !locations.some(row=>String(row.id)===draft.serviceLocationId)" :value="draft.serviceLocationId">Saved billing location #{{ draft.serviceLocationId }}</option><option v-for="location in locations" :key="location.id" :value="String(location.id)">{{ location.name || location.label || `Location #${location.id}` }}<template v-if="location.place_of_service"> (POS {{ location.place_of_service }})</template></option></select></label>
+          <label>Default billing location<select v-model="draft.serviceLocationId" aria-label="Default billing location" :disabled="busy || !canReadBilling" @change="touched"><option value="">Not set</option><option v-if="draft.serviceLocationId && !locations.some(row=>String(row.id)===draft.serviceLocationId)" :value="draft.serviceLocationId">Saved billing location #{{ draft.serviceLocationId }}</option><option v-for="location in locationOptions" :key="location.id" :value="String(location.id)">{{ location.displayLabel }}</option></select></label>
         </div>
         <p v-if="hint" role="status">{{ hint }}</p>
         <div class="assignment-actions"><button v-if="!isSchool" type="button" :disabled="busy || !providerId" @click="suggestProvider(true)">Use provider office</button><button type="submit" :disabled="busy || !dirty">{{ saving ? 'Saving…' : 'Save defaults' }}</button><button v-if="dirty" type="button" :disabled="busy" @click="resetDefaults">Reset changes</button></div>
@@ -34,10 +34,10 @@ import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 import { canAccessMedicalBilling } from '../../../config/medicalBillingAccess';
 import { meaningfulProgram } from '../../../utils/clientRosterContext.js';
-import { serviceLocationForOffice } from '../../../utils/officeBillingDefaults.js';
+import { serviceLocationForOffice,billingServiceLocationOptions } from '../../../utils/officeBillingDefaults.js';
 import { assignmentOfficesForAgency, primaryAssignmentProvider, providerOfficeDefaults } from '../../../utils/clientAssignmentDefaults.js';
 import ClientServiceEnrollments from '../ClientServiceEnrollments.vue';
-const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true}});
+const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},initialAssignment:{type:Object,default:()=>({})}});
 const emit=defineEmits(['updated','busy','ready']);const auth=useAuthStore();
 const client=ref(null),memberships=ref([]),affiliations=ref([]),catalog=ref([]),offices=ref([]),locations=ref([]),services=ref([]);
 const loading=ref(false),loaded=ref(false),saving=ref(false),suggesting=ref(false),servicesBusy=ref(false),servicesError=ref(''),error=ref(''),hint=ref(''),section=ref(null),servicesPanel=ref(null);
@@ -47,10 +47,11 @@ const blank=()=>({officeId:'',pos:'',serviceLocationId:''});const draft=reactive
 const buckets=computed(()=>[{type:'school',label:'Schools',singular:'school'},{type:'program',label:'Programs',singular:'program'},{type:'learning',label:'Learning',singular:'learning organization'}].filter(bucket=>catalog.value.some(row=>row.organization_type===bucket.type)||scopedAffiliations.value.some(row=>row.organization_type===bucket.type)));
 const canReadBilling=computed(()=>canAccessMedicalBilling(auth.user,props.agencyId));
 const isSchool=computed(()=>client.value?.client_type==='school');
-const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value));
+const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value)||Number(props.initialAssignment.providerId||0));
 const agencyName=computed(()=>memberships.value.find(row=>Number(row.agency_id)===Number(props.agencyId))?.agency_name || client.value?.agency_name || `Agency #${props.agencyId}`);
 const scopedAffiliations=computed(()=>affiliations.value.filter(row=>catalog.value.some(org=>Number(org.id)===Number(row.organization_id))));
 const dirty=computed(()=>Object.keys(draft).some(key=>draft[key]!==saved.value[key]));
+const locationOptions=computed(()=>billingServiceLocationOptions(locations.value,draft.serviceLocationId));
 const busy=computed(()=>loading.value||saving.value||suggesting.value||servicesBusy.value);
 watch(busy,value=>emit('busy',value),{flush:'sync'});
 watch(()=>loaded.value&&!busy.value&&!dirty.value&&!error.value&&!servicesError.value,value=>emit('ready',value),{immediate:true,flush:'sync'});
@@ -116,7 +117,8 @@ async function saveWorkingDraft(){
  return true;
 }
 function prepareLeave(){if(busy.value||!loaded.value||error.value||servicesError.value)return false;if(servicesPanel.value?.prepareLeave?.()===false)return false;if(dirty.value){error.value='Save or reset scheduling defaults before moving to another client.';section.value?.scrollIntoView?.({block:'center'});return false;}return true;}
-defineExpose({prepareLeave,saveWorkingDraft,reload:load,hasPendingDraft:()=>!!workingDraftText()});
+async function refresh(){const own=generation;const {data}=await api.get(`/clients/${props.clientId}`,request());if(own!==generation)return;client.value=data.client||data;await servicesPanel.value?.refresh?.();}
+defineExpose({prepareLeave,saveWorkingDraft,reload:load,refresh,hasPendingDraft:()=>!!workingDraftText()});
 watch(()=>[props.clientId,props.agencyId],load,{immediate:true});
 onBeforeUnmount(()=>{assignmentDrafts.detach();generation++;providerRequest++;emit('busy',false);});
 </script>

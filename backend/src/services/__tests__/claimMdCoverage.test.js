@@ -4,6 +4,11 @@ vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../familyBillingPolicy.service.js',()=>({billingError:(status,message)=>Object.assign(new Error(message),{status}),auditBilling:vi.fn()}));
 import {buildEligibilityRequest,summarizeEligibility,eligibilityIdentityMatches,validateCoverageReview,coverageFingerprint,coverageReviewBlockers,runCoverageCheck,assertCoverageCollectionSafe,listCoverageEvidence} from '../coverageVerification.service.js';
 import {decryptFamilyBilling,encryptFamilyBilling} from '../familyBillingEncryption.service.js';
+it('records previous-EHR evidence without treating it as verified current payer eligibility',()=>{
+ const input={source:'other_ehr',status:'unresolved',reference:'Copied policy and previous verification from the former EHR'};
+ expect(()=>validateCoverageReview(input,{primary:{memberId:'SYNTHETIC'}})).not.toThrow();
+ expect(()=>validateCoverageReview({...input,status:'verified',primaryChecked:true,otherCoverageChecked:true,orderConfirmed:true},{primary:{memberId:'SYNTHETIC'}})).toThrow('historical evidence');
+});
 const insurance=()=>({primary:{payerId:'TEST',insurerName:'Test Insurance',memberId:'SYNTHETIC',subscriberFirstName:'Parent',subscriberLastName:'Test',subscriberDob:'1980-02-01',subscriberSex:'F',relationshipToSubscriber:'child'},patient:{firstName:'Child',lastName:'Test',dateOfBirth:'2010-03-01',sex:'M'}});
 const profile={officeId:8,billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic Agency'}};
 beforeEach(()=>{vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));});

@@ -9,6 +9,7 @@
       <strong>{{ policy.position === 'primary' ? 'Primary' : 'Secondary' }} · {{ policy.insurerName || 'Insurance' }}</strong>
       <p role="status" :class="{'payer-linked':policy.linked}">{{ policy.linked ? `Payer linked · ${policy.directoryName} (${policy.payerId})` : 'Choose and verify the billing payer' }}</p>
       <small v-if="policy.sourcePayerId">TherapyNotes payer ID: {{ policy.sourcePayerId }}</small>
+      <small v-if="policy.subscriberIsClient">The subscriber is this client (Self). Subscriber name, birth date and address use the client’s saved demographics. Complete any missing address fields in Demographics.</small><small v-else>Subscriber means the person who holds the insurance policy. Their address may differ from this client’s address.</small>
       <small v-if="policy.linked">Claims: {{ policy.claimsSupport }} · Eligibility: {{ policy.eligibilitySupport }}. Required payer enrollment remains part of billing setup.</small>
       <label :for="`payer-search-${clientId}-${policy.position}`">Find a billing payer</label>
       <div class="payer-search-row"><input :id="`payer-search-${clientId}-${policy.position}`" v-model="searches[policy.position]" :disabled="loading || linking" placeholder="Search agency payers and the directory…" @input="scheduleSearch(policy.position)" @keydown.enter.prevent="search(policy.position)" /><button type="button" class="payer-button" :disabled="loading || linking" @click="search(policy.position)">{{ searching[policy.position] ? 'Searching…' : 'Search' }}</button></div>

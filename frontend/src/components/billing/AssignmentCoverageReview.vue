@@ -17,7 +17,7 @@
       <p v-if="!hasSavedPolicy && !snapshot.missingAssignmentFields?.length" class="review-error">Save the primary insurer and member ID before marking coverage verified.</p>
       <button type="button" class="secondary-button" :disabled="saving || loading" :aria-expanded="editingInsurance" @click="editingInsurance = !editingInsurance">{{ editingInsurance ? 'Close insurance editor' : 'Edit saved insurance details' }}</button>
       <ClientInsuranceEditor v-if="editingInsurance" :client-id="clientId" :agency-id="agencyId" assignment-review start-open @saved="insuranceSaved" />
-      <p v-if="savedReview" class="saved-message" role="status">{{ savedReview.syntheticOnly ? 'Fictional QA review saved without payer contact.' : 'Coverage verification saved.' }} Checking whether you can return to provider assignment…</p>
+      <p v-if="savedReview" class="saved-message" role="status">{{ savedReview.syntheticOnly ? 'Fictional QA review saved without payer contact.' : savedReview.status==='unresolved'?'Previous EHR evidence saved. Current eligibility remains pending.':'Coverage verification saved.' }} Checking whether you can return to provider assignment…</p>
       <form v-else-if="!editingInsurance" @submit.prevent="save">
         <label>How did you verify coverage?
           <select v-model="source" :disabled="saving || loading" required>
@@ -25,17 +25,20 @@
             <option v-if="snapshot?.syntheticQaReviewAvailable" value="synthetic_qa">Fictional QA review—no payer contact</option>
             <option value="payer_portal">Payer / Medicaid portal</option>
             <option value="payer_phone">Payer phone verification</option>
+            <option value="other_ehr">Copied from the previous EHR — current eligibility still pending</option>
           </select>
         </label>
-        <label>Brief verification note or reference
+        <label>Brief verification note or reference (required, at least 5 characters)
           <textarea v-model="reference" :disabled="saving || loading" required minlength="5" maxlength="2000" placeholder="For example: Portal checked today; active coverage, no other insurance." />
         </label>
         <label class="attestation"><input v-model="attested" type="checkbox" :disabled="saving || loading || !hasSavedPolicy || stale" />
           <span v-if="source === 'synthetic_qa'">I reviewed the fictional client’s saved policies, other coverage and payer order for this QA test. This is not an attestation of real eligibility or payer contact.</span>
+          <span v-else-if="source==='other_ehr'">I reviewed the copied coverage and payer order in the previous EHR. This records historical evidence; current payer eligibility remains pending.</span>
           <span v-else>I checked this client’s primary coverage, any secondary coverage and other insurance, and confirmed the payer order.<template v-if="summary.hasMedicaidCoverage"> I also reviewed Medicaid Other Insurance / TPL and resolved any discrepancies.</template></span>
         </label>
         <p class="review-help">A billing office or electronic payer ID is not needed for portal or phone verification. Only mark verified after completing these checks.</p>
-        <button class="verify-button" :disabled="!canSave">{{ saving ? 'Saving verification…' : 'Mark checked and verified' }}</button>
+        <p v-if="!canSave && !saving" id="coverage-save-requirements" class="review-help" role="status">{{ saveRequirements }}</p>
+        <button class="verify-button" :disabled="!canSave" aria-describedby="coverage-save-requirements">{{ saving ? 'Saving…' : source==='other_ehr'?'Save previous EHR evidence':'Mark checked and verified' }}</button>
       </form>
     </template>
     <button v-if="!loading && !saving" type="button" class="reload-button" @click="load">Reload saved coverage</button>
@@ -55,7 +58,15 @@ const source = ref(''), reference = ref(''), attested = ref(false), editingInsur
 const summary = computed(() => snapshot.value?.insuranceSummary || {});
 const hasSavedPolicy = computed(() => !!String(summary.value.primary?.insurerName || '').trim() && !!String(summary.value.primary?.memberId || '').trim());
 const displayDate = computed(() => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${serviceDate.value}T12:00:00Z`)));
-const canSave = computed(() => !saving.value && !loading.value && !stale.value && !savedReview.value && snapshot.value?.readyForAssignmentReview === true && !!snapshot.value?.reviewToken && hasSavedPolicy.value && attested.value && (['payer_portal', 'payer_phone'].includes(source.value) || source.value === 'synthetic_qa' && snapshot.value?.syntheticQaReviewAvailable === true) && reference.value.trim().length >= 5);
+const canSave = computed(() => !saving.value && !loading.value && !stale.value && !savedReview.value && snapshot.value?.readyForAssignmentReview === true && !!snapshot.value?.reviewToken && hasSavedPolicy.value && attested.value && (['payer_portal', 'payer_phone','other_ehr'].includes(source.value) || source.value === 'synthetic_qa' && snapshot.value?.syntheticQaReviewAvailable === true) && reference.value.trim().length >= 5);
+const saveRequirements=computed(()=>[
+ !hasSavedPolicy.value?'Save the insurer and member ID.':'',
+ snapshot.value?.readyForAssignmentReview!==true?'Resolve the missing coverage fields above.':'',
+ !source.value?'Choose where the coverage was checked.':'',
+ reference.value.trim().length<5?'Add a brief note or reference of at least 5 characters.':'',
+ !attested.value?'Confirm the coverage review checkbox.':'',
+ stale.value?'Reload saved coverage and review it again.':''
+].filter(Boolean).join(' '));
 const base = () => `/medical-billing/clients/${props.clientId}/coverage`;
 let generation = 0;
 
@@ -81,10 +92,10 @@ async function save() {
   const current = generation; saving.value = true; error.value = '';
   try {
     const { data } = await api.post(`${base()}/review`, {
-      agencyId: props.agencyId, serviceDate: serviceDate.value, assignmentReview: true,
-      reviewToken: snapshot.value.reviewToken, status: 'verified', source: source.value,
+      agencyId: props.agencyId, serviceDate: serviceDate.value, assignmentReview: source.value!=='other_ehr',
+      reviewToken: snapshot.value.reviewToken, status: source.value==='other_ehr'?'unresolved':'verified', source: source.value,
       reference: reference.value.trim(), primaryChecked: true, secondaryChecked: !!summary.value.secondary,
-      otherCoverageChecked: true, orderConfirmed: true, medicaidTplChecked: !!summary.value.hasMedicaidCoverage
+      otherCoverageChecked: source.value!=='other_ehr', orderConfirmed: source.value!=='other_ehr', medicaidTplChecked: source.value!=='other_ehr'&&!!summary.value.hasMedicaidCoverage
     }, { skipGlobalLoading: true });
     if (current !== generation) return;
     savedReview.value = data; emit('saved', data);

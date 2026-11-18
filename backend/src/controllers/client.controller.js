@@ -7289,6 +7289,7 @@ export const importClientDemographics = async (req, res, next) => {
       fullName: demo.fullName || demo.full_name || null,
       dateOfBirth: demo.dateOfBirth || demo.date_of_birth || null,
       addressStreet: demo.addressStreet || demo.address_street || null,
+      addressLine2: demo.addressLine2 || demo.address_apt || null,
       addressCity: demo.addressCity || demo.address_city || null,
       addressState: demo.addressState || demo.address_state || null,
       addressZip: demo.addressZip || demo.address_zip || null,
@@ -7302,6 +7303,7 @@ export const importClientDemographics = async (req, res, next) => {
       appointmentReminderType:
         demo.appointmentReminderType || demo.appointment_reminder_type || null,
       administrativeSex: demo.administrativeSex || demo.gender || null,
+      preferredLanguage: demo.preferredLanguage || demo.preferred_language || null,
       grade: demo.grade || null
     };
 

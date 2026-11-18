@@ -43,9 +43,9 @@ it('restores the visible client list after a longer chart visit while the refres
  const returned=mountView();try{await flushPromises();expect(returned.text()).toContain('CACHE');expect(returned.find('.loading').exists()).toBe(false);expect(refresh).toBeTypeOf('function');refresh({data:{items:[],total:0}});await flushPromises();}finally{returned.unmount();time.mockRestore();}
 });
 
-async function assignmentDirectory({assigned=false}={}) {
+async function assignmentDirectory({assigned=false,recordsImport}={}) {
  localStorage.clear();sessionStorage.clear();vi.clearAllMocks();
- const client={id:71,agency_id:2,initials:'SYN',full_name:'Synthetic Client',status:'ACTIVE',client_type:'clinical'};
+ const client={id:71,agency_id:2,initials:'SYN',full_name:'Synthetic Client',status:'ACTIVE',client_type:'clinical',onboarding_docs_json:{recordsImport}};
  const service={id:201,service_kind:'counseling',label:'Counseling',is_active:1,provider_user_id:0,organization_id:0};
  const currentClient=()=>({...client,provider_id:null,provider_name:assigned?'Michael Synthetic':null,directory_provider_id:assigned?501:null,assigned_service_id:201});
  const currentService=()=>({...service,provider_user_id:assigned?501:0,provider_name:assigned?'Michael Synthetic':null});
@@ -105,4 +105,14 @@ it('refreshes a pinned side panel when a directory reload returns a changed prov
   await wrapper.vm.$.setupState.fetchClients({background:true});await flushPromises();
   expect(wrapper.get('.cm-drawer-provider').text()).toBe('Michael Synthetic');
  } finally {wrapper.unmount();}
+});
+
+it('keeps row actions in one readable menu and removes completed records setup',async()=>{
+ const wrapper=await assignmentDirectory({recordsImport:{status:'complete'}});try{
+ expect(wrapper.find('.actions-cell > button').exists()).toBe(false);const menu=wrapper.get('details.cm-row-actions');expect(menu.findAll('button').some(button=>button.text()==='Bring up to date')).toBe(false);expect(menu.text()).toContain('Follow-up task');expect(menu.text()).toContain('Demo: off — turn on');
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);await menu.findAll('button').find(button=>button.text()==='Archive client').trigger('click');expect(confirm).toHaveBeenCalledWith(expect.stringContaining('active client lists'));expect(confirm.mock.calls[0][0]).not.toContain('school');confirm.mockRestore();
+ }finally{wrapper.unmount();}
+});
+it('keeps a pending records import available inside the row menu',async()=>{
+ const wrapper=await assignmentDirectory({recordsImport:{status:'pending'}});try{expect(wrapper.get('details.cm-row-actions').text()).toContain('Bring up to date');expect(wrapper.find('.actions-cell > button').exists()).toBe(false);}finally{wrapper.unmount();}
 });

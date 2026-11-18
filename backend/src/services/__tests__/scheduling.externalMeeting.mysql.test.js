@@ -47,4 +47,13 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('external appointment m
   expect(await guardianAppointmentJoin(appointment,{permissions_json:{billingOnly:true}},db)).toBeNull();
   await db.query("UPDATE counseling_sessions SET status='ended'");expect(await guardianAppointmentJoin(appointment,{},db)).toBeNull();
  });
+ it('adds client portal accounts without replacing deployed roles or changing existing users',async()=>{
+  await db.query("ALTER TABLE users ADD COLUMN role ENUM('provider','client_guardian','assistant','custom_role') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT 'provider'");
+  await db.query("INSERT INTO users(id,role) VALUES(30,'client_guardian'),(31,'assistant'),(32,'custom_role')");
+  const source=await readFile(new URL('../../../../database/migrations/1845_preserve_roles_add_client_portal.sql',import.meta.url),'utf8');
+  for(let pass=0;pass<2;pass++)for(const sql of splitSqlStatements(stripSqlLineComments(source)))await db.query(sql);
+  await db.query("INSERT INTO users(id,role) VALUES(33,'client')");
+  const [rows]=await db.query('SELECT id,role FROM users ORDER BY id');expect(rows).toEqual([{id:20,role:'provider'},{id:30,role:'client_guardian'},{id:31,role:'assistant'},{id:32,role:'custom_role'},{id:33,role:'client'}]);
+  const [[column]]=await db.query("SELECT COLUMN_DEFAULT,IS_NULLABLE,COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='role'");expect(column).toMatchObject({COLUMN_DEFAULT:'provider',IS_NULLABLE:'YES',COLLATION_NAME:'utf8mb4_unicode_ci'});
+ });
 });

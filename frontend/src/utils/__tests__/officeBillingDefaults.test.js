@@ -1,10 +1,14 @@
 import { expect, it } from 'vitest';
-import { serviceLocationForOffice } from '../officeBillingDefaults';
+import { serviceLocationForOffice,billingServiceLocationOptions } from '../officeBillingDefaults';
 it('does not choose Denver merely because it shares the office place-of-service code', () => {
   const denver = {id:1,billing_office_location_id:6,place_of_service:'11'};
   const windchime = {id:2,billing_office_location_id:1,place_of_service:'11'};
   expect(serviceLocationForOffice([denver,windchime],1,'11')).toBe(windchime);
   expect(serviceLocationForOffice([denver],1,'11')).toBeNull();
+});
+it('collapses identical destinations but retains the saved ID and separate billing addresses',()=>{
+ const options=billingServiceLocationOptions([{id:1,name:'Office',agency_id:6,place_of_service:'11',address:'1 Test St'},{id:2,name:'Office',agency_id:6,place_of_service:'11',address:'1 Test St'},{id:3,name:'Office',agency_id:6,place_of_service:'11',address:'2 Test St'}],2);
+ expect(options.map(row=>row.id)).toEqual([2,3]);expect(options.map(row=>row.displayLabel)).toEqual(['Office (POS 11) — 1 Test St','Office (POS 11) — 2 Test St']);
 });
 it('matches the agency billing identity and service type, not just the building', () => {
   const telehealth = {id:1,billingOfficeLocationId:5,placeOfService:'02'};

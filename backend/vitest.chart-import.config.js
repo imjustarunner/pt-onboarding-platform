@@ -3,6 +3,7 @@ export default defineConfig({
   root: new URL('.', import.meta.url).pathname,
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: { environment:'node', include:[
+    'src/controllers/__tests__/clientImportCandidates.test.js','src/services/__tests__/familyPortalEmail.accountPreparation.test.js','src/services/__tests__/claimMdCoverage.test.js',
     'src/services/__tests__/clientChartRecordsStatus.test.js',
     'src/controllers/__tests__/clientImportedIntakeRemoval.test.js','src/services/__tests__/clientOfficeIntakeProvider.test.js',
     'src/services/__tests__/guardianPlanDelivery.test.js','src/services/__tests__/guardianAccess.planProgress.test.js','src/services/__tests__/medicalRecordList.imports.test.js','src/services/__tests__/coverageVerificationSummary.test.js','src/services/__tests__/clientExchangeSummary.test.js','src/utils/__tests__/clientCareSummary.test.js',

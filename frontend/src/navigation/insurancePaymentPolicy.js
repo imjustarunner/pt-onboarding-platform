@@ -4,7 +4,7 @@
 export function policyIsMedicaid(policy) {
   if(['commercial','medicaid','tricare','medicare'].includes(policy?.programType))return policy.programType==='medicaid';
   return policy?.isMedicaid === true || policy?.isMedicaid === 1
-    || /\bmedicaid\b|health\s+first\s+colorado/i.test(String(policy?.insurerName || ''))
+    || /\bmedicaid\b|health\s+first\s+colorado|\bccha\b|colorado\s+community\s+health\s+alliance/i.test(String(policy?.insurerName || ''))
     || /\bmedicaid\b/i.test(String(policy?.planType || ''));
 }
 // One electronic payer route may handle multiple actual insurance policies.

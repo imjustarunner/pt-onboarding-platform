@@ -23,20 +23,20 @@
         <span v-for="section in visibleSections" :key="section.key" class="ehr-chip" :class="statusClass(status[section.key])">{{ section.label }} · {{ sectionStatusLabel(section.key) }}</span>
       </div>
       <section v-for="section in visibleSections" :key="section.key" class="ehr-section" :aria-label="section.label">
-        <label v-if="section.key === 'insurance'" class="ehr-label">Coverage<select v-model="payerPosition" :disabled="busy"><option value="primary">Primary insurance</option><option value="secondary">Secondary insurance</option></select></label>
-        <label class="ehr-label">
+        <template v-if="section.key === 'insurance'"><label class="ehr-label">Payment basis<select aria-label="Payment basis" v-model="coverageMode" :disabled="busy"><option value="insurance">Insurance</option><option value="self_pay">Self-pay — agreed client rate</option></select></label><label v-if="coverageMode==='insurance'" class="ehr-label">Coverage<select aria-label="Coverage position" v-model="payerPosition" :disabled="busy"><option value="primary">Primary insurance</option><option value="secondary">Secondary insurance</option></select></label><ClientImportSelfPayFields v-else v-model="selfPay" :disabled="busy || sectionLocked('insurance')" /></template>
+        <label v-if="section.key!=='insurance' || coverageMode==='insurance'" class="ehr-label">
           {{ section.label }} paste
           <textarea v-model="sectionTexts[section.key]" :data-section="section.key" class="ehr-textarea" :rows="section.rows || 6" :disabled="busy || drafts.state.loading || sectionLocked(section.key)" :placeholder="section.placeholder" />
         </label>
-        <p v-if="status[section.key] === 'imported'" class="ehr-imported" role="status">✓ {{ section.label }} imported and saved. <button type="button" class="ehr-link" :disabled="busy" @click="unlocked[section.key]=true">Edit imported section</button></p>
-        <p v-if="section.hint" class="ehr-muted">{{ section.hint }}</p>
+        <p v-if="status[section.key] === 'imported'" class="ehr-imported" role="status">✓ {{section.key==='insurance'&&coverageMode==='self_pay'?'Self-pay and client rate saved.':section.label+' imported and saved.'}} <button type="button" class="ehr-link" :disabled="busy" @click="unlocked[section.key]=true">Edit imported section</button></p>
+        <p v-if="section.hint && (section.key!=='insurance'||coverageMode==='insurance')" class="ehr-muted">{{ section.hint }}</p>
         <label v-if="section.key === 'demographics'" class="ehr-label">The phone and email in this patient information belong to<select v-model="contactOwner" :disabled="busy"><option value="guardian">Parent / guardian — use their contact card and portal account</option><option value="client">Client — use the client’s own contact details</option></select></label>
         <template v-if="section.key === 'contacts'">
           <label v-if="canPrepareAccounts" class="ehr-label"><span><input v-model="preparePrimaryGuardian" type="checkbox" :disabled="busy" /> Prepare the primary parent’s portal account when their phone or email matches the patient information.</span></label>
           <p class="ehr-muted">Other people remain contacts. Choose additional accounts below after import. Review portal access and send the invitation at the bottom.</p>
           <div v-for="contact in importedContacts" :key="contact.affiliationId" class="ehr-contact">
             <strong>{{ contact.fullName }}</strong> · {{ contact.relationshipType || 'Contact' }}
-            <span v-if="contact.portalAccount?.prepared"> · Portal account prepared{{ contact.portalAccount.requiresAccessReview ? ' — review access below' : '' }}</span>
+            <span v-if="contact.portalAccount?.prepared"> · {{contact.portalAccount.created?'Portal account prepared':'Existing portal account linked — same login for this family'}}{{ contact.portalAccount.requiresAccessReview ? ' — review this child’s access below' : '' }}</span>
             <label v-else-if="canPrepareAccounts" class="ehr-label"><span><input v-model="guardianContactNames" type="checkbox" :value="contact.fullName" :disabled="busy" /> Prepare a portal account for this contact</span></label>
             <p v-if="contact.portalAccount?.reason" class="ehr-muted">{{ contact.portalAccount.reason }}</p>
           </div>
@@ -53,14 +53,14 @@
         </div>
         <div class="ehr-section-actions">
           <span class="ehr-muted" role="status">{{ drafts.state.sections[section.key]?.message }}</span>
-          <button type="button" class="ehr-btn-ghost" :disabled="busy || drafts.state.loading || sectionLocked(section.key) || !sectionTexts[section.key].trim() || (historicalImport && !sourceReviewed)" @click="importAll(section.key)">{{ sectionLocked(section.key) ? 'Imported ✓' : `Import ${section.label.toLowerCase()}` }}</button>
+          <button type="button" class="ehr-btn-ghost" :disabled="busy || drafts.state.loading || sectionLocked(section.key) || (!sectionTexts[section.key].trim() && !(section.key==='insurance' && coverageMode==='self_pay')) || (historicalImport && !sourceReviewed)" @click="importAll(section.key)">{{ sectionLocked(section.key) ? 'Imported ✓' : section.key==='insurance'&&coverageMode==='self_pay'?'Save self-pay and client rate':`Import ${section.label.toLowerCase()}` }}</button>
         </div>
         <p v-if="drafts.state.sections[section.key]?.error" class="ehr-error" role="alert">{{ drafts.state.sections[section.key].error }} <button type="button" class="ehr-link" @click="drafts.retry(section.key)">Save this paste as the latest draft</button></p>
       </section>
 
       <ClientMedicalHistory v-if="!historicalImport" ref="historyPanel" :client-id="clientId" :agency-id="agencyId" :client-label="clientLabel" @busy="historyBusy=$event" />
 
-      <ClientPayerLinkage v-if="!historicalImport && canPrepareAccounts" :client-id="clientId" :agency-id="agencyId" :refresh-key="payerRefreshKey" @ready-change="payerReady = $event" @busy="payerBusy = $event" />
+      <ClientPayerLinkage v-if="!historicalImport && canPrepareAccounts && coverageMode!=='self_pay'" :client-id="clientId" :agency-id="agencyId" :refresh-key="payerRefreshKey" @ready-change="payerReady = $event" @busy="payerBusy = $event" />
 
       <p v-if="historicalImport" class="ehr-muted">Records from {{ sourceSystem }} are saved as unsigned drafts with their original dates and source author. Review them in the clinical chart before approving current care. Importing does not recreate the original clinician’s signature.</p>
       <label v-if="historicalImport" class="ehr-label"><span><input v-model="sourceReviewed" type="checkbox" :disabled="busy" /> I compared this paste and original dates/authorship with the source. Clinical approval remains a separate review.</span></label>
@@ -72,7 +72,7 @@
       <p v-if="error" class="ehr-error">{{ error }}</p>
       <p v-if="successMessage" class="ehr-ok">{{ successMessage }}</p>
 
-      <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @updated="transitionRefreshKey++" />
+      <ClientUpdateAssignments v-if="showAssignments" :key="`${agencyId}:${clientId}`" ref="assignmentsPanel" :client-id="clientId" :agency-id="agencyId" :initial-assignment="initialAssignment" @busy="assignmentsBusy=$event" @ready="assignmentsReady=$event" @updated="transitionRefreshKey++" />
 
       <div v-if="!creationFlow && !historicalImport && creationPendingReasons.length"><p>Still pending in this workflow:</p><ul><li v-for="reason in creationPendingReasons" :key="reason">{{ reason }}</li></ul></div>
       <div class="ehr-actions">
@@ -118,6 +118,7 @@ import ClientPayerLinkage from './ClientPayerLinkage.vue';
 import ClientMedicalHistory from './ClientMedicalHistory.vue';
 import ClientTransitionInvitation from '../../clients/ClientTransitionInvitation.vue';
 import ClientUpdateAssignments from './ClientUpdateAssignments.vue';
+import ClientImportSelfPayFields from './ClientImportSelfPayFields.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
   inferScaleDirection,
@@ -131,6 +132,10 @@ const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   clientLabel: { type: String, default: '' },
   initialTexts: { type: Object, default: () => ({}) },
+  initialCoverageDrafts: { type: Object, default: () => ({}) },
+  initialAssignment: { type: Object, default: () => ({}) },
+  initialCoverageMode: { type: String, default: 'insurance' },
+  initialSelfPay: { type: Object, default: () => ({}) },
   creationFlow: { type: Boolean, default: false },
   initialIntakeServiceCode: { type: String, default: '' },
   initialContactOwner: { type:String, default:'guardian', validator:value=>['guardian','client'].includes(value) },
@@ -144,7 +149,7 @@ const props = defineProps({
   recordStatus: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported']);
+const emit = defineEmits(['close', 'done', 'imported', 'busy', 'drafts-saved', 'section-imported', 'sections-imported']);
 const auth = getActivePinia() ? useAuthStore() : null;
 const canPrepareAccounts = computed(() => ['super_admin','admin','support'].includes(auth?.user?.role));
 
@@ -175,9 +180,10 @@ const showAssignments=computed(()=>!props.historicalImport&&canPrepareAccounts.v
 const payerRefreshKey = ref(0), payerReady = ref(false), payerBusy = ref(false);
 const transitionRefreshKey = ref(0), invitationBusy = ref(false);
 const payerPosition = ref('primary');
+const coverageMode=ref('insurance'),selfPay=ref({code:'',amount:'',basis:'visit',reason:'',imported:false});
 const coverageDrafts = reactive({ primary: { text: '', imported: false }, secondary: { text: '', imported: false } });
-const allCoverageImported = computed(() => Object.values(coverageDrafts).every(draft => !draft.text.trim() || draft.imported));
-const hasCoveragePaste = computed(() => Boolean(payerText.value.trim()) || Object.values(coverageDrafts).some(draft => draft.text.trim()));
+const allCoverageImported = computed(() => coverageMode.value==='self_pay'?selfPay.value.imported===true:Object.values(coverageDrafts).every(draft => !draft.text.trim() || draft.imported));
+const hasCoveragePaste = computed(() => coverageMode.value==='self_pay'||Boolean(payerText.value.trim()) || Object.values(coverageDrafts).some(draft => draft.text.trim()));
 const creationRecordsReady = computed(() => allCoverageImported.value && visibleSections.value.filter(section => sectionTexts[section.key].trim()).every(section => ['imported','done'].includes(status[section.key])));
 const recordsReadyForInvitation = computed(() => creationRecordsReady.value && !reviewPending.intake && !reviewPending.plan);
 let hydratingDrafts = false;
@@ -196,7 +202,7 @@ const status = reactive({
 });
 
 const hasAnyPaste = computed(
-  () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && Object.values(coverageDrafts).some(draft => draft.text.trim()))
+  () => visibleSections.value.some(section => sectionTexts[section.key].trim()) || (!props.historicalImport && hasCoveragePaste.value)
 );
 const networkBusy = computed(() => importing.value || markingDone.value || invitationBusy.value || historyBusy.value || payerBusy.value || assignmentsBusy.value || progressBusy.value || drafts.state.loading);
 const busy=computed(()=>networkBusy.value||completionPreparing.value);
@@ -207,7 +213,7 @@ const creationPendingReasons=computed(()=>[
  ...filledSections().filter(key=>key==='insurance'?!allCoverageImported.value:status[key]!=='imported').map(key=>`${status[key]==='failed'?'Retry':'Import'} ${sections.find(section=>section.key===key).label.toLowerCase()}.`),
  ...['intake','plan'].filter(key=>reviewPending[key]).map(key=>`Finish the ${key==='plan'?'treatment plan':key} review.`),
  ...(showAssignments.value&&!assignmentsReady.value?['Review assignments and save any changes.']:[]),
- ...(hasCoveragePaste.value&&!payerReady.value?['Confirm the electronic payer links below.']:[])
+ ...(coverageMode.value!=='self_pay'&&hasCoveragePaste.value&&!payerReady.value?['Confirm the electronic payer links below.']:[])
 ]);
 watch(busy, value => emit('busy', value), { flush: 'sync' });
 let scopeGeneration = 0;
@@ -241,25 +247,27 @@ function agencyHeaders() {
 
 function draftValue(key) {
   return { text: sectionTexts[key], metadata: { imported: status[key] === 'imported', needsReview: reviewPending[key] === true,
-    ...(key === 'insurance' ? { position: payerPosition.value, coverageDrafts: { primary: { ...coverageDrafts.primary }, secondary: { ...coverageDrafts.secondary } } } : {}),
+    ...(key === 'insurance' ? { coverageMode:coverageMode.value,selfPay:{...selfPay.value},position: payerPosition.value, coverageDrafts: { primary: { ...coverageDrafts.primary }, secondary: { ...coverageDrafts.secondary } } } : {}),
     ...(key === 'demographics' ? { contactOwner: contactOwner.value } : {}),
     ...(key === 'payer' ? { position: payerPosition.value } : {}), ...(key === 'intake' ? { sourceDate: intakeSourceDate.value, sourceAuthor: intakeSourceAuthor.value, serviceCode: intakeServiceCode.value } : key === 'plan' ? { sourceDate: planSourceDate.value, sourceAuthor: planSourceAuthor.value } : {}) } };
 }
 function restoreCoverage(saved, preserve = false) {
   const insurance = saved?.insurance?.value, legacyPayer = saved?.payer?.value;
+  coverageMode.value=insurance?.coverageMode||props.initialCoverageMode;
+  selfPay.value={code:'',amount:'',basis:'visit',reason:'',imported:false,...props.initialSelfPay,...insurance?.selfPay};
   const supplied = insurance || legacyPayer ? '' : [props.initialTexts.insurance, props.initialTexts.payer].filter(Boolean).join('\n');
   const active = supplied ? 'primary' : insurance?.position || legacyPayer?.position || 'primary';
   for (const position of ['primary', 'secondary']) {
     if (preserve && coverageDrafts[position].text) continue;
-    const stored = insurance?.coverageDrafts?.[position];
+    const stored = insurance?.coverageDrafts?.[position] || props.initialCoverageDrafts[position];
     const legacyInsurance = (insurance?.position || 'primary') === position ? insuranceText.value : '';
     const payer = (legacyPayer?.position || 'primary') === position ? payerText.value : '';
-    const text = position === 'primary' && supplied ? supplied : stored?.text ?? [legacyInsurance, payer].filter(Boolean).join('\n');
+    const text = stored?.text ?? (position === 'primary' && supplied ? supplied : [legacyInsurance, payer].filter(Boolean).join('\n'));
     Object.assign(coverageDrafts[position], { text, imported: stored && stored.text !== text ? false : stored?.imported ?? (Boolean(text) && status.insurance === 'imported' && !payer) });
   }
   payerPosition.value = active;
   insuranceText.value = coverageDrafts[active].text;
-  status.insurance = coverageDrafts[active].imported ? 'imported' : 'missing';
+  status.insurance = (coverageMode.value==='self_pay'?selfPay.value.imported:coverageDrafts[active].imported) ? 'imported' : 'missing';
   contactOwner.value = ['client','guardian'].includes(saved?.demographics?.value?.contactOwner) ? saved.demographics.value.contactOwner : props.initialContactOwner;
 }
 async function loadImportedContacts(generation) {
@@ -309,7 +317,7 @@ watch(
     planSourceDate.value = saved?.plan?.value?.sourceDate || ''; planSourceAuthor.value = saved?.plan?.value?.sourceAuthor || '';
     hydratingDrafts = false;
     void loadImportedContacts(generation);
-    for (const section of visibleSections.value) if (sectionTexts[section.key]) drafts.schedule(section.key, draftValue(section.key));
+    for (const section of visibleSections.value) if (sectionTexts[section.key] || section.key==='insurance'&&hasCoveragePaste.value) drafts.schedule(section.key, draftValue(section.key));
     progressSectionsKey=null;
     if (props.creationFlow && props.autoImport && !props.historicalImport) importAll();
   },
@@ -340,6 +348,7 @@ watch(payerPosition, position => {
   drafts.schedule('insurance', draftValue('insurance'));
 }, { flush: 'sync' });
 watch(contactOwner, () => { if (!hydratingDrafts) { status.demographics = 'missing'; drafts.schedule('demographics', draftValue('demographics')); } }, { flush: 'sync' });
+watch([coverageMode,selfPay],()=>{if(!hydratingDrafts){status.insurance='missing';drafts.schedule('insurance',draftValue('insurance'));}},{deep:true,flush:'sync'});
 watch([intakeSourceDate, intakeSourceAuthor], () => { if (hydratingDrafts) return; sourceReviewed.value = false; if (props.historicalImport) { status.intake = 'missing'; importedIntakeDraft = null; } drafts.schedule('intake', draftValue('intake')); }, { flush: 'sync' });
 watch([planSourceDate, planSourceAuthor], () => { if (hydratingDrafts) return; sourceReviewed.value = false; if (props.historicalImport) status.plan = 'missing'; drafts.schedule('plan', draftValue('plan')); }, { flush: 'sync' });
 
@@ -396,6 +405,7 @@ async function importDemographics() {
         fullName: p.fullName || '',
         dateOfBirth: p.dateOfBirth || '',
         addressStreet: p.addressStreet || '',
+        addressLine2: p.addressLine2 || '',
         addressCity: p.addressCity || '',
         addressState: p.addressState || '',
         addressZip: p.addressZip || '',
@@ -405,6 +415,7 @@ async function importDemographics() {
         email: p.email || '',
         appointmentReminderType: p.appointmentReminderType || '',
         administrativeSex: p.administrativeSex || '',
+        preferredLanguage: p.preferredLanguage || '',
         grade: p.grade || ''
       }
     },
@@ -494,6 +505,7 @@ async function finishImportPipeline() {
     : 'Records imported. Treatment-plan drafts await provider finalization; you can mark the records import done.';
   if (props.creationFlow && props.requireVerifiedPayers) {
     successMessage.value = creationRecordsReady.value ? 'Records imported. Confirm the payer links, then finish client import.' : 'Section imported. Import the remaining filled sections to finish this client.';
+    emit('sections-imported', { ...status });
     return;
   }
   emit(props.historicalImport?'imported':'section-imported', { ...status });
@@ -533,7 +545,7 @@ async function prepareLeave({confirmPending=true,fromCompletion=false}={}) {
   emit('drafts-saved');
   return true;
 }
-async function reloadAssignments(){if(assignmentsPanel.value?.prepareLeave?.()===false)return false;await assignmentsPanel.value?.reload?.();return true;}
+async function reloadAssignments(){await assignmentsPanel.value?.refresh?.();return true;}
 defineExpose({ prepareLeave,importAll,reloadAssignments });
 
 async function importSupplementary(key) {
@@ -551,6 +563,14 @@ async function importSupplementary(key) {
 }
 let importingAllCoverage = false;
 async function importCoverage() {
+  if(coverageMode.value==='self_pay'){
+    const code=String(selfPay.value.code||'').trim().toUpperCase(),amountCents=Math.round(Number(selfPay.value.amount)*100),reason=String(selfPay.value.reason||'').trim();
+    if(!code||!Number.isSafeInteger(amountCents)||amountCents<1||!reason)throw Error('Enter the self-pay service code, agreed rate and terms before saving.');
+    const settings=await api.get(`/family-billing/account/clients/${props.clientId}/settings`,{params:{agencyId:props.agencyId},skipGlobalLoading:true,headers:agencyHeaders()});assertScope();
+    const existing=settings.data?.rates?.find(rate=>rate.serviceCode===code);
+    await api.put(`/family-billing/account/clients/${props.clientId}/service-rates/${encodeURIComponent(code)}`,{agencyId:props.agencyId,amountCents,priceBasis:selfPay.value.basis||'visit',reason,revision:existing?.revision||0},{skipGlobalLoading:true,headers:agencyHeaders()});assertScope();
+    hydratingDrafts=true;selfPay.value={...selfPay.value,imported:true};hydratingDrafts=false;status.insurance='imported';drafts.schedule('insurance',draftValue('insurance'));transitionRefreshKey.value++;log(true,'Self-pay and client service rate saved. Billing responsibility and payment authorization remain pending.');return;
+  }
   if (!importingAllCoverage) return importSupplementary('insurance');
   const active = payerPosition.value;
   try {
@@ -580,7 +600,7 @@ async function importAll(onlySection = null) {
   importScopeGeneration = scopeGeneration;
   importingAllCoverage = !onlySection;
   pipelineSections = visibleSections.value.map(section => section.key).filter(key => (!onlySection || onlySection === key) &&
-    (sectionTexts[key].trim() || (key === 'insurance' && importingAllCoverage && Object.values(coverageDrafts).some(draft => draft.text.trim()))));
+    (sectionTexts[key].trim() || (key === 'insurance' && (coverageMode.value==='self_pay' || importingAllCoverage && Object.values(coverageDrafts).some(draft => draft.text.trim())))));
   importing.value = true; error.value = ''; successMessage.value = ''; stepLog.value = [];
   try {
     await drafts.flush();

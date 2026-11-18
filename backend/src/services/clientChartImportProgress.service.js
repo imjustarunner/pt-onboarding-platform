@@ -35,7 +35,7 @@ export async function completeClientChartImport(scope,actorId,{db=pool,readRecor
  for(const key of state.sections){
   if(!allowedSections.includes(key))throw fail(403,'Account support access is required to finish these record sections.');
   const {value}=await readRecord(scope,key,actorId);
-  const coverage=key==='insurance'&&value?.coverageDrafts?Object.values(value.coverageDrafts).filter(item=>item.text?.trim()):null;
+  const coverage=key==='insurance'&&value?.coverageMode!=='self_pay'&&value?.coverageDrafts?Object.values(value.coverageDrafts).filter(item=>item.text?.trim()):null;
   const imported=coverage?.length?coverage.every(item=>item.imported===true):value?.imported===true;
   if(!imported||value?.needsReview===true)throw fail(409,'Import and review every filled section before finishing this client.');
  }

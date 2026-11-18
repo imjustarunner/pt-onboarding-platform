@@ -43,6 +43,10 @@ export function parseChartContacts(input) {
     .replace(/^.*?\bwas\s+added\s+as\s+a\s+(?:Patient\s+)?Contact[.!]?\s*/gmi,'')
     .replace(/svg\s*(?:Edit)/gi, '\n@@CONTACT@@\n')
     .replace(/^\s*(?:Contacts|Additional\s+Contacts|\+?\s*New\s*Contact|Save New Patient Contact|Cancel|Convert to Practice Contact|svg|Edit)\s*$/gmi, '');
+  // Some browser copies omit the edit icon/headings. A name immediately before
+  // a phone/email label still starts a new card, rather than the previous ROI.
+  text = text.replace(/^([^\n@]+)\n(?=(?:Mobile Phone|Home Phone|Work Phone|Email)[:\t(\w])/gm, (line, name) =>
+    /\d|^(?:Mobile Phone|Home Phone|Work Phone|Email|Address|Relationship|Contact Type|Appt Reminders|Time Zone|ROI Signed)/i.test(name) || name.trim().split(/\s+/).length < 2 ? line : `@@CONTACT@@\n${name}\n`);
   // A TSV table has one contact per row, including separately named phone fields.
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   const headers = (lines[0] || '').split('\t').map(label => Object.entries(CONTACT_PASTE_FIELDS).find(([key]) => key.toLowerCase() === label.toLowerCase())?.[1]);
@@ -84,7 +88,7 @@ const INSURANCE_FIELDS = {
 export function parseChartInsurance(input, { position = null } = {}) {
   const blocks = { primary: [], secondary: [] };
   let slot = position || 'primary';
-  for (const line of clean(input).split('\n')) {
+  for (const line of clean(input).replace(/\b(?:Show Insurance Card|Verify Eligibility|Edit Policy|Remove Policy)\b[^\n]*/gi, '').split('\n')) {
     const heading = line.trim().match(/^(.+?)\s*(?:\(([^)]+)\))?\s*:\s*(Primary|Secondary)$/i);
     const plain = line.trim().match(/^(Primary|Secondary)(?: Insurance| Coverage| Policy)?\s*:?(.*)$/i);
     if (heading) {

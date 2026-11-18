@@ -5,6 +5,7 @@
         <header><h2 id="verification-title">{{ readiness?.ready ? 'Ready to return to provider assignment' : 'Verify insurance before continuing' }}</h2><button type="button" aria-label="Close insurance verification" @click="close">Close</button></header>
         <p v-if="!readiness?.ready">{{ readiness?.reason || request.message }}</p>
         <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">Checking verification status…</p>
+        <p v-else-if="checked && !readiness?.ready" role="status">Verification status refreshed. {{readiness?.reason || 'Coverage still needs a saved current verification. Add the required note and confirm the review below.'}}</p>
         <AssignmentCoverageReview v-if="readiness?.canVerify && !readiness.ready" :key="`${request.agencyId}-${request.clientId}`" :client-id="request.clientId" :agency-id="request.agencyId" @saved="check" @updated="check" />
         <p v-else-if="readiness && !readiness.canVerify && !readiness.ready">The billing team needs to complete verification. Your assignment or Exchange request has not been saved.</p>
         <div v-if="readiness?.ready" class="verification-success" role="status">
@@ -21,6 +22,7 @@ import { ref, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api.js';
 import AssignmentCoverageReview from './AssignmentCoverageReview.vue';
 const request = ref(null), readiness = ref(null), loading = ref(false), error = ref(''), panel = ref(null);
+const checked=ref(false);
 let sequence = 0, previousFocus = null;
 
 async function check() {
@@ -29,7 +31,7 @@ async function check() {
   loading.value = true; error.value = '';
   try {
     const { data } = await api.get(`/clients/${request.value.clientId}/coverage-readiness`, { skipGlobalLoading: true });
-    if (current === sequence) readiness.value = data;
+    if (current === sequence) {readiness.value = data;checked.value=true;}
   } catch (e) {
     if (current !== sequence) return;
     if ([401, 403, 404].includes(e.response?.status)) readiness.value = null;
@@ -38,7 +40,7 @@ async function check() {
 }
 
 function close() {
-  sequence++; request.value = null; readiness.value = null; loading.value = false;
+  sequence++; request.value = null; readiness.value = null; loading.value = false;checked.value=false;
   if (previousFocus?.isConnected) previousFocus.focus();
 }
 
@@ -47,7 +49,7 @@ async function open(event) {
   if (![data?.clientId, data?.agencyId].every(value => Number.isSafeInteger(Number(value)) && Number(value) > 0)) return;
   previousFocus = document.activeElement;
   request.value = { clientId: Number(data.clientId), agencyId: Number(data.agencyId), message: String(data.message || 'Coverage needs verification before this request can continue.') };
-  readiness.value = null; check(); await nextTick(); panel.value?.focus();
+  readiness.value = null;checked.value=false; check(); await nextTick(); panel.value?.focus();
 }
 
 function trap(event) {

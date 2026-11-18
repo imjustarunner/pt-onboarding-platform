@@ -19,3 +19,7 @@ it('preserves existing client-owned channels that differ from the imported paren
   applyGuardianContactOwnership(parsed, patch, { contact_phone:'555-999-8888', email:'client@example.test' });
   expect(patch).toEqual({ full_name:'Synthetic Client' });
 });
+it('imports an apartment, country-suffixed mailing address and preferred language into operational fields',()=>{
+ const parsed=parseDemographicsPaste('Legal Name\nExample Child\nAddress\n100 Sample St\nApt 3\nDenver, CO 80202 USA\nTime Zone\nAmerica/Denver\nLanguages\nSpanish\nSmoking Status');
+ expect(demographicsToClientPatch(parsed)).toMatchObject({address_street:'100 Sample St',address_apt:'Apt 3',address_city:'Denver',address_state:'CO',address_zip:'80202',preferred_language:'Spanish'});
+});

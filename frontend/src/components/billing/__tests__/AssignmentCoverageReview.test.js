@@ -94,3 +94,9 @@ it('offers and defaults to an explicitly fictional review only with the server c
 it('does not offer fictional verification without the server capability and rejects a forged local selection',async()=>{
  const w=await setup();expect(w.find('option[value=synthetic_qa]').exists()).toBe(false);w.vm.$.setupState.source='synthetic_qa';await w.get('textarea').setValue('Fictional-only text cannot grant the server capability.');await w.get('input[type=checkbox]').setValue(true);await w.get('form').trigger('submit');expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+it('explains why an attested review cannot save without a note',async()=>{
+ const w=await setup();await w.get('select').setValue('payer_portal');await w.get('input[type=checkbox]').setValue(true);expect(w.get('#coverage-save-requirements').text()).toContain('at least 5 characters');expect(w.get('.verify-button').element.disabled).toBe(true);await w.get('textarea').setValue('Reviewed current payer coverage and order');expect(w.get('.verify-button').element.disabled).toBe(false);w.unmount();
+});
+it('saves a previous-EHR reference as historical evidence while eligibility remains pending',async()=>{
+ api.post.mockResolvedValue({data:{id:19,status:'unresolved'}});const w=await setup();await w.get('select').setValue('other_ehr');await w.get('textarea').setValue('Previous EHR eligibility record copied for billing review');await w.get('input[type=checkbox]').setValue(true);expect(w.get('.verify-button').text()).toBe('Save previous EHR evidence');await w.get('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/22/coverage/review',expect.objectContaining({source:'other_ehr',status:'unresolved',assignmentReview:false}),expect.anything());expect(w.text()).toContain('Current eligibility remains pending');w.unmount();
+});

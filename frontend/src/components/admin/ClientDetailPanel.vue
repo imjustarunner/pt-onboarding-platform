@@ -2092,10 +2092,7 @@
                             :key="`loc-${a.agency_id}-${loc.id}`"
                             :value="String(loc.id)"
                           >
-                            {{ loc.name || loc.label || `Location ${loc.id}` }}
-                            <template v-if="loc.placeOfService || loc.place_of_service">
-                              (POS {{ loc.placeOfService || loc.place_of_service }})
-                            </template>
+                            {{ loc.displayLabel }}
                           </option>
                         </select>
                       </label>
@@ -2943,7 +2940,7 @@ import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientBillingDiagnoses } from '../../composables/useClientBillingDiagnoses.js';
 import { useClientPaperwork } from '../../composables/useClientPaperwork.js';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical';
-import { serviceLocationForOffice } from '../../utils/officeBillingDefaults';
+import { serviceLocationForOffice,billingServiceLocationOptions } from '../../utils/officeBillingDefaults';
 import { toPlainEnglish } from '../../utils/auditActionRegistry.js';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
@@ -3925,7 +3922,7 @@ function officeOptionsForTenant(agencyId) {
   return tenantOfficeOptionsByAgency.value[String(agencyId)] || [];
 }
 function serviceLocationOptionsForTenant(agencyId) {
-  return tenantServiceLocationOptionsByAgency.value[String(agencyId)] || [];
+  return billingServiceLocationOptions(tenantServiceLocationOptionsByAgency.value[String(agencyId)] || [],tenantBookingDraft(agencyId).serviceLocationId);
 }
 
 async function loadTenantCatalog(agencyId) {

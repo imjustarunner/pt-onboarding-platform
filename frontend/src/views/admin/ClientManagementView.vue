@@ -663,21 +663,15 @@
             </td>
             <td v-if="canBackofficeEdit" class="select-cell col-demo" @click.stop>
               <span v-if="Number(client.created_via_dev_fill)" class="cm-dev-fill-badge" title="Created via Dev Fill">Dev Fill</span>
-              <label class="cm-demo-check" title="Demo/test clients stay off official documents">
-                <input
-                  type="checkbox"
-                  :checked="!!Number(client.is_demo)"
-                  @change="toggleClientDemo(client, $event.target.checked)"
-                />
-                Demo
-              </label>
+              <span v-if="Number(client.is_demo)" title="Demo/test clients stay off official documents">Demo</span>
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="closeClientPanel()">
-              <button type="button" class="btn btn-secondary btn-xs" @click.stop="followUpTask?.open(client)">Follow-up task</button>
-              <button v-if="canUpdateCharts && requiresClientRecordImport(client)" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client)">Bring up to date</button>
-              <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
+              <details class="cm-row-actions" @toggle="positionRowMenu" @click.stop @keydown.esc="$event.currentTarget.open=false">
                 <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
-              <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
+              <div class="cm-action-menu" @click.capture="closeRowMenu($event)">
+              <button type="button" class="btn btn-secondary btn-xs" @click.stop="followUpTask?.open(client);closeRowMenu($event)">Follow-up task</button>
+              <button v-if="canUpdateCharts && requiresClientRecordImport(client)" type="button" class="btn btn-secondary btn-xs" @click.stop="openChartUpdates(client);closeRowMenu($event)">Bring up to date</button>
+              <QuickPostClientToExchange v-if="canBackofficeEdit" :client="client" @posted="loadSideCounts" />
               <button v-if="canInvitePortal" @click.stop="openPortalInvites([client.id])" class="btn btn-secondary btn-xs">Invite to portal</button>
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-xs cm-view-btn" title="Quick preview">
                 Preview
@@ -693,7 +687,9 @@
               </button>
 
                 <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
-                <button type="button" class="btn btn-danger btn-sm" @click.stop="startEditStatus(client)">Archive client</button>
+                <button v-if="canBackofficeEdit" type="button" class="btn btn-secondary btn-sm" :aria-pressed="!!Number(client.is_demo)" @click.stop="toggleClientDemo(client,!Number(client.is_demo));closeRowMenu($event)">{{Number(client.is_demo)?'Demo: on — turn off':'Demo: off — turn on'}}</button>
+                <button v-if="canBackofficeEdit" type="button" class="btn btn-danger btn-sm" @click.stop="startEditStatus(client);closeRowMenu($event)">Archive client</button>
+              </div>
               </details>
             </td>
           </tr>
@@ -703,7 +699,7 @@
 
     <ClientUpdateModal :open="clientUpdateOpen" :agency-id="activeAgencyId" @close="clientUpdateOpen = false" @created="fetchClients" @sent="clientUpdateOpen = false" />
     <!-- Create Client Modal -->
-    <ClientRecordsCreateModal v-if="showCreateModal && canUpdateCharts" :agencies="agenciesForCreate" :initial-agency-id="createAgencyEffectiveId || activeAgencyId" @close="showCreateModal=false" @created="fetchClients" />
+    <ClientRecordsCreateModal v-if="showCreateModal && canUpdateCharts" :agencies="agenciesForCreate" :initial-agency-id="createAgencyEffectiveId || activeAgencyId" @close="showCreateModal=false" @created="fetchClients" @open-existing="openClientDetail" />
     <div v-if="showCreateModal && !canUpdateCharts" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content" @click.stop>
         <h3>Add client</h3>
@@ -3178,7 +3174,7 @@ const formatClientStatus = (client) => {
 };
 
 const startEditStatus = async (client) => {
-  const ok = window.confirm('Archive this client? This will remove them from all school rosters.');
+  const ok = window.confirm(client.client_type==='school'||client.organization_type==='school'?'Archive this client? This will remove them from active school rosters. Their chart stays on file.':'Archive this client? This will hide them from active client lists. Their chart stays on file.');
   if (!ok) return;
   try {
     await api.put(`/clients/${client.id}/status`, { status: 'ARCHIVED' });
@@ -3216,6 +3212,15 @@ const openClientDetail = (client) => {
   const path = orgSlug ? `/${orgSlug}/admin/clients/${id}` : `/admin/clients/${id}`;
   router.push({ path });
 };
+function closeRowMenu(event){const menu=event?.target?.closest?.('details.cm-row-actions');if(menu)menu.open=false;}
+function positionRowMenu(event){
+ const details=event.target;if(!details.open)return;
+ document.querySelectorAll('details.cm-row-actions[open]').forEach(other=>{if(other!==details)other.open=false;});
+ const menu=details.querySelector('.cm-action-menu'),anchor=details.getBoundingClientRect();if(!menu)return;
+ menu.style.left=`${Math.max(8,Math.min(window.innerWidth-220,anchor.right-210))}px`;
+ const height=Math.min(menu.scrollHeight,window.innerHeight*.75);
+ menu.style.top=`${Math.max(8,anchor.bottom+height>window.innerHeight?anchor.top-height:anchor.bottom+4)}px`;
+}
 
 const dupesCanForceCreate = ref(false);
 
@@ -3619,7 +3624,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 .cm-row-actions { position: relative; }
 .cm-row-actions summary { cursor: pointer; list-style: none; }
 .cm-row-actions[open] { z-index: 5; }
-.cm-row-actions button { display: block; min-width: 120px; padding: 8px; background: white; border: 1px solid #ddd; }
+.cm-row-actions button { display: block; min-width: 120px; padding: 8px; background: var(--bg-primary,#fff); color:var(--text-primary,#17345c); border: 1px solid #ddd; }
 
 .client-mgmt-page {
   --cm-purple: #7c3aed;
@@ -4592,8 +4597,9 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 .actions-cell { white-space:normal; }
 .cm-row-actions { display:inline-block; vertical-align:top; margin-left:4px; }
 .cm-row-actions[open] { position:relative; }
-.cm-row-actions[open] > :not(summary) { display:block; box-sizing:border-box; margin:4px 0; white-space:normal; min-width:130px; }
-.cm-row-actions[open] { min-width:140px; }
+.cm-row-actions[open] > .cm-action-menu { position:fixed;display:grid;gap:6px;box-sizing:border-box;padding:10px;white-space:normal;width:210px;max-height:75vh;overflow:auto;border:1px solid var(--border,#cbd8e9);border-radius:10px;background:var(--bg-primary,#fff);box-shadow:0 8px 24px #132e4826;z-index:100; }
+.cm-row-actions .cm-action-menu :deep(button){width:100%;margin:0;text-align:left;white-space:normal;height:auto;background:var(--bg-primary,#fff);color:var(--text-primary,#17345c);}
+.cm-row-actions .cm-action-menu .btn-danger{color:#b42318;}
 .cm-packet-btn { border:1px solid #efbad2; background:#fce6f0; color:#9b245a; border-radius:8px; padding:6px 10px; font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
 .cm-packet-btn[aria-pressed="true"] { background:#f8cde0; }.cm-filter-clear { border:0; background:#eef3fa; color:#17345c; padding:6px 10px; border-radius:8px; cursor:pointer; }
 @media(max-width:720px) { .cm-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.cm-clients-table .col-initials,.cm-clients-table .col-actions { min-width:0; max-width:100%; } }

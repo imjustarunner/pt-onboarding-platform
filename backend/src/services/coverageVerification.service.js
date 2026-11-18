@@ -166,8 +166,9 @@ export async function syntheticQaCoverageReviewAvailable({agencyId,clientId},db=
  return Number(row?.client_is_demo)===1&&isAuricwellQaAgency(row)&&Number(row?.is_active)===1&&!Number(row?.is_archived);
 }
 export function validateCoverageReview(input,insurance,{syntheticQaVerified=false}={}) {
- const permittedSource=['payer_portal','claimmd','payer_phone'].includes(input.source)||(input.source==='synthetic_qa'&&syntheticQaVerified);
+ const permittedSource=['payer_portal','claimmd','payer_phone','other_ehr'].includes(input.source)||(input.source==='synthetic_qa'&&syntheticQaVerified);
  if(!['verified','unresolved','inactive'].includes(input.status)||!permittedSource||typeof input.reference!=='string'||input.reference.trim().length<5||input.reference.length>2000)throw billingError(400,'Record the coverage outcome, verification source and dated evidence/reference');
+ if(input.source==='other_ehr' && input.status==='verified')throw billingError(400,'Copied EHR coverage is historical evidence. Verify current eligibility with the payer before marking verified.');
  if(input.status==='verified') {
   if(input.primaryChecked!==true||(insurance?.secondary&&input.secondaryChecked!==true)||input.otherCoverageChecked!==true||input.orderConfirmed!==true)throw billingError(409,'Verify each recorded policy, check for other coverage and confirm payer order');
   if(hasMedicaidCoverage(insurance)&&input.medicaidTplChecked!==true)throw billingError(409,'Review Colorado Medicaid Other Insurance/TPL records and resolve any discrepancies first');
@@ -202,7 +203,7 @@ export async function saveCoverageReview(input,deps={}) {
    const check=checks.find(c=>c.policy_slot===slot);
    if(!check||check.status!=='returned'||check.insurance_fingerprint!==coverageFingerprint(insurance)||check.evidence?.summary?.status!=='active_reported'||check.evidence?.summary?.identityMatches===false)throw billingError(409,'Check each current policy and reconcile the returned identity, or document payer-portal/phone verification');
   }
-  const evidence={source:input.source,...(syntheticQaVerified?{syntheticOnly:true,notPayerVerification:true}:{}),reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true,...(input.assignmentReview===true?{reviewPurpose:'provider_assignment',reviewToken:input.reviewToken}:{})};
+  const evidence={source:input.source,...(input.source==='other_ehr'?{notPayerVerification:true,historicalOnly:true}:{}),...(syntheticQaVerified?{syntheticOnly:true,notPayerVerification:true}:{}),reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true,...(input.assignmentReview===true?{reviewPurpose:'provider_assignment',reviewToken:input.reviewToken}:{})};
   const [row]=await db.execute('INSERT INTO client_coverage_reviews (agency_id,client_id,service_date,insurance_fingerprint,status,through_check_id,evidence_encrypted,created_by_user_id) VALUES (?,?,?,?,?,?,?,?)',[input.agencyId,input.clientId,date,coverageFingerprint(insurance),input.status,latestCheckId,encryptFamilyBilling(evidence,context(input.agencyId,input.clientId)),input.actorUserId]);
   await auditBilling({agencyId:input.agencyId,clientId:input.clientId,userId:input.actorUserId,action:'insurance_coordination_reviewed',objectId:row.insertId},db);
   await db.commit();return {id:row.insertId,status:input.status,...(syntheticQaVerified?{syntheticOnly:true,notPayerVerification:true}:{})};

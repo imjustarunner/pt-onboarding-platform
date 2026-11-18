@@ -11,6 +11,7 @@ import {
 import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
 import { getChartImportDraft, getChartImportDrafts, saveChartImportDraft, importChartSection, getChartSupplementaryRecords,startChartRecordsImport,finishChartRecordsImport } from '../controllers/clientChartImport.controller.js';
 import { getClientPayerReadiness, searchClientPayers, linkClientPayer } from '../controllers/clientChartPayer.controller.js';
+import {getClientImportCandidates} from '../controllers/clientImportCandidates.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
 import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
@@ -174,6 +175,7 @@ router.post('/portal-invites/send', clientPortalInvites.send);
 router.get('/', getClients);
 router.get('/creation-draft',requireActiveStatus,getClientCreationDraft);
 router.put('/creation-draft',requireActiveStatus,saveClientCreationDraft);
+router.post('/import-candidates',requireActiveStatus,getClientImportCandidates);
 router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
 router.get('/name-duplicates', getClientNameDuplicates);

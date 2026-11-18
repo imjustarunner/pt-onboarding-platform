@@ -83,3 +83,10 @@ it('matches the guardian card to encrypted source demographics after patient pho
  const result=await importSupplementaryChartSection(scope,'contacts','Contacts\n+ New Contact\nsvgEdit\n### Emergency Example\nMobile Phone(303) 555-0101Emailemergency@example.test\nContact TypeEmergency ContactRelationshipStepmother\nsvgEdit\n### Primary Example\nMobile Phone(720) 555-0102Emailparent@example.test\nContact TypeGuardianRelationshipMother\nAppt RemindersText (SMS) and Email',10,{preparePrimaryGuardian:true});
  expect(m.prepareGuardian).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({profile:expect.objectContaining({email:'parent@example.test',relationship:'Mother',phone:'(720) 555-0102'})}));expect(result[0].portalAccount).toBeUndefined();expect(result[1].portalAccount).toMatchObject({prepared:true,invitationSent:false,requiresAccessReview:true});
 });
+it('uses a unique parent email before a shared household phone and does not swap relationships',async()=>{
+ m.client.mockResolvedValue({id:12,agency_id:2,demographics_phi_enc:encryptDemographicsPayload({sourceContact:{email:'mother@example.test',contactPhone:'303-555-0101'}})});
+ m.upsert.mockImplementation(async value=>({affiliation:{id:value.fullName==='First Parent'?50:51,agencyContactId:value.fullName==='First Parent'?60:61}}));
+ await importSupplementaryChartSection(scope,'contacts','svgEdit\nFirst Parent\nMobile Phone303-555-0101Emailfather@example.test\nRelationshipFather\nsvgEdit\nSecond Parent\nMobile Phone303-555-0101Emailmother@example.test\nRelationshipMother',10,{preparePrimaryGuardian:true});
+ expect(m.prepareGuardian).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({profile:expect.objectContaining({fullName:'Second Parent',relationship:'Mother',email:'mother@example.test'})}));
+ expect(m.upsert.mock.calls.map(([c])=>[c.fullName,c.relationshipType])).toEqual([['First Parent','Father'],['Second Parent','Mother']]);
+});
