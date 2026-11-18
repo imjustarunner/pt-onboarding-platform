@@ -118,17 +118,18 @@
               <input
                 type="checkbox"
                 :checked="selectedIds.has(g.id)"
+                :aria-label="`Select ${guardianName(g)}`"
                 @change="toggleSelect(g.id)"
               />
             </td>
             <td><RouterLink :to="guardianAccountPath(g.id,route.params.organizationSlug)" class="guardian-name">{{guardianName(g)}}</RouterLink></td>
-            <td class="guardian-contact"><a v-if="g.email" :href="`mailto:${g.email}`">{{g.email}}</a><span v-else>No email on file</span><a v-if="g.phone" :href="`tel:${g.phone.replace(/[^+0-9]/g,'')}`">{{g.phone}}</a><span v-else class="muted">No phone on file</span></td>
-            <td @click="openGuardianProfile(g.id)">
+            <td class="guardian-contact" data-label="Contact"><a v-if="g.email" :href="`mailto:${g.email}`">{{g.email}}</a><span v-else>No email on file</span><a v-if="g.phone" :href="`tel:${g.phone.replace(/[^+0-9]/g,'')}`">{{g.phone}}</a><span v-else class="muted">No phone on file</span></td>
+            <td data-label="Status" @click="openGuardianProfile(g.id)">
               <span :class="['badge', statusBadgeClass(g.status)]">{{ statusLabel(g.status) }}</span>
             </td>
-            <td @click="openGuardianProfile(g.id)">{{ g.agencies || '—' }}</td>
-            <td><span v-if="!g.linked_clients?.length" class="muted">No linked children</span><ul v-else class="linked-children"><li v-for="child in g.linked_clients" :key="child.id"><RouterLink :to="`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/admin/clients/${child.id}`">{{child.name}}</RouterLink></li></ul><small v-if="g.linked_clients?.length" class="muted">{{Number(g.portal_clients_count||0)}} with relationship access enabled</small></td>
-            <td @click="openGuardianProfile(g.id)">{{ formatDate(g.created_at) }}</td>
+            <td data-label="Agency" @click="openGuardianProfile(g.id)">{{ g.agencies || '—' }}</td>
+            <td data-label="Linked children"><span v-if="!g.linked_clients?.length" class="muted">No linked children</span><ul v-else class="linked-children"><li v-for="child in g.linked_clients" :key="child.id"><RouterLink :to="`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/admin/clients/${child.id}`">{{child.name}}</RouterLink></li></ul><small v-if="g.linked_clients?.length" class="muted">{{Number(g.portal_clients_count||0)}} with relationship access enabled</small></td>
+            <td data-label="Created" @click="openGuardianProfile(g.id)">{{ formatDate(g.created_at) }}</td>
             <td><button type="button" class="btn btn-secondary btn-sm" @click="openGuardianProfile(g.id)">Open account</button></td>
           </tr>
           <tr v-if="filteredGuardians.length === 0">
@@ -610,6 +611,7 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 
+.header-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .header-actions .btn.active {
   border-color: var(--primary, #B80016);
 }
@@ -722,11 +724,24 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
-  .filters-row {
-    grid-template-columns: 1fr;
-  }
+  .page-header{flex-direction:column;align-items:stretch}
+  .header-actions{justify-content:flex-start}
+  .filters-row {grid-template-columns:minmax(0,1fr)}
+  .filter-group:first-child{grid-column:1/-1}
+  .filter-group input,.filter-group select{width:100%;box-sizing:border-box}
+
 }
 
+@media(max-width:650px){
+ .guardian-results table,.guardian-results tbody,.guardian-results tr,.guardian-results td{display:block;width:auto}
+ .guardian-results thead{display:none}
+ .guardian-results tr{position:relative;padding:16px 20px;border-top:1px solid #e4ebf2}
+ .guardian-results td{border:0;padding:6px 0}
+ .guardian-results td.col-check{position:absolute;right:20px;top:18px;padding:0}
+ .guardian-results td[data-label]::before{content:attr(data-label);display:block;font-size:11px;color:#5b7087;margin-bottom:5px}
+ .guardian-results td[data-label="Created"]{display:none}
+ .guardian-contact{min-width:0}.guardian-name{padding-right:28px;font-size:16px}
+}
 .g-dev-fill-badge {
   display: inline-block;
   padding: 2px 6px;
