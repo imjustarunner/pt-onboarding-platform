@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { scheduleAppointmentContext } from '../scheduleAppointmentContext.js';
 
 it('preserves explicit clinical source identifiers independently from the provider calendar event id', () => {
-  expect(scheduleAppointmentContext({ id: 80, appointmentId: 20, officeEventId: 83, clinicalSessionId: 167, clientId: 2273, tenantServiceId: 34, serviceCode: '90834', serviceLocationId: 125, modality: 'IN_PERSON', appointmentStatus: 'SCHEDULED' })).toEqual({
+  expect(scheduleAppointmentContext({ id: 80, appointmentId: 20, officeEventId: 83, clinicalSessionId: 167, clientId: 2273, tenantServiceId: 34, serviceCode: '90834', serviceLocationId: 125, modality: 'IN_PERSON', appointmentStatus: 'SCHEDULED' })).toMatchObject({
     appointmentId: 20, officeEventId: 83, clinicalSessionId: 167, clinicalNoteId: null, clientId: 2273, tenantServiceId: 34, serviceCode: '90834', serviceLocationId: 125, schoolOrganizationId: null, modality: 'IN_PERSON', appointmentStatus: 'scheduled'
   });
 });

@@ -8,6 +8,10 @@ it('carries the canonical school service location into provider schedule metadat
  expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('sl.agency_id=ap.agency_id'),[80]);
  expect(rows.get(80)).toMatchObject({id:20,status:'client_confirmed',modality:'IN_PERSON',serviceLocationId:12,schoolOrganizationId:451,schoolName:'Cedar Grove',locationLabel:'Cedar Grove'});
 });
+it('includes the saved UTC appointment window independently of the calendar copy',async()=>{
+ db.execute.mockResolvedValue([[{id:20,provider_schedule_event_id:80,start_at:'2026-12-04 00:00:00',end_at:new Date('2026-12-04T01:00:00Z')}]]);
+ expect((await Appointment.listIdsByProviderScheduleEventIds([80])).get(80)).toMatchObject({startAt:'2026-12-04T00:00:00.000Z',endAt:'2026-12-04T01:00:00.000Z'});
+});
 it('retains office location and room metadata without labeling it a school',async()=>{
  db.execute.mockResolvedValue([[{id:21,provider_schedule_event_id:81,status:'scheduled',office_location_id:3,room_id:4,service_location_name:'Clinic'}]]);
  expect((await Appointment.listIdsByProviderScheduleEventIds([81])).get(81)).toMatchObject({officeLocationId:3,roomId:4,schoolOrganizationId:null,schoolName:null,locationLabel:'Clinic'});

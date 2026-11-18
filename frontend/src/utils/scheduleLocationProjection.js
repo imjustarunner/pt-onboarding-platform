@@ -12,8 +12,13 @@ export function includeOfficeClientSessions(events = [], offices = []) {
   for (const office of offices) {
     const appointmentId = number(office.appointmentId);
     if (!appointmentId || !number(office.clientId) || linked.has(appointmentId) || terminal(office)) continue;
+    const start=parseScheduleUtcInstant(office.appointmentStartAt),end=parseScheduleUtcInstant(office.appointmentEndAt);
+    const [roomStart,roomEnd]=range(office);
+    const mismatch=!!(start&&end&&roomStart&&roomEnd&&(roomStart>start||roomEnd<end));
     result.push({ ...office, agencyId: number(office.appointmentAgencyId, office.agencyId), _agencyId: number(office.appointmentAgencyId, office.agencyId, office._agencyId), id: -number(office.id), officeEventId: number(office.id), appointmentId,
       officeLocationId: number(office.buildingId, office.officeLocationId), kind: 'PERSONAL_EVENT', title: 'Client session',
+      ...(start&&end?{startAt:start.toISOString(),endAt:end.toISOString()}:{}),
+      ...(mismatch?{calendarStartAt:office.startAt,calendarEndAt:office.endAt,calendarTimingMismatch:true,calendarMirrorKind:'office_reservation'}:{}),
       appointmentStatus: String(office.appointmentStatus || office.statusOutcome || 'scheduled').toLowerCase(), isPrivate: false, allDay: false });
     linked.add(appointmentId);
   }

@@ -3,6 +3,9 @@ export default {
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: { environment: 'node', restoreMocks: true, include: [
     'src/services/__tests__/scheduling.timezoneAudit.test.js',
+    'src/services/__tests__/scheduling.canonicalCalendarWindow.test.js',
+    'src/services/__tests__/scheduling.calendarLocationMetadata.test.js',
+    'src/services/__tests__/agencyAffiliationMetadata.test.js',
     'src/models/__tests__/scheduling.calendarWeek.test.js',
     'src/services/__tests__/scheduling.appointmentVideoPolicy.test.js',
     'src/services/__tests__/scheduling.clinicalEdit.test.js',

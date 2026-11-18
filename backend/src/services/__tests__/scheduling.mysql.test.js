@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import mysql from 'mysql2/promise';
 import { randomBytes } from 'node:crypto';
+import { appointmentCalendarFallbacks } from '../appointmentCalendarFallback.service.js';
 vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64', randomBytes(32).toString('base64'));
 vi.stubEnv('CLINICAL_NOTE_ENCRYPTION', 'true');
 import { readFile } from 'node:fs/promises';
@@ -97,10 +98,12 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
         ADD COLUMN active_guard_end_at DATETIME GENERATED ALWAYS AS (CASE WHEN status<>'CANCELLED' THEN end_at ELSE NULL END) VIRTUAL,
         ADD UNIQUE KEY uniq_office_events_active_room_slot (active_guard_room_id,active_guard_start_at,active_guard_end_at)`,
       `ALTER TABLE appointments ADD COLUMN clinical_session_id INT, ADD COLUMN cancellation_reason VARCHAR(500), ADD COLUMN canceled_at DATETIME, ADD COLUMN canceled_by_user_id INT`,
+      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT`,
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,
       `ALTER TABLE provider_schedule_events ADD COLUMN agency_id INT, ADD COLUMN client_id INT, ADD COLUMN kind VARCHAR(32), ADD COLUMN recurrence_series_id VARCHAR(64), ADD COLUMN recurrence_frequency VARCHAR(32), ADD COLUMN recurrence_policy VARCHAR(16), ADD COLUMN recurrence_index INT, ADD COLUMN updated_by_user_id INT, ADD COLUMN meeting_completed_at DATETIME`,
+      `ALTER TABLE provider_schedule_events ADD COLUMN is_private BOOLEAN DEFAULT FALSE`,
       `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,session_type VARCHAR(32) DEFAULT 'individual',start_at DATETIME,end_at DATETIME,status VARCHAR(32),cancel_reason VARCHAR(500),recurrence_series_id VARCHAR(64),finalized_at DATETIME,updated_at DATETIME)`
     ];
     for (const sql of lifecycleDdl) await pool.query(sql);
@@ -162,6 +165,15 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     }
   });
   const move = () => moveOfficeSessionOccurrence({ eventId: 20, newRoomId: 5, startAt: '2099-01-06 17:00:00', endAt: '2099-01-06 18:00:00', timeZone: 'America/Denver', actorUserId: 9 });
+  it('reads the canonical 5 PM appointment instead of a stale 10 AM calendar copy without modifying either row',async()=>{
+    await pool.query("UPDATE appointments SET office_event_id=NULL,start_at='2026-12-04 00:00:00',end_at='2026-12-04 01:00:00',source_timezone='America/Denver' WHERE id=10");
+    await pool.query("UPDATE provider_schedule_events SET start_at='2026-12-03 17:00:00',end_at='2026-12-03 18:00:00' WHERE id=40");
+    const events=await appointmentCalendarFallbacks({providerId:9,agencyId:1,windowStart:'2026-11-30 07:00:00',windowEnd:'2026-12-07 07:00:00'},pool);
+    expect(events).toMatchObject([{id:40,appointmentId:10,startAt:'2026-12-04T00:00:00.000Z',calendarStartAt:'2026-12-03T17:00:00.000Z',calendarTimingMismatch:true}]);
+    const [[saved]]=await pool.query("SELECT DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') AS start_at FROM appointments WHERE id=10");
+    const [[copy]]=await pool.query("SELECT DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') AS start_at FROM provider_schedule_events WHERE id=40");
+    expect(saved.start_at).toBe('2026-12-04 00:00:00');expect(copy.start_at).toBe('2026-12-03 17:00:00');
+  });
   it('applies both migrations and enforces appointment/client clinical uniqueness', async () => {
     await expect(clinicalPool.query(`INSERT INTO clinical_sessions (id, agency_id, client_id, appointment_id) VALUES (31, 1, 8, 10)`)).rejects.toMatchObject({ code: 'ER_DUP_ENTRY' });
   });

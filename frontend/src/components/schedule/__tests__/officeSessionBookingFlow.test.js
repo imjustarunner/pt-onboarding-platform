@@ -60,6 +60,15 @@ it.each(['provider','admin','support'])('keeps a December 3 Denver 5 PM appointm
  expect(s.editorStartTime).toBe('10:00');
  expect(wrapper.findComponent(AppointmentScheduleCheck).get('[role="alert"]').text()).toContain('different times');
  expect(mocks.patch).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
+ event.calendarStartAt=event.startAt;event.calendarEndAt=event.endAt;event.calendarTimingMismatch=true;
+ event.startAt='2026-12-04T00:00:00Z';event.endAt='2026-12-04T01:00:00Z';
+ s.summary={weekStart:'2026-11-30',scheduleEvents:[{...event}]};await nextTick();
+ const corrected=s.cellBlocks('Thursday',17,0).find(b=>b.appointmentId===821);expect(corrected).toBeTruthy();
+ expect(s.cellBlocks('Thursday',10,0).some(b=>b.appointmentId===821)).toBe(false);
+ await s.openAppointmentEditInScheduleModal({item:corrected,dayName:'Thursday',hour:17});await flushPromises();
+ expect(s.editorStartTime).toBe('17:00');expect(s.editorEndTime).toBe('18:00');
+ expect(wrapper.findComponent(AppointmentScheduleCheck).get('[role="alert"]').text()).toContain('Stored calendar copy');
+ expect(mocks.patch).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
 });
 
 it('carries the reserved office, room, biweekly cadence and billing location into the session and keeps them after selecting a client', async () => {

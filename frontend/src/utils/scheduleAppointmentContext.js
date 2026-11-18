@@ -14,6 +14,8 @@ export function scheduleAppointmentContext(event = {}) {
     serviceCode: String(event.serviceCode ?? event.service_code ?? '').trim(),
     businessType: String(event.businessType ?? event.business_type ?? '').trim(),
     learningContext:event.learningContext||null,
+    ...(event.calendarTimingMismatch?{calendarStartAt:event.calendarStartAt,calendarEndAt:event.calendarEndAt,
+      calendarTimingMismatch:true,calendarMirrorKind:event.calendarMirrorKind||null}:{}),
     modality: String(event.modality || '').trim(),
     appointmentStatus: String(event.appointmentStatus ?? event.appointment_status ?? '').trim().toLowerCase() || null
   };

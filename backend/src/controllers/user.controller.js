@@ -1,4 +1,6 @@
+import {attachAgencyAffiliationMetadata as attachAffiliationMeta} from '../services/agencyAffiliationMetadata.service.js';
 import {missingAppointmentOutcomeEvents} from '../utils/appointmentOutcomeCalendar.js';
+import {canonicalAppointmentWindow,appointmentEventOverlapsWindow,canonicalCalendarMoveWindows} from '../utils/canonicalAppointmentWindow.js';
 import {appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {calendarVirtualOpening} from '../utils/calendarVirtualOpening.js';
 import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
@@ -220,78 +222,6 @@ async function getFirstAgencyForAudit(actorUserId, targetUserId, actorRole) {
   return (shared[0] ?? targetAgencies[0]?.id) ? Number(shared[0] ?? targetAgencies[0]?.id) : null;
 }
 
-async function attachAffiliationMeta(orgs) {
-  const list = Array.isArray(orgs) ? orgs : [];
-  if (!list.length) return list;
-  try {
-    const [tables] = await pool.execute(
-      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_affiliations'"
-    );
-    const has = Number(tables?.[0]?.cnt || 0) > 0;
-    if (!has) return list;
-
-    const [rows] = await pool.execute(
-      `SELECT organization_id, agency_id
-       FROM organization_affiliations
-       WHERE is_active = TRUE
-       ORDER BY updated_at DESC, id DESC`
-    );
-    const byOrg = new Map();
-    for (const r of (rows || [])) {
-      const orgId = Number(r?.organization_id || 0);
-      if (!orgId || byOrg.has(orgId)) continue;
-      byOrg.set(orgId, Number(r?.agency_id || 0) || null);
-    }
-
-    for (const o of list) {
-      if (!o || !o.id) continue;
-      o.affiliated_agency_id = byOrg.get(Number(o.id)) || null;
-    }
-
-    const OrgAffModel = (await import('../models/OrganizationAffiliation.model.js')).default;
-    if (OrgAffModel?.agencyHasClinicalOrg) {
-      for (const o of list) {
-        if (!o || !o.id) continue;
-        const t = String(o.organization_type || '').toLowerCase();
-        if (t === 'clinical') {
-          o.hasClinicalOrg = true;
-          o.hasLearningOrg = false;
-          continue;
-        }
-        const agencyIdForCheck = t === 'agency' ? Number(o.id) : Number(o.affiliated_agency_id || o.id);
-        if (agencyIdForCheck) {
-          o.hasClinicalOrg = await OrgAffModel.agencyHasClinicalOrg(agencyIdForCheck);
-          o.hasLearningOrg = OrgAffModel?.agencyHasLearningOrg
-            ? await OrgAffModel.agencyHasLearningOrg(agencyIdForCheck)
-            : false;
-        } else {
-          o.hasClinicalOrg = false;
-          o.hasLearningOrg = false;
-        }
-      }
-    }
-
-    // For affiliations (e.g. Summit Stats Team Challenge clubs): add parent_slug for admin routing, inherit branding when missing
-    const Agency = (await import('../models/Agency.model.js')).default;
-    for (const o of list) {
-      if (!o || !o.affiliated_agency_id) continue;
-      try {
-        const parent = await Agency.findById(o.affiliated_agency_id);
-        if (parent) {
-          o.parent_slug = parent.slug || parent.portal_url || null;
-          const hasPalette = o.color_palette && (typeof o.color_palette === 'string' ? (() => { try { const p = JSON.parse(o.color_palette); return p && (p.primary || p.secondary || p.accent); } catch { return false; } })() : (o.color_palette?.primary || o.color_palette?.secondary || o.color_palette?.accent));
-          if (!hasPalette && parent.color_palette) o.color_palette = parent.color_palette;
-          if (!o.theme_settings && parent.theme_settings) o.theme_settings = parent.theme_settings;
-        }
-      } catch {
-        // ignore; best-effort only
-      }
-    }
-  } catch {
-    // ignore; best-effort only
-  }
-  return list;
-}
 
 async function syncLegacyProviderCredentialValue(userId, rawCredential) {
   const uid = Number(userId);
@@ -5870,6 +5800,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
     try {
       const { appointmentCalendarFallbacks } = await import('../services/appointmentCalendarFallback.service.js');
       scheduleEvents.push(...await appointmentCalendarFallbacks({ providerId, agencyId, allAgencies: includeAllAgencies, windowStart, windowEnd,
+        existingEventIds: scheduleEvents.map(e=>Number(e.id)), existingOfficeIds: officeEvents.map(e=>Number(e.id)),
+        canSeePrivateTitle:isSelf,
         canEdit: Number(req.user?.id) === Number(providerId) || canCreateProviderScheduleEvent(String(req.user?.role || '').toLowerCase()) || isSupervisorOfTarget }));
     } catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') throw error; }
 
@@ -5890,7 +5822,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             clientId: meta.clientId, clientName: meta.clientName, modality: meta.modality,
             serviceLocationId: meta.serviceLocationId, appointmentStatus: meta.status,businessType:meta.businessType,learningContext:meta.learningContext,serviceCode:meta.serviceCode,tenantServiceId:meta.tenantServiceId,
             ...(['learning','tutoring'].includes(meta.businessType)?{title:appointmentServiceLabel(meta)}:{}),
-            appointmentNotes: meta.notes, sourceTimezone: meta.sourceTimezone,
+            appointmentNotes: meta.notes, sourceTimezone: meta.sourceTimezone, appointmentStartAt:meta.startAt,appointmentEndAt:meta.endAt,
             canEdit: isSelf || canViewFullScheduleDetails(req.user?.role) || isSupervisorOfTarget };
         });
       }
@@ -5901,7 +5833,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           const appointmentId = typeof meta === 'object' ? Number(meta.id || 0) : Number(meta || 0);
           if (!appointmentId) return e;
           return {
-            ...e,
+            ...canonicalAppointmentWindow(e,meta),
             appointmentId,
             ...(typeof meta==='object'?{
               modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,
@@ -5921,6 +5853,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           };
         });
       }
+      scheduleEvents = scheduleEvents.filter(e=>appointmentEventOverlapsWindow(e,windowStart,windowEnd));
     } catch {
       /* appointments table optional until migration */
     }
@@ -7118,19 +7051,16 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     if (['TEAM_MEETING','HUDDLE'].includes(kind)) {
       for (const occurrence of rowsToUpdate) meetingChangeBefore.set(Number(occurrence.id), await captureMeetingChange(occurrence));
     }
+    let canonicalSeriesWindows = new Map();
     if (req.appointmentReschedule) {
       const Appointment = (await import('../models/Appointment.model.js')).default;
       const { assertAppointmentCanMove } = await import('../services/appointmentScheduleSync.service.js');
       const { assertAppointmentWindowAvailable } = await import('../services/appointmentConflict.service.js');
-      const { shiftedAppointmentWindow } = await import('../utils/appointmentSeriesMove.js');
       // Check every occurrence before changing any member of a clinical series.
-      for (const occurrence of rowsToUpdate) {
-        const appointment = await Appointment.findByProviderScheduleEventId(occurrence.id);
-        if (!appointment) continue;
-        await assertAppointmentCanMove(appointment);
-        const window = shiftedAppointmentWindow(occurrence.start_at, req.appointmentReschedule);
-        await assertAppointmentWindowAvailable(pool, { ...appointment, ...window }, appointment.id);
-      }
+      canonicalSeriesWindows=await canonicalCalendarMoveWindows(rowsToUpdate,req.appointmentReschedule,{
+        findAppointment:id=>Appointment.findByProviderScheduleEventId(id),assertMovable:assertAppointmentCanMove,
+        assertAvailable:(appointment,window)=>assertAppointmentWindowAvailable(pool,{...appointment,...window},appointment.id)
+      });
     }
     for (const occ of rowsToUpdate) {
       const occId = Number(occ.id || 0);
@@ -7142,7 +7072,10 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       let occEndDate = isPrimary ? endDate : undefined;
       let occAllDay = isPrimary && req.body?.allDay !== undefined ? allDay : undefined;
 
-      if (timingChanged && scope === 'future' && !isPrimary && !allDay && startAt && endAt) {
+      if (canonicalSeriesWindows.has(occId)) {
+        const shifted=canonicalSeriesWindows.get(occId);
+        occStartAt=shifted.startAt;occEndAt=shifted.endAt;occAllDay=false;occStartDate=null;occEndDate=null;
+      } else if (timingChanged && scope === 'future' && !isPrimary && !allDay && startAt && endAt) {
         const shifted = shiftedAppointmentWindow(occ.start_at, req.appointmentReschedule || { originalStartAt: target.start_at, startAt, endAt, timeZone: updateTimeZone });
         if (!shifted) continue;
         occStartAt = shifted.startAt;

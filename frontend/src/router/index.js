@@ -5294,7 +5294,7 @@ router.beforeEach(async (to, from, next) => {
     if (authStore.isAuthenticated && String(to.query?.sso || '') !== '1') return true;
     cookieBootstrapAttempted = true;
     try {
-      const resp = await api.get('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true });
+      const resp = await api.get('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true, timeout: 10000 });
       const u = resp?.data || null;
       if (!u || (!u.id && !u.email)) return false;
       authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);

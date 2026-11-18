@@ -367,7 +367,7 @@ export const useAgencyStore = defineStore('agency', () => {
         // Fetch agency details for each agency ID
         const agencyPromises = authStore.user.agencyIds.map(async (agencyId) => {
           try {
-            const response = await api.get(`/agencies/${agencyId}`, { skipGlobalLoading: true });
+            const response = await api.get(`/agencies/${agencyId}`, { skipGlobalLoading: true, timeout: 15000 });
             return response.data;
           } catch (err) {
             console.error(`Failed to fetch agency ${agencyId}:`, err);
@@ -390,7 +390,7 @@ export const useAgencyStore = defineStore('agency', () => {
         return agencyList;
       } else {
         // Regular users - use the API endpoint
-        const response = await api.get('/users/me/agencies', { skipGlobalLoading: true });
+        const response = await api.get('/users/me/agencies', { skipGlobalLoading: true, timeout: 15000 });
         userAgencies.value = response.data;
         // Super-admin brand switcher needs the full /agencies catalog — never overwrite with memberships.
         if (roleNorm !== 'super_admin') {
