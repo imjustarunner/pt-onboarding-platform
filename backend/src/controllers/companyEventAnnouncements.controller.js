@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { readEventOperations } from '../utils/companyEventOperations.js';
+import { isCompanyEventInvitee } from '../services/companyEventAudience.service.js';
 import { staffPollsForRequest } from './companyEvents.controller.js';
 import { pendingEventSplashes, splashLoginKey, filterLoginSplashes, recordSplashInteraction } from '../services/companyEventSplashes.service.js';
 
@@ -9,6 +11,7 @@ async function eligible(req) {
 }
 export async function listMyEventAnnouncements(req,res,next) {
   try {
+    if (!req.query?.visitId) return res.set('Cache-Control','no-store').json(await legacyScheduledAnnouncements(req.user.id));
     const items = await filterLoginSplashes(await eligible(req),Number(req.user.id),loginKey(req));
     res.set('Cache-Control','no-store');res.json(items);
   } catch(error) { next(error); }
@@ -35,4 +38,23 @@ export async function recordMyEventSplash(req,res,next) {
     await recordSplashInteraction({userId,loginKey:key,item,displayId,action});
     res.json({ok:true});
   } catch(error) { next(error); }
+}
+
+// Older mobile/browser clients still dismiss numeric notification IDs. Keep their
+// response shape until they reload; never make an old client dismiss a poll ID.
+async function legacyScheduledAnnouncements(userId) {
+  const [rows]=await pool.execute(`SELECT n.id AS notification_id,n.audience_json,e.* FROM notifications n
+    JOIN company_events e ON e.id=n.related_entity_id WHERE n.user_id=? AND n.type='company_event_message'
+      AND n.is_read=0 AND e.is_active=1 AND JSON_UNQUOTE(JSON_EXTRACT(n.audience_json,'$.displayType'))='splash'
+    ORDER BY n.created_at DESC LIMIT 30`,[userId]);
+  const result=[],seen=new Set();
+  for(const row of rows){
+    const metadata=typeof row.audience_json==='string'?JSON.parse(row.audience_json):row.audience_json||{};
+    const announcement=readEventOperations(row).dashboardAnnouncements.find(item=>String(item.id)===String(metadata.announcementId));
+    if(!announcement||new Date(announcement.scheduledAt)>new Date()||new Date(announcement.endsAt)<=new Date())continue;
+    const key=`${row.id}:${announcement.id}`;
+    if(seen.has(key)||!await isCompanyEventInvitee({event:row,userId}))continue;
+    seen.add(key);result.push({id:row.notification_id,title:row.title,message:announcement.content,url:metadata.navigationUrl});
+  }
+  return result;
 }

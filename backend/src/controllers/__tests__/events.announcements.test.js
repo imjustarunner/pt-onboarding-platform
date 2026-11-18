@@ -12,8 +12,13 @@ const poll={id:8,agencyId:2,title:'Choose a date',question:'Which day?',options:
 const user={id:5,sessionId:'login-one'};
 let events,seen;
 beforeEach(()=>{vi.clearAllMocks();events=[structuredClone(event)];seen=[];staffPollsForRequest.mockResolvedValue([poll]);isCompanyEventInvitee.mockResolvedValue(true);pool.execute.mockImplementation(async(sql)=>sql.includes('JOIN company_event_invitations')?[events]:sql.includes('SELECT item_key')?[seen]:[[]]);});
-async function invoke(fn=listMyEventAnnouncements,request={user,query:{}}){const res={json:vi.fn(),set:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();await fn(request,res,next);expect(next).not.toHaveBeenCalled();return res;}
+async function invoke(fn=listMyEventAnnouncements,request={user,query:{visitId:'new-client'}}){const res={json:vi.fn(),set:vi.fn().mockReturnThis(),status:vi.fn().mockReturnThis()},next=vi.fn();await fn(request,res,next);expect(next).not.toHaveBeenCalled();return res;}
 describe('login polls and RSVP splashes',()=>{
+ it('keeps old clients on numeric notification IDs during rollout',async()=>{
+   pool.execute.mockResolvedValueOnce([[{...event,notification_id:44,audience_json:{announcementId:'current',navigationUrl:'/event'},operations_json:{dashboardAnnouncements:[{id:'current',content:'Update',scheduledAt:'2020-01-01',endsAt:'2099-12-01'}]}}]]);
+   expect((await invoke(listMyEventAnnouncements,{user,query:{}})).json).toHaveBeenCalledWith([{id:44,title:'Party',message:'Update',url:'/event'}]);
+   expect(staffPollsForRequest).not.toHaveBeenCalled();
+ });
  it('queues pending polls and RSVPs without waiting for a scheduled announcement or unread notification',async()=>{const res=await invoke();expect(res.json.mock.calls[0][0].map(x=>x.id)).toEqual(['poll:8','rsvp:7']);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(pool.execute.mock.calls.every(([sql])=>!sql.includes('INSERT'))).toBe(true);});
  it('stops polls after voting, closure, disabled splashes, or removed voting permission',async()=>{for(const patch of [{myResponse:{key:'1'}},{closedAt:'2026-01-01'},{loginSplashEnabled:false},{canVote:false}]){staffPollsForRequest.mockResolvedValue([{...poll,...patch}]);expect((await invoke()).json.mock.calls[0][0].every(item=>item.kind!=='poll')).toBe(true);}});
  it('stops RSVPs after a yes, no, maybe, expired deadline or disabled login setting',async()=>{for(const patch of [{response:'yes'},{response:'no'},{response_key:'M'},{rsvp_deadline:'2020-01-01'},{operations_json:{loginSplashEnabled:false}}]){events=[{...event,...patch}];expect((await invoke()).json.mock.calls[0][0].every(item=>item.kind!=='rsvp')).toBe(true);}});
