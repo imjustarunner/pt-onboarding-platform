@@ -6,7 +6,7 @@ const m=vi.hoisted(()=>({pool:null}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>m.pool.execute(...args),getConnection:()=>m.pool.getConnection()}}));
 vi.mock('../clientSessionBookingRollout.service.js',()=>({sessionBookingProviders:async()=>[{id:1,name:'Example One'},{id:2,name:'Example Two'}]}));
 import {readTransitionWeek,saveTransitionWeek} from '../transitionWeek.service.js';
-import {transitionPractices,transitionWorkspaceRoster,transitionClients,transitionMeetings} from '../transitionWorkspace.service.js';
+import {transitionPractices,transitionWorkspaceData,transitionWorkspaceRoster,transitionClients,transitionMeetings} from '../transitionWorkspace.service.js';
 const port=Number(process.env.TRANSITION_WEEK_TEST_MYSQL_PORT);
 describe.skipIf(!port)('native MySQL transition workspace',()=>{
  let admin,database,oldKey;
@@ -19,6 +19,10 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
   await m.pool.query(`CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),preferred_name VARCHAR(80),role VARCHAR(32),is_active TINYINT,is_archived TINYINT,is_demo TINYINT,status VARCHAR(30));
    CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active TINYINT);
    CREATE TABLE agencies(id INT PRIMARY KEY,feature_flags JSON);
+   CREATE TABLE payroll_periods(id INT PRIMARY KEY,agency_id INT,period_start DATE,period_end DATE,status VARCHAR(30));
+   CREATE TABLE payroll_summaries(payroll_period_id INT,agency_id INT,user_id INT,direct_hours DECIMAL(10,2),total_hours DECIMAL(10,2),tier_credits_current DECIMAL(10,2),total_units DECIMAL(10,2));
+   CREATE TABLE payroll_imports(id INT PRIMARY KEY,payroll_period_id INT,agency_id INT,created_at DATETIME);
+   CREATE TABLE payroll_import_rows(id INT PRIMARY KEY,payroll_import_id INT,payroll_period_id INT,agency_id INT,user_id INT,unit_count DECIMAL(10,2),service_date DATE,row_fingerprint VARCHAR(64));
    CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,provider_id INT,full_name VARCHAR(120),initials VARCHAR(20),status VARCHAR(30));
    CREATE TABLE client_provider_assignments(client_id INT,provider_user_id INT,is_active TINYINT);
    CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,provider_user_id INT,start_at DATETIME,status VARCHAR(30));
@@ -28,6 +32,10 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
    INSERT INTO agencies VALUES (2,JSON_OBJECT()),(6,JSON_OBJECT()),(377,JSON_OBJECT());
    INSERT INTO users VALUES(1,'Example','One',NULL,'provider',1,0,0,'ACTIVE'),(2,'Example','Two',NULL,'staff',1,0,0,'ACTIVE_EMPLOYEE'),(3,'Inactive','Example',NULL,'provider',0,0,0,'INACTIVE'),(9,'Other','Practice',NULL,'provider',1,0,0,'ACTIVE'),(99,'Example','Manager',NULL,'admin',1,0,0,'ACTIVE');
    INSERT INTO user_agencies VALUES(1,2,1),(2,2,1),(3,2,1),(9,6,1),(99,2,1),(99,6,1),(99,377,0);
+   INSERT INTO payroll_periods VALUES(1,2,'2020-01-01','2020-01-14','posted'),(2,2,'2020-01-15','2020-01-28','finalized'),(3,2,'2020-01-29','2020-02-11','ran'),(4,2,'2019-12-01','2019-12-14','posted'),(5,2,'2020-02-12','2020-02-25','draft'),(6,2,'2099-01-01','2099-01-14','ran'),(9,6,'2020-02-12','2020-02-25','posted');
+   INSERT INTO payroll_summaries VALUES(1,2,1,1.25,2,1,4),(2,2,1,2,3,2,4),(3,2,1,3.25,4,3,4),(4,2,1,500,500,500,500),(5,2,1,500,500,500,500),(6,2,1,500,500,500,500),(9,6,1,500,500,500,500),(3,2,99,1,1,1,1),(3,2,2,0,0,0,0);
+   INSERT INTO payroll_imports VALUES(1,3,2,'2020-02-12 01:00:00'),(2,3,2,'2020-02-12 02:00:00'),(9,9,6,'2020-02-26 02:00:00');
+   INSERT INTO payroll_import_rows VALUES(1,1,3,2,1,1,'2020-02-01','old-import'),(2,2,3,2,1,30,'2020-02-01','same-entry'),(3,2,3,2,1,30,'2020-02-01','same-entry'),(4,2,3,2,1,1,'2019-01-01','old-service'),(5,9,9,6,1,1,'2020-02-13','other-practice');
    INSERT INTO clients VALUES(41,2,1,'Fictional client A','FCA','ACTIVE'),(42,2,2,'Fictional client B','FCB','DISCHARGED'),(49,6,1,'Foreign chart','FC','ACTIVE');
    INSERT INTO client_provider_assignments VALUES(42,1,1);
    INSERT INTO appointments VALUES(1,2,1,'2026-10-19 06:00:00','completed'),(2,2,1,'2026-11-15 18:00:00','COMPLETED'),(3,2,1,'2026-11-16 06:30:00','completed'),(4,6,1,'2026-11-15 18:00:00','completed'),(5,2,1,'2026-11-16 18:00:00','scheduled'),(6,2,1,'2026-11-17 18:00:00','cancelled'),(7,2,1,'2026-10-19 05:59:59','completed');
@@ -36,10 +44,11 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
  beforeEach(async()=>{await m.pool.query('DELETE FROM practice_transition_weeks; DELETE FROM practice_transition_week_events;');});
  afterAll(async()=>{if(m.pool)await m.pool.end();if(admin){if(database)await admin.query(`DROP DATABASE IF EXISTS \`${database}\``);await admin.end();}if(oldKey===undefined)delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=oldKey;});
  const save=input=>saveTransitionWeek({agencyId:2,actorUserId:99,input:{revision:0,...input}});
- it('counts canonical completed sessions using correct Mountain-Time boundaries and active staff',async()=>{
+ it('uses exactly the last three ended processed payroll periods, with no app counts or unrelated staff',async()=>{
   expect((await transitionPractices({id:99,role:'admin'})).map(p=>p.id)).toEqual([2,6]);
-  const roster=await transitionWorkspaceRoster(2);expect(roster.map(p=>p.id).sort((a,b)=>a-b)).toEqual([1,2,99]);
-  expect(roster.find(p=>p.id===1)).toMatchObject({appCompleted:3,appUpcoming:1});
+  const data=await transitionWorkspaceData(2);expect(data.people.map(p=>p.id)).toEqual([1]);expect(data.payroll.periods.map(p=>p.id)).toEqual([3,2,1]);
+  expect(data.people[0]).toMatchObject({directCreditHours:6.5,totalCreditHours:9,currentTierCredits:6,payrollUnits:12,serviceEntries:1});
+  expect(data.staff.map(p=>p.id)).toContain(99);expect(data.payroll.excludedWithoutActivity).toBe(1);
   const clients=await transitionClients(2,1);expect(clients.map(c=>c.id)).toEqual([41,42]);
  });
  it('persists assigned client steps and their actual actor encrypted across reloads',async()=>{
@@ -58,10 +67,16 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
   expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(results.find(r=>r.status==='rejected').reason.status).toBe(409);
   expect((await readTransitionWeek(2)).revision).toBe(1);
  });
- it('freezes the complete named staff list, including non-client employees, with explicit reviewed counts',async()=>{
-  await save({action:'freeze_workspace_ranking',sourceReference:'Fictional verified source',rows:[{providerId:1,completedFourWeeks:12,upcomingWeek:3},{providerId:2,completedFourWeeks:0,upcomingWeek:0},{providerId:99,completedFourWeeks:0,upcomingWeek:0}]});
-  const board=await readTransitionWeek(2);expect(board.state.ranking.rows.map(r=>r.providerId)).toEqual([2,99,1]);
-  const [[agency]]=await m.pool.execute('SELECT feature_flags FROM agencies WHERE id=2');expect(agency.feature_flags.transitionWeek.enforceCohorts).toBe(true);
+ it('automatically saves payroll groups with the correct actor while leaving booking disabled',async()=>{
+  const preview=await readTransitionWeek(2);expect(preview.state.ranking.rows.map(r=>r.providerId)).toEqual([1]);
+  const saved=await save({action:'workspace_item',kind:'groups',key:'1',rankingKey:preview.state.ranking.key,patch:{ownerUserId:99}});
+  expect(saved.state.ranking.sourceType).toBe('payroll-last-three-v1');expect(saved.state.workspace.groups[1].ownerUserId).toBe(99);
+  const [[agency]]=await m.pool.execute('SELECT feature_flags FROM agencies WHERE id=2');expect(agency.feature_flags.transitionWeek.enforceCohorts).toBe(true);expect(agency.feature_flags.clientSessionBookingRollout).toBeUndefined();
+ });
+ it('rejects stale group membership and manual appointment rankings without writing evidence',async()=>{
+  await expect(save({action:'workspace_item',kind:'groups',key:'1',rankingKey:'old-group',patch:{ownerUserId:99}})).rejects.toMatchObject({status:409});
+  await expect(save({action:'freeze_workspace_ranking',rows:[]})).rejects.toMatchObject({status:409});
+  expect((await readTransitionWeek(2)).revision).toBe(0);
  });
  it('lists and links only eligible meetings without expanding private meeting visibility',async()=>{
   expect((await transitionMeetings(2,99)).map(e=>e.id)).toEqual([101]);

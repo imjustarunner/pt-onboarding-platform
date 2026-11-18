@@ -10,10 +10,23 @@ it('only offers three practices with current membership and puts ITSCO first',as
  expect(m.execute.mock.calls[0][1]).toEqual([9]);expect(m.execute.mock.calls[0][0]).toContain('ua.is_active=1');
  await expect(transitionPractices({id:9,role:'provider'})).rejects.toMatchObject({status:403});
 });
-it('loads real names and canonical app counts without presenting them as verified source totals',async()=>{
- m.execute.mockImplementation(async sql=>sql.includes('FROM appointments WHERE')?[[{provider_user_id:1,completed:8,upcoming:3}]]:[[{id:1,name:'Example',role:'provider'},{id:2,name:'Example staff',role:'staff'}]]);
- const rows=await transitionWorkspaceRoster(2);expect(rows[0]).toMatchObject({id:1,clientFacing:true,appCompleted:8,appUpcoming:3});expect(rows[1].appCompleted).toBe(0);expect(rows[1]).not.toHaveProperty('verified');
- expect(m.execute.mock.calls.find(([sql])=>sql.includes('FROM appointments'))[1]).toEqual([2]);
+it('ranks provider payroll and never reads app appointments or includes general staff',async()=>{
+ m.execute.mockImplementation(async sql=>{
+  if(sql.includes('FROM users'))return [[{id:1,name:'Example',role:'provider'},{id:2,name:'Coordinator',role:'staff'}]];
+  if(sql.includes('FROM payroll_periods pp'))return [[{id:8,periodStart:'2026-10-24',periodEnd:'2026-11-06',status:'posted'}]];
+  if(sql.includes('FROM payroll_summaries WHERE'))return [[{user_id:1,direct_hours:'3.25',total_hours:4,tier_credits_current:3.25,total_units:9},{user_id:2,direct_hours:1,total_hours:1}]];
+  if(sql.includes('FROM payroll_import_rows'))return [[{user_id:1,service_entries:2}]];
+  return [[]];
+ });
+ const rows=await transitionWorkspaceRoster(2);expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({id:1,directCreditHours:3.25,totalCreditHours:4,serviceEntries:2,rank:1,cohort:1});
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM appointments'))).toBe(false);
+ const [periodSql,params]=m.execute.mock.calls.find(([sql])=>sql.includes('FROM payroll_periods pp'));
+ expect(periodSql).toContain('LIMIT 3');expect(periodSql).toContain('pp.period_end<?');expect(params[0]).toBe(2);
+ expect(m.execute.mock.calls.find(([sql])=>sql.includes('FROM payroll_summaries WHERE'))[1]).toEqual([2,8]);
+});
+it('leaves the provider list empty when there are no completed payroll periods',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('FROM users')?[[{id:1,name:'Example'}]]:[[]]);
+ expect(await transitionWorkspaceRoster(2)).toEqual([]);expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM payroll_import_rows'))).toBe(false);
 });
 it('loads existing clients only for the chosen practice and active employee, including past charts',async()=>{
  m.execute.mockResolvedValueOnce([[{id:1,name:'Example'}]]).mockResolvedValueOnce([[{id:8,name:'Fictional client',status:'DISCHARGED'}]]);

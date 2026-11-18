@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { TRANSITION_PRACTICES } from '../content/transitionWeek.js';
 import { sessionBookingProviders } from './clientSessionBookingRollout.service.js';
+import { rankPayrollProviders, PAYROLL_RANKING_SOURCE } from '../utils/transitionPayrollRanking.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 export async function transitionPractices(actor, db = pool) {
@@ -20,20 +21,36 @@ export async function transitionStaff(agencyId, db = pool) {
     ORDER BY name,u.id`, [agencyId]);
   return rows.map(row => ({ id: Number(row.id), name: row.name, role: row.role }));
 }
-export async function transitionWorkspaceRoster(agencyId, db = pool) {
+export async function transitionWorkspaceData(agencyId, db = pool, now = new Date()) {
   const staff = await transitionStaff(agencyId, db);
-  const providers = await sessionBookingProviders(agencyId, db);
-  // Count canonical appointments once, never calendar mirrors or billing units.
-  // These are suggestions: the previous EHR may contain sessions absent here.
-  const [counts] = await db.execute(`SELECT provider_user_id,
-    SUM(CASE WHEN start_at >= '2026-10-19 06:00:00' AND start_at < '2026-11-16 07:00:00' AND LOWER(status)='completed' THEN 1 ELSE 0 END) completed,
-    SUM(CASE WHEN start_at >= '2026-11-16 07:00:00' AND start_at < '2026-11-23 07:00:00' AND LOWER(COALESCE(status,'')) NOT REGEXP 'cancel|void|rescheduled|no.show' THEN 1 ELSE 0 END) upcoming
-    FROM appointments WHERE agency_id=? AND start_at >= '2026-10-19 06:00:00' AND start_at < '2026-11-23 07:00:00'
-    GROUP BY provider_user_id`, [agencyId]);
-  return staff.map(person => {
-    const count = counts.find(row => Number(row.provider_user_id) === person.id);
-    return { ...person, clientFacing: providers.some(p => p.id === person.id), appCompleted: Number(count?.completed || 0), appUpcoming: Number(count?.upcoming || 0) };
-  });
+  const providers = (await sessionBookingProviders(agencyId, db)).filter(p=>staff.some(s=>s.id===p.id));
+  const today = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+  const [periods] = await db.execute(`SELECT pp.id,DATE_FORMAT(pp.period_start,'%Y-%m-%d') periodStart,
+    DATE_FORMAT(pp.period_end,'%Y-%m-%d') periodEnd,pp.status
+    FROM payroll_periods pp WHERE pp.agency_id=? AND pp.period_end<? AND pp.status IN ('ran','posted','finalized')
+    AND EXISTS (SELECT 1 FROM payroll_summaries ps WHERE ps.payroll_period_id=pp.id AND ps.agency_id=pp.agency_id)
+    ORDER BY pp.period_end DESC,pp.id DESC LIMIT 3`, [agencyId,today]);
+  let summaries=[],entries=[];
+  if (periods.length) {
+    const ids=periods.map(p=>Number(p.id)),marks=ids.map(()=>'?').join(',');
+    [summaries]=await db.execute(`SELECT user_id,payroll_period_id,direct_hours,total_hours,tier_credits_current,total_units
+      FROM payroll_summaries WHERE agency_id=? AND payroll_period_id IN (${marks})`,[agencyId,...ids]);
+    // Only the latest import per period, with in-period services. Units are not
+    // session counts (some codes use minutes). No client or compensation data.
+    [entries]=await db.execute(`SELECT pir.user_id,COUNT(DISTINCT COALESCE(NULLIF(pir.row_fingerprint,''),CONCAT('row:',pir.id))) service_entries
+      FROM payroll_import_rows pir JOIN payroll_periods pp ON pp.id=pir.payroll_period_id AND pp.agency_id=pir.agency_id
+      WHERE pir.agency_id=? AND pir.payroll_period_id IN (${marks}) AND pir.user_id IS NOT NULL AND pir.unit_count>0
+      AND pir.service_date BETWEEN pp.period_start AND pp.period_end
+      AND pir.payroll_import_id=(SELECT pi.id FROM payroll_imports pi WHERE pi.agency_id=pir.agency_id AND pi.payroll_period_id=pir.payroll_period_id ORDER BY pi.created_at DESC,pi.id DESC LIMIT 1)
+      GROUP BY pir.user_id`,[agencyId,...ids]);
+  }
+  const people=rankPayrollProviders(providers,summaries,entries);
+  return {people,staff,payroll:{sourceType:PAYROLL_RANKING_SOURCE,periods:periods.map(p=>({...p,id:Number(p.id)})),
+    excludedWithoutActivity:providers.length-people.length,
+    description:periods.length?`Payroll workload from ${periods.length} completed pay periods: ${periods.map(p=>`${p.periodStart}–${p.periodEnd}`).join(', ')}`:'No completed payroll periods with calculated activity are available.'}};
+}
+export async function transitionWorkspaceRoster(agencyId, db = pool) {
+  return (await transitionWorkspaceData(agencyId,db)).people;
 }
 export async function transitionClients(agencyId, providerId, db = pool) {
   if (!(await transitionStaff(agencyId, db)).some(p => p.id === Number(providerId))) fail(404, 'Choose an active employee in this practice.');

@@ -18,15 +18,15 @@ const scratch=await fs.mkdtemp(path.join(os.tmpdir(),'transition-workspace-brows
 let server,browser;
 try{
  await fs.mkdir(out,{recursive:true});
- const people=['Alex Example','Blair Example','Casey Example','Drew Example','Emery Example','Finley Example','Gray Example','Harper Example','Indigo Example','Jules Example','Kai Example'].map((name,i)=>({id:i+1,name,appCompleted:(i+1)*4,appUpcoming:i+1,clientFacing:true}));
- const boards=Object.fromEntries([2,6,377].map(id=>[id,{revision:0,week:'2026-11-16',practice:TRANSITION_PRACTICES.find(p=>p.id===id),catalog:transitionTaskCatalog(id),videoCatalog:transitionVideoCatalog(id),removedVideos:[],state:emptyTransitionState()}]));
- const fixture=`import {freezeTransitionRanking,validateTransitionState} from ${JSON.stringify(fileURLToPath(new URL('../../backend/src/utils/transitionWeekPolicy.js',import.meta.url)))};
+ const people=['Alex Example','Blair Example','Casey Example','Drew Example','Emery Example','Finley Example','Gray Example','Harper Example','Indigo Example','Jules Example','Kai Example'].map((name,i)=>({id:i+1,name,providerId:i+1,rank:i+1,cohort:Math.floor(i/5)+1,directCreditHours:(i+1)*3.25,totalCreditHours:(i+1)*4,currentTierCredits:(i+1)*3.25,serviceEntries:i+1,payrollUnits:(i+1)*2}));
+ const boards=Object.fromEntries([2,6,377].map(id=>[id,{revision:0,week:'2026-11-16',practice:TRANSITION_PRACTICES.find(p=>p.id===id),catalog:transitionTaskCatalog(id),videoCatalog:transitionVideoCatalog(id),removedVideos:[],state:{...emptyTransitionState(),...(id===2?{ranking:{sourceType:'payroll-last-three-v1',key:'fictional-payroll',rows:people}}:{})}}]));
+ const fixture=`import {validateTransitionState} from ${JSON.stringify(fileURLToPath(new URL('../../backend/src/utils/transitionWeekPolicy.js',import.meta.url)))};
  const boards=${JSON.stringify(boards)},people=${JSON.stringify(people)},practices=${JSON.stringify([TRANSITION_PRACTICES[1],TRANSITION_PRACTICES[0],TRANSITION_PRACTICES[2]])};
  let events=[];const copy=v=>JSON.parse(JSON.stringify(v));window.__calls=[];
  export default {
  async get(url,options={}){window.__calls.push({method:'get',url});const id=options.params?.agencyId||2;
   if(url.endsWith('/practices'))return {data:{practices}};
-  if(url.endsWith('/roster'))return {data:{people}};
+  if(url.endsWith('/roster'))return {data:{people,staff:[...people,{id:99,name:'Example Coordinator'}],payroll:{description:'Fictional payroll: September 26–October 9, October 10–23, October 24–November 6',periods:[{id:3},{id:2},{id:1}],excludedWithoutActivity:2}}};
   if(url.endsWith('/clients'))return {data:{clients:[{id:81,name:'Fictional client A',status:'ACTIVE',nextAppointmentAt:'2026-11-23T18:00:00Z'},{id:82,name:'Fictional client B',status:'DISCHARGED',nextAppointmentAt:null}]}};
   if(url.endsWith('/meetings'))return {data:{events}};
   if(url.endsWith('/participants'))return {data:{participants:people.slice(0,5).map((p,i)=>({...p,rsvp:i===0?'accepted':'pending'}))}};
@@ -35,7 +35,6 @@ try{
  },
  async put(url,input){window.__calls.push({method:'put',action:input.action});let b=boards[input.agencyId];if(input.revision!==b.revision)throw Error('Stale revision');
   if(input.action==='save')b.state=validateTransitionState(input.state,b.state,input.agencyId,1);
-  if(input.action==='freeze_workspace_ranking')b.state.ranking=freezeTransitionRanking(input.rows,people,input.sourceReference);
   if(input.action==='workspace_item'){const old=b.state.workspace[input.kind][input.key]||{},patch=input.patch; b.state.workspace[input.kind][input.key]={...old,...patch,checks:{...old.checks,...Object.fromEntries(Object.entries(patch.checks||{}).map(([k,done])=>[k,{done,at:new Date().toISOString(),by:1}]))}};}
   if(input.action==='link_meeting'){const bucket=b.state.workspace[input.kind];bucket[input.key]={...bucket[input.key],meetingIds:[input.eventId]};}
   if(input.action==='video'){
@@ -61,7 +60,7 @@ try{
  await page.goto(origin);await page.getByRole('heading',{name:'Move together, five at a time.'}).waitFor();await page.locator('.tw-person-list').getByText('Alex Example',{exact:true}).waitFor();
  assert.equal(await page.locator('.tw-practices [aria-current=page]').innerText(),'ITSCO');assert.equal(await page.locator('.tw-person').count(),5);assert.equal(await page.locator('.tw-group-nav button').count(),3);
  await page.screenshot({path:path.join(out,'workspace-desktop.png')});
- await page.locator('.tw-ranking summary').click();await page.getByLabel('Where did you check these counts?').fill('Fictional source report, reviewed November 18');await page.getByLabel('I checked the complete staff list').check();await page.getByRole('button',{name:'Confirm order & create groups of five'}).click();await page.getByText('Named groups confirmed.',{exact:false}).waitFor();
+ await page.locator('.tw-ranking summary').click();assert.ok((await page.locator('.tw-ranking').innerText()).includes('2 providers with no activity excluded'));assert.equal(await page.locator('.tw-ranking input').count(),0);await page.locator('.tw-ranking summary').click();
  await page.locator('.tw-person-open').first().click();await page.getByText('Fictional client A',{exact:false}).waitFor();
  const person=page.locator('.tw-person-detail > .tw-checklist');await person.getByLabel('Responsible person').selectOption('1');await person.getByRole('button',{name:'Save checklist'}).click();await person.getByText('Checklist saved').waitFor();
  await page.locator('.tw-client-list details').first().locator('summary').click();const client=page.locator('.tw-client-list details').first();await client.getByLabel('Bring records up to date',{exact:true}).selectOption('1');await client.getByLabel('Schedule sessions',{exact:true}).selectOption('2');await client.getByLabel('Client information and care plan up to date').check();await client.getByRole('button',{name:'Save checklist'}).click();await client.getByText('Checklist saved').waitFor();
@@ -73,7 +72,7 @@ try{
  await page.getByRole('button',{name:/Groups & clients/}).click();await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.scrollTo(0,0));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(out,'workspace-phone.png')});
  await page.getByRole('button',{name:'Inner Strength',exact:true}).click();await page.getByRole('heading',{name:'Get everyone ready for the move.'}).waitFor();assert.equal(await page.locator('.tw-practices [aria-current=page]').innerText(),'Inner Strength');assert.equal(await page.locator('.tw-person-detail').count(),0);
  assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);assert.equal(requests.some(p=>p.startsWith('/api')),false);
- await fs.writeFile(path.join(out,'browser-verification.json'),JSON.stringify({fictionalDataOnly:true,realApiRequests:0,realEmails:0,pageErrors:errors,checks:['ITSCO default','three-practice scope','named five/five/one groups','verified ranking confirmation','separate client records and schedule owners','saved client checkbox','reviewed invitation creation','group RSVP display','video add/remove','390px no overflow','practice switch clears prior client'],requests},null,2)+'\n');
+ await fs.writeFile(path.join(out,'browser-verification.json'),JSON.stringify({fictionalDataOnly:true,realApiRequests:0,realEmails:0,pageErrors:errors,checks:['ITSCO default','three-practice scope','named five/five/one groups','automatic payroll provider ranking without manual counts','separate client records and schedule owners','saved client checkbox','reviewed invitation creation','group RSVP display','video add/remove','390px no overflow','practice switch clears prior client'],requests},null,2)+'\n');
  console.log('Workspace desktop/phone rehearsal passed. No real API requests, emails or account use.');
 }catch(error){if(browser){const pages=browser.contexts().flatMap(c=>c.pages());if(pages[0]){await pages[0].screenshot({path:path.join(out,'failure.png'),fullPage:false});console.error((await pages[0].locator('body').innerText()).slice(0,1800));}}throw error;}
 finally{if(browser)await browser.close();if(server)await new Promise(resolve=>server.close(resolve));await fs.rm(scratch,{recursive:true,force:true});}

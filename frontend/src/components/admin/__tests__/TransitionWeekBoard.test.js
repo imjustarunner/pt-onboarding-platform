@@ -5,17 +5,18 @@ vi.mock('../../../services/api',()=>({default:m}));
 import Board from '../TransitionWeekBoard.vue';
 import {emptyTransitionState,transitionTaskCatalog,transitionVideoCatalog} from '../../../../../backend/src/content/transitionWeek.js';
 let current;
-const people=Array.from({length:6},(_,i)=>({id:i+1,name:`Example Employee ${i+1}`,appCompleted:i===5?0:(i+1)*4,appUpcoming:2}));
-const result=(id=2)=>({revision:0,catalog:transitionTaskCatalog(id),videoCatalog:transitionVideoCatalog(id),state:emptyTransitionState(),removedVideos:[]});
+const people=Array.from({length:6},(_,i)=>({id:i+1,name:`Example Provider ${i+1}`,providerId:i+1,rank:i+1,cohort:Math.floor(i/5)+1,directCreditHours:(i+1)*3.25,totalCreditHours:(i+1)*4,currentTierCredits:3,serviceEntries:i+1,payrollUnits:4}));
+const result=(id=2)=>({revision:0,catalog:transitionTaskCatalog(id),videoCatalog:transitionVideoCatalog(id),state:{...emptyTransitionState(),ranking:{key:'payroll-example',rows:people}},removedVideos:[]});
 const clone=v=>JSON.parse(JSON.stringify(v));
 const button=(w,name)=>w.findAll('button').find(b=>b.text()===name);
 async function open(id=2){current=result(id);const w=mount(Board,{props:{agencyId:id,actorId:1}});await flushPromises();return w;}
-beforeEach(()=>{vi.clearAllMocks();current=result();m.get.mockImplementation(async(url)=>({data:url.endsWith('/roster')?{people}:url.endsWith('/clients')?{clients:[{id:77,name:'Fictional client',status:'ACTIVE'}]}:url.endsWith('/meetings')?{events:[]}:clone(current)}));m.put.mockImplementation(async(_,body)=>{current={...current,revision:current.revision+1,state:body.state||current.state};return {data:clone(current)};});});
-it('loads actual employee names into five-person previews and keeps missing source counts unknown',async()=>{
- const w=await open();expect(w.findAll('.tw-person')).toHaveLength(5);expect(w.text()).toContain('Example Employee 1');expect(w.text()).toContain('proposed order');
- expect(w.get('[aria-label="Example Employee 6 completed sessions"]').element.value).toBe('');
- expect(button(w,'Confirm order & create groups of five').element.disabled).toBe(true);
- expect(w.text()).not.toContain('Session counts CSV');expect(w.text()).not.toContain('Publish denominators');w.unmount();
+beforeEach(()=>{vi.clearAllMocks();current=result();m.get.mockImplementation(async(url)=>({data:url.endsWith('/roster')?{people,staff:[...people,{id:99,name:'Example Coordinator'}],payroll:{description:'Last three completed payroll periods',periods:[{id:3},{id:2},{id:1}],excludedWithoutActivity:2}}:url.endsWith('/clients')?{clients:[{id:77,name:'Fictional client',status:'ACTIVE'}]}:url.endsWith('/meetings')?{events:[]}:clone(current)}));m.put.mockImplementation(async(_,body)=>{current={...current,revision:current.revision+1,state:body.state||current.state};return {data:clone(current)};});});
+it('shows provider-only automatic payroll groups without manual appointment-count inputs',async()=>{
+ const w=await open();expect(w.findAll('.tw-person')).toHaveLength(5);expect(w.findAll('.tw-group-nav button')).toHaveLength(2);
+ expect(w.get('.tw-person-list').text()).toContain('Example Provider 1');expect(w.get('.tw-person-list').text()).not.toContain('Example Coordinator');
+ expect(w.text()).toContain('3.25 direct credits / hours');expect(w.text()).toContain('2 providers with no activity excluded');
+ expect(w.find('.tw-ranking input').exists()).toBe(false);expect(w.text()).not.toContain('Completed in app');
+ expect(m.put).not.toHaveBeenCalled();w.unmount();
 });
 it('does not show already-finished provider update work or totals for ITSCO',async()=>{
  const w=await open();await button(w,'Practice checklist0/44')?.trigger('click');
@@ -38,9 +39,12 @@ it('preselects the five current group members for an invitation without sending 
  const w=await open();await button(w,'Schedule / invite this group').trigger('click');await flushPromises();
  const dialog=w.get('[role=dialog]');expect(dialog.text()).toContain('5 selected');expect(dialog.findAll('input[type=checkbox]').filter(i=>i.element.checked)).toHaveLength(6);expect(m.put).not.toHaveBeenCalled();w.unmount();
 });
-it('retains missing counts as null in saved ranking drafts and blocks unreviewed freezing',async()=>{
- const w=await open();await w.get('[aria-label="Example Employee 1 completed sessions"]').setValue('');await button(w,'Save counts for later').trigger('click');await flushPromises();
- expect(m.put.mock.calls[0][1]).toMatchObject({action:'ranking_draft',rows:expect.arrayContaining([{providerId:1,completedFourWeeks:null,upcomingWeek:2}])});expect(button(w,'Confirm order & create groups of five').element.disabled).toBe(true);w.unmount();
+it('keeps coordinators available as owners without adding them to transition groups',async()=>{
+ const w=await open();await w.get('.tw-person-open').trigger('click');await flushPromises();
+ expect(w.get('.tw-person-detail select').text()).toContain('Example Coordinator');
+ expect(w.get('.tw-person-list').text()).not.toContain('Example Coordinator');
+ const group=w.get('.tw-group-checks');await group.get('select').setValue('99');await group.get('form').trigger('submit');await flushPromises();
+ expect(m.put.mock.calls[0][1]).toMatchObject({action:'workspace_item',kind:'groups',rankingKey:'payroll-example'});w.unmount();
 });
 it('ignores stale reads when the practice changes',async()=>{
  let finish;m.get.mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));

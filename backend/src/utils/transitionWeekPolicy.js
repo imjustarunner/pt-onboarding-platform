@@ -36,7 +36,7 @@ export function validateTransitionState(input, previous, agencyId = null, actorU
     state.videos[definition.id] = result;
   }
   if (catalog.some(t => t.id === 'videos_ready') && state.tasks.videos_ready.status === 'passed' && transitionVideoCatalog(agencyId, previous).some(v => state.videos[v.id].status !== 'published')) fail('Publish and review every required video before marking training videos ready.');
-  if (Number(agencyId) === 2 && state.tasks.cohort_ranking.status === 'passed' && !state.ranking) fail('The named ITSCO batches still need verified session counts and a frozen ranking.');
+  if (Number(agencyId) === 2 && state.tasks.cohort_ranking.status === 'passed' && !state.ranking?.rows?.length) fail('The named ITSCO groups need providers with payroll activity before review can be completed.');
   for (const [taskId,stage] of [['cohort_google','google_retired'],['cohort_ehr','ehr_retired'],['cohort_observation','observed']]) {
     if (Number(agencyId) === 2 && state.tasks[taskId].status === 'passed' && !state.cohorts[1]?.[stage]) fail('Record actual first-cohort acceptance before checking off that stage.');
   }

@@ -76,7 +76,7 @@ export const TRANSITION_VIDEOS = [
 ];
 const videoReady = task('videos_ready', '17', 'Training videos', 'Record, independently review and publish every required training video', 'People Operations / training');
 const cohortTasks = [
-  task('cohort_ranking', '16', 'ITSCO groups of five', 'Verify the complete ITSCO roster and session counts; freeze named groups of five', 'Transition lead', ['rosters']),
+  task('cohort_ranking', '16', 'ITSCO groups of five', 'Review active providers ranked by the last three payroll periods in groups of five', 'Transition lead', ['rosters']),
   task('cohort_google', '17', 'ITSCO groups of five', 'Complete the first group’s Google handoff and access retirement', 'Technology', ['cohort_ranking']),
   task('cohort_ehr', '18', 'ITSCO groups of five', 'Accept the first group’s charts, families, schedules and TherapyNotes workflow handoff', 'Clinical', ['cohort_google']),
   task('cohort_observation', '19', 'ITSCO groups of five', 'Complete the first group’s monitored workday and assign first-session support', 'Clinical', ['cohort_ehr']),

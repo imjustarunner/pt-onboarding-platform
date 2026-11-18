@@ -68,13 +68,6 @@ describe.skipIf(!port)('native MySQL transition and phone evidence transactions'
     expect(results.find(r => r.status === 'rejected').reason.status).toBe(409);
     const [[count]] = await m.pool.execute('SELECT COUNT(*) AS n FROM practice_transition_week_events'); expect(count.n).toBe(1);
   });
-  it('freezes a verified roster and activates only the explicit ITSCO cohort evidence gate', async () => {
-    const board = await saveTransitionWeek({ agencyId: 2, actorUserId: 99, input: { action: 'freeze_ranking', revision: 0, sourceReference: 'Synthetic source', rows: [{ providerId: 3, completedFourWeeks: 4, upcomingWeek: 1 }] } });
-    expect(board.state.ranking.rows[0].cohort).toBe(1);
-    const [[agency]] = await m.pool.execute('SELECT feature_flags FROM agencies WHERE id=2');
-    expect(agency.feature_flags.transitionWeek.enforceCohorts).toBe(true);
-    expect(agency.feature_flags.clientSessionBookingRollout).toBeUndefined();
-  });
   it('retains no-account START and duplicates once, with newer STOP dominating delayed START', async () => {
     await capture(); await capture(); await capture('STOP', 2000); await capture('START', 1000);
     const [[row]] = await m.pool.execute('SELECT * FROM sms_phone_enrollments');

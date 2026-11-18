@@ -44,5 +44,5 @@ it('keeps video readiness open until every applicable video is published', () =>
 it('does not permit checking off named ITSCO batches that have not been populated', () => {
   const state = emptyTransitionState();
   for (const id of ['rosters','cohort_ranking']) Object.assign(state.tasks[id],{status:'passed',owner:'Transition lead',evidence:'Source reviewed'});
-  expect(() => validateTransitionState(state,emptyTransitionState(),2,99)).toThrow('named ITSCO batches');
+  expect(() => validateTransitionState(state,emptyTransitionState(),2,99)).toThrow('named ITSCO groups');
 });

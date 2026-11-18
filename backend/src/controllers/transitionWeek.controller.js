@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { readTransitionWeek, saveTransitionWeek } from '../services/transitionWeek.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 
-import { transitionPractices, transitionWorkspaceRoster, transitionClients, transitionMeetings, transitionEmailRecipients } from '../services/transitionWorkspace.service.js';
+import { transitionPractices, transitionWorkspaceData, transitionClients, transitionMeetings, transitionEmailRecipients } from '../services/transitionWorkspace.service.js';
 
 export function requireTransitionPractice(req,res,next) {
   if (![2,6,377].includes(req.transitionAgencyId)) return res.status(404).json({error:{message:'This workspace is for ITSCO, Next Level Up and Inner Strength.'}});
@@ -12,7 +12,7 @@ export async function getTransitionPractices(req,res,next) {
   try { res.set('Cache-Control','no-store'); res.json({practices:await transitionPractices(req.user)}); } catch(error) { next(error); }
 }
 export async function getTransitionRoster(req,res,next) {
-  try { res.json({people:await transitionWorkspaceRoster(req.transitionAgencyId)}); } catch(error) { next(error); }
+  try { res.json(await transitionWorkspaceData(req.transitionAgencyId)); } catch(error) { next(error); }
 }
 export async function getTransitionClients(req,res,next) {
   try {
