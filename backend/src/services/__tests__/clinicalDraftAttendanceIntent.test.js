@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const database = vi.hoisted(() => ({ execute: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: database }));
+vi.mock('../../config/database.js', () => ({ default: { execute: (sql, ...args) => sql.includes('clinical_work_archive_resources') ? Promise.resolve([[]]) : database.execute(sql, ...args) } }));
 import ClinicalNoteDraft from '../../models/ClinicalNoteDraft.model.js';
 import { maybeEncryptNotePayload } from '../clinicalNoteCrypto.service.js';
 import { hasAuthoredDraftChange } from '../clinicalDraftAttendanceIntent.js';

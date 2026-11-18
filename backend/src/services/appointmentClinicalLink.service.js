@@ -1,6 +1,7 @@
 import { assertClientNotTerminated } from './clientSchedulingGuard.service.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import pool from '../config/database.js';
+import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Appointment from '../models/Appointment.model.js';
 import Client from '../models/Client.model.js';
@@ -30,6 +31,7 @@ export async function assertAppointmentClients(agencyId, participants, { allowTe
 
 /** One clinical session per appointment/client, including group participants. */
 export async function ensureAppointmentClinicalLink(appointmentId, actorUserId = null) {
+  await assertClinicalWorkActive({ appointment_id: appointmentId });
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw Object.assign(new Error('Appointment not found'), { status: 404 });
   if (appointment.productOrigin === 'auricwell_ehr') return [];

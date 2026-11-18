@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { visibleClinicalWork, assertClinicalWorkActive } from '../services/clinicalWorkArchiveRead.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 
 const STATUSES = new Set(['not_started', 'started', 'completed', 'signed']);
@@ -87,7 +88,7 @@ function decryptPayload(raw) {
   }
 }
 
-function toApiItem(row) {
+export function toApiItem(row) {
   if (!row) return null;
   const payload = decryptPayload(row.payload_enc);
   const missingDraft = Object.hasOwn(row, 'linked_draft_id') && row.draft_id && !row.linked_draft_id
@@ -194,8 +195,10 @@ class NoteAidWorkQueueItem {
     const h = Math.max(1, Number(hours) || TERMINAL_TTL_HOURS);
     const [result] = await pool.execute(
       `DELETE FROM note_aid_work_queue_items
-       WHERE (status = 'signed' AND signed_at IS NOT NULL AND signed_at < (NOW() - INTERVAL ${h} HOUR))
-          OR (status = 'completed' AND completed_at IS NOT NULL AND completed_at < (NOW() - INTERVAL ${h} HOUR))`
+       WHERE ((status = 'signed' AND signed_at IS NOT NULL AND signed_at < (NOW() - INTERVAL ${h} HOUR))
+          OR (status = 'completed' AND completed_at IS NOT NULL AND completed_at < (NOW() - INTERVAL ${h} HOUR)))
+         AND NOT EXISTS (SELECT 1 FROM clinical_work_archive_resources r JOIN clinical_work_archives a ON a.id=r.archive_id
+           WHERE r.resource_type='work_queue' AND r.resource_id=note_aid_work_queue_items.id AND a.restored_at IS NULL)`
     );
     return Number(result?.affectedRows || 0);
   }
@@ -222,7 +225,8 @@ class NoteAidWorkQueueItem {
          q.id ASC`,
       agencyId ? [uid, agencyId] : [uid]
     );
-    return (rows || []).map(toApiItem);
+    return visibleClinicalWork((rows || []).map(toApiItem).map(row => ({ ...row, archiveResourceType: 'work_queue', id: row.serverId, clientQueueId: row.id })), { db: pool })
+      .then(items => items.map(({ archiveResourceType, clientQueueId, ...row }) => ({ ...row, id: clientQueueId })));
   }
 
   static async findByIdForUser({ id, userId }) {
@@ -248,6 +252,7 @@ class NoteAidWorkQueueItem {
   }
 
   static async insertRow(vals) {
+    await assertClinicalWorkActive({ clinical_session_id: vals.clinicalSessionId, office_event_id: vals.officeEventId, draft_id: vals.draftId, clinical_note_id: vals.clinicalNoteId });
     const [result] = await pool.execute(
       `INSERT INTO note_aid_work_queue_items
         (user_id, agency_id, client_id, organization_id, office_event_id, clinical_session_id,
@@ -280,6 +285,7 @@ class NoteAidWorkQueueItem {
   }
 
   static async updateRow(id, userId, vals) {
+    await assertClinicalWorkActive({ id, archiveResourceType: 'work_queue', clinical_session_id: vals.clinicalSessionId, office_event_id: vals.officeEventId, draft_id: vals.draftId, clinical_note_id: vals.clinicalNoteId });
     await pool.execute(
       `UPDATE note_aid_work_queue_items
        SET agency_id = ?, client_id = ?, organization_id = ?, office_event_id = ?,
@@ -330,7 +336,9 @@ class NoteAidWorkQueueItem {
     );
     const byKey = new Map((existingRows || []).map((r) => [String(r.client_key), Number(r.id)]));
     const byId = new Map((existingRows || []).map((r) => [Number(r.id), String(r.client_key)]));
-    const keepIds = new Set();
+    const activeRows = await visibleClinicalWork(existingRows || [], { db: pool, kind: 'work_queue' });
+    const activeIds = new Set(activeRows.map(row => Number(row.id)));
+    const keepIds = new Set((existingRows || []).filter(row => !activeIds.has(Number(row.id))).map(row => Number(row.id)));
     const out = [];
 
     for (const item of list) {
@@ -342,6 +350,7 @@ class NoteAidWorkQueueItem {
         rowId = safeInt(item.id);
         vals.clientKey = byId.get(rowId) || vals.clientKey;
       }
+      if (rowId && byId.has(rowId) && !activeIds.has(rowId)) continue;
 
       let saved;
       if (rowId) {
@@ -414,6 +423,7 @@ class NoteAidWorkQueueItem {
     const uid = safeInt(userId);
     const rowId = safeInt(id);
     if (!uid || !rowId) return 0;
+    await assertClinicalWorkActive({ id: rowId, archiveResourceType: 'work_queue' });
     const [result] = await pool.execute(
       `DELETE FROM note_aid_work_queue_items WHERE id = ? AND user_id = ?`,
       [rowId, uid]
@@ -424,9 +434,12 @@ class NoteAidWorkQueueItem {
   static async clearForUser(userId) {
     const uid = safeInt(userId);
     if (!uid) return 0;
+    const [existing] = await pool.execute('SELECT id FROM note_aid_work_queue_items WHERE user_id=?', [uid]);
+    const active = await visibleClinicalWork(existing || [], { db: pool, kind: 'work_queue' });
+    if (!active.length) return 0;
     const [result] = await pool.execute(
-      `DELETE FROM note_aid_work_queue_items WHERE user_id = ?`,
-      [uid]
+      `DELETE FROM note_aid_work_queue_items WHERE user_id = ? AND id IN (${active.map(() => '?').join(',')})`,
+      [uid, ...active.map(row => row.id)]
     );
     return Number(result?.affectedRows || 0);
   }

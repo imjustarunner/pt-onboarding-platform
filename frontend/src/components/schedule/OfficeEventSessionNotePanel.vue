@@ -60,6 +60,7 @@
     <p v-if="attendanceNotice" class="oesn-hint" role="status">{{ attendanceNotice }}</p>
     <p v-if="statusMsg" class="oesn-status">{{ statusMsg }}</p>
     <p v-if="errorMsg" class="oesn-error">{{ errorMsg }}</p>
+    <ClinicalWorkArchiveControl v-if="clinicalSessionId" :agency-id="agencyId" :target="{ type: 'clinical_session', id: Number(clinicalSessionId) }" @changed="emit('archived')" />
     <SessionSupportingMaterials v-if="clinicalSessionId" :key="clinicalSessionId" :clinical-session-id="clinicalSessionId" />
 
     <NoteAidObjectiveRatings
@@ -78,6 +79,7 @@
 <script setup>
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import SessionSupportingMaterials from '../clinical/SessionSupportingMaterials.vue';
+import ClinicalWorkArchiveControl from '../clinical/ClinicalWorkArchiveControl.vue';
 import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
 import ClinicalSessionRecordingPanel from '../clinical/ClinicalSessionRecordingPanel.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -104,7 +106,7 @@ const props = defineProps({
   initials: { type: String, default: '' }
 });
 
-const emit = defineEmits(['open-note-aid']);
+const emit = defineEmits(['open-note-aid', 'archived']);
 
 const router = useRouter();
 const route = useRoute();

@@ -1,5 +1,5 @@
 {
-  "status": "Validated; user authorized main push and live deployment on 2026-11-18. Deployment pending merged-main validation.",
+  "status": "Merged-main validation passed; production deployment authorized and pending.",
   "fictionalDataOnly": true,
   "liveModelExecutedForPdfFixtures": false,
   "sectionContracts": {
@@ -21,7 +21,14 @@
     "intakeNodeTests": 40,
     "learningDocumentationFrontend": 23,
     "desktopAndMobileBrowser": "passed",
-    "note": "Suite counts overlap. No production chart was used for the fixtures."
+    "note": "Suite counts overlap. No production chart was used for the fixtures.",
+    "mergedArchiveBackend": {
+      "passed": 159,
+      "skipped": 3
+    },
+    "mergedArchiveFrontend": {
+      "passed": 143
+    }
   },
   "privacyConfigurationRead": {
     "approvalAttested": true,

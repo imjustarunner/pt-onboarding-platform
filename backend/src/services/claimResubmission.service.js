@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
+import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import { recordClaimEvent } from './claimMdWorkflow.service.js';
 import { loadClaimFamily,claimRecordId } from './claimFamily.service.js';
 import { parseObject, policyError } from './supervisedBillingPolicy.service.js';
@@ -17,6 +18,7 @@ export async function createClaimResubmission(input, source = clinicalPool) {
     const [[original]] = await db.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? AND is_deleted=0 FOR UPDATE', [input.claimId, input.agencyId]);
     if (!original) throw policyError(404, 'Claim not found.');
     validateResubmissionRequest(original, input);
+    await assertClinicalWorkActive({ claimId: original.id, clinical_session_id: original.clinical_session_id });
     const family=await loadClaimFamily(input.agencyId,input.claimId,db);
     const [existing] = await db.execute(`SELECT id,metadata_json FROM clinical_claims WHERE agency_id=? AND is_deleted=0
       AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.resubmission.sourceClaimId'))=?

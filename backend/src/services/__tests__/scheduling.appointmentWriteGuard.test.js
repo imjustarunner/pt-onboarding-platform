@@ -1,5 +1,5 @@
 import { it, expect, vi, beforeEach } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
 vi.mock('../appointmentConflict.service.js', () => ({ appointmentOccupiesTime: s => !['draft','voided'].includes(s), withAppointmentWindow: vi.fn(async (_pool,_row,_id,save) => save()) }));
 import Appointment from '../../models/Appointment.model.js';
 import pool from '../../config/database.js';
@@ -12,5 +12,5 @@ it('routes new appointment writes through the conflict guard',async()=>{
 });
 it('rejects a stale edit before writing over a concurrent move',async()=>{
  vi.spyOn(Appointment,'findById').mockResolvedValueOnce(source).mockResolvedValueOnce({...source,startAt:'2030-01-02 17:00:00'});
- await expect(Appointment.update(1,{startAt:'2030-01-03 17:00:00'})).rejects.toMatchObject({status:409});expect(pool.execute).not.toHaveBeenCalled();
+ await expect(Appointment.update(1,{startAt:'2030-01-03 17:00:00'})).rejects.toMatchObject({status:409});expect(pool.execute.mock.calls.filter(([sql])=>/^(INSERT|UPDATE|DELETE)\b/i.test(sql))).toHaveLength(0);
 });

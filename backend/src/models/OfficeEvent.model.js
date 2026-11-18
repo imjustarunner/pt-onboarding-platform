@@ -1,6 +1,7 @@
 import { activeOfficeProviderSql, inactiveOfficeProvider } from '../utils/officeProviderEligibility.js';
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
+import { visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 
 function normalizeMySqlDateTime(value) {
   if (value === null || value === undefined) return null;
@@ -341,7 +342,7 @@ class OfficeEvent {
            OR EXISTS (SELECT 1 FROM users owner WHERE owner.id=COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) AND ${activeOfficeProviderSql('owner')}))`,
       [officeLocationId, endAt, startAt]
     );
-    return rows || [];
+    return visibleClinicalWork(rows || [], { db: pool, kind: 'office_event' });
   }
 
   static async findByRoomAndStart(roomId, startAt, executor = pool) {
@@ -744,7 +745,7 @@ class OfficeEvent {
        ORDER BY e.start_at ASC, r.sort_order ASC, r.name ASC`,
       [officeLocationId, startAt, endAt]
     );
-    return rows || [];
+    return visibleClinicalWork(rows || [], { db: pool, kind: 'office_event' });
   }
 
   static async cancelOccurrence({ eventId }) {

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
 import ClinicalEligibilityService from './clinicalEligibility.service.js';
@@ -72,7 +73,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
       && !(await clientAgencies(session.client_id)).map(Number).includes(Number(ownerAgencyId))) return null;
     return access.client;
   };
-  for (const appointment of appointments) {
+  for (const appointment of await visibleClinicalWork(appointments, { db, kind: 'appointment' })) {
     const session=byId.get(Number(appointment.clinical_session_id));
     if (!session || Number(appointment.provider_user_id)!==Number(user.id) || Number(session.provider_user_id)!==Number(user.id)
       || Number(session.appointment_id)!==Number(appointment.id) || Number(session.agency_id)!==Number(appointment.agency_id)) continue;
@@ -93,7 +94,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
       AND COALESCE(s.encounter_status,'scheduled') NOT IN ('cancelled','canceled','voided','no_show')
       AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL)
     ORDER BY s.scheduled_start_at,s.id`,agencyId?[user.id,agencyId]:[user.id]);
-  const candidates = officeSessions.filter(session => Number(session.office_event_id)>0 && Number(session.provider_user_id)===Number(user.id));
+  const candidates = (await visibleClinicalWork(officeSessions, { db, kind: 'clinical_session' })).filter(session => Number(session.office_event_id)>0 && Number(session.provider_user_id)===Number(user.id));
   if (!candidates.length) return added;
   const eventIds = [...new Set(candidates.map(session => Number(session.office_event_id)))];
   const [events] = await db.execute(`SELECT e.id,e.start_at,e.end_at,e.client_id,e.clinical_session_id,e.booked_provider_id,e.assigned_provider_id,

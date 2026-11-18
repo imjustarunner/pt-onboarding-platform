@@ -1,4 +1,5 @@
 import clinicalPool from '../../config/clinicalDatabase.js';
+import { assertClinicalWorkActive, visibleClinicalWork } from '../../services/clinicalWorkArchiveRead.service.js';
 
 class ClinicalSession {
   static async findById(id) {
@@ -76,11 +77,12 @@ class ClinicalSession {
         AND s.encounter_status NOT IN ('cancelled', 'canceled', 'voided', 'no_show')
         AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.clinical_session_id = s.id)
         AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id = s.id AND n.provider_signed_at IS NOT NULL)
-      ORDER BY s.id DESC LIMIT 1`, [agencyId, clientId, providerUserId, serviceDate, serviceCode]);
-    return rows?.[0] || null;
+      ORDER BY s.id DESC LIMIT 100`, [agencyId, clientId, providerUserId, serviceDate, serviceCode]);
+    return (await visibleClinicalWork(rows || [], { kind: 'clinical_session' }))[0] || null;
   }
 
   static async attachBillingEncounter({ sessionId, billingEncounterId, serviceCode = null, providerUserId = null }) {
+    await assertClinicalWorkActive({ clinical_session_id: sessionId, billing_encounter_id: billingEncounterId });
     const sid = Number(sessionId || 0);
     const beId = Number(billingEncounterId || 0);
     if (!sid || !beId) return null;
@@ -109,6 +111,7 @@ class ClinicalSession {
     metadataJson = null,
     createdByUserId = null
   }) {
+    await assertClinicalWorkActive({ billing_encounter_id: billingEncounterId });
     const existing = await this.findByBillingEncounterId(billingEncounterId);
     if (existing?.id) {
       await clinicalPool.execute(
@@ -175,7 +178,9 @@ class ClinicalSession {
     metadataJson = null,
     createdByUserId = null
   }) {
+    await assertClinicalWorkActive({ office_event_id: officeEventId });
     const existing = await this.findByOfficeEventAndClient({ officeEventId, clientId });
+    if (existing) await assertClinicalWorkActive({ clinical_session_id: existing.id });
     if (existing?.id) {
       await clinicalPool.execute(
         `UPDATE clinical_sessions

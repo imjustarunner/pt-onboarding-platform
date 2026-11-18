@@ -3,6 +3,7 @@ import { utcDateToZonedYmd, utcMysqlToIso } from '../utils/zonedWallTime.util.js
 import { syntheticBillingRow, includesDemoBilling } from './billingTransactionFilters.js';
 import { attachClaimReferences } from './clinicalClaimReferences.service.js';
 import { collapseClaimAttempts } from './claimFamily.service.js';
+import { attachClinicalWorkArchives, filterClinicalWorkArchiveStatus } from './clinicalWorkArchiveRead.service.js';
 import { clinicalBillingStage, clinicalApprovalFields, clinicalApprovalJoins } from './billingClinicalApproval.service.js';
 
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
@@ -155,7 +156,10 @@ export async function loadBillingWorkItems(agencyIds, deps) {
     if (rows.some(row => sameEncounter(row, appointment))) continue;
     rows.push({ ...appointment, key: `appointment:${appointment.appointment_id}:${appointment.client_id}`, source: 'appointment' });
   }
-  const items = rows.map(normalizeBillingWorkItem).filter(item => !item.hiddenFromQueue);
+  const items = await attachClinicalWorkArchives(rows.map(normalizeBillingWorkItem).filter(item => !item.hiddenFromQueue), { db: deps.main });
+  for (const item of items) if (item.administrativeArchive) {
+    item.canPrepareClaim = false; item.canReviewClaim = false; item.canSubmit = false; item.readOnly = true;
+  }
   await enrichBillingWorkNames(items, agencyIds, deps);
   await attachClaimReferences(items, deps.clinical);
   return { items:collapseClaimAttempts(items.filter(item => item.client_id && item.client_link_verified)), draftsAvailable, appointmentsAvailable };
@@ -196,6 +200,7 @@ export async function enrichBillingWorkNames(items, agencyIds, deps) {
 }
 
 export function filterBillingWorkItems(items, query = {}, organizations = []) {
+  items = filterClinicalWorkArchiveStatus(items, query.archiveStatus || 'active');
   const status = stageAliases[query.status] || query.status || 'all';
   if (status !== 'all' && status !== 'attention' && !labels[status] && !claimQueueFilters.includes(status)) throw Object.assign(new Error('Invalid claim queue filter.'), { status: 400 });
   if (query.clientId != null && query.clientId !== '' && !id(query.clientId)) throw Object.assign(new Error('Invalid client filter.'), { status: 400 });

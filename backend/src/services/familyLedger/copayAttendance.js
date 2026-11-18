@@ -1,5 +1,6 @@
 import {missedNote,completeMissedSessionDocumentation} from '../nonbillableNoteCompletion.service.js';
 import pool from '../../config/database.js';
+import { assertClinicalWorkActive } from '../clinicalWorkArchiveRead.service.js';
 import { maybeDecryptNotePayload } from '../clinicalNoteCrypto.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { billingError, positiveId, auditBilling, BILLING_TERMS_VERSION } from '../familyBillingPolicy.service.js';
@@ -102,6 +103,7 @@ export async function requireAttendanceProvider(agencyId, providerUserId, db = p
 // Exact amount comes from signed, staff-verified benefit terms, never a browser,
 // gross fee schedule, eligibility guess, or claim billed charge.
 export async function attendanceCopayTerms(session, db = pool) {
+  await assertClinicalWorkActive({ clinical_session_id: session.id, appointment_id: session.appointment_id }, { db });
   const agencyId = session.agency_id, clientId = session.client_id;
   const [[agency]]=await db.execute('SELECT timezone FROM agencies WHERE id=?',[agencyId]);
   const timezone=agency?.timezone||'America/Denver';
@@ -261,6 +263,7 @@ export async function assertSessionAttendanceNotSuppressed({agencyId,clientId,se
   // Serialize against a first negative decision, including when no attendance
   // row exists yet. Existing payment attempts and negative answers cannot cross.
   await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[clientId,agencyId]);
+  await assertClinicalWorkActive({ clinical_session_id: sessionId }, { db, currentRead: true });
   const [[decision]]=await db.execute('SELECT attendance FROM family_copay_attendance WHERE agency_id=? AND clinical_session_id=? FOR UPDATE',[agencyId,sessionId]);
   if(decision?.attendance==='did_not_occur')throw billingError(409,'This session was marked as not occurring. Billing review is required.');
 }

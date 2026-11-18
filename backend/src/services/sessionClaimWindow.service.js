@@ -1,4 +1,5 @@
 import clinicalPool from '../config/clinicalDatabase.js';
+import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import {populateLinkedSessionClaim} from './linkedServiceClaimLines.service.js';
 import { utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 
@@ -62,25 +63,36 @@ export async function openDueSessionClaims(db = clinicalPool, now = new Date()) 
     if (!session.client_id || !sessionShouldOpenClaim(session.scheduled_start_at, now.getTime()) || blockedStatus.has(String(session.encounter_status || '').toLowerCase())) continue;
     const serviceDate = sessionClaimServiceDate(session);
     if(!serviceDate)continue;
-    const [result] = await db.execute(
+    const conn = typeof db.getConnection === 'function' ? await db.getConnection() : db;
+    const own = conn !== db;
+    try {
+      if (own) await conn.beginTransaction();
+      await conn.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE', [session.id, session.agency_id]);
+      await assertClinicalWorkActive({ clinical_session_id: session.id });
+    const [result] = await conn.execute(
       `INSERT INTO clinical_claims
          (clinical_session_id, agency_id, client_id, claim_status, amount_cents, currency_code, metadata_json, created_by_user_id, clinical_note_id, place_of_service, date_of_service, claim_lifecycle)
        VALUES (?, ?, ?, 'PENDING', 0, 'USD', ?, ?, NULL, ?, ?, 'draft')`,
       [session.id, session.agency_id, session.client_id, JSON.stringify({ createdVia: 'sessionClaimWindow', hiddenFromQueue: false }), session.provider_user_id || 0, session.place_of_service || null, serviceDate]
     );
-    await db.execute(
+    await conn.execute(
       `INSERT INTO clinical_claim_sessions (clinical_claim_id, clinical_session_id, agency_id, include_on_submit) VALUES (?, ?, ?, 0)`,
       [result.insertId, session.id, session.agency_id]
     );
     const code = String(session.service_code || '').trim().toUpperCase();
     if (code) {
-      await db.execute(
+      await conn.execute(
         `INSERT INTO clinical_claim_lines (clinical_claim_id, line_number, procedure_code, units, charge_cents, diagnosis_pointers, service_date)
          VALUES (?, 1, ?, 1, 0, '1', ?)`,
         [result.insertId, code, serviceDate]
       );
     }
     opened += 1;
+      if (own) await conn.commit();
+    } catch (error) {
+      if (own) await conn.rollback();
+      if (error.code !== 'CLINICAL_WORK_ARCHIVED') throw error;
+    } finally { if (own) conn.release(); }
   }
   return { opened };
 }
@@ -90,6 +102,7 @@ export async function attachSignedSessionToClaim({ agencyId, sessionId, noteId }
   const sid = Number(sessionId || 0);
   const nid = Number(noteId || 0);
   if (!aid || !sid || !nid) return { attached: false };
+  await assertClinicalWorkActive({ clinical_session_id: sid });
   const [links] = await db.execute(
     `SELECT cs.clinical_claim_id, c.claim_lifecycle
      FROM clinical_claim_sessions cs

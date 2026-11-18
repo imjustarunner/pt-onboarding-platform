@@ -22,7 +22,7 @@ it('never overwrites authored content when opening an existing draft for the sam
   pool.execute.mockResolvedValue([[existing]]);
   expect(await ClinicalNoteDraft.create({ userId: 1433, agencyId: 450, clientId: 2277, clinicalSessionId: 140,
     dateOfService: '2026-10-19', serviceCode: '90837', inputText: 'New context must not replace existing work' })).toEqual(existing);
-  expect(pool.execute).toHaveBeenCalledTimes(1);
+  expect(pool.execute.mock.calls.filter(([sql]) => sql.includes('FROM clinical_note_drafts'))).toHaveLength(1);
   expect(pool.execute.mock.calls[0][0].trim().startsWith('SELECT')).toBe(true);
 });
 
@@ -44,4 +44,12 @@ it('retrieves saved generator notes only for the exact author and organization w
   expect(sql).toContain('d.user_id = ? AND d.agency_id = ?');
   expect(sql).toContain('d.client_id IS NULL AND d.clinical_session_id IS NULL AND d.office_event_id IS NULL');
   expect(sql).toContain("= 'true'");
+});
+
+it('does not reopen archived testing through the client and service-date fallback',async()=>{
+  const archived={id:285,user_id:1,agency_id:2,client_id:3,clinical_session_id:139};
+  const current={...archived,id:286,clinical_session_id:140};
+  pool.execute.mockImplementation(async sql=>sql.includes('clinical_work_archive_resources')
+    ? [[{resource_type:'draft',resource_id:285,archive_id:7}]] : [[archived,current]]);
+  expect(await ClinicalNoteDraft.findReusableOpen({userId:1,agencyId:2,clientId:3,dateOfService:'2026-11-18',serviceCode:'90837'})).toEqual(current);
 });

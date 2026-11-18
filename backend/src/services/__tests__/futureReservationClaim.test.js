@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute:vi.fn(), beginTransaction:vi.fn(), commit:vi.fn(), rollback:vi.fn(), release:vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { getConnection:async()=>m } }));
+vi.mock('../../config/database.js', () => ({ default: { execute:async()=>[[]] } }));
 import Claim from '../../models/clinical/ClinicalClaim.model.js';
 const input = {clinicalSessionId:7,agencyId:2,clientId:8,createdByUserId:9};
 beforeEach(() => { vi.resetAllMocks();vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-08T12:00:00Z')); });

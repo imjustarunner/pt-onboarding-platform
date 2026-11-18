@@ -85,3 +85,10 @@ it.each([{booked_provider_id:999},{client_id:999},{clinical_session_id:999},{sta
  db.execute.mockImplementation(async sql=>[sql.includes('FROM office_events')?[{id:460,client_id:2104,clinical_session_id:214,booked_provider_id:501,start_at:legacy.scheduled_start_at,status:'BOOKED',...mismatch}]:[]]);
  expect(await run()).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });
+
+it.each(['clinical_session','office_event'])('keeps an archived %s out of legacy office-session recovery',async resourceType=>{
+ const legacy={...session,appointment_id:null,office_event_id:460,scheduled_start_at:'2026-11-15 16:00:00',source_timezone:'America/Denver'};
+ clinical.execute.mockImplementation(async sql=>[sql.includes('s.appointment_id IS NULL')?[legacy]:[]]);
+ db.execute.mockImplementation(async sql=>[sql.includes('FROM clinical_work_archive_resources')?[{resource_type:resourceType,resource_id:resourceType==='office_event'?460:214,archive_id:8,archived_at:'2026-11-18 00:00:00'}]:[]]);
+ expect(await run()).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
+});

@@ -40,6 +40,7 @@ beforeEach(()=>{
   throw new Error(`Unexpected clinical SQL: ${sql}`);
  });
  m.db.mockImplementation(async(sql,args)=>{
+  if(sql.includes('clinical_work_archive_resources'))return [[]];
   if(sql.startsWith('SELECT feature_flags'))return [[{feature_flags:{familyBillingAutomationEnabled:m.enabled,attendanceCopaysEnabled:m.enabled}}]];
   if(sql.startsWith('SELECT u.id'))return [[{id:45}]];
   if(sql.startsWith('SELECT guardian_user_id'))return [[{guardian_user_id:22}]];

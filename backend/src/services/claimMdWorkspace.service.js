@@ -5,6 +5,7 @@ import { clinicalApprovalFields, clinicalApprovalJoins } from './billingClinical
 import { loadBillingWorkItems, filterBillingWorkItems, enrichBillingWorkNames, billingWorkStage, claimQueueFilters, matchesClaimQueue, attachBillingClaimIssues, billingDashboardBucket } from './billingWorkItems.service.js';
 import { collapseClaimAttempts } from './claimFamily.service.js';
 import { productBillingContext } from './productBillingContext.service.js';
+import { visibleClinicalWork, filterClinicalWorkArchiveStatus } from './clinicalWorkArchiveRead.service.js';
 import { isBillingAgency } from './billingAgencyPolicy.js';
 import { listPayerEft } from './payerEft.service.js';
 import pool from '../config/database.js';
@@ -66,7 +67,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
     const work = await (deps.loadWorkItems || loadBillingWorkItems)(allIds, deps);
     await attachBillingClaimIssues(work.items,allIds,deps.main);
     result.hiddenTestRecords = includesDemoBilling(query) ? 0 : work.items.filter(row=>syntheticBillingRow(row)&&(requested===null||Number(row.agency_id)===requested)&&(!query.clientId||Number(row.client_id)===Number(query.clientId))).length;
-    workItems = includesDemoBilling(query) ? work.items : work.items.filter(row => !syntheticBillingRow(row));
+    workItems = filterClinicalWorkArchiveStatus(includesDemoBilling(query) ? work.items : work.items.filter(row => !syntheticBillingRow(row)), query.archiveStatus || 'active');
     result.capabilities.drafts = work.draftsAvailable;
     result.capabilities.appointmentHistory = work.appointmentsAvailable;
   } catch (e) { if (!missingSchema(e)) throw e; result.capabilities.claims = false; }
@@ -122,7 +123,7 @@ export async function billingDashboardSummary(user,query={},deps=dependencies) {
     WHERE c.agency_id IN (${marks}) AND c.is_deleted=0`,ids);
   const [demo]=await deps.main.execute(`SELECT id,agency_id FROM clients WHERE agency_id IN (${marks}) AND is_demo=1`,ids);
   const demoClients=new Set(demo.map(client=>`${client.agency_id}:${client.id}`));
-  const current=collapseClaimAttempts(claims).filter(claim=>{
+  const current=(await visibleClinicalWork(collapseClaimAttempts(claims), { db: deps.main })).filter(claim=>{
     const metadata=typeof claim.claim_metadata_json==='string'?JSON.parse(claim.claim_metadata_json||'{}'):claim.claim_metadata_json||{};
     return !metadata.hiddenFromQueue&&!demoClients.has(`${claim.agency_id}:${claim.client_id}`);
   });
