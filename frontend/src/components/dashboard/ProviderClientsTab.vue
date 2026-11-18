@@ -282,7 +282,7 @@
           v-if="selectedSchoolOrgId && schools.length && !schoolSelectionUnavailable"
           :organization-slug="organizationSlug"
           :organization-id="Number(selectedSchoolOrgId) || null"
-          :parent-agency-id="Number(agencyId) || null"
+          :parent-agency-id="selectedSchoolAgencyId"
           :organization-name="selectedSchoolName"
           :clients-override="schoolClientsForGrid"
           :feedback-by-client="feedbackByClient"
@@ -674,6 +674,7 @@ const officeError = ref('');
 const officeAcceptance = ref(null);
 
 const isAllSchools = computed(() => selectedSchoolOrgId.value === 'all');
+const selectedSchoolAgencyId = computed(() => isAllSchools.value ? null : Number(schools.value.find(school => Number(school.schoolOrganizationId) === Number(selectedSchoolOrgId.value))?.caseloadAgencyId || agencyId.value) || null);
 const schoolSelectionUnavailable = computed(() => !!route.query.schoolId
   && !schools.value.some(school => Number(school.schoolOrganizationId) === Number(route.query.schoolId)));
 
