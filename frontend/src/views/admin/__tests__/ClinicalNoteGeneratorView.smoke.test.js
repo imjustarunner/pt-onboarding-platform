@@ -9,6 +9,8 @@ import { clinicalWorkspaceActive } from '../../../composables/useClinicalWorkspa
 import { INTAKE_SECTION_TITLES } from '../../../../../backend/src/config/clinicalNotePlanOutput.js';
 import { parseNoteSections } from '../../../../../backend/src/services/clinicalNoteSections.service.js';
 
+const cleanupAuthFixture = vi.hoisted(() => ({ role: 'admin' }));
+
 vi.mock('../../../services/api', () => ({
   default: {
     get: vi.fn(async () => ({ data: {} })),
@@ -31,7 +33,7 @@ vi.mock('../../../store/agency', () => ({
 
 vi.mock('../../../store/auth', () => ({
   useAuthStore: () => ({
-    user: { id: 501, role: 'admin', first_name: 'Test', last_name: 'User' },
+    user: { id: 501, role: cleanupAuthFixture.role, first_name: 'Test', last_name: 'User' },
     isAuthenticated: true
   })
 }));
@@ -41,6 +43,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   // Compile this large SFC once before timing individual behavioral assertions.
   beforeAll(async () => { View = (await import('../ClinicalNoteGeneratorView.vue')).default; }, 30000);
   beforeEach(() => {
+    cleanupAuthFixture.role = 'admin';
     vi.stubGlobal('crypto', webcrypto);
     setActivePinia(createPinia());
     vi.mocked(api.post).mockReset().mockResolvedValue({ data: {} });
@@ -61,6 +64,49 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await nextTick();
     return { wrapper, state, router };
   }
+
+  it('offers temporary test cleanup only to a superadmin and pauses autosave while reviewing', async () => {
+    const regular = await workspace('');
+    expect(regular.wrapper.text()).not.toContain('Clean up test notes');
+    regular.wrapper.unmount();
+    cleanupAuthFixture.role = 'super_admin';
+    const { wrapper, state } = await workspace('');
+    try {
+      expect(wrapper.text()).toContain('Clean up test notes');
+      await state.openUnlinkedCleanup();
+      expect(state.showUnlinkedCleanup).toBe(true);
+      expect(state.isWorkspaceHydrating()).toBe(true);
+      expect(api.post.mock.calls.some(([path]) => path === '/clinical-notes/drafts/unlinked-cleanup')).toBe(false);
+      state.closeUnlinkedCleanup();
+      expect(state.showUnlinkedCleanup).toBe(false);
+      expect(state.isWorkspaceHydrating()).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('clears a cleaned-up open draft and its shared My Work entry without persisting the removed item again', async () => {
+    const { wrapper, state } = await workspace('');
+    try {
+      state.beginWorkspaceHydration();
+      state.draftId = 1;
+      state.inputText = 'Test draft to remove';
+      const kept = { id: 'real_session', clientKey: 'real_session', serverId: 23, clinicalSessionId: 70, status: 'not_started' };
+      state.workQueueItems = [{ id: 'test_21', clientKey: 'test_21', serverId: 21, draftId: 1, status: 'started' }, kept];
+      state.activeWorkQueueItemId = 'test_21';
+      api.get.mockImplementation(async path => ({ data: path === '/clinical-notes/work-queue'
+        ? { items: [kept] } : path === '/clinical-notes/recent' ? { drafts: [], signedSessions: [] } : {} }));
+      api.put.mockClear();
+      await state.onUnlinkedCleanupDeleted({ deletedDraftIds: [1], deletedWorkQueueIds: [21], deletedWorkQueueKeys: ['test_21'] });
+      await flushPromises();
+      expect(state.draftId).toBeNull();
+      expect(state.inputText).toBe('');
+      expect(state.activeWorkQueueItemId).toBeNull();
+      expect(state.workQueueItems.map(row => row.id)).toEqual(['real_session']);
+      for (const [path, body] of api.put.mock.calls) {
+        if (path === '/clinical-notes/work-queue') expect(body.items.some(item => item.id === 'test_21')).toBe(false);
+      }
+      state.endWorkspaceHydration();
+    } finally { wrapper.unmount(); }
+  });
 
   it('routes the temporary central generator entry away from the clinical editor and honors its disable switch', async () => {
     const { wrapper, state } = await workspace('');
