@@ -407,7 +407,9 @@ export const getTemplates = async (req, res, next) => {
     // Role-based filtering
     console.log('getTemplates - User role:', req.user.role, 'agencyId query param:', agencyId, 'type:', typeof agencyId);
 
-    if (req.user.role === 'super_admin' || req.user.role === 'support') {
+    if (req.plotlineHiringAgencyId) {
+      filters.agencyId = Number(req.plotlineHiringAgencyId);
+    } else if (req.user.role === 'super_admin' || req.user.role === 'support') {
       // Super Admin and Support see all templates
       if (agencyId !== undefined && agencyId !== null && agencyId !== 'all') {
         if (agencyId === 'null' || agencyId === '') {
@@ -465,7 +467,9 @@ export const getTemplates = async (req, res, next) => {
     }
 
     // User-specific filtering - default exclude user-specific
-    if (isUserSpecific !== undefined) {
+    if (req.plotlineHiringAgencyId) {
+      filters.isUserSpecific = false;
+    } else if (isUserSpecific !== undefined) {
       filters.isUserSpecific = isUserSpecific === 'true' || isUserSpecific === true;
     } else {
       filters.isUserSpecific = false;

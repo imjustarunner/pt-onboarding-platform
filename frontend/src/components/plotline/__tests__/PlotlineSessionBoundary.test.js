@@ -1,0 +1,28 @@
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+import {createPinia,setActivePinia} from 'pinia';
+import {reactive} from 'vue';
+const state=vi.hoisted(()=>({auth:null,start:vi.fn(),stop:vi.fn(),reset:vi.fn(),logout:vi.fn()}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>state.auth}));
+vi.mock('../../../utils/activityTracker',()=>({startActivityTracking:state.start,stopActivityTracking:state.stop,resetActivityTimer:state.reset}));
+vi.mock('../../SessionLockScreen.vue',()=>({default:{name:'LockScreen',props:['isLocked'],emits:['unlock','logout'],template:'<div data-lock :data-locked="isLocked" />'}}));
+vi.mock('../../InactivityWarningModal.vue',()=>({default:{props:['suppressActions'],template:'<div data-warning />'}}));
+import Boundary from '../PlotlineSessionBoundary.vue';
+import {useSessionLockStore} from '../../../store/sessionLock';
+let wrapper;
+beforeEach(()=>{vi.clearAllMocks();setActivePinia(createPinia());state.auth=reactive({isAuthenticated:true,user:{id:1434},logout:state.logout});});
+afterEach(()=>wrapper?.unmount());
+it('starts the real activity runtime without locally clearing an existing lock',async()=>{
+  const lock=useSessionLockStore();lock.lock();wrapper=mount(Boundary);await flushPromises();
+  expect(state.start).toHaveBeenCalledTimes(1);expect(lock.isLocked).toBe(true);
+  expect(wrapper.get('[data-lock]').attributes('data-locked')).toBe('true');expect(wrapper.find('[data-warning]').exists()).toBe(true);
+  wrapper.findComponent({name:'LockScreen'}).vm.$emit('unlock');await flushPromises();
+  expect(lock.isLocked).toBe(false);expect(state.reset).toHaveBeenCalledTimes(1);
+});
+it('stops tracking at logout and shell teardown, and restarts for a new authentication',async()=>{
+  wrapper=mount(Boundary);await flushPromises();state.auth.isAuthenticated=false;await flushPromises();
+  expect(state.stop).toHaveBeenCalled();state.auth.isAuthenticated=true;await flushPromises();expect(state.start).toHaveBeenCalledTimes(2);
+  wrapper.findComponent({name:'LockScreen'}).vm.$emit('logout');await flushPromises();
+  expect(state.logout).toHaveBeenCalledWith('user_logout',{skipStatusPrompt:true,redirectTo:'/plotline/app'});
+  const before=state.stop.mock.calls.length;wrapper.unmount();wrapper=null;expect(state.stop).toHaveBeenCalledTimes(before+1);
+});

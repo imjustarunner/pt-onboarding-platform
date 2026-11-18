@@ -66,8 +66,9 @@
           <span>Send calendar + email invites</span>
         </label>
       </div>
-      <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :duration-minutes="durationMinutes" :timezone="timezone" :interviewer-user-ids="interviewerIds" />
+      <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :duration-minutes="durationMinutes" :timezone="timezone" :interviewer-user-ids="interviewerIds" @availability="invitationAvailable = $event" />
       <div class="row-actions">
+        <button type="button" class="btn btn-secondary" :disabled="scheduling" @click="showSchedule = false">Cancel</button>
         <button type="button" class="btn btn-primary" :disabled="scheduling || !questionsReady || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
           {{ scheduling ? 'Scheduling…' : (sendInvites ? 'Schedule & send invitations' : 'Save without sending') }}
         </button>
@@ -318,6 +319,7 @@ const interviewQuestions=ref(null),questionsReady=ref(false),questionsVersion=re
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(true);
+const invitationAvailable = ref(null);
 const interviewRound = ref('initial');
 const roundLabelCustom = ref('');
 const roundOptions = HIRING_INTERVIEW_ROUNDS;
@@ -367,6 +369,7 @@ const scheduleTitlePreview = computed(() => buildHiringInterviewTitle({
 }));
 
 const canSubmitSchedule = computed(() => {
+  if (sendInvites.value && invitationAvailable.value === false) return false;
   if (interviewRound.value === 'other' && !roundLabelCustom.value.trim()) return false;
   return true;
 });
@@ -578,6 +581,7 @@ async function saveInterviewEdit() {
 }
 
 async function scheduleInterview(overrideScheduleHolds = false) {
+  if (sendInvites.value && invitationAvailable.value === false) return;
   scheduling.value = true;
   scheduleError.value = '';
   scheduleHoldOverridable.value = false;

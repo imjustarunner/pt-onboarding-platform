@@ -2309,6 +2309,7 @@ const onOpenHiringJobsModal = async () => {
 };
 
 onMounted(async () => {
+  window.addEventListener('pt:session-resumed', refresh);
   // Ensure we have agency lists for the selector.
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
@@ -2397,6 +2398,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('pt:session-resumed', refresh);
   window.removeEventListener('open-hiring-jobs-modal', onOpenHiringJobsModal);
 });
 </script>

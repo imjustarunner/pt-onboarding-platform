@@ -16,13 +16,14 @@
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: [Number, String], candidateUserId: [Number, String], title: String, startsAt: String, durationMinutes: Number, timezone: String, interviewerUserIds: Array });
+const emit = defineEmits(['availability']);
 const loading = ref(false);
 const error = ref('');
 const email = ref(null);
 watch(() => [props.agencyId, props.candidateUserId, props.title, props.startsAt, props.durationMinutes, props.timezone, props.interviewerUserIds], () => { email.value = null; error.value = ''; }, { deep: true });
 async function preview() {
-  loading.value = true; error.value = ''; email.value = null;
-  try { const r = await api.post('/hiring/interview-hub/invite-preview', { ...props }); email.value = r.data.data; }
+  loading.value = true; error.value = ''; email.value = null; emit('availability', false);
+  try { const r = await api.post('/hiring/interview-hub/invite-preview', { ...props }); email.value = r.data.data; emit('availability', !!email.value); }
   catch (e) { error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Could not prepare the invitation preview.'; }
   finally { loading.value = false; }
 }

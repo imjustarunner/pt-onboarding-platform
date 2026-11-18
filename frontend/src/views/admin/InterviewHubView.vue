@@ -244,7 +244,7 @@
             Send calendar and branded email invitations
           </label>
         </div>
-        <InterviewInvitePreview :agency-id="effectiveAgencyId" :candidate-user-id="scheduleForm.candidateUserId" :title="scheduleTitlePreview" :starts-at="scheduleForm.startsAt" :timezone="scheduleForm.timezone" :interviewer-user-ids="scheduleForm.interviewerUserIds" />
+        <InterviewInvitePreview :agency-id="effectiveAgencyId" :candidate-user-id="scheduleForm.candidateUserId" :title="scheduleTitlePreview" :starts-at="scheduleForm.startsAt" :timezone="scheduleForm.timezone" :interviewer-user-ids="scheduleForm.interviewerUserIds" @availability="invitationAvailable = $event" />
         <div v-if="scheduleError" class="ih-error" role="alert">
           <p>{{ scheduleError }}</p>
           <button v-if="scheduleHoldOverridable" type="button" class="btn btn-secondary btn-sm" :disabled="scheduling" @click="submitSchedule(true)">Schedule this interview anyway</button>
@@ -431,7 +431,9 @@ const filteredInterviews = computed(() => {
   });
 });
 
+const invitationAvailable = ref(null);
 const canSubmitSchedule = computed(() => {
+  if (scheduleForm.value.sendInvites && invitationAvailable.value === false) return false;
   if (!scheduleForm.value.candidateUserId || !scheduleForm.value.startsAt || !questionsReady.value) return false;
   if (scheduleForm.value.interviewRound === 'other' && !scheduleForm.value.roundLabelCustom.trim()) return false;
   return true;

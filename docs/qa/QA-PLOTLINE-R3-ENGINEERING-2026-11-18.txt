@@ -1,0 +1,114 @@
+PLOTLINE ROUND 3 — ENGINEERING REVIEW AND CONTROLLED RETEST
+November 18, 2026 — America/Denver (MST, UTC-07:00)
+
+This is an engineering finding and retest instruction, not a completed live QA
+pass. Preserve the original round 3 CSV and screenshots unchanged. The CSV's
+earlier permission to clear site data is historical evidence, not a new step.
+
+CONFIRMED FINDINGS
+
+1. Session lock: the standalone Plotline shell bypassed AppWorkspace, which
+   owned activity tracking, server session verification and the lock/recovery
+   interface. A user could be actively working while the server recorded no
+   meaningful activity, then receive 423 Locked with no visible unlock form.
+
+2. Silent create: the job request succeeded, then the product boundary rejected
+   creation of its job application form. The old UI treated these two requests
+   as one operation, displayed its error above the long editor, retained the
+   Create button and failed to refresh the saved job. Retrying could duplicate
+   the posting. This was a real saved job, not just slow list rendering.
+
+Read-only Cloud Run HTTP metadata confirms:
+  2026-11-18 09:53:12.349772 MST: POST /api/hiring/job-descriptions -> 201
+  2026-11-18 09:53:13.198316 MST: POST /api/intake-links/from-job/42 -> 403
+  2026-11-18 09:53:34.488045 MST: GET job list for agency 463 -> 423
+  Later list reads at 09:54:07 and 09:55:03 also returned 423.
+
+Job #42 is the recovery target for QA-PL1118-QUESTIONS-A. Verify its title and
+company in the app before acting. No engineering process has logged into the
+application, edited this job, issued credentials, cleared browser storage,
+changed security timers, or sent an invitation for this repair.
+
+REPAIR SCOPE
+
+- Private Plotline routes now mount the existing server-authoritative session
+  runtime, lock screen and warning interface. Meaningful user activity follows
+  the existing rules. Lock/PIN/expiry enforcement remains on the server.
+- Jobs and Applicants refresh their read models after verified session resume.
+- Job package/template picker reads are limited to the chosen company and
+  require its hiring permission. User-specific template bodies and catalog
+  writes are not enabled by this repair. Clinical and foreign-company forms
+  remain forbidden. The normal self-presence heartbeat is allowed.
+- Saved job IDs and partial completion are visible near Create. The page keeps
+  the saved ID across reload in that user's/company's tab storage. Finish
+  application retries that job only. Uncertain job POSTs require reconciliation
+  before another Create is enabled; session recovery does not replay writes.
+- From-job application creation serializes on the existing job row. A retry
+  returns its existing form, preserving custom steps and inactive state.
+- Interview Hub is available in navigation; the candidate scheduler has Cancel.
+  A failed invitation preview disables sending; Save without sending remains.
+
+RELEASE GATE
+
+The engineering release receipt must name the repair commit and show matching
+production frontend/backend versions before resuming. A commit or passing unit
+test alone is not live verification. No database migration is required.
+
+CONTROLLED CHECKPOINT — REUSE THE RETAINED DATA
+
+1. Use the existing vault login for reserved qa_automation user 1434 (Jordan).
+   Recheck the authenticated identity and company 463 Juniper Consulting QA.
+   Keep Maple Studio QA 464, Quinn, all old jobs/duplicates and all guides.
+   No new company, staff identity or applicant is needed for this checkpoint.
+
+2. Reload normally on the released build. If a valid session is locked, use
+   the displayed recovery interface and its ordinary verification. If expired,
+   use normal sign-in. Do not clear site data, bypass a PIN, copy sessions,
+   invent authentication proofs or change a clock. Record a failed recovery
+   and stop if the page still offers only a banner without a working form.
+
+3. Open Jobs from navigation and Refresh. Record the total and exact IDs.
+   Find Job #42, verify QA-PL1118-QUESTIONS-A and company 463. Do not create A
+   again. If absent/mismatched, stop and report the discrepancy. Select its
+   Create form action if it has no form; record the returned form ID. Recheck
+   the job count and custom content after reload. Do not change public careers
+   publication merely to verify a private job/application form exists.
+
+4. Work through ordinary read/navigation/editor interactions for at least
+   15 minutes, covering the prior ~12-minute failure window. Do not save dummy
+   edits or run synthetic keepalive scripts. Capture start/end times and any
+   warning or error. Normal actual inactivity must still lock/expire according
+   to policy and recover through the displayed interface; it is not a failure
+   that an unattended session eventually locks.
+
+5. If the above passes, continue the retained second-job question isolation
+   lane from round 3, searching its exact marker before creation. One click
+   must show the saved job number and application outcome beside the button.
+   A partial outcome must name the saved job and offer Finish application.
+   Do not deliberately break production requests with DevTools/direct API
+   writes; engineering covers transport and concurrency failures in fixtures.
+
+6. Recheck package defaults without changing shared/all-jobs settings. Recheck
+   the Interview Hub navigation, candidate Cancel and known-failed invitation
+   preview. Do not send to bypass a failed preview. Save without sending is
+   available only when needed by an already-authorized test step.
+
+7. Same-account two-tab stale-question testing does not need another login.
+   It tests concurrency only. Genuine independent-actor or cross-company access
+   isolation still needs appropriately scoped identities; do not call Jordan's
+   legitimate membership in both 463 and 464 an isolation negative test.
+
+STILL OPEN / NOT CLAIMED AS FIXED
+
+- The active po@tenant-domain interview sender setup failure is separate.
+  No alias/mailbox or fallback sender was configured and no invite was sent.
+- Missing meeting-type/location/calendar controls and general applicant/set
+  success feedback remain separate findings unless freshly verified otherwise.
+- Public careers visibility remains controlled by explicit company publication.
+  Anonymous company-setup readiness is not the authenticated QA setup policy.
+- No live application pass, new hire, mail receipt or audit-completeness pass
+  follows from engineering tests. Preserve FAIL/BLOCKED rows until retested.
+
+Report each checkpoint PASS / FAIL / BLOCKED with build, actor/company, exact
+job/form/interview IDs, timestamp/zone and screenshot. Stop on a repeated lock
+or silent/uncertain write, retain all evidence, and do not retry the write.

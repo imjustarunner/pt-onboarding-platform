@@ -134,6 +134,10 @@ const getUserOrganizationIds = async (userId) => {
 
 export const listIntakeLinks = async (req, res, next) => {
   try {
+    if(req.plotlineHiringAgencyId){
+      const links=await IntakeLink.findByScope({scopeType:'agency',organizationId:req.plotlineHiringAgencyId});
+      return res.json(links.filter(link=>link.form_type==='job_application'));
+    }
     const companyEventFilterId = req.query.companyEventId ? asNumberOrNull(req.query.companyEventId) : null;
     if (companyEventFilterId) {
       const [evRows] = await pool.execute(
@@ -337,10 +341,10 @@ export const createIntakeLinkFromJob = async (req, res, next) => {
         waivable: true,
         minReferences: 3,
         authorizationNotice:
-          'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.'
+          'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment. If you do not waive references, you must provide a valid email for each required reference so we may send a confidential digital reference form if you are offered an interview or a job.'
       }
     ];
-    const link = await IntakeLink.create({
+    const { link, created } = await IntakeLink.ensureJobApplication({
       publicKey,
       title: `Apply: ${jd.title || 'Job Application'}`,
       description: jd.description_text || null,
@@ -364,7 +368,7 @@ export const createIntakeLinkFromJob = async (req, res, next) => {
       createdByUserId: req.user?.id || null
     });
 
-    res.status(201).json({ link });
+    res.status(created ? 201 : 200).json({ link, created });
   } catch (error) {
     next(error);
   }

@@ -20,6 +20,7 @@ import {
   assignPackage
 } from '../controllers/onboardingPackage.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import {requirePlotlineHiringOrBackoffice} from '../middleware/plotlineHiringAccess.middleware.js';
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ const validatePackage = [
   body('isActive').optional().isBoolean()
 ];
 
-router.get('/', authenticate, requireBackofficeAdmin, getAllPackages);
+router.get('/', authenticate, requirePlotlineHiringOrBackoffice, getAllPackages);
 router.get('/:id', authenticate, requireBackofficeAdmin, getPackageById);
 router.post('/', authenticate, requireBackofficeAdmin, validatePackage, createPackage);
 router.put('/:id', authenticate, requireBackofficeAdmin, validatePackage, updatePackage);

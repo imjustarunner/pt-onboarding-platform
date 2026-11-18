@@ -13,7 +13,7 @@
       <div class="header-actions">
         <div v-if="canChooseAgency" class="agency-picker">
           <label class="agency-label">Agency</label>
-          <select v-model="selectedAgencyId" class="input agency-select">
+          <select v-model="selectedAgencyId" class="input agency-select" :disabled="creating">
             <option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">
               {{ a.name }}
             </option>
@@ -322,6 +322,7 @@
           <tr v-for="row in jobRows" :key="row.id">
             <td>
               <button type="button" class="job-edit-link" @click="openEdit(row)">{{ row.title }}</button>
+              <div class="muted small">Job #{{ row.id }}</div>
               <div class="muted small">{{ row.descriptionText || 'No description yet.' }}</div>
             </td>
             <td>
@@ -357,7 +358,7 @@
             </td>
           </tr>
           <tr v-if="jobRows.length === 0">
-            <td colspan="8" class="muted">No jobs created yet.</td>
+            <td colspan="8" class="muted">{{ loading ? 'Loading jobs…' : error ? 'Jobs could not be verified. Resolve the error and refresh before creating another posting.' : 'No jobs created yet.' }}</td>
           </tr>
         </tbody>
       </table>
@@ -535,8 +536,14 @@
         </div>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" :disabled="creating || !createForm.title.trim()" @click="createJob">
-          {{ creating ? 'Creating…' : 'Create job + application' }}
+        <p v-if="createNotice" role="status" class="create-result">{{ createNotice }}</p>
+        <p v-if="createError" role="alert" class="error-banner">{{ createError }}</p>
+        <div v-if="createUncertain" class="create-reconcile">
+          <p>Refresh the job list and compare the title and job numbers. To finish a saved posting, use its Create form button above.</p>
+          <button type="button" class="btn btn-secondary" :disabled="loading || !!error || !uncertainListReviewed" @click="acknowledgeReconciliation">I reviewed the saved jobs; allow a new posting</button>
+        </div>
+        <button class="btn btn-primary" :disabled="creating || createUncertain || (!pendingJob && !createForm.title.trim())" @click="createJob">
+          {{ creating ? 'Saving…' : pendingJob ? 'Finish application for job #' + pendingJob.id : 'Create job + application' }}
         </button>
       </div>
     </details>
@@ -738,7 +745,7 @@
 
 <script setup>
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -829,6 +836,30 @@ const creating = ref(false);
 const savingEdit = ref(false);
 const savingAgencyCareers = ref(false);
 const error = ref('');
+const createNotice = ref('');
+const createError = ref('');
+const pendingJob = ref(null);
+const createUncertain = ref(false);
+const uncertainListReviewed = ref(false);
+const recoveryKey = () => `plotline-job-create:${authStore.user?.id}:${effectiveAgencyId.value}`;
+const saveCreateRecovery = () => {
+  try { sessionStorage.setItem(recoveryKey(), JSON.stringify({ job: pendingJob.value, uncertain: createUncertain.value })); } catch { /* Current page still retains the saved ID. */ }
+};
+const restoreCreateRecovery = () => {
+  pendingJob.value = null; createUncertain.value = false; uncertainListReviewed.value = false; createError.value = ''; createNotice.value = '';
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(recoveryKey()) || 'null');
+    if (Number(saved?.job?.id) > 0) {
+      pendingJob.value = saved.job;
+      createNotice.value = `Job #${saved.job.id} (${saved.job.title}) was saved. Finish its application form; this will reuse the saved job.`;
+    }
+    createUncertain.value = saved?.uncertain === true;
+    if (createUncertain.value) createError.value = 'The server response was interrupted. A job may already exist. Refresh and reconcile the saved jobs before starting another posting; do not repeat Create.';
+  } catch { /* Invalid browser recovery data does not authorize a write. */ }
+};
+const acknowledgeReconciliation = () => {
+  createUncertain.value = false; createError.value = ''; saveCreateRecovery();
+};
 const jobs = ref([]);
 const links = ref([]);
 const applicantCounts = ref({});
@@ -1215,32 +1246,22 @@ const selectJobIcon = (form, icon) => {
   form.iconFile = null;
 };
 
-const buildDefaultJobApplicationSteps = () => ([
-  { id: `step_${Date.now()}_resume`, type: 'upload', label: 'Resume', accept: '.pdf,.doc,.docx,.txt', maxFiles: 1, required: true, visibility: 'always', allowPasteText: true },
-  { id: `step_${Date.now()}_cover`, type: 'upload', label: 'Cover Letter', accept: '.pdf,.doc,.docx,.txt', maxFiles: 1, required: false, visibility: 'always', allowPasteText: true },
-  {
-    id: `step_${Date.now()}_references`,
-    type: 'references',
-    label: 'Professional references',
-    required: true,
-    waivable: true,
-    minReferences: 3,
-    authorizationNotice:
-      'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment. If you do not waive references, you must provide a valid email for each required reference so we may send a confidential digital reference form if you are offered an interview or a job.'
-  }
-]);
-
 const loadJobs = async () => {
   if (!effectiveAgencyId.value) return;
+  const agencyId = effectiveAgencyId.value;
   const r = await api.get('/hiring/job-descriptions', {
-    params: { agencyId: effectiveAgencyId.value, includeInactive: 1 }
+    params: { agencyId, includeInactive: 1 }
   });
+  if (Number(agencyId) !== Number(effectiveAgencyId.value)) return;
   jobs.value = Array.isArray(r.data) ? r.data : [];
+  if (createUncertain.value) uncertainListReviewed.value = true;
 };
 
 const loadLinks = async () => {
   if (!effectiveAgencyId.value) return;
-  const r = await api.get('/intake-links');
+  const agencyId = effectiveAgencyId.value;
+  const r = await api.get('/intake-links', { params: { agencyId } });
+  if (Number(agencyId) !== Number(effectiveAgencyId.value)) return;
   links.value = (Array.isArray(r.data) ? r.data : []).filter((l) => (
     String(l.form_type || l.formType || '').toLowerCase() === 'job_application'
     && Number(l.organization_id || l.organizationId || 0) === Number(effectiveAgencyId.value)
@@ -1278,12 +1299,10 @@ const ensureApplicationLink = async (jobId) => {
   if (existing?.id) return existing;
   const created = await api.post(`/intake-links/from-job/${jobId}`);
   const link = created.data?.link;
-  if (link?.id) {
-    await api.put(`/intake-links/${link.id}`, {
-      intakeSteps: buildDefaultJobApplicationSteps()
-    });
-  }
-  return link || null;
+  if (!link?.id) throw new Error('The application form was not confirmed.');
+  // The server creates the initial steps atomically, or returns the existing
+  // form unchanged. A retry must never overwrite a customized application.
+  return link;
 };
 
 const refresh = async () => {
@@ -1321,43 +1340,60 @@ const saveAgencyCareersPage = async () => {
 };
 
 const createJob = async () => {
-  if (!effectiveAgencyId.value) return;
-  if (createPackagesRef.value?.sharedDirty || createPackagesRef.value?.saving) { error.value = 'Save or discard the All jobs defaults before saving this posting.'; return; }
+  if (!effectiveAgencyId.value || creating.value || createUncertain.value) return;
+  if (!pendingJob.value && (createPackagesRef.value?.sharedDirty || createPackagesRef.value?.saving)) { createError.value = 'Save or discard the All jobs defaults before saving this posting.'; return; }
+  const agencyId = effectiveAgencyId.value;
+  let posting = false;
   try {
     creating.value = true;
-    const fd = new FormData();
-    fd.append('agencyId', String(effectiveAgencyId.value));
-    fd.append('title', String(createForm.value.title || '').trim());
-    if (String(createForm.value.descriptionText || '').trim()) fd.append('descriptionText', String(createForm.value.descriptionText || '').trim());
-    fd.append('descriptionSectionsJson', JSON.stringify(normalizeSections(createForm.value.descriptionSections)));
-    if (String(createForm.value.postedDate || '').trim()) fd.append('postedDate', String(createForm.value.postedDate || '').trim());
-    if (!createForm.value.ongoing && String(createForm.value.applicationDeadline || '').trim()) {
-      fd.append('applicationDeadline', String(createForm.value.applicationDeadline || '').trim());
-    } else {
-      fd.append('applicationDeadline', '');
+    createError.value = '';
+    if (!pendingJob.value) {
+      createNotice.value = '';
+      const fd = new FormData();
+      fd.append('agencyId', String(effectiveAgencyId.value));
+      fd.append('title', String(createForm.value.title || '').trim());
+      if (String(createForm.value.descriptionText || '').trim()) fd.append('descriptionText', String(createForm.value.descriptionText || '').trim());
+      fd.append('descriptionSectionsJson', JSON.stringify(normalizeSections(createForm.value.descriptionSections)));
+      if (String(createForm.value.postedDate || '').trim()) fd.append('postedDate', String(createForm.value.postedDate || '').trim());
+      if (!createForm.value.ongoing && String(createForm.value.applicationDeadline || '').trim()) {
+        fd.append('applicationDeadline', String(createForm.value.applicationDeadline || '').trim());
+      } else {
+        fd.append('applicationDeadline', '');
+      }
+      fd.append('publishAt', String(createForm.value.publishAt || '').trim());
+      fd.append('unpublishAt', String(createForm.value.unpublishAt || '').trim());
+      if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
+      if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
+      if (String(createForm.value.scheduleText || '').trim()) fd.append('scheduleText', String(createForm.value.scheduleText || '').trim());
+      fd.append('credentialMode', String(createForm.value.credentialMode || 'none').trim() || 'none');
+      fd.append('prehireConfigJson', JSON.stringify(createForm.value.prehireConfig || { documents: [] }));
+      if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
+      if (String(createForm.value.roleType || '').trim()) fd.append('roleType', String(createForm.value.roleType || '').trim());
+      fd.append('isFeatured', createForm.value.isFeatured ? '1' : '0');
+      fd.append('tagsJson', JSON.stringify(createForm.value.tags || []));
+      const createPage = {
+        ...compactApplicationPage(createForm.value.applicationPage),
+        iconUrl: String(createForm.value.iconUrl || '').trim()
+      };
+      fd.append('applicationPageJson', JSON.stringify(createPage));
+      if (createForm.value.heroImageFile) fd.append('heroImage', createForm.value.heroImageFile);
+      if (createForm.value.iconFile) fd.append('jobIcon', createForm.value.iconFile);
+      if (createForm.value.file) fd.append('file', createForm.value.file);
+      posting = true;
+      const r = await api.post('/hiring/job-descriptions', fd);
+      const jobId = Number(r.data?.id || 0);
+      if (!jobId) throw new Error('The saved job ID was not confirmed.');
+      pendingJob.value = { id: jobId, title: String(r.data?.title || createForm.value.title), agencyId };
+      saveCreateRecovery();
+      createNotice.value = `Job #${jobId} (${pendingJob.value.title}) saved. Preparing its application form…`;
+      jobs.value = [...jobs.value.filter(job => Number(job.id) !== jobId), r.data];
     }
-    fd.append('publishAt', String(createForm.value.publishAt || '').trim());
-    fd.append('unpublishAt', String(createForm.value.unpublishAt || '').trim());
-    if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
-    if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
-    if (String(createForm.value.scheduleText || '').trim()) fd.append('scheduleText', String(createForm.value.scheduleText || '').trim());
-    fd.append('credentialMode', String(createForm.value.credentialMode || 'none').trim() || 'none');
-    fd.append('prehireConfigJson', JSON.stringify(createForm.value.prehireConfig || { documents: [] }));
-    if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
-    if (String(createForm.value.roleType || '').trim()) fd.append('roleType', String(createForm.value.roleType || '').trim());
-    fd.append('isFeatured', createForm.value.isFeatured ? '1' : '0');
-    fd.append('tagsJson', JSON.stringify(createForm.value.tags || []));
-    const createPage = {
-      ...compactApplicationPage(createForm.value.applicationPage),
-      iconUrl: String(createForm.value.iconUrl || '').trim()
-    };
-    fd.append('applicationPageJson', JSON.stringify(createPage));
-    if (createForm.value.heroImageFile) fd.append('heroImage', createForm.value.heroImageFile);
-    if (createForm.value.iconFile) fd.append('jobIcon', createForm.value.iconFile);
-    if (createForm.value.file) fd.append('file', createForm.value.file);
-    const r = await api.post('/hiring/job-descriptions', fd);
-    const jobId = Number(r.data?.id || 0);
-    if (jobId) await ensureApplicationLink(jobId);
+    const savedJob = pendingJob.value;
+    if (Number(savedJob.agencyId) !== Number(agencyId)) throw new Error('Return to the company where this job was saved.');
+    await ensureApplicationLink(savedJob.id);
+    createNotice.value = `Job #${savedJob.id} (${savedJob.title}) and its application form are ready. You can edit the saved posting in the list.`;
+    pendingJob.value = null;
+    saveCreateRecovery();
     createForm.value = {
       title: '',
       descriptionText: '',
@@ -1387,7 +1423,13 @@ const createJob = async () => {
     if (createIconFileRef.value) createIconFileRef.value.value = '';
     await refresh();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to create job';
+    const detail = e.response?.data?.error?.message || e.message || 'Please try again.';
+    if (pendingJob.value) {
+      createError.value = `Job #${pendingJob.value.id} is saved, but its application form is not ready. ${detail} Use Finish application to retry this saved job.`;
+    } else if (posting && (!e.response || e.response.status >= 500)) {
+      createUncertain.value = true; saveCreateRecovery();
+      createError.value = 'The create response was interrupted. A job may already be saved. Refresh and reconcile the saved jobs before creating another posting; do not repeat Create.';
+    } else createError.value = detail;
   } finally {
     creating.value = false;
   }
@@ -1583,10 +1625,14 @@ const copyPublicCareersUrl = async () => {
 
 watch(effectiveAgencyId, async (v) => {
   if (!v) return;
+  restoreCreateRecovery();
   await refresh();
 });
 
+const resumeReads = () => { void refresh(); };
+onBeforeUnmount(() => window.removeEventListener('pt:session-resumed', resumeReads));
 onMounted(async () => {
+  window.addEventListener('pt:session-resumed', resumeReads);
   try {
     if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
       await agencyStore.fetchAgencies();
@@ -1599,6 +1645,7 @@ onMounted(async () => {
   if (!selectedAgencyId.value && effectiveAgencyId.value) {
     selectedAgencyId.value = String(effectiveAgencyId.value);
   }
+  restoreCreateRecovery();
   await refresh();
   const requestedJob = jobs.value.find(job => Number(job.id) === Number(route.query.editJobId));
   if (requestedJob) openEdit(requestedJob);

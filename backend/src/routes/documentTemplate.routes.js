@@ -19,6 +19,7 @@ import {
   upload
 } from '../controllers/documentTemplate.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import {requirePlotlineHiringOrBackoffice} from '../middleware/plotlineHiringAccess.middleware.js';
 
 const router = express.Router();
 
@@ -160,7 +161,7 @@ const validateUserSpecificUpload = [
 router.get('/variables', authenticate, requireBackofficeAdmin, getTemplateVariables); // Public endpoint for variables
 router.post('/upload', authenticate, requireBackofficeAdmin, upload.single('file'), uploadTemplate);
 router.post('/', authenticate, requireBackofficeAdmin, validateTemplate, createTemplate);
-router.get('/', authenticate, requireBackofficeAdmin, getTemplates);
+router.get('/', authenticate, requirePlotlineHiringOrBackoffice, getTemplates);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedTemplates); // Must come before /:id
 router.get('/:id/task', authenticate, getTemplateForTask); // Allow users to access templates for their assigned tasks
 router.get('/:id/preview', authenticate, previewTemplate);

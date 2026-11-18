@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { sqlUnicodeParam } from '../utils/mysqlCollation.js';
 
 class IntakeLink {
-  static async create(data) {
+  static async create(data, executor = pool) {
     const {
       publicKey,
       title = null,
@@ -34,7 +34,7 @@ class IntakeLink {
       masterChannel = null
     } = data;
 
-    const [result] = await pool.execute(
+    const [result] = await executor.execute(
       `INSERT INTO intake_links
        (public_key, title, description, language_code, linked_es_form_id, document_translation_map, scope_type, form_type, organization_id, program_id, learning_class_id, company_event_id, job_description_id, is_active,
         create_client, create_guardian, requires_assignment, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, custom_messages, created_by_user_id)
@@ -68,7 +68,7 @@ class IntakeLink {
     const newId = result.insertId;
     if (inheritsSchoolMaster || isSchoolMaster) {
       try {
-        await pool.execute(
+        await executor.execute(
           `UPDATE intake_links
            SET inherits_school_master = ?, is_school_master = ?
            WHERE id = ?`,
@@ -80,7 +80,7 @@ class IntakeLink {
     }
     if (inheritsOfficeMaster || isOfficeMaster || masterChannel) {
       try {
-        await pool.execute(
+        await executor.execute(
           `UPDATE intake_links
            SET inherits_office_master = ?, is_office_master = ?, master_channel = ?
            WHERE id = ?`,
@@ -95,11 +95,38 @@ class IntakeLink {
         // columns may not exist yet
       }
     }
-    return this.findById(newId);
+    return this.findById(newId, executor);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  // Serialize retries on the job, including concurrent requests from two tabs.
+  // Never replace a previously configured form or reactivate a closed one.
+  static async ensureJobApplication(data) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [[job]] = await connection.execute(
+        'SELECT id FROM hiring_job_descriptions WHERE id = ? AND agency_id = ? AND is_active = 1 FOR UPDATE',
+        [data.jobDescriptionId, data.organizationId]
+      );
+      if (!job) throw Object.assign(new Error('Job not found or inactive'), { status: 404 });
+      const [[existing]] = await connection.execute(
+        `SELECT id FROM intake_links WHERE job_description_id = ? AND organization_id = ?
+         AND scope_type = 'agency' AND form_type = 'job_application' ORDER BY id DESC LIMIT 1`,
+        [data.jobDescriptionId, data.organizationId]
+      );
+      const link = existing ? await this.findById(existing.id, connection) : await this.create(data, connection);
+      await connection.commit();
+      return { link, created: !existing };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findById(id, executor = pool) {
+    const [rows] = await executor.execute(
       'SELECT * FROM intake_links WHERE id = ? LIMIT 1',
       [id]
     );

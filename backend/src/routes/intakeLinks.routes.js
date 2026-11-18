@@ -1,11 +1,12 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate } from '../middleware/auth.middleware.js';
+import {requirePlotlineHiringOrBackoffice} from '../middleware/plotlineHiringAccess.middleware.js';
 import { createIntakeLink, createIntakeLinkFromJob, deleteIntakeLink, duplicateIntakeLink, listIntakeLinks, updateIntakeLink, getLinkedTranslationAdmin } from '../controllers/intakeLinks.controller.js';
 
 const router = express.Router();
 
-router.use(authenticate, requireBackofficeAdmin);
+router.use(authenticate,requirePlotlineHiringOrBackoffice);
 
 router.get('/', listIntakeLinks);
 

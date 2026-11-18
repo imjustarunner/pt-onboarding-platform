@@ -1,4 +1,5 @@
 <template>
+  <PlotlineSessionBoundary v-if="plotlinePrivateSession" />
   <router-view v-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
   <AssistantAppShell v-else-if="assistantSurface"><router-view /></AssistantAppShell>
   <PublicWebsiteShell v-else-if="route.meta?.publicMarketingHub"><router-view /></PublicWebsiteShell>
@@ -14,6 +15,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from './store/auth';
 import {useAgencyStore} from './store/agency';
 import PlotlineWorkspaceShell from './components/plotline/PlotlineWorkspaceShell.vue';
+import PlotlineSessionBoundary from './components/plotline/PlotlineSessionBoundary.vue';
 import AssistantAppShell from './components/assistants/AssistantAppShell.vue';
 import PublicWebsiteShell from './components/public/PublicWebsiteShell.vue';
 
@@ -41,4 +43,7 @@ const publicRecoveryNames = new Set(['SessionEnded', 'OrganizationSessionEnded']
 // Keep that same form mounted until navigation, including its retry/error state.
 const publicLoginSurface = computed(() => publicEnrollmentNames.has(route.name) || publicRecoveryNames.has(route.name) || publicLoginNames.has(route.name)
   || (!auth.isAuthenticated && schoolPortalEntryNames.has(route.name)));
+const plotlinePrivateSession=computed(()=>auth.isAuthenticated && !assistantSurface.value && !publicLoginSurface.value
+  && !['client','guardian','client_guardian'].includes(String(auth.user?.role || '').toLowerCase())
+  && (route.meta?.plotlineEntry===true || !!plotlineCompany.value));
 </script>
