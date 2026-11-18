@@ -6,4 +6,4 @@ export const isQaEmailAgency = agencyId => QA_EMAIL_AGENCY_IDS.includes(Number(a
 
 // Arguments are internal SQL identifiers, never request values.
 export const emailWorkerAccountSql = (user = 'u', agency = 'ua.agency_id') =>
-  `(COALESCE(${user}.is_demo,0)=0 OR ${agency} IN (450,451,452,453,454))`;
+  `(COALESCE(${user}.is_demo,0)=0 OR ${agency} IN (450,451,452,453,454)${['true','qa_only'].includes(process.env.PLOTLINE_SELF_SERVICE_ENABLED) ? ` OR EXISTS(SELECT 1 FROM plotline_companies plqa WHERE plqa.agency_id=${agency} AND plqa.is_qa=1)` : ''})`;

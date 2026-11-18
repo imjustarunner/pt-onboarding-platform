@@ -4,6 +4,7 @@
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import config from '../config/config.js';
+import {assertPlotlineCareersPublished} from './plotlineCompanyPolicy.service.js';
 import Agency from '../models/Agency.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import StorageService from './storage.service.js';
@@ -104,6 +105,7 @@ export async function getPublicJobDescriptionPayload({ agencySlug = null, jobId 
   }
 
   const agency = await Agency.findById(job.agency_id);
+  if(agency)assertPlotlineCareersPublished(agency);
   if (!agency?.id) {
     const err = new Error('Agency not found');
     err.status = 404;

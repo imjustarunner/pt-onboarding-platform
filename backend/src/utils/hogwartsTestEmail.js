@@ -164,6 +164,11 @@ async function loadDemoAgencyIds() {
       const id = Number(row.id);
       if (Number.isFinite(id) && id > 0) ids.add(id);
     }
+    try{
+      const [plotline]=await pool.execute('SELECT agency_id FROM plotline_companies WHERE is_qa=1');
+      for(const row of plotline)ids.add(Number(row.agency_id));
+    }catch(error){if(error.code!=='ER_NO_SUCH_TABLE')throw error;}
+
     demoAgencyCache = { at: now, ids };
     return ids;
   } catch {

@@ -108,6 +108,7 @@ import {
 } from '../utils/intakeFieldLabels.js';
 import { matchesShowIf, mergeShowIfValues, isClinicalSafetyPositive, isRelationshipIpvPositive, childAgeFlags } from '../utils/intakeShowIf.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
+import {assertPlotlineCareersPublished} from '../services/plotlineCompanyPolicy.service.js';
 import {
   parseJobDescriptionSections,
   jobDescriptionSectionsHaveContent
@@ -5447,6 +5448,7 @@ export const listPublicCareers = async (req, res, next) => {
     if (!agency?.id) {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
+    assertPlotlineCareersPublished(agency);
     const agencyCareersPage = sanitizeApplicationPageJson(agency.careers_page_json) || null;
 
     const cityFilter = String(req.query?.city || '').trim().toLowerCase();
@@ -5582,7 +5584,8 @@ export const listPublicCareers = async (req, res, next) => {
         name: agency.name || null,
         officialName: agency.official_name || null,
         logoUrl: agency.logo_url || null,
-        careersPage: agencyCareersPage
+        careersPage: agencyCareersPage,
+        plotlineBrand: (()=>{const theme=parseJsonObjectSafe(agency.theme_settings);return theme?.plotlineBrand||null;})()
       },
       jobs
     });

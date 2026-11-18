@@ -1,0 +1,33 @@
+name: Plotline self-service boundaries
+on:
+  pull_request:
+    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
+  push:
+    branches: [main]
+    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: npm ci
+        working-directory: backend
+      - name: Signup, tenant, trial, burst and route checks
+        run: frontend/node_modules/.bin/vitest run --config backend/vitest.plotline.config.js
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+          SKIP_DB_CONNECT: '1'
+      - name: Customer setup and shared brand checks
+        run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-self-service.config.js

@@ -384,6 +384,10 @@ const routes = [
   ...(window.location.hostname === 'auricwell.com' ? [{path:'/app/:pathMatch(.*)*', name:'AuricWellAppEntry', beforeEnter: to => {window.location.assign(to.fullPath); return false;}, component: {template:'<p>Opening AuricWell…</p>'}}] : []),
   { path: '/family-website', name: 'FamilyWebsite', component: () => import('../views/public/FamilyWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, familyWebsite: true } },
   { path: '/plotline/app', name: 'PlotlineEntry', component: () => import('../views/PlotlineEntryView.vue'), meta: { plotlineEntry: true, hideNav: true } },
+  { path: '/plotline/setup', name: 'PlotlineSetup', component: () => import('../views/public/PlotlineStartView.vue'), meta: { plotlineEntry: true, hideNav: true } },
+  { path: '/plotline/verify', name: 'PlotlineVerify', component: () => import('../views/public/PlotlineStartView.vue'), meta: { plotlineEntry: true, hideNav: true } },
+  { path: '/plotline/brand/:agencyId', name: 'PlotlineBrandSetup', component: () => import('../views/public/PlotlineStartView.vue'), meta: { plotlineEntry: true, requiresAuth: true, hideNav: true } },
+  { path: '/plotline/company/:agencyId', name: 'PlotlineCompany', component: () => import('../views/PlotlineCompanyView.vue'), meta: { plotlineEntry: true, requiresAuth: true, hideNav: true } },
   { path: '/fundthred/noteworthy', name: 'NoteworthyWebsite', component: () => import('../views/public/NoteworthyPayrollWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true } },
   { path: '/fundthred/noteworthy/demo', name: 'NoteworthyDemo', component: () => import('../views/public/NoteworthyPayrollDemo.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true } },
   { path: '/fundthred/noteworthy/start', name: 'NoteworthyStart', component: () => import('../views/public/NoteworthyStartView.vue'), meta: { hideNav: true, fundthred: true, noteworthyEntry: true } },
@@ -5373,6 +5377,7 @@ router.beforeEach(async (to, from, next) => {
   }
   if (to.meta.plotlineEntry) {
     await tryBootstrapAuthFromCookie();
+    if(to.meta.requiresAuth && !authStore.isAuthenticated){next({path:'/login',query:{redirect:to.fullPath,product:'plotline'},replace:true});return;}
     if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
       next({ path: '/change-password', query: { redirect: '/plotline/app' }, replace: true }); return;
     }

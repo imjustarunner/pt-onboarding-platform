@@ -2,7 +2,9 @@
   <router-view v-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
   <AssistantAppShell v-else-if="assistantSurface"><router-view /></AssistantAppShell>
   <PublicWebsiteShell v-else-if="route.meta?.publicMarketingHub"><router-view /></PublicWebsiteShell>
+  <router-view v-else-if="route.meta?.plotlineEntry" />
   <router-view v-else-if="publicLoginSurface" />
+  <PlotlineWorkspaceShell v-else-if="plotlineCompany" :agency="plotlineCompany"><router-view /></PlotlineWorkspaceShell>
   <AppWorkspace v-else />
 </template>
 
@@ -10,6 +12,8 @@
 import { computed, defineAsyncComponent, h } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from './store/auth';
+import {useAgencyStore} from './store/agency';
+import PlotlineWorkspaceShell from './components/plotline/PlotlineWorkspaceShell.vue';
 import AssistantAppShell from './components/assistants/AssistantAppShell.vue';
 import PublicWebsiteShell from './components/public/PublicWebsiteShell.vue';
 
@@ -24,6 +28,8 @@ const AppWorkspace = defineAsyncComponent({
 });
 const route = useRoute();
 const auth = useAuthStore();
+const agencies=useAgencyStore();
+const plotlineCompany=computed(()=>{const agency=agencies.currentAgency;if(!auth.isAuthenticated||!agency)return null;let flags=agency.feature_flags||agency.featureFlags||{};try{if(typeof flags==='string')flags=JSON.parse(flags);}catch{return null;}const slug=route.params.organizationSlug;return flags.plotlineOnly===true&&slug&&(agency.portal_url===slug||agency.slug===slug)?agency:null;});
 const assistantSurface = computed(() => String(auth.user?.role || '').toLowerCase() === 'assistant' || route.meta?.assistantSurface === true);
 // Sign-in must remain available when an unrelated employee widget cannot load.
 // Login views own their branding; authentication and route guards stay in place.

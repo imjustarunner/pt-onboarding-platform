@@ -13,7 +13,7 @@ export function isPlotlineWorkspacePath(path = '') {
 }
 
 // Reserve infrastructure and product paths before resolving a company slug.
-export const PLOTLINE_RESERVED_SLUGS = new Set(['plottline', 'product', 'solutions', 'resources', 'about', 'start', 'app', 'api', 'assets', 'uploads', 'login', 'logout', 'admin', 'dashboard', 'careers', 'plotline', 'p', 'intake', 'i', 'join', 'public', 'support', 'privacy', 'terms', 'pricing', 'security', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'manifest.webmanifest', 'account-info', 'account-security', 'admin', 'admin-dashboard', 'athlete-readiness', 'buildings', 'burden-purpose', 'careers', 'challenges', 'change-password', 'class-presentation-builder', 'client-exchange', 'college-readiness', 'communications', 'counseling', 'credentials', 'dashboard', 'demo-launch', 'digital-wellness', 'email-compose', 'family', 'family-functioning', 'guardian', 'join-design-preview', 'kiosk', 'library', 'life-balance', 'login', 'marriage-alignment', 'mens-life', 'messages', 'messaging', 'michael', 'my-learning', 'my-meetings', 'my-portal', 'my-schedule', 'my-virtual-office', 'mydashboard', 'note-aid', 'notifications', 'office', 'on-demand-training', 'onboarding', 'operations-dashboard', 'parenting-confidence', 'passwordless-login', 'pending-completion', 'people-operations', 'personal-fulfillment', 'plans', 'platformhipaa', 'plotline', 'preferences', 'privacy-review', 'privacypolicy', 'provider-mobile', 'provider-plus-dashboard', 'publicproof', 'quick-view', 'qv', 'relationship-health', 'reward-regulation', 'savage-blueprint', 'schedule', 'school-operations', 'school-referral', 'schoolcarebridge', 'schools', 'session-ended', 'settings', 'student-success', 'support', 'tasks', 'teen-wellbeing', 'terms', 'tickets', 'tools-aids', 'tracks', 'values-alignment', 'verify-club-manager-email', 'workforce-operations']);
+export const PLOTLINE_RESERVED_SLUGS = new Set(['setup','verify','brand','company','plottline', 'product', 'solutions', 'resources', 'about', 'start', 'app', 'api', 'assets', 'uploads', 'login', 'logout', 'admin', 'dashboard', 'careers', 'plotline', 'p', 'intake', 'i', 'join', 'public', 'support', 'privacy', 'terms', 'pricing', 'security', 'robots.txt', 'sitemap.xml', 'favicon.ico', 'manifest.webmanifest', 'account-info', 'account-security', 'admin', 'admin-dashboard', 'athlete-readiness', 'buildings', 'burden-purpose', 'careers', 'challenges', 'change-password', 'class-presentation-builder', 'client-exchange', 'college-readiness', 'communications', 'counseling', 'credentials', 'dashboard', 'demo-launch', 'digital-wellness', 'email-compose', 'family', 'family-functioning', 'guardian', 'join-design-preview', 'kiosk', 'library', 'life-balance', 'login', 'marriage-alignment', 'mens-life', 'messages', 'messaging', 'michael', 'my-learning', 'my-meetings', 'my-portal', 'my-schedule', 'my-virtual-office', 'mydashboard', 'note-aid', 'notifications', 'office', 'on-demand-training', 'onboarding', 'operations-dashboard', 'parenting-confidence', 'passwordless-login', 'pending-completion', 'people-operations', 'personal-fulfillment', 'plans', 'platformhipaa', 'plotline', 'preferences', 'privacy-review', 'privacypolicy', 'provider-mobile', 'provider-plus-dashboard', 'publicproof', 'quick-view', 'qv', 'relationship-health', 'reward-regulation', 'savage-blueprint', 'schedule', 'school-operations', 'school-referral', 'schoolcarebridge', 'schools', 'session-ended', 'settings', 'student-success', 'support', 'tasks', 'teen-wellbeing', 'terms', 'tickets', 'tools-aids', 'tracks', 'values-alignment', 'verify-club-manager-email', 'workforce-operations']);
 export function isPlotlineCompanySlug(value) {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(value || '')) && !PLOTLINE_RESERVED_SLUGS.has(value);
 }
@@ -25,6 +25,7 @@ export function plotlineCareersUrl(slug) {
 export const plotlinePaths = {
   internal(value) {
     const path = String(value);
+    if (/^\/(setup|verify)(?:[/?#]|$)/.test(path) || /^\/(brand|company)\/[1-9]\d*(?:[/?#]|$)/.test(path)) return `/plotline${path}`;
     if (PLOTLINE_MARKETING_PAGES.some(page => new RegExp(`^/${page}(?:[/?#]|$)`).test(path))) return `/plotline${path}`;
     if (/^\/(?:[?#]|$)/.test(path)) return `/plotline${path.slice(1)}`;
     if (/^\/app\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/app\/?/, '/plotline/app');
@@ -36,6 +37,7 @@ export const plotlinePaths = {
   },
   clean(value) {
     const path = String(value);
+    if (/^\/plotline\/(setup|verify)(?:[/?#]|$)/.test(path) || /^\/plotline\/(brand|company)\/[1-9]\d*(?:[/?#]|$)/.test(path)) return path.replace(/^\/plotline/, '');
     if (/^\/plott?line\/(product|solutions|resources|about|pricing|start)(?:[/?#]|$)/.test(path)) return path.replace(/^\/plott?line/, '');
     if (/^\/plotline\/app(?=[/?#]|$)/.test(path)) return path.replace(/^\/plotline/, '');
     if (/^\/plott?line(?=[?#]|\/?$)/.test(path)) return path.replace(/^\/plott?line\/?/, '/');

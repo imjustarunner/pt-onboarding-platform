@@ -21,6 +21,7 @@ import { recordAccountSession } from '../services/personalSessionHistory.service
 import { assistantBoundary } from './assistantBoundary.middleware.js';
 import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 import {assertNonclinicalWorkspaceBoundary} from './nonclinicalWorkspace.middleware.js';
+import plotlineCompanyPolicy from '../services/plotlineCompanyPolicy.service.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
@@ -37,6 +38,8 @@ export const authenticateRequired = (req, res, next) => {
 const finishAuthentication = async (req,res,next) => {
   try { await scopeAgencyRequest(req); }
   catch (error) { return next(error); }
+  try { await plotlineCompanyPolicy.assertRequest(req); }
+  catch(error){if(error.status)return res.status(error.status).json({error:{code:error.code,message:error.message}});return next(error);}
   try { await assertNonclinicalWorkspaceBoundary(req); }
   catch(error){if(error.status)return res.status(error.status).json({error:{code:error.code,message:error.message}});return next(error);}
   return runWithAgencyAccess(req.user?.scopedAgencyId, () => assistantBoundary(req,res,error => error ? next(error) : requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next))))), {userId:req.user?.id,access:req.user?.agencyAccess});

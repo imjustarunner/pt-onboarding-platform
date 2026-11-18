@@ -6,7 +6,7 @@
       <button class="pl-menu-toggle" :aria-expanded="menuOpen" aria-controls="pl-main-nav" @click="menuOpen=!menuOpen">{{ menuOpen ? 'Close' : 'Menu' }} <span aria-hidden="true">{{ menuOpen ? '×' : '☰' }}</span></button>
       <nav id="pl-main-nav" :class="{open:menuOpen}" aria-label="Plotline main navigation">
         <router-link v-for="item in navigation" :key="item" :to="pageUrl(item)" :aria-current="section===item?'page':undefined">{{ navigationLabel(item) }}</router-link>
-        <div class="pl-nav-actions"><a :href="signIn" class="pl-button pl-button--secondary">Sign in</a><router-link :to="pageUrl('start')" class="pl-button">Get started <span aria-hidden="true">→</span></router-link></div>
+        <div class="pl-nav-actions"><a :href="signIn" class="pl-button pl-button--secondary">Sign in</a><a href="https://plotlinepo.com/setup" class="pl-button">Start 30 days free <span aria-hidden="true">→</span></a></div>
       </nav>
     </header>
     <main id="plotline-main" tabindex="-1">

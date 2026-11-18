@@ -34,7 +34,7 @@ export async function scopeAgencyRequest(req) {
   // employee's stable payroll identity can differ from their existing login.
   // Ignore ambient UI agency selection here; it must neither deny their own
   // statements nor confer that agency's administrative/clinical permissions.
-  if(req.baseUrl==='/api/noteworthy' && user.role!=='super_admin') {
+  if(['/api/noteworthy','/api/plotline'].includes(req.baseUrl) && user.role!=='super_admin') {
     const permissions=Object.fromEntries(AGENCY_ACCESS_FIELDS.map(f=>[f.key,false]));
     req.user={...req.user,role:'provider',effectiveRole:'provider',platformRole:user.role,
       agencyId:null,scopedAgencyId:null,agencyScopeResolved:true,...permissions,agencyAccess:{role:'provider',permissions}};
@@ -57,6 +57,7 @@ export async function scopeAgencyRequest(req) {
     return;
   }
   const agency = await Agency.findById(agencyId);
+  req.scopedAgencyFeatureFlags=agency?.feature_flags || {};
   if (String(agency?.organization_type).toLowerCase() === 'affiliation') {
     req.user.role = req.user.effectiveRole || 'member';
     const permissions=Object.fromEntries(AGENCY_ACCESS_FIELDS.map(f=>[f.key,false]));

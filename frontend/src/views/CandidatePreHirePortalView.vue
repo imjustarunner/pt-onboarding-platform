@@ -1,5 +1,5 @@
 <template>
-  <div class="portal-root" :style="cssVars">
+  <component :is="agency?.theme?.plotlineBrand ? PlotlineCompanyFrame : 'div'" :brand="agency?.theme?.plotlineBrand" :context="candidate?.status === 'ONBOARDING' ? 'Your onboarding portal' : 'Your pre-hire portal'" class="portal-root" :style="cssVars">
     <div v-if="loading" class="portal-splash"><div class="splash-spinner"></div><p>Loading your portal…</p></div>
     <div v-else-if="errorCode" class="portal-splash">
       <img v-if="agency?.logoUrl" :src="agency.logoUrl" :alt="agency.name" style="max-width:180px" />
@@ -563,7 +563,7 @@
       </div>
 
     </template>
-  </div>
+  </component>
   <PlotlineSignature/>
   <ContractHandbookModal :open="!!contractHandbookReference" v-bind="contractHandbookReference || {}" :http="portalApi" :portal-token="String(token)" @close="contractHandbookReference = null" />
 </template>
@@ -578,6 +578,7 @@ import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, reactive } from 'vue';
 import ContractHandbookModal from '../components/documents/ContractHandbookModal.vue';
 import { contractHandbookSrcdoc, referenceFromContractMessage } from '../utils/contractHandbookReferences.js';
+import PlotlineCompanyFrame from '../components/plotline/PlotlineCompanyFrame.vue';
 import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';

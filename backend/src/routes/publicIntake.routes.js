@@ -57,12 +57,14 @@ const upload = multer({
 });
 import { authenticate } from '../middleware/auth.middleware.js';
 import {reenrollmentPacketGate,publicEnrollmentResponsePrivacy} from '../middleware/reenrollmentPacket.middleware.js';
+import {plotlinePublicFormTrial} from '../middleware/plotlinePublicTrial.middleware.js';
 
 const router = express.Router();
 
 router.use(publicIntakeRequestLimiter);
 router.use(publicEnrollmentResponsePrivacy);
 router.use('/:publicKey',reenrollmentPacketGate);
+router.use('/:publicKey',plotlinePublicFormTrial);
 router.get('/application-documents/:submissionId/:docId', viewApplicationDocument);
 
 router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);

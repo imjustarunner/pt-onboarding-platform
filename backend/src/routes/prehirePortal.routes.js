@@ -7,6 +7,7 @@ import { portalTrainingAction } from '../controllers/portalTraining.controller.j
 import multer from 'multer';
 import { body } from 'express-validator';
 import { enforcePortalWritePhase } from '../middleware/portalWritePhase.middleware.js';
+import {plotlineCandidateTrial} from '../middleware/plotlinePublicTrial.middleware.js';
 import { portal as portalDocumentAnalytics } from '../controllers/documentAnalytics.controller.js';
 import { portalLearning } from '../controllers/companyDocumentLearning.controller.js';
 import { authenticatePrehireToken } from '../middleware/prehirePortalAuth.middleware.js';
@@ -69,7 +70,7 @@ const prehireDocUpload = multer({
 });
 
 // All routes validated by the pre-hire token — token is the :token route param
-router.use('/:token', authenticatePrehireToken, enforcePortalWritePhase);
+router.use('/:token', authenticatePrehireToken, plotlineCandidateTrial, enforcePortalWritePhase);
 router.get('/:token/supervision-agreements', listSupervisionAgreements);
 router.post('/:token/supervision-agreements/:agreementId/sign', signAgreement);
 router.get('/:token/supervision-agreements/:agreementId/pdf', downloadAgreement);

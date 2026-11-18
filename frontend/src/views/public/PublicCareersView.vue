@@ -1,4 +1,5 @@
 <template>
+  <component :is="plotlineBrand ? PlotlineCompanyFrame : 'div'" :brand="plotlineBrand" context="Careers · Your next chapter">
   <div class="cr" :class="{ 'cr--editing': canEditCareers }" :style="rootStyle">
     <!-- Logged-in hiring managers: edit this public page in place -->
     <div v-if="canEditCareers" class="cr-editor-bar" :class="{ 'cr-editor-bar--active': editing }">
@@ -738,9 +739,12 @@
       </div>
     </div>
   </div>
+  </component>
 </template>
 
 <script setup>
+import PlotlineCompanyFrame from '../../components/plotline/PlotlineCompanyFrame.vue';
+import {plotlineThemeStyle} from '../../utils/plotlineTheme';
 import { PLOTLINE_WEBSITE_URL } from '../../utils/plotline';
 import { careerLocations } from '../../utils/careerLocations';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
@@ -802,6 +806,7 @@ const error = ref('');
 const jobs = ref([]);
 const agencyId = ref(null);
 const agencyName = ref('');
+const plotlineBrand=ref(null);
 const agencyCareersPageRaw = ref({});
 const selectedLocation = ref('');
 const selectedRoleType = ref('');
@@ -1076,6 +1081,7 @@ const rootStyle = computed(() => {
     asHeading: true
   }).fontFamily;
   return {
+    ...(plotlineBrand.value ? plotlineThemeStyle(plotlineBrand.value) : {}),
     '--accent': accentColor.value,
     '--accent-light': hexToRgba(accentColor.value, 0.1),
     '--accent-mid': hexToRgba(accentColor.value, 0.18),
@@ -1089,6 +1095,7 @@ watch(
   () => page.value,
   (p) => {
     if (!p) return;
+    if (plotlineBrand.value) return; // The three shared Plotline themes use bundled fonts.
     const ids = [p.fontFamily, p.headingFontFamily];
     for (const s of Object.values(p.textStyles || {})) {
       if (s?.fontFamily) ids.push(s.fontFamily);
@@ -1337,6 +1344,7 @@ const loadCareers = async () => {
       skipAuthRedirect: true,
       timeout: 15000
     });
+    plotlineBrand.value=r.data?.agency?.plotlineBrand || null;
     agencyId.value = r.data?.agency?.id != null ? Number(r.data.agency.id) : null;
     agencyName.value = String(r.data?.agency?.officialName || r.data?.agency?.name || '').trim();
     agencyCareersPageRaw.value =

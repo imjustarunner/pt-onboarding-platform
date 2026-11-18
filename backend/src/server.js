@@ -186,6 +186,7 @@ import kioskRoutes from './routes/kiosk.routes.js';
 import emergencyBroadcastRoutes from './routes/emergencyBroadcast.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
 import noteworthyRoutes from './routes/noteworthy.routes.js';
+import plotlineRoutes from './routes/plotline.routes.js';
 import accountabilityRoutes from './routes/accountability.routes.js';
 import companyCarRoutes from './routes/companyCar.routes.js';
 // Budget routes lazy-loaded to avoid startup lag from @google-cloud/vision
@@ -451,6 +452,7 @@ app.use('/api/notifyre', notifyreRoutes);
 app.use('/api/auricwell-sms', (await import('./routes/notifyreWebhook.routes.js')).default);
 app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({ limit: '36mb' }));
 app.use('/api/noteworthy', express.json({ limit: '128kb' }));
+app.use('/api/plotline', express.json({ limit: '64kb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -953,6 +955,7 @@ app.get('/api/summit-stats/clubs', listClubs);
 // API Routes
 app.use('/api/provider-directories', providerDirectoryRoutes);
 app.use('/api/noteworthy', noteworthyRoutes);
+app.use('/api/plotline', plotlineRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/modules', moduleRoutes);

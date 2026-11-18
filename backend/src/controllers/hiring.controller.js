@@ -7,6 +7,7 @@ import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRe
 import { sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
 import { prepareHirePacket, retainHirePacket } from '../services/hirePacketPreparation.service.js';
 import pool from '../config/database.js';
+import plotlineCompanyPolicy from '../services/plotlineCompanyPolicy.service.js';
 import { hiringAssigneesForAgency } from '../services/hiringAssignees.service.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
@@ -63,6 +64,7 @@ function parseIntParam(v) {
 }
 
 async function ensureAgencyAccess(req, agencyId) {
+  if(!['GET','HEAD','OPTIONS'].includes(req.method))await plotlineCompanyPolicy.assertWritable(agencyId);
   if (!agencyId) {
     const err = new Error('Agency ID required');
     err.status = 400;

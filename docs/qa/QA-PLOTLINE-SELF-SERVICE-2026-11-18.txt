@@ -1,0 +1,108 @@
+PLOTLINE CUSTOMER SETUP / TWO DEMO COMPANIES — NOVEMBER 18, 2026
+
+This is a live browser QA assignment, not a completed test report. It supersedes
+the old instruction to create Plotline companies or a People Ops operator by
+signing in as a human administrator. Preserve earlier evidence and open defects.
+
+START SMALL
+1. First sign in at https://plotlinepo.com/app, then open /setup. The initial
+   release is QA-only: anonymous visitors use the walkthrough request path.
+   Use the existing bot vault account for
+   Jordan 1434 only if its reservation as qa_automation is confirmed. Use its
+   ordinary sign-in, MFA and session controls. Add plotlinepo.com to that vault
+   entry's allowed sites. Do not use human administrator 1435 or a superadmin,
+   copy a session, forge credentials, or reset another person's password.
+2. If setup says it is opening soon, record BLOCKED. Engineering must apply
+   migration 1847, confirm company access profiles are already enabled, configure
+   a verified platform sender and enable the protected rollout switch first.
+3. Use the QA email delivery check to send ONE Plotline verification message,
+   even if this reserved account is already verified. Inspect actual receipt in
+   testing@itsco.health. If it is not verified yet, use the normal email step.
+   Open its personal link and explicitly confirm. Normal sign-in remains required;
+   a link must never reset an existing password or bypass MFA/SSO.
+4. Type a BUSINESS NAME yourself. The name is required and starts blank.
+   Company A: Juniper Consulting QA. Business type: Consulting.
+   Timezone: America/Denver. Start with the default Clarity / Montserrat style.
+   Branding is optional. You can save a draft and return without starting a trial.
+5. Review the authority/terms confirmations, then create the company. Record
+   actual company/user/draft IDs, slug, trial start/end and Denver offset.
+   The trial lasts exactly 30 server-timed days. No card, charge or automatic
+   paid conversion. The careers page and jobs stay unpublished.
+6. Stop at the useful workspace. Open only one next step: Create your first job.
+   Create a fictional Operations Coordinator role, clearly marked SYNTHETIC QA /
+   NO REAL VACANCY. Save it as a draft first. Do not create clinical clients,
+   provider credentials, medical billing, school or tutoring records.
+7. Return to company branding when ready. Upload a synthetic logo, review its
+   extracted colors, paste your own short mission and edit the suggested copy.
+   Confirm that a suggestion does not replace text you already edited. Preview
+   Workspace, Careers, Pre-hire, Onboarding and Offboarding; save one style.
+8. Review company copy and the QA job, then explicitly publish the careers page
+   only if this run includes public application QA. Use the app's actual public
+   link, not a guessed slug. Keep every vacancy visibly marked synthetic.
+
+SECOND COMPANY — SAME OWNER, INDEPENDENT CONTENT
+- The registered QA account may create TWO companies total. Open Workspaces ->
+  Create a company. Type Company B: Maple Studio QA; Professional services;
+  America/New_York; choose Story or Studio and a different palette/mission.
+- Repeat the simple setup. Do not clone or overwrite A. Switching companies
+  should preserve the exact job, palette, copy, timezone and trial in each.
+- A shared owner is expected to see both. This is a workspace-switching test,
+  NOT a successful tenant-isolation negative. A-only and B-only recruiter
+  accounts must be separately reserved and confirmed as automation identities
+  before a bot may sign in as them. Use normal invitations and scoped access;
+  do not broaden Jordan, use a human persona or silently register public users
+  as automation. Record that negative BLOCKED until those identities exist.
+- Use distinct fictional applicant emails per company. Existing cross-company
+  applicant accounts require People Ops review; do not move or overwrite them
+  to force a pass. Old counseling applicants are outside this standalone run.
+
+ABUSE / LIMIT CHECKS
+- DO NOT run a 600-request test against the live site. Engineering runs bursts
+  and concurrent creation tests only against isolated local databases.
+- Once both QA companies exist, try ONE additional company action. Expect a
+  clear company-limit message and no third draft/company/trial. Capture counts.
+- Ordinary accounts get one trial company; only server-registered QA actors get
+  two. A public qa_automation field, company name or demo checkbox grants nothing.
+- Refresh or double-click the original create action: one company, one owner
+  membership and the same trial end. Do not deliberately retry live email sends.
+- Anonymous signup requires human verification and normal rate limits. The bot
+  must not solve/bypass that control; use its existing authenticated QA account.
+  A new-account verification test needs an approved new automation identity.
+- Verification requests are limited across instances to 10 per IP per UTC day
+  and 200 total per UTC day, with a one-minute per-email cooldown. Trial creation
+  has a shared platform cap of 20 companies per UTC day. Do not exhaust these
+  caps on production. Blocked users can request a walkthrough or more capacity.
+- The older agency-creation/settings API must not let a Plotline trial owner
+  bypass setup, remove product flags, or create unlimited companies.
+
+BOUNDARIES / EMAIL / ACCESSIBILITY
+- Hiring, careers, onboarding and employee interfaces use Plotline branding.
+  Customer branding stays consistent across their five lifecycle surfaces.
+- No clinical, medical billing, school or tutoring menus. Direct unauthorized
+  product APIs/links must fail too. A hidden menu alone is not an access pass.
+- New operations/consulting applicants remain nonclinical Staff. No verified
+  license, NPI, supervisor, client caseload or provider access is inferred.
+- QA company email is redirected to testing@itsco.health by a server-owned QA
+  company classification. Do not change real recipient preferences or sender
+  identities. Record logical recipient separately from physical destination.
+- Verification mail displays Plotline and uses an exact configured, verified
+  platform sender. Record actual From/Reply-To, message ID and real receipt.
+  Queued/accepted/sent alone is not inbox proof. Unknown delivery must stay clear.
+- A GET/link scanner must not consume email proof. Expired/replayed/wrong-account
+  links fail safely. Tokens/passwords stay in the vault, not reports/screenshots.
+- Check 390-pixel mobile and desktop, keyboard operation, focus, readable colors,
+  retries and recovery after a bad logo. Unsaved edits must remain on errors.
+- An expired trial becomes read-only across underlying actions, public
+  applications and candidate portals. Do not change clocks or age production
+  rows. Requests to continue must not extend a trial or charge a card.
+
+REPORT
+Use PASS / FAIL / BLOCKED / NOT RUN. Record visible build, actor/automation
+classification, exact IDs/URL, click path, local date/time with offset, screenshot,
+expected/actual behavior and any audit row. Keep both companies for inspection.
+The new Company activity view records email proof, company creation, branding,
+publication and continuation. Existing hiring and employee activity retains its
+own audit surface; missing events are defects, not assumed successes.
+
+The owner setup screen creates a company. The Onboarding preview is an employee's
+portal after hiring. A theme preview is not evidence of a completed employee hire.

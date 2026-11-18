@@ -2403,7 +2403,8 @@ const handleLogin = async (passkeyResult = null) => {
         loading.value = false; return;
       }
       if (window.location.hostname === 'plotlinepo.com' && !authStore.user?.requiresPasswordChange) {
-        await router.replace('/plotline/app'); loading.value = false; return;
+        const destination=safeLoginDestination(route.query.redirect);
+        await router.replace(destination?.startsWith('/plotline/')?destination:'/plotline/app'); loading.value = false; return;
       }
       const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
       const agencyList = Array.isArray(agencies) ? agencies : [];

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import plotlineCompanyPolicy from './plotlineCompanyPolicy.service.js';
 import { looksLikeDemoFakeAddress } from '../utils/hogwartsTestEmail.js';
 
 const EMPLOYMENT_STATUSES = new Set([
@@ -90,6 +91,10 @@ export async function resolveOrCreateJobApplicantUser({
   agencyId = null,
   role = 'provider'
 }) {
+  if(agencyId){
+    const company=await plotlineCompanyPolicy.record(agencyId);
+    if(company){await plotlineCompanyPolicy.assertWritable(agencyId);role='staff';}
+  }
   const gEmail = String(email || '').trim();
   const gFirst = String(firstName || '').trim() || null;
   const gLast = String(lastName || '').trim() || null;
@@ -101,6 +106,10 @@ export async function resolveOrCreateJobApplicantUser({
   }
 
   let existing = await User.findByEmail(gEmail);
+  if(existing?.id && agencyId && await plotlineCompanyPolicy.record(agencyId)){
+    const [[other]]=await pool.execute('SELECT COUNT(*) total FROM user_agencies WHERE user_id=? AND agency_id<>?',[existing.id,agencyId]);
+    if(Number(other.total)>0)throw Object.assign(new Error('This email already has an account with another organization. Contact People Operations to review a separate application; no existing account or files were changed.'),{status:409,code:'CROSS_COMPANY_APPLICATION_REVIEW_REQUIRED'});
+  }
   if (existing?.id) {
     // findByEmail may omit archive flags; load full row when needed.
     const full = (await User.findById(existing.id)) || existing;
