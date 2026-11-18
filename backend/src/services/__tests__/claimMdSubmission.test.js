@@ -1,8 +1,9 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), syntheticAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), versionGuard: vi.fn() }));
+const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), syntheticAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), main: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), versionGuard: vi.fn() }));
 vi.mock('../clinicalNoteVersionBilling.service.js', async original => ({ ...await original(), assertClinicalVersionSubmission: mocks.versionGuard }));
 vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghouseAgency:mocks.liveAgency,isSyntheticClearinghouseAgency:mocks.syntheticAgency}));
 vi.mock('../familyLedger/serviceCharges.js',()=>({assertNoSelfPayBalance:mocks.selfPayCheck}));
+vi.mock('../../config/database.js', () => ({ default: { execute: mocks.main }, onTableWrite: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.execute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../../controllers/claimMdWorkflow.controller.js', () => ({ prepareClaimReview: mocks.prepare }));
 vi.mock('../claimMdConnection.service.js', () => ({ resolveClaimMdConnection: mocks.connection, claimMdConnectionMeta: vi.fn(), requireClaimMdTransmission: c => { if (!['test','live'].includes(c.mode)) throw Object.assign(new Error('disabled'), { status: 409 }); } }));
@@ -15,7 +16,7 @@ const response = () => ({ code: 200, body: null, status(code) { this.code = code
 const request = () => ({ user: { id: 9, role: 'admin' }, params: { claimId: '11' }, body: { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' } });
 const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_note_id: 4, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, documentation: { note: { clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64) } }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11', pcn:'001-2026-11-001' }, reviewHash: 'a'.repeat(64) });
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.syntheticAgency.mockResolvedValue(false); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.versionGuard.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
+  vi.clearAllMocks(); mocks.main.mockReset().mockResolvedValue([[]]); mocks.liveAgency.mockResolvedValue(undefined); mocks.syntheticAgency.mockResolvedValue(false); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.versionGuard.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
   mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
@@ -140,4 +141,15 @@ it('persists the private assistant rule receipt with the actual submitting assis
   authorization:{ruleNumber:'BILL-000001',ruleRevision:1,authorizedByUserId:501,authorizedByName:'Michael Mendez',performedByUserId:700,performedByName:'Billing Assistant',batchRef:'synthetic-batch'}},submitClaimToClaimMd);
  expect(validate).toHaveBeenCalledOnce();
  expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({actorUserId:700,eventType:'approved_submission',payload:expect.objectContaining({authorization:expect.objectContaining({ruleNumber:'BILL-000001',authorizedByUserId:501,performedByUserId:700})})}),expect.anything());
+});
+
+
+it('blocks an archived claim under the submission locks without uploading or altering its financial state', async () => {
+  mocks.main.mockResolvedValue([[{ resource_type: 'claim', resource_id: 11, archive_id: 7 }]]);
+  const next = vi.fn();
+  await submitClaimToClaimMd(request(), response(), next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409, code: 'CLINICAL_WORK_ARCHIVED' }));
+  expect(mocks.upload).not.toHaveBeenCalled();
+  expect(mocks.event).not.toHaveBeenCalled();
+  expect(mocks.rollback).toHaveBeenCalled();
 });

@@ -15,6 +15,7 @@
         <span v-if="updatedAt" class="timestamp">Updated {{ clockTime(updatedAt) }}</span>
       </section>
       <p v-if="!route.meta?.auricwellPreview && scopedOrganization && ['admin','super_admin'].includes(authStore.user?.role)" class="panel-note"><button class="text-button" @click="openBillingIdentity">Billing identity setup: tax ID and practice profile →</button></p>
+      <ClinicalWorkArchiveControl v-if="scopedOrganization" :agency-id="scopedOrganization.id" @changed="reload" />
       <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
       <p v-if="loading && !organizations.length" class="empty-state" role="status">Loading your billing organizations…</p>
       <p v-else-if="!organizations.length && !error" class="empty-state">No organizations with medical billing access are available for your account.</p>
@@ -47,6 +48,7 @@
           <div class="panel-heading"><div><h2>{{ scopeId === 'all' ? 'Cross-company work queue' : 'Claim work queue' }}</h2><p>Signed notes, drafts and billing activity are linked by patient. Scheduled visits stay in each patient’s service history.</p></div><form class="search" @submit.prevent="applySearch"><label class="sr-only" for="claim-search">Search claims</label><input id="claim-search" v-model="searchInput" placeholder="Patient, claim, provider, service or payer…" /><button class="secondary">Search</button></form></div>
           <div class="panel-toolbar"><button class="secondary" :aria-pressed="queueMode === 'claims'" @click="queueMode = 'claims'">Claims</button><button class="secondary" :aria-pressed="queueMode === 'connections'" @click="queueMode = 'connections'">Payer, ERA &amp; EFT activity ({{ connectionQueue.length }})</button></div>
           <template v-if="queueMode === 'claims'">
+          <label class="panel-toolbar">Records <select v-model="archiveStatus" data-testid="billing-archive-filter"><option value="active">Active</option><option value="archived">Archived</option><option value="all">Active and archived</option></select></label>
           <label class="panel-toolbar"><input v-model="includeDemo" type="checkbox" data-testid="billing-include-demo" @change="page = 1" /> Include retained test records</label>
           <p v-if="hiddenTestRecords" class="panel-note" role="status" data-testid="billing-hidden-test-records">{{ hiddenTestRecords }} retained test {{ hiddenTestRecords === 1 ? 'work item is' : 'work items are' }} excluded from this scope and its totals. Their history is retained.</p>
           <div class="queue-tabs" aria-label="Claim filters"><button v-for="tab in queueTabs" :key="tab.id" :class="{ active: status === tab.id }" :aria-pressed="status === tab.id" @click="changeStatus(tab.id)">{{ tab.label }}</button></div>
@@ -103,6 +105,8 @@
       <PlannedBillingServices v-if="showClientHistory" :agency-id="Number(selectedClaim.agency_id)" :client-id="Number(selectedClaim.client_id)" :client-name="selectedClaim.client_name || ''" @open-work-item="openClaim" />
       <p v-if="clinicalDraft" class="panel-note" role="status">{{ draftProgressMessage }}</p>
       <p v-if="claimActionError" class="error-banner" role="alert">{{ claimActionError }}</p>
+      <ClinicalWorkArchiveControl v-if="archiveTarget && !selectedClaim.administrativeArchive" :agency-id="Number(selectedClaim.agency_id)" :target="archiveTarget" :label="selectedClaim.client_name" @changed="claimUpdated" />
+      <p v-if="selectedClaim.administrativeArchive" class="panel-note" role="status">Archived test records. Open Archived test records above to restore this group before making changes.</p>
       <div v-if="!clinicalDraft" class="panel-toolbar"><button v-if="selectedClaimId" class="secondary" @click="claimTools?.showHistory(selectedClaimId)">Claim history</button><button v-if="editableClaim" class="secondary" @click="claimTools?.editClaim(selectedClaimId)">Edit billing fields</button><button v-if="editableClaim" class="primary" @click="claimTools?.reviewClaim(selectedClaimId)">Review for submission</button><button v-else-if="selectedClaim.canPrepareClaim && workStage(selectedClaim) === 'ready_to_submit'" class="primary" :disabled="preparingClaim" @click="prepareReadyClaim">{{ preparingClaim ? 'Opening claim…' : 'Run final checks' }}</button></div>
       <form v-if="editableClaim && !selectedClaim.claimmd_submitted_at && !selectedClaim.claimmd_claim_id && !selectedClaim.claimmd_connection_id" class="panel-note" @submit.prevent="closeUnsubmittedClaim"><h3>Close without submitting</h3><label>Reason<textarea v-model="closureReason" required minlength="10" maxlength="2000" placeholder="For example: Not intended for submission; awaiting external billing confirmation." /></label><button class="secondary" :disabled="closingClaim || closureReason.trim().length < 10">{{ closingClaim ? 'Closing…' : 'Record reason and close claim' }}</button></form>
       <p v-if="selectedClaim.claim_lifecycle === 'queued'" class="panel-note">Submission is unresolved. Sync and reconcile before attempting another upload.</p><p v-if="selectedClaim.claim_lifecycle === 'denied'" class="panel-note">Review the payer’s adjudication before choosing a replacement claim or appeal.</p>
@@ -119,6 +123,7 @@ import BillingUnitPreview from '../../components/billing/BillingUnitPreview.vue'
 import BillingTransactionHistory from '../../components/billing/BillingTransactionHistory.vue';
 import ClaimResubmissionPanel from '../../components/billing/ClaimResubmissionPanel.vue';
 import ClaimWorkTable from '../../components/billing/ClaimWorkTable.vue';
+import ClinicalWorkArchiveControl from '../../components/clinical/ClinicalWorkArchiveControl.vue';
 import BillingRuleSuggestions from '../../components/billing/BillingRuleSuggestions.vue';
 import ClientPendingTasks from '../../components/billing/ClientPendingTasks.vue';
 import InsuranceCardTasks from '../../components/billing/InsuranceCardTasks.vue';
@@ -172,7 +177,7 @@ const validQueueStatus=value=>['all','attention',...billingStages.map(stage=>sta
 const section = ref(navigation.some(n => n.id === route.query.billingSection) ? route.query.billingSection : 'workspace');
 const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref(validQueueStatus(route.query.billingStatus)), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
-const includeDemo = ref(false), hiddenTestRecords = ref(0);
+const includeDemo = ref(false), hiddenTestRecords = ref(0), archiveStatus = ref('active');
 const queueMode = ref('claims'), sortBy = ref('date_of_service'), sortDirection = ref('desc');
 const showClientHistory = ref(false), preparingClaim = ref(false), claimActionError = ref(''), submittingSet = ref(false), submitSetResult = ref('');
 const selectedCompanyId = ref(null), selectedClaim = ref(null), claimTools = ref(null), claimDialog = ref(null);
@@ -205,8 +210,9 @@ const pageDescription = computed(() => {
   return descriptions[section.value];
 });
 const selectedClaimId = computed(() => workClaimId(selectedClaim.value));
-const clinicalDraft = computed(() => !!selectedClaim.value && ['note_needed','draft','pending_review','revisions_needed'].includes(workStage(selectedClaim.value)));
-const canPrepareSecondary = computed(() => !!selectedClaimId.value && !selectedClaim.value?.parent_claim_id && Number(selectedClaim.value?.payer_sequence || 1) === 1 && (['paid','denied','adjusted'].includes(selectedClaim.value?.claim_lifecycle) || (!!selectedClaim.value?.claimmd_submitted_at && ['submitted','accepted','processing','pending_payer','closed'].includes(selectedClaim.value?.claim_lifecycle)) || (!selectedClaim.value?.claimmd_submitted_at && ['draft','ready','closed'].includes(selectedClaim.value?.claim_lifecycle))));
+const clinicalDraft = computed(() => !!selectedClaim.value && (!!selectedClaim.value.administrativeArchive || ['note_needed','draft','pending_review','revisions_needed'].includes(workStage(selectedClaim.value))));
+const archiveTarget = computed(() => selectedClaimId.value ? { type: 'claim', id: selectedClaimId.value } : selectedClaim.value?.clinical_session_id ? { type: 'clinical_session', id: Number(selectedClaim.value.clinical_session_id) } : selectedClaim.value?.appointment_id ? { type: 'appointment', id: Number(selectedClaim.value.appointment_id) } : selectedClaim.value?.draft_id ? { type: 'draft', id: Number(selectedClaim.value.draft_id) } : null);
+const canPrepareSecondary = computed(() => !selectedClaim.value?.administrativeArchive && !!selectedClaimId.value && !selectedClaim.value?.parent_claim_id && Number(selectedClaim.value?.payer_sequence || 1) === 1 && (['paid','denied','adjusted'].includes(selectedClaim.value?.claim_lifecycle) || (!!selectedClaim.value?.claimmd_submitted_at && ['submitted','accepted','processing','pending_payer','closed'].includes(selectedClaim.value?.claim_lifecycle)) || (!selectedClaim.value?.claimmd_submitted_at && ['draft','ready','closed'].includes(selectedClaim.value?.claim_lifecycle))));
 const editableClaim = computed(() => !!selectedClaimId.value && !clinicalDraft.value && selectedClaim.value?.readOnly !== true && selectedClaim.value?.canReviewClaim !== false && ['draft', 'ready', 'rejected'].includes(selectedClaim.value?.claim_lifecycle));
 const draftProgressMessage = computed(() => ({note_needed:'The session has passed and a note has not been started.',draft:'The provider’s note is in progress. Billing review becomes available after the required clinical signatures.',pending_review:'The author signed this note. Supervisor review is pending.',revisions_needed:'The supervisor requested changes. The provider must complete the requested revision before billing review.'}[workStage(selectedClaim.value || {})] || 'This work item is available for review only.'));
 const queueTabs = [{ id: 'all', label: 'All claims' }, { id: 'attention', label: 'Needs attention' }, ...claimQueueFilters, ...billingStages];
@@ -246,7 +252,7 @@ function openCompanyQueue(org, filter) { queueMode.value = 'claims'; changeStatu
 async function reload() {
   const seq = ++loadSequence; loading.value = true; error.value = ''; hiddenTestRecords.value = 0;
   try {
-    const { data } = await api.get('/medical-billing/workspace', { params: { ...(scopeId.value !== 'all' ? { agencyId: scopeId.value } : {}), ...(includeDemo.value ? { includeDemo: true } : {}), clientId: route.query.clientId || undefined, status: status.value, search: search.value, page: page.value, sortBy: sortBy.value, direction: sortDirection.value } });
+    const { data } = await api.get('/medical-billing/workspace', { params: { ...(scopeId.value !== 'all' ? { agencyId: scopeId.value } : {}), ...(includeDemo.value ? { includeDemo: true } : {}), archiveStatus: archiveStatus.value, clientId: route.query.clientId || undefined, status: status.value, search: search.value, page: page.value, sortBy: sortBy.value, direction: sortDirection.value } });
     if (!active || seq !== loadSequence) return;
     organizations.value = data.organizations; claims.value = data.claims; total.value = data.total; capabilities.value = data.capabilities; updatedAt.value = data.updatedAt;
     hiddenTestRecords.value = Number(data.hiddenTestRecords || 0);
@@ -261,7 +267,7 @@ async function reload() {
   finally { if (active && seq === loadSequence) loading.value = false; }
 }
 watch([scopeId, () => route.query.clientId], () => { includeDemo.value = false; }, { flush: 'sync' });
-watch([scopeId, status, page, search, sortBy, sortDirection, includeDemo, () => route.query.clientId], () => { claims.value = []; closeClaim(); reload(); }, { immediate: true });
+watch([scopeId, status, page, search, sortBy, sortDirection, includeDemo, archiveStatus, () => route.query.clientId], () => { claims.value = []; closeClaim(); reload(); }, { immediate: true });
 watch(scopeId, () => { page.value = 1; selectedCompanyId.value = null; router.replace({ query: { ...route.query, billingScope: scopeId.value, billingSection: section.value } }); });
 watch(() => route.query.agencyId, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
 watch(() => route.query.billingScope, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
@@ -277,7 +283,7 @@ async function closeUnsubmittedClaim(){
   finally{closingClaim.value=false;}
 }
 async function submitReadySet() {
-  const ids = claims.value.filter(item => workStage(item) === 'ready_to_submit' && workClaimId(item)).map(item => workClaimId(item));
+  const ids = claims.value.filter(item => !item.administrativeArchive && workStage(item) === 'ready_to_submit' && workClaimId(item)).map(item => workClaimId(item));
   if (!ids.length || !scopedOrganization.value || submittingSet.value) return;
   if (!window.confirm(`Submit ${ids.length} ready claim${ids.length === 1 ? '' : 's'} for ${scopedOrganization.value.name}? A claim that fails a billing check stays in the queue.`)) return;
   submittingSet.value = true;

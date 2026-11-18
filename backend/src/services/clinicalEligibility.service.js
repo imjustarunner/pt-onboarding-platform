@@ -1,6 +1,7 @@
 import {readProviderServices} from './providerServiceOfferings.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import User from '../models/User.model.js';
+import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import { hasVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
 import Client from '../models/Client.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
@@ -105,6 +106,7 @@ class ClinicalEligibilityService {
       err.status = 404;
       throw err;
     }
+    await assertClinicalWorkActive({ clinical_session_id: session.id, office_event_id: session.office_event_id, appointment_id: session.appointment_id });
     await requireTestingEligibility({agencyId:Number(session.agency_id),userId:Number(session.provider_user_id),serviceCodes:[session.service_code],clientId:Number(session.client_id),serviceDate:session.scheduled_start_at||session.date_of_service});
     const client = await Client.findById(session.client_id);
     if (!client) {

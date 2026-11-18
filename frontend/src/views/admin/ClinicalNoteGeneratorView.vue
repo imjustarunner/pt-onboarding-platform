@@ -38,6 +38,7 @@
       <button type="button" class="na-archive-btn" @click="showContactWork = !showContactWork">Contact documentation</button>
       <button type="button" class="na-archive-btn" @click="showTerminationOutcomes = !showTerminationOutcomes">Termination outcomes</button>
       <button type="button" class="na-archive-btn" @click="refreshWorkspace">Refresh</button>
+      <ClinicalWorkArchiveControl v-if="!demoPresentation" :agency-id="Number(noteAidAgencyId || currentAgencyId)" @changed="refreshWorkspace" />
       <button type="button" class="na-archive-btn" @click="focusArchivedShelf">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7h18v13H3zM3 7l2-3h14l2 3" />
@@ -1574,6 +1575,7 @@ import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import PriorIntakeNotice from '../../components/clinical/PriorIntakeNotice.vue';
 import DraftAppointmentRepair from '../../components/clinical/DraftAppointmentRepair.vue';
+import ClinicalWorkArchiveControl from '../../components/clinical/ClinicalWorkArchiveControl.vue';
 import SessionSupportingMaterials from '../../components/clinical/SessionSupportingMaterials.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';

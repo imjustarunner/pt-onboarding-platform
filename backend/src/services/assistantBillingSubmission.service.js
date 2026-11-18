@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import {encryptFamilyBilling,decryptFamilyBilling} from './familyBillingEncryption.service.js';
 import {assistantError,assistantRef,parseAssistantJson,ASSISTANT_AGENCIES} from './assistantTeamPolicy.js';
@@ -56,7 +57,7 @@ export function createAssistantBillingSubmission(deps={}){
   const[claims]=await clinical.execute(`SELECT id FROM clinical_claims WHERE agency_id=? AND is_deleted=0 AND claim_lifecycle='ready' AND claimmd_claim_id IS NULL AND claimmd_submitted_at IS NULL
    AND date_of_service<=? AND COALESCE(JSON_EXTRACT(metadata_json,'$.hiddenFromQueue'),false)=false ORDER BY id LIMIT 100`,[agencyId,new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(now())]);
   const items=[];let held=0;
-  for(const claim of claims){if(items.length===25)break;try{const p=await prepare(agencyId,claim.id);if(!billingAssistantReady(p)){held++;continue;}items.push({ref:assistantRef(),claimId:Number(claim.id),clientId:Number(p.claim.client_id),reviewHash:p.reviewHash});}catch{held++;}}
+  for(const claim of await visibleClinicalWork(claims, { db, kind: 'claim' })){if(items.length===25)break;try{const p=await prepare(agencyId,claim.id);if(!billingAssistantReady(p)){held++;continue;}items.push({ref:assistantRef(),claimId:Number(claim.id),clientId:Number(p.claim.client_id),reviewHash:p.reviewHash});}catch{held++;}}
   if(!items.length)return {prepared:false,readyCount:0,heldCount:held,rule:publicBillingRule(r)};
   const ref=assistantRef(),expires=new Date(now().getTime()+30*60000);
   await db.execute('INSERT INTO assistant_billing_batches (ref,rule_id,rule_revision,account_id,account_revision,agency_id,requested_by_user_id,requested_by_name,packet_encrypted,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)',

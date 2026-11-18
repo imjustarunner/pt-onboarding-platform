@@ -1,5 +1,6 @@
 import { attachClaimReferences } from '../../services/clinicalClaimReferences.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
+import { assertClinicalWorkActive } from '../../services/clinicalWorkArchiveRead.service.js';
 
 class ClinicalClaim {
   static async create(args) {
@@ -29,6 +30,7 @@ class ClinicalClaim {
     createdByUserId,
     db = clinicalPool
   }) {
+    await assertClinicalWorkActive({ clinical_session_id: clinicalSessionId });
     const [result] = await db.execute(
       `INSERT INTO clinical_claims
        (clinical_session_id, agency_id, client_id, claim_number, claim_status, amount_cents, currency_code, claim_payload, metadata_json, created_by_user_id)

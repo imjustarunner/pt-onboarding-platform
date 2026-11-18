@@ -2550,6 +2550,7 @@
               :latest-plan="editorChartLatestPlan"
               :initials="editorInfoClientName.split(/\s+/).filter(Boolean).map(part=>part[0]).join('').slice(0,16)"
               v-model:input-text="editorQuickNote"
+              @archived="closeModal(); load({ forceRefresh: true })"
             />
             <p v-else-if="editorClinicalContextLoading" class="muted" role="status">Loading this appointment’s linked note context…</p>
             <p v-else-if="editorIsClinical" class="error" role="alert">{{ editorClinicalContextError || 'This session needs a linked appointment before a note can be started. Refresh the schedule and reopen the session.' }}</p>

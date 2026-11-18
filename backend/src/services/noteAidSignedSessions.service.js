@@ -1,5 +1,6 @@
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
+import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -136,7 +137,7 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], ag
         draftId: safeInt(meta.draftId) || null
       };
     });
-    return attachClientLabels(sessions);
+    return attachClientLabels(await visibleClinicalWork(sessions.map(row => ({ ...row, clinical_note_id: row.noteId })), { db: pool }));
   } catch (e) {
     console.warn('[listSignedNoteSessions]', e?.message || e);
     return [];

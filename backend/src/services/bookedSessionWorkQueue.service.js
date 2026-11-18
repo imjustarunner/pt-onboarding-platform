@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
 import ClinicalEligibilityService from './clinicalEligibility.service.js';
@@ -48,7 +49,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
     FROM clinical_sessions s WHERE s.provider_user_id=? AND s.id IN (${sessionIds.map(()=>'?').join(',')})
     AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL)`,[user.id,...sessionIds]);
   const byId=new Map(sessions.map(s=>[Number(s.id),s])), agencies=new Map(), clients=new Map(), added=[];
-  for (const appointment of appointments) {
+  for (const appointment of await visibleClinicalWork(appointments, { db, kind: 'appointment' })) {
     const session=byId.get(Number(appointment.clinical_session_id));
     if (!session || Number(appointment.provider_user_id)!==Number(user.id) || Number(session.provider_user_id)!==Number(user.id)
       || Number(session.appointment_id)!==Number(appointment.id) || Number(session.agency_id)!==Number(appointment.agency_id)) continue;

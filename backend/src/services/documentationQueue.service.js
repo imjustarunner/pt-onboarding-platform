@@ -1,5 +1,6 @@
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
+import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import { enrichEncountersWithNoteSummary } from './billingEncounterClinical.service.js';
@@ -746,7 +747,7 @@ export async function listDocumentationQueue({
     actualSessionsOnly
   });
 
-  return { items, clinicalUnavailable };
+  return { items: await visibleClinicalWork(items, { db: pool }), clinicalUnavailable };
 }
 
 export default { listDocumentationQueue, isClinicalDbConnectionError };

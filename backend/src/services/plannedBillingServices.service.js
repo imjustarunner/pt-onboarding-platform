@@ -1,3 +1,4 @@
+import { visibleClinicalWork } from './clinicalWorkArchiveRead.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 const missing=e=>['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code);
@@ -45,5 +46,6 @@ export async function plannedBillingServices(agencyId,d={main:pool,clinical:clin
     }
   }
   items.sort((a,b)=>String(b.serviceDate || b.startAt || '').localeCompare(String(a.serviceDate || a.startAt || '')));
-  return {items:items.slice(0,200),hasMore:items.length>200 || appointments.length>200 || sessions.length>200,appointmentsUnavailable:unavailable};
+  const visible = await visibleClinicalWork(items, { db: d.main });
+  return {items:visible.slice(0,200),hasMore:items.length>200 || appointments.length>200 || sessions.length>200,appointmentsUnavailable:unavailable};
 }

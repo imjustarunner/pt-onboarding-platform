@@ -1,5 +1,6 @@
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
+import { visibleClinicalWork, assertClinicalWorkActive } from '../services/clinicalWorkArchiveRead.service.js';
 import {ensureClientService} from '../services/clientServiceEnrollment.service.js';
 import { withAppointmentWindow, appointmentOccupiesTime, assertAppointmentWindowAvailable } from '../services/appointmentConflict.service.js';
 
@@ -150,7 +151,7 @@ class Appointment {
       }
       q += ` ORDER BY a.start_at DESC LIMIT 100`;
       const [rows] = await pool.execute(q, p);
-      return (rows || []).map((r) => this.mapRow(r));
+      return (await visibleClinicalWork(rows || [], { db: pool, kind: 'appointment' })).map((r) => this.mapRow(r));
     }
 
     const plainParams = [Number(agencyId), windowEnd, windowStart];
@@ -166,7 +167,7 @@ class Appointment {
     }
     sql += ` ORDER BY start_at ASC LIMIT 500`;
     const [rows] = await pool.execute(sql, plainParams);
-    return (rows || []).map((r) => this.mapRow(r));
+    return (await visibleClinicalWork(rows || [], { db: pool, kind: 'appointment' })).map((r) => this.mapRow(r));
   }
 
   static async listIdsByOfficeEventIds(officeEventIds = []) {
@@ -353,6 +354,7 @@ class Appointment {
   }
 
   static async update(id, patch = {}, { executor = pool, agencyId = null, expectedSchedule = null } = {}) {
+    await assertClinicalWorkActive({ id, archiveResourceType: 'appointment' });
     if (executor !== pool) {
       const existing = await this.findById(id, { executor, agencyId });
       if (!existing) return null;

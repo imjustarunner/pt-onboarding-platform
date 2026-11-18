@@ -5,6 +5,7 @@ import {interviewCalendarEventId} from '../utils/interviewCalendarLink.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import { assertProviderEventCanMove, syncAppointmentFromProviderEvent, moveOfficeFromProviderEvent, cancelAppointmentsFromCalendar } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
+import { visibleClinicalWork } from '../services/clinicalWorkArchiveRead.service.js';
 import { assertRecurringWindow, assertMeetingBookingWindow } from '../utils/recurringWindow.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 
@@ -281,7 +282,7 @@ class ProviderScheduleEvent {
     const {sql,params}=providerScheduleWindowQuery({agencyId,agencyIds,allAgencies,providerId:pId,windowStart,windowEnd});
     // Preserve cancelled meetings; candidate selection only changes the read plan.
     const [rows]=await pool.execute(sql,params);
-    return rows || [];
+    return visibleClinicalWork(rows || [], { db: pool, kind: 'provider_schedule_event' });
   }
 
   /** Find active rows by Google Calendar event ids (any window). Used for inbound sync. */

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { attachClinicalWorkArchives } from './clinicalWorkArchiveRead.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
 import Task from '../models/Task.model.js';
@@ -90,10 +91,14 @@ export async function runDailyClaimAutomation(deps={}) {
         WHERE c.agency_id=? AND c.id>? AND c.is_deleted=0 AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL
         AND c.claim_lifecycle IN ('draft','ready') AND c.claimmd_claim_id IS NULL AND c.claimmd_submitted_at IS NULL AND c.date_of_service<=?
         AND COALESCE(JSON_EXTRACT(c.metadata_json,'$.hiddenFromQueue'),false)=false ORDER BY c.id LIMIT 25`,[agency.id,run.last_claim_id,day]);
-      for(const claim of claims) {
+      for(const claim of await attachClinicalWorkArchives(claims, { db, kind: 'claim' })) {
+        if (claim.administrativeArchive) {
+          await db.execute('UPDATE agency_claim_automation_runs SET last_claim_id=? WHERE agency_id=? AND run_date=?', [claim.id, agency.id, day]);
+          continue;
+        }
         let outcome;
         try {outcome=await (deps.process||processAutomaticClaim)({agencyId:agency.id,claimId:claim.id,user},deps);}
-        catch(error){outcome={status:'held',blockers:[error.message || 'Automatic claim review failed']};}
+        catch(error){outcome=error.code==='CLINICAL_WORK_ARCHIVED'?{status:'skipped',blockers:[]}:{status:'held',blockers:[error.message || 'Automatic claim review failed']};}
         if(outcome.status==='held')await (deps.queueIssue||queueAutomaticClaimIssue)({agencyId:agency.id,claimId:claim.id,clientId:claim.client_id,userId:user.id,taskListId,blockers:outcome.blockers},db);
         if(outcome.status==='ready')await db.execute("UPDATE tasks SET status='completed',completed_at=NOW() WHERE assigned_to_agency_id=? AND source_ref_type='billing_claim_followup' AND source_ref_id=? AND status NOT IN ('completed','overridden')",[agency.id,String(claim.id)]);
         await db.execute('UPDATE agency_claim_automation_runs SET last_claim_id=?,submitted_count=submitted_count+?,held_count=held_count+? WHERE agency_id=? AND run_date=?',

@@ -52,6 +52,7 @@ describe('daily claim review',()=>{
  it.each([2,6,377])('makes one durable pass for agency %i and flags held claims',async(agencyId)=>{
   const release=vi.fn(),execute=vi.fn(async(sql)=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]]);
   const db={getConnection:async()=>({execute,release}),execute:vi.fn(async(sql)=>{
+   if(sql.includes('clinical_work_archive_resources'))return [[]];
    if(sql.startsWith('SELECT id,feature_flags'))return [[{id:agencyId,feature_flags:{medicalBillingEnabled:true,dailyClaimAutomation:{enabled:true,approvedByUserId:501},insuranceVerificationTasks:{taskListId:16}}}]];
    if(sql.startsWith('SELECT * FROM agency_claim'))return [[{status:'processing',last_claim_id:0}]];
    return [{affectedRows:1}];
@@ -60,6 +61,12 @@ describe('daily claim review',()=>{
   expect(await runDailyClaimAutomation(d)).toEqual([{agencyId,claimId:3,status:'held'}]);
   expect(d.queueIssue).toHaveBeenCalledWith(expect.objectContaining({agencyId,claimId:3,taskListId:16}),db);expect(release).toHaveBeenCalledOnce();
   expect(d.clinical.execute.mock.calls[0][0]).toContain("claim_lifecycle IN ('draft','ready')");
+  const originalDb = db.execute.getMockImplementation();
+  db.execute.mockImplementation((sql,...args)=>sql.includes('clinical_work_archive_resources')?Promise.resolve([[{resource_type:'claim',resource_id:3,archive_id:7}]]):originalDb(sql,...args));
+  d.process.mockClear();d.queueIssue.mockClear();
+  expect(await runDailyClaimAutomation(d)).toEqual([]);
+  expect(d.process).not.toHaveBeenCalled();expect(d.queueIssue).not.toHaveBeenCalled();
+  expect(db.execute.mock.calls.some(([sql,args])=>sql.startsWith('UPDATE agency_claim_automation_runs SET last_claim_id=? WHERE')&&args[0]===3)).toBe(true);
   db.execute.mockImplementation(async(sql)=>sql.startsWith('SELECT id,feature_flags')?[[{id:agencyId,feature_flags:{medicalBillingEnabled:true,dailyClaimAutomation:{enabled:true,approvedByUserId:501},insuranceVerificationTasks:{taskListId:16}}}]]:sql.startsWith('SELECT * FROM agency_claim')?[[{status:'completed'}]]:[{}]);
   d.process.mockClear();await runDailyClaimAutomation(d);expect(d.process).not.toHaveBeenCalled();
  });
