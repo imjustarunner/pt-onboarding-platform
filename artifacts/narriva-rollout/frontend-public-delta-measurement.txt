@@ -1,0 +1,27 @@
+Frontend public-static delta feasibility measurement — 2026-11-17
+
+No delta mode was implemented or used. The full verified frontend context finished
+uploading, and the release owner chose that context for this release. The committed
+packager, its tests, and its instructions remain unchanged by this investigation.
+
+Measured source HEAD: cee10944af8917988bb8d966ed8b44694d2db3bf
+Pinned production source base: a8ffceba4cdf72d1764654561bb042d3180afd60
+The tracked frontend/public Git tree IDs at these two commits were identical.
+Shared public tree ID: 07bae4b3f61b1043abe96a51243f3aa1911cb514
+
+Fresh dist regular-file bytes measured: 752,695,302
+Files eligible for exact same-path base-blob byte proof: 736
+Eligible omitted bytes: 649,739,824
+Retained fresh dist bytes before gzip: 102,955,478
+
+The conservative measurement retained ALL PDFs, Skill Builders paths, JavaScript,
+CSS, maps, HTML, JSON, web manifests, XML, text, nginx configuration, and generated
+site directories (_public-sites, plottline, michael, auricwell, sstc). No cloud calls
+were made. Each candidate omission required a regular tracked public base file at
+the exact dist-relative path, equal file size, and a streamed Git blob SHA-1 equal
+to the base object ID. Most savings came from unchanged videos and images.
+
+Any future implementation still requires tests, complete generated-path review,
+pinned image/source provenance verification, an overlay Dockerfile preserving the
+base web root, and a manifest recording omitted bytes and full fresh-tree hash.
+This measurement does not itself authorize omissions for another tree or release.

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "cee10944af8917988bb8d966ed8b44694d2db3bf",
+  "baseCommit": "a8ffceba4cdf72d1764654561bb042d3180afd60",
+  "buildId": "cee10944af8917988bb8d966ed8b44694d2db3bf",
+  "sourceDirty": false,
+  "changedSourcePaths": [],
+  "backendBase": "us-west3-docker.pkg.dev/ptonboard-dev/onboarding-backend/onboarding-backend@sha256:881dab27c1eff9be6cbf00877ef159ddd5cc07ace05ae3279bca372286b2ff95",
+  "frontendBase": "us-west3-docker.pkg.dev/ptonboard-dev/onboarding-frontend/onboarding-frontend@sha256:6d2863359f52ef93f8634349b32314b5411362f9ddbb9e213b27afe7266998a3",
+  "backendImage": "us-west3-docker.pkg.dev/ptonboard-dev/onboarding-backend/onboarding-backend:narriva-rollout-cee10944a",
+  "frontendImage": "us-west3-docker.pkg.dev/ptonboard-dev/onboarding-frontend/onboarding-frontend:narriva-rollout-cee10944a",
+  "builderServiceAccount": "github-deployer@ptonboard-dev.iam.gserviceaccount.com",
+  "sharedRuntimeImports": 49,
+  "migrations": [
+    "1846_narriva_plan_provider_signoffs.sql",
+    "1847_narriva_platform_generator_settings.sql",
+    "1848_itsco_provider_account_conversions.sql"
+  ],
+  "contexts": {
+    "backend": {
+      "archive": "backend-context.tar.gz",
+      "archiveBytes": 35830301,
+      "archiveSha256": "50268a0cd0856dbe4295e1ccad8c138b5dfcff50db4f48857b0fdc781b63b9ff",
+      "files": 3896,
+      "bytes": 75118609,
+      "sha256": "d1e02a73e5b63e8783478a97c82a2e3caa97ac2ce588a6b822f82dc85cefc2a2"
+    },
+    "frontend": {
+      "archive": "frontend-context.tar.gz",
+      "archiveBytes": 707934580,
+      "archiveSha256": "4c5ddd90694dac021c0a69fff5ef7f9670feab2dbdab7920d1633dd517b95751",
+      "files": 2895,
+      "bytes": 752708857,
+      "sha256": "c38bb903704db8c783801d11c00af4f98f7d49a8fceb72b1caad2edc2385c5df"
+    }
+  }
+}
