@@ -9,7 +9,7 @@ export const familyContactHash=value=>crypto.createHash('sha256').update(String(
 const parse=value=>typeof value==='string'?JSON.parse(value):value;
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const unavailable=()=>fail('This preference link is unavailable or has expired. Ask your care team for a new link.',410);
-export async function currentRecipient(scope,db) {
+export async function currentRecipient(scope,db,{lock=false}={}) {
   const [[row]]=await db.execute(`SELECT cg.permissions_json,cg.access_enabled,u.email,u.first_name,u.last_name,
     COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone,
     c.full_name,c.client_type,a.name AS agency_name,u.is_demo
@@ -18,7 +18,7 @@ export async function currentRecipient(scope,db) {
     WHERE cg.client_id=? AND cg.guardian_user_id=? AND (c.agency_id=a.id OR EXISTS
       (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=a.id AND ca.is_active=1))
       AND cg.access_enabled=1 AND u.is_active=1 AND u.role IN ('client_guardian','guardian','client') AND a.is_active=1
-      AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())`,
+      AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP()) ${lock?'FOR UPDATE':''}`,
     [scope.agency_id,scope.client_id,scope.guardian_user_id]);
   const permissions=parse(row?.permissions_json)||{};
   if(!row||permissions.noView||permissions.noViewOtherGuardian||familyContactHash(row.email)!==scope.recipient_hash)throw unavailable();

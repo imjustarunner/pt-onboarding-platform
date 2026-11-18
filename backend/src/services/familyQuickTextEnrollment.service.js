@@ -7,7 +7,7 @@ import { clientStartPurposes } from './clientSmsStartConsent.service.js';
 import { getSmsSender, resolveRegisteredSmsSender } from './smsCompliance.service.js';
 
 export const QUICK_TEXT_VERSION = '2026-11-18.1';
-export const QUICK_TEXT_DISCLOSURE = 'I request email and text updates about forms, secure messages, schedule changes and appointment reminders for this client from this agency. I control the phone number entered here. Texting is optional and does not affect care. No marketing is included. Frequency varies; message and data rates may apply. Reply STOP to stop or HELP for help. Send START from this phone to confirm and activate both appointment reminders and care notifications. My phone is updated only after that confirmation. Other clients and guardians keep their own choices.';
+export const QUICK_TEXT_DISCLOSURE = 'I request email and text updates about forms, secure messages, schedule changes and appointment reminders for this client from this agency. I control the phone number entered here. Texting is optional and does not affect care. No marketing is included. Frequency varies; message and data rates may apply. Reply STOP to stop or HELP for help. Send START from this phone to confirm and activate this agency’s appointment-reminder and care texting program across my current authorized guardian relationships. My account phone is updated only after that confirmation. Email choices change only for the displayed client. Other guardians’ accounts are separate. I can change each client’s notification choices in the portal.';
 const fail = (message, status=400) => Object.assign(new Error(message),{status});
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -56,7 +56,7 @@ export async function activateQuickFamilyTexts({sender,phone,messageId,receivedA
     if (!invitation) continue;
     await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[s.client_id]);
     let recipient;
-    try { recipient=await currentRecipient(s,db); } catch(error) { if(error.status===410)continue;throw error; }
+    try { recipient=await currentRecipient(s,db,{lock:true}); } catch(error) { if(error.status===410)continue;throw error; }
     // Lock preferences and the account before checking for a later decline or
     // contact correction. An old email request never replaces either one.
     const [[account]]=await db.execute('SELECT phone_number,personal_phone,work_phone FROM users WHERE id=? FOR UPDATE',[s.guardian_user_id]);
