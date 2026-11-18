@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:m}));
 vi.mock('../clientSessionBookingRollout.service.js',()=>({sessionBookingProviders:async()=>[{id:1,name:'Example'}]}));
-import {transitionPractices,transitionWorkspaceRoster,transitionClients,assertTransitionClient,transitionMeetings,assertTransitionMeeting} from '../transitionWorkspace.service.js';
+import {transitionPractices,isTransitionProvider,transitionWorkspaceRoster,transitionClients,assertTransitionClient,transitionMeetings,assertTransitionMeeting} from '../transitionWorkspace.service.js';
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[]]);});
 it('only offers three practices with current membership and puts ITSCO first',async()=>{
  m.execute.mockResolvedValue([[{agency_id:6},{agency_id:2},{agency_id:377},{agency_id:999}]]);
@@ -41,4 +41,12 @@ it('rejects unrelated or foreign charts before checklist mutations commit',async
 it('does not expose private meetings or link meetings from another practice',async()=>{
  await transitionMeetings(6,9);const [sql,params]=m.execute.mock.calls[0];expect(params).toEqual([6,9,9]);expect(sql).toContain("<> 'interview'");expect(sql).toContain('e.provider_id=? OR EXISTS');
  await expect(assertTransitionMeeting(6,9,123)).rejects.toMatchObject({status:403});
+});
+
+it('uses assigned provider roles even before app care is enabled, without including general staff',()=>{
+ expect(isTransitionProvider({role:'provider',seesClients:false})).toBe(true);
+ expect(isTransitionProvider({role:'tutor',seesClients:false})).toBe(true);
+ expect(isTransitionProvider({role:'admin',hasProviderAccess:false})).toBe(false);
+ expect(isTransitionProvider({role:'admin',hasProviderAccess:true})).toBe(true);
+ expect(isTransitionProvider({role:'provider',agencyRole:'staff',hasProviderAccess:true})).toBe(false);
 });

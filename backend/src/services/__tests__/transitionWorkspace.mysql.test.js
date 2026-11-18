@@ -30,12 +30,14 @@ describe.skipIf(!port)('native MySQL transition workspace',()=>{
    CREATE TABLE provider_schedule_events(id INT PRIMARY KEY,agency_id INT,provider_id INT,kind VARCHAR(32),meeting_subtype VARCHAR(32),status VARCHAR(24),meeting_completed_at DATETIME,title VARCHAR(200),start_at DATETIME,end_at DATETIME,event_timezone VARCHAR(80));
    CREATE TABLE provider_schedule_event_attendees(event_id INT,user_id INT);
    INSERT INTO agencies VALUES (2,JSON_OBJECT()),(6,JSON_OBJECT()),(377,JSON_OBJECT());
-   INSERT INTO users VALUES(1,'Example','One',NULL,'provider',1,0,0,'ACTIVE'),(2,'Example','Two',NULL,'staff',1,0,0,'ACTIVE_EMPLOYEE'),(3,'Inactive','Example',NULL,'provider',0,0,0,'INACTIVE'),(9,'Other','Practice',NULL,'provider',1,0,0,'ACTIVE'),(99,'Example','Manager',NULL,'admin',1,0,0,'ACTIVE');
+   INSERT INTO users VALUES(1,'Example','One',NULL,'provider',1,0,0,'ACTIVE'),(2,'Example','Two',NULL,'provider',1,0,0,'ACTIVE_EMPLOYEE'),(3,'Inactive','Example',NULL,'provider',0,0,0,'INACTIVE'),(9,'Other','Practice',NULL,'provider',1,0,0,'ACTIVE'),(99,'Example','Manager',NULL,'admin',1,0,0,'ACTIVE');
    INSERT INTO user_agencies VALUES(1,2,1),(2,2,1),(3,2,1),(9,6,1),(99,2,1),(99,6,1),(99,377,0);
    INSERT INTO payroll_periods VALUES(1,2,'2020-01-01','2020-01-14','posted'),(2,2,'2020-01-15','2020-01-28','finalized'),(3,2,'2020-01-29','2020-02-11','ran'),(4,2,'2019-12-01','2019-12-14','posted'),(5,2,'2020-02-12','2020-02-25','draft'),(6,2,'2099-01-01','2099-01-14','ran'),(9,6,'2020-02-12','2020-02-25','posted');
    INSERT INTO payroll_summaries VALUES(1,2,1,1.25,2,1,4),(2,2,1,2,3,2,4),(3,2,1,3.25,4,3,4),(4,2,1,500,500,500,500),(5,2,1,500,500,500,500),(6,2,1,500,500,500,500),(9,6,1,500,500,500,500),(3,2,99,1,1,1,1),(3,2,2,0,0,0,0);
    INSERT INTO payroll_imports VALUES(1,3,2,'2020-02-12 01:00:00'),(2,3,2,'2020-02-12 02:00:00'),(9,9,6,'2020-02-26 02:00:00');
    INSERT INTO payroll_import_rows VALUES(1,1,3,2,1,1,'2020-02-01','old-import'),(2,2,3,2,1,30,'2020-02-01','same-entry'),(3,2,3,2,1,30,'2020-02-01','same-entry'),(4,2,3,2,1,1,'2019-01-01','old-service'),(5,9,9,6,1,1,'2020-02-13','other-practice');
+   ALTER TABLE users ADD COLUMN has_provider_access TINYINT DEFAULT 0;
+   ALTER TABLE user_agencies ADD COLUMN agency_role VARCHAR(32) NULL;
    INSERT INTO clients VALUES(41,2,1,'Fictional client A','FCA','ACTIVE'),(42,2,2,'Fictional client B','FCB','DISCHARGED'),(49,6,1,'Foreign chart','FC','ACTIVE');
    INSERT INTO client_provider_assignments VALUES(42,1,1);
    INSERT INTO appointments VALUES(1,2,1,'2026-10-19 06:00:00','completed'),(2,2,1,'2026-11-15 18:00:00','COMPLETED'),(3,2,1,'2026-11-16 06:30:00','completed'),(4,6,1,'2026-11-15 18:00:00','completed'),(5,2,1,'2026-11-16 18:00:00','scheduled'),(6,2,1,'2026-11-17 18:00:00','cancelled'),(7,2,1,'2026-10-19 05:59:59','completed');
