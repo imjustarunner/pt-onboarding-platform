@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vites
 import mysql from 'mysql2/promise';
 import { randomBytes } from 'node:crypto';
 import { appointmentCalendarFallbacks } from '../appointmentCalendarFallback.service.js';
+import { readProviderCalendarBusy } from '../providerCalendarBusy.service.js';
 vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64', randomBytes(32).toString('base64'));
 vi.stubEnv('CLINICAL_NOTE_ENCRYPTION', 'true');
 import { readFile } from 'node:fs/promises';
@@ -173,6 +174,9 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     const [[saved]]=await pool.query("SELECT DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') AS start_at FROM appointments WHERE id=10");
     const [[copy]]=await pool.query("SELECT DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') AS start_at FROM provider_schedule_events WHERE id=40");
     expect(saved.start_at).toBe('2026-12-04 00:00:00');expect(copy.start_at).toBe('2026-12-03 17:00:00');
+    expect(await readProviderCalendarBusy(pool,{providerId:9,startAt:'2026-12-03T17:00:00Z',endAt:'2026-12-03T18:00:00Z'})).toEqual([]);
+    const busy=await readProviderCalendarBusy(pool,{providerId:9,startAt:'2026-12-04T00:00:00Z',endAt:'2026-12-04T01:00:00Z'});
+    expect(busy).toHaveLength(1);expect(busy[0].start.toISOString()).toBe('2026-12-04T00:00:00.000Z');
   });
   it('applies both migrations and enforces appointment/client clinical uniqueness', async () => {
     await expect(clinicalPool.query(`INSERT INTO clinical_sessions (id, agency_id, client_id, appointment_id) VALUES (31, 1, 8, 10)`)).rejects.toMatchObject({ code: 'ER_DUP_ENTRY' });

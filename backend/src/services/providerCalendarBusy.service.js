@@ -13,10 +13,17 @@ export async function readProviderCalendarBusy(db, { providerId, startAt, endAt,
     FROM provider_schedule_events p
     WHERE (p.provider_id = ? OR EXISTS (SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id = p.id AND a.user_id = ?))
       AND p.status = 'ACTIVE' AND (? IS NULL OR p.id <> ?)
+      AND NOT EXISTS (SELECT 1 FROM appointments linked WHERE linked.provider_schedule_event_id=p.id AND linked.provider_user_id=p.provider_id AND linked.provider_user_id=?)
       AND ((COALESCE(p.all_day, 0) = 0 AND p.start_at < ? AND p.end_at > ?)
-        OR (p.all_day = 1 AND p.start_date <= ? AND COALESCE(p.end_date, DATE_ADD(p.start_date, INTERVAL 1 DAY)) >= ?))`,
-    [Number(providerId), Number(providerId), excludeEventId, excludeEventId, mysql(to), mysql(from),
-      new Date(+to + 86400000).toISOString().slice(0, 10), new Date(+from - 86400000).toISOString().slice(0, 10)]);
+        OR (p.all_day = 1 AND p.start_date <= ? AND COALESCE(p.end_date, DATE_ADD(p.start_date, INTERVAL 1 DAY)) >= ?))
+    UNION ALL
+    SELECT a.provider_schedule_event_id AS id,'PERSONAL_EVENT' AS kind,NULL AS reason_code,0 AS all_day,a.start_at,a.end_at,NULL AS start_date,NULL AS end_date,a.source_timezone AS event_timezone
+    FROM appointments a WHERE a.provider_user_id=? AND a.provider_schedule_event_id IS NOT NULL
+      AND a.status NOT IN ('draft','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled','voided')
+      AND a.start_at<? AND a.end_at>? AND (? IS NULL OR a.provider_schedule_event_id<>?)`,
+    [Number(providerId), Number(providerId), excludeEventId, excludeEventId, Number(providerId), mysql(to), mysql(from),
+      new Date(+to + 86400000).toISOString().slice(0, 10), new Date(+from - 86400000).toISOString().slice(0, 10),
+      Number(providerId),mysql(to),mysql(from),excludeEventId,excludeEventId]);
   return rows.flatMap(row => {
     let start, end;
     if (Number(row.all_day)) {
