@@ -190,3 +190,15 @@ it('requires cancellation attribution in addition to a reason',async()=>{
  const res=response(),next=vi.fn();await cancelSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{cancelReason:'Unavailable'}},res,next);
  expect(res.status).toHaveBeenCalledWith(400);expect(m.cancel).not.toHaveBeenCalled();
 });
+
+it.each(['provider','admin','support','staff','clinical_practice_assistant','provider_plus'])('preserves absolute UTC supervision times when the authorized %s host creates it', async role => {
+  const res=response(),next=vi.fn();
+  await createSupervisionSession({user:{id:1,role},body:{...body,sessionType:'individual',startAt:'2026-11-19T20:00:00Z',endAt:'2026-11-19T21:00:00Z'}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
+  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({startAt:'2026-11-19 20:00:00',endAt:'2026-11-19 21:00:00'}));
+});
+it('rejects a nonexistent spring-forward supervision time before creating a session',async()=>{
+ const res=response(),next=vi.fn();
+ await createSupervisionSession({user:{id:1,role:'admin'},body:{...body,startAt:'2026-03-08T02:30:00',endAt:'2026-03-08T03:30:00'}},res,next);
+ expect(res.status).toHaveBeenCalledWith(400);expect(m.create).not.toHaveBeenCalled();
+});

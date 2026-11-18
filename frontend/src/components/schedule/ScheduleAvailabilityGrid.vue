@@ -1751,14 +1751,14 @@
               ← All items
             </button>
             <button
-              v-else-if="!showActionChooser && !isAppointmentEditMode"
+              v-else-if="!showActionChooser && !isAppointmentEditMode && !virtualSessionBookingResult"
               type="button"
               class="nr-back-chooser"
               @click="goBackToActionChooser"
             >
               ← All actions
             </button>
-            <button class="nr-close" type="button" aria-label="Close" @click="requestCloseModal">
+            <button class="nr-close" type="button" aria-label="Close" :disabled="submitting" @click="requestCloseModal">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M6 6l12 12M18 6L6 18"/>
               </svg>
@@ -1766,6 +1766,8 @@
           </div>
         </div>
 
+        <VirtualSessionBookingConfirmation v-if="virtualSessionBookingResult" :booking="virtualSessionBookingResult" :share-url="virtualSessionShareUrl" :copied="virtualSessionShareCopied" :busy="submitting" :error="modalError" @copy="copyVirtualSessionShareUrl" />
+        <template v-else>
         <div v-if="meetingCreatedShare" class="nr-meeting-created" data-testid="meeting-created-share">
           <div class="nr-meeting-created-copy">
             <strong>{{ meetingCreatedShare.title || 'Meeting scheduled' }}</strong>
@@ -3519,13 +3521,7 @@
             <div v-else class="muted nr-help">Choose Virtual or In-person to continue.</div>
 
             <div v-if="bookingModality === 'TELEHEALTH'" class="nr-virtual-platform" style="margin-top: 12px;">
-              <label class="sched-toggle nr-virtual-link-toggle">
-                <input type="checkbox" v-model="linkPlatformVideoRoom" />
-                <span>Link platform counseling video room</span>
-              </label>
-              <div v-if="linkPlatformVideoRoom" class="muted nr-help" style="margin-top: 6px;">
-                Creates a Vonage video room on the platform. Share the join link with clients or guardians after scheduling.
-              </div>
+              <div class="muted nr-help">A separate office video link is created for each appointment. Share its client link after scheduling.</div>
 
               <div v-if="linkPlatformVideoRoom" class="nr-virtual-share" style="margin-top: 12px;">
                 <label class="lbl">Session join link</label>
@@ -4736,8 +4732,14 @@
         </div><!-- /.nr-layout -->
 
 
+        </template>
+        <div v-if="virtualSessionBookingResult" class="nr-footer">
+          <button type="button" class="btn btn-secondary" :disabled="submitting" @click="dismissVirtualSessionBooking">Done</button>
+          <button v-if="virtualSessionScheduledSessionKey && virtualSessionShareUrl" type="button" class="btn nr-btn-submit" :disabled="submitting" @click="openBookedVirtualRoom">Open video room</button>
+          <button v-else-if="!virtualSessionBookingResult.uncertain && !virtualSessionBookingResult.linked" type="button" class="btn nr-btn-submit" :disabled="submitting" @click="retryVirtualSessionVideo">{{ submitting ? 'Linking video rooms…' : 'Retry video links' }}</button>
+        </div>
         <div
-          v-if="isScheduleEventEditMode && editingScheduleStackItem"
+          v-else-if="isScheduleEventEditMode && editingScheduleStackItem"
           class="nr-footer"
           :class="{ 'nr-footer--supv': canJoinEditingMeeting }"
         >
@@ -5527,7 +5529,10 @@
             Close
           </button>
         </div>
-        <div class="modal-body">
+        <div v-if="appointmentMoveDraft?.appointmentId" class="modal-body">
+          <AppointmentReschedulePanel :appointment-id="appointmentMoveDraft.appointmentId" :initial-start="appointmentMoveDraft.newStartAt" :initial-end="appointmentMoveDraft.newEndAt" :initial-time-zone="appointmentMoveDraft.timeZone" @busy="appointmentMoveBusy = $event" @saved="onSessionMoved" />
+        </div>
+        <div v-else class="modal-body">
           <p class="cancel-meeting-lead"><strong>{{ appointmentMoveDraft?.label || 'Appointment' }}</strong></p>
           <p class="cancel-meeting-copy">
             Move to <strong>{{ appointmentMoveDraft?.targetLabel || '—' }}</strong>?
@@ -5920,7 +5925,6 @@ import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.v
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import { prefetchNextScheduleWeek } from '../../utils/scheduleSummaryPrefetch.js';
 import ScheduleCalendarMenu from './ScheduleCalendarMenu.vue';
-import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
 import AppointmentOutcomeDetails from './AppointmentOutcomeDetails.vue';
@@ -6000,6 +6004,9 @@ import WorkHoursEditor from './WorkHoursEditor.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
+import AppointmentReschedulePanel from './AppointmentReschedulePanel.vue';
+import VirtualSessionBookingConfirmation from './VirtualSessionBookingConfirmation.vue';
+import { mergeSavedAppointmentCalendar } from '../../utils/savedAppointmentCalendar.js';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import TutoringSessionPrice from './TutoringSessionPrice.vue';
@@ -6515,6 +6522,15 @@ const openAllDayBlock = (event, block, day) => {
 const loading = ref(false);
 const error = ref('');
 const rawSummary = ref(null);
+const recentlySavedAppointments = ref({});
+const forgetRecentlySavedAppointment = id => {
+  recentlySavedAppointments.value = Object.fromEntries(Object.entries(recentlySavedAppointments.value).filter(([, event]) => Number(event.appointmentId) !== Number(id)));
+};
+const acknowledgeSavedAppointments = data => {
+  const rows = data?.scheduleEvents || [];
+  recentlySavedAppointments.value = Object.fromEntries(Object.entries(recentlySavedAppointments.value).filter(([, event]) => !rows.some(row =>
+    (event.appointmentId && Number(row.appointmentId) === event.appointmentId) || (event.id && Number(row.id) === event.id && row.kind === event.kind))));
+};
 const googleCalendarEnabled = computed(() => Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
 const familyScheduleDetails = ref({});
@@ -6526,7 +6542,10 @@ const familyScheduleEnabled = computed(() => {
 });
 const summary = computed({
   get: () => {
-    const raw = rawSummary.value;
+    const merged = Object.keys(recentlySavedAppointments.value).length
+      ? mergeSavedAppointmentCalendar(rawSummary.value, recentlySavedAppointments.value, props.userId, weekStart.value, String(agencyStore.currentAgency?.timezone || 'America/Denver'))
+      : rawSummary.value;
+    const raw = merged;
     // Resolve owned-room links before display filters: a room reserved under
     // another agency still supplies the location of this provider's session.
     const projected = raw ? {...raw, scheduleEvents:decorateSessionLocations(includeOfficeClientSessions(raw.scheduleEvents, raw.officeEvents), raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
@@ -7319,12 +7338,9 @@ const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
   const cellEnd = new Date(`${cellDate}T${pad(endH)}:${pad(endM)}:00`);
   const out = [];
   const pushIfOverlap = (row, defaults = {}) => {
-    const st = new Date(String(row?.startAt || row?.start || '').includes('T')
-      ? row.startAt || row.start
-      : String(row?.startAt || row?.start || '').replace(' ', 'T'));
-    const en = new Date(String(row?.endAt || row?.end || '').includes('T')
-      ? row.endAt || row.end
-      : String(row?.endAt || row?.end || '').replace(' ', 'T'));
+    const st = calendarWallDate(row?.startAt || row?.start, bookingTimezoneIana.value);
+    const en = calendarWallDate(row?.endAt || row?.end, bookingTimezoneIana.value);
+    if (!st || !en) return;
     if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) return;
     if (!(en > cellStart && st < cellEnd)) return;
     out.push({ ...defaults, ...row, startAt: row.startAt || row.start, endAt: row.endAt || row.end });
@@ -7563,6 +7579,7 @@ const loadPeerBusySummaries = async () => {
         params: {
           weekStart: ws,
           weekStartsOn: effectiveWeekStartsOn.value,
+          timeZone: bookingTimezoneIana.value,
           includeAllAgencies: 'true',
           detailLevel,
           includeGoogleBusy: 'true',
@@ -9917,8 +9934,9 @@ const availabilityClass = (dayName, hour, minute = 0) => {
   if (Number.isNaN(cellStart.getTime()) || Number.isNaN(cellEnd.getTime())) return '';
 
   const overlaps = (slot) => {
-    const st = new Date(slot.startAt);
-    const en = new Date(slot.endAt);
+    const st = calendarWallDate(slot.startAt, bookingTimezoneIana.value);
+    const en = calendarWallDate(slot.endAt, bookingTimezoneIana.value);
+    if (!st || !en) return false;
     if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) return false;
     return en > cellStart && st < cellEnd;
   };
@@ -10008,6 +10026,7 @@ function waitForScheduleRetry(deadline) {
 onUnmounted(() => {
   scheduleDisposed = true;
   clearTimeout(nextWeekPrefetchTimer);
+  scheduleReadGeneration += 1;
   clearTimeout(scheduleRetryTimer);
 });
 const tagPersonalSummary = data => {
@@ -10022,7 +10041,7 @@ function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, sna
   if (!snapshot?.googleCalendarEnabled || !snapshot.googleSyncPending || props.hideOfficeAndCalendarIntegration) return;
   // The app calendar has already rendered. Google reconciliation must not hold its spinner.
   const current = () => !scheduleDisposed && generation === scheduleReadGeneration && props.userId === uid && weekStart.value === week;
-  const params = { weekStart: week, weekStartsOn: effectiveWeekStartsOn.value, includeAllAgencies: 'true', skipOfficeMaterialize: 'true',
+  const params = { weekStart: week, timeZone: bookingTimezoneIana.value, weekStartsOn: effectiveWeekStartsOn.value, includeAllAgencies: 'true', skipOfficeMaterialize: 'true',
     skipGoogleSync: 'false', includeGoogleBusy: googleBusyPreference.value ? 'true' : 'false', includeGoogleEvents: googleEventsPreference.value ? 'true' : 'false' };
   setTimeout(async () => {
     if (!current()) return;
@@ -10054,9 +10073,18 @@ const load = async ({ forceRefresh = false } = {}) => {
   const generation = scheduleReadGeneration + 1;
   const uid = props.userId;
   const requestedWeek = weekStart.value;
+  const requestedTimeZone = bookingTimezoneIana.value;
+  const requestedWeekStart = requestedWeek;
   const ids = effectiveAgencyIds.value;
   const useAllAgencies = props.mode === 'self';
-  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
+  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}`;
+  // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
+  const flightKey = `${forceRefresh ? 'force|' : ''}${cacheKey}`;
+  if (loadInFlight && loadInFlightKey === flightKey) {
+    return loadInFlight;
+  }
+
+  scheduleReadGeneration = generation;
   // A forced read bypasses cache freshness, but retains this exact calendar as
   // a fallback if a background refresh is throttled or temporarily unavailable.
   const stalePack = getScheduleSummaryStale(cacheKey);
@@ -10073,13 +10101,6 @@ const load = async ({ forceRefresh = false } = {}) => {
     }
   }
 
-  // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
-  const flightKey = `${forceRefresh ? 'force|' : ''}${cacheKey}`;
-  if (loadInFlight && loadInFlightKey === flightKey) {
-    return loadInFlight;
-  }
-
-  scheduleReadGeneration = generation;
   const run = (async () => {
   try {
     if (forceRefresh || !stalePack?.data) loading.value = true;
@@ -10089,7 +10110,8 @@ const load = async ({ forceRefresh = false } = {}) => {
     if (useAllAgencies) {
       const resp = await getScheduleSummaryResponse(`/users/${props.userId}/schedule-summary`, {
         params: {
-          weekStart: weekStart.value,
+          weekStart: requestedWeekStart,
+          timeZone: requestedTimeZone,
           weekStartsOn: effectiveWeekStartsOn.value,
           includeAllAgencies: 'true',
           // Skip office materialization on personal grid — big win for first paint.
@@ -10109,6 +10131,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         const tagged = tagPersonalSummary(data);
         mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
         setScheduleSummary(cacheKey, tagged);
+        acknowledgeSavedAppointments(tagged);
         summary.value = tagged;
         loading.value = false;
         refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
@@ -10128,7 +10151,8 @@ const load = async ({ forceRefresh = false } = {}) => {
     } else if (ids.length === 1) {
       const resp = await getScheduleSummaryResponse(`/users/${props.userId}/schedule-summary`, {
         params: {
-          weekStart: weekStart.value,
+          weekStart: requestedWeekStart,
+          timeZone: requestedTimeZone,
           weekStartsOn: effectiveWeekStartsOn.value,
           agencyId: ids[0],
           includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
@@ -10138,8 +10162,10 @@ const load = async ({ forceRefresh = false } = {}) => {
             : {}))
         },
         skipGlobalLoading: true
-      });
+      }, { fresh: forceRefresh });
+      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
       const data = resp.data || null;
+      acknowledgeSavedAppointments(data);
       summary.value = data;
       setScheduleSummary(cacheKey, data);
     } else {
@@ -10148,7 +10174,8 @@ const load = async ({ forceRefresh = false } = {}) => {
             api
               .get(`/users/${props.userId}/schedule-summary`, {
                 params: {
-                  weekStart: weekStart.value,
+                  weekStart: requestedWeekStart,
+                  timeZone: requestedTimeZone,
                   weekStartsOn: effectiveWeekStartsOn.value,
                   agencyId,
                   includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
@@ -10168,6 +10195,7 @@ const load = async ({ forceRefresh = false } = {}) => {
           )
       );
 
+      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
       const okOnes = results.filter((r) => r.ok && r.data);
       const first = okOnes[0]?.data || null;
       if (!first) {
@@ -10294,6 +10322,8 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.googleBusy = first.googleBusy || [];
       merged.googleBusyError = first.googleBusyError || null;
       merged.externalCalendars = first.externalCalendars || [];
+      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value || requestedTimeZone !== bookingTimezoneIana.value) return;
+      acknowledgeSavedAppointments(merged);
       summary.value = merged;
       setScheduleSummary(cacheKey, merged);
     }
@@ -10342,7 +10372,7 @@ const load = async ({ forceRefresh = false } = {}) => {
     if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
     const status = Number(e?.response?.status || 0);
     const accessDenied = status === 401 || status === 403;
-    if (accessDenied) invalidateScheduleSummaryCacheForUser(props.userId);
+    if (accessDenied) { recentlySavedAppointments.value = {}; invalidateScheduleSummaryCacheForUser(props.userId); }
     const keepCachedSchedule = !!stalePack?.data && !accessDenied;
     if (!keepCachedSchedule) {
       summary.value = null;
@@ -11889,8 +11919,9 @@ const externalIcsEventsInCell = (dayName, hour, minute = 0) => {
     const calLabel = String(c?.label || '').trim() || 'Calendar';
     const raw = Array.isArray(c?.events) && c.events.length ? c.events : (Array.isArray(c?.busy) ? c.busy : []);
     for (const ev of raw) {
-      const st = new Date(ev.startAt);
-      const en = new Date(ev.endAt);
+      const st = calendarWallDate(ev.startAt, bookingTimezoneIana.value);
+      const en = calendarWallDate(ev.endAt, bookingTimezoneIana.value);
+      if (!st || !en) continue;
       if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
       if (!(en > cellStart && st < cellEnd)) continue;
       hits.push({
@@ -12052,6 +12083,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
           key: `office-booked-${blockKeySuffix}`,
           kind: 'ob',
           eventId: Number(top?.id || top?.eventId || 0),
+          appointmentId: Number(top?.appointmentId || 0),
           officeLocationId: buildingId,
           providerId: Number(top?.bookedProviderId || top?.assignedProviderId || 0),
           startAt: top?.startAt,
@@ -12342,7 +12374,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       timedSlice,
       spanBlock: true,
       // Allow drag gesture for snap-back UX; permission checked on drop.
-      draggable: !isScheduleEventTerminal(ev) && Number(ev?.id || 0) > 0
+      draggable: !isScheduleEventTerminal(ev) && (Number(ev?.id || 0) > 0 || Number(ev?.appointmentId || 0) > 0)
     });
   }
 
@@ -13122,6 +13154,7 @@ const virtualSessionShareUrl = ref('');
 const virtualSessionShareCopied = ref(false);
 const virtualSessionScheduledSessionKey = ref('');
 const virtualSessionGoogleWarning = ref('');
+const virtualSessionBookingResult = ref(null);
 const modalContext = ref({
   officeEventId: null,
   officeLocationId: null,
@@ -14261,6 +14294,7 @@ const selectedQuickActionLabel = computed(() => {
   return submitActionLabel.value || t;
 });
 const modalScheduleSubtitle = computed(() => {
+  if (virtualSessionBookingResult.value) return 'Your saved appointment and its session video link.';
   const t = String(requestType.value || '');
   if (t === 'edit_schedule_event') {
     const item = editingScheduleStackItem.value;
@@ -14322,6 +14356,7 @@ const showAppointmentEditorShell = computed(() => {
 });
 
 const modalEditorTitle = computed(() => {
+  if (virtualSessionBookingResult.value) return virtualSessionBookingResult.value.uncertain ? 'Check booking status' : virtualSessionBookingResult.value.partial ? 'Booking needs review' : 'Session scheduled';
   if (showActionChooser.value || !String(requestType.value || '').trim()) return 'Schedule';
   if (isSupervisionEditMode.value || String(requestType.value || '') === 'supervision') {
     const fromSession = String(selectedSupvSession.value?.sessionType || '').trim().toLowerCase();
@@ -16482,6 +16517,13 @@ function onAppointmentWaiverReviewed(appointmentId) {
 }
 
 function onAppointmentChangeCompleted(result) {
+  if (!result?.pendingApproval) forgetRecentlySavedAppointment(result?.appointment?.id || appointmentChange.appointmentId.value);
+  if (result?.rescheduled) {
+    closeModal(); invalidateScheduleSummaryCacheForUser(props.userId);
+    void load({ forceRefresh: true });
+    flashScheduleToast(result.pendingApproval ? 'Room request submitted. Your original session stays in place until approval.' : 'Session moved.');
+    return;
+  }
   editorClinicalNoteId.value = Number(result?.noteId || 0);
   editorStatus.value = result?.appointment?.status || editorStatus.value;
   window.dispatchEvent(new Event('pt-schedule-refresh'));
@@ -16522,7 +16564,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorStatus.value = String(defaults.status || 'scheduled');
   editorStatusBaseline.value=editorStatus.value;
   editorAppointmentBaseline.value=null;
-  editorVideoRoomMode.value = String(defaults.videoRoomMode || (mode === 'create' && editorExternalMeetingsEnabled.value && editorModality.value === 'TELEHEALTH' ? 'external' : 'unique_session'));
+  editorVideoRoomMode.value = editorIsLearning.value ? String(defaults.videoRoomMode || (mode === 'create' && editorExternalMeetingsEnabled.value && editorModality.value === 'TELEHEALTH' ? 'external' : 'unique_session')) : 'unique_session';
   editorExternalMeetingUrl.value=String(defaults.externalMeetingUrl||'');
   editorIncludeGoogleDialIn.value=defaults.includeGoogleDialIn===true;editorGoogleDialInStatus.value='';
   editorNotificationMode.value = String(defaults.notificationMode || 'default');
@@ -17071,8 +17113,8 @@ const normalizeBookingSelectionPayload = () => {
     tutoringSessionPrice: tutoringSessionPricePayload(),
     ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
     status: 'scheduled',
-    videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
-    externalMeetingUrl:editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:null,
+    videoRoomMode: editorIsLearning.value ? String(editorVideoRoomMode.value || 'unique_session') : 'unique_session',
+    externalMeetingUrl:editorIsLearning.value&&editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:null,
     includeGoogleDialIn:editorIncludeGoogleDialIn.value,
     notificationMode: String(editorNotificationMode.value || 'default'),
     customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
@@ -18750,7 +18792,6 @@ const isVirtualTelehealthSession = computed(() => (
 const virtualSessionSelectedClientIdSet = computed(
   () => new Set((virtualSessionSelectedClientIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
-watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIds.value].sort().join(','),editorDateYmd],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
 const virtualSessionSelectedGuardianKeySet = computed(
   () => new Set((virtualSessionSelectedGuardianKeys.value || []).map((k) => String(k || '').trim()).filter(Boolean))
 );
@@ -18779,6 +18820,7 @@ const bookingPrimaryServiceCodeOptions = computed(() => {
   });
 });
 watch(bookingPrimaryServiceCodeOptions, (opts) => {
+  if (bookingMetadataLoading.value || !(opts || []).length) return;
   if (Number(editorAppointmentId.value || 0)>0) return; // Saved appointments retain their historical service during asynchronous catalog refreshes.
   if (bookingMetadataLoading.value) return;
   const code = String(bookingServiceCode.value || '').trim().toUpperCase();
@@ -18910,6 +18952,7 @@ const removeVirtualSessionParticipant = (chip) => {
     .filter((k) => k && k !== key);
 };
 const resetVirtualSessionShareState = () => {
+  if (virtualSessionBookingResult.value) return;
   virtualSessionShareUrl.value = '';
   virtualSessionShareCopied.value = false;
   virtualSessionScheduledSessionKey.value = '';
@@ -18990,7 +19033,8 @@ const patchScheduleSummaryWithBookedEvent = ({
   startAt = '',
   endAt = '',
   kind = 'PERSONAL_EVENT',
-  wallTimeZone = ''
+  wallTimeZone = '',
+  appointmentContext = null
 }) => {
   const tz = String(wallTimeZone || '').trim() || scheduleMeetingTimeZone();
   const start = toSummaryInstantIso(startAt, { storesUtcInstant: true, wallTimeZone: tz });
@@ -18998,6 +19042,8 @@ const patchScheduleSummaryWithBookedEvent = ({
   if (!start || !end) return;
   const aId = Number(agencyId || 0) || null;
   const ev = {
+    ...(appointmentContext ? scheduleAppointmentContext({ ...appointmentContext, appointmentId: appointmentContext.id }) : {}),
+    ...(appointmentContext ? { providerId: appointmentContext.providerUserId, timeZone: appointmentContext.sourceTimezone || tz, canEdit: true, canReschedule: true } : {}),
     id: Number(eventId || 0) || null,
     agencyId: aId,
     _agencyId: aId,
@@ -19008,11 +19054,14 @@ const patchScheduleSummaryWithBookedEvent = ({
     startAt: start,
     endAt: end
   };
+  if (appointmentContext && ev.appointmentId) { recentlySavedAppointments.value = { ...recentlySavedAppointments.value, [`${ev.providerId}:${ev.appointmentId}`]: ev }; return; }
   const base = summary.value && typeof summary.value === 'object'
     ? { ...summary.value }
     : { weekStart: weekStart.value, scheduleEvents: [], officeEvents: [], officeRequests: [], schoolRequests: [], schoolAssignments: [], supervisionSessions: [] };
   const list = Array.isArray(base.scheduleEvents) ? [...base.scheduleEvents] : [];
   const sig = `${ev.kind}|${ev.startAt}|${ev.endAt}|${ev.title}|${ev.id || ''}`;
+  const linked = list.findIndex(row => (ev.appointmentId && Number(row.appointmentId) === Number(ev.appointmentId)) || (ev.id && Number(row.id) === ev.id && row.kind === ev.kind));
+  if (linked >= 0) { list[linked] = { ...list[linked], ...ev }; summary.value = { ...base, scheduleEvents: list }; return; }
   const exists = list.some((row) => {
     const rowSig = scheduleEventSignature(row, value => toSummaryInstantIso(value, {storesUtcInstant:true,wallTimeZone:tz}));
     return rowSig === sig;
@@ -19132,7 +19181,7 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
   }
 };
 watch([editorAgencyId,editorPracticeCategory],()=>{if(showRequestModal.value&&editorIsClinical.value&&!editorHydratingAppointment.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){virtualSessionSelectedClientIds.value=[];void loadVirtualSessionClients();}});
-watch([showRequestModal,editorAgencyId,editorModality,editorExternalMeetingsEnabled],()=>{if(showRequestModal.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){editorVideoRoomMode.value=editorExternalMeetingsEnabled.value&&editorModality.value==='TELEHEALTH'?'external':'unique_session';editorExternalMeetingUrl.value='';}});
+watch([showRequestModal,editorAgencyId,editorModality,editorExternalMeetingsEnabled,editorIsLearning],()=>{if(showRequestModal.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){editorVideoRoomMode.value=editorIsLearning.value&&editorExternalMeetingsEnabled.value&&editorModality.value==='TELEHEALTH'?'external':'unique_session';editorExternalMeetingUrl.value='';}});
 
 
 const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
@@ -19238,6 +19287,7 @@ const fetchMeetingBusyEntries = async (ids, ranges) => {
         const params = {
           weekStart: weekStart.value,
           weekStartsOn: effectiveWeekStartsOn.value,
+          timeZone: bookingTimezoneIana.value,
           // Typed returns activity titles (Team meeting, Supervision, etc.) without client PII.
           detailLevel: 'typed',
           // Display preferences must not turn Google overlays into conflicts.
@@ -21118,7 +21168,7 @@ const cellBlockStyle = (b) => {
     style.minHeight = '18px';
     // Draggable event types (supv/sevt) float above non-draggable office/peer blocks
     // so users can always grab them even when they overlap.
-    if (['supv', 'sevt'].includes(kind) && Number(b?.eventId || 0) > 0) {
+    if (['supv', 'sevt'].includes(kind) && (Number(b?.eventId || 0) > 0 || Number(b?.appointmentId || 0) > 0)) {
       style.zIndex = (Number(style.zIndex) || 3) + 5;
     }
     style.alignItems = 'flex-start';
@@ -21838,6 +21888,8 @@ const onQuickActionSelect = (act) => {
 };
 
 const requestCloseModal = async () => {
+  if (submitting.value) return;
+  if (virtualSessionBookingResult.value) { await dismissVirtualSessionBooking(); return; }
   try {
     await editorSessionNotePanel.value?.savePendingDraft?.();
   } catch (e) {
@@ -21896,6 +21948,7 @@ const closeModal = () => {
   showRequestModal.value = false;
   bookingTargetUserId.value = 0;
   meetingCreatedShare.value = null;
+  virtualSessionBookingResult.value = null;
   modalActionSource.value = 'general';
   requestType.value = '';
   modalAdditionalTenantIds.value = [];
@@ -22307,6 +22360,70 @@ const pushCounselingSessionRoute = async (sessionKey) => {
   await router.push(path);
 };
 
+const projectSavedVirtualAppointments = (booking) => {
+  if (!booking) return;
+  ensureScheduleAgencyVisible(booking.agencyId);
+  for (const appointment of booking.appointments || []) {
+    if ((rawSummary.value?.scheduleEvents || []).some(event => Number(event.appointmentId) === Number(appointment.id)
+      || (appointment.providerScheduleEventId && Number(event.id) === Number(appointment.providerScheduleEventId) && event.kind === 'PERSONAL_EVENT'))) continue;
+    patchScheduleSummaryWithBookedEvent({ eventId: appointment.providerScheduleEventId || -Number(appointment.id),
+      agencyId: booking.agencyId, title: appointment.title || booking.title,
+      startAt: parseScheduleInstant(appointment.startAt)?.toISOString(),
+      endAt: parseScheduleInstant(appointment.endAt)?.toISOString(),
+      wallTimeZone: booking.timeZone, appointmentContext: appointment });
+  }
+};
+
+const finishVirtualSessionVideoLinks = async () => {
+  const booking = virtualSessionBookingResult.value;
+  if (!booking || booking.uncertain) return;
+  for (const appointment of booking.appointments) {
+    if (booking.videoRooms[appointment.id]) continue;
+    if (booking.learning || ['learning', 'tutoring'].includes(appointment.businessType)) {
+      const external = appointment.videoRoomMode === 'external' || booking.externalMeeting;
+      booking.videoRooms[appointment.id] = { session: { publicId: `${external ? 'external' : 'tutoring'}-appointment:${appointment.id}` },
+        shareUrl: external ? appointment.externalMeetingUrl || '' : new URL(scheduleOrgTo(`/tutoring-session/appointment/${appointment.id}`), window.location.origin).href };
+      continue;
+    }
+    const data = await openCounselingFromAppointment({ agencyId: booking.agencyId, appointmentId: appointment.id,
+      title: appointment.title || booking.title, clientUserId: booking.guardianUserId });
+    if (!(data?.session?.publicId || data?.session?.id) || !data?.sharePath) throw new Error('The appointment is saved, but its video link is not ready. Retry video links; do not schedule it again.');
+    booking.videoRooms[appointment.id] = data;
+  }
+  const first = booking.videoRooms[booking.appointments[0]?.id];
+  virtualSessionScheduledSessionKey.value = String(first?.session?.publicId || first?.session?.id || '');
+  virtualSessionShareUrl.value = first?.shareUrl !== undefined ? first.shareUrl : buildVirtualSessionShareUrl(first?.sharePath || '');
+  booking.linked = true;
+  virtualSessionShareCopied.value = false;
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  await load({ forceRefresh: true });
+  projectSavedVirtualAppointments(booking);
+};
+
+const retryVirtualSessionVideo = async () => {
+  if (submitting.value || !virtualSessionBookingResult.value || virtualSessionBookingResult.value.uncertain) return;
+  submitting.value = true; modalError.value = '';
+  try { await finishVirtualSessionVideoLinks(); }
+  catch (e) { modalError.value = e.response?.data?.error?.message || e.message || 'The appointment is saved. Its video link still needs completion.'; }
+  finally { submitting.value = false; }
+};
+
+const dismissVirtualSessionBooking = async () => {
+  if (submitting.value) return;
+  const booking = virtualSessionBookingResult.value;
+  closeModal(); clearSelectedActionSlots();
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  await load({ forceRefresh: true });
+  projectSavedVirtualAppointments(booking);
+};
+
+const openBookedVirtualRoom = async () => {
+  if (submitting.value || !virtualSessionScheduledSessionKey.value) return;
+  if (virtualSessionScheduledSessionKey.value.startsWith('external-appointment:')) { if (virtualSessionShareUrl.value) window.open(virtualSessionShareUrl.value, '_blank', 'noopener,noreferrer'); }
+  else await pushCounselingSessionRoute(virtualSessionScheduledSessionKey.value);
+  await dismissVirtualSessionBooking();
+};
+
 const completePlatformVirtualSessionBooking = async ({
   dayName,
   hour,
@@ -22316,6 +22433,7 @@ const completePlatformVirtualSessionBooking = async ({
   alsoBookOffice,
   officeId
 }) => {
+  if (virtualSessionBookingResult.value) { await finishVirtualSessionVideoLinks(); return; }
   const uid = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
   if (!uid) throw new Error('Provider is required.');
   const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
@@ -22382,6 +22500,10 @@ const completePlatformVirtualSessionBooking = async ({
     });
   }
 
+  if (alsoBookOffice && officeId && !officeBookingValid.value) throw new Error('Choose a valid office booking window.');
+  const bookingSnapshot = { agencyId, providerId: uid, clientLabel, title: titleWithNotes, learning: editorIsLearning.value, externalMeeting: editorIsLearning.value && editorVideoRoomMode.value === 'external', timeZone: scheduleMeetingTimeZone(),
+    whenLabel: `${dateYmd} · ${pad2(hour)}:${pad2(startMinute)}–${pad2(endHour)}:${pad2(endMinute)} (${scheduleMeetingTimeZone()})`,
+    guardianUserId: firstGuardianUserId, videoRooms: {}, officeRequestError: '', partial: false, uncertain: false };
   let appointmentId = null;
   let canonicalBooking = null;
   // Canonical appointment so reminders / service / clinical tools attach.
@@ -22408,8 +22530,8 @@ const completePlatformVirtualSessionBooking = async ({
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
       participants,
       status: 'scheduled',
-      videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
-      externalMeetingUrl:editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:undefined,
+      videoRoomMode: editorIsLearning.value ? String(editorVideoRoomMode.value || 'unique_session') : 'unique_session',
+      externalMeetingUrl:editorIsLearning.value&&editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:undefined,
       includeGoogleDialIn:editorIncludeGoogleDialIn.value,
       notificationMode: String(editorNotificationMode.value || 'default'),
       customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
@@ -22417,16 +22539,25 @@ const completePlatformVirtualSessionBooking = async ({
     });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
     canonicalBooking = apptRes.data;
-    if (appointmentId) {
-      editorAppointmentId.value = appointmentId;
-      editorShowReminders.value = true;
-      void loadEditorReminders();
-    }
+    if (!appointmentId) throw new Error('The booking response contained no appointment ID.');
+    virtualSessionBookingResult.value = { ...bookingSnapshot, appointments: (canonicalBooking.appointments || [canonicalBooking.appointment]).filter(a => Number(a?.id) > 0),
+      recurrenceSeriesId: canonicalBooking.recurrenceSeriesId || null, googleCalendarWarning: canonicalBooking.googleCalendarWarning || '' };
+    projectSavedVirtualAppointments(virtualSessionBookingResult.value);
   } catch (error) {
-    throw new Error(error?.response?.data?.error?.message || 'Could not create the session appointment.');
+    const savedIds = (error.response?.data?.createdAppointmentIds || []).map(Number).filter(id => id > 0);
+    if (savedIds.length) {
+      const recovered = await Promise.allSettled(savedIds.map(id => api.get(`/appointments/${id}`, { skipGlobalLoading: true })));
+      const appointments = recovered.map((r, i) => r.status === 'fulfilled' && r.value.data?.appointment || { id: savedIds[i], startAt: wallDatetimeLocalToSummaryIso(startAt, bookingSnapshot.timeZone), endAt: wallDatetimeLocalToSummaryIso(endAt, bookingSnapshot.timeZone) });
+      virtualSessionBookingResult.value = { ...bookingSnapshot, appointments, partial: true };
+      projectSavedVirtualAppointments(virtualSessionBookingResult.value);
+    } else if (!error.response || Number(error.response.status) >= 500) {
+      virtualSessionBookingResult.value = { ...bookingSnapshot, appointments: [], uncertain: true };
+    }
+    throw new Error(savedIds.length ? 'Some appointments were saved before calendar linking failed. Review the saved sessions; do not schedule them again.' : virtualSessionBookingResult.value?.uncertain ? 'The booking response was interrupted. Refresh your schedule before trying again.' : error?.response?.data?.error?.message || 'Could not create the session appointment.');
   }
 
   if (alsoBookOffice && officeId) {
+    try {
     if (!officeBookingValid.value) throw new Error('Choose a valid office booking window.');
     if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
       throw new Error(bookingClassificationInvalidReason.value);
@@ -22459,59 +22590,25 @@ const completePlatformVirtualSessionBooking = async ({
     const bookingReqId = Number(r?.data?.request?.id || 0);
     if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
     if (r?.data?.kind === 'auto_booked') await loadSelectedOfficeGrid();
+    } catch (e) { virtualSessionBookingResult.value.officeRequestError = 'The session is saved. Check your office requests before submitting another room request. ' + (e.response?.data?.error?.message || 'The room-request response could not be confirmed.'); }
   }
 
-  const scheduleResp = { data: { event: { id: canonicalBooking?.appointment?.providerScheduleEventId },
-    googleCalendarWarning: canonicalBooking?.googleCalendarWarning } };
-
-  const tutoringBooking = canonicalBooking.appointment?.businessType === 'tutoring';
-  const externalBooking=canonicalBooking.appointment?.videoRoomMode==='external';
-  if(externalBooking){virtualSessionShareUrl.value=canonicalBooking.appointment.externalMeetingUrl||'';virtualSessionScheduledSessionKey.value=`external-appointment:${appointmentId}`;}
-  else if(tutoringBooking){virtualSessionShareUrl.value=new URL(scheduleOrgTo(`/tutoring-session/appointment/${appointmentId}`),window.location.origin).href;virtualSessionScheduledSessionKey.value=`tutoring-appointment:${appointmentId}`;}
-  const useMyRoom = !tutoringBooking && String(editorVideoRoomMode.value || '') === 'my_room';
-  let data = null;
-  if (useMyRoom) {
-    try {
-      const roomRes = await api.get('/my-room/me', { params:{agencyId:props.agencyId}, skipGlobalLoading: true });
-      const slug = roomRes?.data?.room?.slug || roomRes?.data?.slug;
-      if (slug) {
-        virtualSessionShareUrl.value = virtualOfficeGuestUrl(slug, roomRes?.data?.room?.branding?.officeOrigin || window.location.origin);
-        virtualSessionScheduledSessionKey.value = `my-room:${slug}`;
-      }
-    } catch {
-      /* fall through to unique session */
-    }
-  }
-  if (!externalBooking && !virtualSessionShareUrl.value) {
-    for (const appointment of canonicalBooking.appointments || [canonicalBooking.appointment]) {
-      const roomData = await openCounselingFromAppointment({ agencyId, appointmentId: appointment.id,
-        title: titleWithNotes, clientUserId: firstGuardianUserId });
-      if (Number(appointment.id) === appointmentId) data = roomData;
-    }
-    const sessionKey = data?.session?.publicId || data?.session?.id;
-    if (!sessionKey) throw new Error('Session was scheduled, but the platform video room could not be created.');
-
-    virtualSessionScheduledSessionKey.value = String(sessionKey);
-    virtualSessionShareUrl.value = buildVirtualSessionShareUrl(data?.sharePath || '');
-  }
-  virtualSessionShareCopied.value = false;
-  virtualSessionGoogleWarning.value = String(scheduleResp?.data?.googleCalendarWarning || '').trim();
+  virtualSessionGoogleWarning.value = String(canonicalBooking?.googleCalendarWarning || '').trim();
   clearSelectedActionSlots();
-  ensureScheduleAgencyVisible(agencyId);
-  patchScheduleSummaryWithBookedEvent({
-    eventId: scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id,
-    agencyId,
-    title: baseTitle,
-    startAt,
-    endAt,
-    kind: 'PERSONAL_EVENT'
-  });
-  refreshScheduleSummaryInBackground();
+  try { await finishVirtualSessionVideoLinks(); }
+  finally { projectSavedVirtualAppointments(virtualSessionBookingResult.value); }
+
 };
 
 const submitRequest = async () => {
+  if (submitting.value) return;
+  if (virtualSessionBookingResult.value) {
+    if (virtualSessionBookingResult.value.linked) {
+      if (virtualSessionShareUrl.value) await openBookedVirtualRoom(); else await dismissVirtualSessionBooking();
+    } else await retryVirtualSessionVideo();
+    return;
+  }
   if(editorOutcomeReadOnly.value){modalError.value='This appointment has a final or pending attendance outcome. Its schedule is read-only.';return;}
-  if(virtualSessionScheduledSessionKey.value.startsWith('external-appointment:')){if(virtualSessionShareUrl.value)window.open(virtualSessionShareUrl.value,'_blank','noopener,noreferrer');else closeModal();return;}
   if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
   bookingSubmitAttempted.value = true;
   if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !clientSessionBookingEnabled.value) {
@@ -23133,84 +23230,12 @@ const submitRequest = async () => {
         return;
       }
 
-      // Virtual sessions are not office bookings unless the user opts into a room request.
-      if (isVirtualIndividual && (!(sessionAlsoRequestOffice.value && officeId > 0) || editorVideoRoomMode.value === 'external')) {
-        if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
-          throw new Error(bookingClassificationInvalidReason.value);
-        }
-        if (linkPlatformVideoRoom.value || editorVideoRoomMode.value === 'external') {
-          if (virtualSessionScheduledSessionKey.value) {
-            await pushCounselingSessionRoute(virtualSessionScheduledSessionKey.value);
-            closeModal();
-            return;
-          }
-          await completePlatformVirtualSessionBooking({
-            dayName: dn,
-            hour: h,
-            startMinute,
-            endHour: endH,
-            endMinute,
-            alsoBookOffice: sessionAlsoRequestOffice.value && officeId > 0,
-            officeId
-          });
-          // Keep modal open so the join link can be copied.
-          modalError.value = '';
-          officeReminderToast.value = editorVideoRoomMode.value === 'external'
-            ? (virtualSessionShareUrl.value ? 'Virtual session scheduled with the external meeting link.' : 'Virtual session scheduled. You can add the external meeting link later.')
-            : virtualSessionGoogleWarning.value
-            ? `Virtual session scheduled (Google Calendar not synced). Copy the join link above.`
-            : 'Virtual session scheduled. Copy the join link above.';
-          setTimeout(() => { officeReminderToast.value = ''; }, 6000);
-          return;
-        }
-        // Virtual without platform video room: personal schedule event only (no office room).
-        const agencyId = Number(effectiveAgencyId.value || 0);
-        if (!agencyId) throw new Error('Select an agency for this virtual session.');
-        const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
-        const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
-        const endAt = `${endH===24?addDaysYmd(dateYmd,1):dateYmd}T${pad2(endH===24?0:endH)}:${pad2(endMinute)}:00`;
-        const bookingSelection = normalizeBookingSelectionPayload();
-        const titleParts = ['Virtual session'];
-        if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
-        if (bookingSelection.serviceCode) titleParts.push(bookingSelection.serviceCode);
-        const scheduleResp = await api.post('/appointments', {
-          recurrence: String(scheduleEventRecurrence.value || 'ONCE'),
-          occurrenceCount: Number(scheduleEventOccurrenceCount.value || 12),
-          providerUserId: Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0),
-          tenantServiceId: Number(editorTenantServiceId.value || 0) || undefined,
-          packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
-          participants: [{ role: 'client', clientId: Number(primarySessionClientId.value), isBillingResponsible: true }],
-          agencyId,
-          kind: 'PERSONAL_EVENT',
-          title: titleParts.join(' · '),
-          description: [
-            String(requestNotes.value || '').trim(),
-            bookingSelection.clientId ? `Client id: ${bookingSelection.clientId}` : '',
-            buildVirtualAttendeeNotes(),
-            bookingSelection.appointmentTypeCode ? `Type: ${bookingSelection.appointmentTypeCode}` : '',
-            bookingSelection.serviceCode ? `Service: ${bookingSelection.serviceCode}` : '',
-            bookingSelection.serviceLocationId ? `Location id: ${bookingSelection.serviceLocationId}` : ''
-          ].filter(Boolean).join('\n'),
-          allDay: false,
-          startAt,
-          endAt,
-          timeZone: scheduleMeetingTimeZone(),
-          isPrivate: false,
-          allowLocalOnly: true,
-          ...bookingSelection
-        });
-        clearSelectedActionSlots();
-        ensureScheduleAgencyVisible(agencyId);
-        patchScheduleSummaryWithBookedEvent({
-          eventId: scheduleResp?.data?.appointment?.providerScheduleEventId,
-          agencyId,
-          title: titleParts.join(' · '),
-          startAt,
-          endAt,
-          kind: 'PERSONAL_EVENT'
-        });
-        refreshScheduleSummaryInBackground();
-        closeModal();
+      // A virtual client session always gets its own appointment-linked room.
+      if (isVirtualIndividual) {
+        if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) throw new Error(bookingClassificationInvalidReason.value);
+        await completePlatformVirtualSessionBooking({ dayName: dn, hour: h, startMinute, endHour: endH, endMinute,
+          alsoBookOffice: !!sessionAlsoRequestOffice.value && officeId > 0, officeId });
+        modalError.value = '';
         return;
       }
 
@@ -25283,14 +25308,15 @@ const confirmSeriesEditScope = async (scope) => {
   }
 };
 
-const timingChangedFromBaseline = (startAt, endAt) => {
+const timingChangedFromBaseline = (startAt, endAt, fallback = {}) => {
   const norm = (s) => String(s || '').trim().replace(' ', 'T').slice(0, 16);
-  return norm(startAt) !== norm(editTimingBaseline.value.startAt)
-    || norm(endAt) !== norm(editTimingBaseline.value.endAt);
+  return norm(startAt) !== norm(editTimingBaseline.value.startAt || fallback.startAt)
+    || norm(endAt) !== norm(editTimingBaseline.value.endAt || fallback.endAt);
 };
 
 const appointmentStartHasPassed = (startAt) => {
-  const d = parseLocalDateTime(startAt) || parseMaybeDate(startAt);
+  const absolute = startAt instanceof Date || /[zZ]$|[+-]\d{2}:?\d{2}$/.test(String(startAt || ''));
+  const d = parseMaybeDate(absolute ? startAt : wallDatetimeLocalToSummaryIso(startAt, scheduleMeetingTimeZone()));
   if (!d) return false;
   return d.getTime() < Date.now();
 };
@@ -25520,6 +25546,19 @@ const appointmentMoveBusy = ref(false);
 const appointmentMoveError = ref('');
 const appointmentMoveDraft = ref(null);
 const appointmentMoveRooms = ref([]);
+let appointmentMoveAfterSave = null;
+const onSessionMoved = async (result) => {
+  if (!result.pendingApproval) forgetRecentlySavedAppointment(appointmentMoveDraft.value?.appointmentId);
+  appointmentMoveBusy.value = false;
+  showAppointmentMoveModal.value = false;
+  appointmentMoveDraft.value = null;
+  const afterSave = appointmentMoveAfterSave; appointmentMoveAfterSave = null;
+  if (!result.pendingApproval && afterSave) await afterSave();
+  if (result.pendingApproval && afterSave) { closeStackDetailsModal(); closeModal(); }
+  flashScheduleToast(result.pendingApproval ? 'Room request submitted. Your original session stays in place until approval.' : 'Session moved.');
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  void load({ forceRefresh: true });
+};
 watch(() => appointmentMoveDraft.value?.officeLocationId, async (officeId) => {
   appointmentMoveRooms.value = [];
   if (!officeId) return;
@@ -25576,7 +25615,7 @@ const isAppointmentBlockDraggable = (block) => {
   if (kind === 'ob') return !!block.canReschedule && Number(block.eventId) > 0 && !!block.startAt && !!block.endAt;
   if (!['supv', 'sevt'].includes(kind)) return false;
   // Allow the drag gesture for everyone who can book; permission is enforced on drop (snap-back).
-  return Number(block?.eventId || 0) > 0 && !!block?.startAt && !!block?.endAt;
+  return (Number(block?.eventId || 0) > 0 || Number(block?.appointmentId || 0) > 0) && !!block?.startAt && !!block?.endAt;
 };
 
 const blockAllowsReschedule = (block) => {
@@ -25680,6 +25719,7 @@ const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
   e?.preventDefault?.();
   schedResizeState.value = {
     eventId: Number(b.eventId || 0),
+    appointmentId: Number(b.appointmentId || 0),
     officeLocationId: Number(b.officeLocationId || b.buildingId || 0),
     roomId: Number(b.roomId || 0),
     virtualHoursId: Number(b.virtualHoursId || 0),
@@ -25761,6 +25801,8 @@ const onCellBlockResizePointerUp = () => {
     notifyChanges: true,
     kind: rs.kind,
     eventId: rs.eventId,
+    appointmentId: rs.appointmentId,
+    timeZone: scheduleMeetingTimeZone(),
     officeLocationId: rs.officeLocationId,
     roomId: rs.roomId,
     virtualHoursId: Number(rs.virtualHoursId || 0),
@@ -25793,6 +25835,7 @@ const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
     moved: false,
     kind: String(block.kind || ''),
     eventId: Number(block.eventId || 0),
+    appointmentId: Number(block.appointmentId || 0),
     officeLocationId: Number(block.officeLocationId || block.buildingId || 0),
     roomId: Number(block.roomId || 0),
     virtualHoursId: Number(block.virtualHoursId || 0),
@@ -25890,6 +25933,8 @@ const openAppointmentMoveConfirm = (st, target) => {
     notifyChanges: true,
     kind: st.kind,
     eventId: st.eventId,
+    appointmentId: st.appointmentId,
+    timeZone: moveTz,
     officeLocationId: st.officeLocationId,
     roomId: st.roomId,
     virtualHoursId: Number(st.virtualHoursId || 0),
@@ -25915,6 +25960,7 @@ const closeAppointmentMoveModal = () => {
   showAppointmentMoveModal.value = false;
   appointmentMoveDraft.value = null;
   appointmentMoveError.value = '';
+  appointmentMoveAfterSave = null;
 };
 
 const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}) => {
@@ -26093,7 +26139,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
       );
     }
     if (!targetEvent) {
-      targetEvent = bid > 0 ? events.find((ev) => Number(ev?.id || 0) === bid) : events[0];
+      targetEvent = bid ? events.find((ev) => Number(ev?.id || 0) === bid) : null;
     }
     if (!targetEvent) {
       return;
@@ -26455,7 +26501,7 @@ const isEditableScheduleStackItem = (item) => {
   const kind = String(item?.eventKind || '').trim().toUpperCase();
   if (!EDITABLE_SCHEDULE_EVENT_KINDS.has(kind)) return false;
   if (item?.canEdit === false) return false;
-  return Number(item?.eventId || 0) > 0 || (Number(item?.eventId || 0) < 0 && Number(item?.appointmentId || 0) > 0);
+  return Number(item?.eventId || 0) > 0 || Number(item?.appointmentId || 0) > 0;
 };
 
 /** Host (or admin-meeting invitee) may change time/date. */
@@ -26600,6 +26646,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     return;
   }
   const isMeeting = isMeetingStackItem(item);
+  const canonicalAppointmentId = !isMeeting ? Number(item?.appointmentId || editorAppointmentId.value || 0) : 0;
   const isHuddleEvent = String(item?.eventKind || '').toUpperCase() === 'HUDDLE';
   if (canFullEdit && isMeeting && !isHuddleEvent && selectedMeetingParticipantIdSet.value.size === 0) {
     scheduleEventEditError.value = 'Add at least one participant before saving.';
@@ -26644,8 +26691,13 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     || item?.recurrenceSeriesId
     || ''
   ).trim();
-  const timeChanged = timingChangedFromBaseline(startAt, endAt);
-  if (!scope && timeChanged && seriesId) {
+  const baselineZone = String(scheduleEventEditTimeZone.value || '').trim() || scheduleMeetingTimeZone();
+  const timeChanged = timingChangedFromBaseline(startAt, endAt, { startAt: toZonedDatetimeLocalValue(item?.startAt, baselineZone), endAt: toZonedDatetimeLocalValue(item?.endAt, baselineZone) });
+  const remindersChanged = isMeeting && (
+    JSON.stringify(meetingSettings.value?.reminders || []) !== JSON.stringify(item?.meetingSettings?.reminders ?? (item?.reminderMinutes === null ? [] : [item?.reminderMinutes ?? 5]))
+    || notifyMeetingParticipants.value !== (item?.notifyParticipants !== false)
+  );
+  if (!canonicalAppointmentId && !scope && (timeChanged || remindersChanged) && seriesId) {
     await askSeriesEditScope({
       title: title || item?.label || 'Appointment',
       run: async (chosen) => {
@@ -26674,6 +26726,31 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     // whatever tenant happens to be ambient in the page, hiding it from its original calendar.
     const agencyChanged = Number(saveAgencyId || 0) !== Number(editAgencyBaseline.value || 0);
     // Admin-meeting invitees may PATCH time only; hosts keep full edit payload.
+    if (canonicalAppointmentId && (eid < 0 || timeChanged)) {
+      const clinicalPatch = { title, notes: description };
+      if (editorStatus.value !== editorStatusBaseline.value) clinicalPatch.status = editorStatus.value;
+      const baseline = editorAppointmentBaseline.value;
+      if (baseline && baseline.id === canonicalAppointmentId) {
+        const next = { serviceCode: String(bookingServiceCode.value || ''), tenantServiceId: Number(editorTenantServiceId.value || 0), serviceLocationId: Number(editorServiceLocationId.value || 0), modality: String(editorModality.value || '') };
+        for (const key of Object.keys(next)) if (next[key] && next[key] !== baseline[key]) clinicalPatch[key] = next[key];
+      }
+      const saveFields = async () => {
+        try {
+          await api.patch(`/appointments/${canonicalAppointmentId}`, clinicalPatch, { skipGlobalLoading: true });
+          if (eid > 0) await api.patch(`/users/${uid}/schedule-events/${eid}`, { title, description, isPrivate: !!scheduleEventEditForm.value.isPrivate }, { skipGlobalLoading: true });
+          scheduleEventEditId.value = 0; closeStackDetailsModal(); closeModal();
+        } catch (e) { modalError.value = e.response?.data?.error?.message || 'Could not save these session edits. Reopen the session to review.'; }
+      };
+      if (timeChanged) {
+        appointmentMoveDraft.value = { appointmentId: canonicalAppointmentId, newStartAt: wallStartAt, newEndAt: wallEndAt, timeZone: saveTimeZone };
+        appointmentMoveAfterSave = saveFields;
+        appointmentMoveError.value = ''; showAppointmentMoveModal.value = true;
+      } else {
+        await saveFields();
+        invalidateScheduleSummaryCacheForUser(props.userId); void load({ forceRefresh: true });
+      }
+      return;
+    }
     const patchBody = canRescheduleOnly
       ? {
           startAt: wallStartAt,
@@ -28021,6 +28098,13 @@ watch(()=>props.spanMode,value=>{
   scheduleSpanMode.value=value;
   if(isDayOrAgendaSpan.value)ensureSingleDayFocus();else focusedDays.value=[];
 },{immediate:true});
+watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIdSet.value].sort().join(','),editorDateYmd],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
+watch(bookingTimezoneIana, (zone, previous) => {
+  if (zone === previous) return;
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  void load({ forceRefresh: true });
+  void loadPeerBusySummaries();
+});
 </script>
 
 <style scoped>

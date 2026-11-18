@@ -3,7 +3,7 @@ import { withRecurringScheduleEdit } from './recurringScheduleCancellation.servi
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
 import { assertNoReviewTimeOverlap } from './supervisionReviewTime.service.js';
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
-import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
+import { clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { assertMeetingBookingWindow, recurringWindowEnd } from '../utils/recurringWindow.js';
 
 export function shiftedSupervisionWindow(occurrence, anchor, startAt, endAt, zone) {
@@ -17,7 +17,9 @@ export function shiftedSupervisionWindow(occurrence, anchor, startAt, endAt, zon
   const day = new Date(wallMs(`${occurrenceWall.slice(0,10)} 00:00:00`)+dayDelta).toISOString().slice(0,10);
   const startWall = `${day} ${desired.slice(11)}`;
   const endWall = new Date(wallMs(startWall)+wallMs(desiredEnd)-wallMs(desired)).toISOString().slice(0,19).replace('T',' ');
-  return {startAt:wallMysqlToUtcMysql(startWall,zone),endAt:wallMysqlToUtcMysql(endWall,zone)};
+  const window = {startAt:clientScheduleInstantToUtcMysql(startWall,zone),endAt:clientScheduleInstantToUtcMysql(endWall,zone)};
+  if (!window.startAt || !window.endAt || window.endAt <= window.startAt) throw Object.assign(new Error('A recurring supervision session would fall in a nonexistent local time. Choose another time.'), {status:400});
+  return window;
 }
 
 // Validate the entire move before writing, and serialize with rolling renewal.

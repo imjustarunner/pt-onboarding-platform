@@ -1,9 +1,10 @@
 import { acceptedCompanyEventCalendar } from './companyEventPersonalAgenda.service.js';
 import pool from '../config/database.js';
 import UserWorkSchedule from '../models/UserWorkSchedule.model.js';
-import { zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
+import { zonedWallTimeToUtc, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { workTitle, calendarWindow, uniqueOfficeReservations } from './calendarPublicationPolicy.js';
 import { personalMeetingInvitation } from './meetingInvitations.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { json, localDay } from './familyPolicy.js';
 
 const dateOnly = v => v instanceof Date ? v.toISOString().slice(0,10) : String(v || '').slice(0,10);
@@ -20,7 +21,7 @@ export async function workCalendarEvents(userId,agencyId,from,to,{summaryOnly=fa
     AND (ap.id IS NULL OR ap.status IN ('scheduled','confirmed','client_confirmed','completed','reschedule_requested','cancellation_requested','no_show'))
     AND (p.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=p.id AND a.user_id=?))
     AND COALESCE(p.end_at,p.end_date)>? AND COALESCE(p.start_at,p.start_date)<?`,[agencyId,userId,userId,start,end]);
-  const output=await Promise.all(events.map(async e=>({key:`work:${agencyId}:event:${e.id}`,title:workTitle(e.appointment_id ? {...e,kind:e.participant_mode==='multi'?'GROUP_SESSION':'INDIVIDUAL_SESSION',appointment_subtype_code:e.appointment_modality==='TELEHEALTH'?'TELEHEALTH':null,client_initials:summaryOnly?null:e.client_initials} : {...e,client_initials:summaryOnly?null:e.client_initials}),start:e.start_at,end:e.end_at,updatedAt:e.updated_at,
+  const output=await Promise.all(events.map(async e=>({key:`work:${agencyId}:event:${e.id}`,title:workTitle(e.appointment_id ? {...e,kind:e.participant_mode==='multi'?'GROUP_SESSION':'INDIVIDUAL_SESSION',appointment_subtype_code:e.appointment_modality==='TELEHEALTH'?'TELEHEALTH':null,client_initials:summaryOnly?null:e.client_initials} : {...e,client_initials:summaryOnly?null:e.client_initials}),start:utcMysqlToIso(e.start_at),end:utcMysqlToIso(e.end_at),updatedAt:e.updated_at,
     ...(e.all_day?{startDate:dateOnly(e.start_date),endDate:dateOnly(e.end_date)}:{}),
     url:!summaryOnly && !e.is_private && ['TEAM_MEETING','HUDDLE'].includes(e.kind) && (Number(e.platform_video_link ?? 1)!==0 || !!e.google_meet_link)?(await personalMeetingInvitation(e,userId)).url:null})));
   const [office]=await pool.execute(`SELECT o.id,o.office_location_id,o.room_id,r.room_number,r.label AS room_label,r.name AS room_name,o.clinical_session_id,o.start_at,o.end_at,o.updated_at,o.client_id,c.initials AS client_initials,l.name,l.street_address,l.timezone,l.events_stored_utc,o.appointment_type_code,o.appointment_subtype_code,o.google_provider_event_id,o.google_provider_calendar_id,o.google_room_resource_email,o.slot_state
@@ -29,7 +30,7 @@ export async function workCalendarEvents(userId,agencyId,from,to,{summaryOnly=fa
     AND o.end_at>DATE_SUB(?,INTERVAL 1 DAY) AND o.start_at<DATE_ADD(?,INTERVAL 1 DAY)
     AND (l.agency_id=? OR EXISTS(SELECT 1 FROM office_location_agencies a WHERE a.office_location_id=l.id AND a.agency_id=?))`,[agencyId,userId,start,end,agencyId,agencyId]);
   for(const o of uniqueOfficeReservations(office)){
-    const utc=v=>{if(Number(o.events_stored_utc)===1)return v;const d=new Date(v);return zonedWallTimeToUtc({year:d.getUTCFullYear(),month:d.getUTCMonth()+1,day:d.getUTCDate(),hour:d.getUTCHours(),minute:d.getUTCMinutes(),timeZone:o.timezone || 'America/Denver'});};
+    const utc=v=>{if(Number(o.events_stored_utc)===1)return parseUtcDate(v);const d=parseUtcDate(v);return zonedWallTimeToUtc({year:d.getUTCFullYear(),month:d.getUTCMonth()+1,day:d.getUTCDate(),hour:d.getUTCHours(),minute:d.getUTCMinutes(),timeZone:o.timezone || 'America/Denver'});};
     const s=utc(o.start_at),e=utc(o.end_at);if(e<=start || s>=end)continue;
     const officeReservation = includeOfficeSyncMetadata && !summaryOnly && !o.client_id && !o.clinical_session_id && o.slot_state === 'ASSIGNED_BOOKED'
       ? {id:o.id,roomId:o.room_id,buildingId:o.office_location_id,googleEventId:o.google_provider_event_id,calendarEmail:o.google_provider_calendar_id,roomResourceEmail:o.google_room_resource_email}
@@ -41,7 +42,7 @@ export async function workCalendarEvents(userId,agencyId,from,to,{summaryOnly=fa
     FROM supervision_sessions s WHERE s.agency_id=? AND s.status IN ('SCHEDULED','IN_PROGRESS')
     AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=? OR EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')))
     AND s.end_at>? AND s.start_at<?`,[agencyId,userId,userId,userId,userId,start,end]);
-  output.push(...await Promise.all(supervision.map(async s=>({key:`work:${agencyId}:supervision:${s.id}`,title:'Supervision',start:s.start_at,end:s.end_at,updatedAt:s.updated_at,
+  output.push(...await Promise.all(supervision.map(async s=>({key:`work:${agencyId}:supervision:${s.id}`,title:'Supervision',start:utcMysqlToIso(s.start_at),end:utcMysqlToIso(s.end_at),updatedAt:s.updated_at,
     url:!summaryOnly && ['VIRTUAL','VIDEO','TELEHEALTH'].includes(String(s.modality).toUpperCase())?(await personalMeetingInvitation(s,userId)).url:null}))));
   const companyEvents=await acceptedCompanyEventCalendar({userId,agencyId,from:start,to:end});
   output.push(...companyEvents.map(event=>({key:event.projectionKey,title:summaryOnly?'Company event':event.title,start:event.startAt,end:event.endAt,
@@ -65,7 +66,7 @@ export async function familyCalendarEvents(householdId,from,to,{details=false}={
   const [rows]=await pool.execute(`SELECT e.*,h.timezone,m.display_name,m.color,m.photo_url FROM family_entries e
     JOIN family_households h ON h.id=e.household_id LEFT JOIN family_members m ON m.household_id=e.household_id AND m.user_id=e.member_user_id
     WHERE e.household_id=? AND e.kind IN ('event','status') AND e.archived_at IS NULL AND e.end_at>? AND e.start_at<? ORDER BY e.start_at`,[householdId,start,end]);
-  return rows.map(e=>{const metadata=json(e.metadata);return {key:`family:${householdId}:${e.id}`,id:e.id,title:details?e.title:'Personal event',start:e.start_at,end:e.end_at,updatedAt:e.updated_at,
+  return rows.map(e=>{const metadata=json(e.metadata);return {key:`family:${householdId}:${e.id}`,id:e.id,title:details?e.title:'Personal event',start:utcMysqlToIso(e.start_at),end:utcMysqlToIso(e.end_at),updatedAt:e.updated_at,
     ...(metadata.allDay?{startDate:localDay(e.start_at,e.timezone),endDate:localDay(e.end_at,e.timezone)}:{}),
     ...(details?{memberId:e.member_user_id,memberName:e.display_name,color:e.color,photo:e.photo_url,metadata,location:metadata.address || ''}:{})};});
 }

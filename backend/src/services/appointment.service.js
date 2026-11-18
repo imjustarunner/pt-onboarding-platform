@@ -14,6 +14,8 @@ import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.servic
 import {isProBonoFunding,isProBonoServiceCode,proBonoClientBilling} from '../utils/clinicalFundingPolicy.js';
 import {reconcileClinicalAfterHours,savedOfficeBookingTimezone} from './clinicalAfterHours.service.js';
 import pool from '../config/database.js';
+import { appointmentVideoRoomMode } from '../utils/appointmentVideoPolicy.js';
+import { clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
 import { assertClientServiceSchedulingActive } from './clientServiceSchedulingGuard.service.js';
@@ -37,28 +39,11 @@ import {
 } from './appointmentReminder.service.js';
 import { scheduleSessionNotifications } from './sessionNotification.service.js';
 import { settleAppointmentOutcome } from './appointmentSettlement.service.js';
-import {
-  dateToMysqlUtcDateTime,
-  wallMysqlToUtcMysql,
-  normalizeWallMysqlDatetime,
-  DEFAULT_SCHEDULE_TZ
-} from '../utils/zonedWallTime.util.js';
+import { DEFAULT_SCHEDULE_TZ } from '../utils/zonedWallTime.util.js';
 
 /** Store appointment instants as UTC MySQL DATETIME. */
 function toMysqlDateTime(v, timeZone = DEFAULT_SCHEDULE_TZ) {
-  if (!v) return null;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return dateToMysqlUtcDateTime(v);
-  }
-  const s = String(v).trim();
-  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
-    return dateToMysqlUtcDateTime(new Date(s));
-  }
-  const wall = normalizeWallMysqlDatetime(s);
-  if (!wall) return null;
-  // Prefer converting wall → UTC; if already UTC digits post-migration, wallMysql still
-  // needs the correct zone — callers should pass ISO-Z after migration when possible.
-  return wallMysqlToUtcMysql(wall, timeZone) || wall;
+  return clientScheduleInstantToUtcMysql(v, timeZone);
 }
 
 function participantModeFromList(participants = []) {
@@ -267,6 +252,7 @@ async function createLockedAppointment({
   }
 
   const bookingClients = await assertAppointmentClients(aid, participants);
+  videoRoomMode = appointmentVideoRoomMode({ modality, businessType: bookingClients.some(client => ['clinical', 'school'].includes(client.client_type)) ? 'mental_health' : businessType, videoRoomMode });
   for (const client of bookingClients) await assertClientServiceSchedulingActive({ agencyId:aid, providerUserId,
     clientId:client.id, businessType:businessType || (['learning','tutoring'].includes(client.client_type)?'learning':null), source, providerScheduleEventId,officeEventId });
   if (!businessType || ['mental_health', 'healthcare'].includes(businessType)) {
@@ -627,6 +613,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   const prevStatus = String(existing.status || '').toLowerCase();
   const updatePatch = {
     ...patch,
+    videoRoomMode: appointmentVideoRoomMode({ modality: patch.modality || existing.modality, businessType: existing.businessType, videoRoomMode: patch.videoRoomMode ?? existing.videoRoomMode }),
     startAt,
     endAt,
     updatedByUserId: actorUserId

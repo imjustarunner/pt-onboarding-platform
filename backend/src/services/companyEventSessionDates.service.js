@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { normalizeRecurrence } from './companyEvents.service.js';
 import { utcDateToZonedYmd, utcDateToZonedParts, zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
 
@@ -86,10 +87,9 @@ function buildOccurrenceEndFromYmd(sessionDateYmd, endWall, timezone, startAtUtc
   return endUtc;
 }
 
-function desiredOccurrencesFromEventRow(eventRow) {
-  if (!eventRow?.starts_at || !eventRow?.ends_at) return [];
-  const startsAt = new Date(eventRow?.starts_at || 0);
-  const endsAt = new Date(eventRow?.ends_at || 0);
+export function desiredOccurrencesFromEventRow(eventRow) {
+  const startsAt = parseUtcDate(eventRow?.starts_at) || new Date(NaN);
+  const endsAt = parseUtcDate(eventRow?.ends_at) || new Date(NaN);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return [];
   const timezone = String(eventRow?.timezone || 'UTC').trim() || 'UTC';
   const recurrenceRaw = (() => {
@@ -137,7 +137,7 @@ function desiredOccurrencesFromEventRow(eventRow) {
 
   if (recurrence.frequency === 'weekly') {
     const intervalWeeks = Math.max(1, Number(recurrence.interval || 1));
-    const byWeekday = recurrence.byWeekday?.length ? recurrence.byWeekday : [startsAt.getUTCDay()];
+    const byWeekday = recurrence.byWeekday?.length ? recurrence.byWeekday : [toUtcMidnightDate(startYmd).getUTCDay()];
     const startDateUtc = toUtcMidnightDate(startYmd);
     const lastDateUtc = toUtcMidnightDate(lastYmd);
     if (!startDateUtc || !lastDateUtc) return [];
@@ -215,11 +215,15 @@ export async function materializeSessionsForEvent(connOrPool, { companyEventId }
   let removed = 0;
   for (const row of existingRows || []) {
     const ymd = normalizeDbDateToYmd(row.session_date);
-    const startIso = new Date(row.starts_at).toISOString();
+    const startIso = parseUtcDate(row.starts_at)?.toISOString();
     const key = `${ymd}|${startIso}`;
     if (!desiredKeys.has(key)) {
       // eslint-disable-next-line no-await-in-loop
-      const [del] = await db.execute(`DELETE FROM company_event_session_dates WHERE id = ?`, [Number(row.id)]);
+      const [del] = await db.execute(`DELETE FROM company_event_session_dates WHERE id = ? AND starts_at>UTC_TIMESTAMP()
+        AND NOT EXISTS(SELECT 1 FROM company_event_session_providers p WHERE p.session_date_id=company_event_session_dates.id)
+        AND NOT EXISTS(SELECT 1 FROM company_event_session_provider_requests r WHERE r.session_date_id=company_event_session_dates.id)
+        AND NOT EXISTS(SELECT 1 FROM company_event_session_groups g WHERE g.session_date_id=company_event_session_dates.id)
+        AND NOT EXISTS(SELECT 1 FROM company_event_client_session_groups c WHERE c.session_date_id=company_event_session_dates.id)`, [Number(row.id)]);
       removed += Number(del?.affectedRows || 0);
     }
   }
@@ -232,10 +236,14 @@ export async function materializeSessionsForEvent(connOrPool, { companyEventId }
   );
   const existingByKey = new Map();
   for (const row of existingAfterDelete || []) {
-    const key = `${normalizeDbDateToYmd(row.session_date)}|${new Date(row.starts_at).toISOString()}`;
+    const key = `${normalizeDbDateToYmd(row.session_date)}|${parseUtcDate(row.starts_at)?.toISOString()}`;
     existingByKey.set(key, Number(row.id));
   }
 
+  const retainedFutureStale = (existingAfterDelete || []).some(row =>
+    parseUtcDate(row.starts_at) > new Date() &&
+    !desiredKeys.has(`${normalizeDbDateToYmd(row.session_date)}|${parseUtcDate(row.starts_at)?.toISOString()}`));
+  const retainedDates = new Set((existingAfterDelete || []).map(row => normalizeDbDateToYmd(row.session_date)));
   let created = 0;
   let updated = 0;
   for (const row of desired) {
@@ -246,11 +254,15 @@ export async function materializeSessionsForEvent(connOrPool, { companyEventId }
       await db.execute(
         `UPDATE company_event_session_dates
          SET ends_at = ?, timezone = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ? AND starts_at>UTC_TIMESTAMP()`,
         [row.endsAt, row.timezone, existingId]
       );
       updated += 1;
     } else {
+      // A protected session on this calendar date keeps its identity and bookings.
+      // A timezone correction must not create a second copy alongside it or
+      // recreate missed historical occurrences during a routine read.
+      if (retainedFutureStale || retainedDates.has(row.sessionDate) || (existingRows.length && row.startsAt <= new Date())) continue;
       // eslint-disable-next-line no-await-in-loop
       await db.execute(
         `INSERT INTO company_event_session_dates

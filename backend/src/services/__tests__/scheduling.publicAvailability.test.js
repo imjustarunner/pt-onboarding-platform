@@ -151,3 +151,9 @@ it('filters each published format by service and never offers a mixed legacy ope
  const original=pool.execute.getMockImplementation();pool.execute.mockImplementation((sql,args)=>sql.includes('AS sole_tutor')?Promise.resolve([[{sole_tutor:1}]]):original(sql,args));
  expect((await Availability.computeWeekAvailability({...options,serviceType:'tutoring'})).virtualSlots).toHaveLength(1);
 });
+
+it('keeps midnight virtual availability on its local date on ICU versions that render midnight as 24:00',async()=>{
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'00:00',endTime:'01:00',availableForIntake:true}]);
+ const result=await compute();
+ expect(result.virtualSlots.map(slot=>slot.startAt)).toEqual(['2030-01-07T00:00:00.000Z']);
+});

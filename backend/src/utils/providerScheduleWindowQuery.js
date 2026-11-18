@@ -1,12 +1,12 @@
 /** Build candidates from indexed ownership/attendance paths before hydrating events. */
-export function providerScheduleWindowQuery({agencyId,agencyIds=null,allAgencies=false,providerId,windowStart,windowEnd}) {
+export function providerScheduleWindowQuery({agencyId,agencyIds=null,allAgencies=false,providerId,windowStart,windowEnd,startDate=null,endDate=null}) {
  const id=Number(providerId),ids=Array.isArray(agencyIds)?[...new Set(agencyIds.map(Number).filter(n=>n>0))]:[],agency=Number(agencyId);
  let scope='pse.agency_id IS NULL',scopeParams=[];
  if(allAgencies)scope='1=1';
  else if(ids.length){scope=`(pse.agency_id IN (${ids.map(()=>'?').join(',')}) OR pse.agency_id IS NULL)`;scopeParams=ids;}
  else if(agency>0){scope='(pse.agency_id=? OR pse.agency_id IS NULL)';scopeParams=[agency];}
  const window=`pse.recurrence_horizon_held=0 AND ((pse.all_day=1 AND pse.start_date<DATE(?) AND pse.end_date>DATE(?)) OR (pse.all_day=0 AND pse.start_at<? AND pse.end_at>?))`;
- const times=[windowEnd,windowStart,windowEnd,windowStart];
+ const times=[endDate || windowEnd,startDate || windowStart,windowEnd,windowStart];
  const sql=`SELECT pse.* FROM provider_schedule_events pse JOIN (
   SELECT pse.id FROM provider_schedule_events pse
    WHERE pse.provider_id=? AND (${scope} OR UPPER(COALESCE(pse.kind,'')) IN ('FALL_CHECKIN_PRESLOT','FALL_CHECKIN_BOOKED')) AND ${window}

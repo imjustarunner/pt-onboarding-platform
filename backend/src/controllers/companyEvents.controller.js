@@ -72,32 +72,14 @@ import {
   listBookClubAudienceUserIds,
   listTenantEligibleBookClubUsers
 } from '../utils/bookClub.js';
-import { isValidTimeZone, zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
+import { isValidTimeZone, clientScheduleInstantToUtcMysql, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 
 /**
  * Parse an API instant. ISO with Z/offset → UTC Date.
  * Naive wall (`YYYY-MM-DDTHH:mm`) → convert with the event IANA zone.
  */
 function parseInstantWithTimezone(raw, timezone) {
-  if (raw == null || raw === '') return new Date(NaN);
-  if (raw instanceof Date) return raw;
-  const s = String(raw).trim();
-  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    return new Date(s);
-  }
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (m && isValidTimeZone(timezone)) {
-    return zonedWallTimeToUtc({
-      year: Number(m[1]),
-      month: Number(m[2]),
-      day: Number(m[3]),
-      hour: Number(m[4]),
-      minute: Number(m[5]),
-      second: Number(m[6] || 0),
-      timeZone: timezone
-    });
-  }
-  return new Date(s);
+  return new Date(utcMysqlToIso(clientScheduleInstantToUtcMysql(raw, timezone)) || NaN);
 }
 import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
 import {
@@ -405,8 +387,8 @@ function mapEventRow(row, req, opts = {}) {
   const recurrence = parseJsonMaybe(row.recurrence_json) || { frequency: 'none' };
   const votingConfig = parseVotingConfig(parseJsonMaybe(row.voting_config_json));
   const reminderConfig = parseReminderConfig(parseJsonMaybe(row.reminder_config_json));
-  const startsAt = row.starts_at;
-  const endsAt = row.ends_at;
+  const startsAt = utcMysqlToIso(row.starts_at);
+  const endsAt = utcMysqlToIso(row.ends_at);
   const id = Number(row.id);
   const agencyId = Number(row.agency_id);
   const base = {
@@ -1167,18 +1149,18 @@ function getFrontendBaseUrl() {
   return String(process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
 }
 
-function formatDateForTemplate(value) {
+function formatDateForTemplate(value, timeZone = 'UTC') {
   if (!value) return '';
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return '';
-  return d.toLocaleDateString();
+  return d.toLocaleDateString('en-US', {timeZone});
 }
 
-function formatTimeForTemplate(value) {
+function formatTimeForTemplate(value, timeZone = 'UTC') {
   if (!value) return '';
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return '';
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone });
 }
 
 async function resolveInvitationByToken(token) {

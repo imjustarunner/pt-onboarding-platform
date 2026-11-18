@@ -1,0 +1,126 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { flushPromises, mount, shallowMount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), push: vi.fn(), user: null }));
+vi.mock('../../../services/api', () => ({ default: { get: m.get, post: m.post, patch: m.patch }, isApiRateLimited: () => false, apiRateLimitRetryAt: () => 0 }));
+vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/test/dashboard', params: { organizationSlug: 'test' }, query: {} }), useRouter: () => ({ push: m.push, replace: vi.fn(), resolve: () => ({ href: '/test/dashboard' }) }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: m.user, isAuthenticated: true }) }));
+vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2, name: 'Test practice', slug: 'test', organization_type: 'agency', timezone: 'America/Denver' }, agencies: [], userAgencies: [] }) }));
+import Grid from '../ScheduleAvailabilityGrid.vue';
+import Header from '../AppointmentHeaderFields.vue';
+import Confirmation from '../VirtualSessionBookingConfirmation.vue';
+import { clearScheduleSummaryCache } from '../../../utils/scheduleSummaryCache.js';
+let wrapper;
+const appointment = { id: 41, agencyId: 2, providerUserId: 7, providerScheduleEventId: 61, sourceTimezone: 'America/Denver', modality: 'TELEHEALTH',
+  startAt: '2026-11-20 00:00:00', endAt: '2026-11-20 01:00:00', title: 'Virtual session', participants: [{ clientId: 8, role: 'client' }] };
+beforeEach(() => {
+  m.user = { id: 7, role: 'provider' };
+  vi.clearAllMocks(); setActivePinia(createPinia()); localStorage.clear(); sessionStorage.clear(); clearScheduleSummaryCache();
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-18T15:00:00Z'));
+  vi.spyOn(window, 'confirm').mockReturnValue(false);
+  m.get.mockImplementation(async url => ({ data: url.includes('/schedule-summary') ? { weekStart: '2026-11-16', scheduleEvents: [], videoConfigured: true } :
+    url.endsWith('/booking-access') ? { enabled: true } : url === '/appointments/41' ? { appointment } : url.includes('agencies') ? [] : {} }));
+  m.post.mockImplementation(async (url, body) => ({ data: url === '/appointments' ? { ok: true, appointment, appointments: [appointment] } :
+    url === '/counseling/sessions/from-appointment' ? { session: { publicId: `room-${body.appointmentId}` }, sharePath: `/counseling/invite/invite-${body.appointmentId}` } : {} }));
+});
+afterEach(async () => { wrapper?.unmount(); await flushPromises(); clearScheduleSummaryCache(); vi.restoreAllMocks(); vi.useRealTimers(); });
+async function editor({ mode = 'self' } = {}) {
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2, mode, weekStartYmd: '2026-11-16' }, global: { stubs: { Teleport: true, RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' }, VirtualSessionBookingConfirmation: false } } });
+  await flushPromises();
+  const s = wrapper.vm.$.setupState;
+  s.weekStart = '2026-11-16'; s.modalDay = 'Thursday'; s.modalHour = 17; s.modalStartHour = 17; s.modalEndHour = 18;
+  s.selectedActionAgencyId = 2; s.requestType = 'individual_session'; s.showRequestModal = true;
+  await flushPromises();
+  s.clientSessionBookingEnabled = true; s.bookingModality = 'TELEHEALTH'; s.editorModality = 'TELEHEALTH';
+  s.virtualSessionSelectedClientIds = [8]; s.virtualSessionClients = [{ id: 8, displayName: 'Example client' }]; s.bookingServiceCode = '90837';
+  s.scheduleEventRecurrence = 'ONCE'; s.editorRecurrenceEndMode = 'count'; s.editorRecurrenceOccurrenceCount = 1;
+  await flushPromises(); return s;
+}
+const countCreates = () => m.post.mock.calls.filter(([url]) => url === '/appointments').length;
+
+it('offers only the appointment-linked office room when scheduling virtual counseling, including old personal-room defaults', () => {
+  wrapper = mount(Header, { props: { showModality: true, modality: 'TELEHEALTH', videoRoomMode: 'my_room' } });
+  expect(wrapper.text()).toContain('Each recurring session gets its own room');
+  expect(wrapper.text()).not.toContain('personal link'); expect(wrapper.find('option[value="my_room"]').exists()).toBe(false);
+});
+
+it('saves one appointment, creates its own room, and keeps a clear saved confirmation with the correct calendar time', async () => {
+  const s = await editor(); s.editorVideoRoomMode = 'my_room';
+  await s.submitRequest(); await flushPromises();
+  expect(s.modalError).toBe(''); expect(countCreates()).toBe(1);
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ videoRoomMode: 'unique_session', startAt: '2026-11-19T17:00:00' }));
+  expect(m.get.mock.calls.some(([url]) => url === '/my-room/me')).toBe(false);
+  expect(wrapper.get('[data-testid="virtual-session-booked"]').text()).toContain('Session scheduled');
+  expect(wrapper.find('[data-testid="appointment-workspace"]').exists()).toBe(false);
+  const block = s.cellBlocks('Thursday', 17, 0).find(b => b.appointmentId === 41);
+  expect(block).toBeTruthy(); expect(s.summary.scheduleEvents.find(e => e.appointmentId === 41).startAt).toBe('2026-11-20T00:00:00.000Z');
+  expect(s.editorAppointmentId).toBe(0);
+});
+
+it('makes Done close a saved booking without a discard prompt and keeps it visible after refresh', async () => {
+  const s = await editor(); await s.submitRequest(); await flushPromises();
+  await wrapper.findAll('button').find(b => b.text() === 'Done').trigger('click'); await flushPromises();
+  expect(window.confirm).not.toHaveBeenCalled(); expect(s.showRequestModal).toBe(false);
+  expect(s.summary.scheduleEvents.some(e => e.appointmentId === 41)).toBe(true); expect(countCreates()).toBe(1);
+});
+
+it('retries a video-link failure against the same saved appointment', async () => {
+  const s = await editor(); const base = m.post.getMockImplementation(); let fail = true;
+  m.post.mockImplementation(async (url, body) => { if (url.includes('/from-appointment') && fail) throw { response: { status: 503, data: { error: { message: 'Video unavailable' } } } }; return base(url, body); });
+  await s.submitRequest(); await flushPromises();
+  expect(s.virtualSessionBookingResult.appointments[0].id).toBe(41); expect(s.modalError).toContain('Video unavailable');
+  expect(wrapper.text()).toContain('appointment is saved'); expect(countCreates()).toBe(1);
+  fail = false; await s.retryVirtualSessionVideo(); await flushPromises();
+  expect(s.virtualSessionShareUrl).toContain('/counseling/invite/invite-41'); expect(countCreates()).toBe(1);
+});
+
+it('creates a separate room for each recurrence and retries only unfinished links', async () => {
+  const s = await editor(); const base = m.post.getMockImplementation(); let fail = true;
+  m.post.mockImplementation(async (url, body) => {
+    if (url === '/appointments') return { data: { appointment, appointments: [appointment, { ...appointment, id: 42, providerScheduleEventId: 62 }], recurrenceSeriesId: 'series-1' } };
+    if (url.includes('/from-appointment') && body.appointmentId === 42 && fail) throw { response: { status: 503, data: { error: { message: 'Retry this room' } } } };
+    return base(url, body);
+  });
+  await s.submitRequest(); fail = false; await s.retryVirtualSessionVideo();
+  expect(countCreates()).toBe(1);
+  expect(m.post.mock.calls.filter(([url, body]) => url.includes('/from-appointment') && body.appointmentId === 41)).toHaveLength(1);
+  expect(Object.keys(s.virtualSessionBookingResult.videoRooms)).toEqual(['41', '42']);
+});
+
+it('preserves known saved appointments when calendar creation fails partway through', async () => {
+  const s = await editor();
+  m.post.mockRejectedValueOnce({ response: { status: 500, data: { createdAppointmentIds: [41], error: { message: 'Calendar save failed' } } } });
+  await s.submitRequest();
+  expect(s.virtualSessionBookingResult).toMatchObject({ partial: true, appointments: [{ id: 41 }] });
+  expect(s.summary.scheduleEvents.some(e => e.appointmentId === 41)).toBe(true);
+  await s.retryVirtualSessionVideo(); expect(countCreates()).toBe(1);
+});
+
+it('blocks blind rebooking after an interrupted appointment response', async () => {
+  const s = await editor(); m.post.mockRejectedValueOnce(new Error('response lost'));
+  await s.submitRequest(); expect(s.virtualSessionBookingResult.uncertain).toBe(true);
+  await s.submitRequest(); await s.retryVirtualSessionVideo(); expect(countCreates()).toBe(1);
+});
+
+it('ignores another Schedule click while the first booking is saving', async () => {
+  const s = await editor(); let finish; const base = m.post.getMockImplementation();
+  m.post.mockImplementation((url, body) => url === '/appointments' ? new Promise(resolve => { finish = resolve; }) : base(url, body));
+  const pending = s.submitRequest(); await flushPromises(); await s.submitRequest();
+  expect(countCreates()).toBe(1); finish({ data: { appointment, appointments: [appointment] } }); await pending;
+});
+
+it('places a wall-clock booking at 5 PM Mountain rather than interpreting its input as 5 PM UTC', async () => {
+  const s = await editor();
+  s.patchScheduleSummaryWithBookedEvent({ eventId: 99, agencyId: 2, title: 'Session', startAt: '2026-11-19T17:00:00', endAt: '2026-11-19T18:00:00', wallTimeZone: 'America/Denver' });
+  expect(s.summary.scheduleEvents.find(e => e.id === 99).startAt).toBe('2026-11-20T00:00:00.000Z');
+});
+
+it.each(['provider','provider_plus','clinical_practice_assistant','admin','support','staff'])('keeps provider, timezone, and calendar position consistent when %s books a session', async role => {
+  m.user = {id: role === 'provider' ? 7 : 9, role};
+  const s = await editor({ mode: role === 'provider' ? 'self' : 'admin' });
+  await s.submitRequest(); await flushPromises();
+  expect(s.modalError).toBe('');
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({providerUserId:7,timeZone:'America/Denver',startAt:'2026-11-19T17:00:00',videoRoomMode:'unique_session'}));
+  expect(s.cellBlocks('Thursday',17,0).some(block => block.appointmentId === 41)).toBe(true);
+  expect(countCreates()).toBe(1);
+});

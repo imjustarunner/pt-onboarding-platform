@@ -42,6 +42,29 @@ describe('move future office sessions', () => {
     await expect(moveOfficeSessionSeries(input)).rejects.toThrow('signed note');
     expect(conn.commit).not.toHaveBeenCalled();
   });
+  it('merges the provider’s empty destination room series without recreating clinical appointments', async () => {
+    const base = conn.execute.getMockImplementation();
+    conn.execute.mockImplementation(async (sql, args) => {
+      if (sql.startsWith('SELECT s.id, s.provider_id')) return [[{ id: 22, provider_id: 9, hour: 10 }]];
+      if (sql.startsWith('SELECT e.id, e.start_at')) return [[{ id: 99, status: 'BOOKED', assigned_provider_id: 9, booked_provider_id: 9, start_at: '2099-01-07 17:00:00', end_at: '2099-01-07 18:00:00' }]];
+      return base(sql, args);
+    });
+    expect(await moveOfficeSessionSeries({ ...input, reuseOwnReservations: true })).toEqual([8]);
+    expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_standing_assignments SET is_active=FALSE'), [22]);
+    expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE office_events SET status='CANCELLED'"), [99]);
+    expect(conn.execute.mock.calls.some(([sql]) => /INSERT INTO appointments|DELETE FROM/.test(sql))).toBe(false);
+    expect(conn.commit).toHaveBeenCalledOnce();
+  });
+  it('keeps both series intact when the destination has another client’s booking plan', async () => {
+    const base = conn.execute.getMockImplementation();
+    conn.execute.mockImplementation(async (sql, args) => {
+      if (sql.startsWith('SELECT s.id, s.provider_id')) return [[{ id: 22, provider_id: 9, hour: 10 }]];
+      if (sql.startsWith('SELECT id FROM office_booking_plans WHERE standing_assignment_id=')) return [[{ id: 33 }]];
+      return base(sql, args);
+    });
+    await expect(moveOfficeSessionSeries({ ...input, reuseOwnReservations: true })).rejects.toThrow('already has client sessions');
+    expect(conn.commit).not.toHaveBeenCalled(); expect(conn.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
+  });
   it('uses local calendar days when a move crosses a daylight-saving transition', () => {
     const moved = movedOfficeWindow({ start_at: '2026-10-31 15:00:00', end_at: '2026-10-31 16:00:00' },
       { oldWeekday: 5, newWeekday: 6, newHour: 9, timeZone: 'America/Denver' });

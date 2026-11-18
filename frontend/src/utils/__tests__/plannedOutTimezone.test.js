@@ -17,8 +17,11 @@ describe('parseUtcInstant', () => {
 describe('formatPlannedOutWhen', () => {
   it('shows the end date of a multi-day timed out instead of making it look like one day', () => {
     const label = formatPlannedOutWhen({ span_type: 'hours', start_at: '2026-10-06T16:00:00Z', end_at: '2026-10-13T19:00:00Z' });
-    expect(label).toContain('10/6');
-    expect(label).toContain('10/13');
+    const viewerDate = value => new Intl.DateTimeFormat('en-US', {
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, month: 'numeric', day: 'numeric'
+    }).format(new Date(value));
+    expect(label).toContain(viewerDate('2026-10-06T16:00:00Z'));
+    expect(label).toContain(viewerDate('2026-10-13T19:00:00Z'));
   });
   it('shows actual half-day times and keeps all-day exclusive ends out of the displayed range', () => {
     const label = formatPlannedOutWhen({ span_type: 'half_day', start_date: '2026-10-06', half_day_part: 'am', start_at: '2026-10-06T14:00:00Z', end_at: '2026-10-06T18:00:00Z' });

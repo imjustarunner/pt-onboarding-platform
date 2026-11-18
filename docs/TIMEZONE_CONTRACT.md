@@ -23,7 +23,7 @@
 | Fall check-in slots & bookings | UTC | school / office TZ | `1098` |
 | Unified appointments | UTC | agency / office TZ | `1099` |
 | Discovery booked times | UTC | agency TZ | `1099` |
-| Planned outs | UTC | agency TZ | `1099` |
+| Planned outs | UTC | submitted IANA zone (agency fallback); list labels use viewer zone with abbreviation | `1099` |
 | Appointment reminders `scheduled_for` | UTC | — | `1099` |
 | Virtual / in-person slot availability | UTC (copied from office) | office TZ | treat as UTC (no wall re-convert) |
 | Learning / clinical scheduled from office | UTC | office TZ | do not double-convert |
@@ -68,3 +68,12 @@ const apiIso = utcMysqlToIso(utcMysql);
 const claimDate = utcDateToZonedYmd(tOut, eventTimezone);
 const clockOutAt = toUtcIso(tOut);
 ```
+
+## Calendar week boundaries and recurrence
+
+- Weekly timed queries convert each **local** midnight boundary to UTC independently. DST weeks can have 167 or 169 hours. Use `scheduleWeekWindow`, and pass the displayed `timeZone` from every calendar/peer request.
+- All-day `DATE` boundaries stay as calendar dates; do not derive them from the UTC timed-query window.
+- Explicit ISO-Z/offset values and `Date` objects remain absolute instants. Timed wall inputs use `clientScheduleInstantToUtcMysql`, which rejects invalid zones, invalid dates, and nonexistent spring-forward times.
+- Recurrences preserve their local weekday and clock through offset changes. Preserve explicitly supplied offsets for the first occurrence in the repeated autumn hour.
+- Provider-calendar cell dates are local-coordinate surrogates used for layout. Project stored instants with `calendarWallDate` before comparing them to those cells; never compare a UTC instant directly to a layout surrogate.
+- Run the scheduling timezone audit suites under UTC, America/Denver, America/New_York, and Pacific/Auckland. See [November 18 audit](SCHEDULING_TIMEZONE_AUDIT_2026-11-18.md) for scope and operational limits.

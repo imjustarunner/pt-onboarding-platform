@@ -92,7 +92,7 @@ import {
   mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned,
   parseUtcDate
 } from '../utils/officeEventDateTime.util.js';
-import { utcDateToZonedParts, wallMysqlToUtcMysql, normalizeWallMysqlDatetime, dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
+import { utcDateToZonedParts, clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -2431,9 +2431,7 @@ export const createBookingRequest = async (req, res, next) => {
     const loc = await OfficeLocation.findById(parseInt(locationId));
     if (!loc) return res.status(404).json({ error: { message: 'Location not found' } });
 
-    const toUtc = value => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(value))
-      ? dateToMysqlUtcDateTime(new Date(value))
-      : wallMysqlToUtcMysql(normalizeWallMysqlDatetime(value), loc.timezone || 'America/Denver');
+    const toUtc = value => clientScheduleInstantToUtcMysql(value, loc.timezone || 'America/Denver');
     startAt = toUtc(startAt); endAt = toUtc(endAt);
     if (!startAt || !endAt || endAt <= startAt) return res.status(400).json({ error: { message: 'Choose a valid office time' } });
 
@@ -2660,9 +2658,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(parseInt(officeLocationId));
     if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
-    const toUtc = (value) => /[zZ]|[+-]\d{2}:?\d{2}$/.test(String(value))
-      ? dateToMysqlUtcDateTime(new Date(value))
-      : wallMysqlToUtcMysql(normalizeWallMysqlDatetime(value), loc.timezone || 'America/Denver');
+    const toUtc = value => clientScheduleInstantToUtcMysql(value, loc.timezone || 'America/Denver');
     startAt = toUtc(startAt);
     endAt = toUtc(endAt);
     if (!startAt || !endAt || endAt <= startAt) return res.status(400).json({ error: { message: 'Choose a valid session time' } });

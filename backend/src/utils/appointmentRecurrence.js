@@ -1,5 +1,5 @@
 import { generateOccurrenceDates, ALL_RECURRENCE_FREQUENCIES, addDaysYmd } from './scheduleRecurrence.js';
-import { utcDateToZonedParts, normalizeWallMysqlDatetime } from './zonedWallTime.util.js';
+import { utcDateToZonedParts, normalizeWallMysqlDatetime, clientScheduleInstantToUtcMysql } from './zonedWallTime.util.js';
 
 function localDigits(value, timeZone) {
   if (value instanceof Date || /[zZ]|[+-]\d{2}:?\d{2}$/.test(String(value))) {
@@ -16,6 +16,12 @@ export function expandAppointmentRecurrence({ startAt, endAt, timeZone = 'Americ
   if (!ALL_RECURRENCE_FREQUENCIES.includes(frequency)) throw Object.assign(new Error('Unsupported recurrence'), { status: 400 });
   const count = frequency === 'ONCE' ? 1 : Number(occurrenceCount);
   if (!Number.isInteger(count) || count < 1 || count > 104) throw Object.assign(new Error('Occurrence count must be between 1 and 104'), { status: 400 });
+  const startUtc = clientScheduleInstantToUtcMysql(startAt, timeZone);
+  const endUtc = clientScheduleInstantToUtcMysql(endAt, timeZone);
+  if (!startUtc || !endUtc || endUtc <= startUtc) throw Object.assign(new Error('A valid session start and end are required'), { status: 400 });
+  // Preserve the chosen instant in the repeated autumn hour, including a session
+  // that crosses the clock change. Later recurrences follow local calendar time.
+  if (frequency === 'ONCE') return [{ startAt, endAt }];
   const start = localDigits(startAt, timeZone);
   const end = localDigits(endAt, timeZone);
   if (!start || !end || end <= start) throw Object.assign(new Error('A valid session start and end are required'), { status: 400 });
@@ -23,5 +29,7 @@ export function expandAppointmentRecurrence({ startAt, endAt, timeZone = 'Americ
   const dates = generateOccurrenceDates({ startDate: start.slice(0, 10), recurrence: frequency, occurrenceCount: count })
     .filter((date) => !untilDate || date <= String(untilDate).slice(0, 10));
   if (!dates.length) throw Object.assign(new Error('The series ends before its first session'), { status: 400 });
-  return dates.map((date) => ({ startAt: `${date} ${start.slice(11)}`, endAt: `${addDaysYmd(date, dayOffset)} ${end.slice(11)}` }));
+  return dates.map((date, index) => index === 0 && date === start.slice(0, 10)
+    ? { startAt, endAt }
+    : { startAt: `${date} ${start.slice(11)}`, endAt: `${addDaysYmd(date, dayOffset)} ${end.slice(11)}` });
 }

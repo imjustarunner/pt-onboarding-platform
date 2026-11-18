@@ -5503,7 +5503,7 @@ h1 {
 /* Split view: rail + detail — stretch columns so the rail can grow with the main pane (scroll only when rail content overflows). */
 .dashboard-shell {
   display: grid;
-  grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
   margin-bottom: 16px;
@@ -5527,14 +5527,14 @@ h1 {
   grid-template-columns: 88px minmax(0, 1fr);
 }
 .dashboard-shell.schedule-focus.rail-expanded {
-  grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
 }
 .dashboard-shell.messages-focus {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 6px;
 }
 .dashboard-shell.messages-focus.rail-expanded {
-  grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
 }
 /* When rail is collapsed (any tab), shrink grid column so content fills the space */
 .dashboard-shell.rail-collapsed {
@@ -6403,7 +6403,7 @@ h1 {
     grid-template-columns: 72px minmax(0, 1fr);
   }
   .dashboard-shell.rail-expanded {
-    grid-template-columns: minmax(0, min(26rem, 30%)) minmax(0, 1fr);
+    grid-template-columns: max-content minmax(0, 1fr);
   }
   .dashboard-shell.rail-expanded .dashboard-rail { width: 100%; min-width: 0; }
   .dashboard-rail {

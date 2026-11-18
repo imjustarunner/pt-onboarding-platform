@@ -1,4 +1,5 @@
 import {availabilityMatchesService} from '../utils/availabilityService.js';
+import { zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
@@ -88,46 +89,6 @@ function parseTimeHHMM(s) {
 
 function tzPartsToUtcDate(parts) {
   return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0));
-}
-
-function getTimeZoneOffsetMs(date, timeZone) {
-  // Returns offset such that: utcMs = localWallClockMs + offset
-  // We derive the offset by formatting the date in the target tz, then interpreting those parts as UTC.
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-  const parts = dtf.formatToParts(date);
-  const map = {};
-  for (const p of parts) {
-    if (p.type !== 'literal') map[p.type] = p.value;
-  }
-  const asUtc = new Date(Date.UTC(
-    parseInt(map.year, 10),
-    parseInt(map.month, 10) - 1,
-    parseInt(map.day, 10),
-    parseInt(map.hour, 10),
-    parseInt(map.minute, 10),
-    parseInt(map.second, 10)
-  ));
-  return date.getTime() - asUtc.getTime();
-}
-
-function zonedWallTimeToUtc({ year, month, day, hour, minute, second = 0, timeZone }) {
-  // Iterative conversion to handle DST transitions.
-  const tz = String(timeZone || '').trim() || 'America/New_York';
-  let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-  for (let i = 0; i < 2; i++) {
-    const offset = getTimeZoneOffsetMs(guess, tz);
-    guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second) + offset);
-  }
-  return guess;
 }
 
 function ymdDayTimeToUtc({ ymd, dayOfWeek, hhmm, timeZone }) {

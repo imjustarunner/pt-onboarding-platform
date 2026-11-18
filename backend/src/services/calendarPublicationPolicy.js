@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 export const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 export function calendarWindow(from, to, maxDays = 370) {
   const start = new Date(from), end = new Date(to);
@@ -26,7 +27,7 @@ function fold(line) {
   for(const character of line){if(Buffer.byteLength(chunk+character)>75){lines.push(chunk);chunk=' ';}chunk+=character;}
   lines.push(chunk);return lines.join('\r\n');
 }
-const stamp = value => new Date(value).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
+const stamp = value => new Date(utcMysqlToIso(value)).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
 export function renderCalendar(name,events) {
   const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PlotTwist//Private Calendar//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH',`X-WR-CALNAME:${escapeText(name)}`];
   for(const event of events){
@@ -43,8 +44,8 @@ export function renderCalendar(name,events) {
 export function googleEventBody(event) {
   return {summary:event.title,...(event.calendarStatus?{status:event.calendarStatus==='tentative'?'tentative':'confirmed'}:{}),description:event.url?`Join: ${event.url}`:'',location:event.location || '',
     reminders:{useDefault:false,overrides:[]},
-    start:event.startDate?{date:event.startDate}:{dateTime:new Date(event.start).toISOString()},
-    end:event.endDate?{date:event.endDate}:{dateTime:new Date(event.end).toISOString()},
+    start:event.startDate?{date:event.startDate}:{dateTime:utcMysqlToIso(event.start)},
+    end:event.endDate?{date:event.endDate}:{dateTime:utcMysqlToIso(event.end)},
     visibility:'default',extendedProperties:{private:{plotCalendar:'1',eventKey:event.key}}};
 }
 
@@ -53,7 +54,7 @@ export function googleEventBody(event) {
 export function uniqueOfficeReservations(rows) {
   const seen = new Set();
   return [...rows].sort((a,b)=>Number(a.id)-Number(b.id)).filter(row => {
-    const key = JSON.stringify([row.office_location_id,row.room_id,new Date(row.start_at).toISOString(),new Date(row.end_at).toISOString(),row.client_id || null,row.clinical_session_id || null,row.appointment_type_code || null,row.appointment_subtype_code || null]);
+    const key = JSON.stringify([row.office_location_id,row.room_id,utcMysqlToIso(row.start_at),utcMysqlToIso(row.end_at),row.client_id || null,row.clinical_session_id || null,row.appointment_type_code || null,row.appointment_subtype_code || null]);
     if (seen.has(key)) return false;
     seen.add(key); return true;
   });

@@ -6,7 +6,7 @@ import { assertAppointmentWindowAvailable } from './appointmentConflict.service.
 import { assertNoReviewTimeOverlap } from './supervisionReviewTime.service.js';
 import { generateOccurrenceDates, RECURRING_FREQUENCIES, indefiniteOccurrenceCount, addDaysYmd } from '../utils/scheduleRecurrence.js';
 import { utcToZonedMysqlWall, parseUtcDate } from '../utils/officeEventDateTime.util.js';
-import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
+import { clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 
 const invalid = message => Object.assign(new Error(message), { status: 400 });
 
@@ -21,7 +21,8 @@ export function supervisionRecurrencePlan(row, { frequency, policy = 'INDEFINITE
   if (!start || !end || +parseUtcDate(row.end_at) <= +parseUtcDate(row.start_at)) throw invalid('Invalid supervision time.');
   const days = Math.round((Date.parse(`${end.slice(0,10)}T00:00:00Z`)-Date.parse(`${start.slice(0,10)}T00:00:00Z`))/86400000);
   return generateOccurrenceDates({startDate:start.slice(0,10),recurrence:frequency,occurrenceCount:count,now})
-    .map((day,index)=>({index,startAt:wallMysqlToUtcMysql(`${day} ${start.slice(11)}`,zone),endAt:wallMysqlToUtcMysql(`${addDaysYmd(day,days)} ${end.slice(11)}`,zone)}))
+    .map((day,index)=>({index,startAt:clientScheduleInstantToUtcMysql(`${day} ${start.slice(11)}`,zone),endAt:clientScheduleInstantToUtcMysql(`${addDaysYmd(day,days)} ${end.slice(11)}`,zone)}))
+    .map(window => { if (!window.startAt || !window.endAt || window.endAt <= window.startAt) throw invalid('A recurring supervision session would fall in a nonexistent local time. Choose another time.'); return window; })
     // The anchor is retained, including its attendance/notes. Never invent missed past sessions.
     .filter(window=>window.index>0 && +parseUtcDate(window.startAt)>+now);
 }

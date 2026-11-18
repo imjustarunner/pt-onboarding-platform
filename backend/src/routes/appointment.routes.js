@@ -3,6 +3,7 @@ import {previewProviderAccountConversion,captureProviderAccountConversion,prepar
 import { getClientSessionBookingAccess, getClientSessionBookingRollout, putClientSessionBookingRollout } from '../controllers/clientSessionBookingRollout.controller.js';
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts, openAppointmentLearningWorkspace } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
+import { rescheduleContext, rescheduleOptions, rescheduleAppointment } from '../controllers/appointmentReschedule.controller.js';
 import { options as replacementOptions, release as releaseReplacementSlot, custom as customReplacementSlot, openingWindow as replacementOpeningWindow, requestOffice as requestReplacementOffice, details as replacementSlotDetails, history as replacementHistory } from '../controllers/appointmentReplacementOffer.controller.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
 import express from 'express';
@@ -106,6 +107,9 @@ router.post('/:id/learning-workspace', openAppointmentLearningWorkspace);
 router.put('/:id/staff-alert', saveAppointmentStaffAlert);
 router.post('/:id/context', getAppointmentContext);
 router.patch('/:id', updateAppointmentHandler);
+router.get('/:id/reschedule', rescheduleContext);
+router.post('/:id/reschedule/options', rescheduleOptions);
+router.post('/:id/reschedule', rescheduleAppointment);
 router.post('/:id/cancel', cancelAppointmentHandler);
 router.post('/:id/settle', settleAppointmentHandler);
 router.post('/:id/change/waiver-decision', decideAppointmentWaiverHandler);

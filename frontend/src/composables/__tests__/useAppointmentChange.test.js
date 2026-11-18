@@ -59,9 +59,9 @@ describe('appointment change workflow', () => {
     await change.complete();
     expect(api.post).toHaveBeenCalledWith('/appointments/4/change/complete', expect.objectContaining({ reasonKnown: false, signatureConfirmed: true }), expect.anything());
   });
-  it('offers replacement sessions by date and title for the same client', async () => {
+  it('offers existing replacement sessions for a cancellation by date and title for the same client', async () => {
     const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4, context: { clientId: 8 } });
-    change.facts.eventType = 'rescheduled';
+    change.facts.eventType = 'canceled';
     api.post.mockResolvedValue({ data: { preview: { appointment: { agencyId: 2 } } } });
     api.get.mockResolvedValue({ data: { appointments: [
       { id: 4, status: 'confirmed' },
@@ -122,54 +122,6 @@ describe('school support hour selection', () => {
     api.get.mockImplementationOnce(() => new Promise(r => {resolve=r;}));
     const pending=change.refreshSchoolSupport(); change.closeWizard(); resolve({data:{eligible:true,availableHours:9}}); await pending;
     expect(change.schoolSupport.value).toBeNull();
-  });
-});
-
-
-describe('inline replacement booking through the canonical appointment API', () => {
-  const base = { id: 4, agencyId: 450, providerUserId: 1433, tenantServiceId: 291, serviceCode: '90834', startAt: '2026-11-02 15:15:00', endAt: '2026-11-02 16:00:00', sourceTimezone: 'America/Denver', modality: 'VIRTUAL', participants: [{clientId: 2262, role: 'client', receivesReminders: true, isBillingResponsible: true}], serviceLocationId: 125 };
-  async function inline() {
-    const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4, context: {clientId: 2262} });
-    change.facts.eventType = 'rescheduled'; change.inlineReplacement.localStart = '2026-11-06T14:15';
-    change.replacementBase.value = {...base}; api.put.mockResolvedValue({data:{ok:true}});
-    api.get.mockImplementation(async url => ({data: url === '/appointments' ? {appointments: []} : {appointment: {id:99,providerScheduleEventId:999}}}));
-    return change;
-  }
-  it('preserves client/provider/service/site/length, saves the selected ID, and never completes the original during booking', async () => {
-    const change = await inline(); api.post.mockResolvedValue({data:{appointment:{id:99,providerScheduleEventId:999}}});
-    await change.bookInlineReplacement();
-    expect(api.post).toHaveBeenCalledTimes(1);
-    expect(api.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({agencyId:450,providerUserId:1433,tenantServiceId:291,serviceCode:'90834',serviceLocationId:125,startAt:'2026-11-06T14:15:00',endAt:'2026-11-06T15:00:00',timeZone:'America/Denver',participants:[expect.objectContaining({clientId:2262,receivesReminders:true})],createProviderScheduleEvent:true}), expect.anything());
-    expect(change.facts.replacementAppointmentId).toBe(99);
-    expect(api.put).toHaveBeenCalledWith('/appointments/4/change/draft',expect.objectContaining({replacementAppointmentId:99,followUpAction:'replacement_booked'}),expect.anything());
-    await change.bookInlineReplacement(); expect(api.post).toHaveBeenCalledTimes(1);
-  });
-  it('recovers a saved appointment after a lost response and prevents a duplicate booking', async () => {
-    const change = await inline(); let saved = false;
-    api.get.mockImplementation(async url => ({data: url === '/appointments' ? {appointments:saved?[{id:99,source:'change:4:202611061415'}]:[]} : {appointment:{id:99,providerScheduleEventId:999}}}));
-    api.post.mockImplementation(async () => {saved=true;throw new Error('response lost');});
-    await change.bookInlineReplacement();
-    expect(change.inlineReplacement.uncertain).toBe(false);expect(change.facts.replacementAppointmentId).toBe(99);
-    await change.bookInlineReplacement();expect(api.post).toHaveBeenCalledTimes(1);
-  });
-  it('blocks retrying an uncertain request until it can recover its saved session', async () => {
-    const change = await inline(); api.post.mockRejectedValue(new Error('network timeout'));
-    await change.bookInlineReplacement(); expect(change.inlineReplacement.uncertain).toBe(true);
-    await change.bookInlineReplacement(); expect(api.post).toHaveBeenCalledTimes(1);
-    expect(change.inlineReplacement.error).toContain('earlier request may still finish');
-    expect(change.canContinueFromStep(2)).toBe(false);
-  });
-  it('does not create an office session until its room is secured for the new time', async () => {
-    const change = await inline(); change.replacementBase.value.roomId = 8;
-    api.post.mockResolvedValue({data:{slot:null,requiresOfficeRequest:true}});
-    await change.bookInlineReplacement();
-    expect(api.post).toHaveBeenCalledWith('/appointments/4/change/replacement-options/check',expect.objectContaining({roomId:8,modality:'IN_PERSON'}),expect.anything());
-    expect(api.post.mock.calls.some(([url]) => url === '/appointments')).toBe(false);
-    expect(change.inlineReplacement.error).toContain('not secured');
-  });
-  it('shows canonical conflicts without canceling the original or selecting a nonexistent replacement', async () => {
-    const change = await inline();api.post.mockRejectedValue({response:{status:409,data:{error:{message:'Provider is already booked at that time.'}}}});
-    await change.bookInlineReplacement();expect(change.inlineReplacement.error).toContain('already booked');expect(change.facts.replacementAppointmentId).toBeNull();expect(change.inlineReplacement.uncertain).toBe(false);
   });
 });
 

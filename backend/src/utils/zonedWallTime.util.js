@@ -279,6 +279,8 @@ export function normalizeUtcMysqlScheduleInstant(value) {
  */
 export function clientScheduleInstantToUtcMysql(value, timeZone) {
   if (value == null || value === '') return null;
+  if (timeZone && !isValidTimeZone(timeZone)) return null;
+  if (value instanceof Date) return dateToMysqlUtcDateTime(value);
   const raw = String(value).trim();
   if (!raw) return null;
   if (isScheduleUtcInstantString(raw)) {
@@ -287,7 +289,10 @@ export function clientScheduleInstantToUtcMysql(value, timeZone) {
   const wall = normalizeWallMysqlDatetime(value);
   if (!wall) return null;
   const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
-  return wallMysqlToUtcMysql(wall, tz);
+  const utc = wallMysqlToUtcMysql(wall, tz);
+  // A nonexistent spring-forward time or invalid calendar date must not silently
+  // become a different appointment time.
+  return utc && utcMysqlToZonedWallMysql(utc, tz) === wall ? utc : null;
 }
 
 /**

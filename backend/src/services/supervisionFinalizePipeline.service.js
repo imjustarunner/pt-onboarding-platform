@@ -50,8 +50,8 @@ function mysqlDateYmd(raw) {
 }
 
 function scheduledMinutes(session) {
-  const start = session?.start_at ? new Date(session.start_at) : null;
-  const end = session?.end_at ? new Date(session.end_at) : null;
+  const start = parseUtcDate(session?.start_at);
+  const end = parseUtcDate(session?.end_at);
   if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
   const mins = Math.round((end.getTime() - start.getTime()) / 60000);
   return Number.isFinite(mins) && mins > 0 ? mins : 0;

@@ -1,6 +1,7 @@
 import { withClientSchedulingLock, assertClientNotTerminated } from './clientSchedulingGuard.service.js';
 import { assertClientServiceSchedulingActive } from './clientServiceSchedulingGuard.service.js';
 import pool from '../config/database.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Client from '../models/Client.model.js';
 import TenantService from '../models/TenantService.model.js';
@@ -181,8 +182,8 @@ async function ensureLockedAppointmentContext({
   // Apply service code / location / units onto the encounter when medical codes exist.
   try {
     const serviceCode = String(event.service_code || '').trim().toUpperCase() || null;
-    const startMs = event.start_at ? new Date(event.start_at).getTime() : 0;
-    const endMs = event.end_at ? new Date(event.end_at).getTime() : 0;
+    const startMs = event.start_at ? parseUtcDate(event.start_at)?.getTime() : 0;
+    const endMs = event.end_at ? parseUtcDate(event.end_at)?.getTime() : 0;
     const durationMinutes =
       startMs && endMs && endMs > startMs ? Math.round((endMs - startMs) / 60000) : null;
     const officeLocationId = parseIntId(event.office_location_id);

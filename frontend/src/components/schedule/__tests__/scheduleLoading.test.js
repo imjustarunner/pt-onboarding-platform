@@ -74,7 +74,7 @@ it('shows a load error without throwing, and lets the provider retry successfull
 });
 
 it('keeps a cached calendar visible after a transient refresh failure', async () => {
-  setScheduleSummary('7|all|2026-10-12|monday|true|false|false|', summary);
+  setScheduleSummary('7|all|2026-10-12|monday|true|false|false||tz:America/Denver', summary);
   vi.setSystemTime(new Date(Date.now() + 120_000));
   m.failSchedule = true;
   const state = await mount();
@@ -159,7 +159,7 @@ it('keeps the calendar mounted with inline progress while a refresh is pending',
 });
 
 it.each([401, 403])('clears cached schedule data when the calendar request is denied with %s', async (status) => {
-  const key = '7|all|2026-10-12|monday|false|false|false|';
+  const key = '7|all|2026-10-12|monday|true|false|false||tz:America/Denver';
   setScheduleSummary(key, summary);
   vi.setSystemTime(new Date(Date.now() + 120_000));
   const get = m.get.getMockImplementation();
@@ -734,4 +734,43 @@ it('backs out of the booked-office choice without opening an editor or sending a
 });
 it('dismisses a pending office choice when its calendar context changes',async()=>{
  const state=await openBookedOfficeChoice();state.weekStart='2026-10-19';await flushPromises();expect(state.officeSelectionChoice).toBeNull();expect(state.showRequestModal).toBe(false);
+});
+
+it('queries the displayed timezone and ignores an older week response after navigation', async () => {
+  const state=await mount();await vi.advanceTimersByTimeAsync(500);await flushPromises();
+  const base=m.get.getMockImplementation(), pending=[];
+  m.get.mockImplementation((url,options)=>url.includes('/schedule-summary') ? new Promise(resolve=>pending.push({options,resolve})) : base(url,options));
+  const older=state.load({forceRefresh:true});await flushPromises();
+  state.weekStart='2026-10-19';
+  const newer=state.load({forceRefresh:true});await flushPromises();
+  expect(pending).toHaveLength(2);
+  expect(pending[1].options.params).toMatchObject({weekStart:'2026-10-19',timeZone:'America/Denver'});
+  pending[1].resolve({data:{...summary,weekStart:'2026-10-19'}});await newer;
+  pending[0].resolve({data:summary});await older;
+  expect(state.summary.weekStart).toBe('2026-10-19');
+});
+
+it('keeps a cached week selected even when the previous week finishes loading later', async () => {
+  const state=await mount();await vi.advanceTimersByTimeAsync(500);await flushPromises();
+  const base=m.get.getMockImplementation();let finish;
+  m.get.mockImplementation((url,options)=>url.includes('/schedule-summary') ? new Promise(resolve=>{finish=resolve;}) : base(url,options));
+  const older=state.load({forceRefresh:true});await flushPromises();
+  const nextWeek={...summary,weekStart:'2026-10-19'};
+  setScheduleSummary(`7|all|2026-10-19|monday|${state.googleBusyPreference}|${state.googleEventsPreference}|false||tz:America/Denver`,nextWeek);
+  state.weekStart='2026-10-19';await state.load();
+  finish({data:summary});await older;
+  expect(state.summary.weekStart).toBe('2026-10-19');
+});
+
+it('forces a new single-agency calendar read after saving while the older read is pending', async () => {
+  const state=await mount();await vi.advanceTimersByTimeAsync(500);await flushPromises();
+  await wrapper.setProps({mode:'admin',agencyId:2});await flushPromises();
+  const base=m.get.getMockImplementation(),pending=[];
+  m.get.mockImplementation((url,options)=>url.includes('/schedule-summary') ? new Promise(resolve=>pending.push(resolve)) : base(url,options));
+  const older=state.load();await flushPromises();
+  const fresh=state.load({forceRefresh:true});await flushPromises();
+  expect(pending).toHaveLength(2);
+  pending[1]({data:{...summary,updatedMarker:true}});await fresh;
+  pending[0]({data:summary});await older;
+  expect(state.summary.updatedMarker).toBe(true);
 });

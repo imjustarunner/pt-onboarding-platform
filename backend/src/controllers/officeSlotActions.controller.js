@@ -1,3 +1,4 @@
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { pendingOfficeWindows,overlappingRequest } from '../services/officeRoomAllocation.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
@@ -42,6 +43,7 @@ import { validateSchedulingSelection } from '../services/schedulingTaxonomy.serv
 import { ensureAppointmentContext } from '../services/appointmentContext.service.js';
 import { upsertAppointmentForOfficeBook } from '../services/appointment.service.js';
 import pool from '../config/database.js';
+import { ownReservationsCover } from '../utils/officeMoveReservation.js';
 import {
   ALL_RECURRENCE_FREQUENCIES,
   RECURRING_FREQUENCIES,
@@ -2588,7 +2590,12 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
       return rescheduleStandingAssignment(req, res, next);
     }
     if (req.body.scope && req.body.scope !== 'single' && req.body.scope !== 'occurrence') return res.status(400).json({ error: { message: 'Choose one occurrence or all upcoming sessions' } });
-    if (!canManageSchedule(req.user.role)) {
+    await OfficeScheduleMaterializer.materializeWeek({ officeLocationId: officeLocationId, weekStartRaw: startWall.slice(0, 10), createdByUserId: req.user.id, force: true });
+    const [targetReservations] = await pool.execute(`SELECT e.*, EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) AS has_appointment
+      FROM office_events e WHERE e.room_id=? AND e.start_at<? AND e.end_at>? AND e.id<>? AND (e.status IS NULL OR e.status<>'CANCELLED')`,
+      [newRoomId, endAt, startAt, event.id]);
+    const ownsTarget = ownReservationsCover(targetReservations, providerId, startAt, endAt);
+    if ((!canManageSchedule(req.user.role) && !ownsTarget) || (req.body.requestRoom === true && !req.officeMoveApprovalId)) {
       const request = await OfficeBookingRequest.create({ requestType: 'MOVE_OCCURRENCE', officeLocationId,
         roomId: newRoomId, requestedProviderId: providerId, startAt, endAt,
         requesterNotes: JSON.stringify({ eventId: event.id, body: req.body, sources: [{ id: event.id, room_id: event.room_id,
@@ -2596,8 +2603,8 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
           assigned_provider_id: event.assigned_provider_id }], summary: `Move this occurrence to ${startWall}–${endWall}. Current reservation remains until approval.` }) });
       return res.status(202).json({ ok: true, pendingApproval: true, request, message: 'Change requested. Your current reservation remains in place until approval.' });
     }
-    await OfficeScheduleMaterializer.materializeWeek({ officeLocationId, weekStartRaw: startWall.slice(0, 10), createdByUserId: req.user.id, force: true });
-    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone, actorUserId: req.user.id, reason: String(req.body?.reason || '').trim(), approvalRequestId: req.officeMoveApprovalId || null });
+    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone,
+      requireOwnReservation: !canManageSchedule(req.user.role), actorUserId: req.user.id, reason: String(req.body?.reason || '').trim(), approvalRequestId: req.officeMoveApprovalId || null });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
     const warnings = await refreshMovedOfficeNotifications(movedEventIds);
     return res.json({ ok: true, movedEventIds, warnings });
@@ -2690,7 +2697,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const providerId = Number(assignment.provider_id);
     const todayYmd = new Date().toISOString().slice(0, 10);
 
-    if (!canManageSchedule(req.user.role)) {
+    if (!canManageSchedule(req.user.role) || (req.body.requestRoom === true && !req.officeMoveApprovalId)) {
       const timeZone = await resolveOfficeTimezone(officeLocationId);
       const today = new Date().toLocaleDateString('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
       const date = addDaysYmd(today, (newWeekday - new Date(`${today}T12:00:00Z`).getUTCDay() + 7) % 7);
@@ -2704,7 +2711,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
       return res.status(202).json({ ok: true, pendingApproval: true, request, message: 'Change requested. Your current reservation remains in place until approval.' });
     }
     const movedEventIds = await moveOfficeSessionSeries({ assignment, assignments, newRoomId, newWeekday, newHour,
-      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId, reason, approvalRequestId: req.officeMoveApprovalId || null });
+      reuseOwnReservations: req.body.reuseOwnReservations === true, timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId, reason, approvalRequestId: req.officeMoveApprovalId || null });
     const cancelledEventIds = [];
     const updated = await OfficeStandingAssignment.findById(sid);
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);

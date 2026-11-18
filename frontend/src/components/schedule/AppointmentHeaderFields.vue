@@ -133,6 +133,11 @@
         </div>
 
         <div v-if="showModality && modality === 'TELEHEALTH'" class="ahf-field ahf-field--grow">
+          <template v-if="!['tutoring', 'learning'].includes(appointmentType)">
+          <span class="ahf-label">Virtual session room</span>
+          <span>A new office video room is linked to this appointment. Each recurring session gets its own room.</span>
+          </template>
+          <template v-else>
           <span class="ahf-label">Virtual meeting option</span>
           <select
             class="ahf-input"
@@ -145,12 +150,13 @@
           </select>
           <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
           <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
+          </template>
           <label v-if="googleDialInStatus==='available' || includeGoogleDialIn"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (!includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include Google Meet phone instructions in emails and reminders</label>
           <p v-if="googleDialInStatus==='not_verified'" class="ahf-hint">Google Meet phone details could not be verified. Phone instructions will be omitted until Google provides them.</p>
         </div>
 
         <p
-          v-if="showModality && modality === 'TELEHEALTH' && !['my_room','external'].includes(videoRoomMode)"
+          v-if="showModality && modality === 'TELEHEALTH' && (!['tutoring', 'learning'].includes(appointmentType) || !['my_room', 'external'].includes(videoRoomMode))"
           class="ahf-info-banner"
           role="status"
         >

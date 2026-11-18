@@ -276,10 +276,10 @@ class ProviderScheduleEvent {
     return isMeeting ? await expireEmptyMeeting('team',row) : row;
   }
 
-  static async listForUserInWindow({ agencyId, agencyIds = null, allAgencies = false, providerId, windowStart, windowEnd }) {
+  static async listForUserInWindow({ agencyId, agencyIds = null, allAgencies = false, providerId, windowStart, windowEnd, startDate = null, endDate = null }) {
     const pId = Number(providerId || 0);
     if (!pId || !windowStart || !windowEnd) return [];
-    const {sql,params}=providerScheduleWindowQuery({agencyId,agencyIds,allAgencies,providerId:pId,windowStart,windowEnd});
+    const {sql,params}=providerScheduleWindowQuery({agencyId,agencyIds,allAgencies,providerId:pId,windowStart,windowEnd,startDate,endDate});
     // Preserve cancelled meetings; candidate selection only changes the read plan.
     const [rows]=await pool.execute(sql,params);
     return visibleClinicalWork(rows || [], { db: pool, kind: 'provider_schedule_event' });
@@ -364,6 +364,7 @@ class ProviderScheduleEvent {
     waitingRoomEnabled = undefined,
     notifyParticipants = undefined,
     reminderMinutes = undefined,
+    detachFromSeries = false,
     updatedByUserId = null
   }) {
     const eid = Number(eventId || 0);
@@ -373,6 +374,9 @@ class ProviderScheduleEvent {
     if (startAt !== undefined || endAt !== undefined) await moveOfficeFromProviderEvent(eid, startAt, endAt, updatedByUserId);
     const sets = [];
     const params = [];
+    if (detachFromSeries) {
+      sets.push('recurrence_series_id = NULL', 'recurrence_frequency = NULL', 'recurrence_policy = NULL', 'recurrence_index = NULL');
+    }
     if (title !== undefined) {
       sets.push('title = ?');
       params.push(String(title || '').trim().slice(0, 200));
@@ -491,6 +495,7 @@ class ProviderScheduleEvent {
           meetingSubtype,
           waitingRoomEnabled,
           notifyParticipants,
+          detachFromSeries,
           updatedByUserId
         });
       }

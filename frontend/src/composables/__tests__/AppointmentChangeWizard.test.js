@@ -7,28 +7,19 @@ import { useAppointmentChange } from '../useAppointmentChange.js';
 async function setup(workflow = null) {
   api.get.mockResolvedValue({ data: { workflow } });
   const change = useAppointmentChange(); await change.openWizard({ appointmentId: 4 });
-  return { change, wrapper: mount(AppointmentChangeWizard, { props: { change }, global: { stubs: { teleport: true } } }) };
+  return { change, wrapper: mount(AppointmentChangeWizard, { props: { change }, global: { stubs: { teleport: true, AppointmentReschedulePanel: true } } }) };
 }
 describe('appointment change wizard controls', () => {
-  it('books a replacement from the change form and then requires normal review and signature', async () => {
-    const { wrapper, change } = await setup();
-    change.step.value = 2; change.facts.eventType = 'rescheduled'; change.context.clientId = 8;
-    change.replacementBase.value = { id:4,agencyId:450,providerUserId:1433,tenantServiceId:291,serviceCode:'90834',sourceTimezone:'America/Denver',startAt:'2026-11-06 16:00:00',endAt:'2026-11-06 16:45:00',modality:'VIRTUAL',participants:[{clientId:8,role:'client'}] };
-    api.get.mockResolvedValue({data:{appointments:[]}});api.put.mockResolvedValue({data:{ok:true}});api.post.mockResolvedValue({data:{appointment:{id:99,providerScheduleEventId:999}}});
-    await flushPromises();
-    const chooser=wrapper.find('[data-inline-reschedule]');
-    expect(chooser.text()).toContain('original session changes only after you review and sign');
-    expect(chooser.text()).toContain('America/Denver');
-    await chooser.find('input[type="datetime-local"]').setValue('2026-11-06T14:15');
-    expect(change.inlineReplacement.localStart).toBe('2026-11-06T14:15');
-    await flushPromises();
-    expect(wrapper.find('[data-inline-reschedule] button').attributes('disabled')).toBeUndefined();
-    await wrapper.find('[data-inline-reschedule] button').trigger('click'); await flushPromises();
-    expect(change.inlineReplacement.error).toBe('');
-    expect(api.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({startAt:'2026-11-06T14:15:00',endAt:'2026-11-06T15:00:00',serviceCode:'90834'}),expect.anything());
-    expect(change.facts.replacementAppointmentId).toBe(99);
-    expect(wrapper.text()).toContain('Replacement #99 is booked and selected');
-    expect(change.signatureConfirmed.value).toBe(false);
+  it('moves the selected appointment through the two-step reschedule panel', async () => {
+    const {wrapper,change}=await setup();
+    change.step.value=2;change.facts.eventType='rescheduled';await flushPromises();
+    const panel=wrapper.findComponent({name:'AppointmentReschedulePanel'});
+    expect(panel.exists()).toBe(true);expect(panel.props('appointmentId')).toBe(4);
+    expect(wrapper.find('[data-inline-reschedule]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('Review & Sign');
+    const result={appointment:{id:4},pendingApproval:false};
+    panel.vm.$emit('saved',result);await flushPromises();
+    expect(wrapper.emitted('completed')).toEqual([[result]]);expect(change.open.value).toBe(false);
     wrapper.unmount();
   });
   it('shows the actual attendance policy without claiming its agreement was signed', async () => {

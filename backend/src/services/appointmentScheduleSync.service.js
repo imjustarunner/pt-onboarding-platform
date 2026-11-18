@@ -7,7 +7,7 @@ import { moveOfficeSessionOccurrence } from './officeSessionMove.service.js';
 export async function assertAppointmentCanMove(appointment) {
   if (!appointment) return;
   if (!['scheduled', 'confirmed'].includes(String(appointment.status))) {
-    throw Object.assign(new Error('Only upcoming appointments can be moved; preserve completed and canceled sessions'), { status: 409 });
+    throw Object.assign(new Error('Only scheduled or confirmed appointments can be moved; preserve completed and canceled sessions'), { status: 409 });
   }
   if (!appointment.clinicalSessionId) return;
   const [notes] = await clinicalPool.execute(

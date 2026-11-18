@@ -4148,10 +4148,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
     if (!weekStart) return res.status(400).json({ error: { message: 'weekStart must be YYYY-MM-DD' } });
     const weekEnd = addDaysYmd(weekStart, 7);
 
-    const windowStart = `${weekStart} 00:00:00`;
-    const windowEnd = `${weekEnd} 00:00:00`;
-    const timeMinIso = `${weekStart}T00:00:00Z`;
-    const timeMaxIso = `${weekEnd}T00:00:00Z`;
+    const displayTimeZone = String(req.query.timeZone || (await getProviderAgencies()).find(agency => Number(agency.id) === Number(agencyId))?.timezone || 'America/Denver');
+    const { scheduleWeekWindow } = await import('../utils/scheduleWeekWindow.js');
+    const { windowStart, windowEnd, timeMinIso, timeMaxIso } = scheduleWeekWindow(weekStart, displayTimeZone);
 
     const googleCalendarEnabled = await usesGoogleSchedule(provider);
     const skipGoogleSync = ['true', '1'].includes(String(req.query.skipGoogleSync || '').toLowerCase());
@@ -4894,7 +4893,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         allAgencies: includeAllAgencies,
         providerId,
         windowStart,
-        windowEnd
+        windowEnd,
+        startDate: weekStart,
+        endDate: weekEnd
       };
       const rows = await ProviderScheduleEvent.listForUserInWindow(scheduleListArgs);
       const actorId = Number(req.user?.id || 0);
@@ -5860,6 +5861,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
       virtualWorkingHours = [];
     }
 
+    // Keep the canonical booking visible when calendar linking was interrupted.
+    try {
+      const { appointmentCalendarFallbacks } = await import('../services/appointmentCalendarFallback.service.js');
+      scheduleEvents.push(...await appointmentCalendarFallbacks({ providerId, agencyId, allAgencies: includeAllAgencies, windowStart, windowEnd,
+        canEdit: Number(req.user?.id) === Number(providerId) || canCreateProviderScheduleEvent(String(req.user?.role || '').toLowerCase()) || isSupervisorOfTarget }));
+    } catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') throw error; }
+
     // Enrich overlays with canonical appointmentId when linked (unified booking).
     try {
       const Appointment = (await import('../models/Appointment.model.js')).default;
@@ -6220,6 +6228,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       }
       const startUtcMysql = clientScheduleInstantToUtcMysql(rawStartAt, timeZone);
       const endUtcMysql = clientScheduleInstantToUtcMysql(rawEndAt, timeZone);
+      if (!startUtcMysql || !endUtcMysql) return res.status(400).json({ error: { message: 'Choose valid start and end times in the calendar timezone.' } });
       if (!(new Date(`${startUtcMysql.replace(' ', 'T')}Z`).getTime()
         < new Date(`${endUtcMysql.replace(' ', 'T')}Z`).getTime())) {
         return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
@@ -7096,13 +7105,27 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       if (!rowsToUpdate.length) rowsToUpdate = [target];
     }
 
-    const { applyClockTimesToOccurrence } = await import('../utils/seriesTimeShift.js');
+    const { shiftedAppointmentWindow } = await import('../utils/appointmentSeriesMove.js');
     let updated = null;
     if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
     await assertMeetingCompensationSetting({agencyId:target.agency_id,existing:target,type:meetingTypeForEvent({kind,meeting_subtype:nextMeetingSubtype || target.meeting_subtype}),input:req.body?.meetingSettings,role:actorRole});
     const meetingChangeBefore = new Map();
     if (['TEAM_MEETING','HUDDLE'].includes(kind)) {
       for (const occurrence of rowsToUpdate) meetingChangeBefore.set(Number(occurrence.id), await captureMeetingChange(occurrence));
+    }
+    if (req.appointmentReschedule) {
+      const Appointment = (await import('../models/Appointment.model.js')).default;
+      const { assertAppointmentCanMove } = await import('../services/appointmentScheduleSync.service.js');
+      const { assertAppointmentWindowAvailable } = await import('../services/appointmentConflict.service.js');
+      const { shiftedAppointmentWindow } = await import('../utils/appointmentSeriesMove.js');
+      // Check every occurrence before changing any member of a clinical series.
+      for (const occurrence of rowsToUpdate) {
+        const appointment = await Appointment.findByProviderScheduleEventId(occurrence.id);
+        if (!appointment) continue;
+        await assertAppointmentCanMove(appointment);
+        const window = shiftedAppointmentWindow(occurrence.start_at, req.appointmentReschedule);
+        await assertAppointmentWindowAvailable(pool, { ...appointment, ...window }, appointment.id);
+      }
     }
     for (const occ of rowsToUpdate) {
       const occId = Number(occ.id || 0);
@@ -7115,11 +7138,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       let occAllDay = isPrimary && req.body?.allDay !== undefined ? allDay : undefined;
 
       if (timingChanged && scope === 'future' && !isPrimary && !allDay && startAt && endAt) {
-        const shifted = applyClockTimesToOccurrence({
-          occurrenceStartRaw: occ.start_at || occ.start_date,
-          newStartRaw: startAt,
-          newEndRaw: endAt
-        });
+        const shifted = shiftedAppointmentWindow(occ.start_at, req.appointmentReschedule || { originalStartAt: target.start_at, startAt, endAt, timeZone: updateTimeZone });
         if (!shifted) continue;
         occStartAt = shifted.startAt;
         occEndAt = shifted.endAt;
@@ -7151,6 +7170,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         waitingRoomEnabled: isPrimary ? nextWaitingRoomEnabled : undefined,
         notifyParticipants: isPrimary ? nextNotifyParticipants : (scope === 'future' ? nextNotifyParticipants : undefined),
         reminderMinutes: nextReminderMinutes,
+        detachFromSeries: !!req.appointmentReschedule && scope === 'single' && timingChanged,
         updatedByUserId: actorUserId
       });
       if (isPrimary) updated = rowUpdated;

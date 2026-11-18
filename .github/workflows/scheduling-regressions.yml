@@ -62,6 +62,14 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling-time-integrity.config.js --maxWorkers=2
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.scheduling-time-integrity.config.js --maxWorkers=2
           node --test backend/src/utils/__tests__/scheduleInstantWrite.util.test.js
+      - name: Scheduling timezone, booking completion, and role regression matrix
+        if: matrix.timezone == 'UTC'
+        run: |
+          for zone in UTC America/Denver America/New_York Pacific/Auckland; do
+            TZ="$zone" node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling-timezone-audit.config.js
+            (cd frontend && TZ="$zone" node node_modules/vitest/vitest.mjs run --config vitest.scheduling-timezone-audit.config.js)
+            TZ="$zone" node --test --test-force-exit backend/src/utils/__tests__/scheduleInstantWrite.util.test.js backend/src/services/__tests__/hiringInterviewSchedule.timezone.test.js
+          done
       - name: School portals, enrollment, and appointment notice rules
         run: |
           npm test --prefix frontend -- src/components/availability/__tests__/ProviderSchoolDays.test.js src/components/school/redesign/__tests__/SchoolDayBar.test.js

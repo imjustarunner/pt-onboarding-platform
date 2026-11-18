@@ -300,7 +300,7 @@ it.each([
  mocks.agency={id:6,slug:'nlu',organization_type:'agency',feature_flags:{hasClinicalOrg:true,medicalBillingEnabled:true}};
  const base=mocks.get.getMockImplementation();
  mocks.get.mockImplementation((path,...args)=>path.includes('/virtual-session-clients')?Promise.resolve({data:{clients:[{id:81,full_name:'Synthetic Client'}]}}):base(path,...args));
- mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:'external',externalMeetingUrl:url||null,providerScheduleEventId:910}}:{}}));
+ mocks.post.mockImplementation(async(path,payload)=>({data:path==='/appointments'?{appointment:{id:821,agencyId:6,businessType,videoRoomMode:payload.videoRoomMode,externalMeetingUrl:payload.externalMeetingUrl||null,providerScheduleEventId:910}}:path.includes('counseling')?{session:{publicId:'clinical-821'},sharePath:'/counseling/invite/clinical-821'}:{}}));
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
  const s=wrapper.vm.$.setupState;
  s.weekStart='2026-11-23';s.modalDay='Thursday';s.modalHour=15;s.modalStartHour=15;s.modalEndHour=16;s.selectedActionAgencyId=6;
@@ -311,10 +311,14 @@ it.each([
  s.editorTenantServiceId=320;await flushPromises();
  s.editorExternalMeetingUrl=url;s.virtualSessionSelectedClientIds=[81];await flushPromises();s.bookingServiceCode=businessType==='tutoring'?'TUTORING':'90837';
  expect(s.editorExternalMeetingUrl).toBe(url);s.clientSessionBookingEnabled=true;await nextTick();
- expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:'external'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe('Schedule');
+ expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:businessType==='tutoring'?'external':'unique_session'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe(businessType==='tutoring'?'Schedule':'Schedule & link video room');
  await s.submitRequest();await flushPromises();
  expect(s.modalError).toBe('');
- expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:'external',externalMeetingUrl:url||null,participants:[expect.objectContaining({clientId:81})]}));
+ expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:businessType==='tutoring'?'external':'unique_session',participants:[expect.objectContaining({clientId:81})]}));
+ if(businessType==='mental_health'){
+  expect(mocks.post.mock.calls.filter(([path])=>path.includes('counseling'))).toHaveLength(1);
+  expect(s.virtualSessionScheduledSessionKey).toBe('clinical-821');return;
+ }
  expect(mocks.post.mock.calls.some(([path])=>path.includes('counseling'))).toBe(false);
  expect(s.virtualSessionScheduledSessionKey).toBe('external-appointment:821');expect(s.submitActionLabel).toBe(url?'Open external meeting':'Done');
  const open=vi.spyOn(window,'open').mockImplementation(()=>null);await s.submitRequest();

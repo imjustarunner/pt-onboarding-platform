@@ -41,7 +41,7 @@
 
         <nav class="acw-steps" aria-label="Workflow steps">
           <div
-            v-for="s in steps"
+            v-for="s in visibleSteps"
             :key="s.n"
             class="acw-step"
             :class="{ on: change.step.value === s.n, done: change.step.value > s.n }"
@@ -83,6 +83,11 @@
               missed-session classification, financial consequence, and note generation based on the appointment,
               timing, payer, plan/package, and your user role.
             </div>
+          </section>
+
+          <section v-else-if="change.step.value === 2 && change.facts.eventType === 'rescheduled'" class="acw-panel">
+            <h3 class="acw-h">Choose the new session time</h3>
+            <AppointmentReschedulePanel :appointment-id="change.appointmentId.value" @busy="rescheduleBusy = $event" @saved="onRescheduled" />
           </section>
 
           <!-- Step 2 -->
@@ -169,15 +174,6 @@
                 </select>
                 <span class="muted">Choose an existing replacement, or book a new time below. Only this occurrence changes.</span>
               </label>
-              <fieldset v-if="change.facts.eventType === 'rescheduled'" class="acw-client-notice" data-inline-reschedule>
-                <legend>Choose the new session time</legend>
-                <p>This books and reserves a new appointment now, using the same client, provider, service, location, and length. The original session changes only after you review and sign this workflow. If you leave before signing, the new booking remains on the schedule.</p>
-                <p v-if="change.replacementBase?.value">Times are in <strong>{{ change.replacementBase.value.sourceTimezone || 'America/Denver' }}</strong>. A new booking uses the current service quote; the original quote is preserved.</p>
-                <label class="acw-field"><span>New date and start time</span><input v-model="change.inlineReplacement.localStart" type="datetime-local" class="acw-input" :disabled="change.inlineReplacement.busy || !!change.inlineReplacement.createdId || change.inlineReplacement.uncertain" /></label>
-                <button type="button" class="acw-btn" :disabled="change.inlineReplacement.busy || !change.inlineReplacement.localStart" @click="change.bookInlineReplacement()">{{ change.inlineReplacement.busy ? 'Checking booking…' : change.inlineReplacement.createdId || change.inlineReplacement.uncertain ? 'Check saved booking' : 'Book replacement session' }}</button>
-                <p v-if="change.inlineReplacement.createdId && !change.inlineReplacement.partial" role="status">Replacement #{{ change.inlineReplacement.createdId }} is booked and selected. Continue to review and sign the original session change.</p>
-                <p v-if="change.inlineReplacement.error" role="alert">{{ change.inlineReplacement.error }}</p>
-              </fieldset>
               <label v-if="change.facts.reasons.includes('other')" class="acw-field">
                 <span>Please specify (required)</span>
                 <input v-model="change.facts.reasonOther" type="text" class="acw-input" />
@@ -489,20 +485,20 @@
 
         <AppointmentNoShowStatus v-if="change.workflow.value?.result?.noShowReview" :appointment-id="Number(change.appointmentId.value)" />
         <footer class="acw-footer">
-          <button v-if="!change.seriesOperation?.value && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
-          <span v-else class="muted">{{ change.seriesOperation?.value ? 'Signed series request saved.' : change.workflow.value?.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
+          <button v-if="change.facts.eventType !== 'rescheduled' && !change.seriesOperation?.value && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
+          <span v-else-if="change.facts.eventType !== 'rescheduled'" class="muted">{{ change.seriesOperation?.value ? 'Signed series request saved.' : change.workflow.value?.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
           <div class="acw-footer-right">
             <button v-if="change.seriesOperation?.value" type="button" class="acw-btn primary" @click="onClose">Back to calendar</button>
             <template v-else>
-            <button v-if="change.step.value > 1 && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn" :disabled="change.saving.value" @click="change.goBack()">Back</button>
+            <button v-if="change.step.value > 1 && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn" :disabled="change.saving.value || rescheduleBusy" @click="change.goBack()">Back</button>
             <button
-              v-if="change.step.value < 4"
+              v-if="change.step.value < 4 && !(change.step.value === 2 && change.facts.eventType === 'rescheduled')"
               type="button"
               class="acw-btn primary"
               :disabled="change.loading.value || change.customOffer.busy || !change.canContinueFromStep(change.step.value)"
               @click="change.goNext()"
             >Continue →</button>
-            <template v-else-if="change.workflow.value?.status !== 'completed'">
+            <template v-else-if="change.step.value === 4 && change.workflow.value?.status !== 'completed'">
             <p v-if="['private_slots','portal_booking'].includes(change.facts.followUpAction)">Only offer times you can commit to. A completed reservation schedules the appointment immediately, without another approval.</p>
             <button
               type="button"
@@ -511,7 +507,7 @@
               @click="onSign"
             >{{ change.saving.value ? 'Signing…' : change.facts.waiver?.action === 'recommend' ? 'Sign & Send for Review →' : 'Sign & Complete →' }}</button>
             </template>
-            <button v-else type="button" class="acw-btn primary" @click="onClose">Back to appointment</button>
+            <button v-else type="button" class="acw-btn primary" :disabled="rescheduleBusy" @click="onClose">Back to appointment</button>
             </template>
           </div>
         </footer>
@@ -523,7 +519,9 @@
 <script setup>
 const cancellationClassification = value => ({advance_cancel:'Advance cancellation',late_cancel:'Late cancellation',canceled:'Canceled',late_cancel_reschedule:'Late cancellation / reschedule'})[value] || 'Cancellation';
 const money = cents => cents == null ? 'Not set' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(Number(cents) / 100);
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import AppointmentReschedulePanel from './AppointmentReschedulePanel.vue';
+const rescheduleBusy = ref(false);
 import AppointmentNoShowStatus from './AppointmentNoShowStatus.vue';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import SchoolSupportCancellationBenefit from './SchoolSupportCancellationBenefit.vue';
@@ -550,6 +548,7 @@ const steps = [
   { n: 3, label: 'Consequence' },
   { n: 4, label: 'Review & Sign' }
 ];
+const visibleSteps = computed(() => props.change.facts.eventType === 'rescheduled' ? steps.slice(0, 2) : steps);
 
 const events = [
   { id: 'canceled', label: 'Canceled', hint: 'Client or provider canceled the appointment.', icon: '✕', tone: 'red' },
@@ -636,7 +635,7 @@ watch(
       props.change.facts.followUpAction = 'none'; props.change.facts.offeredSlots = [];
       if (!props.change.facts.clientFacingReason) props.change.facts.clientFacingReason = `This appointment was recorded as missed. Contact your ${isLearning.value?'tutoring team':'care team'} if this needs to be corrected.`;
     }
-    if (v && props.change.step.value >= 2) await props.change.refreshPreview();
+    if (v && v !== 'rescheduled' && props.change.step.value >= 2) await props.change.refreshPreview();
   }
 );
 
@@ -645,13 +644,18 @@ async function onCommentsChange() {
 }
 
 function onClose() {
-  if (props.change.inlineReplacement?.busy) return;
+  if (rescheduleBusy.value) return;
   props.change.closeWizard();
   emit('closed');
 }
 
 async function onSaveDraft() {
   if (await props.change.saveDraft()) onClose();
+}
+
+function onRescheduled(result) {
+  emit('completed', result);
+  props.change.closeWizard();
 }
 
 async function onSign() {
