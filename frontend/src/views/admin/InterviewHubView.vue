@@ -237,11 +237,7 @@
           <label class="ih-label">Interviewers</label>
           <div class="ih-interviewer-list"><label v-for="a in assignees" :key="a.id || a.user_id" class="ih-checkbox"><input v-model="scheduleForm.interviewerUserIds" type="checkbox" :value="String(a.id || a.user_id)" />{{ formatAssigneeOption(a) }}</label></div>
 
-          <label class="ih-label">Job question set</label>
-          <select v-model="scheduleForm.jobQuestionSetId" class="input">
-            <option value="">— None —</option>
-            <option v-for="s in jobSets" :key="s.id" :value="String(s.id)">{{ s.title }}</option>
-          </select>
+          <InterviewQuestionPicker v-if="scheduleForm.candidateUserId" :key="`${effectiveAgencyId}-${scheduleForm.candidateUserId}`" v-model="interviewQuestions" :agency-id="effectiveAgencyId" :job-description-id="scheduleCandidate?.job_description_id || null" @ready="questionsReady=$event" />
 
           <label class="ih-checkbox">
             <input v-model="scheduleForm.sendInvites" type="checkbox" />
@@ -266,6 +262,7 @@
 
 <script setup>
 import InterviewInvitePreview from '../../components/hiring/InterviewInvitePreview.vue';
+import InterviewQuestionPicker from '../../components/hiring/InterviewQuestionPicker.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -350,13 +347,14 @@ const jobSetForm = ref({
   questionsText: ''
 });
 
+const interviewQuestions=ref(null),questionsReady=ref(false);
+const scheduleCandidate=computed(()=>candidateById.value.get(Number(scheduleForm.value.candidateUserId)));
 const scheduleForm = ref({
   candidateUserId: '',
   startsAt: '',
   timezone: 'America/Denver',
   durationMinutes: 60,
   interviewerUserIds: [],
-  jobQuestionSetId: '',
   sendInvites: true,
   interviewRound: 'initial',
   roundLabelCustom: ''
@@ -434,7 +432,7 @@ const filteredInterviews = computed(() => {
 });
 
 const canSubmitSchedule = computed(() => {
-  if (!scheduleForm.value.candidateUserId || !scheduleForm.value.startsAt) return false;
+  if (!scheduleForm.value.candidateUserId || !scheduleForm.value.startsAt || !questionsReady.value) return false;
   if (scheduleForm.value.interviewRound === 'other' && !scheduleForm.value.roundLabelCustom.trim()) return false;
   return true;
 });
@@ -728,14 +726,14 @@ async function openScheduleModal() {
   error.value = '';
   scheduleError.value = '';
   scheduleHoldOverridable.value = false;
+  interviewQuestions.value=null;questionsReady.value=false;
   scheduleForm.value = {
     candidateUserId: '',
     startsAt: '',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver',
     durationMinutes: 60,
     interviewerUserIds: [],
-    jobQuestionSetId: '',
-    sendInvites: true,
+      sendInvites: true,
     interviewRound: 'initial',
     roundLabelCustom: ''
   };
@@ -767,9 +765,8 @@ async function submitSchedule(overrideScheduleHolds = false) {
       timezone: scheduleForm.value.timezone,
       durationMinutes: Number(scheduleForm.value.durationMinutes) || 60,
       interviewerUserIds,
-      jobQuestionSetId: scheduleForm.value.jobQuestionSetId
-        ? Number(scheduleForm.value.jobQuestionSetId)
-        : null,
+      jobQuestionSetId: interviewQuestions.value?.setId || null,
+      questionSelection: interviewQuestions.value?.questions,
       sendInvites: !!scheduleForm.value.sendInvites,
       interviewRound: scheduleForm.value.interviewRound,
       roundLabelCustom: scheduleForm.value.interviewRound === 'other'
@@ -815,6 +812,7 @@ async function refresh() {
 }
 
 watch(() => scheduleForm.value.candidateUserId, (cid) => {
+  interviewQuestions.value=null;questionsReady.value=false;
   const id = Number(cid);
   if (!id) return;
   const prior = interviews.value.filter((iv) => Number(iv.candidate_user_id) === id);

@@ -13,6 +13,7 @@ import Agency from '../models/Agency.model.js';
 import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
 import {jobInterviewSettings} from '../utils/jobInterviewSettingsPolicy.js';
+import {starterInterviewQuestions,questionsWithFingerprints,questionSetWithFingerprints} from '../services/jobInterviewQuestions.service.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -141,9 +142,10 @@ async function jobGuideScope(req) {
   return {agencyId,jobDescriptionId,job};
 }
 async function jobGuideData({agencyId,jobDescriptionId,job}) {
-  const [set,template]=await Promise.all([InterviewHubJobQuestionSet.findDefaultForJob(agencyId,jobDescriptionId),InterviewHubTemplate.findDefaultByAgencyId(agencyId)]);
+  const [set,template,questionSets]=await Promise.all([InterviewHubJobQuestionSet.findDefaultForJob(agencyId,jobDescriptionId),InterviewHubTemplate.findDefaultByAgencyId(agencyId),InterviewHubJobQuestionSet.listByAgencyId(agencyId,{jobDescriptionId})]);
   const flow=buildInterviewFlow({template,jobQuestionSet:set});
-  return {job,questionSet:set,questions:set?.questions_json || [],criteria:flow.scorecardCriteria,
+  const availableSets=set && !questionSets.some(row=>row.id===set.id)?[set,...questionSets]:questionSets;
+  return {job,questionSet:set,questions:questionsWithFingerprints(set?.questions_json || []),questionSets:availableSets.map(questionSetWithFingerprints),starterQuestions:questionsWithFingerprints(starterInterviewQuestions(template)),starterSource:Array.isArray(template?.standard_questions_json)?'company':'platform',criteria:flow.scorecardCriteria,
     criteriaSource:set?.scorecard_criteria_json?.length?'job':template?.scorecard_criteria_json?.length?'agency':'platform'};
 }
 export const getJobInterviewGuide=async(req,res,next)=>{
@@ -152,13 +154,32 @@ export const getJobInterviewGuide=async(req,res,next)=>{
 export const saveJobInterviewGuide=async(req,res,next)=>{
   try {
     const scope=await jobGuideScope(req),settings=jobInterviewSettings(req.body || {});
-    const existing=await InterviewHubJobQuestionSet.findDefaultForJob(scope.agencyId,scope.jobDescriptionId);
-    const patch={questionsJson:settings.questions,scorecardCriteriaJson:settings.criteria};
-    if(existing)await InterviewHubJobQuestionSet.updateById(existing.id,patch);
-    else await InterviewHubJobQuestionSet.create({...patch,agencyId:scope.agencyId,jobDescriptionId:scope.jobDescriptionId,title:`${scope.job.title} interview guide`,createdByUserId:req.user.id});
+    await InterviewHubJobQuestionSet.saveDefaultForJob({questionsJson:settings.questions,scorecardCriteriaJson:settings.criteria,
+      agencyId:scope.agencyId,jobDescriptionId:scope.jobDescriptionId,title:`${scope.job.title} interview guide`,createdByUserId:req.user.id});
     res.json({success:true,data:await jobGuideData(scope)});
   }catch(error){next(error);}
 };
+
+export const getInterviewQuestionOptions=async(req,res,next)=>{
+  try {
+    const agencyId=agencyIdFromReq(req);await ensureAgencyAccess(req,agencyId);
+    const [template,sets]=await Promise.all([InterviewHubTemplate.findDefaultByAgencyId(agencyId),InterviewHubJobQuestionSet.listByAgencyId(agencyId)]);
+    res.json({success:true,data:{questionSet:null,questionSets:sets.filter(set=>set.job_description_id==null).map(questionSetWithFingerprints),starterQuestions:questionsWithFingerprints(starterInterviewQuestions(template)),starterSource:Array.isArray(template?.standard_questions_json)?'company':'platform'}});
+  }catch(error){next(error);}
+};
+
+async function validateQuestionSetJob(agencyId,jobDescriptionId) {
+  if(jobDescriptionId==null)return null;
+  const id=Number(jobDescriptionId);
+  if(!Number.isSafeInteger(id)||id<1)throw Object.assign(new Error('Choose a valid job posting.'),{status:400});
+  const [[job]]=await pool.execute('SELECT id FROM hiring_job_descriptions WHERE id=? AND agency_id=?',[id,agencyId]);
+  if(!job)throw Object.assign(new Error('Job posting not found for this agency.'),{status:404});
+  return id;
+}
+async function assertUnpinnedQuestionSet(id,agencyId) {
+  const [[job]]=await pool.execute('SELECT id FROM hiring_job_descriptions WHERE interview_question_set_id=? AND agency_id=? LIMIT 1',[id,agencyId]);
+  if(job)throw Object.assign(new Error('This is a job’s default guide. Edit its questions on the job posting; its attached guide cannot be removed or moved.'),{status:409});
+}
 
 export const listJobQuestionSets = async (req, res, next) => {
   try {
@@ -169,7 +190,7 @@ export const listJobQuestionSets = async (req, res, next) => {
       jobDescriptionId: jobDescriptionId || null,
       includeInactive: String(req.query?.includeInactive || '') === '1'
     });
-    return res.json({ success: true, data: rows });
+    return res.json({ success: true, data: rows.map(questionSetWithFingerprints) });
   } catch (err) {
     return next(err);
   }
@@ -184,19 +205,17 @@ export const createJobQuestionSet = async (req, res, next) => {
     if (!title) {
       return res.status(400).json({ success: false, message: 'title is required' });
     }
-    const questionsJson = body.questionsJson ?? body.questions_json ?? body.questions ?? [];
-    if (!Array.isArray(questionsJson)) {
-      return res.status(400).json({ success: false, message: 'questions must be an array' });
-    }
+    const questionsJson = jobInterviewSettings({questions:body.questionsJson ?? body.questions_json ?? body.questions ?? []}).questions;
+    const jobDescriptionId=await validateQuestionSetJob(agencyId,body.jobDescriptionId ?? body.job_description_id ?? null);
     const row = await InterviewHubJobQuestionSet.create({
       agencyId,
-      jobDescriptionId: body.jobDescriptionId ?? body.job_description_id ?? null,
+      jobDescriptionId,
       title,
       questionsJson,
       isActive: body.isActive ?? body.is_active ?? true,
       createdByUserId: req.user?.id
     });
-    return res.status(201).json({ success: true, data: row });
+    return res.status(201).json({ success: true, data: questionSetWithFingerprints(row) });
   } catch (err) {
     return next(err);
   }
@@ -215,11 +234,16 @@ export const updateJobQuestionSet = async (req, res, next) => {
     await ensureAgencyAccess(req, existing.agency_id);
 
     const body = req.body || {};
+    const jobId=body.jobDescriptionId!==undefined?body.jobDescriptionId:body.job_description_id;
+    const jobDescriptionId=jobId===undefined?undefined:await validateQuestionSetJob(existing.agency_id,jobId);
+    const isActive=body.isActive ?? body.is_active;
+    if((jobDescriptionId!==undefined && Number(jobDescriptionId)!==Number(existing.job_description_id)) || isActive===false || isActive===0)await assertUnpinnedQuestionSet(id,existing.agency_id);
+    const rawQuestions=body.questionsJson ?? body.questions_json ?? body.questions;
     const updated = await InterviewHubJobQuestionSet.updateById(id, {
-      jobDescriptionId: body.jobDescriptionId ?? body.job_description_id,
+      jobDescriptionId,
       title: body.title,
-      questionsJson: body.questionsJson ?? body.questions_json ?? body.questions,
-      isActive: body.isActive ?? body.is_active
+      questionsJson: rawQuestions===undefined?undefined:jobInterviewSettings({questions:rawQuestions}).questions,
+      isActive
     });
     return res.json({ success: true, data: updated });
   } catch (err) {
@@ -238,6 +262,7 @@ export const deleteJobQuestionSet = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Job question set not found' });
     }
     await ensureAgencyAccess(req, existing.agency_id);
+    await assertUnpinnedQuestionSet(id,existing.agency_id);
     await InterviewHubJobQuestionSet.deleteById(id);
     return res.json({ success: true });
   } catch (err) {
@@ -337,6 +362,7 @@ export const createInterview = async (req, res, next) => {
       interviewerUserIds,
       templateId: parseIntParam(body.templateId ?? body.template_id),
       jobQuestionSetId: parseIntParam(body.jobQuestionSetId ?? body.job_question_set_id),
+      questionSelection: body.questionSelection,
       hiringProfileId: parseIntParam(body.hiringProfileId ?? body.hiring_profile_id),
       sendInvites: body.sendInvites !== false && body.send_invites !== false,
       titleOverride: body.title || body.displayTitle || body.display_title || null,

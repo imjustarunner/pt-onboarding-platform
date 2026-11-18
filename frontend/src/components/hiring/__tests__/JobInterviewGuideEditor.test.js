@@ -20,3 +20,7 @@ it('can return the job’s ratings to inherited agency/platform defaults',async(
 it('closes an unsaved guide when the selected job changes',async()=>{
  await open();await wrapper.get('textarea').setValue('Unsaved');await wrapper.setProps({jobDescriptionId:99});expect(wrapper.find('textarea').exists()).toBe(false);expect(api.put).not.toHaveBeenCalled();
 });
+it('identifies the starter source and fills an editable copy without saving automatically',async()=>{
+ api.get.mockResolvedValue({data:{data:{...guide(),starterSource:'platform',starterQuestions:[{key:'motivation',text:'Starter question?'}]}}});await open();
+ await wrapper.findAll('button').find(b=>b.text()==='Use Plotline starter questions').trigger('click');expect(wrapper.get('textarea').element.value).toBe('Starter question?');expect(api.put).not.toHaveBeenCalled();expect(wrapper.text()).toContain('Plotline’s five general interview questions');
+});

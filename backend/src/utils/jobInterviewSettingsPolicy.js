@@ -4,8 +4,11 @@ export function jobInterviewSettings(input) {
   const questions=input.questions.map((q,index)=>{
     const text=String(typeof q==='string'?q:q?.text || '').trim();
     if(!text || text.length>4000)throw invalid('Each question needs text of up to 4,000 characters.');
-    return {key:String(q?.key || `job_q_${index+1}`),text};
+    const key=String(q?.key || `job_q_${index+1}`);
+    if(!/^[a-zA-Z0-9_-]{1,80}$/.test(key))throw invalid('Question keys must use letters, numbers, underscores or hyphens.');
+    return {key,text};
   });
+  if(new Set(questions.map(q=>q.key)).size!==questions.length)throw invalid('Questions must have unique keys.');
   let criteria=null;
   if(input.criteria!==null && input.criteria!==undefined) {
     if(!Array.isArray(input.criteria) || !input.criteria.length || input.criteria.length>30)throw invalid('Enter between 1 and 30 rating criteria, or use defaults.');

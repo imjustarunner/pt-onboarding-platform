@@ -88,6 +88,7 @@ import {
   updateTemplate,
   ensureDefaultTemplateHandler,
   listJobQuestionSets,
+  getInterviewQuestionOptions,
   createJobQuestionSet,
   updateJobQuestionSet,
   deleteJobQuestionSet,
@@ -237,6 +238,7 @@ router.get('/interview-hub/templates', listTemplates);
 router.post('/interview-hub/templates/ensure-default', ensureDefaultTemplateHandler);
 router.put('/interview-hub/templates/:templateId', updateTemplate);
 router.get('/interview-hub/job-question-sets', listJobQuestionSets);
+router.get('/interview-hub/question-options',getInterviewQuestionOptions);
 router.get('/interview-hub/jobs/:jobDescriptionId/guide',getJobInterviewGuide);
 router.put('/interview-hub/jobs/:jobDescriptionId/guide',saveJobInterviewGuide);
 router.post('/interview-hub/job-question-sets', createJobQuestionSet);

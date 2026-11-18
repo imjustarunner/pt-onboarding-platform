@@ -96,6 +96,38 @@ BOUNDARIES / EMAIL / ACCESSIBILITY
   applications and candidate portals. Do not change clocks or age production
   rows. Requests to continue must not extend a trial or charge a card.
 
+JOB POSTING / INTERVIEW QUESTIONS — RETEST BEFORE THE HIRING JOURNEY
+- Create two different synthetic jobs. Each new job receives its own private,
+  editable starter set copied from the company's template, or Plotline's five
+  general questions when no company template exists. Record the job/set IDs.
+- In Job postings -> Edit -> Interview guide, tailor Operations Coordinator's
+  questions, for example: 'How would you prioritize two competing deadlines?',
+  'Describe a process you improved.', and 'How do you hand off unfinished work?'
+  Use different questions for the other job. Save, reload and compare both.
+- The editor identifies the starter library. 'Use starter questions' fills the
+  editor for review; it must not save or change the other job by itself.
+- Schedule from BOTH the applicant's Interviews tab and Interview Hub. Choose
+  the actual applied job/candidate. Its own questions must load first; booking
+  stays disabled while questions are loading, unavailable or empty.
+- Use previous/next arrows or the set dropdown to change the whole set. Create
+  one alternative set for this job and use it. This must not replace the job's
+  default for the next interview. Shared company sets may also be selected.
+- Browse individual questions, add one from another permitted set, remove one,
+  and change the order. Identical questions from copied starter sets should
+  show Added rather than creating duplicates. Record the final selected list.
+- Book through the normal permitted workflow. In the interview room confirm
+  EXACTLY that list and order, without five extra standard questions appended.
+  Change the job's guide afterwards: the booked interview keeps its saved copy;
+  a new interview uses the changed job default. Do not rewrite a past interview.
+- Change a question in a separate authorized staff session after the scheduler
+  loaded it. Booking must ask for a reload/review before creating a calendar
+  event or sending an invitation. Do not repeatedly send invitations to inspect.
+- Invalid, inactive, other-company and unrelated-job question references must
+  fail. A candidate/public careers visitor must not read the staff guide or see
+  its questions in the posting, applicant portal, invitation or guest workspace.
+- Keep the normal calendar, recipient, sender and actual receipt checks. A
+  saved guide or localhost UI test is not a production interview/email pass.
+
 REPORT
 Use PASS / FAIL / BLOCKED / NOT RUN. Record visible build, actor/automation
 classification, exact IDs/URL, click path, local date/time with offset, screenshot,

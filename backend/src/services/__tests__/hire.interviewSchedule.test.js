@@ -14,11 +14,12 @@ vi.mock('../../models/InterviewHubTemplate.model.js', () => ({ default: { findBy
 vi.mock('../../models/InterviewHubJobQuestionSet.model.js', () => ({ default: { findById: m.questions,findDefaultForJob:m.questions } }));
 vi.mock('../googleCalendar.service.js', () => ({ default: { createProviderScheduleEvent: m.calendar, appendToEventDescription: m.append, deleteEvent: m.remove } }));
 vi.mock('../meetingWindowConflict.service.js', () => ({ withMeetingWindow: m.window }));
-vi.mock('../interviewHub.service.js', () => ({ ensureDefaultTemplate: m.template, buildInterviewFlow: () => ({ sections: [] }) }));
+vi.mock('../interviewHub.service.js', async original => ({ ...await original(), ensureDefaultTemplate: m.template }));
 vi.mock('../hiringInterviewSender.service.js', async importOriginal => ({ ...await importOriginal(), resolveInterviewSender: m.sender }));
 vi.mock('../hiringInterviewAccess.service.js', () => ({ canAccessHiringInterview: m.access }));
 vi.mock('../hiringInterviewInviteEmail.service.js', () => ({ sendHiringInterviewInviteEmail: m.invite }));
 import { scheduleHiringInterview } from '../hiringInterviewSchedule.service.js';
+import {questionFingerprint} from '../jobInterviewQuestions.service.js';
 const args = { agencyId: 4, candidateUserId: 30, hostUserId: 11, startsAt: '2026-10-02T13:00', timezone: 'America/Denver', interviewerUserIds: [11, 22] };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -26,6 +27,18 @@ beforeEach(() => {
   m.candidate.mockImplementation(async id => ({ id, email: `${id}@tenant.org`, first_name: 'Person' })); m.agencies.mockResolvedValue([{ id: 4 }]); m.sender.mockResolvedValue({ id: 1, from_email: 'po@tenant.org' }); m.access.mockResolvedValue(true); m.template.mockResolvedValue({ id: 1, agency_id: 4 }); m.profile.mockResolvedValue({ id: 8 }); m.window.mockImplementation(async (_window, work) => work()); m.calendar.mockResolvedValue({ ok: true, eventId: 'calendar-1' }); m.append.mockResolvedValue({ ok: true }); m.remove.mockResolvedValue({ ok: true }); m.event.mockResolvedValue({ id: 2, participant_join_token: 'guest-only-token', host_join_token: 'secret-host-token' }); m.interview.mockResolvedValue({ id: 5 }); m.update.mockResolvedValue({ id: 5, invite_sent_at: 'confirmed' }); m.artifact.mockResolvedValue({}); m.invite.mockResolvedValue({ id: 'email-1' }); m.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[{ id: 11, email: '11@tenant.org' }, { id: 22, email: '22@tenant.org' }, { id: 30, email: '30@tenant.org' }]] : [[]]);
 });
 describe('interview scheduling delivery', () => {
+  it('stores the selected subset exactly once without appending the five standard questions',async()=>{
+    const set={id:44,agency_id:4,job_description_id:45,is_active:true,title:'Operations',questions_json:[{key:'q1',text:'Use this question'},{key:'q2',text:'Leave this question out'}]};
+    m.profile.mockResolvedValue({id:8,job_description_id:45});m.questions.mockResolvedValue(set);
+    await scheduleHiringInterview({...args,sendInvites:false,questionSelection:[{setId:44,questionKey:'q1',fingerprint:questionFingerprint('Use this question')}]});
+    const flow=m.artifact.mock.calls[0][1].flowStateJson;
+    expect(flow.sections.flatMap(section=>section.questions || []).map(q=>q.text)).toEqual(['Use this question']);
+  });
+  it('rejects stale or unrelated question picks before calendar, meeting, invitation or artifact side effects',async()=>{
+    m.questions.mockResolvedValue({id:44,agency_id:99,is_active:true,questions_json:[]});
+    await expect(scheduleHiringInterview({...args,sendInvites:false,questionSelection:[{setId:44,questionKey:'q1',fingerprint:'old'}]})).rejects.toMatchObject({status:400});
+    expect(m.calendar).not.toHaveBeenCalled();expect(m.event).not.toHaveBeenCalled();expect(m.artifact).not.toHaveBeenCalled();expect(m.invite).not.toHaveBeenCalled();
+  });
   it('automatically selects the applied job’s question and rating guide',async()=>{
     m.profile.mockResolvedValue({id:8,job_description_id:45});m.questions.mockResolvedValue({id:44,agency_id:4,job_description_id:45,questions_json:[{key:'q',text:'Role question'}]});
     await scheduleHiringInterview({...args,sendInvites:false});

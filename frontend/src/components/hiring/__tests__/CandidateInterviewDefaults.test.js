@@ -7,10 +7,16 @@ vi.mock('vue-router',()=>({useRoute:()=>({params:{}})}));
 vi.mock('../InterviewInvitePreview.vue',()=>({default:{template:'<div />'}}));
 import Panel from '../CandidateInterviewPanel.vue';
 let wrapper;
-beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(async url=>({data:url.includes('job-question-sets')?{data:[{id:9,job_description_id:null,title:'Agency set'},{id:11,job_description_id:45,title:'Counselor guide',questions_json:[]}]}:url.includes('time-capsules')?{capsules:[]}:{data:[]}}));});
+beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('/guide')?{data:{questionSet:{id:11},questionSets:[{id:11,job_description_id:45,title:'Counselor guide',questions_json:[{key:'q1',text:'Applied job question?',fingerprint:'reviewed'}]}],starterQuestions:[{key:'motivation',text:'Starter question?',fingerprint:'starter'}],starterSource:'platform'}}:url.includes('time-capsules')?{capsules:[]}:{data:[]}}));api.post.mockResolvedValue({data:{data:{interview:{id:5}}}});});
 afterEach(()=>wrapper?.unmount());
 it('selects the applied job guide and exposes the inline editor in the interview tab',async()=>{
  wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45,jobTitle:'Counselor'},global:{stubs:{RouterLink:true}}});await flushPromises();
- expect(wrapper.get('#cip-questions').element.value).toBe('11');expect(wrapper.text()).toContain('Edit job questions & ratings');
- expect(api.get).toHaveBeenCalledWith('/hiring/interview-hub/job-question-sets',{params:{agencyId:6,jobDescriptionId:45}});
+ expect(wrapper.get('.iqp-switch select').element.value).toBe('11');expect(wrapper.text()).toContain('Edit job questions & ratings');
+ expect(api.get).toHaveBeenCalledWith('/hiring/interview-hub/jobs/45/guide',{params:{agencyId:6}});
+});
+it('submits the individual questions chosen in the candidate scheduler',async()=>{
+ wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45,jobTitle:'Counselor'},global:{stubs:{RouterLink:true}}});await flushPromises();
+ await wrapper.get('[aria-label="Next question set"]').trigger('click');
+ await wrapper.findAll('button').find(button=>button.text()==='Schedule & send invitations').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/hiring/interview-hub/interviews',expect.objectContaining({candidateUserId:31,jobQuestionSetId:null,questionSelection:[{setId:null,questionKey:'motivation',fingerprint:'starter'}]}));
 });

@@ -67,10 +67,36 @@ class InterviewHubJobQuestionSet {
     return (rows || []).map((r) => this.hydrate(r));
   }
 
-  static async findDefaultForJob(agencyId, jobDescriptionId) {
-    const [rows]=await pool.execute(`SELECT * FROM interview_hub_job_question_sets
-      WHERE agency_id=? AND job_description_id=? AND is_active=1 ORDER BY updated_at DESC,id DESC LIMIT 1`,[parseIntParam(agencyId),parseIntParam(jobDescriptionId)]);
+  static async findDefaultForJob(agencyId, jobDescriptionId, executor = pool) {
+    const [rows]=await executor.execute(`SELECT questions.* FROM interview_hub_job_question_sets questions
+      JOIN hiring_job_descriptions job ON job.id=questions.job_description_id AND job.agency_id=questions.agency_id
+      WHERE questions.agency_id=? AND questions.job_description_id=? AND questions.is_active=1
+        AND questions.id=job.interview_question_set_id
+      ORDER BY questions.updated_at DESC,questions.id DESC LIMIT 1`,[parseIntParam(agencyId),parseIntParam(jobDescriptionId)]);
     return this.hydrate(rows[0] || null);
+  }
+
+  static async saveDefaultForJob({agencyId,jobDescriptionId,title,questionsJson,scorecardCriteriaJson=null,createdByUserId=null,onlyIfMissing=false,executor=null}) {
+    const conn=executor || await pool.getConnection();
+    try {
+      if(!executor)await conn.beginTransaction();
+      const [[job]]=await conn.execute('SELECT id FROM hiring_job_descriptions WHERE id=? AND agency_id=? FOR UPDATE',[jobDescriptionId,agencyId]);
+      if(!job)throw Object.assign(new Error('Job posting not found for this agency.'),{status:404});
+      let set=await this.findDefaultForJob(agencyId,jobDescriptionId,conn);
+      if(!set) {
+        const [created]=await conn.execute(`INSERT INTO interview_hub_job_question_sets
+          (agency_id,job_description_id,title,questions_json,scorecard_criteria_json,is_active,created_by_user_id)
+          VALUES(?,?,?,?,?,1,?)`,[agencyId,jobDescriptionId,String(title || 'Job interview guide').trim().slice(0,255),JSON.stringify(questionsJson),toJsonParam(scorecardCriteriaJson),createdByUserId]);
+        set={id:created.insertId};
+      }else if(!onlyIfMissing) {
+        await conn.execute('UPDATE interview_hub_job_question_sets SET questions_json=?,scorecard_criteria_json=? WHERE id=? AND agency_id=?',
+          [JSON.stringify(questionsJson),toJsonParam(scorecardCriteriaJson),set.id,agencyId]);
+      }
+      await conn.execute('UPDATE hiring_job_descriptions SET interview_question_set_id=? WHERE id=? AND agency_id=?',[set.id,jobDescriptionId,agencyId]);
+      if(!executor)await conn.commit();
+      return set.id;
+    }catch(error){if(!executor)await conn.rollback();throw error;}
+    finally{if(!executor)conn.release();}
   }
 
   static async create({

@@ -45,28 +45,7 @@
           <label for="cip-duration">Duration (minutes)</label>
           <input id="cip-duration" v-model.number="durationMinutes" class="cip-input" type="number" min="15" max="240" />
         </div>
-        <div class="cip-field">
-          <label for="cip-questions">Job-specific questions</label>
-          <select id="cip-questions" v-model="jobQuestionSetId" class="cip-input">
-            <option value="">Applied job defaults / standard questions</option>
-            <option v-for="s in jobSets" :key="s.id" :value="String(s.id)">{{ s.title }}</option>
-          </select>
-          <div class="cip-question-tools">
-            <button type="button" class="btn btn-secondary btn-sm" @click="editQuestions(false)">{{ selectedQuestionSet ? 'View / edit questions' : 'Add job questions' }}</button>
-            <button v-if="selectedQuestionSet" type="button" class="btn btn-secondary btn-sm" @click="editQuestions(true)">New set</button>
-          </div>
-          <details v-if="selectedQuestionSet?.questions_json?.length">
-            <summary>{{ selectedQuestionSet.questions_json.length }} selected questions</summary>
-            <ol><li v-for="(q, index) in selectedQuestionSet.questions_json" :key="index">{{ typeof q === 'string' ? q : q.text || q.question }}</li></ol>
-          </details>
-        </div>
-        <div v-if="questionEditor" class="cip-field cip-field--full cip-question-editor">
-          <label>Question set title<input v-model="questionTitle" class="cip-input" /></label>
-          <label>Questions (one per line)<textarea v-model="questionText" class="cip-input" rows="8" /></label>
-          <p class="muted small">These questions will be included in new interviews using this set. Scheduled interviews keep their saved guide.</p>
-          <div class="cip-question-tools"><button type="button" class="btn btn-primary btn-sm" :disabled="savingQuestions || !questionTitle.trim() || !questionText.trim()" @click="saveQuestions">{{ savingQuestions ? 'Saving…' : 'Save and select questions' }}</button><button type="button" class="btn btn-secondary btn-sm" @click="questionEditor = false">Cancel</button></div>
-          <p v-if="questionError" role="alert">{{ questionError }}</p>
-        </div>
+        <InterviewQuestionPicker :key="`${agencyId}-${candidateUserId}-${jobDescriptionId}-${questionsVersion}`" v-model="interviewQuestions" class="cip-field--full" :agency-id="agencyId" :job-description-id="jobDescriptionId" @ready="questionsReady=$event" />
         <div class="cip-field cip-field--full">
           <label for="cip-interviewers">Interviewers</label>
           <select id="cip-interviewers" v-model="interviewerPick" class="cip-input" @change="addInterviewer">
@@ -89,7 +68,7 @@
       </div>
       <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :duration-minutes="durationMinutes" :timezone="timezone" :interviewer-user-ids="interviewerIds" />
       <div class="row-actions">
-        <button type="button" class="btn btn-primary" :disabled="scheduling || questionEditor || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
+        <button type="button" class="btn btn-primary" :disabled="scheduling || !questionsReady || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
           {{ scheduling ? 'Scheduling…' : (sendInvites ? 'Schedule & send invitations' : 'Save without sending') }}
         </button>
       </div>
@@ -304,6 +283,7 @@ import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/
 import { buildHiringInterviewTitle } from '../../utils/hiringInterviewTitle.js';
 
 import JobInterviewGuideEditor from './JobInterviewGuideEditor.vue';
+import InterviewQuestionPicker from './InterviewQuestionPicker.vue';
 const props = defineProps({
   candidateUserId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], required: true },
@@ -334,32 +314,7 @@ const resending = ref(false);
 const startsLocal = ref('');
 const timezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver');
 const durationMinutes = ref(60);
-const jobSets = ref([]);
-const jobQuestionSetId = ref('');
-const selectedQuestionSet = computed(() => jobSets.value.find(s => Number(s.id) === Number(jobQuestionSetId.value)));
-const questionEditor = ref(false), questionTitle = ref(''), questionText = ref(''), savingQuestions = ref(false), questionError = ref('');
-let editingQuestionId = null;
-function editQuestions(createNew) {
-  const set = createNew ? null : selectedQuestionSet.value;
-  editingQuestionId = set?.id || null;
-  questionTitle.value = set?.title || `${props.jobTitle || 'Job'} interview questions`;
-  questionText.value = (set?.questions_json || []).map(q => typeof q === 'string' ? q : q.text || q.question || '').join('\n');
-  questionError.value = ''; questionEditor.value = true;
-}
-async function saveQuestions() {
-  savingQuestions.value = true; questionError.value = '';
-  try {
-    const existing = jobSets.value.find(s => s.id === editingQuestionId);
-    const payload = { agencyId: props.agencyId, title: questionTitle.value.trim(),
-      jobDescriptionId: existing ? existing.job_description_id : props.jobDescriptionId,
-      questions: questionText.value.split('\n').map(s => s.trim()).filter(Boolean).map((text, i) => ({ key: `q_${i + 1}`, text })) };
-    const r = editingQuestionId ? await api.put(`/hiring/interview-hub/job-question-sets/${editingQuestionId}`, payload) : await api.post('/hiring/interview-hub/job-question-sets', payload);
-    await loadJobSets();
-    jobQuestionSetId.value = String(r.data?.data?.id || editingQuestionId || '');
-    questionEditor.value = false;
-  } catch (e) { questionError.value = e.response?.data?.message || e.response?.data?.error?.message || 'Could not save questions.'; }
-  finally { savingQuestions.value = false; }
-}
+const interviewQuestions=ref(null),questionsReady=ref(false),questionsVersion=ref(0);
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(true);
@@ -431,12 +386,12 @@ const interviewActionItems = computed(() => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadInterviews(), loadJobSets(), loadCapsules()]);
+  await Promise.all([loadInterviews(), loadCapsules()]);
 });
 
 watch(() => [props.candidateUserId,props.agencyId,props.jobDescriptionId], async () => {
-  jobQuestionSetId.value='';questionEditor.value=false;
-  await Promise.all([loadInterviews(), loadCapsules(),loadJobSets()]);
+  interviewQuestions.value=null;questionsReady.value=false;
+  await Promise.all([loadInterviews(), loadCapsules()]);
 });
 
 watch(() => props.schedulePulse, (n) => {
@@ -508,21 +463,7 @@ async function loadInterviews() {
   }
 }
 
-let jobSetsRequest=0;
-async function jobGuideSaved(){jobQuestionSetId.value='';await loadJobSets();}
-async function loadJobSets() {
-  const request=++jobSetsRequest;
-  try {
-    const r = await api.get('/hiring/interview-hub/job-question-sets', {
-      params: { agencyId: props.agencyId, jobDescriptionId: props.jobDescriptionId || undefined }
-    });
-    if(request!==jobSetsRequest)return;
-    jobSets.value = r.data?.data || r.data || [];
-    if(!jobQuestionSetId.value && props.jobDescriptionId)jobQuestionSetId.value=String(jobSets.value.find(set=>Number(set.job_description_id)===Number(props.jobDescriptionId))?.id || '');
-  } catch {
-    if(request===jobSetsRequest)jobSets.value = [];
-  }
-}
+function jobGuideSaved(){questionsVersion.value++;}
 
 async function selectInterview(iv) {
   selectedId.value = iv.id;
@@ -610,6 +551,7 @@ async function saveInterviewEdit() {
   editError.value = '';
   try {
     const startsAt = String(editStartsLocal.value || '').trim();
+    if (!questionsReady.value) return;
     if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
       editError.value = 'Pick a valid start date and time.';
       return;
@@ -641,6 +583,7 @@ async function scheduleInterview(overrideScheduleHolds = false) {
   scheduleHoldOverridable.value = false;
   try {
     const startsAt = String(startsLocal.value || '').trim();
+    if (!questionsReady.value) return;
     if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
       scheduleError.value = 'Pick a valid start date and time.';
       return;
@@ -652,7 +595,8 @@ async function scheduleInterview(overrideScheduleHolds = false) {
       timezone: timezone.value,
       durationMinutes: durationMinutes.value,
       interviewerUserIds: interviewerIds.value,
-      jobQuestionSetId: jobQuestionSetId.value || null,
+      jobQuestionSetId: interviewQuestions.value?.setId || null,
+      questionSelection: interviewQuestions.value?.questions,
       hiringProfileId: props.hiringProfileId || null,
       sendInvites: sendInvites.value,
       interviewRound: interviewRound.value,
@@ -786,9 +730,6 @@ async function openCapsule(c) {
 </script>
 
 <style scoped>
-.cip-question-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.cip-question-editor { padding: 16px; border: 1px solid #cad7df; border-radius: 12px; }
-.cip-question-editor textarea { width: 100%; box-sizing: border-box; }
 .cip {
   display: flex;
   flex-direction: column;
@@ -943,8 +884,5 @@ async function openCapsule(c) {
 </style>
 
 <style scoped>
-.cip-question-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.cip-question-editor { padding: 16px; border: 1px solid #cad7df; border-radius: 12px; }
-.cip-question-editor textarea { width: 100%; box-sizing: border-box; }
 .cip-delivery { padding: 14px; border: 1px solid #b6cec1; background: #f1f8f4; border-radius: 10px; font-size: 14px; }
 </style>

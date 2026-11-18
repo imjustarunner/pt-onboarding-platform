@@ -1,0 +1,31 @@
+name: Job interview question guides
+on:
+  pull_request:
+    paths: ['backend/src/**/interview*','backend/src/**/Interview*','backend/src/**/hiring*','backend/src/**/Hiring*','backend/src/**/jobInterview*','frontend/src/components/hiring/**','frontend/src/views/admin/InterviewHubView.vue','frontend/src/views/admin/CareersView.vue','backend/src/**/hire.jobInterview*','database/migrations/1849_job_interview_question_defaults.sql','**/vitest.job-interview-questions.config.js','.github/workflows/job-interview-questions.yml']
+  push:
+    branches: [main]
+    paths: ['backend/src/**/interview*','backend/src/**/Interview*','backend/src/**/hiring*','backend/src/**/Hiring*','backend/src/**/jobInterview*','frontend/src/components/hiring/**','frontend/src/views/admin/InterviewHubView.vue','frontend/src/views/admin/CareersView.vue','backend/src/**/hire.jobInterview*','database/migrations/1849_job_interview_question_defaults.sql','**/vitest.job-interview-questions.config.js','.github/workflows/job-interview-questions.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guides:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: npm ci
+        working-directory: backend
+      - run: frontend/node_modules/.bin/vitest run --config backend/vitest.job-interview-questions.config.js
+        env:
+          NODE_OPTIONS: --experimental-sqlite
+          SKIP_DB_CONNECT: '1'
+      - run: frontend/node_modules/.bin/vitest run --config frontend/vitest.job-interview-questions.config.js

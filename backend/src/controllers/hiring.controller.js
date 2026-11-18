@@ -12,6 +12,7 @@ import { hiringAssigneesForAgency } from '../services/hiringAssignees.service.js
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
+import {createJobWithInterviewQuestions} from '../services/jobInterviewQuestions.service.js';
 import HiringNote from '../models/HiringNote.model.js';
 import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
@@ -1606,7 +1607,7 @@ export const createJobDescription = async (req, res, next) => {
 
     const prehireConfigJson = parsePrehireConfigFromBody(req.body);
     await validateJobHireDefaults(prehireConfigJson, agencyId);
-    const created = await HiringJobDescription.create({
+    const created = await createJobWithInterviewQuestions({
       agencyId,
       title,
       descriptionText: descriptionText || null,

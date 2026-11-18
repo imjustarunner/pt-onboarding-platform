@@ -467,6 +467,7 @@
         <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
         <ContractExpectationsEditor v-model="createForm.prehireConfig.contractDefaults" />
         <JobHirePackagesEditor ref="createPackagesRef" v-model="createForm.prehireConfig" :agency-id="effectiveAgencyId" />
+        <p class="muted small">This job will receive its own starter interview question set. After saving, open Edit to tailor the questions and ratings before interviewing applicants.</p>
       </div>
       <div class="application-page-config">
         <div class="config-header">
@@ -657,6 +658,7 @@
             <ContractExpectationsEditor v-model="editForm.prehireConfig.contractDefaults" />
             <JobHirePackagesEditor ref="editPackagesRef" v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
+          <JobInterviewGuideEditor v-if="editingRow?.id" :key="`interview-${effectiveAgencyId}-${editingRow.id}`" :job-description-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
           <JobEvaluationRubricEditor v-if="editingRow?.id" :key="`${effectiveAgencyId}-${editingRow.id}`" :job-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
           <div class="application-page-config">
             <div class="config-header">
@@ -743,6 +745,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import JobApplicationPagePreview from '../../components/careers/JobApplicationPagePreview.vue';
 import JobEvaluationRubricEditor from '../../components/careers/JobEvaluationRubricEditor.vue';
+import JobInterviewGuideEditor from '../../components/hiring/JobInterviewGuideEditor.vue';
 import JobDescriptionSectionsEditor from '../../components/careers/JobDescriptionSectionsEditor.vue';
 import JobHirePackagesEditor from '../../components/careers/JobHirePackagesEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';

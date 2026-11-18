@@ -28,6 +28,7 @@ import { isValidInterviewRoundKey } from '../constants/hiringInterviewRounds.js'
 import { buildHiringInterviewTitle } from '../utils/hiringInterviewTitle.js';
 import { sendHiringInterviewInviteEmail } from './hiringInterviewInviteEmail.service.js';
 import { withMeetingWindow } from './meetingWindowConflict.service.js';
+import {resolveInterviewQuestionSelection} from './jobInterviewQuestions.service.js';
 
 /** Google Calendar event color: 3 = grape/purple (distinct from general meetings). */
 export const INTERVIEW_GOOGLE_COLOR_ID = '3';
@@ -108,6 +109,7 @@ export async function scheduleHiringInterview({
   interviewerUserIds = [],
   templateId = null,
   jobQuestionSetId = null,
+  questionSelection = null,
   hiringProfileId = null,
   sendInvites = true,
   overrideScheduleHolds = false,
@@ -157,7 +159,7 @@ export async function scheduleHiringInterview({
   let jobQuestionSet = null;
   if (jobQuestionSetId) {
     jobQuestionSet = await InterviewHubJobQuestionSet.findById(jobQuestionSetId);
-    if (!jobQuestionSet || Number(jobQuestionSet.agency_id) !== agency) {
+    if (!jobQuestionSet || Number(jobQuestionSet.agency_id) !== agency || jobQuestionSet.is_active===false || jobQuestionSet.is_active===0) {
       const err = new Error('Invalid jobQuestionSetId for agency');
       err.status = 400;
       throw err;
@@ -182,6 +184,8 @@ export async function scheduleHiringInterview({
     if(!jobQuestionSetId)jobQuestionSet=jobGuide;
     else if(jobGuide?.scorecard_criteria_json?.length)jobQuestionSet={...jobQuestionSet,scorecard_criteria_json:jobGuide.scorecard_criteria_json};
   }
+
+  const selectedQuestions=await resolveInterviewQuestionSelection({selection:questionSelection,agencyId:agency,jobDescriptionId:profileRow?.job_description_id,template});
 
   let jobTitle = String(jobTitleOverride || '').trim();
   let resolvedJobDescriptionId = null;
@@ -443,6 +447,7 @@ export async function scheduleHiringInterview({
   const flow = buildInterviewFlow({
     template,
     jobQuestionSet,
+    selectedQuestions,
     regenerateSalutation: true,
     regenerateIcebreaker: true
   });

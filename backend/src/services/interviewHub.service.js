@@ -70,7 +70,7 @@ export function pickRandom(arr, previous = null) {
   return text;
 }
 
-function normalizeQuestionList(raw) {
+export function normalizeQuestionList(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((q, idx) => {
@@ -127,7 +127,8 @@ export function buildInterviewFlow({
   jobQuestionSet = null,
   regenerateSalutation = true,
   regenerateIcebreaker = true,
-  previousFlow = null
+  previousFlow = null,
+  selectedQuestions = null
 } = {}) {
   if (previousFlow?.sections && !regenerateSalutation && !regenerateIcebreaker) return previousFlow;
   const sections = Array.isArray(template?.flow_sections_json) && template.flow_sections_json.length
@@ -139,7 +140,7 @@ export function buildInterviewFlow({
   const standardQuestions = normalizeQuestionList(
     template?.standard_questions_json?.length ? template.standard_questions_json : DEFAULT_STANDARD_QUESTIONS
   );
-  const jobQuestions = normalizeQuestionList(jobQuestionSet?.questions_json);
+  const jobQuestions = selectedQuestions === null ? normalizeQuestionList(jobQuestionSet?.questions_json) : selectedQuestions;
   const candidatePrompt =
     template?.candidate_questions_prompt || DEFAULT_CANDIDATE_QUESTIONS_PROMPT;
 
@@ -165,16 +166,20 @@ export function buildInterviewFlow({
       return { key, label, item: icebreaker };
     }
     if (key === 'job_specific') {
-      return { key, label, questions: jobQuestions };
+      return { key, label: selectedQuestions === null ? label : 'Interview questions', questions: jobQuestions };
     }
     if (key === 'standard') {
-      return { key, label, questions: standardQuestions };
+      return selectedQuestions === null ? { key, label, questions: standardQuestions } : null;
     }
     if (key === 'candidate_questions') {
       return { key, label, prompt: candidatePrompt };
     }
     return { key, label, ...(section || {}) };
-  });
+  }).filter(Boolean);
+  if(selectedQuestions !== null && !builtSections.some(section=>section.key==='job_specific')) {
+    const index=builtSections.findIndex(section=>section.key==='candidate_questions');
+    builtSections.splice(index<0?builtSections.length:index,0,{key:'job_specific',label:'Interview questions',questions:jobQuestions});
+  }
 
   return {
     salutation,

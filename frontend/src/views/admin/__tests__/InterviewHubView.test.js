@@ -21,6 +21,7 @@ beforeEach(() => {
     if (url === '/hiring/assignees') data = staff;
     else if (url === '/hiring/candidates') data = [candidate];
     else if (url === '/hiring/job-descriptions') data = [{ id: 7, title: 'Counselor' }];
+    else if (url === '/hiring/interview-hub/question-options') return {data:{data:{questionSets:[],starterSource:'platform',starterQuestions:[{key:'q1',text:'Starter question?',fingerprint:'reviewed'}]}}};
     else return { data: { data: [] } };
     return { data: wrapped ? { data } : data };
   });
@@ -55,6 +56,7 @@ describe('Interview Hub scheduling options', () => {
   it('sends the selected interviewer when scheduling from the visible form', async () => {
     await open();
     await wrapper.get('[role="dialog"] select').setValue('30');
+    await flushPromises();
     await wrapper.get('input[type="datetime-local"]').setValue('2026-11-10T10:00');
     await wrapper.get('.ih-interviewer-list input[value="476"]').setValue(true);
     await wrapper.findAll('.ih-modal-footer button').at(-1).trigger('click'); await flushPromises();

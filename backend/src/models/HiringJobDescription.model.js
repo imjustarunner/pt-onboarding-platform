@@ -28,7 +28,8 @@ class HiringJobDescription {
     publishAt = null,
     unpublishAt = null,
     scheduleText = null,
-    credentialMode = 'none'
+    credentialMode = 'none',
+    executor = pool
   }) {
     const baseParams = [
       parseIntParam(agencyId),
@@ -59,7 +60,7 @@ class HiringJobDescription {
       ? String(credentialMode).trim().toLowerCase()
       : 'none';
     try {
-      const [result] = await pool.execute(
+      const [result] = await executor.execute(
         `INSERT INTO hiring_job_descriptions (
           agency_id, title, description_text, description_sections_json,
           posted_date, application_deadline, city, state, education_level,
@@ -70,11 +71,11 @@ class HiringJobDescription {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [...baseParams, publishAt || null, unpublishAt || null, scheduleTextVal, credentialModeVal]
       );
-      return this.findById(result.insertId);
+      return this.findById(result.insertId, executor);
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       try {
-        const [result] = await pool.execute(
+        const [result] = await executor.execute(
           `INSERT INTO hiring_job_descriptions (
             agency_id, title, description_text, description_sections_json,
             posted_date, application_deadline, city, state, education_level,
@@ -84,10 +85,10 @@ class HiringJobDescription {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [...baseParams, publishAt || null, unpublishAt || null]
         );
-        return this.findById(result.insertId);
+        return this.findById(result.insertId, executor);
       } catch (e2) {
         if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
-        const [result] = await pool.execute(
+        const [result] = await executor.execute(
           `INSERT INTO hiring_job_descriptions (
             agency_id, title, description_text, description_sections_json,
             posted_date, application_deadline, city, state, education_level,
@@ -97,13 +98,13 @@ class HiringJobDescription {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           baseParams
         );
-        return this.findById(result.insertId);
+        return this.findById(result.insertId, executor);
       }
     }
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, executor = pool) {
+    const [rows] = await executor.execute(
       `SELECT *
        FROM hiring_job_descriptions
        WHERE id = ?
