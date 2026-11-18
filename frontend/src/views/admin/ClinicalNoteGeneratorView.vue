@@ -38,7 +38,6 @@
       <button type="button" class="na-archive-btn" @click="showContactWork = !showContactWork">Contact documentation</button>
       <button type="button" class="na-archive-btn" @click="showTerminationOutcomes = !showTerminationOutcomes">Termination outcomes</button>
       <button type="button" class="na-archive-btn" @click="refreshWorkspace">Refresh</button>
-      <button v-if="canUseTool && authStore.user?.role === 'super_admin' && !demoPresentation" type="button" class="na-archive-btn" :disabled="preparingUnlinkedCleanup" @click="openUnlinkedCleanup">Clean up test notes</button>
       <button type="button" class="na-archive-btn" @click="focusArchivedShelf">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7h18v13H3zM3 7l2-3h14l2 3" />
@@ -47,8 +46,6 @@
       </button>
       </div>
     </header>
-
-    <UnlinkedNoteCleanupDialog v-if="showUnlinkedCleanup" :after-delete="onUnlinkedCleanupDeleted" @close="closeUnlinkedCleanup" />
 
     <ContactDocumentationQueue v-if="showContactWork && canUseTool" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" @pending-count="contactDocumentationCount = $event" />
 
@@ -1577,7 +1574,6 @@ import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import PriorIntakeNotice from '../../components/clinical/PriorIntakeNotice.vue';
 import DraftAppointmentRepair from '../../components/clinical/DraftAppointmentRepair.vue';
-import UnlinkedNoteCleanupDialog from '../../components/clinical/UnlinkedNoteCleanupDialog.vue';
 import SessionSupportingMaterials from '../../components/clinical/SessionSupportingMaterials.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
@@ -2151,54 +2147,6 @@ const workQueueItems = useNoteAidWorkQueue(() => authStore.user?.id);
 const workspaceReady = ref(false);
 const showTerminationOutcomes = ref(false);
 const showContactWork = ref(false);
-const showUnlinkedCleanup = ref(false);
-const preparingUnlinkedCleanup = ref(false);
-async function openUnlinkedCleanup() {
-  if (preparingUnlinkedCleanup.value || showUnlinkedCleanup.value || authStore.user?.role !== 'super_admin' || props.demoPresentation) return;
-  preparingUnlinkedCleanup.value = true;
-  let held = false;
-  try {
-    cancelPendingAutosave();
-    const deadline = Date.now() + 10000;
-    while (autosaveBusy && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
-    if (autosaveBusy) throw new Error('Wait for the current draft to finish saving, then try again.');
-    await autosave();
-    beginWorkspaceHydration();
-    held = true;
-    // Drain queued writes before previewing. While the modal is open autosave
-    // stays paused, so it cannot recreate a draft being removed.
-    await fetchWorkQueueFromApi(authStore.user?.id);
-    showUnlinkedCleanup.value = true;
-  } catch (error) {
-    if (held) endWorkspaceHydration();
-    approvalError.value = error.message || 'Unable to prepare cleanup.';
-  } finally { preparingUnlinkedCleanup.value = false; }
-}
-function closeUnlinkedCleanup() {
-  showUnlinkedCleanup.value = false;
-  endWorkspaceHydration();
-}
-async function onUnlinkedCleanupDeleted(result) {
-  ++workQueueSyncSeq;
-  const draftIds = new Set(result.deletedDraftIds.map(String));
-  const queueIds = new Set(result.deletedWorkQueueIds.map(String));
-  const queueKeys = new Set(result.deletedWorkQueueKeys.map(String));
-  const removedActiveQueue = workQueueItems.value.some(item => String(item.id) === String(activeWorkQueueItemId.value)
-    && (queueIds.has(String(item.serverId)) || queueKeys.has(String(item.clientKey || item.id))));
-  if (draftIds.has(String(draftId.value)) || removedActiveQueue) {
-    ++workQueueActivateSeq;
-    startNewNote();
-    await clearDraftFromRouteQuery();
-    const query = { ...route.query };
-    for (const key of ['workQueueId', 'launchIntent']) delete query[key];
-    await router.replace({ query });
-  }
-  // Drop removed entries from the shared in-memory queue before library
-  // reconciliation can persist an old snapshot back to the server.
-  workQueueItems.value = workQueueItems.value.filter(item => !queueIds.has(String(item.serverId)) && !queueKeys.has(String(item.clientKey || item.id)));
-  saveWorkQueue(authStore.user?.id, workQueueItems.value);
-  await refreshWorkspace();
-}
 async function refreshWorkspace() {
   // Library reconciliation writes queue status, so load the server queue first.
   await fetchWorkQueueFromApi(authStore.user?.id);
