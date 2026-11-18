@@ -9,7 +9,7 @@ export const familyContactHash=value=>crypto.createHash('sha256').update(String(
 const parse=value=>typeof value==='string'?JSON.parse(value):value;
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const unavailable=()=>fail('This preference link is unavailable or has expired. Ask your care team for a new link.',410);
-async function currentRecipient(scope,db) {
+export async function currentRecipient(scope,db) {
   const [[row]]=await db.execute(`SELECT cg.permissions_json,cg.access_enabled,u.email,u.first_name,u.last_name,
     COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone,
     c.full_name,c.client_type,a.name AS agency_name,u.is_demo
@@ -17,7 +17,7 @@ async function currentRecipient(scope,db) {
     JOIN clients c ON c.id=cg.client_id JOIN agencies a ON a.id=?
     WHERE cg.client_id=? AND cg.guardian_user_id=? AND (c.agency_id=a.id OR EXISTS
       (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=a.id AND ca.is_active=1))
-      AND cg.access_enabled=1 AND u.is_active=1 AND a.is_active=1
+      AND cg.access_enabled=1 AND u.is_active=1 AND u.role IN ('client_guardian','guardian','client') AND a.is_active=1
       AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())`,
     [scope.agency_id,scope.client_id,scope.guardian_user_id]);
   const permissions=parse(row?.permissions_json)||{};
@@ -76,20 +76,31 @@ export async function saveFamilyNotificationChoices({token,input},db=pool) {
     const [[lock]]=await connection.execute('SELECT GET_LOCK(?,5) AS acquired',[lockKey]);
     if(!Number(lock?.acquired))throw fail('Your choices are being saved. Please try again.',409);
     locked=lockKey;await connection.beginTransaction();
+    await connection.execute('SELECT revision FROM family_notification_choices WHERE agency_id=? AND client_id=? AND guardian_user_id=? FOR UPDATE',[s.agency_id,s.client_id,s.guardian_user_id]);
     const current=await familyNotificationInvitationContext(token,connection);
     if(current.revision!==Number(input.revision))throw fail('Your choices changed in another window. Reload this page to see them.',409);
     // The one appointment row maps to the actual enrollment. Existing-family
     // preferences never enroll someone into unfinished-enrollment follow-ups.
     const choices={...current.choices,...selected,
       school_sessions:current.recipient.client_type==='school'?selected.appointments:'off'};
-    const revision=current.revision+1,phone=normalizeSmsPhone(current.recipient.phone);
+    const revision=current.revision+1;
+    await persistFamilyNotificationChoices({scope:s,recipient:current.recipient,choices,revision},connection);
+    await connection.commit();
+    return {saved:true,revision,textPreferencesPending:Object.values(selected).some(c=>choiceAllows(c,'sms'))};
+  }catch(error){await connection.rollback();throw error;}
+  finally{if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[locked]);connection.release();}
+}
+
+// Caller owns the transaction and serializes this recipient's revision.
+export async function persistFamilyNotificationChoices({scope:s,recipient,choices,revision,version=FAMILY_CHOICE_VERSION,disclosure=FAMILY_CHOICE_DISCLOSURE},connection) {
+    const phone=normalizeSmsPhone(recipient.phone);
     await connection.execute(`INSERT INTO family_notification_choices
       (agency_id,client_id,guardian_user_id,recipient_hash,phone_hash,choices_json,revision) VALUES (?,?,?,?,?,?,?)
       ON DUPLICATE KEY UPDATE recipient_hash=VALUES(recipient_hash),phone_hash=VALUES(phone_hash),choices_json=VALUES(choices_json),revision=VALUES(revision)`,
       [s.agency_id,s.client_id,s.guardian_user_id,s.recipient_hash,phone?familyContactHash(phone):null,JSON.stringify(choices),revision]);
     await connection.execute(`INSERT INTO family_notification_choice_events
       (agency_id,client_id,guardian_user_id,recipient_hash,choices_json,disclosure_version,disclosure_text,revision) VALUES (?,?,?,?,?,?,?,?)`,
-      [s.agency_id,s.client_id,s.guardian_user_id,s.recipient_hash,JSON.stringify(choices),FAMILY_CHOICE_VERSION,FAMILY_CHOICE_DISCLOSURE,revision]);
+      [s.agency_id,s.client_id,s.guardian_user_id,s.recipient_hash,JSON.stringify(choices),version,disclosure,revision]);
     const schedule=['appointments','schedule_changes','school_sessions'];
     const channels={in_app:true,email:schedule.some(k=>choiceAllows(choices[k],'email')),sms:schedule.some(k=>choiceAllows(choices[k],'sms')),phone:false};
     await connection.execute(`INSERT INTO client_session_notification_preferences
@@ -100,11 +111,8 @@ export async function saveFamilyNotificationChoices({token,input},db=pool) {
     await connection.execute(`UPDATE school_session_email_preferences SET disabled_at=?
       WHERE product='guardian' AND agency_id=? AND client_id=? AND recipient_hash=?`,
       [choiceAllows(choices.school_sessions,'email')?null:dateToMysqlUtcDateTime(new Date()),s.agency_id,s.client_id,s.recipient_hash]);
-    await connection.commit();
-    return {saved:true,revision,textPreferencesPending:Object.values(selected).some(c=>choiceAllows(c,'sms'))};
-  }catch(error){await connection.rollback();throw error;}
-  finally{if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[locked]);connection.release();}
 }
+
 export async function latestFamilyEmailSchedulingChoice({agencyId,clientId,to,after},db=pool) {
   if(!to)return null;
   const [rows]=await db.execute(`SELECT guardian_user_id,choices_json,updated_at FROM family_notification_choices

@@ -350,6 +350,10 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
     let relayRestored = false;
     try {
       changed = await recordClientSmsStart({ sender, phone, messageId, receivedAt }, consentDb);
+      if (changed) {
+        const { activateQuickFamilyTexts } = await import('./familyQuickTextEnrollment.service.js');
+        await activateQuickFamilyTexts({ sender, phone, messageId, receivedAt }, consentDb);
+      }
       if (changed && !wasStopped) relayRestored = await restartProviderRelay({ sender, phone, evidence }, consentDb);
       await consentDb.commit();
     } catch (error) { await consentDb.rollback(); throw error; }

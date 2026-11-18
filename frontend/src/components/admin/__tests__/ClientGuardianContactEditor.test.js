@@ -5,6 +5,13 @@ import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { put: vi.fn() } }));
 beforeEach(() => vi.clearAllMocks());
 describe('paper packet guardian contact editor', () => {
+  it('edits a linked account without overwriting the paper snapshot or granting portal access',async()=>{
+    const wrapper=mount(ClientGuardianContactEditor,{props:{clientId:22,guardianUserId:30,profile:{firstName:'Pat',lastName:'Example',email:'pat@example.test',phone:'3035550100'}}});
+    expect(wrapper.text()).toContain('Edit guardian contact');await wrapper.get('button').trigger('click');await wrapper.get('input[type=tel]').setValue('3035550101');api.put.mockResolvedValue({data:{ok:true}});
+    await wrapper.get('form').trigger('submit');await flushPromises();
+    expect(api.put).toHaveBeenCalledWith('/clients/22/guardians/30',{contact:expect.objectContaining({phone:'3035550101'}),relationshipTitle:''});
+    expect(JSON.stringify(api.put.mock.calls)).not.toContain('accessEnabled');expect(wrapper.emitted('saved')[0][0].phone).toBe('3035550101');wrapper.unmount();
+  });
   it('adds a contact without requiring an email and emits the saved encrypted-record projection', async () => {
     const wrapper = mount(ClientGuardianContactEditor, { props: { clientId: 22 } });
     await wrapper.get('button').trigger('click');

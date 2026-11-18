@@ -224,3 +224,9 @@ it('returns the exact guardian’s own saved progress for their current issued r
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ submissionId: 10, intakeData: { ownReleaseAnswers: true } }));
   expect(IntakeSubmission.updateById).not.toHaveBeenCalled();
 });
+
+it('preserves a prior failed signed submission for office recovery instead of replacing its session',async()=>{
+ assignedRelease();submission.status='submitted';submission.combined_pdf_path=null;
+ await createPublicIntakeSession(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,message:expect.stringContaining('do not need to fill it out again')}));
+ expect(IntakeSubmission.create).not.toHaveBeenCalled();expect(ClientSchoolRoiSigningLink.markStarted).not.toHaveBeenCalled();
+});

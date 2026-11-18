@@ -87,6 +87,7 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   const [rows] = await pool.execute('SELECT * FROM sms_consent_requests WHERE id = ? AND agency_id = ?', [requestId, agencyId]);
   const row = rows[0];
   if (!row?.signed_at || !row.signed_payload_json) throw smsPolicyError('sms_signature_missing', 'The recipient must sign before activation');
+  if (parse(row.disclosure_json)?.enrollmentCategory === 'family_quick_start') throw smsPolicyError('sms_start_required', 'This opt-in is activated only by START from the recipient’s phone.');
   let signed = JSON.parse(decryptChatText(parse(row.signed_payload_json)));
   const savedStaff = parse(row.disclosure_json)?.enrollmentCategory === 'staff_communications';
   const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [row.number_id, agencyId]);

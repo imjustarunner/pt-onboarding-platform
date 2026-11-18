@@ -4,14 +4,14 @@
       {{ hasContact ? 'Edit guardian contact' : 'Add guardian contact' }}
     </button>
     <form v-else @submit.prevent="save">
-      <p class="hint">Enter the parent or guardian’s contact information from the packet. Email and date of birth are optional.</p>
+      <p class="hint">{{ guardianUserId ? 'Update this linked guardian’s account contact details. Their portal and record permissions stay the same.' : 'Enter the parent or guardian’s contact information from the packet. Email and date of birth are optional.' }}</p>
       <div class="contact-fields">
         <label>First name<input v-model="form.firstName" maxlength="150" autocomplete="off" /></label>
         <label>Last name<input v-model="form.lastName" maxlength="150" autocomplete="off" /></label>
         <label>Email<input v-model="form.email" type="email" maxlength="254" autocomplete="off" /></label>
         <label>Phone<input v-model="form.phone" type="tel" maxlength="60" autocomplete="off" /></label>
         <label>Relationship<input v-model="form.relationship" maxlength="100" placeholder="e.g., Parent" /></label>
-        <label>Guardian date of birth<input v-model="form.dateOfBirth" type="date" /></label>
+        <label v-if="!guardianUserId">Guardian date of birth<input v-model="form.dateOfBirth" type="date" /></label>
       </div>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <div class="contact-actions">
@@ -27,7 +27,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 
-const props = defineProps({ clientId: { type: Number, required: true }, profile: { type: Object, default: null } });
+const props = defineProps({ clientId: { type: Number, required: true }, guardianUserId:{type:Number,default:null}, profile: { type: Object, default: null } });
 const emit = defineEmits(['saved']);
 const editing = ref(false);
 const saving = ref(false);
@@ -36,7 +36,7 @@ const error = ref('');
 const form = ref({});
 let generation = 0;
 const hasContact = computed(() => !!(props.profile?.fullName || props.profile?.firstName || props.profile?.email || props.profile?.phone));
-watch(() => props.clientId, () => { generation++; editing.value = false; saving.value = false; saved.value = false; error.value = ''; form.value = {}; });
+watch(() => [props.clientId,props.guardianUserId], () => { generation++; editing.value = false; saving.value = false; saved.value = false; error.value = ''; form.value = {}; });
 const startEditing = () => {
   const profile = props.profile || {};
   const names = String(profile.fullName || '').trim().split(/\s+/);
@@ -53,10 +53,12 @@ const save = async () => {
   const clientId = props.clientId;
   saving.value = true; error.value = '';
   try {
-    const { data } = await api.put(`/clients/${clientId}/guardian-contact`, { ...form.value });
+    const { data } = props.guardianUserId
+      ? await api.put(`/clients/${clientId}/guardians/${props.guardianUserId}`, {contact:{...form.value},relationshipTitle:form.value.relationship})
+      : await api.put(`/clients/${clientId}/guardian-contact`, { ...form.value });
     if (generation !== requestGeneration) return;
     editing.value = false; saved.value = true;
-    emit('saved', data.guardian_intake_profile);
+    emit('saved', data.guardian_intake_profile || {...form.value,fullName:[form.value.firstName,form.value.lastName].filter(Boolean).join(' ')});
   } catch (err) {
     if (generation === requestGeneration) error.value = err.response?.data?.error?.message || 'Unable to save guardian contact. Please try again.';
   } finally {

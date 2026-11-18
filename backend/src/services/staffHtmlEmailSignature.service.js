@@ -1001,9 +1001,10 @@ export async function appendDepartmentHtmlSignature({
  * Uses a non-functional placeholder report URL so the compose UI shows the same
  * "Report misdirected email" control recipients get on real sends (token minted at send time).
  */
-export async function getStaffSignaturePreview({ userId, agencyId = null } = {}) {
-  const ctx = await resolveStaffSignatureContext({ userId, agencyId });
+export async function getStaffSignaturePreview({ userId, agencyId = null } = {}, {resolveContext=resolveStaffSignatureContext}={}) {
+  const ctx = await resolveContext({ userId, agencyId });
   if (!ctx) return null;
+  if (!ctx.eligible) return {eligible:false,enabled:false,html:null,text:null,fields:null};
   // Hub preview runs in the browser — prefer same-origin /email-signatures/* paths
   // so local Vite (and any CDN mismatch) still loads icons / phoenix mark.
   const previewReportUrl = '#misdirected-report-preview';

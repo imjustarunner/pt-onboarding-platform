@@ -112,6 +112,7 @@
 </template>
 
 <script setup>
+import { safeLoginDestination } from '../utils/loginHandoff';
 import { usePortalAuthLocale, withPortalAuthLanguage, portalAuthError } from '../utils/portalAuthLocale.js';
 
 import { ref, computed, onMounted } from 'vue';
@@ -213,7 +214,7 @@ const handleSetup = async () => {
       password: password.value,
       clientDob: requiresClientDob.value ? clientDob.value : undefined
     });
-    await completePasswordTokenLogin(response.data, router, { locale:authLocale.value, portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug });
+    await completePasswordTokenLogin(response.data, router, { destination:safeLoginDestination(route.query.redirect), locale:authLocale.value, portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug });
   } catch (err) {
     setupError.value = portalAuthError(err, authLocale.value, 'Failed to set password. Please try again.');
     setting.value = false;

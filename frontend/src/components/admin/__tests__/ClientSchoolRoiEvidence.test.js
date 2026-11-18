@@ -54,7 +54,7 @@ const guardians = [
   {guardian_user_id:21,first_name:'Wren',last_name:'QA',email:'testing+wren@example.test',can_request_roi:true},
   {guardian_user_id:22,first_name:'Ash',last_name:'QA',email:'testing+ash@example.test',can_request_roi:true}
 ];
-const requestButton = () => wrapper.findAll('button').find(b => b.text() === 'Request ROI from selected guardians');
+const requestButton = () => wrapper.findAll('button').find(b => b.text() === 'Send ROI email to selected guardians');
 it('sends only the checked guardian and describes a successful testing redirect without false failure', async () => {
   const initial={...payload(4),guardian_emails:guardians};
   api.get.mockResolvedValue({data:initial});

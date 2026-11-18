@@ -39,7 +39,7 @@
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import ClientPersonalPortalInvite from './ClientPersonalPortalInvite.vue';
-const props = defineProps({ agencyId: { type: Number, default: null }, personalLoginAvailable: { type: Boolean, default: false }, clientIds: { type: Array, required: true } });
+const props = defineProps({ recipientGuardianId:{type:Number,default:null}, agencyId: { type: Number, default: null }, personalLoginAvailable: { type: Boolean, default: false }, clientIds: { type: Array, required: true } });
 defineEmits(['close']);
 const loading = ref(false), sending = ref(false), error = ref(''), recipients = ref([]), skipped = ref([]), selected = ref([]), results = ref({}), finished = ref(false), needsRefresh = ref(false);
 const staleKeys = new Set();
@@ -49,7 +49,7 @@ async function load() {
   loading.value = true; error.value = '';
   try {
     const { data } = await api.post('/clients/portal-invites/preview', { clientIds: props.clientIds });
-    recipients.value = data.recipients; skipped.value = data.skipped; selected.value = [];
+    recipients.value = props.recipientGuardianId ? data.recipients.filter(row=>Number(row.guardianUserId)===props.recipientGuardianId) : data.recipients; skipped.value = data.skipped; selected.value = [];
     for (const key of staleKeys) delete results.value[key];
     staleKeys.clear(); needsRefresh.value = false;
   } catch (e) { error.value = e.response?.data?.error?.message || 'Recipients could not be loaded.'; }

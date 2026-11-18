@@ -1,0 +1,17 @@
+{
+  "agencyId": 2,
+  "schoolId": 326,
+  "clientId": 938,
+  "guardianId": 925,
+  "submissionId": 1627,
+  "issuedId": 371,
+  "canRecover": true,
+  "originalSignedAt": "2026-11-17T22:36:28.000Z",
+  "staffDecisionCount": 1,
+  "guardianPortalAccess": 0,
+  "applied": true,
+  "documentId": 1695,
+  "phiDocumentId": 4628,
+  "auditEventId": 104818,
+  "roiExpiresAt": "2029-11-17"
+}

@@ -3,6 +3,7 @@ import config from '../config/config.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
+import { assertGuardianRoiSigner } from './schoolRoiGuardianConsent.service.js';
 
 // The guardian signed in on this request, when that account can already read the child's documents.
 export async function portalGuardianForIssuedRoi(req, clientId, {
@@ -46,15 +47,26 @@ export async function resolveIssuedRoiConsentSigner({ req, issuedLink, clientId,
   if (!issuedLink?.id) return Number(submissionGuardianId) || null;
   const existing = dependencies.existing || existingIssuedRoiGuardian;
   const portal = dependencies.portal || portalGuardianForIssuedRoi;
+  const authorize = dependencies.authorize || assertGuardianRoiSigner;
+  if (Number(issuedLink.client_id) !== Number(clientId)) {
+    throw Object.assign(new Error('This school release belongs to a different child.'), { status: 403 });
+  }
   const recipient = Number(issuedLink.recipient_guardian_user_id) || 0;
+  const signedIn = await portal(req, clientId);
   if (recipient) {
-    const signedIn = await portal(req, clientId);
     if (signedIn !== recipient || await existing(issuedLink, clientId) !== recipient) {
       throw Object.assign(new Error('Sign in to the guardian account that received this school release. Each guardian has a separate request.'), { status: 403 });
     }
+    await authorize({ clientId, guardianUserId: recipient });
     return recipient;
   }
-  return await existing(issuedLink, clientId) || await portal(req, clientId);
+  // A copied legacy link is not evidence of which guardian is signing. Resolve
+  // identity before collecting answers, never from a name/email typed in a form.
+  if (!signedIn) throw Object.assign(new Error('Sign in to your guardian account before starting this school release. If you have not set a password, use the setup link in your email or request one from your care team.'), { status: 403 });
+  const emailedRecipient = await existing(issuedLink, clientId);
+  if (emailedRecipient && emailedRecipient !== signedIn) throw Object.assign(new Error('Open this release using the guardian account that received it.'), { status: 403 });
+  await authorize({ clientId, guardianUserId: signedIn });
+  return signedIn;
 }
 
 // Issued requests share an intake template, so template ID alone cannot bind a

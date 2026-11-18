@@ -1,0 +1,3 @@
+import {defineConfig} from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',include:['src/components/admin/__tests__/ClientSchoolRoiEvidence.test.js','src/components/public/__tests__/SmartSchoolRoiFlow.test.js','src/views/__tests__/PortalPasswordSetup.test.js','src/views/__tests__/PublicIntakeGuardianResume.test.js','src/components/admin/__tests__/GuardianFamilyWorkspace.test.js','src/components/admin/__tests__/ClientGuardianContactEditor.test.js','src/components/admin/__tests__/GuardianContactCard.test.js','src/utils/__tests__/guardianDirectory.test.js','src/views/admin/__tests__/GuardiansDirectory.test.js'],restoreMocks:true}});

@@ -8,7 +8,8 @@ export async function guardianContactContext({ userId, guardianId }) {
   const scope=hubClientScope(userId);
   const [rows]=await pool.execute(`SELECT c.id,c.agency_id,a.name AS agency_name,a.slug AS agency_slug,
     COALESCE(c.full_name,c.initials) AS name,cg.relationship_title,u.id AS guardian_id,u.first_name,u.last_name,
-    COALESCE(NULLIF(u.personal_email,''),u.email) AS email
+    COALESCE(NULLIF(u.personal_email,''),u.email) AS email,
+    COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone
     FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id
     JOIN agencies a ON a.id=c.agency_id
     WHERE cg.guardian_user_id=? AND cg.relationship_type<>'self' AND ${scope.sql}
@@ -21,7 +22,7 @@ export async function guardianContactContext({ userId, guardianId }) {
     preferences.set(Number(row.id), cp ? { noRoutineCalls: cp.noRoutineCalls === true, noAutomaticEmail: cp.noAutomaticEmail === true,
       alternativeContactInstructions: cp.alternativeContactInstructions || null } : null);
   }
-  return {guardian:{id:Number(first.guardian_id),name:[first.first_name,first.last_name].filter(Boolean).join(' '),email:first.email},
+  return {guardian:{id:Number(first.guardian_id),name:[first.first_name,first.last_name].filter(Boolean).join(' '),email:first.email,phone:first.phone||null},
     clients:rows.map(r=>({id:Number(r.id),name:r.name,agencyId:Number(r.agency_id),agencyName:r.agency_name,agencySlug:r.agency_slug,relationship:r.relationship_title,contactPreferences:preferences.get(Number(r.id))}))};
 }
 

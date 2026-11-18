@@ -38,7 +38,7 @@ class ClientGuardian {
          u.first_name,
          u.last_name,
          u.email,
-         COALESCE(u.phone_number, u.personal_phone, u.work_phone) AS phone,
+         COALESCE(NULLIF(u.phone_number,''), NULLIF(u.personal_phone,''), NULLIF(u.work_phone,'')) AS phone,
          u.profile_photo_path,
          u.status,
          u.is_active,

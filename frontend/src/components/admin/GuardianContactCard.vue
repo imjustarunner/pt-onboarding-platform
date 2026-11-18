@@ -4,6 +4,7 @@
     <p v-else-if="error" role="alert">{{ error }}</p>
     <template v-else-if="contact">
       <header><div><h3>{{ contact.guardian.name || 'Guardian' }}</h3><p>{{ contact.guardian.email || 'No email on file' }}</p></div><RouterLink v-if="showAccountLink" :to="accountPath">Open guardian account</RouterLink></header>
+      <p v-if="contact.guardian.phone"><a :href="`tel:${contact.guardian.phone.replace(/[^+0-9]/g,'')}`">{{contact.guardian.phone}}</a></p>
       <p>Select every client this email concerns. The conversation will be filed in each selected client’s record.</p>
       <fieldset v-for="agency in agencies" :key="agency.id">
         <legend>{{ agency.name }}</legend>

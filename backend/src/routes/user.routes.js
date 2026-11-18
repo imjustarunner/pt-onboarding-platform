@@ -157,6 +157,10 @@ router.post('/:id/external-calendars/:calendarId/feeds', authenticate, addUserEx
 router.patch('/:id/external-calendars/:calendarId', authenticate, patchUserExternalCalendar);
 router.patch('/:id/external-calendars/:calendarId/feeds/:feedId', authenticate, patchUserExternalCalendarFeed);
 router.get('/:id/guardian-clients', authenticate, requireBackofficeAdmin, getGuardianLinkedClients);
+router.get('/:id/guardian-workspace',authenticate,requireBackofficeAdmin,async(req,res,next)=>{
+  try { const {guardianWorkspace}=await import('../services/guardianWorkspace.service.js');res.set('Cache-Control','no-store');res.json(await guardianWorkspace({actor:req.user,guardianId:Number(req.params.id)})); }
+  catch(error){next(error);}
+});
 router.get('/:id/guardian-events', authenticate, requireBackofficeAdmin, getGuardianEvents);
 router.get('/:id/strava-connection', authenticate, getUserStravaConnection);
 router.get('/:id', authenticate, supportOwnAccountOnly, getUserById);

@@ -93,6 +93,13 @@
       <p>This school release has already been signed. Your saved copy is available in the guardian portal documents.</p>
     </section>
 
+    <section v-else-if="issuedRoiSigningAccess?.allowed === false" class="intake-card" role="status">
+      <h1>{{ intakeLocale === 'es' ? 'Acceso a su autorización escolar' : 'Open your school release' }}</h1>
+      <p>{{ issuedRoiSigningAccess.message }}</p>
+      <a :href="issuedRoiSigningAccess.loginUrl" class="df-btn df-btn-primary">{{ intakeLocale === 'es' ? 'Iniciar sesión y continuar' : 'Sign in and continue to this release' }}</a>
+      <p>{{ intakeLocale === 'es' ? 'Si aún no tiene contraseña, use el enlace de configuración de su correo o solicite ayuda a su equipo.' : 'New to AuricWell? Use the account setup link in your email to choose your password, or contact your care team.' }}</p>
+    </section>
+
     <section v-else-if="enrollmentStopped" class="intake-card" role="status" aria-live="polite">
       <h1>{{ t('enrollmentStoppedTitle') }}</h1>
       <p>{{ t('enrollmentStoppedBody') }}</p>
@@ -7375,6 +7382,7 @@ let draftRestoredBannerTimer = null;
 const signerInitials = ref('');
 const roiContext = ref(null);
 const issuedRoiCompleted = ref(false);
+const issuedRoiSigningAccess = ref(null);
 const issuedRoiRecipientEmail = ref('');
 const disclosureContext = ref(null);
 const organizationId = ref('');
@@ -10021,6 +10029,7 @@ const loadLink = async ({ background = false } = {}) => {
     roiContext.value = resp.data?.roiContext || null;
     issuedRoiRecipientEmail.value = String(resp.data?.issuedLink?.recipient_email || '').trim();
     issuedRoiCompleted.value = resp.data?.issuedLink?.status === 'completed';
+    issuedRoiSigningAccess.value = resp.data?.issuedLink?.signing_access || null;
     disclosureContext.value = resp.data?.disclosureContext
       || resp.data?.link?.disclosureContext
       || link.value?.disclosureContext
@@ -14303,6 +14312,7 @@ watch(
 );
 
 async function createIntakeSession() {
+  if (issuedRoiSigningAccess.value?.allowed === false) return false;
   if (coGuardianInviteError.value) { beginError.value = coGuardianInviteError.value; return false; }
   if (sessionToken.value) return true;
   if (requiresCaptchaAtStart.value) {

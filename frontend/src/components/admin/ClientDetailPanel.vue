@@ -1032,11 +1032,11 @@
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Email</div>
-                  <div class="ov-row-value">{{ guardianIntakeEmail || overviewLinkedGuardian?.email || '-' }}</div>
+                  <div class="ov-row-value">{{ overviewGuardianAccount?.email || guardianIntakeEmail || '-' }}</div>
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Phone</div>
-                  <div class="ov-row-value">{{ guardianIntakePhone || overviewLinkedGuardian?.phone || '-' }}</div>
+                  <div class="ov-row-value">{{ overviewGuardianAccount?.phone || guardianIntakePhone || '-' }}</div>
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Relationship</div>
@@ -1049,7 +1049,8 @@
                 <ClientGuardianContactEditor
                   v-if="canEditAccount"
                   :client-id="Number(client.id)"
-                  :profile="guardianIntakeProfile"
+                  :profile="overviewGuardianContactProfile"
+                  :guardian-user-id="overviewGuardianAccount?.guardian_user_id || null"
                   @saved="onGuardianContactSaved"
                 />
               </div>
@@ -1702,11 +1703,11 @@
                   </div>
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Email</span>
-                    <span>{{ guardianIntakeEmail || overviewLinkedGuardian?.email || '-' }}</span>
+                    <span>{{ overviewGuardianAccount?.email || guardianIntakeEmail || '-' }}</span>
                   </div>
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Phone</span>
-                    <span>{{ guardianIntakePhone || overviewLinkedGuardian?.phone || '-' }}</span>
+                    <span>{{ overviewGuardianAccount?.phone || guardianIntakePhone || '-' }}</span>
                   </div>
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Relationship</span>
@@ -1779,6 +1780,7 @@
                   <tr>
                     <th>Name</th>
                     <th>Email</th>
+                    <th>Phone</th>
                     <th>Relationship title</th>
                     <th>Relationship access</th>
                     <th>Enrollment / record access</th>
@@ -1787,8 +1789,9 @@
                 </thead>
                 <tbody>
                   <tr v-for="g in guardians" :key="g.guardian_user_id">
-                    <td>{{ g.first_name }} {{ g.last_name }}</td>
+                    <td><RouterLink :to="guardianAccountPath(g.guardian_user_id, route.params.organizationSlug)">{{ [g.first_name,g.last_name].filter(Boolean).join(' ') || 'Open guardian account' }}</RouterLink></td>
                     <td>{{ g.email }}</td>
+                    <td><a v-if="guardianPhone(g)" :href="`tel:${guardianPhone(g).replace(/[^+0-9]/g,'')}`">{{ guardianPhone(g) }}</a><span v-else>No phone on file</span></td>
                     <td style="min-width: 220px;">
                       <span v-if="guardianRowIsSelf(g)">Client (self)</span>
                       <input
@@ -1811,6 +1814,7 @@
                     </td>
                     <td><strong>{{ guardianPortalStatus(g).label }}</strong><p class="hint">{{ guardianPortalStatus(g).detail }}</p></td>
                     <td class="right" style="white-space: nowrap;">
+                      <ClientGuardianContactEditor v-if="canManageGuardians" :client-id="Number(client.id)" :guardian-user-id="Number(g.guardian_user_id)" :profile="{firstName:g.first_name,lastName:g.last_name,email:g.email,phone:guardianPhone(g),relationship:g.relationship_title}" @saved="fetchGuardians" />
                       <button
                         v-if="canMessageGuardian"
                         type="button"
@@ -2988,6 +2992,7 @@ import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.v
 import { intakeContactIsSelf } from '../../utils/intakeContactRole.js';
 import { linkedGuardianSummary } from '../../utils/linkedGuardianSummary.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
+import {guardianAccountPath} from '../../utils/guardianDirectory.js';
 
 const props = defineProps({
   client: {
@@ -3299,6 +3304,11 @@ const guardianIntakeProfile = computed(() => {
   return props.client?.guardian_intake_profile || null;
 });
 const isSelfIntakeContact = computed(() => intakeContactIsSelf(props.client, guardians.value || []));
+function guardianPhone(row) {
+  if(row.phone)return String(row.phone);
+  const email=String(guardianIntakeProfile.value?.email||'').trim().toLowerCase();
+  return email && String(row.email||'').trim().toLowerCase()===email ? String(guardianIntakeProfile.value?.phone||'') : '';
+}
 function guardianRowIsSelf(row) {
   if (String(row?.relationship_type || '').trim().toLowerCase() === 'self') return true;
   if (!isSelfIntakeContact.value) return false;
@@ -3309,7 +3319,16 @@ function guardianRowIsSelf(row) {
   return !!rowName && rowName === String(props.client?.full_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 const intakeContactLabel = computed(() => isSelfIntakeContact.value ? 'Client (self)' : 'Guardian');
-const onGuardianContactSaved = (profile) => {
+const overviewGuardianAccount = computed(() => {
+  const contacts=(guardians.value||[]).filter(g=>!guardianRowIsSelf(g));
+  const email=String(guardianIntakeProfile.value?.email||'').trim().toLowerCase();
+  return contacts.find(g=>email&&String(g.email||'').trim().toLowerCase()===email) || (contacts.length===1?contacts[0]:null);
+});
+const overviewGuardianContactProfile=computed(()=>overviewGuardianAccount.value ? {firstName:overviewGuardianAccount.value.first_name,lastName:overviewGuardianAccount.value.last_name,
+ email:overviewGuardianAccount.value.email,phone:overviewGuardianAccount.value.phone || guardianIntakeProfile.value?.phone || '',relationship:overviewGuardianAccount.value.relationship_title} : guardianIntakeProfile.value);
+const onGuardianContactSaved = async (profile) => {
+  if(overviewGuardianAccount.value){await fetchGuardians();emit('updated',{keepOpen:true});return;}
+
   emit('updated', { keepOpen: true, client: { ...props.client, guardian_intake_profile: profile } });
 };
 const guardianIntakeName = computed(() => String(
@@ -4978,7 +4997,7 @@ const canViewGuardians = computed(() => {
 });
 const guardianContactLoader=useLinkedGuardianContact({clientId:computed(()=>props.client?.id),canView:canViewGuardians,guardians,loading:guardiansLoading,error:guardiansError,api});
 const overviewLinkedGuardian = computed(() => linkedGuardianSummary(guardians.value, { canView: canViewGuardians.value }));
-const overviewGuardianName = computed(() => guardianIntakeName.value || overviewLinkedGuardian.value?.displayName || null);
+const overviewGuardianName = computed(() => (overviewGuardianAccount.value ? [overviewGuardianAccount.value.first_name,overviewGuardianAccount.value.last_name].filter(Boolean).join(' ') : '') || guardianIntakeName.value || overviewLinkedGuardian.value?.displayName || null);
 const overviewGuardianMeta = computed(() => guardianIntakeEmail.value || guardianIntakePhone.value
   || [overviewLinkedGuardian.value?.contact, overviewLinkedGuardian.value?.additionalCount
     ? `${overviewLinkedGuardian.value.additionalCount} other linked guardian(s)` : ''].filter(Boolean).join(' · '));

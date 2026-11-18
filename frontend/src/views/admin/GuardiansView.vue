@@ -39,7 +39,7 @@
         <input
           v-model.trim="search"
           type="text"
-          placeholder="Name or email"
+          placeholder="Name, email, phone, child or school"
         />
       </div>
       <div class="filter-group">
@@ -83,7 +83,9 @@
       :can-delete="isSuperAdmin"
       :profile-base="guardianProfileBase"
     />
-    <div v-else class="table-wrap">
+    <div v-else class="guardian-results">
+      <div class="results-toolbar"><p role="status">{{filteredGuardians.length}} guardian{{filteredGuardians.length===1?'':'s'}} found</p><label>Sort<select v-model="sortBy"><option value="name">Name A–Z</option><option value="recent">Newest accounts</option></select></label></div>
+      <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
@@ -97,18 +99,17 @@
               />
             </th>
             <th>Name</th>
-            <th>Email</th>
+            <th>Contact</th>
             <th>Status</th>
             <th>Agencies</th>
             <th>Linked Clients</th>
             <th>Created</th>
-            <th>Dev Fill</th>
-            <th>Demo</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="g in filteredGuardians"
+            v-for="g in pageGuardians"
             :key="g.id"
             class="clickable-row"
             :class="{ 'row-selected': selectedIds.has(g.id) }"
@@ -120,34 +121,23 @@
                 @change="toggleSelect(g.id)"
               />
             </td>
-            <td @click="openGuardianProfile(g.id)">{{ guardianName(g) }}</td>
-            <td @click="openGuardianProfile(g.id)">{{ g.email || '—' }}</td>
+            <td><RouterLink :to="guardianAccountPath(g.id,route.params.organizationSlug)" class="guardian-name">{{guardianName(g)}}</RouterLink></td>
+            <td class="guardian-contact"><a v-if="g.email" :href="`mailto:${g.email}`">{{g.email}}</a><span v-else>No email on file</span><a v-if="g.phone" :href="`tel:${g.phone.replace(/[^+0-9]/g,'')}`">{{g.phone}}</a><span v-else class="muted">No phone on file</span></td>
             <td @click="openGuardianProfile(g.id)">
               <span :class="['badge', statusBadgeClass(g.status)]">{{ statusLabel(g.status) }}</span>
             </td>
             <td @click="openGuardianProfile(g.id)">{{ g.agencies || '—' }}</td>
-            <td @click="openGuardianProfile(g.id)">{{ Number(g.linked_clients_count || 0) }}</td>
+            <td><span v-if="!g.linked_clients?.length" class="muted">No linked children</span><ul v-else class="linked-children"><li v-for="child in g.linked_clients" :key="child.id"><RouterLink :to="`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/admin/clients/${child.id}`">{{child.name}}</RouterLink></li></ul><small v-if="g.linked_clients?.length" class="muted">{{Number(g.portal_clients_count||0)}} with relationship access enabled</small></td>
             <td @click="openGuardianProfile(g.id)">{{ formatDate(g.created_at) }}</td>
-            <td @click.stop>
-              <span v-if="Number(g.created_via_dev_fill)" class="g-dev-fill-badge">Dev Fill</span>
-              <span v-else class="muted">—</span>
-            </td>
-            <td @click.stop>
-              <label class="g-demo-check">
-                <input
-                  type="checkbox"
-                  :checked="!!Number(g.is_demo)"
-                  @change="toggleGuardianDemo(g, $event.target.checked)"
-                />
-                Demo
-              </label>
-            </td>
+            <td><button type="button" class="btn btn-secondary btn-sm" @click="openGuardianProfile(g.id)">Open account</button></td>
           </tr>
           <tr v-if="filteredGuardians.length === 0">
-            <td colspan="9" class="empty-row">No guardians found.</td>
+            <td colspan="8" class="empty-row">No guardians found.</td>
           </tr>
         </tbody>
       </table>
+      </div>
+      <div v-if="pageCount>1" class="directory-pagination"><button class="btn btn-secondary" :disabled="page===1" @click="page--">Previous</button><span>Page {{page}} of {{pageCount}}</span><button class="btn btn-secondary" :disabled="page===pageCount" @click="page++">Next</button></div>
     </div>
 
     <!-- Bulk Delete Confirmation Modal -->
@@ -272,6 +262,7 @@
 </template>
 
 <script setup>
+import {guardianDirectoryMatches,guardianAccountPath} from '../../utils/guardianDirectory.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -297,9 +288,14 @@ const guardians = ref([]);
 const agencies = ref([]);
 
 const search = ref('');
+const page=ref(1),sortBy=ref('name');
+const pageCount=computed(()=>Math.max(1,Math.ceil(filteredGuardians.value.length/30)));
+const pageGuardians=computed(()=>filteredGuardians.value.slice((page.value-1)*30,page.value*30));
 const statusFilter = ref('');
 const agencyFilter = ref('');
 const devFillFilter = ref('');
+watch([search,sortBy,()=>statusFilter.value,()=>agencyFilter.value,()=>devFillFilter.value],()=>{page.value=1;});
+
 
 // Bulk selection
 const selectedIds = ref(new Set());
@@ -336,30 +332,28 @@ const agencyOptions = computed(() => {
 const filteredGuardians = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
   return (guardians.value || []).filter((g) => {
-    const name = guardianName(g).toLowerCase();
-    const email = String(g?.email || '').toLowerCase();
-    const status = String(g?.status || '').toUpperCase();
+        const status = String(g?.status || '').toUpperCase();
     const agencyIds = String(g?.agency_ids || '')
       .split(',')
       .map((v) => String(v).trim())
       .filter(Boolean);
 
-    if (q && !name.includes(q) && !email.includes(q)) return false;
+    if (!guardianDirectoryMatches(g,q)) return false;
     if (statusFilter.value && status !== String(statusFilter.value).toUpperCase()) return false;
     if (agencyFilter.value && !agencyIds.includes(String(agencyFilter.value))) return false;
     if (devFillFilter.value === 'only' && !Number(g.created_via_dev_fill)) return false;
     if (devFillFilter.value === 'exclude' && Number(g.created_via_dev_fill)) return false;
     return true;
-  });
+  }).sort((a,b)=>sortBy.value==='recent'?new Date(b.created_at)-new Date(a.created_at):guardianName(a).localeCompare(guardianName(b)));
 });
 
 const allOnPageSelected = computed(() => {
-  const list = filteredGuardians.value;
+  const list = pageGuardians.value;
   return list.length > 0 && list.every((g) => selectedIds.value.has(g.id));
 });
 
 const someOnPageSelected = computed(() => {
-  const list = filteredGuardians.value;
+  const list = pageGuardians.value;
   return !allOnPageSelected.value && list.some((g) => selectedIds.value.has(g.id));
 });
 
@@ -373,11 +367,11 @@ const toggleSelect = (id) => {
 const toggleSelectAll = () => {
   if (allOnPageSelected.value) {
     const next = new Set(selectedIds.value);
-    filteredGuardians.value.forEach((g) => next.delete(g.id));
+    pageGuardians.value.forEach((g) => next.delete(g.id));
     selectedIds.value = next;
   } else {
     const next = new Set(selectedIds.value);
-    filteredGuardians.value.forEach((g) => next.add(g.id));
+    pageGuardians.value.forEach((g) => next.add(g.id));
     selectedIds.value = next;
   }
 };
@@ -606,6 +600,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.guardian-results{background:white;border:1px solid #dce5ef;border-radius:12px;overflow:hidden}.results-toolbar,.directory-pagination{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 20px}.results-toolbar p{margin:0}.results-toolbar label{display:flex;align-items:center;gap:8px}.table-wrap{overflow:auto}.guardian-results th{background:#f4f7fb;text-align:left;font-size:12px;padding:14px 16px;white-space:nowrap}.guardian-results td{padding:16px;border-top:1px solid #e4ebf2;vertical-align:top;font-size:14px}.guardian-name{font-weight:650;display:inline-block;min-width:140px;color:#164b78}.guardian-contact a,.guardian-contact>span{display:block;overflow-wrap:anywhere;margin-bottom:6px}.guardian-contact{min-width:210px}.linked-children{list-style:none;padding:0;margin:0 0 6px}.linked-children li+li{margin-top:5px}.guardian-results a{color:#164b78}.directory-pagination{border-top:1px solid #e4ebf2}.filter-group input,.filter-group select{padding:10px 12px;border:1px solid #cbd9e7;border-radius:7px;background:white;color:#203a55;font:inherit;min-width:0}.filter-group:first-child{grid-column:span 2}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -623,6 +619,10 @@ onMounted(async () => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+  padding: 18px;
+  background:#f4f7fb;
+  border:1px solid #dce5ef;
+  border-radius:12px;
 }
 
 .filter-group {

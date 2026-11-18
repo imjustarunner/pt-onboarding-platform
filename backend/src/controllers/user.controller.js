@@ -975,6 +975,7 @@ export const getGuardianUsers = async (req, res, next) => {
         SELECT
           u.id,
           u.email,
+          COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone,
           u.role,
           u.status,
           u.completed_at,
@@ -990,10 +991,11 @@ export const getGuardianUsers = async (req, res, next) => {
           GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
           GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids,
           GROUP_CONCAT(DISTINCT org_client.name ORDER BY org_client.name SEPARATOR ', ') AS school_names,
-          COUNT(DISTINCT CASE WHEN cg.access_enabled = 1 THEN cg.client_id ELSE NULL END) AS linked_clients_count,
+          COUNT(DISTINCT c.id) AS linked_clients_count,
+          COUNT(DISTINCT CASE WHEN cg.access_enabled = 1 THEN c.id ELSE NULL END) AS portal_clients_count,
           GROUP_CONCAT(
             DISTINCT CASE
-              WHEN cg.access_enabled = 1
+              WHEN c.id IS NOT NULL
               THEN CONCAT(
                 COALESCE(NULLIF(TRIM(c.full_name), ''), NULLIF(TRIM(c.initials), ''), CONCAT('#', c.id)),
                 '::',
@@ -1004,10 +1006,10 @@ export const getGuardianUsers = async (req, res, next) => {
             ORDER BY c.full_name SEPARATOR '||'
           ) AS linked_clients_raw
         FROM users u
-        LEFT JOIN user_agencies ua ON ua.user_id = u.id
+        LEFT JOIN user_agencies ua ON ua.user_id = u.id ${!isSuperAdmin ? `AND ua.agency_id IN (${scopedAgencyIds.join(',')})` : ''}
         LEFT JOIN agencies a ON a.id = ua.agency_id
         LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
-        LEFT JOIN clients c ON c.id = cg.client_id
+        LEFT JOIN clients c ON c.id = cg.client_id ${!isSuperAdmin ? `AND c.agency_id IN (${scopedAgencyIds.join(',')})` : ''}
         LEFT JOIN agencies org_client ON org_client.id = c.organization_id
           AND LOWER(COALESCE(org_client.organization_type, '')) = 'school'
         WHERE LOWER(COALESCE(u.role, '')) = 'client_guardian'
@@ -1018,7 +1020,7 @@ export const getGuardianUsers = async (req, res, next) => {
         ${schoolSql}
         GROUP BY
           u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at,
-          u.is_active, u.first_name, u.last_name, u.created_at, u.is_demo, u.created_via_dev_fill, u.compliance_archived_at
+          u.is_active, u.first_name, u.last_name, u.phone_number,u.personal_phone,u.work_phone,u.created_at, u.is_demo, u.created_via_dev_fill, u.compliance_archived_at
         ORDER BY u.created_at DESC
       `,
       params
@@ -1099,7 +1101,10 @@ export const getGuardianLinkedClients = async (req, res, next) => {
        ORDER BY o.name, c.initials`,
       [guardianUserId]
     );
-    return res.json(rows || []);
+    const {resolveClientRecordAccess}=await import('../services/clientRecordAccess.service.js');
+    const visible=[];
+    for(const row of rows||[]){const access=await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId:row.client_id});if(access.ok)visible.push(row);}
+    return res.json(visible);
   } catch (error) {
     next(error);
   }

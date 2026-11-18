@@ -25,10 +25,10 @@ describe('portal school release copy', () => {
 });
 
 it('cannot use one guardian’s link to record the other guardian’s response',async()=>{
- const args={req:{},issuedLink:{id:1,recipient_guardian_user_id:15},clientId:928};
+ const args={req:{},issuedLink:{id:1,client_id:928,recipient_guardian_user_id:15},clientId:928};
  await assert.rejects(resolveIssuedRoiConsentSigner(args,{existing:async()=>15,portal:async()=>16}),{status:403});
  await assert.rejects(resolveIssuedRoiConsentSigner(args,{existing:async()=>15,portal:async()=>null}),{status:403});
- assert.equal(await resolveIssuedRoiConsentSigner(args,{existing:async()=>15,portal:async()=>15}),15);
+ assert.equal(await resolveIssuedRoiConsentSigner(args,{existing:async()=>15,portal:async()=>15,authorize:async()=>{}}),15);
 });
 
 describe('issued school release session binding', () => {
@@ -79,4 +79,14 @@ describe('issued school release session binding', () => {
   it('does not impose issued-request bindings on ordinary public enrollment', () => {
     assert.doesNotThrow(() => assertIssuedRoiSessionBinding({ issuedLink: null }));
   });
+});
+
+it('rejects an unassigned copied link before collecting answers without an authenticated guardian',async()=>{
+ await assert.rejects(resolveIssuedRoiConsentSigner({req:{},issuedLink:{id:1,client_id:928},clientId:928},{portal:async()=>null,existing:async()=>15}),{status:403});
+});
+it('authorizes the existing signed-in guardian on a legacy link and rejects a disabled signing relationship early',async()=>{
+ const args={req:{},issuedLink:{id:1,client_id:928},clientId:928};let authorized;
+ assert.equal(await resolveIssuedRoiConsentSigner(args,{portal:async()=>15,existing:async()=>null,authorize:async input=>{authorized=input;}}),15);
+ assert.deepEqual(authorized,{clientId:928,guardianUserId:15});
+ await assert.rejects(resolveIssuedRoiConsentSigner(args,{portal:async()=>15,existing:async()=>null,authorize:async()=>{throw Object.assign(new Error('disabled'),{status:409});}}),{status:409});
 });

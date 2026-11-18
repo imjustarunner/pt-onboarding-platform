@@ -6282,7 +6282,18 @@ export const getPublicIntakeLink = async (req, res, next) => {
         client_id: issuedRoiLink.client_id,
         intake_link_id: issuedRoiLink.intake_link_id,
         // Convenience only: the signer still confirms their identity and authority.
-        recipient_email: issuedRoiLink.status !== 'completed' ? issuedRoiLink.last_email_sent_to || null : null
+        recipient_email: issuedRoiLink.status !== 'completed' ? issuedRoiLink.last_email_sent_to || null : null,
+        signing_access: await (async () => {
+          try {
+            await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: issuedRoiLink.client_id });
+            return { allowed: true };
+          } catch (error) {
+            if (![403, 409].includes(error.status)) throw error;
+            const login = new URL(`/${encodeURIComponent(agency?.portal_url || agency?.slug || '')}/login`, 'https://auricwell.com');
+            login.searchParams.set('redirect', `/intake/${encodeURIComponent(publicKey)}`);
+            return { allowed: false, message: error.message, loginUrl: login.toString() };
+          }
+        })()
       } : null,
       boundClient: boundClient ? {
         id: boundClient.id,
@@ -6657,6 +6668,12 @@ export const createPublicIntakeSession = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'This school release is already completed. Request a new update to change it.' } });
       }
       issuedGuardianId = await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: issuedRoiLink.client_id });
+      if(issuedRoiLink.latest_intake_submission_id){
+        const prior=await IntakeSubmission.findById(issuedRoiLink.latest_intake_submission_id);
+        if(prior?.status==='submitted'&&!prior.combined_pdf_path){
+          throw Object.assign(new Error('Your signed answers were saved, but the release needs office review before completion. Please contact your care team; you do not need to fill it out again.'),{status:409});
+        }
+      }
       // Only an authenticated assigned recipient may retrieve a stored session
       // token. Legacy unassigned public links continue to start a fresh session.
       if (Number(issuedRoiLink.recipient_guardian_user_id) && issuedRoiLink.latest_intake_submission_id) {
@@ -8192,8 +8209,8 @@ export const finalizePublicIntake = async (req, res, next) => {
     const intakeDataHash = hashIntakeData(intakeData);
     let updatedSubmission = await IntakeSubmission.updateById(submissionId, {
       ...enrollmentSignerIdentity(submission, req.body?.guardian, intakeData),
-      status: assignedSmartDisclosure?'in_progress':'submitted',
-      submitted_at: assignedSmartDisclosure?null:now,
+      status: assignedSmartDisclosure ? 'in_progress' : isSmartSchoolRoiForm(link) ? 'consented' : 'submitted',
+      submitted_at: assignedSmartDisclosure || isSmartSchoolRoiForm(link) ? null : now,
       intake_data: intakeData ? JSON.stringify(intakeData) : null,
       intake_data_hash: intakeDataHash,
       retention_expires_at: retentionExpiresAt,
@@ -8833,6 +8850,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       await IntakeSubmission.updateById(submissionId, {
         combined_pdf_path: signedResult.storagePath,
         combined_pdf_hash: signedResult.pdfHash,
+        status: 'submitted',
+        submitted_at: now,
         // Staff-issued recipient + existing permitted relationship; not signer-entered email.
         ...(!updatedSubmission.guardian_user_id && issuedRoiLink?.id
           ? { guardian_user_id: consentGuardianId }

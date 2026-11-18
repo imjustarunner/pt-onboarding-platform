@@ -164,3 +164,13 @@ it.each([false,true])('opens a portal-started enrollment for self=%s with own ac
  if (emailInput.exists()) expect(emailInput.attributes()).toHaveProperty('readonly');
  expect(wrapper.vm.embeddedSmartDisclosure).not.toEqual(capture);
 });
+
+it('shows signing access and the exact return link before starting a blocked school ROI',async()=>{
+ route.query={};get.mockImplementation(async url=>({data:url==='/public-intake/resume-test'?{
+  link:{id:1,form_type:'smart_school_roi',scope_type:'school',organization_id:2,intake_steps:[]},templates:[],
+  organization:{id:2,name:'Example School',organization_type:'school'},agency:{id:3,name:'Care agency'},
+  issuedLink:{status:'issued',signing_access:{allowed:false,message:'Sign in before starting your release.',loginUrl:'https://auricwell.com/itsco/login?redirect=%2Fintake%2Fresume-test'}}
+ }: {}}));
+ await render();expect(wrapper.text()).toContain('Sign in before starting your release.');expect(wrapper.find('a[href*="redirect=%2Fintake%2Fresume-test"]').exists()).toBe(true);
+ expect(post.mock.calls.some(([url])=>url.endsWith('/session')||url.endsWith('/finalize'))).toBe(false);
+});

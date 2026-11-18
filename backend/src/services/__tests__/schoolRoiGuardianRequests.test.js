@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: {} }));
+vi.mock('../../config/database.js', () => ({ default: {}, onTableWrite:vi.fn() }));
 vi.mock('../schoolRoiEmail.service.js', async () => ({ ...await import('../../utils/schoolRoiDelivery.js'), sendSchoolRoiEmail: vi.fn() }));
 vi.mock('../clientPortalEmail.service.js', () => ({ clientEmailContext: vi.fn() }));
 vi.mock('../clientPortalContext.service.js', () => ({ clientPortalInviteUrl: () => 'https://example.test/demo/login' }));
@@ -12,6 +12,7 @@ function fixture() {
  return {client:{id:10,agency_id:20},schoolOrganizationId:30,actorUserId:40,
  listGuardians:async()=>[guardian(1),guardian(2),{...guardian(3),permissions_json:{noView:true}}],
  findExisting:vi.fn(async()=>null),issueLink,sendEmail,recordSent,
+ prepareActions:async ({guardian})=>({releaseUrl:`https://auricwell.com/intake/guardian-${guardian.guardian_user_id}`,portalUrl:'https://auricwell.com/itsco/login?redirect=%2Fintake%2Fguardian-'+guardian.guardian_user_id,optInUrl:'https://auricwell.com/opt-in',needsSetup:false}),
  emailContext:async()=>({portal:{},url:()=> 'https://example.test/demo/guardian'})};
 }
 it('prepares distinct guardian links and sends separate portal prompts',async()=>{
@@ -19,7 +20,7 @@ it('prepares distinct guardian links and sends separate portal prompts',async()=
  expect(result.ok).toBe(true);expect(result.deliveries.map(row=>row.guardianUserId)).toEqual([1,2]);
  expect(deps.issueLink.mock.calls.map(([args])=>args.recipientGuardianUserId)).toEqual([1,2]);
  expect(deps.sendEmail.mock.calls.map(([args])=>args.to)).toEqual(['guardian1@example.test','guardian2@example.test']);
- for(const [args] of deps.sendEmail.mock.calls){expect(args.cc).toBeUndefined();expect(args.text).toContain('Each guardian needs to respond separately');expect(args.linkUrl).toContain('redirect=');}
+ for(const [args] of deps.sendEmail.mock.calls){expect(args.cc).toBeUndefined();expect(args.text).toContain('Each guardian needs to respond separately');expect(args.linkUrl).toContain('/intake/guardian-');expect(args.html).toContain('data-roi-secondary-actions');}
  expect(deps.recordSent).toHaveBeenCalledTimes(2);
 });
 it('attempts the second guardian if the first email fails and never marks a queued request sent',async()=>{

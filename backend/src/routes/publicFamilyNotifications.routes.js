@@ -6,11 +6,37 @@ import {clientEmailLabel} from '../services/clientPortalEmailContent.js';
 import {escapePortalHtml as e,renderPortalEmail} from '../services/portalEmailBranding.service.js';
 import {schoolCareBridgeEmailBlock} from '../services/schoolCareBridgeEmail.service.js';
 import {publicIntakeLimiter} from '../middleware/rateLimiter.middleware.js';
+import {quickTextContext,requestQuickFamilyTexts,QUICK_TEXT_VERSION,QUICK_TEXT_DISCLOSURE} from '../services/familyQuickTextEnrollment.service.js';
 const router=express.Router();
 router.use(publicIntakeLimiter);
 router.use((req,res,next)=>{res.set({'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer','X-Robots-Tag':'noindex, nofollow','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; img-src https:; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"});next();});
 const document=html=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your notification choices</title><style>body{margin:0;font:16px Arial;color:#26364a}button{cursor:pointer;font:700 15px Arial;border-radius:8px;padding:14px 18px;border:0;background:#16457c;color:#fff}.choices{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px}.choices th:first-child{width:40%;text-align:left}.choices td,.choices th{padding:12px 2px;border-bottom:1px solid #dce4ed;text-align:center;vertical-align:middle}.choices td label{display:flex;min-height:36px;justify-content:center;align-items:center}.choices input{width:19px;height:19px;margin:0;accent-color:#16457c}.choices small{display:block;font-size:11px;font-weight:400;line-height:1.4;margin-top:4px;color:#627187}details{font-size:13px;margin:18px 0}summary{cursor:pointer;color:#16457c}a{overflow-wrap:anywhere}.notice{padding:12px;background:#eef4fa;border-radius:8px;font-size:13px}.tools{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:16px 0}@media(max-width:400px){.choices{font-size:12px}.choices th:first-child{width:36%}}</style></head><body>${html}</body></html>`;
 const errorResponse=(res,error)=>res.status(error.status||500).type('html').send(document(`<main style="padding:24px"><h1>Notification choices</h1><p>${e(error.status?error.message:'We could not save your choices. Please try again or contact your care team.')}</p><p>You can return to the link in your email.</p></main>`));
+
+export function quickTextPage({context,brand,path,pending=null}) {
+  const sender=context.sender.registration;
+  const content=pending
+    ? `<h2>Confirm from your phone</h2><p>Your opt-in request for the phone ending ${e(pending.phoneLastFour)} is saved. Send <strong>START</strong> from that phone to ${e(pending.senderNumber)} to activate appointment reminders and care notifications, save that verified phone to your guardian account, and receive these updates by email and text.</p><p><a href="${e(pending.smsUrl)}" style="display:inline-block;padding:14px 18px;background:#16457c;color:white;border-radius:8px;text-decoration:none">Send START to finish</a></p><p>If you are using a computer, send START from your mobile phone. Opening this page does not activate texts.</p>`
+    : `<h2>Opt in to email and text updates</h2><p>${e(context.recipient.agency_name)} · ${e(clientEmailLabel({full_name:context.recipient.full_name}))}</p><p>Get notifications like your school ROI request, secure-message alerts, schedule updates and appointment reminders.</p><form method="post" action="${e(path)}"><input type="hidden" name="version" value="${QUICK_TEXT_VERSION}"><input type="hidden" name="revision" value="${context.revision}"><p><label>Mobile phone number<br><input type="tel" name="phone" autocomplete="tel" required maxlength="32" style="font:inherit;padding:12px;max-width:100%;box-sizing:border-box"></label></p><p style="font-size:13px">${e(QUICK_TEXT_DISCLOSURE)}</p><p><label><input type="checkbox" name="confirm" value="yes" required> I agree and want these updates by email and text.</label></p><button type="submit">Continue to phone confirmation</button></form><p style="font-size:12px">You will send START to ${e(context.sender.phone_number)} from your phone to finish. Your existing preferences and phone stay in place until then. <a href="${e(sender.termsUrl)}">SMS terms</a> · <a href="${e(sender.privacyUrl)}">Privacy</a></p>`;
+  return document(renderPortalEmail({brand,html:content}));
+}
+router.get('/:token/text',async(req,res)=>{
+  try {
+    const context=await quickTextContext(req.params.token);
+    const portal=await clientEmailContext({agencyId:context.scope.agency_id,clientId:context.scope.client_id});
+    res.type('html').send(quickTextPage({context,brand:portal.brand,path:`${req.baseUrl}/${req.params.token}/text`}));
+  }catch(error){errorResponse(res,error);}
+});
+router.post('/:token/text',async(req,res)=>{
+  try {
+    const origin=req.get('origin');
+    if(origin&&!['https://auricwell.com',`https://${req.get('host')}`].includes(origin))throw Object.assign(new Error('Open your email link again before continuing.'),{status:403});
+    const pending=await requestQuickFamilyTexts({token:req.params.token,input:req.body,ip:req.ip,userAgent:req.get('user-agent')});
+    const context=await quickTextContext(req.params.token);
+    const portal=await clientEmailContext({agencyId:context.scope.agency_id,clientId:context.scope.client_id});
+    res.type('html').send(quickTextPage({context,brand:portal.brand,path:`${req.baseUrl}/${req.params.token}/text`,pending}));
+  }catch(error){errorResponse(res,error);}
+});
 export function familyChoicePage({context,brand,path,preset,saved,portalUrl='https://auricwell.com/login'}) {
   const {recipient,revision}=context;
   const isSchool=recipient.client_type==='school';

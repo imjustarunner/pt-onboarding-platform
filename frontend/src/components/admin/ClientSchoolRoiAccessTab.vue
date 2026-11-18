@@ -260,9 +260,9 @@
         </div>
 
         <div class="sms-card">
-          <div class="summary-k">Request school releases</div>
+          <div class="summary-k">Email school ROI requests</div>
           <div class="hint">
-            Each authorized guardian receives a separate portal request. One guardian’s response does not replace the other’s. A denial from either guardian blocks sharing with that staff member.
+            Email each selected guardian their own direct ROI link, with smaller AuricWell account setup and optional text notification links. One guardian’s response does not replace the other’s. A denial from either guardian blocks sharing with that staff member.
           </div>
           <div class="form-group">
             <fieldset><legend>Send request to</legend>
@@ -286,7 +286,7 @@
             >
               <template v-if="emailSending">Sending…</template>
               <template v-else-if="emailCooldownSec > 0">Resend available in {{ emailCooldownSec }}s</template>
-              <template v-else>Request ROI from selected guardians</template>
+              <template v-else>Send ROI email to selected guardians</template>
             </button>
             <span v-if="emailStatus" class="hint strong">{{ emailStatus }}</span>
           </div>

@@ -155,7 +155,7 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="profilePhotoInput?.click()" :disabled="photoUploading">{{ photoUploading ? 'Uploading…' : 'Upload Profile Photo' }}</button>
           <div v-if="photoError" class="error" style="margin:0;">{{ photoError }}</div>
         </div>
-        <div v-if="canEditUser || emailSignaturePreview" style="margin-top: 14px;" data-tour="user-email-signature">
+        <div v-if="!isViewingGuardian && (canEditUser || emailSignaturePreview)" style="margin-top: 14px;" data-tour="user-email-signature">
           <div style="font-weight:600;margin-bottom:6px;">Email Signature</div>
           <p class="hint" style="margin:0 0 8px;max-width:36rem;">
             Agency-branded HTML signature for Hub email (providers, admins, CPAs). Uses name, credentials, job title (not role), work email, extension, and profile photo from this record.
@@ -183,7 +183,7 @@
       </div>
     </div>
 
-          <ProfileContentSearch v-if="user && !loading" :targets="profileContentIndex.targets.value" :loading="profileContentIndex.loading.value" :error="profileContentIndex.loadError.value"
+          <ProfileContentSearch v-if="user && !loading && !isViewingGuardian" :targets="profileContentIndex.targets.value" :loading="profileContentIndex.loading.value" :error="profileContentIndex.loadError.value"
             :scope-key="profileSearchScope" label="Search this user’s profile" input-id="admin-profile-search" data-tour="user-profile-search"
             @load="profileContentIndex.load" @select="jumpToProfileSection" />
     <div v-if="loading" class="loading">Loading user profile...</div>
@@ -258,19 +258,8 @@
             <StaffBusinessCardsButton :user-id="userId" :agency-id="profileOverviewAgencyId" />
           </section>
           <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
+          <GuardianFamilyWorkspace v-if="isViewingGuardian" :guardian-id="Number(userId)" :can-edit="canEditUser" @updated="fetchUser" />
           <GuardianContactCard v-if="isViewingGuardian" :guardian-id="Number(userId)" />
-
-          <!-- Guardian-specific info banner -->
-          <div v-if="isViewingGuardian" style="background: #e8f4f8; border: 1px solid #b3d9ea; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; display: flex; align-items: flex-start; gap: 10px;">
-            <span style="font-size: 20px; line-height: 1;">👤</span>
-            <div>
-              <strong>Guardian / Client Portal Account</strong>
-              <p style="margin: 4px 0 0; font-size: 13px; color: #444;">
-                This is a guardian (non-employee) portal account. They can access their client portal to view billing, waivers, and program information for their linked clients.
-                This account does not go through the hiring workflow and has no payroll or contract settings.
-              </p>
-            </div>
-          </div>
 
           <!-- Guardian insurance (from linked client intakes) -->
           <div v-if="isViewingGuardian" class="card" style="padding: 16px; margin-bottom: 18px;">
@@ -466,7 +455,7 @@
             </div>
           </div>
 
-          <UserAccountDashboard v-else>
+          <UserAccountDashboard v-else-if="!isViewingGuardian">
             <template #view-only>
               <div v-if="!canEditUser" class="view-only-notice">
                 <p><strong>View Only:</strong> Clinical Practice Assistants and Supervisors have view-only access to user profiles. Contact an administrator to make changes.</p>
@@ -2757,6 +2746,7 @@
 <script setup>
 import { agencyCardStyle } from '../../utils/agencyCardScope.js';
 import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
+import GuardianFamilyWorkspace from '../../components/admin/GuardianFamilyWorkspace.vue';
 import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -2947,7 +2937,6 @@ const guardianDeliveryPrefsLoading = ref(false);
 const guardianDeliveryPrefsSaving = ref(false);
 const guardianDeliveryPrefsError = ref('');
 const guardianDeliveryPrefsExists = ref(false);
-let guardianDeliveryPrefsAutoSynced = false;
 
 const insuranceSlotFromFieldKey = (key) => {
   const m = String(key || '').match(/^insurance__(primary|secondary)_(front|back)_url$/i);
@@ -3101,7 +3090,7 @@ const onAdminPhotoSelected = async (event) => {
 
 const loadEmailSignaturePreview = async () => {
   emailSignaturePreview.value = null;
-  if (!userId.value) return;
+  if (!userId.value || isViewingGuardian.value) return;
   try {
     const agencyId = agencyStore.currentAgency?.id || null;
     const { data } = await api.get(`/users/${userId.value}/email-signature/preview`, {
@@ -3280,7 +3269,7 @@ const isViewingSchoolStaff = computed(() => {
 
 const isViewingGuardian = computed(() => {
   const r = String(user.value?.role || '').trim().toLowerCase();
-  return r === 'client_guardian';
+  return ['client_guardian','guardian'].includes(r);
 });
 
 const isSscSstcTenant = computed(() => {
@@ -3710,17 +3699,6 @@ const applyGuardianDeliveryPrefsFromIntake = async () => {
   if (!next) return;
   guardianDeliveryPrefs.value = { ...guardianDeliveryPrefs.value, ...next, in_app_enabled: true };
   // Save immediately (admin intent)
-  await saveGuardianDeliveryPrefs();
-};
-
-const maybeAutoSyncGuardianDeliveryPrefsFromIntake = async () => {
-  if (!isViewingGuardian.value) return;
-  if (guardianDeliveryPrefsExists.value) return;
-  if (guardianDeliveryPrefsAutoSynced) return;
-  const next = deriveGuardianDeliveryPrefsFromIntake();
-  if (!next) return;
-  guardianDeliveryPrefsAutoSynced = true;
-  guardianDeliveryPrefs.value = { ...guardianDeliveryPrefs.value, ...next, in_app_enabled: true };
   await saveGuardianDeliveryPrefs();
 };
 
@@ -4708,11 +4686,6 @@ watch(guardianLinkedClients, (clients) => {
   }
 });
 
-watch(guardianCommPrefs, () => {
-  if (isViewingGuardian.value) {
-    void maybeAutoSyncGuardianDeliveryPrefsFromIntake();
-  }
-}, { deep: true });
 
 let guardianClientSearchTimer = null;
 watch(guardianClientQuery, (q) => {
@@ -5568,6 +5541,9 @@ const fetchUser = async () => {
     // Kick off secondary requests in parallel (non-blocking).
     if (isSscMemberProfileMode.value) {
       void loadMemberSeasonHistory();
+    } else if(isViewingGuardian.value) {
+      void fetchUserAgencies();
+      void loadGuardianLinkedClients();
     } else {
       void Promise.allSettled([
         fetchUserAgencies().then(() => {
