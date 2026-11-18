@@ -34,8 +34,8 @@
             <div class="acw-ctx-val">{{ change.context.providerName || '—' }}</div>
           </div>
           <div class="acw-ctx-item">
-            <div class="acw-ctx-label">Payer / Plan</div>
-            <div class="acw-ctx-val">{{ change.context.payerLabel || change.preview.value?.payer?.insuranceType || '—' }}</div>
+            <div class="acw-ctx-label">{{isLearning ? 'Payment plan' : 'Payer / Plan'}}</div>
+            <div class="acw-ctx-val">{{ change.context.payerLabel || (isLearning ? 'Family billing' : change.preview.value?.payer?.insuranceType) || '—' }}</div>
           </div>
         </div>
 
@@ -105,7 +105,7 @@
               </template>
 
               <template v-else-if="change.facts.eventType === 'no_show'">
-                <p v-if="change.preview.value?.appointment?.noShowTiming" class="acw-info">You can undo this no-show until {{new Date(change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'})}} if the client arrives. After that time, the client will be notified and the provider will receive a copy.</p><h4 class="acw-h4">Outreach</h4>
+                <p v-if="change.preview.value?.appointment?.noShowTiming" class="acw-info">You can undo this no-show until {{new Date(change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'})}} if the client arrives. After that time, the client will be notified and the provider will receive a copy.</p><template v-if="change.context.businessType!=='tutoring'"><h4 class="acw-h4">Outreach</h4>
                 <div class="acw-chips">
                   <button
                     v-for="o in OUTREACH_OPTIONS"
@@ -133,7 +133,7 @@
                       @click="change.toggleReason(r.id)"
                     >{{ r.label }}</button>
                   </div>
-                </template>
+                </template></template>
               </template>
 
               <template v-else>
@@ -296,7 +296,7 @@
                 <div><dt>Selected event</dt><dd>{{ eventLabel }}</dd></div>
                 <div><dt>Initiated by</dt><dd>{{ initiatorLabel || '—' }}</dd></div>
                 <div><dt>Timing result</dt><dd>{{ timingLabel }}</dd></div>
-                <div><dt>Payer / Plan</dt><dd>{{ change.context.payerLabel || change.preview.value?.payer?.insuranceType || '—' }}</dd></div>
+                <div><dt>{{isLearning ? 'Payment plan' : 'Payer / Plan'}}</dt><dd>{{ change.context.payerLabel || (isLearning ? 'Family billing' : change.preview.value?.payer?.insuranceType) || '—' }}</dd></div>
                 <div><dt>User role</dt><dd>{{ change.preview.value?.canWaive ? 'Administrator' : 'Provider' }}</dd></div>
               </dl>
 
@@ -542,7 +542,7 @@ const props = defineProps({
 const emit = defineEmits(['closed', 'completed']);
 watch(()=>props.change.facts.eventType,eventType=>{if(eventType==='no_show')props.change.facts.notificationMode='send';});
 const visibleCancelReasons = computed(() => isLearning.value ? CANCEL_REASONS.filter(reason => reason.id !== 'authorization') : CANCEL_REASONS);
-const isLearning = computed(() => String(props.change.preview.value?.appointment?.serviceCode || '').toUpperCase() === 'TUTORING' || ['learning','tutoring'].includes(props.change.preview.value?.appointment?.businessType));
+const isLearning = computed(() => ['learning','tutoring'].includes(props.change.context.businessType) || String(props.change.preview.value?.appointment?.serviceCode || '').toUpperCase() === 'TUTORING' || ['learning','tutoring'].includes(props.change.preview.value?.appointment?.businessType));
 
 const steps = [
   { n: 1, label: 'Event' },
@@ -634,7 +634,7 @@ watch(
     if (v === 'no_show') {
       props.change.facts.initiator = 'client';
       props.change.facts.followUpAction = 'none'; props.change.facts.offeredSlots = [];
-      if (!props.change.facts.clientFacingReason) props.change.facts.clientFacingReason = 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.';
+      if (!props.change.facts.clientFacingReason) props.change.facts.clientFacingReason = `This appointment was recorded as missed. Contact your ${isLearning.value?'tutoring team':'care team'} if this needs to be corrected.`;
     }
     if (v && props.change.step.value >= 2) await props.change.refreshPreview();
   }
@@ -655,6 +655,11 @@ async function onSaveDraft() {
 }
 
 async function onSign() {
+  const timing=props.change.preview.value?.appointment?.noShowTiming;
+  if(props.change.facts.eventType==='no_show'&&timing&&!timing.canUndo&&!props.change.facts.expiredNoShowConfirmed){
+    if(!window.confirm('The undo window has already passed, so this takes effect now. The reviewed missed-session policy will be applied and the family will be notified, with a copy to you. Continue?'))return;
+    props.change.facts.expiredNoShowConfirmed=true;
+  }
   if(props.change.facts.eventType==='no_show'&&props.change.preview.value?.appointment?.noShowTiming?.earlyConfirmationRequired&&!props.change.facts.earlyNoShowConfirmed){
     const until=new Date(props.change.preview.value.appointment.noShowTiming.undoUntil).toLocaleString('en-US',{timeZone:props.change.preview.value.appointment.sourceTimezone||'America/Denver',timeZoneName:'short'});
     if(!window.confirm(`Are you sure? It is suggested that you allow the client at least ${props.change.preview.value.appointment.noShowTiming.suggestedWaitMinutes ?? 15} minutes after the scheduled start to arrive. You can undo this no-show until ${until} if they arrive. After that time, the client will be notified and you will receive a copy.`))return;

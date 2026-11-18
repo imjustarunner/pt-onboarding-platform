@@ -1,3 +1,4 @@
+import {buildTutoringMissedNotice} from './tutoringMissedNotice.js';
 import { appointmentNoticeKind, batchAppointmentNoticeKind } from '../utils/appointmentNoticeKind.js';
 import { isLaterRecurringBooking } from '../utils/recurringBookingNotice.js';
 import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
@@ -34,6 +35,7 @@ const defaults = {
   individualReview: async (...args) => (await import('./appointmentCancellationEmail.service.js')).prepareIndividualCancellationReview(...args),
   individualRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.operationalEmailPermitted(...args),
   familyRecipients: async (...args) => (await import('./appointmentFamilyRecipients.service.js')).appointmentFamilyRecipients(...args),
+  missedNoticeNames:async({clientId,providerId,recipientId})=>{const [[names]]=await pool.execute('SELECT c.first_name AS studentFirstName,p.first_name AS tutorFirstName,g.first_name AS parentFirstName FROM clients c JOIN users p ON p.id=? LEFT JOIN users g ON g.id=? WHERE c.id=?',[providerId,recipientId||null,clientId]);return names||{};},
   providerRecipient:async args=>(await import('./appointmentProviderNoticeRecipient.service.js')).appointmentProviderNoticeRecipient(args),
   consent: async (...args) => (await import('./sessionNotification.service.js')).loadClientConsent(...args),
   preferences: async (...args) => (await import('./sessionNotification.service.js')).getClientPreferences(...args),
@@ -270,6 +272,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           const text=`Provider copy: appointment #${appointment.id} was recorded as a no-show. Its correction window has ended. Open the app to review the attendance record: ${url}`;
           recipientMessage={subject:`Provider copy · No-show for appointment #${appointment.id}`,text,html:`<p>${text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</p>`};
         }
+        if(entries.length===1&&entries[0].payload.eventType==='no_show'&&['tutoring','learning'].includes(entries[0].appointment.businessType)){const appointment=entries[0].appointment;const names=await d.missedNoticeNames({clientId:seed.client_id,providerId:seed.provider_id,recipientId:target?.userId});const url=providerCopy?`${new URL(portalUrl).origin}/tutoring-session/appointment/${appointment.id}`:portalUrl;recipientMessage=buildTutoringMissedNotice(appointment,url,{...names,providerCopy});}
         const signedLetter = entries[0]?.payload?.facts?.reviewedMessage?.[target?.role === 'client' ? 'client' : target?.role === 'guardian' ? 'guardian' : ''];
         if (signedLetter?.text) recipientMessage = { ...recipientMessage, subject: signedLetter.subject || recipientMessage.subject, text: signedLetter.text,
           html: `<p>${String(signedLetter.text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])).replaceAll('\n', '<br>')}</p>` };

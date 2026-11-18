@@ -131,7 +131,7 @@ export function useAppointmentChange({identity}={}) {
     facts.clientFacingReason = '';
     facts.followUpAction = 'client_contact_support';
     facts.followUpMessage = '';
-    facts.earlyNoShowConfirmed=false; facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
+    facts.earlyNoShowConfirmed=false; facts.expiredNoShowConfirmed=false; facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
     replacementBase.value = null; Object.assign(inlineReplacement, { localStart: '', busy: false, error: '', createdId: null, uncertain: false, source: '', partial: false });
     replacementOptions.value = null; Object.assign(customOffer,{localStart:'',modality:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
     facts.outreach = [];
@@ -157,6 +157,7 @@ export function useAppointmentChange({identity}={}) {
   async function openWizard({ appointmentId: id, context: ctx = {} } = {}) {
     appointmentId.value = Number(id || 0) || null;
     Object.assign(context, {
+      businessType:ctx.businessType||'',
       clientName: ctx.clientName || '',
       clientId: ctx.clientId || null,
       clientCode: ctx.clientCode || '',
@@ -170,7 +171,8 @@ export function useAppointmentChange({identity}={}) {
     loading.value = true;
     try {
       const r = await api.get(`/appointments/${appointmentId.value}/change`, { skipGlobalLoading: true });
-      workflow.value = r.data?.workflow || null;
+      workflow.value = r.data?.workflow?.status==='withdrawn' ? null : r.data?.workflow || null;
+      if(r.data?.workflow?.status==='withdrawn')facts.eventType='no_show';
       draftLoaded.value = true;
       if (workflow.value) {
         Object.assign(facts, workflow.value.facts);
@@ -232,6 +234,7 @@ export function useAppointmentChange({identity}={}) {
       followUpAction: retrospective.value || facts.eventType === 'no_show' ? 'none' : facts.followUpAction || 'client_contact_support',
       followUpMessage: facts.followUpMessage || null,
       earlyNoShowConfirmed:facts.earlyNoShowConfirmed===true,
+      expiredNoShowConfirmed:facts.expiredNoShowConfirmed===true,
       notificationMode: retrospective.value ? 'none' : facts.eventType==='no_show'?'send':facts.notificationMode,
       suppressionReason: retrospective.value ? 'Retrospective record correction.' : facts.notificationMode === 'none' ? facts.suppressionReason : null,
       offeredSlots: facts.eventType === 'canceled' && facts.followUpAction === 'private_slots' ? facts.offeredSlots : [],
@@ -334,6 +337,7 @@ export function useAppointmentChange({identity}={}) {
         if (facts.followUpAction === 'portal_booking' && (!replacementOptions.value?.portalBookingEnabled || !replacementOptions.value?.slots?.length)) return false;
       }
       if (facts.eventType === 'no_show') {
+        if(context.businessType==='tutoring')return true;
         if (!facts.outreach.length) return false;
         if (facts.reasonKnown === true && !facts.reasons.length) return false;
         if (facts.reasons.includes('other') && !String(facts.reasonOther || '').trim()) return false;

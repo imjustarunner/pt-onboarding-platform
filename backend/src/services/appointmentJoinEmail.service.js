@@ -33,7 +33,7 @@ export async function appointmentJoinEmail({appointment,clientId,to,context},dep
   if(permissions.billingOnly||permissions.noView||permissions.noViewOtherGuardian||permissions.coGuardianInviteRestricted)return null;
   if(client.portal_access?.limited||!guardianContextAllowsAppointment(client,appointment))return null;
   const [[event]]=appointment.providerScheduleEventId?await d.db.execute('SELECT google_meet_link FROM provider_schedule_events WHERE id=? AND agency_id=? AND provider_id=?',[appointment.providerScheduleEventId,appointment.agencyId,appointment.providerUserId]):[[]];
-  const destination=await d.join({...appointment,googleMeetLink:event?.google_meet_link||null},client,d.db);
+  const destination=await d.join({...appointment,googleMeetLink:event?.google_meet_link||null},client,d.db,{includeFutureDestination:true});
   if(!destination)return null;
   context ||= await (await import('./clientPortalEmail.service.js')).clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(appointment.businessType)?{learning:true}:{})});
   const url=destination.startsWith('/')?context.url(destination.slice(1)):destination;

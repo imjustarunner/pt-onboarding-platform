@@ -5,6 +5,10 @@ it.each(['no_show','late_canceled','canceled_by_provider','voided','rescheduled'
   expect(()=>assertAppointmentOutcomePreserved({status},{status,notes:'Additional context'})).not.toThrow();
 });
 it('permits the initial reviewed outcome',()=>expect(()=>assertAppointmentOutcomePreserved({status:'scheduled'},{status:'no_show'})).not.toThrow());
+it.each(['no_show','late_canceled','canceled_by_provider','completed'])('blocks moving a %s session while retaining ordinary annotation access',status=>{
+ expect(()=>assertAppointmentOutcomePreserved({status,startAt:'2026-11-17T17:00:00Z'},{startAt:'2026-11-23T17:00:00Z'})).toThrow('read-only');
+ expect(()=>assertAppointmentOutcomePreserved({status},{notes:'Reviewed existing history'})).not.toThrow();
+});
 it.each([null,{status:'scheduled'},{status:'confirmed'}])('refuses an ordinary booking or update that skips the signed no-show workflow: %j',existing=>{
  expect(()=>assertNoShowUsesSignedWorkflow(existing,'no_show')).toThrow('Appointment Change');
  expect(()=>assertNoShowUsesSignedWorkflow(existing,'no_show_pending')).toThrow('Appointment Change');

@@ -133,6 +133,10 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-digest.config.js
           npm test --prefix frontend -- --config vitest.nlu-digest.config.js --maxWorkers=3
+      - name: NLU attendance review, Session Hub privacy and immutable family summaries
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-retest-20261118.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.nlu-retest-20261118.config.js --maxWorkers=2
 
       - name: Dependent personal portal isolation and invitations
         run: |

@@ -1,0 +1,523 @@
+
+NARRIVA INTEGRATION: The same Session Hub retains the private learning-plan
+checklist. Save those plan results before completing the separate family summary.
+The family draft is stored separately in encrypted form; it must not replace
+private plan prose or evidence. Sign and share locks the saved session record.
+Only the reviewed family summary reaches eligible family portal views.
+
+NLU RETEST — NOVEMBER 18, 2026
+SELF-CONTAINED QA BOT BRIEF — INTERNAL, DO NOT UPLOAD THIS BRIEF INTO THE APP
+
+Read this brief and inventory attachments first. Wait for START NLU RETEST before
+app writes. The repair branch is NOT deployed yet. Confirm the owner-provided
+release build before testing repaired behavior. If the visible build differs,
+record that blocker; do not call source tests live passes.
+
+This reading file contains the prior report, expected cases and blank ledgers.
+You need no repository, folder, SQL, cloud console, DevTools or direct API writes.
+Original filenames and screenshot paths below are historical evidence references.
+Do not ask for those folders or claim to have seen unattached screenshots.
+Only the two separate app-upload attachments are required:
+  math-worksheet.pdf
+  reading-worksheet.pdf
+Keep tutor-only keys, reports and this brief out of student documents.
+If a browser cannot select a received attachment, record that tool limitation.
+
+SCOPE AND ACCOUNTS
+Use NLU QA agency453 (nlu-qa-demo), learning program454 only. Normal app entry:
+https://app.nextleveluplcc.com/nlu-qa-demo/login
+Use existing vault accounts: Finley1496 (tutor), Morgan1759 (parent), Rene1785
+(co-parent), Riley1807 (QA-only admin), Jordan1434 (support). Do not reset their
+passwords, change roles or use a human/superadministrator account. The QA admin
+is authorized only within the QA companies. An unavailable vault site/login is
+a blocker, not permission to borrow someone else's session.
+Use Parker2545 and Quinn2547 and their retained service assignments. Recount and
+reuse exact synthetic fixtures; do not make duplicate families, packages or users.
+No changes to live NLU agency6, live employees or real families. Shared source
+repairs do not authorize fixture writes in other organizations.
+
+PRESERVE PRIOR EVIDENCE
+Preserve all earlier retained fixtures, particularly appointments367–375,
+childcare shift4, balances29/30 and receipt R-453-7. These already exist.
+Do not repay R-453-7, overwrite old signatures, erase erroneous punches or resend
+already-received messages. First inspect current states and actual inbox receipt.
+Every new attendance observation reflects work actually performed in this exercise.
+Unknown past attendance remains awaiting review; do not fabricate attendance.
+No changed clocks, fake media, real cards/charges, insurance claims, QuickBooks
+posts, approved payroll exports or signing for a real person. A QA payment simulator
+is usable only when the app visibly identifies its isolated QA mode.
+Synthetic outbound mail must physically go to testing@itsco.health. Record logical
+recipient separately. Transport acceptance is not an inbox receipt. Preserve real
+preferences, guardian/service access, SMS consent and exact appointment links.
+
+WHAT THIS ENGINEERING BATCH CHANGES — FRESH LIVE VERIFICATION STILL REQUIRED
+- Due no-show queries, expired-window confirmation, undo reason/history and a new
+  declaration after undo; old signed decisions stay separately preserved.
+- Read-only final outcomes and recorded/signed tutoring schedule guards. Released
+  office reservations can retain a read-only canonical calendar occurrence.
+- Tutoring duration defaults separated from minimums; midnight end handling;
+  exact quarter-hour same-day/past tutoring office allocation and subject context.
+- Shared appointment Session Hub entry for virtual and in-person tutoring; neutral
+  loading state and delayed-response isolation. No in-person video join.
+- Three-field private drafts and explicit Sign and share for an attended, ended
+  session; immutable family summary, scoped learning context and attendance history.
+- Closed family join windows, NLU room branding and common tutoring wording.
+- Completed-childcare clock-in denial, reload reminder, exact finalize link,
+  sticky composer and visible time-claim counts. Stable Stay signed in control.
+
+STILL OPEN — DO NOT CALL THESE IMPLEMENTED OR PASSED
+1. Same-week Reschedule and automatic makeup fee/package hold/waiver reconciliation.
+   The read-only safeguard is not the completed makeup feature. Do not type a
+   discount or force a status to simulate it.
+2. Late-cancellation correction/deferred-notice parity with the no-show flow.
+3. Publishing selected worksheets alongside a signed summary, and optional audio
+   recording with organization configuration, consent and a shared indicator.
+   Existing session materials may be tested through their actual supported path;
+   sharing in a live room is not proof of post-session family publication.
+4. Future quarter-hour office-request approval, room label/history consistency
+   and same-day automatic confirmation history still need their full retest/followup.
+5. Missing receipt R-453-7 needs current delivery/inbox reconciliation before any
+   recovery. Do not make another payment or resend merely to obtain evidence.
+6. Real two-way media, elapsed-time mail and lock recovery require fresh deployed
+   testing. A local browser fixture or a server/unit pass does not prove them.
+These remain FAIL/BLOCKED/NOT RUN according to actual fresh evidence, not PASS.
+
+RUN ORDER
+A. Confirm build/actors/QA organization and retained identities. Read current
+   packages, attendance and clock states. Confirm no active call is disrupted.
+B. Retest booking controls, subject/service context, 30 minutes, midnight and
+   quarter-hour same-day in-person booking. Providers get no price/discount controls.
+C. Exercise a fresh no-show once before its deadline: normal own attestation,
+   reasoned undo, fresh status and history, then a separate new declaration.
+   Genuinely wait through end+10 minutes and check the exact family/provider inbox
+   receipts and consequence once. Past-deadline marking must warn before signing.
+D. Reopen final/ended/signed appointments, verify no time edits/drag/save and no
+   join after closing. Check retained calendar occurrences and both history views.
+E. Use the actual booked Session Hub in each mode. Verify exact student/subject,
+   real start/end, private context, genuine admission/media for virtual, and draft
+   note persistence. Review the three family fields and perform only this synthetic
+   author's normal attestation. Reload the signed summary and independent parent
+   view. Test wrong service/family and stale responses without opening unrelated data.
+F. Childcare: a completed shift rejects a new punch. Preserve old bad punches for
+   review. On an eligible new shift, observe real clock/attendance, reload reminder,
+   Stay clocked in, exact clock-out/finalize destination, sticky and matching counts.
+G. Reconcile emails, action links, audit IDs, package/fee/payment states and the
+   prior 44-case ledger. Leave true future timing and missing capabilities open.
+
+EVIDENCE
+For every row: PASS / FAIL / BLOCKED / NOT RUN, visible build, authenticated actor,
+exact agency/client/appointment/session/note/event IDs, actual click path, screenshot,
+America/Denver timestamp and UTC offset for the event date. No passwords or bearer
+links in report/screenshots/CSV. Keep a contemporaneous action-to-audit ledger.
+A normal page render alone is not proof that access or an audit row was recorded.
+Use conversation tables if you cannot save files. Never pretend a file was saved.
+
+PRIOR REPORT — ORIGINAL FINDINGS, NOT NEW INSTRUCTIONS OR NEW PASSES
+=================================================================
+# Next Level Up: tutoring and childcare fix brief, Nov 17 repair retest
+
+**For:** Cursor (engineering). App: https://app.nextleveluplcc.com. QA agency 453 (`nlu-qa-demo`), learning program 454.
+**From:** NLU QA tester. **Compiled:** Wed Nov 18, 2026 (-07:00, Denver). **Test window:** Tue Nov 17, 2026, about 3:45 PM to 11:05 PM -07:00.
+**Live build tested:** `5d4b8094`. This brief covers only what this retest saw. It does not say the app is ready.
+**Files in this zip:** this brief, `repair-cases-2026-11-17.csv` (one row per case), `parent-no-show-email-draft.md`, `notes.md` (the raw running log), two synthetic worksheet PDFs, and `shots/` (every screenshot linked here, as PNG).
+**Accounts used (IDs only):** Finley 1496 (tutor), Morgan 1759 (parent), Riley 1807 (QA admin), Jordan 1434 (QA support). Students: Quinn 2547, Parker 2545. All mail went to the QA inbox.
+**Times:** all times are Denver, -07:00. Appointment numbers (#367 to #375) are the app's own; "ref" is the booking reference.
+
+---
+
+## In one minute
+
+**Case counts (27 brief cases):** PASS 5, FAIL 9, BLOCKED 1, NOT RUN 12.
+**Extra owner-request tests (17):** PASS 2, FAIL 10, BLOCKED 1, NOT RUN 4.
+**All 44 ledger rows:** PASS 7, FAIL 19, BLOCKED 2, NOT RUN 16.
+A PASS means that one tested path worked on this build. Several PASS cases still carry defects listed below. Nothing here says the app is ready.
+
+**The five fixes that matter most**
+
+1. **Missed-session emails and fees never happen.** No-show #370 (marked 8:32 PM, deadline 9:40 PM) and #371 (marked about 10:12 PM) produced no family email and no provider copy in the QA inbox. The consequence stayed "pending" after the deadline, the Undo button went grey with no explanation, and the "correction window open" banner stayed up (Fix 1, 2, 3).
+2. **Missed and ended sessions are not locked.** A past no-show (#372) could be moved to next week from the Edit tab with only a browser confirm. An ended session (#375) could be moved. Tutors can pick internal statuses like "Temporary" (Fix 5, 6, 7).
+3. **Wording.** "TUTORING" in all caps, "Telehealth", "Platform counseling video session", "AuricWell VIRTUAL OFFICE", "care team", "Self Pay" and POS codes still show on tutoring screens (Fix 9, 10).
+4. **Booking rules are wrong.** 30-minute sessions are refused or silently stretched to 60. Sessions can't end at midnight. A 5:30 PM in-person booking is refused while the form says a room is open (Fix 11, 12, 13).
+5. **Families and tutors can't see what happened.** The tutoring note is one plain box with no goals, no sign step and no attachment. The parent portal shows no summary, no worksheet, no attendance history, and ended sessions still read "scheduled". The room is the old "virtual office"; the owner wants a per-session Session Hub (Fix 14, 15, 16).
+
+**Also found:** clock-in was allowed on a completed childcare shift and added punches to it (Fix 20); a lock-screen reload briefly showed another demo session's name (Fix 22).
+
+**Not tested yet (NOT RUN, "not reached before compile"):** CC-B, CC-E finalize, CC-G, CC-H, CC-I, NS06 to NS10, item 5 package credit and free miss, item 6 rechecks, Quinn's staff-profile attendance history, the moved-session email for #373. **BLOCKED:** CC-F (Jordan 1434's saved login is not allowed for nextleveluplcc.com).
+
+---
+
+## Part 1. Fix list
+
+Each fix says what we saw, what it should do, which services it covers, and the screenshots. Fixes are schedule-wide unless noted. "Every service" means tutoring, counseling, childcare and any future service; only the words change per service. Owner requirement numbers (R1 to R14) point to Part 2.
+
+### Fix 1. No family email and no provider copy after a no-show (R3)
+- **Saw:** #370 (Quinn, Reading, virtual, Tue Nov 17 8:30-9:30 PM, ref S5BA0D658B77D8C32A78F) was marked a no-show at 8:32-8:33 PM; deadline 9:40:00 PM. Checks of the QA inbox (INBOX, spam, trash) at 9:51, 9:55 and 10:38-10:40 PM found nothing. #371 (Quinn, in person, 2-3 PM, ref S0446C73B323F184AC822), marked about 10:12 PM, also had nothing 26 minutes later. The newest mail was a 7:30:02 PM reminder (id 1a1ec7d7604dba2a), not a no-show notice. Scheduled notices were also missing for #368, #369 and #370; only #367 got one (sent 4:18:26 PM, id 1a1ebce06e3278b9).
+- **Should:** after the undo window closes (or at once if the window is already past), send the family the email in Part 3 and send the provider a copy. Button links to that appointment; reference in the footer.
+- **Covers:** every service. Late cancel uses the same flow (R3).
+- **Screens:** [#370 modal](shots/ns05-finley-370-modal-2200.png), [#370 session](shots/ns05-finley-370-session-2200.png), [#371 signed](shots/ip-ns-371-signed.png). The email search itself has no screenshot.
+
+### Fix 2. The no-show consequence never applies; Undo goes grey with no message; the banner goes stale (R12)
+- **Saw:** on #370 at 9:58-10:02 PM, about 20 minutes after the 9:40 PM deadline, "Undo no-show - client arrived" was shown but disabled with no text and no Support guidance. The banner still said "No-show recorded - correction window open". Status stayed "No Show Pending", the consequence stayed pending, and there was no fee or credit line. The policy reads "No-show: Not set" and "Default (no policy configured)", and the fee reads "No fee configured".
+- **Should:** at the deadline, apply the reviewed consequence (fee, package session, or none per policy), update the banner to "Correction window closed", and show a plain message under the disabled Undo: "The time to undo this has passed. Contact Support to review." Sensible defaults for the agency notice window and fee policy.
+- **Covers:** every service.
+- **Screens:** [#370 session](shots/ns05-finley-370-session-2200.png), [#370 modal](shots/ns05-finley-370-modal-2200.png), [Morgan's view of #370](shots/ns05-morgan-370-url-2202.png).
+
+### Fix 3. The undo deadline can already be past when marking a no-show (R12)
+- **Saw:** #371 (Nov 17 2-3 PM) was marked at about 10:12 PM. The deadline (3:10:00 PM) was already past, with no warning. Undo was disabled at once.
+- **Should:** if the window is already closed when marking, say so before signing ("The undo window has already passed, so this takes effect now") and apply the consequence and send the emails at once.
+- **Covers:** every service.
+- **Screens:** [modal](shots/ip-ns-371-modal.png), [after signing](shots/ip-ns-371-modal-after.png).
+
+### Fix 4. Undo needs a reason, a visible history entry and fresh status (R12)
+- **Saw:** on #369 the undo (4:37 PM) asked for no confirmation or reason, left no separate undo line in the history, showed the stale "No Show Pending" until reload, still said "Classification no_show" after the undo, and showed "Unconfirmed" in the modal but "Scheduled" on the learning page. A retry of the no-show workflow reset to "Canceled" and unticked the signature box. Required "Outreach" and "Reason known?" fields add friction. The client message says "Contact your care team".
+- **Should:** undo asks for a short reason and shows as its own history row (who, when, why). Status refreshes at once and matches everywhere. Remove "care team". Drop or default the Outreach and Reason fields for tutoring.
+- **Covers:** every service.
+- **Screens:** [before undo](shots/ns03-369-undo-before-1637.png), [after undo](shots/ns03-369-undo-after-1637.png), [workflow after undo](shots/ns03-369-change-workflow-after-undo-sand00.png), [modal with Undo button](shots/ns03-369-modal-no-show-pending-undo-button-sand01.png), [Info tab after undo](shots/ns03-369-modal-info-tab-after-undo-sand04.png), [Learning tab](shots/ns03-369-learning-tab-undone-banner-sand03.png).
+
+### Fix 5. An undone no-show can't be marked again (R12)
+- **Saw:** on #372 (ref SCBB45EADE4F42933261C), after the undo at 10:34 PM, "Cancel / Missed session" replayed the old signed declaration at step 4 with no way to start over.
+- **Should:** after an undo, marking again starts a fresh declaration with a new deadline and keeps the old one in history.
+- **Covers:** every service.
+- **Screens:** [replay](shots/move-372-remark-replay.png). Undo surviving a logout worked: [before](shots/logout-372-before-2232.png), [signed out](shots/logout-372-signedout-2233.png), [undone](shots/logout-372-undone-2234.png).
+
+### Fix 6. Locked sessions: missed and cancelled sessions must open nearly read-only (R6, R12)
+- **Saw:** the Edit tab of a past session with a no-show (#372) was fully editable: date, time, recurrence, format, room, student, reminders, notes, and a status list with 11 entries including "Draft", "Booked", "Assigned" and "Temporary". On #369, the only way to record that the client arrived was this raw status list.
+- **Should:** cancelled, late-cancel and no-show sessions open read-only with one **Reschedule** button that follows Fix 7. No status dropdown, no time or location edits, no Save. Never show Draft, Booked, Assigned or Temporary to tutors. After an undo, offer a plain "Client attended" action that records the attended service.
+- **Covers:** every service.
+- **Screens:** [#372 Edit tab](shots/move-372-edit-tab.png), [#369 status list](shots/ns03-369-edit-tab-status-dropdown-sand13.png), [#369 completed, location "Telehealth"](shots/ns03-369-modal-completed-location-telehealth-sand12.png).
+
+### Fix 7. Same calendar week rule for moving a missed session (R5)
+- **Saw:** #372 was moved from Tue Nov 17 to Mon Nov 23 4-5 PM (next week) from the Edit tab, with only a browser confirm ("This appointment has already passed. Are you sure..."). The drag view could not cross weeks. #367 (completed) did not move on drag and showed no dialog. A future untouched session (#373, Fri Nov 20 6-7 PM to Sat Nov 21 10-11 AM) moved with a good "Move appointment" confirm. The moved-session email was not checked.
+- **Should:** a missed session can move only inside its own calendar week (agency week start). Easy **Reschedule** action on the read-only view. Dragging a past missed session asks: "This session was marked as missed. Move it to a new time this week?" Moving past the week is blocked with: "Missed sessions can only be moved within the same week. Keep this one as missed and book a new session for next week" and a Book new session button. Untouched future sessions with no note and no mark move freely and send the family and the provider a "Your session has moved" email (old and new time).
+- **Covers:** every service.
+- **Screens:** [Edit tab move to Nov 23](shots/move-372-nov23.png), [#367 drag](shots/move-367-drag.png), [#373 drag dialog](shots/move-373-dialog.png), [#373 saved Saturday](shots/move-373-saturday.png).
+
+### Fix 8. Makeup holds the fee and waives it when attended (R4)
+- **Saw:** not testable yet: no no-show carries a fee ("No fee configured"; package free-miss case NOT RUN).
+- **Should:** on a no-show or late cancel, the provider can offer a makeup that week. Moving the same session or booking a linked one holds the fee. When the makeup is attended, the fee is waived and an audit row reads "Waived: makeup #___ attended". If the makeup is itself missed, the held fee applies once. A package family uses the same package session, never two. The waiver is a policy action, not a discount a tutor can type.
+- **Covers:** every service.
+- **Screens:** none yet.
+
+### Fix 9. "TUTORING" in capitals and "Telehealth" labels (R1)
+- **Saw:** "TUTORING - SYNTHETIC QA - Tutoring session" as the service on the schedule modal; "TUTORING requires at least 60 minutes; received 30 minutes" as an error; "TELEHEALTH" on every virtual tutoring row in Morgan's list (#368, #370, #375 and others); "Telehealth" on the calendar card and drag dialog (#375); location flipped from "Online" to "Telehealth" after saving #369; "Platform counseling video session" on the 7:15 PM Parker block; #367 details say "TUTORING - Tutoring session" with no subject.
+- **Should:** never show "TUTORING" or "TELEHEALTH" in all caps anywhere. Virtual tutoring is labeled "Online" or "Virtual", never "Telehealth". Titles name the subject in normal case ("Reading tutoring").
+- **Covers:** every service (labels per service, normal case).
+- **Screens:** [schedule modal](shots/ns03-369-undo-before-1637.png), [60-minute error](shots/ip-ns-60min-error.png), [Morgan's list](shots/375-parent-list.png), [#375 drag](shots/375-drag-after-end.png), [#369 Telehealth](shots/ns03-369-modal-completed-location-telehealth-sand12.png), [Morgan's list for #370](shots/ns05-morgan-list-2201.png).
+
+### Fix 10. Clinical and branding wording still on tutoring screens (R10, R11)
+- **Saw:** dashboard logo "Learning and Counseling Centers"; Riley's header "AuricWell - CLINICAL WORKSPACE"; Riley's dialog flashes "Clinical session" while loading; "INSURANCE & PAYMENT SETUP - Complete the session note first" on #367 and #368; "Self Pay" payer; Riley-provider booking form shows POS 11/12/02/10, "Patient's Residence", "Service code"; the room header says "AuricWell VIRTUAL OFFICE" (#368 and #375); "Contact your care team".
+- **Should:** no clinical, insurance, HIPAA, beta, care team, intake, telehealth, counseling or CPA wording on tutoring screens; no warning banners (none seen this run). NLU branding only in NLU rooms. Tutors never set prices or discounts (Finley saw no price controls, PASS).
+- **Covers:** every service (wording adapts per service).
+- **Screens:** [#368 waiting room](shots/368-waiting-room-auricwell-header-sand15.png), [#368 room](shots/368-room-in-progress-auricwell-header-sand16.png), [#375 room](shots/375-tutor-room-2254.png), [#367 modal](shots/367-modal-in-person-tutoring-office-659f556d.png).
+
+### Fix 11. 30-minute sessions must be bookable (R2)
+- **Saw:** Quinn Reading entered as 4:30-5:00 PM saved as 4:30-5:30 PM (#369, ref SB53A59D8193406051014) with no message. A 30-minute in-person booking for #371 was refused: "TUTORING requires at least 60 minutes; received 30 minutes".
+- **Should:** allow 30 minutes (and other lengths) unless a package defines the length. Never change the end time silently.
+- **Covers:** every service (per-service minimums only if the owner sets one).
+- **Screens:** [60-minute error](shots/ip-ns-60min-error.png).
+
+### Fix 12. Bookings that end at midnight (R13)
+- **Saw:** an 11 PM to 12 AM booking could not be made (#375 was built as 10:45-11:45 PM instead).
+- **Should:** allow an end time of 12:00 AM.
+- **Covers:** every service.
+- **Screens:** none (the booking form simply would not accept it).
+
+### Fix 13. In-person booking: the form contradicts its own rule; room, subject and request mismatch
+- **Saw:** 5:30-6:30 PM with Office #1 was refused twice: "Office requests must start and end on the hour within one day", while the form offered 15-minute steps and "1 room open for 5:30 PM-6:30 PM". The same booking at 6-7 PM worked (#367, ref S0D4B123B1CAF6F91517E, toast "Appointment #367"). On #367: no subject saved; Riley's Edit tab says "Office room: Room 18" and "No office room assigned" though Finley booked Office #1; no office request was created (only #59, #60 exist); no room in the detail pane. #371 (past, in person) saved as in person, Office (an improvement over the earlier build), but its session page still showed a virtual room and join link.
+- **Should:** the form offers only valid start and end times; the saved room and subject match what was booked; an office request is created and visible; the session page for an in-person session shows an in-person view (no join link).
+- **Covers:** every in-person service.
+- **Screens:** [error 1](shots/booking-inperson-530pm-office-request-error-1-4322d7ef.png), [error 2](shots/booking-inperson-530pm-office-request-error-2-49455d51.png), [#367 booked](shots/367-booked-toast-and-calendar-e143b20f.png), [#367 modal](shots/367-modal-in-person-tutoring-office-659f556d.png), [#367 Edit view](shots/367-in-person-modal-office-unconfirmed-sand14.png), [#371 session](shots/ip-ns-371-session.png).
+
+### Fix 14. Calendar: no-show, cancelled and late-cancel sessions must stay visible (R7)
+- **Saw:** after the no-show, #371 vanished from My Schedule; only the Office #1 reservation block showed. The session page had no reschedule.
+- **Should:** keep them on every calendar view, muted and labeled ("No-show", "Cancelled", "Late cancel"), opening the read-only view with Reschedule.
+- **Covers:** every service.
+- **Screens:** [#371 on calendar](shots/move-371-session-2240.png), [booked](shots/ip-ns-371-booked.png).
+
+### Fix 15. Statuses and attendance history (R8)
+- **Saw:** the end of #375 at 10:56 PM said "Ended", but the calendar and My Schedule stayed "Unconfirmed / awaiting confirmation", and Morgan's list still showed "scheduled" with "Join online appointment". An ended session could be moved (Edit to 11:00 PM; drag offered "Move to Wednesday 11:30 AM", not confirmed). Morgan's list shows past sessions #291, #363, #374, #365 and #325 still "scheduled"; #362 shows a move as "Canceled by Riley". Morgan sees no attendance history beyond the appointment list. #370 for Morgan said "room opens 8:00 PM" and "Scheduled" long after it was a no-show. Quinn's staff client profile was not opened (NOT RUN).
+- **Should:** every past session gets a final outcome (Attended, No-show, Late cancel, Cancelled, Rescheduled or Makeup, Undone) within minutes of the end. The staff client profile and the parent portal each keep a running list: date and time, service or subject, provider, outcome, any fee or package session used, and simple totals ("attended 8 of 10 this term"). An ended session can't be moved and loses its Join button.
+- **Covers:** every service.
+- **Screens:** [Morgan's list](shots/375-parent-list.png), [parent session ended](shots/375-parent-session-ended.png), [#375 drag after end](shots/375-drag-after-end.png), [#374 Morgan list](shots/notes-374-morgan-list.png), [Morgan #370](shots/ns05-morgan-370-url-2202.png).
+
+### Fix 16. Tutoring notes, goals and the parent summary (R9, R14)
+- **Saw:** the live note on #375 (ref S947190AD8F5DAAE539EC) is one box, "Private tutoring session notes". It saved and persisted, with no clinical wording (good). It has no structure, times, progress link, attachment or sign step. The worksheet could only be shared as a room handout. A past session (#374, ref S6136E418B5A24CA57F3E) can't take a note at all. On #367, "Save note & update progress" stays disabled because the student's subject-track list is empty ("No subject tracks yet" on student 2547). The enrol-subject form has no goal field, so Reading starts at "Baseline Needed 0%, Goals 0". Morgan's dashboard shows an empty "Recent session summary", "No active plan" and no worksheet.
+- **Should:** a note with three lines (worked on, how it went, practice at home), tied to the student's goals and subject track, with an attachment and a **Sign and share** step. Notes can be written for a past session. The signed summary and shared worksheet show in the parent portal under Recent session summary. The note's start and end times match the session; editing the session before signing updates them. A session with a signed note can't be moved (not testable yet: no sign step, BLOCKED). The enrol-subject form gets a goal field. Private tutor-only notes stay hidden from families.
+- **Critique, tutor view:** easy to save, but it tracks nothing and is the same blank box every time. **Parent view:** nothing arrives at all.
+- **Covers:** every service (tutoring uses this simple note; other services keep their own note types).
+- **Screens:** [note filled](shots/375-tutor-note-filled.png), [worksheet shared](shots/375-tutor-worksheet-shared.png), [enrol subject](shots/375-enroll-subject.png), [parent dashboard](shots/375-parent-dashboard.png), [parent session](shots/375-parent-session-ended.png).
+
+### Fix 17. Session Hub: one room per session, with that client loaded (R10)
+- **Saw:** the room is the old "virtual office": two equal black avatar tiles, a wall of same-weight buttons, an AuricWell header, waiting-room admin above the video, and no student context. The parent join page is a bare button. "Join online appointment" opened about:blank (#368). "Video will disconnect in 22 seconds" fired while Morgan was connecting. Lock screens interrupt the session. The in-person room (`/in-person-tutoring-session/10`) is not tied to the appointment number, while the virtual one is (`/tutoring-session/appointment/368`, good; keep it).
+- **Should:** see Part 2, R10 for the full spec.
+- **Covers:** every service that has sessions (tools differ per service).
+- **Screens:** [#368 tutor view](shots/368-tutor-view-1958.png), [#368 parent join](shots/368-parent-join-1937.png), [#368 parent in session](shots/368-parent-in-session-1938.png), [#375 room](shots/375-tutor-room-2254.png).
+
+### Fix 18. Virtual session list and join behaviour for families
+- **Saw:** Morgan's list for #368 was empty until a "Service & team" switch. After #368 and #375 ended, "Join online appointment" still showed.
+- **Should:** the family's list opens on the right service, and the Join button appears only in the join window.
+- **Covers:** every service with virtual sessions.
+- **Screens:** [#375 list](shots/375-parent-list.png), [#368 parent join](shots/368-parent-join-1937.png).
+
+### Fix 19. Billing, receipts and notices
+- **Saw:** the $1.00 simulated payment (Morgan 1759, R-453-7, Nov 17 8:38:17 PM -07:00) paid balance 30 only; balance 29 ($55, #367) was untouched; amount due went from $56 to $55. No receipt email reached the QA inbox by the 8:43 PM check. Billing lines don't name the appointment number. Booking toasts for the fixtures showed no appointment number. The 7:30 PM reminder went to the coparent only and used the title "Math (SYNTHETIC QA) tutoring". Text reminders were off (no opt-in).
+- **Should:** a receipt email with time and appointment on every payment; billing lines and toasts show "#<appointment>"; reminders go to every linked guardian who has opted in.
+- **Covers:** every service.
+- **Screens:** [Morgan billing](shots/morgan-billing-balances-and-payment-history-sand17.png).
+
+### Fix 20. Childcare: clock-in allowed on a completed shift, and related gaps (CC-C, CC-D)
+- **Saw:** Finley could clock in on shift #4 (Tue Nov 17 4:00-4:45 AM, already completed) and the app added punches at 4:43:56-4:45:31 PM to it. The "You're still clocked in" popup worked but did not reappear on a later reload. "Stay clocked in" correctly did not punch out. Clock-out did not open the shift's finalize view. No "Add a sticky" control was found (CC-C). The time-claims list said "No active time claims" while the header said "3 claims" until the archive toggle and a refresh.
+- **Should:** never add punches to a completed shift; clock-out opens that shift's finalize view; the popup returns while a punch is open; Add a sticky opens its composer; list and header counts agree.
+- **Covers:** childcare.
+- **Screens:** [popup on shift page](shots/cc-d-still-clocked-in-popup-shift-page-sand06.png), [popup on dashboard](shots/cc-d-still-clocked-in-popup-dashboard-sand07.png), [after clock-out](shots/cc-d-clock-out-recorded-shift4-completed-sand10.png), [claims list](shots/cc-a-payroll-time-claims-list-sand05.png), [interval detail](shots/cc-a-interval-detail-estimate-review-sand08.png), [building dropdown](shots/cc-c-schedule-childcare-building-dropdown-sand09.png).
+
+### Fix 21. Riley's staff booking form
+- **Saw:** "Book session" defaults the provider to Riley with "No clients found"; switching provider goes to "Book Session - Coming soon"; #368 (Parker Math, virtual, 7:30-8:30 PM, $1.00 custom with reason, ref SE12FD7CA4F3A4E3EF903) had no subject and no join link on the reopened record ("A virtual meeting link will be available after booking").
+- **Should:** the provider defaults to a provider who has clients; switching provider works; saved subject and join link show on reopen.
+- **Covers:** every service.
+- **Screens:** [#368 modal](shots/368-modal-completed-online-sand18.png).
+
+### Fix 22. Sessions time out, and the lock screen misbehaves
+- **Saw:** the lock screen's "I'm still here - stay logged in" button failed twice (5:51 and 6:31 PM) during #367. A lock-screen reload flashed another demo session (Mia Lopez). A "Childcare clock status is unavailable" toast showed on tutor pages. The first sign-in said "Validation failed". Between 9:51 and 9:57 PM the browser sat on "You've Timed Out".
+- **Should:** the lock button works; a lock screen or reload never shows another person's session or name; no childcare toast on tutoring pages; no lock during a live room.
+- **Covers:** every service.
+- **Screens:** [lock screen](shots/lock-screen-stay-logged-in-367-sand11.png), [timed out](shots/ns04-ns05-timed-out-2026-11-17-2151-mst.png), [login after timeout](shots/ns04-ns05-login-after-timeout-2026-11-17-215257-mst.png), [timeout 9:58](shots/ns05-timeout-2158.png).
+
+### Fix 23. Parent can't see or undo the tutor's missed mark (check only)
+- **Saw:** Morgan (wrong actor) had no undo or dispute control on #370 (PASS). Keep this.
+- **Should:** keep that behaviour; fix the stale "Scheduled" text (Fix 15).
+- **Covers:** every service.
+- **Screens:** [Morgan #370](shots/ns05-morgan-370-url-2202.png).
+
+---
+
+## Part 2. Owner requirements (each one is schedule-wide, for every service)
+
+**R1. No all-caps "TUTORING" or "TELEHEALTH".** Never show "TUTORING" or "TELEHEALTH" in all caps. Virtual tutoring is never labeled "Telehealth"; use "Online" or "Virtual". Applies to every label, dialog, error, list and email. *(Fix 9)*
+
+**R2. 30-minute sessions.** 30-minute tutoring sessions must be bookable. A 60-minute minimum is a bug unless a package sets the length. Never change an end time silently. *(Fix 11)*
+
+**R3. No-show and late-cancel flow.** A no-show opens a correction window (default scheduled end + 10 minutes). A late cancel is a cancellation inside the agency's notice window (default 24 hours, set per service) and uses the same flow. The family email follows the draft in Part 3. The provider gets a copy. Fees or package sessions follow policy. *(Fix 1, 2, 3)*
+
+**R4. Makeup that week.** While a makeup is linked, hold the fee. When the makeup is attended, waive the fee and audit the waiver. *(Fix 8)*
+
+**R5. Move rules for missed sessions.** A missed session can move only within the same calendar week. There is an easy Reschedule action. Dragging a past missed session asks for confirmation. Moving beyond the week is blocked with a suggestion to keep it and book a new session. Untouched future sessions move freely and send moved-session emails. *(Fix 7)*
+
+**R6. Locked sessions.** Cancelled, late-cancel and no-show sessions open nearly read-only with only a Reschedule button. A session with a signed note can't be moved. An ended session shouldn't be movable. *(Fix 6, 15, 16)*
+
+**R7. Calendar visibility.** Cancelled, late-cancel and no-show sessions stay visible on the calendar. *(Fix 14)*
+
+**R8. Attendance history.** A running record on the staff client profile and the parent portal, with correct statuses. Past sessions must not stay "scheduled". *(Fix 15)*
+
+**R9. Tutoring notes.** Simple progress tracking, not clinical: three lines (worked on, how it went, practice at home), tied to goals and the subject track, with an attachment and a sign-and-share step. The signed summary shows in the parent portal (Recent session summary) with shared worksheets. Note times match the session. *(Fix 16)*
+
+**R10. Session Hub (owner-chosen name).**
+- Drop the standing virtual room. Each session opens its own Session Hub with that client's data loaded: learning plan, goals, documents, tools and resources, past notes, attendance, live progress tracking, and optional audio recording. If a standing room stays, it is only a lobby that opens the right session's hub.
+- Two modes with the same tools and a mode label: **Virtual** (video) and **In person** (tutor iPad or desktop beside the student, no video).
+- Tutor view (desktop and iPad): shared work area in the middle (whiteboard, worksheet viewer, screen share) with video as a small strip; left side shows only this student (today's plan, subject tracks, last note and practice, documents, saved resources); right side is live tracking (timer, quick skill checks, running note that becomes the tutoring note, chat). Top bar: student and subject, Live or Waiting indicator with one-tap Admit, recording toggle, End session. On iPad the sides collapse to tabs and the pencil works on the whiteboard.
+- End session pre-fills the note from live tracking, signs in one step, and updates progress.
+- Audio recording: optional, off by default, set per agency. Clear "Recording" indicator for everyone; family consent captured at enrolment and confirmed on join; recordings kept with the session; plain wording, no clinical warnings.
+- Client view is phone-friendly and simple: tutor name, subject, time, "Test your camera and mic", one big Join; full-width video; bottom bar with Mute, Camera, Chat, Leave; no tutor tools. After the session the short summary appears in the portal.
+- Remove "AuricWell VIRTUAL OFFICE" from NLU rooms. Keep the per-appointment room address for virtual (`/tutoring-session/appointment/<id>`) and use the same pattern for in-person.
+- Tests to add: Hub on desktop and iPad width shows only that student's plan, documents, tools and resources; live tracking; End prefills the note; recording toggle, indicator and consent; parent phone (390 px) and desktop views. *(Fix 17)*
+
+**R11. Tutors never set prices or discounts.** Only authorized support, booking or admin staff may set a customer price, with a reason. Waivers are policy actions. No warning banners and no clinical, HIPAA or beta wording on tutoring screens. *(Fix 10; Finley saw no price controls)*
+
+**R12. Undo of a no-show.** Show a clear message after the deadline. The deadline must not already be past when marking. Re-marking after an undo must work. Internal statuses (Draft, Booked, Assigned, Temporary) must not be shown on the Edit tab. *(Fix 2, 3, 4, 5, 6)*
+
+**R13. Midnight.** Bookings that end at midnight (11 PM to 12 AM) must be possible. *(Fix 12)*
+
+**R14. Subject enrolment needs a goal field.** *(Fix 16)*
+
+---
+
+## Part 3. Family no-show email (owner-approved draft, verbatim spec)
+
+This is the full text of `parent-no-show-email-draft.md`.
+
+```
+# Parent no-show email (owner-requested draft, Nov 17 2026)
+Send after the undo window closes. Family notice to the parent/guardian; provider copy to the tutor.
+
+Subject: Missed session: {Subject} tutoring on {Weekday, Mon D} at {h:mm AM/PM} {TZ}
+
+Hi {Parent first name},
+
+{Tutor first name} marked {Student first name}'s {Subject} tutoring session on {Weekday, Month D} at {h:mm AM/PM} {TZ} as missed because {Student first name} wasn't able to attend.
+
+Depending on your plan, this may use a session from your package or include a missed-session fee. Sign in to your Next Level Up portal to see the details for this session and your current balance.
+
+[View session details]
+
+If {Student first name} did attend or you think this was marked by mistake, just reply to this email or contact us at {support email} and we'll take a look.
+
+Thanks,
+Next Level Up
+
+---
+Provider copy subject: Copy: missed session for {Student} on {date} at {time}
+Rules: no clinical, care team, intake, telehealth, or all-caps wording; Denver/local time with zone; button links to the specific appointment; include the appointment reference in the footer.
+```
+
+Notes for engineering: the wording works for families with and without packages. Apply the same pattern to every service (tutor, counselor or caregiver; "tutoring" becomes the service name). A late cancel uses the same email with "cancelled with less than {N} hours' notice". The moved-session email ("Your session has moved", old and new time, provider copy) follows the same rules.
+
+---
+
+## Part 4. Items from the earlier NSR brief that this retest shows are still open
+
+Source: the 62-item NSR brief sent Nov 17, 3:27 PM -07:00 (`CURSOR-FIX-BRIEF-2026-11-17.md` in the NSR zip; not duplicated here). Re-seen on build `5d4b8094`:
+
+| NSR item | Still open on 5d4b8094 | Our fix |
+|---|---|---|
+| P1-W1 ALL CAPS titles, no subject | "TUTORING - ..." titles and errors; #367 has no subject | Fix 9, 10 |
+| P1-W2 "TELEHEALTH" on family list | Every virtual row for Morgan | Fix 9 |
+| P1-W3 "Platform counseling video session" | Still on the 7:15 PM Parker block | Fix 9 |
+| P1-W4 clinical wording in no-show flow | "Contact your care team", "Self Pay" | Fix 4, 10 |
+| P1-W7 logo "Learning and Counseling Centers" | Still on the dashboard | Fix 10 |
+| P1-W11 no appointment number in dialogs | Fixture toasts showed none | Fix 19 |
+| P1-W13 clinical and insurance words on staff records | "INSURANCE & PAYMENT SETUP", POS codes | Fix 10 |
+| P0-1 in-person booking fails | Error is now specific, but the form contradicts it (5:30 PM refused, 6 PM worked) | Fix 13 |
+| P0-4 free miss on the package | Not re-run (item 5 NOT RUN); policy still "No-show: Not set" | Fix 2, 8 |
+| P0-5 tutor can't complete a session | No attended or completion control; only a raw status list; "Review session payroll" not clicked this run | Fix 6 |
+| P1-B3 no receipt or session emails | No receipt for R-453-7; no scheduled notice for #368 to #370 | Fix 19 |
+| P1-B10 billing lines lack detail | Lines don't name the appointment | Fix 19 |
+| P1-L1 room not tied to the appointment | Virtual is tied (#368, good); in-person `/in-person-tutoring-session/10` is not | Fix 13, 17 |
+| P1-L2 End rules differ | #375 allowed End and edit well before its booked end | Fix 15 |
+| P1-L4 virtual room stability | "Disconnect in 22 seconds" while connecting; about:blank join | Fix 17 |
+| P2-S1 statuses disagree | #375, #370 and #371 disagree across views | Fix 15 |
+| P2-S9 lock screen button moves or fails | Failed twice on #367 | Fix 22 |
+| P2-S10 childcare clock toast on tutoring pages | Seen again | Fix 22 |
+| CC-1 clock-out popup on sign-in | Works (keep); does not reappear on reload | Fix 20 |
+
+NSR screenshots stay in the NSR zip. Anything not re-seen in this retest is not listed here.
+
+---
+
+## Part 5. Case status table (build 5d4b8094)
+
+Full evidence is in `repair-cases-2026-11-17.csv`. NOT RUN means "not reached before compile".
+
+| Case | Status | One-line result |
+|---|---|---|
+| ITEM-1 Booking form, Finley and Riley | FAIL | Card and 420 px layout fine; counseling wording, logo, 5:30 PM refusal, Riley form problems |
+| ITEM-2 Price controls | PASS | Finley has none; Riley custom price with reason saved (server-side block not tried) |
+| ITEM-3 Same-day in-person (#367) | FAIL | Booked and persisted; no subject, room mismatch, no office request |
+| ITEM-4 Virtual (#368) | FAIL | Join, admit, note, one End and status agree; branding, Telehealth, about:blank, media unproven |
+| ITEM-5A $1 payment (R-453-7) | FAIL | Paid at 8:38:17 PM; no receipt email |
+| ITEM-5B Package credit and free miss | NOT RUN | not reached before compile |
+| ITEM-6 Recheck of 50 findings | NOT RUN | not reached before compile |
+| CC-A Time claims | PASS | Estimates labeled; list-count mismatch |
+| CC-B Edit and resubmit | NOT RUN | not reached before compile |
+| CC-C Location | FAIL | Building dropdown good; no "Add a sticky" control found |
+| CC-D Clock popup | FAIL | Popup works; punches added to completed shift #4 |
+| CC-E ask | PASS | Asks about the planned child count |
+| CC-E finalize | NOT RUN | not reached before compile |
+| CC-F Review-only employee | BLOCKED | Jordan 1434 saved login not allowed for this site |
+| CC-G Countersign | NOT RUN | not reached before compile |
+| CC-H Pay bands | NOT RUN | not reached before compile |
+| CC-I Overrides | NOT RUN | not reached before compile |
+| NS01 Early sign and complete | PASS | Prompt and one declaration correct |
+| NS02 Deadline | PASS | End + 10 minutes (5:40 PM on #369), stable on reload |
+| NS03 Undo | FAIL | Undo works; no reason, no history row, no attended path |
+| NS04 Notices | FAIL | No family email or provider copy for #370 or #371 |
+| NS05 After deadline | FAIL | Undo grey with no message; stale banner; consequence never applied |
+| NS06 to NS10 | NOT RUN | not reached before compile |
+| OR-01 Move future session (#373) | PASS | Drag with confirm worked |
+| OR-02 Moved-session email (#373) | NOT RUN | not reached before compile |
+| OR-03 Move past missed session (#372) | FAIL | Moved to next week from Edit |
+| OR-04 In-person no-show (#371) | FAIL | Deadline already past, no warning |
+| OR-05 Calendar visibility (#371) | FAIL | Vanished from My Schedule |
+| OR-06 Undo survives logout (#372) | PASS | Same deadline after sign-in |
+| OR-07 Re-mark after undo (#372) | FAIL | Old declaration replays |
+| OR-08 Note on past session (#374) | FAIL | Not possible |
+| OR-09 Live note and ended session (#375) | FAIL | Plain box; ended session movable |
+| OR-10 Parent view (#375, #368) | FAIL | No summary, no worksheet, stale status |
+| OR-11 Staff client profile history | NOT RUN | not reached before compile |
+| OR-12 In-person run (#367) | FAIL | Ran and ended; progress save disabled |
+| OR-13 Morgan sees $55 for #367 | NOT RUN | not reached before compile |
+| OR-14 30-minute booking | FAIL | Stretched or refused |
+| OR-15 Midnight booking | FAIL | Not possible |
+| OR-16 Signed-note move lock | BLOCKED | No sign step exists |
+| OR-17 Session Hub tests | NOT RUN | not reached before compile (Hub not built) |
+
+## Part 6. Retest rules to keep
+
+Preserve fixtures #290, #291, #295 to #297, #324 to #331, #358 to #361, #363, #364, #366; requests 58 to 61; opening 263; entitlement 1114; childcare 1 to 3; balances 25 and 26; receipts R-453-4 to R-453-7. R-453-6 is paid; don't pay it again. No payroll approval or export, no QuickBooks or insurance claims. Never upload briefs or ledgers into the app. Mail goes to the QA inbox only.
+
+## Part 7. Screenshot index
+
+Every file in `shots/` is listed in `shots/_original-names.csv` (original file name to the name used here). All screenshots are PNG. Two captures are not linked from a fix because they show nothing new: `ns03-369-session-page-loading-blank-sand02.png` (blank loading page on #369) and `sign-in-page-captured-sand19.png` (sign-in page). `notes.md` is the raw log and still uses the original `/workspace/shots/ns/*.webp` names; use `_original-names.csv` to match them.
+
+
+FRESH 44-CASE LEDGER — ALL START NOT RUN
+=====================================
+case_id,status,build,actor_id,agency_id,object_ids,denver_timestamp,utc_offset,expected,actual,audit_row_ids,evidence,blocker
+ITEM-1,NOT RUN,,,453,,,,"Styled Session details card for Finley and Riley, in person and virtual, no overflow at about 420 px; wording is tutoring-only",,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-2,NOT RUN,,,453,,,,Finley has no price or discount control; authorized staff can set a custom price with a reason; package hides the price,,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-3,NOT RUN,,,453,,,,"Same-day in-person session at the test office with matching office request, subject, price and persistence",,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-4,NOT RUN,,,453,,,,"Fresh virtual session with its own join, deliberate admission, two-way media, one completion, consistent status",,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-5A,NOT RUN,,,453,,,,Eligible $1 simulated payment; receipt with time; testing@ receipt email,,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-5B,NOT RUN,,,453,,,,Paid package credit and explicit free-miss case,,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-6,NOT RUN,,,453,,,,Recheck all 50 original findings and TU00-TU46 on this build,,,,Fresh verification required; prior results remain in the original ledger.
+CC-A,NOT RUN,,,453,,,,"Estimate label before approval, separate approved pay, seconds-level intervals, no raw dump",,,,Fresh verification required; prior results remain in the original ledger.
+CC-B,NOT RUN,,,453,,,,Returned childcare Edit & resubmit opens the shift correction flow,,,,Fresh verification required; prior results remain in the original ledger.
+CC-C,NOT RUN,,,453,,,,Building dropdown plus optional room; no room reserved; Back to My Dashboard; Add a sticky opens its composer,,,,Fresh verification required; prior results remain in the original ledger.
+CC-D,NOT RUN,,,453,,,,Sign-in popup and clock notice; Stay clocked in does not punch out; clock-out opens that shift finalize; never manufacture historical punches,,,,Fresh verification required; prior results remain in the original ledger.
+CC-E-ASK,NOT RUN,,,453,,,,"Clock-in asks whether the scheduled X children were present, using the planned count",,,,Fresh verification required; prior results remain in the original ledger.
+CC-E-FINALIZE,NOT RUN,,,453,,,,Finalize shows actual work and attendance; corrections invalidate old approval,,,,Fresh verification required; prior results remain in the original ledger.
+CC-F,NOT RUN,,,453,,,,Review-only employee approves another employee and sees the review queue; revocation and wrong-agency tested,,,,Fresh verification required; prior results remain in the original ledger.
+CC-G,NOT RUN,,,453,,,,Compensation countersign by designated signer,,,,Fresh verification required; prior results remain in the original ledger.
+CC-H,NOT RUN,,,453,,,,Pay band: ceil(children / caregivers clocked in),,,,Fresh verification required; prior results remain in the original ledger.
+CC-I,NOT RUN,,,453,,,,"Four band overrides, hours, gross, payroll previews",,,,Fresh verification required; prior results remain in the original ledger.
+NS01,NOT RUN,,,453,,,,Are-you-sure prompt suggests 15 minutes; Cancel changes nothing; confirm gives one signed declaration,,,,Fresh verification required; prior results remain in the original ledger.
+NS02,NOT RUN,,,453,,,,Deadline is scheduled end + 10 minutes; consequence and notice pending; same after reload,,,,Fresh verification required; prior results remain in the original ledger.
+NS03,NOT RUN,,,453,,,,"Undo before deadline, then record the attended service; keep the signed declaration; no fee, debit or notice",,,,Fresh verification required; prior results remain in the original ledger.
+NS04,NOT RUN,,,453,,,,"One reviewed consequence, a family notice and a separate provider copy after the deadline",,,,Fresh verification required; prior results remain in the original ledger.
+NS05,NOT RUN,,,453,,,,After the deadline Undo is denied with Support guidance; wrong actor cannot undo,,,,Fresh verification required; prior results remain in the original ledger.
+NS06,NOT RUN,,,453,,,,"Platform defaults and organization rules for notice hours, arrival wait, fees",,,,Fresh verification required; prior results remain in the original ledger.
+NS07,NOT RUN,,,453,,,,Settings show normal customer rate beside fees; category-based fees,,,,Fresh verification required; prior results remain in the original ledger.
+NS08,NOT RUN,,,453,,,,Fresh QA policy version and precedence; old appointments keep original policy,,,,Fresh verification required; prior results remain in the original ledger.
+NS09,NOT RUN,,,453,,,,Two reschedules each send a change notice; retry does not resend,,,,Fresh verification required; prior results remain in the original ledger.
+NS10,NOT RUN,,,453,,,,"Desktop and 390 px, focus, errors, NLU branding",,,,Fresh verification required; prior results remain in the original ledger.
+OR-01,NOT RUN,,,453,,,,Untouched future session moves freely with a confirm,,,,Fresh verification required; prior results remain in the original ledger.
+OR-02,NOT RUN,,,453,,,,Moved-session email to family and provider copy,,,,Fresh verification required; prior results remain in the original ledger.
+OR-03,NOT RUN,,,453,,,,Missed session moves only inside its own week; past drag asks to confirm; beyond the week is blocked,,,,Fresh verification required; prior results remain in the original ledger.
+OR-04,NOT RUN,,,453,,,,In-person no-show: warns if the deadline is already past; read-only view; fee; notice,,,,Fresh verification required; prior results remain in the original ledger.
+OR-05,NOT RUN,,,453,,,,"No-show and cancelled sessions stay on the calendar, marked",,,,Fresh verification required; prior results remain in the original ledger.
+OR-06,NOT RUN,,,453,,,,Undo survives logout/login with the same deadline,,,,Fresh verification required; prior results remain in the original ledger.
+OR-07,NOT RUN,,,453,,,,After an undo the session can be marked again,,,,Fresh verification required; prior results remain in the original ledger.
+OR-08,NOT RUN,,,453,,,,A tutoring note can be written for a past session and tracks progress,,,,Fresh verification required; prior results remain in the original ledger.
+OR-09,NOT RUN,,,453,,,,"Simple note with times, progress link, attachment, sign step; ended session not movable",,,,Fresh verification required; prior results remain in the original ledger.
+OR-10,NOT RUN,,,453,,,,"Parent sees the session outcome, summary, worksheet and attendance history",,,,Fresh verification required; prior results remain in the original ledger.
+OR-11,NOT RUN,,,453,,,,Staff client profile shows a running attendance history,,,,Fresh verification required; prior results remain in the original ledger.
+OR-12,NOT RUN,,,453,,,,In-person session runs end to end; note updates progress,,,,Fresh verification required; prior results remain in the original ledger.
+OR-13,NOT RUN,,,453,,,,Morgan sees the $55 charge for #367 (Riley half PASS in ITEM-3),,,,Fresh verification required; prior results remain in the original ledger.
+OR-14,NOT RUN,,,453,,,,30-minute tutoring sessions can be booked,,,,Fresh verification required; prior results remain in the original ledger.
+OR-15,NOT RUN,,,453,,,,A booking can end at midnight (11 PM-12 AM),,,,Fresh verification required; prior results remain in the original ledger.
+OR-16,NOT RUN,,,453,,,,A session with a signed note cannot be moved,,,,Fresh verification required; prior results remain in the original ledger.
+OR-17,NOT RUN,,,453,,,,"Session Hub tutor-perspective tests (desktop, iPad, 390 px client view)",,,,Fresh verification required; prior results remain in the original ledger.
+
+
+ACTION-TO-AUDIT LEDGER
+case_id,actor_id,agency_id,client_id,appointment_id,session_id,note_id,event_id,action,denver_timestamp,utc_offset,expected_audit,actual_audit_id,evidence,status,finding
+
+EMAIL RECEIPT LEDGER
+case_id,appointment_id,type,logical_recipient,physical_recipient,actual_from,actual_reply_to,due_at,sent_at,received_at,denver_offset,transport_id,inbox_id,evidence,status,finding
+
+FINAL PERSONA / OBJECT TABLE
+persona,user_id,agency_id,client_ids,service_ids,appointment_ids,session_ids,note_ids,start_state,end_state,next_action,blocker
+
+ATTACHMENT INTEGRITY
+[
+  {
+    "file": "math-worksheet.pdf",
+    "bytes": 1272,
+    "sha256": "420b260349ea7be6e1df591fd484f6c65e2993c93b7c23401c4558c2f50caff8"
+  },
+  {
+    "file": "reading-worksheet.pdf",
+    "bytes": 1632,
+    "sha256": "81eb53b4641aeecc2e1178d3b1b52db01787b3c73895e000bbcf1a840fa41807"
+  }
+]
+END OF BRIEF

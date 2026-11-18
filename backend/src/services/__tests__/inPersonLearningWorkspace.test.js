@@ -52,3 +52,5 @@ it('opens an existing completed visit for review but does not create a historica
  bridge.mockClear();conn.execute.mockImplementation(async sql=>sql.includes('FROM appointments a')?[[visit]]:sql.includes('FROM appointment_participants')?[students]:[[]]);
  await expect(open({id:20},8)).rejects.toThrow(/no linked learning session/);expect(bridge).not.toHaveBeenCalled();
 });
+
+it('opens the same appointment Session Hub for in-person tutoring',async()=>{visit.learning_service_code='TUTORING';expect(await open({id:20},8)).toMatchObject({appointmentId:8,destination:'/tutoring-session/appointment/8'});});

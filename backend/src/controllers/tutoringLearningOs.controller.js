@@ -25,7 +25,7 @@ export async function getTaxonomy(_req, res) {
 export async function getOverview(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getLearningOverview(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null});
+    const data = await los.getLearningOverview(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : ['provider','provider_plus','intern','intern_plus'].includes(req.user.role)?Number(req.user.id):null});
     res.json(data);
   } catch (e) {
     next(e);
@@ -66,6 +66,7 @@ export async function enrollSubject(req, res, next) {
         schoolGrade: req.body.schoolGrade,
         instructionalLevel: req.body.instructionalLevel,
         reasonForTutoring: req.body.reasonForTutoring,
+        enrollmentGoal: req.body.enrollmentGoal,
         primaryTutorUserId: req.body.primaryTutorUserId,
         standardsVersionKey: req.body.standardsVersionKey,
         status: req.body.status
@@ -896,8 +897,9 @@ export async function getGuardianFeed(req, res, next) {
 
 export async function getGuardianDashboard(req, res, next) {
   try {
-    const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getGuardianTutoringDashboard(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null});
+    const portalContext=await assertLearningClientAccess(req,req.params.clientId);
+    const {clientId,agencyId,service}=portalContext;
+    const data = await los.getGuardianTutoringDashboard(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null,serviceId:service?.id||null,portalContext});
     res.json(data);
   } catch (e) {
     next(e);

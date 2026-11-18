@@ -183,3 +183,10 @@ it("selects a room that can pass CPA ownership review instead of holding another
     roomId: 4,
   });
 });
+
+it('checks the enclosing room slots for an exact half-hour tutoring appointment without changing its times',async()=>{
+ const input={...window,roomType:'tutoring',roomId:12,recurrence:'ONCE',occurrenceCount:1,startAt:'2026-11-04 00:30:00',endAt:'2026-11-04 01:00:00',exactAppointmentWindow:true};
+ await expect(allocateOfficeRoom(database(),input)).resolves.toMatchObject({roomId:12});
+ expect(validateOfficeSlotSeries).toHaveBeenLastCalledWith(expect.objectContaining({startHour:17,endHour:18}));
+ expect(input.startAt).toBe('2026-11-04 00:30:00');expect(input.endAt).toBe('2026-11-04 01:00:00');
+});

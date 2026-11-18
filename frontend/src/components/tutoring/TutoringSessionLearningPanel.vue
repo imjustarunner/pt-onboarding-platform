@@ -4,7 +4,7 @@
     <p v-if="error" class="error" role="alert">{{ error }} <button type="button" :disabled="saving" @click="load">Reload</button></p>
     <template v-if="!loading && !error">
       <label v-if="tracks.length > 1" class="subject">Subject<select v-model="subjectId" :disabled="saving || !!existing?.student_subject_id"><option v-for="track in tracks" :key="track.subject.id" :value="Number(track.subject.id)">{{ track.subject.subject_label }}</option></select></label>
-      <LearningPlanSessionChecklist v-if="bundle && !planChanged" :key="`${clientId}-${sessionId}-${subjectId}-${bundle.plan.id}`" :bundle="bundle" :brief="scopedBrief" :initial-checklist="existing?.metadata_json?.planChecklist || null" :previous-note="existing" :saving="saving" :status="status" @dirty="status = ''" @save="saveChecklist" />
+      <p v-if="existing?.status==='signed'" role="status">This session record is signed and read-only.</p><LearningPlanSessionChecklist v-else-if="bundle && !planChanged" :key="`${clientId}-${sessionId}-${subjectId}-${bundle.plan.id}`" :bundle="bundle" :brief="scopedBrief" :initial-checklist="existing?.metadata_json?.planChecklist || null" :previous-note="existing" :saving="saving" :status="status" @dirty="status = ''" @save="saveChecklist" />
       <p v-else-if="planChanged" role="alert">This saved session uses an earlier learning plan. Its note is preserved below. Review that plan before changing historical results.</p>
       <template v-else><p>No approved learning plan is available for this subject. A private general session note can be saved here; it will not rate learning-plan progress.</p><label class="general">Session observation<textarea v-model="generalNote" rows="3" maxlength="20000" :disabled="saving" /></label><button :disabled="saving || !sessionId" @click="saveGeneral">Save session observation</button><p role="status">{{ status }}</p></template>
       <button v-if="existing?.id" type="button" :disabled="downloading || saving" @click="downloadPdf">{{ downloading ? 'Preparing PDF…' : 'Download saved record PDF' }}</button>
@@ -27,7 +27,7 @@ const bundle = computed(() => tracks.value.find(track => Number(track.subject.id
 const scopedBrief = computed(() => Number(sessionBrief.value?.learning_plan_id) === Number(bundle.value?.plan.id) && Number(sessionBrief.value?.student_subject_id) === Number(subjectId.value) && Number(sessionBrief.value?.client_id) === Number(props.clientId) && (!props.agencyId || Number(sessionBrief.value?.agency_id) === Number(props.agencyId)) ? sessionBrief.value : null);
 const planChanged = computed(() => !!existing.value?.metadata_json?.planChecklist && Number(existing.value.learning_plan_id) !== Number(bundle.value?.plan.id));
 async function load() {
-  const token = ++generation; loading.value = true; error.value = ''; status.value = ''; tracks.value = []; existing.value = null; generalNote.value = ''; subjectId.value = null; sessionBrief.value = null;
+  const token = ++generation; loading.value = true; error.value = ''; status.value = ''; tracks.value = []; existing.value = null; saving.value=false; downloading.value=false; generalNote.value = ''; subjectId.value = null; sessionBrief.value = null;
   try {
     let context;
     if (props.request) context = await props.request('/learning-note-context');
@@ -47,7 +47,7 @@ async function load() {
   finally { if (token === generation) loading.value = false; }
 }
 async function persist(payload) {
-  if (saving.value || !props.sessionId) return;
+  if (saving.value || !props.sessionId || existing.value?.status==='signed') return;
   const token = generation; saving.value = true; status.value = ''; error.value = '';
   try {
     const body = { ...payload, sessionId: Number(props.sessionId), sessionType: props.sessionType, ...(existing.value?.id ? { id: existing.value.id } : {}) };
@@ -55,7 +55,7 @@ async function persist(payload) {
     if (token !== generation) return;
     existing.value = result.note; status.value = 'Session record saved.'; emit('saved', result);
   } catch (cause) { if (token === generation) status.value = cause.response?.data?.error?.message || 'The session record was not saved. Your selections are kept.'; }
-  finally { saving.value = false; }
+  finally { if(token===generation)saving.value = false; }
 }
 function saveChecklist(value) { return persist({ ...value, documentationMode: 'learning_plan_checklist', studentSubjectId: Number(subjectId.value), learningPlanId: bundle.value.plan.id }); }
 function saveGeneral() { return persist({ clientId: Number(props.clientId), agencyId: Number(props.agencyId) || undefined, summary: generalNote.value }); }
@@ -68,7 +68,7 @@ async function downloadPdf() {
     const link = document.createElement('a'); link.href = url; link.download = `tutoring-session-${Number(props.sessionId)}.pdf`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (cause) { if (token === generation) status.value = cause.response?.data?.error?.message || 'The saved record PDF could not be downloaded.'; }
-  finally { downloading.value = false; }
+  finally { if(token===generation)downloading.value = false; }
 }
 watch(() => [props.clientId, props.agencyId, props.sessionId], load, { immediate: true });
 onBeforeUnmount(() => { generation++; });

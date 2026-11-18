@@ -1,0 +1,45 @@
+case_id,status,build,actor_id,agency_id,object_ids,denver_timestamp,utc_offset,expected,actual,audit_row_ids,evidence,blocker
+ITEM-1,NOT RUN,,,453,,,,"Styled Session details card for Finley and Riley, in person and virtual, no overflow at about 420 px; wording is tutoring-only",,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-2,NOT RUN,,,453,,,,Finley has no price or discount control; authorized staff can set a custom price with a reason; package hides the price,,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-3,NOT RUN,,,453,,,,"Same-day in-person session at the test office with matching office request, subject, price and persistence",,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-4,NOT RUN,,,453,,,,"Fresh virtual session with its own join, deliberate admission, two-way media, one completion, consistent status",,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-5A,NOT RUN,,,453,,,,Eligible $1 simulated payment; receipt with time; testing@ receipt email,,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-5B,NOT RUN,,,453,,,,Paid package credit and explicit free-miss case,,,,Fresh verification required; prior results remain in the original ledger.
+ITEM-6,NOT RUN,,,453,,,,Recheck all 50 original findings and TU00-TU46 on this build,,,,Fresh verification required; prior results remain in the original ledger.
+CC-A,NOT RUN,,,453,,,,"Estimate label before approval, separate approved pay, seconds-level intervals, no raw dump",,,,Fresh verification required; prior results remain in the original ledger.
+CC-B,NOT RUN,,,453,,,,Returned childcare Edit & resubmit opens the shift correction flow,,,,Fresh verification required; prior results remain in the original ledger.
+CC-C,NOT RUN,,,453,,,,Building dropdown plus optional room; no room reserved; Back to My Dashboard; Add a sticky opens its composer,,,,Fresh verification required; prior results remain in the original ledger.
+CC-D,NOT RUN,,,453,,,,Sign-in popup and clock notice; Stay clocked in does not punch out; clock-out opens that shift finalize; never manufacture historical punches,,,,Fresh verification required; prior results remain in the original ledger.
+CC-E-ASK,NOT RUN,,,453,,,,"Clock-in asks whether the scheduled X children were present, using the planned count",,,,Fresh verification required; prior results remain in the original ledger.
+CC-E-FINALIZE,NOT RUN,,,453,,,,Finalize shows actual work and attendance; corrections invalidate old approval,,,,Fresh verification required; prior results remain in the original ledger.
+CC-F,NOT RUN,,,453,,,,Review-only employee approves another employee and sees the review queue; revocation and wrong-agency tested,,,,Fresh verification required; prior results remain in the original ledger.
+CC-G,NOT RUN,,,453,,,,Compensation countersign by designated signer,,,,Fresh verification required; prior results remain in the original ledger.
+CC-H,NOT RUN,,,453,,,,Pay band: ceil(children / caregivers clocked in),,,,Fresh verification required; prior results remain in the original ledger.
+CC-I,NOT RUN,,,453,,,,"Four band overrides, hours, gross, payroll previews",,,,Fresh verification required; prior results remain in the original ledger.
+NS01,NOT RUN,,,453,,,,Are-you-sure prompt suggests 15 minutes; Cancel changes nothing; confirm gives one signed declaration,,,,Fresh verification required; prior results remain in the original ledger.
+NS02,NOT RUN,,,453,,,,Deadline is scheduled end + 10 minutes; consequence and notice pending; same after reload,,,,Fresh verification required; prior results remain in the original ledger.
+NS03,NOT RUN,,,453,,,,"Undo before deadline, then record the attended service; keep the signed declaration; no fee, debit or notice",,,,Fresh verification required; prior results remain in the original ledger.
+NS04,NOT RUN,,,453,,,,"One reviewed consequence, a family notice and a separate provider copy after the deadline",,,,Fresh verification required; prior results remain in the original ledger.
+NS05,NOT RUN,,,453,,,,After the deadline Undo is denied with Support guidance; wrong actor cannot undo,,,,Fresh verification required; prior results remain in the original ledger.
+NS06,NOT RUN,,,453,,,,"Platform defaults and organization rules for notice hours, arrival wait, fees",,,,Fresh verification required; prior results remain in the original ledger.
+NS07,NOT RUN,,,453,,,,Settings show normal customer rate beside fees; category-based fees,,,,Fresh verification required; prior results remain in the original ledger.
+NS08,NOT RUN,,,453,,,,Fresh QA policy version and precedence; old appointments keep original policy,,,,Fresh verification required; prior results remain in the original ledger.
+NS09,NOT RUN,,,453,,,,Two reschedules each send a change notice; retry does not resend,,,,Fresh verification required; prior results remain in the original ledger.
+NS10,NOT RUN,,,453,,,,"Desktop and 390 px, focus, errors, NLU branding",,,,Fresh verification required; prior results remain in the original ledger.
+OR-01,NOT RUN,,,453,,,,Untouched future session moves freely with a confirm,,,,Fresh verification required; prior results remain in the original ledger.
+OR-02,NOT RUN,,,453,,,,Moved-session email to family and provider copy,,,,Fresh verification required; prior results remain in the original ledger.
+OR-03,NOT RUN,,,453,,,,Missed session moves only inside its own week; past drag asks to confirm; beyond the week is blocked,,,,Fresh verification required; prior results remain in the original ledger.
+OR-04,NOT RUN,,,453,,,,In-person no-show: warns if the deadline is already past; read-only view; fee; notice,,,,Fresh verification required; prior results remain in the original ledger.
+OR-05,NOT RUN,,,453,,,,"No-show and cancelled sessions stay on the calendar, marked",,,,Fresh verification required; prior results remain in the original ledger.
+OR-06,NOT RUN,,,453,,,,Undo survives logout/login with the same deadline,,,,Fresh verification required; prior results remain in the original ledger.
+OR-07,NOT RUN,,,453,,,,After an undo the session can be marked again,,,,Fresh verification required; prior results remain in the original ledger.
+OR-08,NOT RUN,,,453,,,,A tutoring note can be written for a past session and tracks progress,,,,Fresh verification required; prior results remain in the original ledger.
+OR-09,NOT RUN,,,453,,,,"Simple note with times, progress link, attachment, sign step; ended session not movable",,,,Fresh verification required; prior results remain in the original ledger.
+OR-10,NOT RUN,,,453,,,,"Parent sees the session outcome, summary, worksheet and attendance history",,,,Fresh verification required; prior results remain in the original ledger.
+OR-11,NOT RUN,,,453,,,,Staff client profile shows a running attendance history,,,,Fresh verification required; prior results remain in the original ledger.
+OR-12,NOT RUN,,,453,,,,In-person session runs end to end; note updates progress,,,,Fresh verification required; prior results remain in the original ledger.
+OR-13,NOT RUN,,,453,,,,Morgan sees the $55 charge for #367 (Riley half PASS in ITEM-3),,,,Fresh verification required; prior results remain in the original ledger.
+OR-14,NOT RUN,,,453,,,,30-minute tutoring sessions can be booked,,,,Fresh verification required; prior results remain in the original ledger.
+OR-15,NOT RUN,,,453,,,,A booking can end at midnight (11 PM-12 AM),,,,Fresh verification required; prior results remain in the original ledger.
+OR-16,NOT RUN,,,453,,,,A session with a signed note cannot be moved,,,,Fresh verification required; prior results remain in the original ledger.
+OR-17,NOT RUN,,,453,,,,"Session Hub tutor-perspective tests (desktop, iPad, 390 px client view)",,,,Fresh verification required; prior results remain in the original ledger.

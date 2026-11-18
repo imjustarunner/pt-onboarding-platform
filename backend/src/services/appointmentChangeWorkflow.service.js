@@ -5,6 +5,7 @@ import ClinicalRecordRef from '../models/ClinicalRecordRef.model.js';
 import { assertAppointmentChangeDocumentation, blockAppointmentChangeClaims, attachAppointmentChangeNotes } from './appointmentChangeNote.service.js';
 import { ensureAppointmentClinicalLink } from './appointmentClinicalLink.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
 
 const parse = (v) => typeof v === 'string' ? JSON.parse(v) : v;
 const fail = (message, status = 409) => { throw Object.assign(new Error(message), { status }); };
@@ -12,8 +13,25 @@ const fail = (message, status = 409) => { throw Object.assign(new Error(message)
 export async function getAppointmentChangeWorkflow(appointmentId, db = pool) {
   const [rows] = await db.execute('SELECT * FROM appointment_change_workflows WHERE appointment_id = ?', [appointmentId]);
   const row = rows[0];
-  return row ? { ...row, facts: parse(row.facts_json), preview: parse(row.preview_json), result: parse(row.result_json),
-    facts_json: undefined, preview_json: undefined, result_json: undefined } : null;
+  if (!row) return null;
+  const value={ ...row, facts: parse(row.facts_json), preview: parse(row.preview_json), result: parse(row.result_json),
+    facts_json: undefined, preview_json: undefined, result_json: undefined };
+  if(value.status==='completed'&&value.facts?.noShowReviewActive===true) {
+    const [[review]]=await db.execute('SELECT id,state FROM appointment_no_show_reviews WHERE appointment_id=? ORDER BY id DESC LIMIT 1',[appointmentId]);
+    if(review?.state==='undone')return {...value,status:'withdrawn',withdrawnReviewId:Number(review.id)};
+  }
+  return value;
+}
+
+async function restartWithdrawnWorkflow(appointmentId,workflow,actorUserId,db) {
+  if(workflow?.status!=='withdrawn')return workflow;
+  await db.beginTransaction();
+  try {
+    await db.execute('INSERT INTO appointment_change_workflow_history(appointment_id,agency_id,review_id,signed_payload,archived_by_user_id) VALUES (?,?,?,?,?)',
+      [appointmentId,workflow.agency_id,workflow.withdrawnReviewId,maybeEncryptNotePayload(JSON.stringify({...workflow,status:'completed'})),actorUserId]);
+    await db.execute("UPDATE appointment_change_workflows SET status='draft',facts_json='{}',preview_json=NULL,result_json=NULL,narrative=NULL,signed_by_user_id=NULL,signed_at=NULL,updated_by_user_id=? WHERE appointment_id=?",[actorUserId,appointmentId]);
+    await db.commit();return null;
+  }catch(error){await db.rollback();throw error;}
 }
 
 async function withLock(id, action) {
@@ -32,7 +50,7 @@ async function withLock(id, action) {
 
 export async function saveAppointmentChangeDraft(appointmentId, facts, actorUserId) {
   return withLock(appointmentId, async (conn) => {
-    const existing = await getAppointmentChangeWorkflow(appointmentId, conn);
+    const existing = await restartWithdrawnWorkflow(appointmentId,await getAppointmentChangeWorkflow(appointmentId, conn),actorUserId,conn);
     if (existing && existing.status !== 'draft') fail('This change has already been signed or is completing.');
     const appointment = await Appointment.findById(appointmentId);
     await conn.execute(
@@ -49,7 +67,7 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
   await requireAppointmentRequestProvider(appointmentId, actor.actorUserId, { onlyPending: true });
   if (facts.signatureConfirmed !== true) fail('Review the generated note and confirm your signature.', 400);
   return withLock(appointmentId, async (conn) => {
-    let workflow = await getAppointmentChangeWorkflow(appointmentId, conn);
+    let workflow = await restartWithdrawnWorkflow(appointmentId,await getAppointmentChangeWorkflow(appointmentId, conn),actor.actorUserId,conn);
     if (workflow?.status === 'completed') {
       await recordGuardianAppointmentApproval(appointmentId, actor.actorUserId);
       return { ...workflow.result, notificationDelivery: notifyChange
@@ -100,7 +118,7 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
         [JSON.stringify(result), result.narrative, appointmentId]);
     }
     const notes = await attachAppointmentChangeNotes({ appointment: linked, narrative: result.narrative,
-      eventType: workflow.facts.eventType, actorUserId: workflow.signed_by_user_id, signedAt: workflow.signed_at });
+      eventType: workflow.facts.eventType, actorUserId: workflow.signed_by_user_id, signedAt: workflow.signed_at, declarationId: result.noShowReview?.id || null });
     const {completeAppointmentAttendanceDocumentation}=await import('./familyLedger/copayAttendance.js');
     if(workflow.facts.noShowReviewActive!==true)await completeAppointmentAttendanceDocumentation(linked,notes);
     if (linked.officeEventId) {

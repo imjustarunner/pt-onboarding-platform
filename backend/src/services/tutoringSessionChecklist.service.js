@@ -33,6 +33,7 @@ export async function saveLearningPlanSessionNote(payload, actorUserId, { subjec
       if (!suppliedDb) await db.commit();
       return { note: existing, checklist, evidence: [], mastery: [], unchanged: true };
     }
+    if(existing?.status==='signed')throw fail(409,'This signed session record is read-only. Its learning results and shared summary have been kept.');
     if (existing?.summary && !oldChecklist && payload.replaceExistingNote !== true) throw fail(409, 'Review the existing session note and confirm replacing it with the selected plan results. The original will be retained in note history.');
     const revision = Number(prior.checklistRevision || 0) + 1;
     const history = [...(Array.isArray(prior.documentationHistory) ? prior.documentationHistory : [])];

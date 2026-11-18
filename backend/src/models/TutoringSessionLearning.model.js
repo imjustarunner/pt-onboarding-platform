@@ -367,7 +367,8 @@ class TutoringSessionNote {
     updates.push('updated_by_user_id = ?');
     values.push(actorUserId || null);
     values.push(id);
-    await db.execute(`UPDATE tutoring_session_notes SET ${updates.join(', ')} WHERE id = ?`, values);
+    const [updated]=await db.execute(`UPDATE tutoring_session_notes SET ${updates.join(', ')} WHERE id = ? AND status <> 'signed'`, values);
+    if(updated.affectedRows===0){const current=await this.findById(id,db);if(current?.status==='signed')throw Object.assign(new Error('This signed tutoring note is read-only.'),{status:409});}
     return this.findById(id, db);
   }
 }

@@ -22,7 +22,7 @@
 
     <template v-else>
       <!-- Overview -->
-      <div v-if="tab === 'overview'" class="los-section">
+      <div v-if="tab === 'overview'" class="los-section"><LearningAttendanceHistory :data="attendanceHistory" />
         <div v-if="!overview.length" class="los-empty">
           No subject tracks yet. Enroll a subject to start the learning record.
         </div>
@@ -70,6 +70,7 @@
             </select>
             <input v-model="enroll.schoolGrade" placeholder="School grade" />
             <input v-model="enroll.reasonForTutoring" placeholder="Reason for tutoring" />
+            <label>Learning goal<textarea v-model="enroll.enrollmentGoal" maxlength="2000" placeholder="What should the student learn or be able to do?" /></label>
             <button class="los-btn primary" type="submit" :disabled="saving">Enroll</button>
           </div>
         </form>
@@ -505,6 +506,7 @@
 </template>
 
 <script setup>
+import LearningAttendanceHistory from '../../tutoring/LearningAttendanceHistory.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { STUDENT_SUBJECT_KEYS } from '@/constants/tutoringLearningOs';
 import * as los from '@/services/tutoringLearningOs';
@@ -533,6 +535,7 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const overview = ref([]);
+const attendanceHistory=ref(null);
 const selectedSubject = ref(null);
 const subjectKeys = STUDENT_SUBJECT_KEYS;
 const showBaseline = ref(false);
@@ -557,7 +560,7 @@ const casSearched = ref(false);
 const practiceList = ref([]);
 const lastBlueprint = ref(null);
 
-const enroll = reactive({ subjectKey: '', schoolGrade: '', reasonForTutoring: '' });
+const enroll = reactive({ subjectKey: '', schoolGrade: '', reasonForTutoring: '', enrollmentGoal: '' });
 const baseline = reactive({ strengthsText: '', needsText: '', narrativeSummary: '', goalTitle: '' });
 const oral = reactive({ passageTitle: '', wordsCorrect: null, wordsTotal: null, wpm: null, sttTranscript: '' });
 const doc = reactive({ sourceLabel: 'report_card', rawTextExcerpt: '' });
@@ -648,7 +651,7 @@ async function refresh() {
   error.value = '';
   try {
     const data = await los.fetchLearningOverview(props.clientId,{agencyId:props.agencyId||undefined});
-    overview.value = data.subjects || [];
+    overview.value = data.subjects || [];attendanceHistory.value=data.attendanceHistory||null;
     if (selectedSubject.value) {
       const match = overview.value.find((r) => r.subject.id === selectedSubject.value.id);
       if (match) selectedSubject.value = match.subject;
@@ -668,11 +671,12 @@ async function doEnroll() {
       agencyId: props.agencyId ? Number(props.agencyId) : undefined,
       subjectKey: enroll.subjectKey,
       schoolGrade: enroll.schoolGrade || null,
-      reasonForTutoring: enroll.reasonForTutoring || null
+      reasonForTutoring: enroll.reasonForTutoring || null,
+      enrollmentGoal: enroll.enrollmentGoal || null
     });
     enroll.subjectKey = '';
     enroll.schoolGrade = '';
-    enroll.reasonForTutoring = '';
+    enroll.reasonForTutoring = '';enroll.enrollmentGoal='';
     await refresh();
     tab.value = 'overview';
   } catch (e) {

@@ -90,9 +90,9 @@ describe('childcare real punch to reviewable payroll claim',()=>{
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',actualChildren:3,now:new Date('2026-11-19T23:00:00Z')});
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-out',actualChildren:3,now:new Date('2026-11-20T02:00:00Z')});
   state.claim.payload.childcareWorkApprovalRequired=false;state.claim.status='approved';const hash=state.snapshot.snapshot_hash;
-  await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',actualChildren:2,now:new Date('2026-11-20T02:05:00Z')});
+  await expect(recordChildcareAction({shiftId:8,userId:7,action:'clock-in',actualChildren:2,now:new Date('2026-11-20T02:05:00Z')})).rejects.toMatchObject({status:409});
   expect(state.snapshot.snapshot_hash).toBe(hash);expect(childcareClaimAmount(state.claim)).toBe(105);
-  expect(db.execute.mock.calls.some(([sql,p])=>sql.startsWith('INSERT INTO user_activity_log')&&p[0]==='childcare_pay_correction_required')).toBe(true);
+  expect(state.punches).toHaveLength(2);
  });
  it('lets a manager append a dated count correction without changing original attendance or punches',async()=>{
   const {state,db}=memoryShift({role:'admin'});pool.getConnection.mockResolvedValue(db);

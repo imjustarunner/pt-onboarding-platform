@@ -319,6 +319,7 @@ export async function recordChildcareAction({shiftId,userId,action,actualChildre
     }
     if(action==='clock-in') {
       if(shift.status==='canceled'||!Number(shift.is_active))fail(409,'This childcare shift is canceled or inactive.');
+      if(shift.status==='completed')fail(409,'This childcare shift is completed. Open its time correction to review recorded work, or schedule a new shift.');
       const today=utcDateToZonedYmd(now,shift.timezone),firstDay=utcDateToZonedYmd(new Date(childcareStoredIso(shift.starts_at)),shift.timezone),lastDay=utcDateToZonedYmd(new Date(childcareStoredIso(shift.ends_at)),shift.timezone);
       if(today<firstDay||today>lastDay)fail(409,'Clock in on the shift’s local scheduled day when work begins.');
       if(last?.punch_type==='clock_in')return {alreadyProcessed:true,shift:await mapShift(shift,userId,db)};

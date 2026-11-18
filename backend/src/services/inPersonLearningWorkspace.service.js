@@ -31,7 +31,7 @@ export function createInPersonLearningWorkspace({ db = pool, authorize = staffTo
       const linked=await bridge({agencyId:appointment.agencyId,userId:user.id},{...visit,tutoringAppointmentId:appointment.id,participants:participants.map(p=>({id:Number(p.id)}))},conn,{allowEnded:true});
       await conn.commit();
       const path=String(visit.modality).toUpperCase()==='IN_PERSON'?'in-person-tutoring-session':'tutoring-session';
-      return {sessionId:linked.learningSessionId,appointmentId:appointment.id,destination:`/${path}/${linked.learningSessionId}`};
+      return {sessionId:linked.learningSessionId,appointmentId:appointment.id,destination:visit.learning_service_code==='TUTORING'?`/tutoring-session/appointment/${appointment.id}`:`/${path}/${linked.learningSessionId}`};
     } catch(error) { await conn.rollback();throw error; } finally { conn.release(); }
   };
 }

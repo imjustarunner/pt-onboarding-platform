@@ -7,6 +7,11 @@ import Checklist from '../LearningPlanSessionChecklist.vue';
 import { bundle, brief } from '../../../../previews/learning-session/fixture';
 const context = (title = 'Mathematics') => ({ tracks: [{ subject: { id: 18, subject_label: title }, bundle }], note: null });
 describe('scheduled tutoring session documentation', () => {
+  it('keeps signed results read-only and offers only the saved-record download', async () => {
+    const request=vi.fn(async()=>({...context(),note:{id:5,status:'signed',summary:'Saved plan results',learning_plan_id:801,metadata_json:{planChecklist:{areas:[]}}}}));
+    const wrapper=mount(Panel,{props:{clientId:90004,sessionId:1001,request}});
+    try {await flushPromises();expect(wrapper.text()).toContain('signed and read-only');expect(wrapper.findComponent(Checklist).exists()).toBe(false);expect(wrapper.find('textarea').exists()).toBe(false);expect(wrapper.findAll('button').map(b=>b.text())).toEqual(['Download saved record PDF']);expect(request).toHaveBeenCalledTimes(1);}finally{wrapper.unmount();}
+  });
   it('uses the booked-room transport and saves against the actual session and plan', async () => {
     const request = vi.fn(async path => path === '/learning-note-context' ? context() : { note: { id: 5 } });
     const wrapper = mount(Panel, { props: { clientId: 90004, agencyId: 90002, sessionId: 1001, request } }); await flushPromises();

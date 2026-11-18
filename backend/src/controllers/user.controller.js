@@ -1,3 +1,5 @@
+import {missingAppointmentOutcomeEvents} from '../utils/appointmentOutcomeCalendar.js';
+import {appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {calendarVirtualOpening} from '../utils/calendarVirtualOpening.js';
 import { clientServiceAssignmentSql } from '../utils/clientServiceAssignmentSql.js';
 import {qaAutomationActorFor} from '../utils/qaAutomationAttribution.js';
@@ -5873,7 +5875,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           if (!meta) return e;
           return { ...e, appointmentId: meta.id, appointmentAgencyId: meta.agencyId, clinicalSessionId: meta.clinicalSessionId,
             clientId: meta.clientId, clientName: meta.clientName, modality: meta.modality,
-            serviceLocationId: meta.serviceLocationId, appointmentStatus: meta.status,
+            serviceLocationId: meta.serviceLocationId, appointmentStatus: meta.status,businessType:meta.businessType,learningContext:meta.learningContext,serviceCode:meta.serviceCode,tenantServiceId:meta.tenantServiceId,
+            ...(['learning','tutoring'].includes(meta.businessType)?{title:appointmentServiceLabel(meta)}:{}),
             appointmentNotes: meta.notes, sourceTimezone: meta.sourceTimezone,
             canEdit: isSelf || canViewFullScheduleDetails(req.user?.role) || isSupervisorOfTarget };
         });
@@ -5891,7 +5894,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
               modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,
               serviceLocationId:meta.serviceLocationId,schoolOrganizationId:meta.schoolOrganizationId,
               schoolName:meta.schoolName,locationLabel:meta.locationLabel,
-              clinicalSessionId:meta.clinicalSessionId,serviceCode:meta.serviceCode,
+              clinicalSessionId:meta.clinicalSessionId,serviceCode:meta.serviceCode,businessType:meta.businessType,learningContext:meta.learningContext,
+              ...(['learning','tutoring'].includes(meta.businessType)?{title:appointmentServiceLabel(meta)}:{}),
               tenantServiceId:meta.tenantServiceId,officeEventId:meta.officeEventId,
               clientId:meta.clientId,clientName:meta.clientName,sourceTimezone:meta.sourceTimezone
             }:{}),
@@ -6025,6 +6029,17 @@ export const getUserScheduleSummary = async (req, res, next) => {
         description: 'Reserved for invited clients. Hidden from public booking until released or expired.' });
     }
 
+    // Released office reservations must not erase their canonical attendance history.
+    // Limit the supplemental read to the selected authorized agency, or self-only memberships.
+    let outcomeHistoryComplete=true;
+    try{if(isSelf||canViewFullScheduleDetails(req.user?.role)){
+      const Appointment=(await import('../models/Appointment.model.js')).default;
+      for(const outcomeAgencyId of (agencyId?[Number(agencyId)]:isSelf?Array.from(scheduleAgencyIdSet):[])){
+        const outcomes=await Appointment.listForAgencyInWindow({agencyId:outcomeAgencyId,providerUserId:providerId,windowStart,windowEnd});
+        if(outcomes.length>=500)outcomeHistoryComplete=false;
+        scheduleEvents.push(...missingAppointmentOutcomeEvents(outcomes,[...scheduleEvents,...officeEvents]));
+      }
+    }}catch{outcomeHistoryComplete=false;}
     const invitedCompanyEvents = await acceptedCompanyEventCalendar({ userId: providerId, agencyId, from: windowStart, to: windowEnd, includeAllAgencies });
     scheduleEvents.push(...invitedCompanyEvents.map(event => companyEventScheduleVisibility(event, isSelf)));
 
@@ -6039,6 +6054,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       weekEnd,
       windowStart,
       windowEnd,
+      outcomeHistoryComplete,
       officeRequests,
       schoolRequests,
       schoolAssignments,

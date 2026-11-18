@@ -21,7 +21,7 @@ const normalize = (row) => {
 };
 
 class StudentSubject {
-  static async create(payload, actorUserId) {
+  static async create(payload, actorUserId, db = pool) {
     const {
       agencyId,
       clientId,
@@ -37,7 +37,7 @@ class StudentSubject {
       metadata = null
     } = payload;
 
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO student_subjects
        (agency_id, client_id, subject_key, subject_label, school_grade, instructional_level,
         reason_for_tutoring, status, primary_tutor_user_id, standards_version_key,
@@ -60,12 +60,12 @@ class StudentSubject {
         actorUserId || null
       ]
     );
-    await ensureClientService({clientId,agencyId,providerUserId:primaryTutorUserId,serviceKind:'tutoring'});
-    return this.findById(result.insertId);
+    await ensureClientService({clientId,agencyId,providerUserId:primaryTutorUserId,serviceKind:'tutoring'},db);
+    return this.findById(result.insertId,db);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM student_subjects WHERE id = ? LIMIT 1`, [id]);
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(`SELECT * FROM student_subjects WHERE id = ? LIMIT 1`, [id]);
     return normalize(rows[0] || null);
   }
 

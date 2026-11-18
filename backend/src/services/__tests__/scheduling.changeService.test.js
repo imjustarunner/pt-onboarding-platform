@@ -121,7 +121,7 @@ describe('appointment change consequences and completion', () => {
   });
   it('defers a selected package until finalization, then forfeits it once through the existing settlement path', async () => {
     appointment.packageEntitlementId = 7; appointment.clinicalSessionId = null; packageRow = { id: 7, sessions_remaining: 5 };
-    const facts={ ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] };
+    const facts={ ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'], expiredNoShowConfirmed:true };
     const preview=await previewAppointmentChange(1,facts,actor);
     const declaration=await completeAppointmentChange(1,facts,actor);
     expect(declaration.noShowReview.state).toBe('pending');expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();expect(updateAppointment).not.toHaveBeenCalled();
@@ -157,7 +157,7 @@ describe('appointment change consequences and completion', () => {
 
 
 it('retains notifications for a new signed ended no-show but keeps past cancellation corrections record-only', async () => {
-  const facts = { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] };
+  const facts = { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'], expiredNoShowConfirmed:true };
   await completeAppointmentChange(1, facts, actor);
   expect(runSignedAppointmentChange.mock.calls[0][1]).toMatchObject({ reviewedAttendanceOutcome: true, followUpAction: 'none' });
   expect(runSignedAppointmentChange.mock.calls[0][1].notificationMode).not.toBe('none');
@@ -168,4 +168,10 @@ it('records a started appointment as pending before its scheduled end without ap
   appointment.endAt = new Date(Date.now() + 60000).toISOString();
   const result=await completeAppointmentChange(1, { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] }, actor);
   expect(result.noShowReview.state).toBe('pending');expect(Appointment.upsertBilling).not.toHaveBeenCalled();expect(updateAppointment).not.toHaveBeenCalled();
+});
+
+it('requires explicit confirmation when a new no-show takes effect immediately', async()=>{
+  await expect(completeAppointmentChange(1,{...canceled,eventType:'no_show',reasonKnown:false,outreach:['called']},actor)).rejects.toMatchObject({code:'EXPIRED_NO_SHOW_CONFIRMATION_REQUIRED'});
+  expect(updateAppointment).not.toHaveBeenCalled();
+  expect(Appointment.upsertBilling).not.toHaveBeenCalled();
 });

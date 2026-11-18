@@ -61,7 +61,7 @@ function normalizePayload(raw = {}) {
   return {
     session: raw?.session || null,
     actorRole: raw?.actorRole || null,
-    canModerate: raw?.canModerate !== undefined ? !!raw.canModerate : true,
+    canModerate: raw?.canModerate === true,
     student: raw?.student || null,
     studentRoster: Array.isArray(raw?.studentRoster) ? raw.studentRoster : [],
     availableTemplates: Array.isArray(raw?.availableTemplates) ? raw.availableTemplates : [],
@@ -89,6 +89,8 @@ function normalizePayload(raw = {}) {
     materials: Array.isArray(raw?.materials) ? raw.materials.map(normalizeMaterial) : []
   };
 }
+
+export function createEmptyInPersonPayload() { return normalizePayload({canModerate:false}); }
 
 export function createDemoInPersonPayload(sessionId = 'preview') {
   return normalizePayload({

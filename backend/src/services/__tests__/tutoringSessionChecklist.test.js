@@ -127,3 +127,5 @@ describe('plan-only tutoring documentation', () => {
   });
 
 });
+
+it('preserves a signed record without replacing plan results or creating more evidence',async()=>{const subject={id:18,client_id:90004,agency_id:90002};await saveLearningPlanSessionNote({sessionId:1001,learningPlanId:801,planChecklist},90003,{subject});stored={...stored,status:'signed'};const changed=structuredClone(planChecklist);changed.observation='Changed after signing';AcademicSkillEvidence.create.mockClear();await expect(saveLearningPlanSessionNote({sessionId:1001,learningPlanId:801,planChecklist:changed},90003,{subject})).rejects.toMatchObject({status:409});expect(AcademicSkillEvidence.create).not.toHaveBeenCalled();expect(stored.status).toBe('signed');});

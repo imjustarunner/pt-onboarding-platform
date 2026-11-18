@@ -15,19 +15,19 @@ it('an explicitly unassigned enrollment never expands to another tutoring appoin
  const result=await getGuardianTutoringDashboard(2545,{agencyId:453,providerId:0});
  expect(result).toMatchObject({nextSession:null,assignedTutor:null,subjects:[],upcomingSessions:[],recentSessions:[],practice:[],publishedReports:[]});
  expect(m.execute.mock.calls.every(([,values])=>values.at(-1)===0)).toBe(true);expect(m.join).not.toHaveBeenCalled();
- expect(await getLearningOverview(2545,{agencyId:453,providerId:0})).toEqual({subjects:[]});
+ expect(await getLearningOverview(2545,{agencyId:453,providerId:0})).toMatchObject({subjects:[],attendanceHistory:{entries:[]}});
  expect(await getGuardianLearningSnapshot(2545,{agencyId:453,providerId:0})).toEqual({subjects:[]});
 });
 it('keeps the actual assigned tutoring appointment for its own enrollment',async()=>{
  const result=await getGuardianTutoringDashboard(2545,{agencyId:453,providerId:1496});expect(result.nextSession).toMatchObject({id:324,provider_user_id:1496});expect(result.assignedTutor).toBe('QA assigned tutor');expect(m.execute.mock.calls.every(([,values])=>values.at(-1)===1496)).toBe(true);
 });
 it('retains deliberate agency-wide aggregation when no individual service was selected',async()=>{
- const result=await getGuardianTutoringDashboard(2545,{agencyId:453});expect(result.nextSession?.id).toBe(324);expect(m.execute.mock.calls.every(([,values])=>values.at(-1)===null)).toBe(true);
+ const result=await getGuardianTutoringDashboard(2545,{agencyId:453});expect(result.nextSession?.id).toBe(324);expect(m.execute.mock.calls.filter(([sql])=>sql.includes('a.video_room_mode')||sql.includes('SELECT CONCAT_WS')).every(([,values])=>values.at(-1)===null)).toBe(true);
 });
 it('projects an external tutoring destination through authorized join access without returning its raw URL',async()=>{
  const base=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,values)=>{
   const result=await base(sql,values);
-  if(sql.includes('FROM appointments')){expect(sql).toContain('a.external_meeting_url');return [[{...result[0][0],video_room_mode:'external',external_meeting_url:'https://video.example.test/session',modality:'TELEHEALTH'}]];}
+  if(sql.includes('FROM appointments')&&sql.includes('a.video_room_mode')){expect(sql).toContain('a.external_meeting_url');return [[{...result[0][0],video_room_mode:'external',external_meeting_url:'https://video.example.test/session',modality:'TELEHEALTH'}]];}
   return result;
  });
  const result=await getGuardianTutoringDashboard(2545,{agencyId:453,providerId:1496});

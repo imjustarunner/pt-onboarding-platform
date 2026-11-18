@@ -1,3 +1,4 @@
+import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 // Only expose a real room attached to this appointment. Never construct a
 // learning-room route from a canonical appointment ID.
 import {serviceMatchesAppointment} from './clientServiceEnrollment.service.js';
@@ -12,7 +13,9 @@ export function guardianVirtualJoin(row) {
   } catch { return null; }
 }
 
-export async function guardianAppointmentJoin(row,client,db) {
+export async function guardianAppointmentJoin(row,client,db,{includeFutureDestination=false,now=Date.now()}={}) {
+  const learning=['learning','tutoring'].includes(String(row.businessType||row.business_type||client.client_type).toLowerCase());
+  if(learning&&!includeFutureDestination){const start=+parseUtcDate(row.startAt),end=+parseUtcDate(row.endAt);if(!start||!end||now<start-1800000||now>end+1800000)return null;}
   let permissions=client.permissions_json||{};
   if(typeof permissions==='string'){try{permissions=JSON.parse(permissions);}catch{return null;}}
   if(!permissions||typeof permissions!=='object'||Array.isArray(permissions))return null;
@@ -22,7 +25,6 @@ export async function guardianAppointmentJoin(row,client,db) {
   if(row.videoRoomMode==='external')return guardianVirtualJoin(row);
   const google=guardianVirtualJoin(row);
   if(google)return google;
-  const learning=['learning','tutoring'].includes(String(row.businessType||row.business_type||client.client_type).toLowerCase());
   if(!learning){
     if(!db?.execute||!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;
     let room;
@@ -33,7 +35,9 @@ export async function guardianAppointmentJoin(row,client,db) {
   }
   if(!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;
   // A booked tutoring visit always has an appointment-specific destination.
-  if (Number(row.id)>0) return `/tutoring-session/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}`;
+  let context=row.learningContext||{};if(typeof context==='string'){try{context=JSON.parse(context);}catch{context={};}}
+  const selectedServiceId=Number(context.serviceEnrollmentId||client.service?.id)||null;
+  if (Number(row.id)>0) return `/tutoring-session/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}${selectedServiceId?'&serviceId='+selectedServiceId:''}`;
   // An unlinked legacy record cannot safely open an attendance-tracked room.
   return null;
 }

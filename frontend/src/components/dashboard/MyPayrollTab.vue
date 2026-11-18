@@ -827,7 +827,7 @@
         <div v-else class="muted" style="margin-top: 10px;">No company card expenses yet.</div>
       </PayrollHubSection>
 
-      <PayrollHubSection section-id="time_claims" :open="true" :item-count="(timeClaims || []).length" count-label="claims">
+      <PayrollHubSection section-id="time_claims" :open="true" :item-count="visibleTimeClaims.length" count-label="claims">
         <template #actions><button type="button" class="btn btn-secondary btn-sm" @click.stop="showArchivedClaims=!showArchivedClaims">{{ showArchivedClaims ? 'Show current records' : 'Show archived records' }}</button>
           <button type="button" class="btn btn-primary btn-sm" @click.stop="goToSubmit()">Submit</button>
           <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="openJuryDutyModal">+ Jury Duty</button>

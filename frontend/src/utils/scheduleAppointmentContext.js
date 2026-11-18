@@ -12,6 +12,8 @@ export function scheduleAppointmentContext(event = {}) {
     serviceLocationId: id(event.serviceLocationId ?? event.service_location_id),
     schoolOrganizationId: id(event.schoolOrganizationId ?? event.school_organization_id ?? event.schoolOrgId ?? event.school_org_id),
     serviceCode: String(event.serviceCode ?? event.service_code ?? '').trim(),
+    businessType: String(event.businessType ?? event.business_type ?? '').trim(),
+    learningContext:event.learningContext||null,
     modality: String(event.modality || '').trim(),
     appointmentStatus: String(event.appointmentStatus ?? event.appointment_status ?? '').trim().toLowerCase() || null
   };

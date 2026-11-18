@@ -1702,6 +1702,8 @@
       </div>
     </div>
 
+    <p v-if="summary?.outcomeHistoryComplete===false" role="alert">Some past attendance could not be loaded. Refresh the schedule or contact Support for the complete history.</p>
+    <AppointmentOutcomeDetails v-if="outcomeDetailsId" :appointment-id="outcomeDetailsId" @close="outcomeDetailsId=0" @changed="load({forceRefresh:true})" />
     <Teleport :to="fullscreenActive && fullscreenRoot ? fullscreenRoot : 'body'">
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
       <ClinicalWorkspaceFrame
@@ -1891,10 +1893,10 @@
               :show-join-quick="false"
               :join-busy="supvMeetOpening || supvAppVideoLoading"
               :show-note-quick="editorIsSupervision"
-              :show-edit-action="!isSelectedSupvReadOnlyView && (!editorIsSupervision || canSaveSelectedSupvSession)"
+              :show-edit-action="!editorOutcomeReadOnly && !isSelectedSupvReadOnlyView && (!editorIsSupervision || canSaveSelectedSupvSession)"
               :note-quick-label="isSelectedSupvPresenterView ? 'Presenter prep notes' : 'Supervision note'"
               :note-quick-hint="isSelectedSupvPresenterView ? 'Private prep for your case presentation' : 'Short note, transcript & summary'"
-              :show-billing="editorCanViewBillingFinancials"
+              :show-billing="editorCanViewBillingFinancials && !editorIsLearning"
               :show-clinical="editorShowClinicalTab"
               :claim-id="editorClaimId"
               :clinical-session-id="editorClinicalSessionId"
@@ -1953,7 +1955,7 @@
             :format-label="editorModality==='IN_PERSON'?'In person':'Virtual'" :duration-minutes="modalSessionDurationMinutes" />
           </template>
         </section>
-        <AppointmentNoShowStatus v-if="Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />
+        <AppointmentNoShowStatus v-if="Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" @undone="onEditorNoShowUndone" @changed="loadEditorReminders" />
         <TutoringBookedPrice v-if="editorIsLearning && Number(editorAppointmentId)>0" :appointment-id="Number(editorAppointmentId)" />
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
@@ -2003,7 +2005,7 @@
           :participant-summary="editorParticipantSummary"
           :participant-tray-open="(editorIsMeeting && meetingParticipantsExpanded) || (editorIsSupervision && supervisionParticipantsExpanded && !isSupervisionEditMode && !supervisionSignupOnlyEnabled)"
           :status="editorStatus"
-          :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
+          :status-options="editorPublicStatusOptions"
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
           :show-type="!editorIsOpenSlot && editorIsClinical && editorTypeOptions.length > 1 && !mixedSessionServices"
@@ -4474,7 +4476,7 @@
               </div>
               <dl class="nr-summary-grid">
                 <div><dt>Type</dt><dd>{{ virtualSessionSummaryTypeLabel }}</dd></div>
-                <div v-if="isVirtualTelehealthSession && linkPlatformVideoRoom"><dt>Video</dt><dd>Platform counseling room</dd></div>
+                <div v-if="isVirtualTelehealthSession && linkPlatformVideoRoom"><dt>Video</dt><dd>{{editorIsLearning?'Session Hub':'Platform counseling room'}}</dd></div>
                 <div v-if="primarySessionClientLabel"><dt>Client</dt><dd>{{ primarySessionClientLabel }}</dd></div>
                 <div v-else-if="requestType === 'individual_session'"><dt>Client</dt><dd>—</dd></div>
                 <div><dt>Organization</dt><dd>{{ requestSummaryOrganizationLabel }}</dd></div>
@@ -4766,7 +4768,7 @@
               Close
             </button>
             <button
-              v-if="isEditableScheduleStackItem(editingScheduleStackItem) || canRescheduleScheduleStackItem(editingScheduleStackItem)"
+              v-if="!editorOutcomeReadOnly && (isEditableScheduleStackItem(editingScheduleStackItem) || canRescheduleScheduleStackItem(editingScheduleStackItem))"
               class="btn nr-btn-submit"
               type="button"
               :disabled="scheduleEventSaving"
@@ -4869,6 +4871,7 @@
           <button
             class="btn nr-btn-submit"
             type="button"
+            v-if="!editorOutcomeReadOnly"
             @click="submitRequest"
             :disabled="requestSubmitDisabled"
             :title="requestSubmitBlockedReason || submitActionLabel"
@@ -5920,6 +5923,7 @@ import ScheduleCalendarMenu from './ScheduleCalendarMenu.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
+import AppointmentOutcomeDetails from './AppointmentOutcomeDetails.vue';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlices, savedOpeningServiceType } from '../../utils/virtualAvailabilityGrid';
@@ -12313,6 +12317,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       clientName: String(ev?.clientName || ''),
       timeZone: String(ev?.timeZone || ev?.sourceTimezone || ''),
       isClientSession: isClientSessionScheduleEvent(ev),
+      canonicalOutcome:!!ev?.canonicalOutcome,
       appointmentStatus: String(ev?.appointmentStatus || '').trim().toLowerCase() || null,
       confirmationState: sessionConfirmationState(ev),
       schedulingNoteSnippet: sessionSchedulingNoteSnippet(ev),
@@ -14391,8 +14396,11 @@ const editorSessionNotePanel = ref(null);
 const editorLocationAddress = ref('');
 const editorRoomId = ref(0);
 const editorBookedUntil = ref('');
+const outcomeDetailsId=ref(0);
 const editorStatus = ref('scheduled');
 const editorStatusBaseline = ref('scheduled');
+const editorOutcomeReadOnly=computed(()=>Number(editorAppointmentId.value||0)>0&&['completed','no_show','no_show_pending','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(editorStatus.value).toLowerCase()));
+const editorPublicStatusOptions=computed(()=>APPOINTMENT_EDITOR_STATUS_OPTIONS.filter(option=>!['draft','booked','assigned','temporary','no_show','no_show_pending'].includes(String(option.value||option.id||option).toLowerCase())));
 const editorAppointmentBaseline=ref(null);
 const editorHydratingAppointment=ref(false);
 const schoolAssignmentReview=ref(null);
@@ -14667,7 +14675,7 @@ const editorEndTime = computed(() => {
   }
   const h = Number(modalEndHour.value || 0);
   const m = Number(modalEndMinute.value || 0);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return `${String(h===24?0:h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 });
 const editorAgencyId = computed(() => {
   if (isScheduleEventEditMode.value) return Number(scheduleEventEditForm.value.agencyId || 0);
@@ -14869,6 +14877,7 @@ const editorWorkspaceTabs = computed(() => {
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
   if (Number(editorAppointmentId.value || 0) > 0) tabs.push({ id: 'communications', label: 'Communications', icon: '✉' });
   tabs.push({ id: 'notifications', label: 'Notifications', icon: '🔔' });
+  if(editorOutcomeReadOnly.value)return tabs.filter(t=>!['edit','notifications'].includes(t.id));
   if (isSelectedSupvReadOnlyView.value) {
     return tabs.filter((t) => !['edit', 'notifications'].includes(t.id));
   }
@@ -15013,13 +15022,14 @@ function onEditorPrimaryServiceCode(value) {
 }
 
 function applyEditorServiceDuration(service) {
+  if(editorIsLearning.value || String(service?.businessType||service?.business_type||'').toLowerCase()==='tutoring')return;
   const minutes = Number(service?.defaultDurationMinutes || service?.default_duration_minutes || 0);
   if (editorHydratingAppointment.value || !Number.isInteger(minutes) || minutes < 5 || minutes > 480) return;
   const [hour, minute] = String(editorStartTime.value || '').split(':').map(Number);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
   const end = hour * 60 + minute + minutes;
   // Do not wrap an appointment onto an earlier time on the same service date.
-  if (end >= 1440) {
+  if (end > 1440) {
     modalError.value = 'This service duration crosses midnight. Choose an earlier start time.';
     return false;
   }
@@ -15131,6 +15141,7 @@ const stackItemTimezoneLabel = (item) => {
   return timezoneLabelFor(isMeetingStackItem(item) ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
 };
 const editorInfoTypeLabel = computed(() => {
+  if(editorIsLearning.value)return `${editorLearningDetails.value?.learningContext?.subjectLabel||editorTutoringSubjects.value?.find(s=>s.key===editorTutoringSubject.value)?.label||'General'} tutoring`;
   if (editorIsMeeting.value) return ({general:'General team meeting',admin:'Admin Meeting',town_hall:'Town Hall',interview:'Interview',evaluation:'Employee Evaluation',leadership_circle:'Leadership Circle',supervisors_meeting:'Supervisors meeting'})[meetingSubtype.value] || 'Team meeting';
   if (editorIsClinical.value) {
     const sid = Number(editorTenantServiceId.value || 0);
@@ -15145,7 +15156,7 @@ const editorInfoModalityLabel = computed(() => {
   if (editorIsMeeting.value) return editorMeetingIsVirtual.value ? 'Virtual' : 'In-person';
   if (editorIsSupervision.value) return editorSupervisionIsVirtual.value ? 'Virtual' : 'In-person';
   const m = String(editorModality.value || bookingModality.value || '').toUpperCase();
-  if (m === 'TELEHEALTH') return 'Virtual';
+  if (['TELEHEALTH','VIRTUAL','ONLINE','VIDEO'].includes(m)) return editorIsLearning.value?'Online':'Virtual';
   if (m === 'IN_PERSON') return 'In-person';
   return m || '—';
 });
@@ -15198,6 +15209,7 @@ function tutoringSessionPricePayload() {
   return {...price,reason:price.reason.trim()};
 }
 const editorInfoServiceLabel = computed(() => {
+  if(editorIsLearning.value)return editorInfoTypeLabel.value;
   const sid = Number(editorTenantServiceId.value || 0);
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
   const code = String(svc?.serviceCode || svc?.service_code || editorSessionServiceCode.value || '').trim();
@@ -15205,7 +15217,7 @@ const editorInfoServiceLabel = computed(() => {
   return codes.length ? `${codes.join(' + ')} · ${svc?.name || editorInfoTypeLabel.value || 'Service'}` : '';
 });
 const editorInfoLocationLabel = computed(() => {
-  if(editorIsLearning.value) return Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value) ? editorLearningDetails.value?.serviceSetting?.locationLabel||'Location needs review' : 'Loading appointment location…';
+  if(editorIsLearning.value) return Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value) ? (String(editorLearningDetails.value?.serviceSetting?.locationLabel||'Location needs review').replace(/telehealth/gi,'Online')) : 'Loading appointment location…';
   const id = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
   const hit = (editorServiceLocationOptions.value || []).find((l) => Number(l.id) === id);
   if (hit?.label) return hit.label;
@@ -15613,10 +15625,11 @@ function onEditorStartTime(t) {
   onChooserWhenChanged?.();
 }
 function onEditorEndTime(t) {
-  const [hh, mm] = String(t || '00:00').split(':').map((n) => Number(n));
+  const [rawHour, mm] = String(t || '00:00').split(':').map((n) => Number(n));
+  const hh=rawHour===0 && (Number(editorStartTime.value.slice(0,2))>0 || Number(editorStartTime.value.slice(3,5))>0) && Number(mm)===0?24:rawHour;
   if (isScheduleEventEditMode.value) {
-    const ymd = editorDateYmd.value;
-    scheduleEventEditForm.value.endAt = `${ymd}T${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
+    const ymd = hh===24?addDaysYmd(editorDateYmd.value,1):editorDateYmd.value;
+    scheduleEventEditForm.value.endAt = `${ymd}T${String(hh===24?0:hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
     return;
   }
   if (isSupervisionEditMode.value) {
@@ -15696,6 +15709,7 @@ function onEditorAppointmentType(value) {
     });
   }
 }
+async function onEditorNoShowUndone(data){editorStatus.value=data.status||'scheduled';editorStatusBaseline.value=editorStatus.value;await loadEditorReminders();await load({forceRefresh:true});}
 function onEditorStatus(value) {
   const status=String(value || '');
   if (editorIsClinical.value && Number(editorAppointmentId.value)>0 && (status==='no_show' || /cancel/.test(status))) {
@@ -16449,6 +16463,7 @@ function openAppointmentChangeWizard() {
   appointmentChange.openWizard({
     appointmentId: id,
     context: {
+      businessType:editorIsLearning.value?'tutoring':'mental_health',
       clientName: editorInfoClientName.value || '',
       clientId: editorInfoClientId.value || null,
       clientCode: '',
@@ -16697,6 +16712,7 @@ const requestNotesCount = computed(() => String(requestNotes.value || '').length
 /** Soft-gate: missing client still disables Schedule, but the red banner only appears after a submit attempt so other fields stay editable without feeling blocked. */
 const bookingSubmitAttempted = ref(false);
 const requestSubmitBlockedReason = computed(() => {
+  if(editorOutcomeReadOnly.value)return 'This appointment has an attendance outcome. Its schedule is read-only.';
   if (submitting.value) return submitBusyLabel.value;
   if (virtualSessionScheduledSessionKey.value.startsWith('external-appointment:')) return '';
   if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare'))return 'Choose Tutoring or Counseling, or open Childcare scheduling.';
@@ -17053,7 +17069,7 @@ const normalizeBookingSelectionPayload = () => {
     tenantServiceId: Number(editorTenantServiceId.value || 0) || null,
     packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || null,
     tutoringSessionPrice: tutoringSessionPricePayload(),
-    ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&(virtualSessionSelectedClientIds.value||[]).length===1?{learningSubjectKey:editorTutoringSubject.value}:{}),
+    ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
     status: 'scheduled',
     videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     externalMeetingUrl:editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:null,
@@ -19290,7 +19306,7 @@ const loadMeetingBusyByParticipant = async (opts = {}) => {
       const startMinute = canUseQuarterHourInput.value ? Number(modalStartMinute.value || 0) : 0;
       const endMinute = canUseQuarterHourInput.value ? Number(modalEndMinute.value || 0) : 0;
       const start = new Date(`${dateYmd}T${pad2(startHour)}:${pad2(startMinute)}:00`);
-      const end = new Date(`${dateYmd}T${pad2(endHour)}:${pad2(endMinute)}:00`);
+      const end = new Date(`${endHour===24?addDaysYmd(dateYmd,1):dateYmd}T${pad2(endHour===24?0:endHour)}:${pad2(endMinute)}:00`);
       return Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) ? null : { start, end };
     })
     .filter(Boolean);
@@ -22314,7 +22330,7 @@ const completePlatformVirtualSessionBooking = async ({
   }
   const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
   const startAt = `${dateYmd}T${pad2(hour)}:${pad2(startMinute)}:00`;
-  const endAt = `${dateYmd}T${pad2(endHour)}:${pad2(endMinute)}:00`;
+  const endAt = `${endHour===24?addDaysYmd(dateYmd,1):dateYmd}T${pad2(endHour===24?0:endHour)}:${pad2(endMinute)}:00`;
   const isGroup = clientIds.length > 1;
   const clientLabel = isGroup
     ? `Group Participants (${clientIds.length})`
@@ -22387,7 +22403,7 @@ const completePlatformVirtualSessionBooking = async ({
       occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12,
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
       tutoringSessionPrice: tutoringSessionPricePayload(),
-      ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&(virtualSessionSelectedClientIds.value||[]).length===1?{learningSubjectKey:editorTutoringSubject.value}:{}),
+      ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
       participants,
@@ -22494,6 +22510,7 @@ const completePlatformVirtualSessionBooking = async ({
 };
 
 const submitRequest = async () => {
+  if(editorOutcomeReadOnly.value){modalError.value='This appointment has a final or pending attendance outcome. Its schedule is read-only.';return;}
   if(virtualSessionScheduledSessionKey.value.startsWith('external-appointment:')){if(virtualSessionShareUrl.value)window.open(virtualSessionShareUrl.value,'_blank','noopener,noreferrer');else closeModal();return;}
   if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
   bookingSubmitAttempted.value = true;
@@ -23069,7 +23086,7 @@ const submitRequest = async () => {
         if (!agencyId) throw new Error('Select an agency for this session.');
         const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
         const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
-        const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        const endAt = `${endH===24?addDaysYmd(dateYmd,1):dateYmd}T${pad2(endH===24?0:endH)}:${pad2(endMinute)}:00`;
         const bookingSelection = normalizeBookingSelectionPayload();
         const titleParts = ['School session'];
         if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
@@ -23151,7 +23168,7 @@ const submitRequest = async () => {
         if (!agencyId) throw new Error('Select an agency for this virtual session.');
         const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
         const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
-        const endAt = `${dateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        const endAt = `${endH===24?addDaysYmd(dateYmd,1):dateYmd}T${pad2(endH===24?0:endH)}:${pad2(endMinute)}:00`;
         const bookingSelection = normalizeBookingSelectionPayload();
         const titleParts = ['Virtual session'];
         if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
@@ -23221,7 +23238,7 @@ const submitRequest = async () => {
       await withdrawEditorPriorOfficeRequests();
       for (const t of targets) {
         const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:${pad2(startMinute)}:00`;
-        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + (endH - h), 23))}:${pad2(endMinute)}:00`;
+        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h) + (endH - h))}:${pad2(endMinute)}:00`;
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
         const r = await postOfficeBooking({
@@ -23509,7 +23526,7 @@ const submitRequest = async () => {
       let supervisionRecurrenceIndex = 0;
       for (const occYmd of dates) {
         const startAt = `${String(occYmd).slice(0, 10)}T${pad2(h)}:${pad2(startMinute)}:00`;
-        const endAt = `${String(occYmd).slice(0, 10)}T${pad2(endH)}:${pad2(endMinute)}:00`;
+        const endAt = `${endH===24?addDaysYmd(String(occYmd).slice(0,10),1):String(occYmd).slice(0,10)}T${pad2(endH===24?0:endH)}:${pad2(endMinute)}:00`;
         const supervisionTimeZone = scheduleMeetingTimeZone();
         // Each date keeps its explicit assignment, including an empty list.
         // Unassigned later dates never inherit the first date's presenters.
@@ -25547,7 +25564,7 @@ const schedDragGhostInfo = computed(() => {
 
 const isAppointmentBlockDraggable = (block) => {
   if (!canBookFromGrid.value) return false;
-  if (block?.isCancelled || block?.draggable === false) return false;
+  if (block?.isCancelled || block?.draggable === false || ['completed','ended','no_show','no_show_pending','late_canceled','rescheduled','voided'].includes(String(block?.appointmentStatus||block?.status||'').toLowerCase())) return false;
   const kind = String(block?.kind || '');
   // Untied open slots (virtual working hours) can be moved/resized.
   if (kind === 'portal') {
@@ -26168,6 +26185,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
 };
 
 const onCellBlockClick = (e, block, dayName, hour, minute = 0, explicitPick = false) => {
+  if(block?.canonicalOutcome){e?.preventDefault?.();e?.stopPropagation?.();outcomeDetailsId.value=Number(block.appointmentId)||0;return;}
   if (suppressNextAppointmentClick) {
     suppressNextAppointmentClick = false;
     e?.preventDefault?.();
