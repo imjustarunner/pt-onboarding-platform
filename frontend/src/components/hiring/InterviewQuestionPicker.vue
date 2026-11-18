@@ -3,6 +3,7 @@
     <div class="iqp-heading"><h4>Interview questions</h4><button type="button" :disabled="loading || creating" @click="load">Reload questions</button></div>
     <p v-if="loading" role="status">Loading this job’s questions…</p>
     <p v-if="error" class="iqp-error" role="alert">{{ error }}</p>
+    <p v-if="notice" role="status">{{ notice }}</p>
     <template v-if="!loading && sets.length">
       <label :for="`${id}-set`">Question set</label>
       <div class="iqp-switch">
@@ -24,7 +25,8 @@
       <div v-else class="iqp-create">
         <label :for="`${id}-title`">New set title</label><input :id="`${id}-title`" v-model="newTitle" maxlength="255" :disabled="saving">
         <label :for="`${id}-questions`">Questions, one per line</label><textarea :id="`${id}-questions`" v-model="newText" rows="5" :disabled="saving"></textarea>
-        <p>This set is saved {{jobDescriptionId?'with this job posting':'in the company library'}}. It will not replace the job’s default guide.</p>
+        <label :for="`${id}-scope`">Available to<select :id="`${id}-scope`" v-model="newScope" :disabled="saving"><option v-if="jobDescriptionId" value="job">This job only</option><option value="company">All jobs in this company</option></select></label>
+        <p>This creates a reusable set and selects it for this interview. It does not replace any job’s default guide.</p>
         <div class="iqp-actions"><button type="button" :disabled="saving || !newTitle.trim() || !newText.trim()" @click="createSet">{{saving?'Saving…':'Save and use set'}}</button><button type="button" :disabled="saving" @click="creating=false; error=''; publish()">Cancel</button></div>
       </div>
     </template>
@@ -36,6 +38,7 @@ import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],required:true},jobDescriptionId:{type:[Number,String],default:null},modelValue:{type:Object,default:null}});
 const emit=defineEmits(['update:modelValue','ready']);
 const id=useId(),sets=ref([]),selectedSet=ref('starter'),browseSet=ref('starter'),selected=ref([]),loading=ref(false),error=ref(''),jobDefault=ref(null),creating=ref(false),saving=ref(false),newTitle=ref(''),newText=ref('');
+const newScope=ref(props.jobDescriptionId?'job':'company'),notice=ref('');
 let version=0;
 const identity=q=>`${q.setId??'starter'}:${q.key}`;
 const browseQuestions=computed(()=>sets.value.find(set=>set.id===browseSet.value)?.questions || []);
@@ -66,13 +69,13 @@ async function createSet(){
   saving.value=true;error.value='';const request=version;
   try {
     const questions=newText.value.split('\n').map(text=>text.trim()).filter(Boolean).map((text,index)=>({key:`q_${index+1}`,text}));
-    const {data}=await api.post('/hiring/interview-hub/job-question-sets',{agencyId:props.agencyId,jobDescriptionId:props.jobDescriptionId || null,title:newTitle.value.trim(),questions});
+    const {data}=await api.post('/hiring/interview-hub/job-question-sets',{agencyId:props.agencyId,jobDescriptionId:newScope.value==='company'?null:props.jobDescriptionId || null,title:newTitle.value.trim(),questions});
     if(request!==version)return;
-    const set=toSet(data.data);sets.value.push(set);creating.value=false;newTitle.value='';newText.value='';useSet(set.id);
+    const set=toSet(data.data);sets.value.push(set);creating.value=false;newTitle.value='';newText.value='';notice.value=`${set.title} saved and selected for this interview.`;useSet(set.id);
   }catch(e){if(request===version)error.value=e.response?.data?.error?.message || e.response?.data?.message || 'Could not save this set. Your questions are still here.';}
   finally{if(request===version){saving.value=false;publish();}}
 }
-watch(()=>[props.agencyId,props.jobDescriptionId],()=>{creating.value=false;newTitle.value='';newText.value='';load();},{immediate:true});
+watch(()=>[props.agencyId,props.jobDescriptionId],()=>{creating.value=false;newTitle.value='';newText.value='';notice.value='';newScope.value=props.jobDescriptionId?'job':'company';load();},{immediate:true});
 onBeforeUnmount(()=>{version++;});
 </script>
 <style scoped>

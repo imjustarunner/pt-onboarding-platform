@@ -5,6 +5,7 @@ vi.mock('../../models/InterviewHubJobQuestionSet.model.js',()=>({default:{findDe
 vi.mock('../../models/InterviewHubTemplate.model.js',()=>({default:{findDefaultByAgencyId:m.template}}));
 import {buildInterviewFlow,DEFAULT_SCORECARD_CRITERIA} from '../interviewHub.service.js';
 import {jobInterviewSettings} from '../../utils/jobInterviewSettingsPolicy.js';
+import {starterInterviewQuestions,starterInterviewSource} from '../jobInterviewQuestions.service.js';
 import {getJobInterviewGuide,saveJobInterviewGuide} from '../../controllers/interviewHub.controller.js';
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{id:45,title:'Counselor'}]]);m.template.mockResolvedValue(null);m.defaultSet.mockResolvedValue(null);m.list.mockResolvedValue([]);});
 it('uses job ratings first, then agency ratings, then platform defaults',()=>{
@@ -12,6 +13,11 @@ it('uses job ratings first, then agency ratings, then platform defaults',()=>{
  expect(buildInterviewFlow({template:{scorecard_criteria_json:agency},jobQuestionSet:{scorecard_criteria_json:job}}).scorecardCriteria).toEqual(job);
  expect(buildInterviewFlow({template:{scorecard_criteria_json:agency}}).scorecardCriteria).toEqual(agency);
  expect(buildInterviewFlow().scorecardCriteria).toEqual(DEFAULT_SCORECARD_CRITERIA);
+});
+it('uses the five platform starter questions when the company has an empty template',()=>{
+ expect(starterInterviewQuestions({standard_questions_json:[]})).toHaveLength(5);
+ expect(starterInterviewSource({standard_questions_json:[]})).toBe('platform');
+ expect(starterInterviewSource({standard_questions_json:['Company question']})).toBe('company');
 });
 it('retains the scheduled guide when a job’s future defaults change',()=>{
  const previousFlow=buildInterviewFlow({jobQuestionSet:{questions_json:['Original question']}});

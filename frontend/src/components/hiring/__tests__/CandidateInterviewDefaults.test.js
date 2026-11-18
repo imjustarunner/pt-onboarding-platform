@@ -3,10 +3,11 @@ import {mount,flushPromises} from '@vue/test-utils';
 const api=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:api}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:3}})}));
-vi.mock('vue-router',()=>({useRoute:()=>({params:{}})}));
+vi.mock('vue-router',()=>({useRoute:()=>({params:{}}),onBeforeRouteLeave:vi.fn()}));
 vi.mock('../InterviewInvitePreview.vue',()=>({default:{template:'<div />'}}));
 import Panel from '../CandidateInterviewPanel.vue';
 import Preview from '../InterviewInvitePreview.vue';
+import Guide from '../JobInterviewGuideEditor.vue';
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('/guide')?{data:{questionSet:{id:11},questionSets:[{id:11,job_description_id:45,title:'Counselor guide',questions_json:[{key:'q1',text:'Applied job question?',fingerprint:'reviewed'}]}],starterQuestions:[{key:'motivation',text:'Starter question?',fingerprint:'starter'}],starterSource:'platform'}}:url.includes('time-capsules')?{capsules:[]}:{data:[]}}));api.post.mockResolvedValue({data:{data:{interview:{id:5}}}});});
 afterEach(()=>wrapper?.unmount());
@@ -29,4 +30,17 @@ it('disables invitations after a failed preview while allowing save without send
  await wrapper.findAll('input[type=checkbox]').at(-1).setValue(false);
  expect(wrapper.findAll('button').find(button=>button.text()==='Save without sending').attributes('disabled')).toBeUndefined();
  await wrapper.findAll('button').find(button=>button.text()==='Cancel').trigger('click');expect(wrapper.find('.cip-schedule').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();
+});
+it('requires saving or canceling pending job question edits before scheduling',async()=>{
+ wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45},global:{stubs:{RouterLink:true}}});await flushPromises();
+ wrapper.findComponent(Guide).vm.$emit('dirty-change',true);await flushPromises();
+ expect(wrapper.findAll('button').find(button=>button.text()==='Schedule & send invitations').attributes('disabled')).toBeDefined();
+ expect(wrapper.text()).toContain('Save or cancel the edited job questions');expect(api.post).not.toHaveBeenCalled();
+});
+it('shows the scheduled interview snapshot separately from the job’s current default',async()=>{
+ const original=api.get.getMockImplementation();
+ api.get.mockImplementation(async(url,...args)=>url.endsWith('/interviews')?{data:{data:[{id:50,status:'scheduled',interviewer_user_ids_json:[]}]}}:url.endsWith('/artifacts')?{data:{data:{flow_state_json:{sections:[{key:'job_specific',questions:[{text:'Previously saved interview question'}]}]}}}}:original(url,...args));
+ wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:6,jobDescriptionId:45},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(wrapper.get('.cip-saved-questions').text()).toContain('Previously saved interview question');
+ expect(wrapper.get('.cip-saved-questions').text()).not.toContain('Applied job question?');
 });

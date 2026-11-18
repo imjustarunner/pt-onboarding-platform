@@ -12,7 +12,7 @@ import { hiringAssigneesForAgency } from '../services/hiringAssignees.service.js
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
-import {createJobWithInterviewQuestions} from '../services/jobInterviewQuestions.service.js';
+import {createJobWithInterviewQuestions,parsePostingInterviewSettings,updateJobWithInterviewQuestions,replaceJobWithInterviewQuestions} from '../services/jobInterviewQuestions.service.js';
 import HiringNote from '../models/HiringNote.model.js';
 import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
@@ -1655,6 +1655,7 @@ export const updateJobDescription = async (req, res, next) => {
     if (!existing || Number(existing.agency_id) !== Number(agencyId)) {
       return res.status(404).json({ error: { message: 'Job description not found' } });
     }
+    const interviewSettings=parsePostingInterviewSettings(req.body);
 
     const titleRaw = req.body?.title;
     const title = titleRaw !== undefined ? String(titleRaw || '').trim().slice(0, 255) : String(existing.title || '').trim();
@@ -1741,7 +1742,7 @@ export const updateJobDescription = async (req, res, next) => {
       })();
       const prehireConfigJson = parsePrehireConfigFromBody(req.body) ?? sanitizePrehireConfig(existing.prehire_config_json);
       await validateJobHireDefaults(prehireConfigJson, agencyId);
-      const created = await HiringJobDescription.create({
+      const saved = await replaceJobWithInterviewQuestions({previousJobId:existing.id,settings:interviewSettings,prehireConfigJson,input:{
         agencyId,
         title,
         descriptionText: descriptionText || null,
@@ -1772,10 +1773,7 @@ export const updateJobDescription = async (req, res, next) => {
           : (['expected', 'mandatory'].includes(String(existing.credential_mode || '').trim().toLowerCase())
             ? String(existing.credential_mode).trim().toLowerCase()
             : 'none')
-      });
-      await HiringJobDescription.updateById(created.id, { prehireConfigJson });
-      const saved = await HiringJobDescription.findById(created.id);
-      await HiringJobDescription.deactivateById(existing.id);
+      }});
       return res.json({
         ...mapJobDescriptionRow(saved, agencyTimezone),
         replacedJobDescriptionId: existing.id
@@ -1843,7 +1841,7 @@ export const updateJobDescription = async (req, res, next) => {
 
     const prehireConfigJson = parsePrehireConfigFromBody(req.body);
     await validateJobHireDefaults(prehireConfigJson, agencyId);
-    const updated = await HiringJobDescription.updateById(jdId, {
+    const updated = await updateJobWithInterviewQuestions({agencyId,jobId:jdId,settings:interviewSettings,actorUserId:req.user.id,patch:{
       title,
       descriptionText: descriptionText || null,
       ...(descriptionSectionsJson !== undefined ? { descriptionSectionsJson } : {}),
@@ -1864,7 +1862,7 @@ export const updateJobDescription = async (req, res, next) => {
       ...(req.body?.prehireConfigJson !== undefined || req.body?.prehire_config_json !== undefined
         ? { prehireConfigJson }
         : {})
-    });
+    }});
 
     res.json(mapJobDescriptionRow(updated, agencyTimezone));
   } catch (e) {

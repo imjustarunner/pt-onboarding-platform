@@ -13,7 +13,7 @@ import Agency from '../models/Agency.model.js';
 import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
 import {jobInterviewSettings} from '../utils/jobInterviewSettingsPolicy.js';
-import {starterInterviewQuestions,questionsWithFingerprints,questionSetWithFingerprints} from '../services/jobInterviewQuestions.service.js';
+import {starterInterviewQuestions,starterInterviewSource,questionsWithFingerprints,questionSetWithFingerprints} from '../services/jobInterviewQuestions.service.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -145,7 +145,7 @@ async function jobGuideData({agencyId,jobDescriptionId,job}) {
   const [set,template,questionSets]=await Promise.all([InterviewHubJobQuestionSet.findDefaultForJob(agencyId,jobDescriptionId),InterviewHubTemplate.findDefaultByAgencyId(agencyId),InterviewHubJobQuestionSet.listByAgencyId(agencyId,{jobDescriptionId})]);
   const flow=buildInterviewFlow({template,jobQuestionSet:set});
   const availableSets=set && !questionSets.some(row=>row.id===set.id)?[set,...questionSets]:questionSets;
-  return {job,questionSet:set,questions:questionsWithFingerprints(set?.questions_json || []),questionSets:availableSets.map(questionSetWithFingerprints),starterQuestions:questionsWithFingerprints(starterInterviewQuestions(template)),starterSource:Array.isArray(template?.standard_questions_json)?'company':'platform',criteria:flow.scorecardCriteria,
+  return {job,questionSet:set,questions:questionsWithFingerprints(set?.questions_json || []),questionSets:availableSets.map(questionSetWithFingerprints),starterQuestions:questionsWithFingerprints(starterInterviewQuestions(template)),starterSource:starterInterviewSource(template),criteria:flow.scorecardCriteria,
     criteriaSource:set?.scorecard_criteria_json?.length?'job':template?.scorecard_criteria_json?.length?'agency':'platform'};
 }
 export const getJobInterviewGuide=async(req,res,next)=>{
@@ -164,7 +164,7 @@ export const getInterviewQuestionOptions=async(req,res,next)=>{
   try {
     const agencyId=agencyIdFromReq(req);await ensureAgencyAccess(req,agencyId);
     const [template,sets]=await Promise.all([InterviewHubTemplate.findDefaultByAgencyId(agencyId),InterviewHubJobQuestionSet.listByAgencyId(agencyId)]);
-    res.json({success:true,data:{questionSet:null,questionSets:sets.filter(set=>set.job_description_id==null).map(questionSetWithFingerprints),starterQuestions:questionsWithFingerprints(starterInterviewQuestions(template)),starterSource:Array.isArray(template?.standard_questions_json)?'company':'platform'}});
+    res.json({success:true,data:{questionSet:null,questionSets:sets.filter(set=>set.job_description_id==null).map(questionSetWithFingerprints),starterQuestions:questionsWithFingerprints(starterInterviewQuestions(template)),starterSource:starterInterviewSource(template)}});
   }catch(error){next(error);}
 };
 

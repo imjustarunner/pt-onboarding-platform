@@ -1,0 +1,82 @@
+JOB QUESTIONS — POSTING SAVE AND INTERVIEW GUIDE RETEST
+November 18, 2026
+
+Engineering found two save defects:
+- The job posting's main Save action omitted unsaved question-editor changes.
+- Replacing an uploaded job-description PDF created a version without carrying
+  the previous version's interview guide forward.
+
+A legacy job without a saved default also opened a blank question editor.
+An empty company template could yield no starter questions in the scheduler.
+
+The main Save changes action now saves the posting and edited questions in one
+transaction. A failure keeps the edits visible. Closing or navigating away
+warns about unsaved questions. A PDF replacement receives its own copy of the
+previous guide and rating criteria, or the explicitly edited questions. Failed
+replacement rolls back and retains the original active posting.
+
+Saved job questions load into a visible preview. Legacy jobs show clearly
+labeled company/Plotline starter questions without silently writing a guide.
+Empty company templates use the platform's five starter questions. The job
+editor can copy questions from this job's other sets or company-shared sets.
+
+The candidate interview scheduler starts with the linked job's default. Its
+arrows/dropdown switch whole sets, and individual questions can be added,
+removed and reordered. A new set can be private to this job or shared with all
+jobs in this company; creating it does not change any job's default. Pending
+default edits must be saved/canceled before scheduling. The candidate detail
+shows questions saved for an already scheduled interview separately from the
+job's current guide. Existing interview snapshots remain intact.
+
+DATA REVIEW AND LIMITS
+- Engineering inspected only job metadata, guide pointers and question counts
+  through an existing operational connection in a read-only transaction.
+- At inspection ITSCO jobs 15 and 16 each retained 13 saved questions. Other
+  inspected ITSCO and Next Level Up jobs had no attached saved job guide.
+- No production question bodies were read, populated, reconstructed or copied
+  by engineering. No interviews, invitations or application identities were
+  created. Unsaved browser text cannot be reconstructed from question counts.
+- No database migration or mass backfill is needed. A displayed starter is not
+  evidence that Haley's original wording was recovered.
+
+CONTROLLED QA
+Wait for matching deployed frontend/backend versions recorded in the release
+receipt. Preserve the earlier Plotline round 3 findings and fixtures.
+
+Use the existing scoped qa_automation login and the two existing QA consulting
+companies 463/464. Search for markers before creating anything. Use at most
+two additional clearly synthetic QA-JQ1118 job postings, or retained matching
+markers that are not already signed off. Do not overwrite original Guide
+Retest jobs, Job 42, Quinn or their retained guides just to test this change.
+No clinical clients, new employee accounts, real hires or invitations needed.
+
+1. On QA job A, open Edit job questions & ratings and replace the draft with
+   three unmistakably fictional role questions. Click the main Save changes
+   button only. Reopen the posting and compare exact text, count, job/set IDs.
+2. Repeat with different wording on job B. Return to A. A and B must retain
+   independent guides. Switch companies and return; check source/company IDs.
+3. Make an unsaved edit and try Close. Decline discard: text remains. Cancel
+   the draft deliberately or save it. A failed save must leave it editable.
+4. Inspect a legacy QA job with no default. Its labeled starter preview must
+   be useful, with no claim it is a saved custom guide. Merely opening it must
+   not create a question set or copy another job's guide into it.
+5. On a QA-only posting with an uploaded synthetic description, create a new
+   PDF version. Its questions/ratings must carry forward as an independent
+   saved guide. Recheck the original version without altering its history.
+6. Open an existing authorized QA applicant's Interviews tab. Verify the exact
+   applied job and its saved guide before scheduling. Preview the selected
+   questions, switch via arrows/dropdown, and mix individual questions. Select
+   a new set's availability explicitly: this job or all jobs in this company.
+   Reload and verify the set's intended availability; company-shared does not
+   mean another company. A two-company member does not prove access isolation.
+7. Save/cancel a pending job-guide edit before scheduling. If the existing test
+   authorizes creating an interview, prefer Save without sending. Its saved
+   guide must match the reviewed selection. Later job edits must not rewrite
+   that interview's preview or scorecard. Never send to bypass sender readiness.
+8. Ask the authorized owner to read ITSCO jobs 15/16 and the relevant NLU
+   posting in their own normal session. Preserve the two existing 13-question
+   guides. Missing original text requires the owner's source wording; do not
+   invent questions and call that recovery.
+
+Record PASS / FAIL / BLOCKED, build, company/job/set/interview IDs, exact action
+and before/after screenshots. Engineering fixture tests are not a live QA pass.

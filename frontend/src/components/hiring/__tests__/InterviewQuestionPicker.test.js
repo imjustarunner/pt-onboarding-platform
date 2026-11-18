@@ -48,6 +48,13 @@ it('preserves typed questions on save failure',async()=>{
  await open();api.post.mockRejectedValue(new Error('offline'));await button('Create a question set').trigger('click');await wrapper.get('input').setValue('New');await wrapper.get('textarea').setValue('Keep this text');await button('Save and use set').trigger('click');await flushPromises();
  expect(wrapper.get('textarea').element.value).toBe('Keep this text');expect(wrapper.get('[role="alert"]').text()).toContain('Could not save');expect(wrapper.emitted('ready').at(-1)).toEqual([false]);
 });
+it('can create a company-wide set from a job interview without changing the job default',async()=>{
+ await open();api.post.mockResolvedValue({data:{data:{id:10,title:'Shared group',job_description_id:null,questions_json:[q('q_1','Shared question')]}}});
+ await button('Create a question set').trigger('click');await wrapper.get('input').setValue('Shared group');await wrapper.get('textarea').setValue('Shared question');
+ await wrapper.get('.iqp-create select').setValue('company');await button('Save and use set').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/hiring/interview-hub/job-question-sets',expect.objectContaining({jobDescriptionId:null,title:'Shared group'}));
+ expect(wrapper.text()).toContain('Shared group saved and selected');expect(selection().setId).toBe(10);
+});
 it('does not apply a late response for a previously selected job',async()=>{
  let finish;api.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));wrapper=mount(Picker,{props:{agencyId:6,jobDescriptionId:45}});
  await wrapper.setProps({jobDescriptionId:99});await flushPromises();const expected=selection();finish({data:{data:{...guide(),questionSet:null,questionSets:[]}}});await flushPromises();expect(selection()).toEqual(expected);

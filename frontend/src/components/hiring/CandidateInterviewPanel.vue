@@ -13,7 +13,8 @@
       </div>
     </div>
 
-    <JobInterviewGuideEditor v-if="jobDescriptionId" :agency-id="agencyId" :job-description-id="jobDescriptionId" :job-title="jobTitle" @saved="jobGuideSaved" />
+    <JobInterviewGuideEditor v-if="jobDescriptionId" :agency-id="agencyId" :job-description-id="jobDescriptionId" :job-title="jobTitle" @saved="jobGuideSaved" @dirty-change="guideDirty = $event" />
+    <p v-if="guideDirty" role="status">Save or cancel the edited job questions before scheduling an interview.</p>
     <p v-else class="muted small">No job description is linked yet. Interviews use the agency or platform default questions and ratings.</p>
     <div v-if="showSchedule" ref="scheduleSectionRef" class="cip-schedule">
       <div class="cip-schedule-title">New Interview Hub meeting</div>
@@ -158,6 +159,11 @@
       </div>
 
       <div class="kv"><div class="k">Status</div><div class="v">{{ selected.status }}</div></div>
+      <details v-if="savedInterviewQuestions.length" class="cip-saved-questions" open>
+        <summary>Questions saved for this interview · {{ savedInterviewQuestions.length }}</summary>
+        <p class="muted small">This is the guide saved when this interview was scheduled. Changes to the job default apply to future interviews.</p>
+        <ol><li v-for="(question,index) in savedInterviewQuestions" :key="index">{{ question }}</li></ol>
+      </details>
       <div class="kv"><div class="k">When</div><div class="v">{{ formatWhen(selected.interview_starts_at) }} ({{ selected.interview_timezone || '—' }})</div></div>
       <div v-if="selectedInterviewerLabels.length" class="kv">
         <div class="k">Interviewers</div>
@@ -302,6 +308,10 @@ const interviews = ref([]);
 const loading = ref(false);
 const selectedId = ref(null);
 const artifact = ref(null);
+const savedInterviewQuestions=computed(()=>(artifact.value?.flow_state_json?.sections || [])
+  .flatMap(section=>Array.isArray(section.questions)?section.questions:[])
+  .map(question=>typeof question==='string'?question:question?.text || question?.question || '')
+  .filter(Boolean));
 const artifactLoading = ref(false);
 const meetingSummaryFromNotes = ref('');
 const rawMeetingTranscript = ref('');
@@ -316,6 +326,7 @@ const startsLocal = ref('');
 const timezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver');
 const durationMinutes = ref(60);
 const interviewQuestions=ref(null),questionsReady=ref(false),questionsVersion=ref(0);
+const guideDirty=ref(false);
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(true);
@@ -369,6 +380,7 @@ const scheduleTitlePreview = computed(() => buildHiringInterviewTitle({
 }));
 
 const canSubmitSchedule = computed(() => {
+  if(guideDirty.value)return false;
   if (sendInvites.value && invitationAvailable.value === false) return false;
   if (interviewRound.value === 'other' && !roundLabelCustom.value.trim()) return false;
   return true;
@@ -581,6 +593,7 @@ async function saveInterviewEdit() {
 }
 
 async function scheduleInterview(overrideScheduleHolds = false) {
+  if(guideDirty.value)return;
   if (sendInvites.value && invitationAvailable.value === false) return;
   scheduling.value = true;
   scheduleError.value = '';

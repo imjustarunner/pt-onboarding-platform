@@ -151,7 +151,7 @@ class HiringJobDescription {
     scheduleText,
     credentialMode,
     prehireConfigJson
-  } = {}) {
+  } = {}, executor = pool) {
     const updates = [];
     const params = [];
 
@@ -242,12 +242,12 @@ class HiringJobDescription {
     }
 
     if (updates.length === 0) {
-      return this.findById(id);
+      return this.findById(id, executor);
     }
 
     params.push(parseIntParam(id));
     try {
-      await pool.execute(
+      await executor.execute(
         `UPDATE hiring_job_descriptions
          SET ${updates.join(', ')}
          WHERE id = ?
@@ -259,8 +259,8 @@ class HiringJobDescription {
       const filtered = updates
         .map((sql, i) => ({ sql, val: params[i] }))
         .filter((row) => !String(row.sql).includes('prehire_config_json'));
-      if (!filtered.length) return this.findById(id);
-      await pool.execute(
+      if (!filtered.length) return this.findById(id, executor);
+      await executor.execute(
         `UPDATE hiring_job_descriptions
          SET ${filtered.map((r) => r.sql).join(', ')}
          WHERE id = ?
@@ -268,7 +268,7 @@ class HiringJobDescription {
         [...filtered.map((r) => r.val), parseIntParam(id)]
       );
     }
-    return this.findById(id);
+    return this.findById(id, executor);
   }
 
   static async deactivateById(id) {

@@ -665,7 +665,7 @@
             <ContractExpectationsEditor v-model="editForm.prehireConfig.contractDefaults" />
             <JobHirePackagesEditor ref="editPackagesRef" v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
-          <JobInterviewGuideEditor v-if="editingRow?.id" :key="`interview-${effectiveAgencyId}-${editingRow.id}`" :job-description-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
+          <JobInterviewGuideEditor v-if="editingRow?.id" ref="editGuideRef" :key="`interview-${effectiveAgencyId}-${editingRow.id}`" :job-description-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" embedded-in-posting :disabled="savingEdit" />
           <JobEvaluationRubricEditor v-if="editingRow?.id" :key="`${effectiveAgencyId}-${editingRow.id}`" :job-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
           <div class="application-page-config">
             <div class="config-header">
@@ -733,9 +733,10 @@
             </div>
           </div>
         </div>
+        <p v-if="editError" role="alert" class="error-banner">{{ editError }}</p>
         <div class="modal-actions">
-          <button class="btn btn-primary" :disabled="savingEdit || !editForm.title.trim()" @click="saveEdit">
-            {{ savingEdit ? 'Saving…' : 'Save' }}
+          <button class="btn btn-primary" :disabled="savingEdit || editGuideRef?.saving || editGuideRef?.loading || !editForm.title.trim()" @click="saveEdit">
+            {{ savingEdit ? 'Saving…' : 'Save changes' }}
           </button>
         </div>
       </div>
@@ -1014,6 +1015,7 @@ const compactApplicationPage = (page) => {
 const agencyPageForm = ref(blankApplicationPage());
 
 const createPackagesRef = ref(null), editPackagesRef = ref(null);
+const editGuideRef = ref(null), editError = ref('');
 const createForm = ref({
   title: '',
   descriptionText: '',
@@ -1436,6 +1438,7 @@ const createJob = async () => {
 };
 
 const openEdit = (row) => {
+  editError.value = '';
   editingRow.value = row;
   editForm.value = {
     title: row.title || '',
@@ -1470,8 +1473,9 @@ const openEdit = (row) => {
   if (editHeroFileRef.value) editHeroFileRef.value.value = '';
   if (editIconFileRef.value) editIconFileRef.value.value = '';
 };
-const closeEdit = () => {
-  if (editPackagesRef.value?.saving) return;
+const closeEdit = (options = {}) => {
+  if (!options.saved && (savingEdit.value || editGuideRef.value?.saving || editPackagesRef.value?.saving)) return;
+  if (!options.saved && editGuideRef.value?.hasUnsavedChanges && !window.confirm('Discard the unsaved job question changes?')) return;
   if (editPackagesRef.value?.sharedDirty && !window.confirm('Discard the unsaved All jobs defaults?')) return;
   editingRow.value = null;
   editForm.value = {
@@ -1505,7 +1509,10 @@ const saveEdit = async () => {
   if (editPackagesRef.value?.sharedDirty || editPackagesRef.value?.saving) { error.value = 'Save or discard the All jobs defaults before saving this posting.'; return; }
   try {
     savingEdit.value = true;
+    editError.value = '';
+    const interviewSettings=editGuideRef.value?.getPendingSettings?.();
     const fd = new FormData();
+    if(interviewSettings!==undefined)fd.append('interviewGuideJson',JSON.stringify(interviewSettings));
     fd.append('agencyId', String(effectiveAgencyId.value));
     fd.append('title', String(editForm.value.title || '').trim());
     fd.append('descriptionText', String(editForm.value.descriptionText || '').trim());
@@ -1532,10 +1539,10 @@ const saveEdit = async () => {
     if (editForm.value.iconFile) fd.append('jobIcon', editForm.value.iconFile);
     if (editForm.value.file) fd.append('file', editForm.value.file);
     await api.put(`/hiring/job-descriptions/${editingRow.value.id}`, fd);
-    closeEdit();
+    closeEdit({saved:true});
     await refresh();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to save job';
+    editError.value = e.response?.data?.error?.message || e.message || 'Failed to save job. Your edited questions are still here.';
   } finally {
     savingEdit.value = false;
   }
