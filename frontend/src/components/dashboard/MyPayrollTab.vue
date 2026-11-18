@@ -1516,9 +1516,9 @@
 
   <!-- PTO modals (Teleport to body so visible when opened from hidden Submit-panel tab) -->
   <Teleport to="body">
-  <div v-if="showSchoolSupportSubmit" class="modal-backdrop fundthred-modal-backdrop" @click.self="showSchoolSupportSubmit=false">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="School Support Hours — Temporary">
-      <button class="btn btn-secondary" type="button" @click="showSchoolSupportSubmit=false">Close</button>
+  <div v-if="showSchoolSupportSubmit" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeSchoolSupportSubmit">
+    <div class="modal fundthred-dialog" role="dialog" aria-modal="true" aria-label="School Support Hours — Temporary">
+      <button class="btn btn-secondary" type="button" @click="closeSchoolSupportSubmit">Close</button>
       <SchoolSupportSubmit :agency-id="agencyId" @submitted="refreshSchoolSupport" />
     </div>
   </div>
@@ -2528,7 +2528,8 @@ const route = useRoute();
 const router = useRouter();
 const goToSubmit = () => router.push({ query: { ...route.query, tab: 'submit' } });
 const showSchoolSupportSubmit = ref(false), schoolSupportRefreshKey = ref(0);
-const refreshSchoolSupport = async (refreshCards=true) => { if(refreshCards)schoolSupportRefreshKey.value++; await Promise.all([loadPto(),loadPtoRequests()]); };
+const refreshSchoolSupport = async (refreshCards=true) => { if(refreshCards)schoolSupportRefreshKey.value++; await Promise.all([loadPto(),loadPtoRequests(),load()]); };
+const closeSchoolSupportSubmit = () => { showSchoolSupportSubmit.value=false; emit('pto-modal-closed'); };
 const requestLeave = async (type) => { await loadPto(); type === 'training' ? openPtoTraining() : openPtoSick(type); };
 
 

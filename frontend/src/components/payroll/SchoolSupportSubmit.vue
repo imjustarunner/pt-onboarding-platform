@@ -1,24 +1,23 @@
 <template>
-  <section v-if="eligible || loading || error" class="school-support-submit" aria-label="School Support Hours">
-    <h3>School Support Hours</h3>
-    <p>For a new cancellation-based use, open the actual school client appointment, complete the cancellation or missed-session details, and choose <strong>Use up to 1 hour</strong>. Review and sign the change to attach its request.</p>
+  <section v-if="eligible || loading || error || success" class="school-support-submit" aria-label="School Support Hours — Temporary">
+    <h3>School Support Hours <span>Temporary</span></h3>
     <p v-if="submitContext"><strong>Submitting for {{ submitContext.employee.firstName }} {{ submitContext.employee.lastName }}</strong> · You are recorded as the submitter.</p>
     <p v-if="loading">Loading your available hours…</p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!data" type="button" @click="load">Try again</button></p>
     <template v-if="eligible">
       <p><strong>{{ number(available) }} hours available</strong> from your earned school support bank.</p>
-      <details><summary>Earlier earned balance requests</summary>
-      <p>This legacy option preserves hours earned under an earlier unrestricted policy. New cancellation-based requests belong on the actual appointment. For a legacy earned-balance use, enter its use date and hours; payment is added to the applicable open pay period when you submit. Earlier earned rights do not require a new cancellation.</p>
+      <p>Enter the date and any hours up to your available balance. Until EHR integration, submit your hours here without linking a session. The app deducts the hours and adds your payment to the applicable open pay period when you submit. No attachment, appointment link, or payroll approval is needed.</p>
       <p v-if="pending > 0">{{ number(pending) }} hours are reserved for your earlier pending requests.</p>
       <form @submit.prevent="submit">
         <label>Use date<input v-model="useDate" type="date" required :disabled="saving" /></label>
         <label>Hours<input v-model="hours" type="number" min="0.01" :max="Math.min(24, available)" step="0.01" required :disabled="saving" /></label>
+        <button type="button" :disabled="loading || saving || available < 0.01" @click="hours = Math.min(24, available)">Use available hours</button>
+        <p v-if="Number(hours) > 0">{{ number(Math.max(0, available - Number(hours))) }} hours available after this submission.</p>
         <p v-if="rate > 0">{{ money(Number(hours || 0) * rate) }} estimated at {{ money(rate) }}/hour. The rate for your use date applies.</p>
         <button type="submit" :disabled="loading || saving || available <= 0">{{ saving ? 'Adding to payroll…' : 'Submit School Support Hours' }}</button>
       </form>
-      <p v-if="success" role="status">{{ success }}</p>
-      </details>
     </template>
+    <p v-if="success" role="status">{{ success }}</p>
   </section>
 </template>
 
@@ -34,7 +33,8 @@ const useDate = ref(localToday()), hours = ref('');
 let submissionKey = crypto.randomUUID(), generation = 0;
 const eligible = computed(() => !!data.value?.policy?.schoolSupportEnabled && (!!data.value?.account?.school_support_eligible || Number(data.value?.balances?.schoolSupportHours) > 0));
 const pending = computed(() => Number(data.value?.balances?.schoolSupportPendingHours || 0));
-const available = computed(() => Math.max(0, Number(data.value?.balances?.schoolSupportHours || 0) - pending.value));
+// Claims use hundredths of an hour. Do not offer a rounded-up amount above the earned bank.
+const available = computed(() => Math.floor((Math.max(0, Number(data.value?.balances?.schoolSupportHours || 0) - pending.value) + 1e-8) * 100) / 100);
 const rate = computed(() => Number(data.value?.schoolSupportPayRate || 0));
 const number = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const money = n => Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
