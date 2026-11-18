@@ -6,8 +6,7 @@ import { excludeSupportClinicalContent } from '../middleware/supportContentAcces
 import multer from 'multer';
 import { body, param, query } from 'express-validator';
 
-import { authenticate, requireActiveStatus, requireSuperAdmin } from '../middleware/auth.middleware.js';
-import { previewUnlinkedNoteCleanup, deleteUnlinkedNoteCleanup } from '../controllers/unlinkedNoteCleanup.controller.js';
+import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getTherapyNotesQuickCopyCatalog, listTherapyNotesQuickCopyNotes, getTherapyNotesQuickCopyNote,
@@ -86,17 +85,6 @@ router.get('/termination-outcomes', apiLimiter, getTerminationOutcomeStats);
 router.post('/interactive-complexity', apiLimiter, generateInteractiveComplexitySentence);
 
 router.get('/work-queue', apiLimiter, listNoteAidWorkQueue);
-
-// Temporary, self-scoped superadmin tool. Remove both routes with its UI when
-// testing cleanup is complete; ordinary draft deletion remains separate.
-router.get('/drafts/unlinked-cleanup', apiLimiter, requireSuperAdmin, previewUnlinkedNoteCleanup);
-router.post('/drafts/unlinked-cleanup', apiLimiter, requireSuperAdmin, [
-  body('items').isArray({ min: 1, max: 200 }),
-  body('items.*.kind').isIn(['draft', 'work_queue']),
-  body('items.*.id').isInt({ min: 1 }),
-  body('items.*.version').isHexadecimal().isLength({ min: 64, max: 64 }),
-  body('confirmation').equals('DELETE UNLINKED')
-], deleteUnlinkedNoteCleanup);
 
 router.put(
   '/work-queue',
