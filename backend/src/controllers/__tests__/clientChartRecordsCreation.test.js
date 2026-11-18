@@ -23,6 +23,7 @@ beforeEach(()=>{
 it('creates a records client as Current with the selected organization, birthdate and canonical sex',async()=>{
  const res=response(),next=vi.fn();await createClient(request(),res,next);expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({status:'ACTIVE',client_status_id:11,organization_id:4,agency_id:2,date_of_birth:'2013-01-01',gender:'male'}));
+ expect(JSON.parse(m.create.mock.calls[0][0].onboarding_docs_json)).toMatchObject({recordsImport:{status:'pending',revision:0,sections:[],startedByUserId:10}});
  expect(JSON.parse(m.history.mock.calls[0][0].to_value)).toMatchObject({status:'ACTIVE',client_status_id:11});
 });
 it('retains the Received default for ordinary new-intake creation',async()=>{

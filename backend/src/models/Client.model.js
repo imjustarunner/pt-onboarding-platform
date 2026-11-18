@@ -163,7 +163,8 @@ class Client {
       ['client_type', client_type],
       ['client_type_transitioned_at', client_type_transitioned_at],
       ['client_type_transitioned_by_user_id', client_type_transitioned_by_user_id],
-      ['date_of_birth', date_of_birth]
+      ['date_of_birth', date_of_birth],
+      ['onboarding_docs_json',clientData.onboarding_docs_json]
     ];
 
     for (const [col, val] of optional) {
