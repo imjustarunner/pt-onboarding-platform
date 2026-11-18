@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+vi.mock('../../services/narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:1,configuration:{mappings:{},generators:{}}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:1})}));
 vi.mock('../../services/clinicalAppointmentAlerts.service.js',()=>({default:{assertReviewed:vi.fn(async()=>{})}}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));

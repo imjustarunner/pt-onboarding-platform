@@ -1,3 +1,4 @@
+import { isolatePrivatePdfPage } from './privatePdfRendering.js';
 import { isEmploymentContract, addContractSignatureFields, signContractField } from '../utils/contractSignatureFields.js';
 import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
@@ -406,6 +407,7 @@ ${originalStyles}
   static async renderHtmlWithBrowser(browser, htmlContent, options = {}) {
     const page = await browser.newPage();
     try {
+      if (options.networkIsolation === true) await isolatePrivatePdfPage(page);
       await page.setContent(htmlContent, {
         waitUntil: 'domcontentloaded',
         timeout: options.setContentTimeout || 30000

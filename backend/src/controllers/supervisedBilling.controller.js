@@ -13,6 +13,8 @@ import { recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { resolveDocumentationPolicy, resolveNoteDocumentationPolicy, normalizeSupervisionPolicy, normalizePayerPolicy, policyError, parseObject, normalizeNoteType, nonBillableReviewTypes, requiredDocumentReviewTypes, validNpi, isNonBillableDocument, hasCurrentSupervisorCosign, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { withSupervisorTimeLock, reviewInterval, assertNoReviewTimeOverlap, assertNoMeetingOverlap } from '../services/supervisionReviewTime.service.js';
 import { clinicalReviewContent, sharedNotePredicate } from '../services/supervisionCaseReview.service.js';
+import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
+import { getTreatmentPlanApproval, completeTreatmentPlanSupervisorApproval } from '../services/treatmentPlanApproval.service.js';
 
 const mysqlTime=v=>v instanceof Date?v.toISOString().slice(0,19).replace('T',' '):String(v);
 
@@ -182,7 +184,7 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
     const values=[s.agencyId,s.providerUserId,...(clientId?[clientId]:[])], offset=(page-1)*100;
     const [notes]=await clinicalPool.execute(`SELECT n.*, (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count FROM clinical_notes n WHERE n.agency_id = ? AND n.created_by_user_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')} ${clientId?'AND n.client_id=?':''} ORDER BY n.updated_at DESC, n.id DESC LIMIT 100 OFFSET ${offset}`,values);
     const approvedNotes = await Promise.all(notes.map(async note => (await getApprovedClinicalContext({ note })).note));
-    const [plans]=await clinicalPool.execute(`SELECT p.id,p.client_id,p.created_by_user_id,p.title,p.status,p.created_at FROM clinical_treatment_plans p WHERE p.agency_id = ? AND (p.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=p.agency_id AND n.client_id=p.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')})) AND p.status IN ('active','final') ${clientId?'AND p.client_id=?':''} ORDER BY p.id DESC LIMIT 100 OFFSET ${offset}`,[s.agencyId,s.providerUserId,s.providerUserId,...(clientId?[clientId]:[])]);
+    const [plans]=await clinicalPool.execute(`SELECT p.id,p.client_id,p.created_by_user_id,p.title,p.status,p.created_at FROM clinical_treatment_plans p WHERE p.agency_id = ? AND (p.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=p.agency_id AND n.client_id=p.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')})) AND p.status IN ('draft','active','final') ${clientId?'AND p.client_id=?':''} ORDER BY p.id DESC LIMIT 100 OFFSET ${offset}`,[s.agencyId,s.providerUserId,s.providerUserId,...(clientId?[clientId]:[])]);
     const reviewFilters=[], reviewIds=[];
     for(const [type,rows] of [['note',approvedNotes],['treatment_plan',plans]]) if(rows.length) {
       reviewFilters.push(`(r.document_type=? AND r.document_id IN (${rows.map(()=>'?').join(',')}))`);
@@ -216,12 +218,25 @@ export async function recordSuperviseeDocumentReview(req,res,next) {
     const {hash,row}=await loadReviewDocument(s,type,id), feedback=String(req.body.feedback || '').trim();
     const clinicalVersion = type === 'note' ? clinicalVersionReference(row) : null;
     if(req.body.contentHash!==hash)throw policyError(409,'Document changed or was not opened. Read the latest version before attesting.');
+    let reviewedPlan = null;
+    if (type === 'treatment_plan' && req.body.outcome === 'approved') {
+      reviewedPlan = await ClinicalTreatmentPlan.findById(id);
+      if (Number(reviewedPlan.created_by_user_id) !== Number(s.providerUserId)) throw policyError(403, 'Review this plan under its own author and assigned supervisor.');
+      if (!(await getTreatmentPlanApproval(reviewedPlan)).providerApproved) throw policyError(409, 'The provider must review and sign this plan version before supervisor approval.');
+    }
     if(feedback.length>4000 || (req.body.outcome==='changes_requested'&&!feedback))throw policyError(400,'Describe the requested changes (up to 4000 characters)');
     await pool.execute('INSERT INTO clinical_document_reviews (agency_id,provider_user_id,supervisor_user_id,document_type,document_id,content_hash,outcome,feedback_encrypted) VALUES (?,?,?,?,?,?,?,?)',[s.agencyId,s.providerUserId,req.user.id,type,id,hash,req.body.outcome,encryptFamilyBilling({feedback,clinicalVersion},`document-review:${s.agencyId}:${type}:${id}`)]);
+    let planSharing = null;
+    if (reviewedPlan) {
+      const approvedPlan = await completeTreatmentPlanSupervisorApproval(reviewedPlan);
+      const { shareGuardianPlanRevision } = await import('../services/guardianPlanProgress.service.js');
+      try { planSharing = await shareGuardianPlanRevision({ plan: approvedPlan, actorUserId: req.user.id }); }
+      catch { planSharing = { shared: 0, followUpRequired: true }; }
+    }
     if(type==='note' && req.body.outcome==='changes_requested') {
       const [claims]=await clinicalPool.execute("SELECT id,claimmd_connection_id FROM clinical_claims WHERE agency_id = ? AND clinical_note_id = ? AND is_deleted = 0 AND claim_lifecycle NOT IN ('draft','ready','rejected')",[s.agencyId,id]);
       for(const claim of claims)await recordClaimEvent({agencyId:s.agencyId,claimId:claim.id,connectionId:claim.claimmd_connection_id||`agency:${s.agencyId}`,eventKey:`documentation-changes:${id}:${hash}:${Date.now()}`,eventType:'documentation_followup',actorUserId:req.user.id,payload:{message:'Supervisor requested a documentation amendment after submission. Review whether a corrected claim or payer follow-up is required.',documentId:id}});
     }
-    res.json({ok:true,clinicalVersion});
+    res.json({ok:true,clinicalVersion,planSharing});
   }catch(e){next(e);}
 }

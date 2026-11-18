@@ -14,4 +14,10 @@ describe('clinical plan model allowance', () => {
     expect(translationGenerationConfig({ ...options, modelName: 'gemini-2.5-flash', thinkingBudget: 0 }).thinkingConfig).toEqual({ thinkingBudget: 0 });
     expect(translationGenerationConfig({ ...options, modelName: 'gemini-3-pro', thinkingBudget: 2048 }).thinkingConfig).toBeUndefined();
   });
+  it('uses Hydrogen thinking levels without legacy sampling or token-budget parameters', () => {
+    expect(translationGenerationConfig({ ...options, modelName: 'gemini-4-hydrogen', thinkingBudget: 2048, thinkingLevel: 'MEDIUM' }))
+      .toEqual({ maxOutputTokens: 8192, thinkingConfig: { thinkingLevel: 'MEDIUM' } });
+    expect(translationGenerationConfig({ ...options, modelName: 'gemini-4-hydrogen', thinkingBudget: 2048 }))
+      .toEqual({ maxOutputTokens: 8192 });
+  });
 });

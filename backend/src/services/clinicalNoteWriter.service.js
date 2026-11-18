@@ -1,5 +1,7 @@
 import { callPrivateSessionText } from './sessionAiPrivacy.service.js';
 import { shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
+import { clinicalNoteModelOptions } from '../config/clinicalNoteModel.js';
+import { applyNarrivaWritingGuidance } from './narrivaPlatformSettings.service.js';
 
 // Shared writer contract. Callers authorize and assemble only their permitted
 // clinical context; this service does not discover patients, agencies or data.
@@ -21,26 +23,30 @@ export function buildPromptForTool({ tool, inputText }) {
 }
 
 export function clinicalWriterOptions(tool, { model, vertexOnly, sensitive } = {}) {
+  const modelOptions = clinicalNoteModelOptions({ model, toolModel: tool.model });
+  const usesThinkingLevel = Boolean(modelOptions.thinkingLevel);
   return {
     temperature: Number.isFinite(tool.temperature) ? tool.temperature : 0.2,
     maxOutputTokens: Math.max(
       Number.isFinite(tool.maxOutputTokens) ? tool.maxOutputTokens : 1600,
       shouldUseGeminiPro(tool.id) ? 4000 : 0,
-      tool.sectionSchema === 'treatment_plan' ? 8192 : 0
+      tool.sectionSchema === 'treatment_plan' ? (usesThinkingLevel ? 16384 : 8192) : 0,
+      usesThinkingLevel ? 8192 : 0
     ),
     // Leave room for the actual plan; unbounded thinking can consume the old
     // 4,000-token allowance before objectives and interventions are complete.
-    ...(tool.sectionSchema === 'treatment_plan' ? { thinkingBudget: 2048 } : {}),
-    model: model || tool.model || (shouldUseGeminiPro(tool.id) ? 'gemini-2.5-pro' : null),
+    ...(tool.sectionSchema === 'treatment_plan' && !usesThinkingLevel ? { thinkingBudget: 2048 } : {}),
+    ...modelOptions,
     ...(vertexOnly !== undefined ? { vertexOnly } : {}),
     ...(sensitive !== undefined ? { sensitive } : {})
   };
 }
 
-export async function generateClinicalText({ tool, prompt, privacyContext, ...options }) {
-  const result = await callPrivateSessionText({ prompt, privacyContext, ...clinicalWriterOptions(tool, options) });
+export async function generateClinicalText({ tool, prompt, privacyContext, generatorGuidance = null, ...options }) {
+  const configured = await applyNarrivaWritingGuidance({ prompt, toolId: tool.id, alreadyApplied: Boolean(generatorGuidance), expectedSettingsVersion: generatorGuidance?.generatorSettingsVersion });
+  const result = await callPrivateSessionText({ prompt: configured.prompt, privacyContext, ...clinicalWriterOptions(tool, options) });
   if (tool.sectionSchema === 'treatment_plan' && result.finishReason && result.finishReason !== 'STOP') {
     throw Object.assign(new Error('The treatment plan was not completed. Please try again; no partial plan was saved.'), { status: 502, code: 'CLINICAL_PLAN_INCOMPLETE' });
   }
-  return result;
+  return { ...result, generatorSettingsVersion: configured.settingsVersion };
 }

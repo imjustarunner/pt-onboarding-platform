@@ -33,6 +33,18 @@ export function narrivaNarrative(payload) {
  return Object.entries(sections).filter(([k,v])=>k!=='meta' && typeof v==='string').map(([k,v])=>`${k}:\n${v}`).join('\n\n');
 }
 const textPresent=value=>typeof value==='string'?value.trim().length>3:Array.isArray(value)?value.length>0:!!value && Object.values(value).some(v=>typeof v==='string' && v.trim().length>3);
+const diagnosisCode=value=>String(typeof value==='string'?value:value?.icd10_code || value?.code || value?.diagnosis || '').trim();
+function confirmedClinicalContext(meta,chartDiagnoses=[]) {
+ const chart=parse(meta.structuredChart),context=parse(meta.narrivaContext);
+ const authored=[chart.diagnoses,chart.intakeDiagnoses,meta.diagnoses].find(value=>Array.isArray(value) && value.some(diagnosisCode)) || [];
+ const diagnoses=(authored.length?authored:chartDiagnoses).filter(diagnosisCode).map(item=>{
+  const code=diagnosisCode(item),match=chartDiagnoses.find(row=>diagnosisCode(row).toUpperCase()===code.toUpperCase());
+  return {code,description:typeof item==='string'?'':item.description || item.diagnosis || '',justification:typeof item==='string'?match?.justification || '':item.justification || match?.justification || ''};
+ });
+ const diagnosticJustification=chart.diagnosticJustification || meta.diagnosticJustification || diagnoses.filter(item=>textPresent(item.justification)).map(item=>`${item.code}: ${item.justification}`).join('\n');
+ return {presentingProblem:context.presentingProblem || meta.presentingProblem || chart.presentingProblem || '',diagnosticJustification,diagnoses,
+  ...(!authored.length && chartDiagnoses.length?{diagnosesReferenceOnly:true}:{})};
+}
 export function narrivaLocalContext({source,meta,session={},provider={},serviceRule,documentationServiceRule}) {
  const chart=parse(meta.structuredChart),narriva=parse(meta.narrivaContext),context=parse(meta.sessionContext);
  const duration=Number(context.durationMinutes || meta.durationMinutes || session.actual_duration_minutes || session.duration_minutes || 0);
@@ -61,7 +73,7 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
   unitMinutes:rule.unit_minutes || rule.unitMinutes,minMinutes:rule.min_minutes ?? rule.minMinutes,maxMinutes:rule.max_minutes ?? rule.maxMinutes,
   maxUnitsPerSession:rule.max_units_per_session || rule.maxUnitsPerSession,ladderBandsJson:rule.ladder_bands_json || rule.ladderBandsJson}):{claimable:false};
  const h4BillingReview=(documentationCode || code)==='H0004'&&billing.requiresReview===true&&billing.reviewCode==='H0004_DURATION_OVER_LIMIT';
- const participantText=String(context.participantsDetail || meta.participants || context.participants || '');
+ const participantText=[context.participants || meta.participants || '',context.participantsDetail || ''].filter(Boolean).join(' ').trim();
  const participantLower=participantText.toLowerCase();
  const modality=String(narriva.modality || context.modality || meta.modality || session.modality || '').trim();
  const pos=String(context.placeOfService || meta.placeOfService || session.place_of_service || '');
@@ -69,19 +81,21 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  const validMethod=['in_person','video','phone','in-person','telehealth','virtual'].includes(modality.toLowerCase());
  const remoteMethod=['video','phone','telehealth','virtual'].includes(modality.toLowerCase());
  const modalityAllowed=validMethod && (!Array.isArray(allowedPos) || !allowedPos.length || allowedPos.includes(pos)) && (remoteMethod?['02','10'].includes(pos):!['02','10'].includes(pos));
- const rawDiagnoses=chart.diagnoses || chart.intakeDiagnoses || meta.diagnoses || [];
+ const rawDiagnoses=[chart.diagnoses,chart.intakeDiagnoses,meta.diagnoses].find(value=>Array.isArray(value) && value.some(diagnosisCode)) || [];
  const diagnoses=Array.isArray(rawDiagnoses)?rawDiagnoses:[];
  return {
   encounter:{durationMinutes:duration,dateValid:/^\d{4}-\d{2}-\d{2}$/.test((source.date_of_service instanceof Date?source.date_of_service.toISOString():String(source.date_of_service || meta.dateOfService || '')).slice(0,10)),
    timesValid:duration>0 && (hasInstants?Number.isFinite(actualMinutes) && actualMinutes>0 && Math.round(actualMinutes)===duration:(a!==null && b!==null && ((b-a+1440)%1440)===duration)),
    location:String(context.locationLabel || context.placeOfService || meta.locationLabel || session.location_name || ''),
-   modality,
+   modality,placeOfService:pos,clientLocationDescription:String(narriva.clientLocationDescription || ''),
    consentConfirmed:narriva.consentConfirmed===true,
-   participants:participantText,clientPresent:narriva.clientPresent ?? chart.patientPresent ?? (participantLower.includes('client') && !participantLower.includes('without client')),
-   additionalParticipantsDocumented:/parent|guardian|caregiver|partner|spouse|family|collateral|teacher|other/i.test(participantText)},
+   participants:participantText,clientPresent:narriva.clientPresent ?? chart.patientPresent ?? (participantLower.includes('client') && !/without client|client not present|client absent/.test(participantLower)),
+   additionalParticipantsDocumented:/parent|mother|father|guardian|caregiver|partner|spouse|family|collateral|teacher|other/i.test(participantText)},
   clinical:{hasDiagnosis:Array.isArray(diagnoses) && diagnoses.some(d=>typeof d==='string'?d.trim():d.icd10_code || d.code || d.diagnosis),
    hasJustification:textPresent(chart.diagnosticJustification || meta.diagnosticJustification) || diagnoses.some(d=>textPresent(d.justification)),
    hasPresentingProblem:textPresent(narriva.presentingProblem || meta.presentingProblem || chart.presentingProblem),
+   interactiveComplexitySelected:narriva.interactiveComplexitySelected===true || meta.includeInteractiveComplexity===true,
+   riskAssessmentIncluded:narriva.riskAssessmentIncluded===true,
    riskAssessmentComplete:narriva.riskAssessmentCompleted===true && completeNarrivaRiskAssessment(chart.riskAssessment),
    riskAssessmentDeniesAll:chart.riskAssessment?.patientDeniesAll===true,
    assessmentEvidencePresent:Array.isArray(narriva.assessmentDocumentIds) && narriva.assessmentDocumentIds.length>0},
@@ -89,7 +103,7 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
    crisisSuggestion:documentationCode==='H0004'?'H2011':documentationCode==='90837' && tier==='intern_plus'?'90839':null}
  };
 }
-export async function loadNarrivaSource(user,{agencyId,draftId,noteId}, {clinicalDb=clinicalPool}={}) {
+export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='output'}, {clinicalDb=clinicalPool}={}) {
  agencyId=positiveId(agencyId);await requireNarrivaAgency(user,agencyId);
  if(!!positiveId(draftId)===!!positiveId(noteId))throw narrivaError(400,'Choose one saved draft or note.');
  let source,output,session={},reviewDocument=null;
@@ -135,9 +149,20 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId}, {clinica
    {authorizedNoteReviewer:!!noteId,clinicalDb});
   assessmentManifest=evidence.verifiedManifest;
  }
- const narrative=output._narrative || narrivaNarrative(output);
  const inputText=draftId?decryptNarrivaDraft(source.input_text):'';
+ const narrative=phase==='pre_generation' && draftId?inputText:(output._narrative || narrivaNarrative(output));
  const local=narrivaLocalContext({source,meta,session,provider,serviceRule,documentationServiceRule});
+ let chartDiagnosisEvidence=[];
+ if(!local.clinical.hasDiagnosis || !local.clinical.hasJustification) {
+  // Authorization and exact encounter ownership have already succeeded above.
+  // H-code/BA aids may reference established diagnoses without authoring them.
+  // This read never creates, updates or broadens the provider's diagnosis rights.
+  const [rows]=await clinicalDb.execute("SELECT id,agency_id,client_id,icd10_code,description,justification,concern_kind,is_active,is_primary,updated_at FROM clinical_diagnoses WHERE agency_id=? AND client_id=? AND is_active=1 AND COALESCE(concern_kind,'clinical')='clinical' ORDER BY is_primary DESC,id DESC LIMIT 100",[agencyId,client.id]);
+  chartDiagnosisEvidence=(rows || []).filter(row=>Number(row.agency_id)===agencyId && Number(row.client_id)===Number(client.id) && Number(row.is_active)===1 && (!row.concern_kind || row.concern_kind==='clinical') && diagnosisCode(row) && !/^LC-/i.test(diagnosisCode(row)));
+ }
+ const clinicalContext=confirmedClinicalContext(meta,chartDiagnosisEvidence);
+ local.clinical.hasDiagnosis=clinicalContext.diagnoses.length>0;
+ local.clinical.hasJustification=textPresent(clinicalContext.diagnosticJustification) || clinicalContext.diagnoses.some(item=>textPresent(item.justification));
  local.clinical.assessmentEvidencePresent=assessmentManifest.length>0;
  const [[priorRisk]]=await pool.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((draft_id IS NOT NULL AND draft_id=?) OR (clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[agencyId,positiveId(draftId || meta.draftId),positiveId(noteId),positiveId(source.clinical_session_id)]);
  local.clinical.riskRequiredFromPriorReview=Number(priorRisk?.required)===1;
@@ -145,8 +170,10 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId}, {clinica
  const allowedCodes=new Set(catalog.eligibleServiceCodes.map(row=>row.code));
  local.service.allowed=local.service.allowed && care.canProvideCare && allowedCodes.has(local.service.proBono?documentationCode:serviceCode);
  if(local.service.crisisSuggestion && !allowedCodes.has(local.service.crisisSuggestion))local.service.crisisSuggestion=null;
- const sourceHash=narrivaSourceHash({narrative,inputText,meta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
-  session,assessmentManifest,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});
- return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),source,meta,session,provider,client,narrative,sourceHash,inputText,...local,
+ const hashMeta={...meta,narrivaContext:{...meta.narrivaContext}};
+ delete hashMeta.narrivaContext.riskAssessmentRequired;
+ const sourceHash=narrivaSourceHash({...(phase==='pre_generation'?{phase}:{}),narrative,inputText,meta:hashMeta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
+  session,assessmentManifest,chartDiagnosisEvidence,confirmedClinicalContext:clinicalContext,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});
+ return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),phase,source,meta,session,provider,client,narrative,sourceHash,inputText,confirmedClinicalContext:clinicalContext,...local,
   identifiers:[client.first_name,client.last_name,client.full_name,client.initials,client.email,client.contact_email,client.phone_number,client.contact_phone,...guardians.flatMap(g=>[g.first_name,g.last_name,g.email,g.phone])].filter(Boolean)};
 }

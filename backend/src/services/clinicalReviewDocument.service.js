@@ -40,6 +40,11 @@ export async function loadReviewDocument(s,type,id, db = clinicalPool) {
     row.addendum_count=addenda.length;
     content=noteReviewContent(row.note_payload,addenda);
     row.legacy_review_content_hash=crypto.createHash('sha256').update(noteReviewContent(row.note_payload,row.clinical_version_signed_addenda || addenda)).digest('hex');
-  } else content=JSON.stringify(await ClinicalTreatmentPlan.findById(id));
+  } else {
+    const plan = await ClinicalTreatmentPlan.findById(id);
+    content=JSON.stringify(plan);
+    const { treatmentPlanContentHash } = await import('./treatmentPlanApproval.service.js');
+    return { row, content, session, hash: await treatmentPlanContentHash(plan) };
+  }
   return {row,content,session,hash:row.clinical_version_content_hash || crypto.createHash('sha256').update(String(content)).digest('hex')};
 }

@@ -55,7 +55,7 @@ beforeEach(() => {
     throw new Error(`Unhandled test query: ${sql}`);
   }
   db = { execute: vi.fn(execute), getConnection: vi.fn(async () => db), beginTransaction: vi.fn(async () => { snapshot = structuredClone(state); }), commit: vi.fn(), rollback: vi.fn(async () => { state = snapshot || state; }), release: vi.fn() };
-  deps = { serviceContext: vi.fn(async () => 808), database: db, requireProvider: vi.fn(), recipients: vi.fn(async () => [601, 602]), authorizeRecipient: vi.fn(async (job) => ({ user: { id: job.recipient_user_id }, to: `${job.recipient_user_id}@example.test` })), notify: vi.fn(async (job) => ({ id: job.id + 10 })), send: vi.fn(async (job) => ({ id: `transport-${job.id}`, communicationId: job.id + 100 })), audit: vi.fn(), receipt: vi.fn(async () => null) };
+  deps = { achievementTask: vi.fn(async () => ({ taskId: 707, deduped: false })), serviceContext: vi.fn(async () => 808), database: db, requireProvider: vi.fn(), recipients: vi.fn(async () => [601, 602]), authorizeRecipient: vi.fn(async (job) => ({ user: { id: job.recipient_user_id }, to: `${job.recipient_user_id}@example.test` })), notify: vi.fn(async (job) => ({ id: job.id + 10 })), send: vi.fn(async (job) => ({ id: `transport-${job.id}`, communicationId: job.id + 100 })), audit: vi.fn(), receipt: vi.fn(async () => null) };
   service = createTreatmentGoalProgressService(deps);
 });
 it('commits a progress event and separate recipient jobs with the status and never rewrites goal content', async () => {
@@ -65,6 +65,14 @@ it('commits a progress event and separate recipient jobs with the status and nev
   expect(result.notifications).toEqual({ sent: 2 }); expect(deps.send).toHaveBeenCalledTimes(2);
   expect(deps.audit.mock.calls[0][1].metadata).toMatchObject({ treatmentPlanId: 51, goalId: 61, progressEventId: 1 });
   expect(JSON.stringify(deps.audit.mock.calls)).not.toContain('PRIVATE CLINICAL GOAL');
+});
+it('creates one plan-update to-do after provider-confirmed goal achievement and retries through the dedupe service', async () => {
+  const first = await service.update(req(), input('achieved'));
+  expect(first.achievementTask.taskId).toBe(707);
+  expect(deps.achievementTask).toHaveBeenCalledWith({ agencyId: 450, clientId: 2297, planId: 51, goalId: 61, providerUserId: 1439 });
+  const second = await service.update(req(), input('achieved'));
+  expect(second.changed).toBe(false);
+  expect(second.achievementTask.taskId).toBe(707);
 });
 it('makes saving or reloading the same assessment a durable no-op', async () => {
   await service.update(req(), input()); const again = await service.update(req(), input()); await service.dispatch();

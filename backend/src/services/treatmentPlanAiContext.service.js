@@ -30,5 +30,5 @@ export function safeNoteSignals(sections = {}) {
     [/improv|progress|better/i, 'mentions improvement'], [/unchanged|no change|stagnan|no progress/i, 'mentions lack of change'],
     [/worsen|regress|deteriorat/i, 'mentions deterioration']
   ].filter(([pattern]) => pattern.test(String(text || ''))).map(([, label]) => label) });
-  return { subjective: signals(sections.Subjective || sections['Symptom Description and Subjective Report']), objective: signals(sections.Objective || sections['Objective Content']) };
+  return { subjective: signals(sections.Subjective || sections['Symptom Description and Subjective Report']), objective: signals(sections.Objective || sections['Objective Content']), interventions: signals(sections.Interventions || sections['Interventions Used']), plan: signals(sections.Plan || sections.Recommendations) };
 }

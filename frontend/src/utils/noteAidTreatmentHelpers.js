@@ -211,7 +211,7 @@ export function buildObjectiveRatingsContextText(entries = []) {
       const rater = e.raterLabel || e.raterKind || e.rater_kind || 'clinical observation';
       const raterBit = String(rater) === 'clinician' ? 'clinical observation' : String(rater);
       lines.push(
-        `${goalBit} | ${objBit} | ${raterBit}: rated ${scale}/10 toward goal ${target ?? '—'}${labelBit}`
+        `${goalBit} | ${objBit} | ${raterBit}: rated ${scale}/10 toward goal ${target ?? '—'}${labelBit}${e.targetAchieved === true ? ' | Objective target achieved in this session; document the supported achievement and recommend plan review.' : ''}`
       );
     }
   }

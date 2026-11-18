@@ -172,7 +172,7 @@ function packetSignalsFromIntakeData(intakeData) {
   };
 }
 
-async function loadIntakeSubmissionsForClient(clientId) {
+export async function loadIntakeSubmissionsForClient(clientId, { agencyId = null } = {}) {
   const cid = Number(clientId || 0);
   if (!cid) return [];
   const [rows] = await pool.execute(
@@ -200,7 +200,7 @@ async function loadIntakeSubmissionsForClient(clientId) {
      FROM intake_submissions s
      LEFT JOIN intake_links l ON l.id = s.intake_link_id
      LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
-     WHERE (s.client_id = ? OR isc.client_id = ?)
+     WHERE (s.client_id = ? OR isc.client_id = ?) ${agencyId ? 'AND l.organization_id = ?' : ''}
      GROUP BY
        s.id, s.intake_link_id, s.client_id, s.status, s.signer_name, s.signer_email,
        s.submitted_at, s.created_at, s.updated_at, s.intake_data,
@@ -209,7 +209,7 @@ async function loadIntakeSubmissionsForClient(clientId) {
        l.organization_id, l.public_key
      ORDER BY COALESCE(s.submitted_at, s.updated_at, s.created_at) DESC
      LIMIT 40`,
-    [cid, cid]
+    [cid, cid, ...(agencyId ? [Number(agencyId)] : [])]
   );
   decryptIntakeSubmissionRows(rows || []);
   const submissionIds = (rows || []).map(row => row.id);

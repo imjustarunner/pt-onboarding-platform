@@ -1928,6 +1928,7 @@ export const googleOAuthCallback = async (req, res, next) => {
     if (!user) {
       return redirectToLogin(orgSlug, 'No user account matches this Google email', frontendBase);
     }
+    if([true,1,'1'].includes(user.login_is_group_email))return redirectToLogin(orgSlug,'This account uses password sign-in. Use your work username and app password; password recovery is sent to your personal email.',frontendBase);
 
     // Domain enforcement (multi-domain allowlist)
     const rawFlags = org?.feature_flags ?? null;

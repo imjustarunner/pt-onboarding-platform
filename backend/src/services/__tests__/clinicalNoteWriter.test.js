@@ -1,14 +1,17 @@
+vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:0,configuration:{}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:0})}));
 vi.mock('google-auth-library',()=>({GoogleAuth:class{async getAccessToken(){return 'synthetic';}}}));
 import { afterEach,beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../geminiText.service.js', () => ({ callGeminiText: vi.fn() }));
 import { callGeminiText } from '../geminiText.service.js';
-import { buildPromptForTool, generateClinicalText } from '../clinicalNoteWriter.service.js';
+import { buildPromptForTool, clinicalWriterOptions, generateClinicalText } from '../clinicalNoteWriter.service.js';
 import { getNoteAidToolById } from '../../config/noteAidTools.js';
 import { TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../../config/clinicalNotePlanOutput.js';
 const input = { patientId: 'patient-one', aidId: 'clinical_psychotherapy_note', facts: 'Clinician verified session facts.', consentReviewed: true };
 beforeEach(()=>{vi.stubEnv('GCP_PROJECT_ID','test');vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','true');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({result:{findings:[]}})})));});
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
 beforeEach(() => {
+  vi.stubEnv('CLINICAL_NOTE_MODEL', '');
+  vi.stubEnv('CLINICAL_NOTE_VERTEX_LOCATION', '');
   vi.clearAllMocks();
   vi.mocked(callGeminiText).mockResolvedValue({ text: 'Subjective: Synthetic report\nObjective: Synthetic observation\nInterventions: Mindfulness\nPlan: Reviewed follow-up', modelName: 'synthetic', finishReason: 'STOP' });
 });
@@ -23,14 +26,15 @@ describe('shared clinical writer', () => {
     vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED', 'true');
     await generateClinicalText({ tool, prompt });
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('dlp.googleapis.com'), expect.any(Object));
-    expect(callGeminiText).toHaveBeenCalledWith(expect.objectContaining({ vertexOnly: true, sensitive: true, maxOutputTokens: 8192, thinkingBudget: 2048 }));
+    expect(callGeminiText).toHaveBeenCalledWith(expect.objectContaining({ vertexOnly: true, sensitive: true, model: 'gemini-4-hydrogen', vertexLocation: 'us', allowModelFallback: false, maxOutputTokens: 16384, thinkingLevel: 'MEDIUM' }));
+    expect(callGeminiText.mock.calls[0][0]).not.toHaveProperty('thinkingBudget');
   });
   it('rejects a cut-off treatment plan before callers can parse or save it', async () => {
     const tool = getNoteAidToolById('clinical_psychotherapy_plan');
     vi.mocked(callGeminiText).mockResolvedValue({ text: 'Goal 1: Incomplete', finishReason: 'MAX_TOKENS' });
     await expect(generateClinicalText({ tool, prompt: 'Synthetic facts' })).rejects.toMatchObject({ status: 502, code: 'CLINICAL_PLAN_INCOMPLETE' });
   });
-  it('preserves the established full-suite prompt and model contract', async () => {
+  it('uses Hydrogen while preserving the established prompt and privacy contract', async () => {
     const tool = getNoteAidToolById(input.aidId);
     const prompt = buildPromptForTool({ tool, inputText: input.facts });
     expect(prompt).toBe([tool.systemPrompt, `Output instructions:\n${tool.outputInstructions}`, 'Transcript fidelity:', TRANSCRIPT_FIDELITY_INSTRUCTIONS, 'User input (clinician transcript — retain this content in the note):', input.facts].join('\n'));
@@ -40,8 +44,32 @@ describe('shared clinical writer', () => {
     expect(sent.prompt).toContain('only as Client and Provider');
     expect(sent.temperature).toBe(tool.temperature);
     expect(sent.maxOutputTokens).toBeGreaterThanOrEqual(tool.maxOutputTokens);
-    expect(sent.model).toBe(tool.model || 'gemini-2.5-pro');
+    expect(sent.model).toBe('gemini-4-hydrogen');
+    expect(sent.thinkingLevel).toBe('MEDIUM');
+    expect(sent.vertexLocation).toBe('us');
+    expect(sent.allowModelFallback).toBe(false);
     expect(sent.vertexOnly).toBe(true);
     expect(sent.sensitive).toBe(true);
+  });
+  it.each(['clinical_psychotherapy_note', 'clinical_psychotherapy_plan', 'clinical_h0031_intake', 'clinical_90791_note_aid', 'clinical_termination'])('uses Hydrogen for %s', (id) => {
+    const options = clinicalWriterOptions(getNoteAidToolById(id));
+    expect(options.model).toBe('gemini-4-hydrogen');
+    expect(options.maxOutputTokens).toBeGreaterThanOrEqual(8192);
+  });
+  it('supports an operator rollback without changing other AI model settings', () => {
+    vi.stubEnv('CLINICAL_NOTE_MODEL', ' gemini-2.5-pro ');
+    vi.stubEnv('GEMINI_MODEL', 'unrelated-assistant-model');
+    const options = clinicalWriterOptions(getNoteAidToolById('clinical_psychotherapy_plan'));
+    expect(options).toMatchObject({ model: 'gemini-2.5-pro', maxOutputTokens: 8192, thinkingBudget: 2048, allowModelFallback: false });
+    expect(options).not.toHaveProperty('vertexLocation');
+    expect(options).not.toHaveProperty('thinkingLevel');
+  });
+  it('preserves explicit caller and tool model overrides, with operator settings above tool defaults', () => {
+    const tool = { id: 'synthetic', model: 'gemini-2.5-pro' };
+    expect(clinicalWriterOptions(tool).model).toBe('gemini-2.5-pro');
+    vi.stubEnv('CLINICAL_NOTE_MODEL', 'gemini-4-hydrogen');
+    vi.stubEnv('CLINICAL_NOTE_VERTEX_LOCATION', 'eu');
+    expect(clinicalWriterOptions(tool)).toMatchObject({ model: 'gemini-4-hydrogen', vertexLocation: 'eu' });
+    expect(clinicalWriterOptions(tool, { model: 'gemini-2.5-flash' }).model).toBe('gemini-2.5-flash');
   });
 });

@@ -1,5 +1,6 @@
 import { getCobWorkspace, getCobPayers, createCob, reconcileCob } from '../controllers/stediCob.controller.js';
 import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
+import { downloadClinicalNotePdf, downloadClinicalRecordPdf } from '../controllers/clinicalRecordExport.controller.js';
 import { getFeeSchedule, postFeeSchedule, postFeeScheduleDefaults, postFeeSchedulePayerSync } from '../controllers/feeSchedule.controller.js';
 import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
 import { listClinicalNoteVersions, getClinicalNoteVersion, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../controllers/clinicalNoteVersions.controller.js';
@@ -17,6 +18,8 @@ import {getEligibilityAutomation,saveEligibilitySettings,enrollEligibilityRoster
 import { getEft, saveEft, getEftHistory } from '../controllers/payerEft.controller.js';
 import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterventions } from '../controllers/treatmentPlanOptions.controller.js';
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
+import { getPlanApproval, signPlanProviderReview } from '../controllers/treatmentPlanApproval.controller.js';
+import { getClinicalMseHistory } from '../controllers/clinicalMseHistory.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import { getDiscoveryWorkspace, createDiscovery, getDiscoveryResults, saveDiscoveryReview, reconcileDiscovery } from '../controllers/stediDiscovery.controller.js';
 import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
@@ -261,6 +264,10 @@ router.get(
   getTreatmentPlanById
 );
 
+router.get('/treatment-plans/:planId/approval', excludeSupportClinicalContent, requireClinicalChart, getPlanApproval);
+router.get('/clients/:clientId/mse-history', excludeSupportClinicalContent, requireClinicalChart, getClinicalMseHistory);
+router.post('/treatment-plans/:planId/provider-review', excludeSupportClinicalContent, requireClinicalChart, signPlanProviderReview);
+
 router.post(
   '/treatment-plans/parse',
   requireClinicalChart,
@@ -479,6 +486,8 @@ router.patch(
   updateEncounter
 );
 
+router.get('/clients/:clientId/record-pdf', excludeSupportClinicalContent, requireClinicalChart, downloadClinicalRecordPdf);
+router.get('/notes/:noteId/pdf', excludeSupportClinicalContent, requireClinicalChart, downloadClinicalNotePdf);
 router.get('/notes/review-work', excludeSupportClinicalContent, listMyNoteReviewWork);
 router.get('/notes/:noteId/versions', requireClinicalChart, listClinicalNoteVersions);
 router.post('/notes/:noteId/versions', requireClinicalChart, createClinicalNoteVersion);

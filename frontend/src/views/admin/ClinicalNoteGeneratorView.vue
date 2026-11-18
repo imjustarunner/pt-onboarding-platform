@@ -15,8 +15,8 @@
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/dashboard')">My Dashboard</router-link>
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/tasks')">Tasks</router-link>
       <div class="na-topbar-counts" aria-live="polite">
-        <span v-if="workQueueTodoCount + contactDocumentationCount"><strong>{{ workQueueTodoCount + contactDocumentationCount }}</strong> to do</span>
-        <span v-if="(workQueueTodoCount + contactDocumentationCount) && inProgressDraftCount" class="na-topbar-counts__sep" aria-hidden="true">·</span>
+        <span v-if="workQueueTodoCount"><strong>{{ workQueueTodoCount }}</strong> to do</span>
+        <span v-if="(workQueueTodoCount) && inProgressDraftCount" class="na-topbar-counts__sep" aria-hidden="true">·</span>
         <span v-if="inProgressDraftCount"><strong>{{ inProgressDraftCount }}</strong> in progress</span>
       </div>
       <button
@@ -35,7 +35,7 @@
       >
         {{ workQueueCollapsed ? 'Show queue' : 'Hide queue' }}
       </button>
-      <button type="button" class="na-archive-btn" @click="showContactWork = !showContactWork">Contact documentation</button>
+      <button type="button" class="na-archive-btn" @click="showContactWork = !showContactWork">Contact documentation<span v-if="contactDocumentationCount"> ({{ contactDocumentationCount }})</span></button>
       <button type="button" class="na-archive-btn" @click="showTerminationOutcomes = !showTerminationOutcomes">Termination outcomes</button>
       <button type="button" class="na-archive-btn" @click="refreshWorkspace">Refresh</button>
       <ClinicalWorkArchiveControl v-if="!demoPresentation" :agency-id="Number(noteAidAgencyId || currentAgencyId)" @changed="refreshWorkspace" />
@@ -191,8 +191,9 @@
           <span v-if="approvalError" class="na-delete-err">{{ approvalError }}</span>
         </div>
 
+        <TherapyNotesQuickGenerator v-if="therapyNotesWriterOnly && !hasActualSessionContext && !signedNoteViewerId" :agency="{ id: Number(noteAidAgencyId || currentAgencyId), name: agencyLookup[noteAidAgencyId || currentAgencyId] }" />
         <NoteAidStartPage
-          v-if="showStartPage"
+          v-else-if="showStartPage"
           :heading="demoPresentation?.heading || ''"
           :description="demoPresentation?.description || ''"
           :therapy-notes-generator-path="!demoPresentation && therapyNotesQuickGeneratorEnabled(agencyStore.currentAgency, agencyNoteAidCatalog.settings) ? therapyNotesQuickGeneratorPath(route.params.organizationSlug) : ''"
@@ -292,19 +293,12 @@
           @update:service-code="onQuickSessionServiceCode"
           @toggle-setup="showClientSetupDrawer = true"
           @toggle-addon-code="toggleManualAddonCode"
-        />
+        >
+          <template #service-information><ServiceInformation v-if="actualServiceCode" presentation="button" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></template>
+        </NoteAidQuickSessionBar>
         <PriorIntakeNotice v-if="!signedNoteViewerId && ['90791', '90792', 'H0031'].includes(actualServiceCode)" :sessions="signedNoteSessions" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" />
         <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" @context="onDraftAppointmentContext" />
         <p v-if="draftId && needsActualProgressSession" class="na-context-strip na-context-strip--warn" role="alert">This saved progress draft has no verified actual session. Its text is preserved. Link its matching appointment above before saving, generating, or signing.</p>
-        <SessionSupportingMaterials v-if="sessionClinicalSessionId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :key="sessionClinicalSessionId" :clinical-session-id="sessionClinicalSessionId" />
-        <details v-if="sessionClinicalSessionId && Number(noteAidAgencyId || currentAgencyId) === 377" :open="noteBillingExpanded" @toggle="noteBillingExpanded = $event.target.open">
-          <summary>Insurance &amp; claim progress</summary>
-          <AppointmentBillingPanel v-if="noteBillingExpanded" :key="`${sessionClinicalSessionId}-${signedNoteViewerId || ''}`"
-            :agency-id="Number(noteAidAgencyId || currentAgencyId)" :clinical-session-id="sessionClinicalSessionId"
-            :client-name="noteSubjectLabel" :service-label="quickSessionServiceLabel" :service-date-label="dateOfService"
-            :provider-name="sessionClinicianLabel" :location-label="sessionLocationLabel"
-            @open-note="noteBillingExpanded = false" />
-        </details>
 
         <section
           v-if="needsClientAttachStep"
@@ -359,7 +353,7 @@
 
         <div v-if="!needsClientAttachStep" class="na-write-after-attach">
         <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly" :disabled="needsActualProgressSession" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
-        <div class="na-aid-bar">
+        <div v-if="isClientChartAid || therapyNotesWriterOnly" class="na-aid-bar">
           <div class="na-aid-bar-copy">
             <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>
             <strong>{{ selectedAid?.label || (outputObj?.meta?.source === 'session_recording' ? 'Session Recording' : 'Note aid') }}</strong>
@@ -383,13 +377,9 @@
         </div>
 
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && (narrivaServicePending || narrivaServiceLoading || narrivaServiceError || sessionOfficeEventId && !sessionClinicalSessionId)" class="narriva-encounter-confirmation narriva-service-confirm"><p v-if="narrivaServiceLoading" role="status">Verifying the scheduled service…</p><p v-if="narrivaServiceError" role="alert">{{ narrivaServiceError }}</p><button v-if="narrivaServiceError || !sessionClinicalSessionId" type="button" class="na-btn-outline" @click="verifyNarrivaEncounter">Verify encounter service</button><template v-if="narrivaServicePending"><h3>{{ narrivaPendingConfirmation ? 'Finish pending service change' : 'Confirm service-code change' }}</h3><p v-if="narrivaPendingConfirmation">The prior confirmation is pending. Review its preserved service and reason, then explicitly retry it.</p><p v-else-if="narrivaServiceSnapshot.pendingServiceChange">A service change is pending. Its author must finish it before this note can proceed.</p><p>The scheduled encounter still uses {{ narrivaServiceSnapshot.serviceCode || 'its original service' }}. Narriva does not change the billed service automatically.</p><label>Reason / crisis justification<textarea v-model="narrivaServiceReason" :readonly="!!narrivaPendingConfirmation || narrivaServiceSnapshot.pendingServiceChange" class="na-textarea" rows="3" minlength="5" maxlength="4000" /></label><button type="button" class="na-btn-outline" :disabled="narrivaServiceSaving || narrivaServiceSnapshot.pendingServiceChange && !narrivaPendingConfirmation || narrivaServiceReason.trim().length<5" @click="confirmNarrivaService">{{ narrivaServiceSaving?'Checking eligibility…':narrivaPendingConfirmation?'Retry confirmation':'Confirm service change' }}</button></template></section>
+        <p v-if="narrivaMappingError" class="error" role="alert">{{ narrivaMappingError }}</p>
         <p v-if="narrivaServiceSnapshot?.durationReview?.requiresReview" class="narriva-encounter-confirmation narriva-duration-review" role="status">{{ narrivaServiceSnapshot.durationReview.reason }}</p>
         <section v-if="isProBonoFundingCode(actualServiceCode)" class="narriva-encounter-confirmation narriva-underlying-service"><label for="narriva-underlying-service">Clinical service provided</label><div class="narriva-underlying-service__control"><select id="narriva-underlying-service" v-model="narrivaUnderlyingServiceCode" class="na-select" :disabled="chartNoteReadOnly || !!signedNoteViewerId"><option value="">Choose the clinical service provided</option><option v-if="narrivaUnderlyingServiceCode && !narrivaUnderlyingOptions.some(item => item.code === narrivaUnderlyingServiceCode)" :value="narrivaUnderlyingServiceCode" disabled>{{ narrivaUnderlyingServiceCode }} · Eligibility needs review</option><option v-for="item in narrivaUnderlyingOptions" :key="item.code" :value="item.code">{{ serviceCodeOptionLabel(item.code) }}</option></select><ServiceInformation presentation="button" :service-code="narrivaUnderlyingServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></div><p>Pro Bono remains the funding arrangement. This identifies the clinical service for documentation review and does not change the scheduled or charged code.</p><p v-if="!narrivaUnderlyingServiceCode">Choose the clinical service to verify this note against its handbook requirements. Until then, the note remains unverified.</p></section>
-        <ServiceInformation v-if="actualServiceCode" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" />
-        <section v-if="!signedNoteViewerId && !chartNoteReadOnly" class="narriva-encounter-confirmation" aria-label="Encounter consent and delivery">
-          <label class="narriva-consent-check"><input v-model="narrivaConsentConfirmed" type="checkbox" /> I confirm consent to participate was obtained for this encounter.</label>
-
-        </section>
         <div v-if="noteAidAgencyNeedsChoice" class="na-tenant-choice">
           <label>
             This client belongs to more than one tenant you can access. Choose which tenant this note belongs to:
@@ -719,7 +709,7 @@
                           : !planOnFile
                             ? 'Required before progress notes'
                             : (isProgressAid && !progressPlanIsCurrent)
-                              ? `Older than ${treatmentPlanMaxAgeDays} days`
+                              ? 'Plan not current for session'
                               : 'Complete'
                       }}
                     </em>
@@ -855,6 +845,7 @@
           @all-rated="scrollToTypeSpeakPanel"
         />
 
+        <TreatmentPlanApprovalPanel v-if="planAwaitingReview?.id && effectiveClientId && !signedNoteViewerId" :agency-id="Number(planAwaitingReview.agency_id || chartAgencyIdForSave || noteAidAgencyId || currentAgencyId)" :client-id="Number(planAwaitingReview.client_id || effectiveClientId)" :plan-id="Number(planAwaitingReview.id)" @updated="loadClientTreatmentPlan(effectiveClientId)" />
         <div v-if="isTerminationAid && !chartNoteReadOnly" class="na-plan-fields">
           <label for="na-termination-reason">Reason for termination</label>
           <select id="na-termination-reason" v-model="terminationReason" class="na-input" @change="onTerminationReasonChange">
@@ -881,6 +872,7 @@
         <p v-if="draftAttendanceNotice" class="na-attendance-hint" role="status">{{ draftAttendanceNotice }}</p>
         <NoteAidCsNoteBuildPanel
           :current-user-role="authStore.user?.role"
+          :mse-history="authorizedMseHistory"
           v-if="useCsNoteBuildPathway"
           ref="csNoteBuildPanelRef"
           v-model="csNoteBuildState"
@@ -913,6 +905,7 @@
             v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
             id="narriva-assessment"
             :include-risk="narrivaRiskIncluded || narrivaRiskRequired"
+            :mse-history="authorizedMseHistory"
             :diagnoses="structuredChartDiagnoses"
             :diagnosis-mode="chartDiagnosisMode"
             v-model:diagnostic-justification="chartDiagnosticJustification"
@@ -932,8 +925,11 @@
           <p v-if="phiNameHits.length" class="na-phi-warn" role="alert">Possible identifying name detected. Replace it with the person’s role before generating.</p>
           <textarea v-model="inputText" aria-label="Session Narrative" class="na-textarea" rows="8" :maxlength="isTerminationAid ? 1500000 : 12000" :placeholder="isTreatmentSummaryAid ? 'Add clinically relevant participation, impressions and history using roles instead of names.' : 'Describe what occurred, interventions used, the response, progress, and the next plan…'" />
           <p v-if="narrivaRecordingError" role="alert" class="error">{{ narrivaRecordingError }}</p><div v-if="narrivaRecordingText" class="narriva-privacy-hint"><p>A reviewed recording narrative is ready for this encounter.</p><button type="button" class="na-btn-outline" @click="applyNarrivaRecording(true)">Append recording narrative</button><button type="button" class="na-btn-outline" @click="applyNarrivaRecording(false)">Replace with recording narrative</button></div>
-          <p class="narriva-recording-link">Session recordings belong to the scheduled encounter. <button type="button" class="na-link-btn" :disabled="!sessionClinicalSessionId && !sessionOfficeEventId" @click="openNarrivaSession">Open session recorder</button><span v-if="!sessionClinicalSessionId && !sessionOfficeEventId"> Link a session to use recording.</span></p>
 
+          <div v-if="!isClientChartAid && !isReviewOnlyAid" class="narriva-session-confirmations">
+            <label><input v-model="narrivaConsentConfirmed" type="checkbox" /> I confirm consent to participate and a private setting at the session location.</label>
+            <label><input v-model="narrivaRiskIncluded" type="checkbox" /> Include a risk assessment</label>
+          </div>
           <div class="na-input-footer">
             <span class="na-char-count">{{ String(inputText || '').length }} / {{ isTerminationAid ? 1500000 : 12000 }}</span>
             <label
@@ -947,17 +943,6 @@
                 <span class="na-switch-thumb" />
               </span>
             </label>
-            <label
-              v-if="showAfterHours99051Option"
-              class="na-toggle-row na-toggle-row--inline"
-              title="Shared regular hours are weekdays9 a.m.–5 p.m. Scheduled evening/weekend services require existing eligibility; weekday mornings need Billing verification."
-            >
-              <span>After hours (99051)</span>
-              <span class="na-switch" :class="{ on: includeAfterHours99051 }">
-                <input v-model="includeAfterHours99051" type="checkbox" @change="onAfterHours99051Change" />
-                <span class="na-switch-thumb" />
-              </span>
-            </label>
             <small v-if="morning99051NeedsReview" class="muted">This session is before regular 9 a.m.–5 p.m. hours. Billing must confirm that the payer authorizes 99051 for a weekday morning before it is added.</small>
             <span
               v-for="addon in displayedBillingAddons"
@@ -967,11 +952,11 @@
             >
               +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}{{ addon.pending ? ' (auto)' : '' }}
             </span>
-            <button class="na-generate" type="button" :disabled="generateDisabled" @click="generateNote">
+            <button class="na-generate" type="button" :disabled="narrivaPreGenerationRequired ? narrivaCheckDisabled : generateDisabled" @click="narrivaPreGenerationRequired ? runNarrivaChecks({ phase: 'pre_generation' }) : generateNote()">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
               </svg>
-              {{ generating ? 'Generating…' : 'Narriva Generate Note' }}
+              {{ narrivaReviewBusy ? 'Checking…' : narrivaPreGenerationRequired ? 'Submit for compliance check' : generating ? 'Generating…' : 'Generate note' }}
             </button>
           </div>
           <small v-if="generateBlockedReason && generateDisabled" class="hint na-generate-hint">{{ generateBlockedReason }}</small>
@@ -998,16 +983,6 @@
                 <span class="na-switch-thumb" />
               </span>
             </label>
-            <label
-              v-if="showAfterHours99051Option"
-              class="na-toggle-row na-toggle-row--inline"
-            >
-              <span>After hours (99051)</span>
-              <span class="na-switch" :class="{ on: includeAfterHours99051 }">
-                <input v-model="includeAfterHours99051" type="checkbox" @change="onAfterHours99051Change" />
-                <span class="na-switch-thumb" />
-              </span>
-            </label>
             <small v-if="morning99051NeedsReview" class="muted">Weekday mornings are outside regular hours, but 99051 requires Billing to verify payer authorization.</small>
             <button class="na-generate" type="button" :disabled="csGenerateDisabled" @click="generateNote">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
@@ -1020,8 +995,20 @@
         </section>
 
         <p v-if="!needsActualProgressSession && !signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
-        <NarrivaCompliancePanel v-if="narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (draftId || inputText || narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
-          <template #risk="{ required }"><div class="narriva-risk-choice"><strong>Include a risk assessment?</strong><span v-if="required">Required for this note</span><template v-else><label><input :checked="!narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = false" />No</label><label><input :checked="narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = true" />Yes</label></template><button v-if="required || narrivaRiskIncluded" type="button" class="na-link-btn" @click="openNarrivaRisk">Open risk assessment</button><label v-if="required || narrivaRiskIncluded" class="narriva-risk-complete"><input v-model="narrivaRiskCompleted" type="checkbox" />I completed and reviewed the documented risk assessment.</label></div></template>
+        <NarrivaCompliancePanel v-if="narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (draftId || inputText || narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :pre-generation="narrivaReviewPhase === 'pre_generation'" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
+          <template #finding="{ checkId, finding }">
+            <NarrivaAssessmentEvidence v-if="!finding.bypassed && finding.action === 'assessment'" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
+            <NarrivaInlineFinding v-else-if="!finding.bypassed" :check-id="checkId" :finding="finding" :context="narrivaInlineContext" :location-choices="sessionLocationChoices" :service-choices="rawEligibleServiceCodes" :disabled="narrivaReviewBusy" @apply="applyNarrivaInlineUpdate" />
+          </template>
+          <template #risk="{ required }">
+            <div v-if="narrivaRiskIncluded || required" class="narriva-risk-choice" role="status">
+              <template v-if="narrivaReviewPhase === 'pre_generation' && narrivaRiskIncluded">Risk assessment will be added as a to-do to the note. Complete it before submitting.</template>
+              <template v-else-if="narrivaReviewPhase !== 'pre_generation'"><strong>{{ narrivaRiskCompleted ? 'Risk assessment reviewed' : 'To do: complete the risk assessment' }}</strong><button type="button" class="na-link-btn" @click="openNarrivaRisk">Complete risk assessment</button><label><input v-model="narrivaRiskCompleted" type="checkbox" /> I completed and reviewed the documented risk assessment.</label></template>
+            </div>
+          </template>
+          <template v-if="narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
+            <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || generateDisabled" @click="generateNote">{{ generating ? 'Generating…' : 'Generate note' }}</button>
+          </template>
         </NarrivaCompliancePanel>
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
           <p role="status">Signing unavailable: create or restore the note text, review it, and complete the required checks and attestations. Your saved narrative remains a draft.</p>
@@ -1063,7 +1050,7 @@
         </section>
 
         <section
-          v-else-if="displayPanels.length"
+          v-else-if="displayPanels.length && (!narrivaPreGenerationRequired || aiContentGenerated || outputObj?.meta?.model)"
           :inert="appointmentAlertBlocked"
           ref="naGeneratedOutputEl"
           class="na-output"
@@ -1090,7 +1077,7 @@
           </div>
 
           <div class="na-soap-list">
-            <div v-for="panel in displayPanels" :key="panel.id" class="na-soap-card">
+            <div v-for="panel in displayPanels" :key="panel.id" class="na-soap-card" :class="{ 'na-soap-card--achieved': treatmentPanelAchieved(panel) }">
               <div class="na-soap-header">
                 <button type="button" class="na-soap-title-btn" @click="togglePanelCollapsed(panel.id)">
                   <span class="na-soap-title">
@@ -1399,8 +1386,10 @@
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
         </section>
 
+        <SessionSupportingMaterials v-if="sessionClinicalSessionId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :key="sessionClinicalSessionId" :clinical-session-id="sessionClinicalSessionId" flat />
+        <ClinicalRecordDownloads v-if="effectiveClientId" :agency-id="Number(noteAidAgencyId || currentAgencyId)" :client-id="Number(effectiveClientId)" :note-id="Number(signedNoteViewerId || 0) || null" :draft-id="!signedNoteViewerId ? Number(draftId || 0) || null : null" />
         <ClinicalArtifactRetentionPanel
-          v-if="canApproveToClinicalRecord && !demoPresentation"
+          v-if="false"
           :agencyId="Number(currentAgencyId || 0)"
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
@@ -1593,6 +1582,15 @@ import NarrivaModeChooser from '../../components/clinical/NarrivaModeChooser.vue
 import ServiceInformation from '../../components/notes/ServiceInformation.vue';
 import { isProBonoFundingCode, underlyingClinicalServiceOptions } from '../../utils/clinicalServiceReference.js';
 import NarrivaCompliancePanel from '../../components/clinical/NarrivaCompliancePanel.vue';
+import NarrivaInlineFinding from '../../components/clinical/NarrivaInlineFinding.vue';
+import TreatmentPlanApprovalPanel from '../../components/clinical/TreatmentPlanApprovalPanel.vue';
+import { mergeSessionDiagnosis, sessionDiagnosisEntryMode, canSelectSessionDiagnosis } from '../../utils/narrivaClinicalContext.js';
+import ClinicalRecordDownloads from '../../components/clinical/ClinicalRecordDownloads.vue';
+import TherapyNotesQuickGenerator from '../../components/clinical/TherapyNotesQuickGenerator.vue';
+import { evaluateTreatmentPlanForEncounter } from '../../utils/treatmentPlanEncounterEligibility.js';
+import { resolveNarrivaToolForService } from '../../utils/narrivaGeneratorMappings.js';
+import { normalizeHistoricalMse } from '../../utils/noteAidMseHistory.js';
+import { objectiveTargetReached } from '../../utils/treatmentGoalAchievement.js';
 import NarrivaAssessmentEvidence from '../../components/clinical/NarrivaAssessmentEvidence.vue';
 import { useNarrivaReview } from '../../composables/useNarrivaReview.js';
 import { NARRIVA_BRAND } from '../../config/narrivaBrand.js';
@@ -1633,6 +1631,8 @@ import {
 } from '../../utils/noteAidWorkQueue.js';
 import {
   DOC_STATUS,
+  buildMyWorkItems,
+  myWorkCounts,
   buildLeftLibraryRows,
   deriveWorkQueueDocStatus,
   draftMatchesWorkQueueItem,
@@ -1876,7 +1876,8 @@ const primaryChartDiagnosis = computed(() => {
   return list.find((d) => d && (d.is_active == null || Number(d.is_active) === 1)) || null;
 });
 
-const chartPresentingProblem = computed(() => splitTreatmentPlanSections(latestTreatmentPlan.value || {}).presentingProblem);
+const sessionPresentingProblemOverride = ref(null);
+const chartPresentingProblem = computed(() => sessionPresentingProblemOverride.value ?? splitTreatmentPlanSections(latestTreatmentPlan.value || {}).presentingProblem);
 const chartPrescribedFrequency = computed(() => splitTreatmentPlanSections(latestTreatmentPlan.value || {}).prescribedFrequency);
 
 const chartIntakeNotes = ref([]);
@@ -1888,11 +1889,7 @@ const terminationDetails = ref('');
 const terminationRecommendation = ref('');
 const terminationReturnRecommendation = 'Re-engage in services if the presenting problem returns.';
 function onTerminationReasonChange() {
-  if (terminationReason.value === 'goals_achieved' && !terminationRecommendation.value.trim()) {
-    terminationRecommendation.value = terminationReturnRecommendation;
-  } else if (terminationReason.value !== 'goals_achieved' && terminationRecommendation.value === terminationReturnRecommendation) {
-    terminationRecommendation.value = '';
-  }
+  if (terminationRecommendation.value === terminationReturnRecommendation) terminationRecommendation.value = '';
 }
 async function onTerminationNextStepChange() {
   if (terminationNextStep.value !== 'later') return;
@@ -1997,8 +1994,19 @@ const planOnFile = computed(() =>
 );
 const treatmentPlanMaxAgeDays = ref(90);
 const treatmentPlanRenewalPolicy = ref({ ...DEFAULT_RENEWAL_POLICY });
-const planRenewalStatus = computed(() => treatmentPlanRenewalStatus(latestTreatmentPlan.value, treatmentPlanRenewalPolicy.value));
-const progressPlanIsCurrent = computed(() => planOnFile.value && !planRenewalStatus.value.required);
+const chartTreatmentPlans = ref([]);
+const planAwaitingReview = computed(() => {
+  const pending = chartTreatmentPlans.value.filter(plan => plan.status === 'draft' && String(plan.source_tool_id || '') !== 'intake_packet_bootstrap');
+  return pending.find(plan => Number(plan.id) === Number(planDraftEditorId.value)) || pending[0] || latestTreatmentPlan.value || null;
+});
+const encounterPlanEligibility = computed(() => evaluateTreatmentPlanForEncounter({ plans: chartTreatmentPlans.value.length ? chartTreatmentPlans.value : latestTreatmentPlan.value ? [latestTreatmentPlan.value] : [], dateOfService: dateOfService.value, policy: treatmentPlanRenewalPolicy.value }));
+const planRenewalStatus = computed(() => {
+  const selected = chartTreatmentPlans.value.find(plan => Number(plan.id) === Number(encounterPlanEligibility.value.planId)) || latestTreatmentPlan.value;
+  const normal = treatmentPlanRenewalStatus(selected, treatmentPlanRenewalPolicy.value, dateOfService.value || todayIsoDate());
+  return { ...normal, required: !encounterPlanEligibility.value.eligible && encounterPlanEligibility.value.code === 'treatment_plan_expired', expired: encounterPlanEligibility.value.code === 'treatment_plan_expired' };
+});
+const progressPlanIsCurrent = computed(() => !!encounterPlanEligibility.value.eligible);
+
 let draftLoadSeq = 0;
 let chartPlanLoadSeq = 0;
 let intakeLoadSeq = 0;
@@ -2216,6 +2224,8 @@ const treatmentSummaryProviderSignedAt = ref(null);
 const treatmentSummarySupervisorSignedAt = ref(null);
 const chartSessions = ref([]);
 const chartNotesMeta = ref([]);
+const chartMseHistory = ref([]);
+const authorizedMseHistory = computed(() => chartMseHistory.value.filter(row => !dateOfService.value || String(row.sourceDate || '').slice(0, 10) <= dateOfService.value));
 
 async function loadNoteAidWriterPrefs() {
   const uid = Number(authStore.user?.id || 0);
@@ -2460,6 +2470,10 @@ const showInitialsCreateActions = computed(() => {
     && initialsMatchSearched.value;
 });
 const latestTreatmentPlan = ref(null);
+watch(() => [encounterPlanEligibility.value.planId, dateOfService.value], () => {
+  const selected = chartTreatmentPlans.value.find(plan => Number(plan.id) === Number(encounterPlanEligibility.value.planId));
+  if (selected && String(selected.status || '').toLowerCase() !== 'draft' && Number(latestTreatmentPlan.value?.id) !== Number(selected.id)) latestTreatmentPlan.value = selected;
+});
 const chartDiagnoses = ref([]);
 const intakeDiagnosisRecommendations = ref([]);
 const intakeDiagnosisAppliedFingerprint = ref('');
@@ -2716,6 +2730,7 @@ const csGenerateDisabled = computed(() => {
   if (needsActualProgressSession.value) return true;
   if(narrivaServicePending.value)return true;
   if (appointmentAlertBlocked.value) return true;
+  if (narrivaMappingsLoaded.value && actualServiceCode.value && !isClientChartAid.value && !mappedNarrivaTool.value) return true;
   if (generating.value || !canUseTool.value) return true;
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
   const goalIds = (activeTreatmentGoals.value || []).map((g) => g.id).filter(Boolean);
@@ -2787,6 +2802,7 @@ const skipMentalStatusExam = computed(() =>
 const chartDiagnosisMode = computed(() =>
   aidDiagnosisMode(selectedAid.value, { credentialTier: derivedTier.value })
 );
+const clinicalContextDiagnosisMode = computed(() => sessionDiagnosisEntryMode(chartDiagnosisMode.value, derivedTier.value));
 const displayedBillingAddons = computed(() => {
   const list = (billingAddons.value || [])
     .filter((a) => a.code !== '90785' || includeInteractiveComplexity.value)
@@ -2938,6 +2954,8 @@ const showProgressPlanFields = computed(() => {
 const canConfirmAndSign = computed(() => {
   if (needsActualProgressSession.value) return false;
   if (applyingIntakeDiagnoses.value) return false;
+  if (narrivaComplianceRequired.value && !isClientChartAid.value && !isReviewOnlyAid.value && !narrivaConsentConfirmed.value) return false;
+  if ((narrivaRiskIncluded.value || narrivaRiskRequired.value) && (!narrivaRiskCompleted.value || !isRiskAssessmentComplete(chartRiskAssessment.value))) return false;
   if (interactiveComplexityPromptOpen.value || addingInteractiveComplexity.value) return false;
   if (isTerminationAid.value) return !!terminationReason.value && !!terminationRecommendation.value.trim()
     && (terminationReason.value !== 'other' || !!terminationDetails.value.trim())
@@ -3132,7 +3150,7 @@ const interactiveComplexityError = ref('');
 const addingInteractiveComplexity = ref(false);
 function onInteractiveComplexityChange() {
   applyBillingRulesForCurrentSession({ announce: true });
-  interactiveComplexityPromptOpen.value = !!includeInteractiveComplexity.value && !!outputObj.value;
+  interactiveComplexityPromptOpen.value = !narrivaPreGenerationRequired.value && !!includeInteractiveComplexity.value && !!outputObj.value;
   interactiveComplexityError.value = '';
   if (interactiveComplexityPromptOpen.value) nextTick(() => {
     const field = document.getElementById('na-ic-reason');
@@ -3180,10 +3198,21 @@ const narrivaFeatures = ref({writing:true,compliance:true,quickSign:true,recordi
 const narrivaPreferenceSaving = ref(false), narrivaPreferenceError = ref('');
 let narrivaModeTouched = false;
 const narrivaConsentConfirmed = ref(false), narrivaModality = ref('');
+const narrivaClientLocationDescription = ref('');
+const therapyNotesWriterOnly = ref(false);
+const narrivaGeneratorMappings = ref({}), narrivaMappingsLoaded = ref(false), narrivaMappingError = ref('');
+let narrivaMappingRequest = 0;
+const mappedNarrivaTool = computed(() => resolveNarrivaToolForService({ serviceCode: actualServiceCode.value, underlyingServiceCode: narrivaUnderlyingCode.value, programId: selectedProgramId.value }, narrivaGeneratorMappings.value));
+const narrivaReviewPhase = ref('pre_generation');
+const narrivaPreGenerationRequired = computed(() => noteWriterMode.value === 'narriva' && isProgressAid.value && narrivaComplianceRequired.value && !!sessionClinicalSessionId.value);
+const narrivaCheckDisabled = computed(() => generating.value || narrivaReviewBusy.value || appointmentAlertBlocked.value || needsActualProgressSession.value || progressPlanBlocksWriting.value || !String(inputText.value || '').trim());
+const narrivaPreflightReady = computed(() => narrivaReview.value?.phase === 'pre_generation' && ['passed', 'bypassed'].includes(narrivaReview.value?.status));
+const narrivaInlineContext = computed(() => ({ agencyId: Number(noteAidAgencyId.value || currentAgencyId.value), credentialTier: derivedTier.value, diagnosisMode: clinicalContextDiagnosisMode.value, diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value, presentingProblem: chartPresentingProblem.value, consentConfirmed: narrivaConsentConfirmed.value, participants: sessionParticipants.value, participantsDetail: sessionParticipantsDetail.value, dateOfService: dateOfService.value, startTime: sessionStartTimeLocal.value, endTime: sessionEndTimeLocal.value, durationMinutes: sessionDurationMinutes.value, serviceCode: actualServiceCode.value, location: sessionLocationModel.value, clientLocationDescription: narrivaClientLocationDescription.value }));
 const sessionLocationEdited=ref(false);
 watch(sessionClinicalSessionId,()=>{sessionLocationEdited.value=false;});
-const sessionLocationModel=computed({get:()=>({locationLabel:sessionLocationLabel.value,...sessionLocationMetadata(),modality:sessionLocationMetadata().modality || narrivaModality.value}),set:value=>{
+const sessionLocationModel=computed({get:()=>({locationLabel:sessionLocationLabel.value,...sessionLocationMetadata(),clientLocationDescription:narrivaClientLocationDescription.value,modality:sessionLocationMetadata().modality || narrivaModality.value}),set:value=>{
  sessionLocationEdited.value=true;
+ narrivaClientLocationDescription.value=value.clientLocationDescription || '';
  const site=sessionLocationChoices.value.find(choice=>choice.value===value.locationSelection);
  const suffix=['02','10'].includes(value.placeOfService)?value.placeOfService==='10'?' — client at home':' — client elsewhere':'';
  const label=site?.value || (value.locationLabel==='Telehealth'?`Telehealth (${value.modality==='phone'?'phone':'video'})${suffix}`:value.locationLabel);
@@ -3242,19 +3271,53 @@ async function saveNarrivaDefault(mode) {
   catch { narrivaPreferenceError.value = 'Your default could not be saved. Your current note is unchanged.'; }
   finally { narrivaPreferenceSaving.value = false; }
 }
-function narrivaContext() { return { ...(outputObj.value?.meta?.narrivaContext || {}), underlyingServiceCode:narrivaUnderlyingCode.value || null, assessmentEvidence:narrivaAssessmentEvidence.value, presentingProblem:chartPresentingProblem.value || '', writerMode:noteWriterMode.value, consentConfirmed:narrivaConsentConfirmed.value, modality:sessionLocationModel.value.modality, riskAssessmentIncluded:narrivaRiskIncluded.value || narrivaRiskRequired.value === true, riskAssessmentRequired:narrivaRiskRequired.value, riskAssessmentCompleted:narrivaRiskCompleted.value }; }
-async function runNarrivaChecks() {
-  if (!narrivaComplianceRequired.value || narrivaReviewBusy.value || !outputObj.value || signedNoteViewerId.value) return;
-  if(narrivaFeatures.value.compliance===false){narrivaReviewError.value='Narriva checks are not enabled for this workspace. Your note is preserved.';return;}
+function narrivaContext() {
+  const context = { ...(outputObj.value?.meta?.narrivaContext || {}), underlyingServiceCode: narrivaUnderlyingCode.value || null, assessmentEvidence: narrivaAssessmentEvidence.value, presentingProblem: chartPresentingProblem.value || '', presentingProblemOverride: sessionPresentingProblemOverride.value, writerMode: noteWriterMode.value, consentConfirmed: narrivaConsentConfirmed.value, modality: sessionLocationModel.value.modality, interactiveComplexitySelected: includeInteractiveComplexity.value && showInteractiveComplexityOption.value, riskAssessmentIncluded: narrivaRiskIncluded.value, clientLocationDescription: narrivaClientLocationDescription.value, riskAssessmentCompleted: narrivaRiskCompleted.value };
+  delete context.riskAssessmentRequired;
+  return context;
+}
+
+async function runNarrivaChecks({ phase = narrivaReviewPhase.value } = {}) {
+  if (!narrivaComplianceRequired.value || narrivaReviewBusy.value || signedNoteViewerId.value) return;
+  if (phase !== 'pre_generation' && !outputObj.value) return;
+  if (narrivaFeatures.value.compliance === false) { narrivaReviewError.value = 'Narriva checks are not enabled for this workspace. Your note is preserved.'; return; }
+  if (phase === 'pre_generation' && !String(inputText.value || '').trim()) { narrivaReviewError.value = 'Add the session narrative before submitting it for compliance check.'; return; }
+  narrivaReviewPhase.value = phase;
   cancelPendingAutosave();
   const sourceClient = effectiveClientId.value, sourceDraft = draftId.value;
-  const deadline=Date.now()+10000;
-  while (autosaveBusy && Date.now()<deadline) await new Promise(resolve => setTimeout(resolve,50));
+  const deadline = Date.now() + 10000;
+  while (autosaveBusy && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
   if (autosaveBusy) { narrivaReviewError.value = 'Your draft is still saving. Try the checks again when it finishes.'; return; }
   await autosave();
-  if (!draftId.value || !lastSavedAt.value || sourceClient !== effectiveClientId.value || (sourceDraft && String(sourceDraft) !== String(draftId.value))) { narrivaReviewError.value = approvalError.value || 'Save the current draft before running Narriva checks.'; return; }
-  const result = await startNarrivaReview({ draftId:Number(draftId.value) });
-  if (result?.riskAssessmentRequired) narrivaRiskIncluded.value = true;
+  if (!draftId.value || !lastSavedAt.value || sourceClient !== effectiveClientId.value || sourceDraft && String(sourceDraft) !== String(draftId.value)) { narrivaReviewError.value = approvalError.value || 'Save the current draft before running Narriva checks.'; return; }
+  await startNarrivaReview({ draftId: Number(draftId.value), phase });
+}
+async function applyNarrivaInlineUpdate(patch) {
+  if (narrivaReview.value && narrivaReview.value.phase !== 'pre_generation') narrivaReview.value = { ...narrivaReview.value, phase: 'pre_generation', status: 'stale', quickSignEligible: false };
+  narrivaReviewPhase.value = 'pre_generation';
+  if (patch.serviceCode && patch.serviceCode !== actualServiceCode.value) {
+    onQuickSessionServiceCode(patch.serviceCode);
+    narrivaServiceReason.value = patch.serviceReason || '';
+    await nextTick();
+    await confirmNarrivaService();
+  }
+  if ('interactiveComplexitySelected' in patch) { includeInteractiveComplexity.value = patch.interactiveComplexitySelected; onInteractiveComplexityChange(); }
+  if (typeof patch.presentingProblem === 'string' && patch.presentingProblem.trim()) sessionPresentingProblemOverride.value = patch.presentingProblem.trim();
+  if (patch.diagnosis && canSelectSessionDiagnosis(clinicalContextDiagnosisMode.value, patch.diagnosis)) {
+    const merged = mergeSessionDiagnosis(chartDiagnoses.value, patch.diagnosis);
+    if (merged !== chartDiagnoses.value) { chartDiagnoses.value = merged; chartDiagnosticJustification.value = patch.diagnosis.justification.trim(); }
+  }
+  if ('consentConfirmed' in patch) narrivaConsentConfirmed.value = patch.consentConfirmed;
+  if ('participants' in patch) { sessionParticipants.value = patch.participants; sessionParticipantsDetail.value = patch.participantsDetail || ''; participantsPresenceDismissed.value = patch.participants === 'Client Only'; }
+  if (patch.dateOfService) dateOfService.value = patch.dateOfService;
+  if (patch.startTime) sessionStartTimeLocal.value = patch.startTime;
+  if (patch.endTime) sessionEndTimeLocal.value = patch.endTime;
+  if (patch.durationMinutes) sessionDurationMinutes.value = patch.durationMinutes;
+  if (patch.location) sessionLocationModel.value = patch.location;
+  if ('clientLocationDescription' in patch) narrivaClientLocationDescription.value = patch.clientLocationDescription;
+  if (patch.riskAssessmentIncluded) narrivaRiskIncluded.value = true;
+  if (patch.clarification) inputText.value = [String(inputText.value || '').trim(), 'Clinician-confirmed clarification: ' + patch.clarification].filter(Boolean).join('\n\n');
+  scheduleAutosave(300);
 }
 async function loadNarrivaEncounterService(){const sessionId=Number(sessionClinicalSessionId.value),agencyId=Number(noteAidAgencyId.value || currentAgencyId.value),request=++narrivaServiceRequest;narrivaServiceSnapshot.value=null;narrivaPendingConfirmation.value=null;narrivaServiceError.value='';narrivaServiceReason.value='';if(!sessionId || !agencyId || signedNoteViewerId.value || isClientChartAid.value)return;narrivaServiceLoading.value=true;try{const {data}=await api.get(`/narriva/sessions/${sessionId}/service`,{params:{agencyId},skipGlobalLoading:true});if(request===narrivaServiceRequest && (data.session || data.serviceCode)){narrivaServiceSnapshot.value={...(data.session || {}),id:sessionId,pendingServiceChange:data.pendingServiceChange || data.session?.pendingServiceChange,serviceCode:data.serviceCode || data.session?.serviceCode || ''};inheritScheduledLocation(narrivaServiceSnapshot.value);inheritActualSessionSource(narrivaServiceSnapshot.value);narrivaPendingConfirmation.value=data.pendingConfirmation || data.session?.pendingConfirmation || null;if(narrivaPendingConfirmation.value){selectedServiceCode.value=narrivaPendingConfirmation.value.serviceCode;otherServiceCode.value='';narrivaServiceReason.value=narrivaPendingConfirmation.value.justification;}}}catch{if(request===narrivaServiceRequest)narrivaServiceError.value='The encounter service could not be verified. Reload its current service before changing it.';}finally{if(request===narrivaServiceRequest)narrivaServiceLoading.value=false;}}
 async function verifyNarrivaEncounter(){try{await ensureClinicalSessionForApproval();await loadNarrivaEncounterService();}catch(e){narrivaServiceError.value=e.response?.data?.error?.message || 'The scheduled encounter could not be linked.';}}
@@ -3728,10 +3791,7 @@ const attestAiContentReviewed = ref(false);
 
 const morning99051NeedsReview=computed(()=>evaluate99051Schedule({startAt:sessionScheduledStart.value,timeZone:sessionSourceTimezone.value}).reason==='weekday_morning_start');
 const afterHoursScheduleEligible=computed(()=>shouldSuggest99051(sessionScheduledStart.value,{timeZone:sessionSourceTimezone.value,primaryCode:actualServiceCode.value,metadata:outputObj.value?.meta}));
-const noteAidAddonMenuOptions = computed(()=>[
-  { code: '90785', label: '90785 — Interactive complexity' },
-  ...(afterHoursScheduleEligible.value?[{ code: '99051', label: '99051 — After hours' }]:[])
-]);
+const noteAidAddonMenuOptions = computed(() => [{ code: '90785', label: '90785 — Interactive complexity' }]);
 
 function onAfterHours99051Change() {
   if(!afterHoursScheduleEligible.value)includeAfterHours99051.value=false;
@@ -3759,9 +3819,6 @@ function toggleManualAddonCode(codeRaw) {
     return;
   }
   if (code === '99051') {
-    if(!afterHoursScheduleEligible.value)return;
-    includeAfterHours99051.value = !includeAfterHours99051.value;
-    onAfterHours99051Change();
     return;
   }
   const exists = billingAddons.value.some((a) => String(a.code || '').toUpperCase() === code);
@@ -3787,11 +3844,12 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
     timeZone:sessionSourceTimezone.value || null,
     metadata:outputObj.value?.meta
   });
+  includeAfterHours99051.value = (resolved.addons || []).some(addon => addon.code === '99051');
   billingAddons.value = mergeScheduleSeededAddons(
     resolved.addons || [],
     scheduleSeededAddonCodes.value.filter((c) => {
       // Seeded 99051 only sticks when after-hours is opted in (or not dismissed yet / suggested).
-      if (c === '99051') return afterHoursScheduleEligible.value && !!includeAfterHours99051.value;
+      if (c === '99051') return afterHoursScheduleEligible.value;
       return true;
     })
   );
@@ -4291,6 +4349,7 @@ const selectedToolId = computed(() => {
 /** Tool id used to gate + run generation — falls back to billing code when aid metadata is thin. */
 const resolveGenerateToolId = computed(() => {
   if (isTerminationAid.value) return 'clinical_termination';
+  if (narrivaMappingsLoaded.value && actualServiceCode.value && !isClientChartAid.value) return mappedNarrivaTool.value || '';
   if (forceAutoSelect.value || selectedAidForcesAutoSelect.value || autoSelectCode.value) {
     return 'clinical_code_decider';
   }
@@ -4669,6 +4728,7 @@ const generateBlockedReason = computed(() => {
   if (needsActualProgressSession.value) return 'Choose an actual session from the client’s to-do list before writing a progress note.';
   if(narrivaServicePending.value)return 'Confirm the service-code change for the actual encounter before generating.';
   if (appointmentAlertBlocked.value) return 'Review the appointment alert above before continuing.';
+  if (narrivaMappingError.value) return narrivaMappingError.value;
   if (selectedAid.value?.autoSelect && !actualServiceCode.value) return 'Select the actual encounter service before generating. Narriva does not choose or change billed codes automatically.';
   if(selectedClientId.value && actualServiceCode.value && Array.isArray(eligibleServiceCodes.value) && !eligibleServiceCodes.value.includes(actualServiceCode.value))return contextError.value || 'Choose a service allowed for this client’s coverage and provider.';
   if (isTerminationAid.value && (!effectiveClientId.value || !terminationReason.value || !terminationRecommendation.value.trim())) return 'Select a client, termination reason, and provider recommendation.';
@@ -4677,9 +4737,7 @@ const generateBlockedReason = computed(() => {
   if (recording.value) return 'Stop recording before generating.';
   if (recordingBusy.value) return 'Finishing recording…';
   if (progressPlanBlocksWriting.value) {
-    return planOnFile.value
-      ? `Treatment plan is older than ${treatmentPlanMaxAgeDays.value} days — update it first.`
-      : 'Complete a treatment plan before writing this progress note.';
+    return encounterPlanEligibility.value.message || 'Complete a treatment plan for this session before writing its progress note.';
   }
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
     return 'Choose which agency this note belongs to (above).';
@@ -4792,7 +4850,7 @@ const displayPanels = computed(() => {
   if (isTerminationAid.value && Object.keys(sections).length) {
     const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', client_exchange: 'Referred to the Client Exchange for a new provider', lack_of_progress: 'Lack of progress', other: 'Other' };
     if (terminationReason.value) sections['Reason for Termination'] = [labels[terminationReason.value], terminationDetails.value].filter(Boolean).join('. ');
-    if (terminationRecommendation.value.trim()) sections.Recommendations = terminationRecommendation.value.trim();
+    if (terminationRecommendation.value.trim()) if (!String(sections.Recommendations || '').trim() || /^Write this section[.…]*$/i.test(String(sections.Recommendations).trim())) sections.Recommendations = terminationRecommendation.value.trim();
   }
   const preferTreatmentPlan = isSessionlessAid.value
     || aidKind(selectedAid.value) === 'plan'
@@ -4909,30 +4967,11 @@ const nextSameClientInProgressRow = computed(() => {
   return rows[0] || null;
 });
 
-const sortedWorkQueueItems = computed(() =>
-  sortWorkQueueItems(
-    filterWorkQueueForRightPanel(workQueueItems.value),
-    workQueueSortBy.value,
-    workQueueSortDir.value
-  )
-);
-
-const workQueueTodoCount = computed(
-  () => (workQueueItems.value || []).filter(
-    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
-  ).length
-);
-
-const inProgressDraftCount = computed(() => {
-  const startedQueue = (workQueueItems.value || []).filter(
-    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
-  ).length;
-  const startedDrafts = buildLeftLibraryRows({
-    drafts: recentDrafts.value,
-    workQueueItems: []
-  }).filter((r) => normalizeDocStatus(r.docStatus) === DOC_STATUS.STARTED).length;
-  return startedQueue + startedDrafts;
-});
+const myWorkItems = computed(() => buildMyWorkItems({ drafts: recentDrafts.value, workQueueItems: workQueueItems.value }));
+const workspaceWorkCounts = computed(() => myWorkCounts(myWorkItems.value));
+const sortedWorkQueueItems = computed(() => sortWorkQueueItems(myWorkItems.value, workQueueSortBy.value, workQueueSortDir.value));
+const workQueueTodoCount = computed(() => workspaceWorkCounts.value.notStarted);
+const inProgressDraftCount = computed(() => workspaceWorkCounts.value.inProgress);
 
 const nextInQueueItem = computed(() =>
   sortedWorkQueueItems.value.find(
@@ -5147,6 +5186,18 @@ const toggleSectionEdit = (title) => {
   }
 };
 
+function treatmentPanelAchieved(panel) {
+  const match = /^(Goal|Objective)\s+(\d+)(?:\.(\d+))?/i.exec(String(panel.title || panel.id || ''));
+  if (!match) return false;
+  const goal = activeTreatmentGoals.value.find(item => Number(item.goal_index || item.goalIndex) === Number(match[2]));
+  if (!goal) return false;
+  const reached = objective => {
+    const rating = sessionObjectiveRatings.value.find(item => Number(item.objectiveId) === Number(objective.id) && (!item.raterKind || item.raterKind === 'clinician'));
+    return objectiveTargetReached({ status: objective.status, value: rating?.disposition === 'rated' ? rating.scaleValue : null, target: objective.scale_target ?? objective.scaleTarget, direction: objective.scale_direction || objective.scaleDirection, baseline: objective.scale_start ?? objective.scaleStart });
+  };
+  if (match[1].toLowerCase() === 'objective') { const objective = goal.objectives?.find(item => Number(item.objective_index || item.objectiveIndex) === Number(match[3] || 1)); return !!objective && reached(objective); }
+  return !!goal.objectives?.length && goal.objectives.every(reached);
+}
 const panelText = (panel) => {
   const id = panel?.id;
   if (isTerminationAid.value && ['Reason for Termination', 'Recommendations'].includes(id)) return panel?.text || '';
@@ -5232,18 +5283,52 @@ const copySectionContent = async (panel) => {
 };
 
 let contextRequestSequence=0,payerRequestSequence=0,credentialContextCodes=null;
-const refreshPayerServiceChoices=async()=>{
-  const sequence=++payerRequestSequence,clientId=Number(selectedClientId.value || 0),agencyId=currentAgencyId.value;
-  if(!clientId){eligibleServiceCodes.value=credentialContextCodes;contextError.value='';return;}
-  eligibleServiceCodes.value=[];
-  try{
-    const {data}=await api.get('/medical-billing/service-code-eligibility',{params:{agencyId,clientId,dateOfService:dateOfService.value},skipGlobalLoading:true,timeout:15000});
-    if(sequence!==payerRequestSequence || agencyId!==currentAgencyId.value)return;
-    const allowed=data.serviceCodes || [];
-    eligibleServiceCodes.value=credentialContextCodes===null?allowed:credentialContextCodes.filter(code=>allowed.includes(code));
-    contextError.value=data.message || '';
-  }catch(e){if(sequence===payerRequestSequence && agencyId===currentAgencyId.value){eligibleServiceCodes.value=[];contextError.value=e.response?.data?.error?.message || 'Could not verify the client’s available service codes. Retry before choosing a billing service.';}}
+const eligibilityScope = () => ({
+  clientId: Number(selectedClientId.value || 0),
+  agencyId: Number(narrivaServiceSnapshot.value?.agencyId || narrivaServiceSnapshot.value?.agency_id || bookingContext.value?.agencyId || noteAidAgencyId.value || currentAgencyId.value),
+  clinicalSessionId: Number(sessionClinicalSessionId.value || bookingContext.value?.clinicalSessionId || 0) || undefined,
+  officeEventId: Number(sessionOfficeEventId.value || bookingContext.value?.officeEventId || 0) || undefined,
+  dateOfService: dateOfService.value
+});
+const refreshPayerServiceChoices = async () => {
+  const sequence = ++payerRequestSequence, params = eligibilityScope(), key = JSON.stringify(params);
+  if (!params.clientId) { eligibleServiceCodes.value = credentialContextCodes; contextError.value = ''; return; }
+  eligibleServiceCodes.value = [];
+  try {
+    const { data } = await api.get('/medical-billing/service-code-eligibility', { params, skipGlobalLoading: true, timeout: 15000 });
+    if (sequence !== payerRequestSequence || key !== JSON.stringify(eligibilityScope())) return;
+    if (Number(data.agencyId) > 0 && params.clinicalSessionId && Number(data.agencyId) !== Number(noteAidAgencyId.value)) {
+      noteAidAgencyChoiceId.value = Number(data.agencyId);
+      selectedQueueAgencyId.value = Number(data.agencyId);
+    }
+    const allowed = data.serviceCodes || [];
+    eligibleServiceCodes.value = credentialContextCodes === null ? allowed : credentialContextCodes.filter(code => allowed.includes(code));
+    contextError.value = data.message || '';
+  } catch (error) {
+    if (sequence === payerRequestSequence && key === JSON.stringify(eligibilityScope())) {
+      eligibleServiceCodes.value = [];
+      contextError.value = error.response?.data?.error?.message || 'Could not verify this session’s available services. Retry the session check.';
+    }
+  }
 };
+async function loadNarrivaGeneratorMappings() {
+  const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value), request = ++narrivaMappingRequest;
+  if (!agencyId) return;
+  try {
+    const { data } = await api.get('/note-aid/generator-mappings', { params: { agencyId }, skipGlobalLoading: true });
+    if (request !== narrivaMappingRequest || agencyId !== Number(noteAidAgencyId.value || currentAgencyId.value)) return;
+    if (!data?.mappings || typeof data.mappings !== 'object') return;
+    narrivaGeneratorMappings.value = data.mappings; narrivaMappingsLoaded.value = true; narrivaMappingError.value = '';
+    syncMappedNarrivaTool();
+  } catch (error) { if (request === narrivaMappingRequest) narrivaMappingError.value = error.response?.data?.error?.message || 'The service’s generator mapping could not be loaded. Retry the session check.'; }
+}
+function syncMappedNarrivaTool() {
+  if (!narrivaMappingsLoaded.value || isClientChartAid.value || !actualServiceCode.value) return;
+  if (!mappedNarrivaTool.value) { narrivaMappingError.value = 'This service has no Narriva generator. A platform administrator can link it in Narriva settings.'; return; }
+  const hit = findNoteAidByToolOrCode({ toolId: mappedNarrivaTool.value, serviceCode: actualServiceCode.value });
+  if (hit?.aid && aidIsEligible(hit.aid)) { selectedAidId.value = hit.aid.id; selectedNoteCategory.value = hit.category?.id || selectedNoteCategory.value; autoSelectCode.value = false; }
+  narrivaMappingError.value = '';
+}
 const loadContext = async () => {
   const requestId=++contextRequestSequence;
   const agencyId=currentAgencyId.value;
@@ -5259,6 +5344,7 @@ const loadContext = async () => {
       timeout: 15000
     });
     if(requestId!==contextRequestSequence || agencyId!==currentAgencyId.value)return;
+    therapyNotesWriterOnly.value = res?.data?.therapyNotesWriterOnly === true;
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
     hcbsCategory.value = res?.data?.hcbsCategory ?? null;
@@ -5268,6 +5354,7 @@ const loadContext = async () => {
     grantedServiceCodes.value = Array.isArray(res?.data?.grantedServiceCodes) ? res.data.grantedServiceCodes : [];
     audioAgreementTemplates.value = Array.isArray(res?.data?.audioAgreementTemplates) ? res.data.audioAgreementTemplates : [];
     await refreshPayerServiceChoices();
+    await loadNarrivaGeneratorMappings();
   } catch (e) {
     if(requestId!==contextRequestSequence)return;
     contextError.value = e.response?.data?.error?.message || 'Failed to load user context';
@@ -5665,7 +5752,9 @@ async function deleteCurrentDraft() {
     recentDrafts.value = (recentDrafts.value || []).filter((d) => String(d.id) !== String(id));
     approvalMessage.value = 'Draft deleted.';
     await clearDraftFromRouteQuery();
+    await fetchWorkQueueFromApi(authStore.user?.id);
     await loadRecent();
+    closeNoteWorkspace();
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to delete draft';
   } finally {
@@ -5736,7 +5825,13 @@ async function onLibrarySidebarDelete(row) {
     }
     persistWorkQueue();
     await loadRecent();
-    approvalMessage.value = 'Draft deleted. Session is waiting in the work queue.';
+    await fetchWorkQueueFromApi(authStore.user?.id);
+    if (!draftId.value) {
+      const session = (workQueueItems.value || []).find(item => (linkedWorkQueueId && String(item.id) === String(linkedWorkQueueId)) || Number(item.clinicalSessionId || 0) > 0 && Number(item.clinicalSessionId) === Number(row.raw?.clinical_session_id || row.clinicalSessionId || 0));
+      if (session) await activateWorkQueueItem(session);
+      else closeNoteWorkspace();
+    }
+    approvalMessage.value = 'Draft deleted. The session is ready to start again in My Work.';
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to delete draft';
   }
@@ -6122,15 +6217,15 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  const preflightReviewId = narrivaPreGenerationRequired.value ? narrivaReview.value?.id : null;
+  if (narrivaPreGenerationRequired.value && !narrivaPreflightReady.value) { generateError.value = 'Submit the current session narrative for compliance check, resolve the prompts here, then generate the note.'; return; }
   if (needsActualProgressSession.value) { generateError.value = 'Choose an actual session from the client’s to-do list before generating a progress note.'; return; }
   if(narrivaServicePending.value){generateError.value='Confirm the actual encounter service-code change before generating.';return;}
   if(narrivaFeatures.value.writing===false){generateError.value='Narriva writing is not enabled for this workspace. Your text is preserved.';return;}
   if (appointmentAlertBlocked.value) { generateError.value = 'Review the appointment alert above before continuing.'; return; }
   if (pendingDurationChange.value || durationCodeMismatch.value) return;
   if (progressPlanBlocksWriting.value) {
-    generateError.value = planOnFile.value
-      ? `Update the treatment plan (older than ${treatmentPlanMaxAgeDays.value} days) before writing this progress note.`
-      : 'A treatment plan must be on file before writing a progress note.';
+    generateError.value = encounterPlanEligibility.value.message || 'A treatment plan must be on file for this session before writing a progress note.';
     return;
   }
   const isRevisionPass = !!outputObj.value && (
@@ -6160,6 +6255,7 @@ const generateNote = async () => {
       skipMse: skipMentalStatusExam.value
     });
     inputText.value = serialized;
+    if (!skipMentalStatusExam.value) chartMentalStatus.value = { ...normalizeHistoricalMse(csNoteBuildState.value.mse), source: csNoteBuildState.value.mseSource || null };
     const mins = csContactMinutes(csNoteBuildState.value.startTime, csNoteBuildState.value.endTime);
     if (mins != null) sessionDurationMinutes.value = mins;
     if (csNoteBuildState.value.participantsMode) {
@@ -6203,6 +6299,7 @@ const generateNote = async () => {
     const generationQueueSeq = workQueueActivateSeq;
 
     const fd = new FormData();
+    if (preflightReviewId) fd.append('preflightReviewId', String(preflightReviewId));
     fd.append('agencyId', String(noteAidAgencyId.value || currentAgencyId.value));
     if (preferLearningSponsorForAid.value) fd.append('preferLearningSponsor', '1');
     fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
@@ -6337,7 +6434,7 @@ const generateNote = async () => {
         includeInteractiveComplexity: includeInteractiveComplexity.value && showInteractiveComplexityOption.value
       });
     }
-    if (selectedAid.value?.isCustom && (selectedAid.value.systemPrompt || selectedAid.value.trainingNotes)) {
+    if (!narrivaPreGenerationRequired.value && selectedAid.value?.isCustom && (selectedAid.value.systemPrompt || selectedAid.value.trainingNotes)) {
       const customBits = [
         'Custom Note Workspace training directions for this organization:',
         selectedAid.value.systemPrompt || '',
@@ -6345,7 +6442,7 @@ const generateNote = async () => {
       ].filter(Boolean).join('\n');
       generateInput = `${customBits}\n\n${generateInput}`.slice(0, 12000);
     }
-    if (String(actualServiceCode.value || '').toUpperCase() === '90839') {
+    if (!narrivaPreGenerationRequired.value && String(actualServiceCode.value || '').toUpperCase() === '90839') {
       generateInput = `${CRISIS_90839_SERVICE_DESCRIPTION}\n\n${generateInput}`.slice(0, 12000);
     }
     if (isTerminationAid.value) fd.append('termination', JSON.stringify(terminationMetadata()));
@@ -6361,8 +6458,26 @@ const generateNote = async () => {
       fd.append('audio', audioBlob.value, name);
     }
 
+    const generationSourceFingerprint = () => JSON.stringify({
+      inputText: inputText.value, revisionInstruction: revisionInstruction.value, writerMode: noteWriterMode.value,
+      aidId: selectedAidId.value, serviceCode: actualServiceCode.value, dateOfService: dateOfService.value,
+      initials: initials.value, draftId: draftId.value, durationMinutes: sessionDurationMinutes.value,
+      startTime: sessionStartTimeLocal.value, endTime: sessionEndTimeLocal.value,
+      participants: sessionParticipants.value, participantsDetail: sessionParticipantsDetail.value,
+      location: sessionLocationModel.value, confirmations: narrivaContext(), structuredChart: draftStructuredChart(),
+      objectiveRatings: sessionObjectiveRatings.value, interactiveComplexity: includeInteractiveComplexity.value,
+      smartNotes: useCsNoteBuildPathway.value ? csNoteBuildState.value : null, sectionOverrides: { ...sectionOverrides }
+    });
+    const submittedSourceFingerprint = generationSourceFingerprint();
+    const submittedAudio = audioBlob.value;
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
     if (generationClientId !== effectiveClientId.value || generationDraftSeq !== draftLoadSeq || generationQueueSeq !== workQueueActivateSeq) return;
+    if (submittedSourceFingerprint !== generationSourceFingerprint() || submittedAudio !== audioBlob.value) {
+      invalidateNarrivaReview();
+      if (narrivaPreGenerationRequired.value) narrivaReviewPhase.value = 'pre_generation';
+      generateError.value = 'The session content changed while generating. Your current text and prior note are preserved. Submit the current content for compliance check again before generating.';
+      return;
+    }
     outputObj.value = res?.data?.outputJson || null;
     aiContentGenerated.value = true;
     attestAiContentReviewed.value = false;
@@ -6419,7 +6534,7 @@ const generateNote = async () => {
     }
     await loadRecent();
     if (outputObj.value) {
-      await runNarrivaChecks();
+      await runNarrivaChecks({ phase: 'output' });
       await scrollGeneratedOutputIntoView();
     }
   } catch (e) {
@@ -6432,38 +6547,19 @@ const generateNote = async () => {
 };
 
 async function onCsProposePlan(state) {
+  if (csProposingPlan.value) return;
+  const clientId = Number(effectiveClientId.value), clinicalSessionId = Number(sessionClinicalSessionId.value), owner = workQueueActivateSeq;
+  if (!clientId || !clinicalSessionId) { generateError.value = 'Open the scheduled session before requesting a plan proposal.'; return; }
   csProposingPlan.value = true;
   try {
-    const focus = String(state?.sessionFocus || '').trim();
-    const interventions = [
-      ...(state?.interventionsSelected || []),
-      ...(String(state?.interventionsCustom || '').split(',').map((s) => s.trim()).filter(Boolean))
-    ];
-    const response = state?.clientResponse || '';
-    const symptoms = (state?.symptomsSelected || []).join(', ');
-    const affect = (state?.affectAreas || []).join(', ');
-    const goalBits = Object.values(state?.goalProgress || {})
-      .map((g) => `${g.goalText || 'Goal'}: ${g.rating || '—'}`)
-      .join('; ');
-    const draft = [
-      focus ? `Continue work on ${focus.replace(/\.$/, '')}.` : 'Continue therapeutic focus from today’s session.',
-      interventions.length ? `Reinforce ${interventions.slice(0, 3).join(', ')}.` : '',
-      response ? `Monitor engagement (${response.toLowerCase()}).` : '',
-      symptoms ? `Address ongoing clinical needs related to ${symptoms}.` : '',
-      affect ? `Support functioning across ${affect}.` : '',
-      goalBits ? `Treatment-plan focus: ${goalBits}.` : '',
-      'Review progress next session and adjust interventions as indicated.'
-    ].filter(Boolean).join(' ');
-    csNoteBuildState.value = {
-      ...csNoteBuildState.value,
-      ...state,
-      planProposed: draft,
-      planEdited: csNoteBuildState.value.planEdited || draft
-    };
-    csNoteBuildPanelRef.value?.setProposedPlan?.(draft);
-  } finally {
-    csProposingPlan.value = false;
-  }
+    const inputText = serializeCsNoteBuildForGenerate({ ...csNoteBuildState.value, ...state }, { dateOfService: dateOfService.value, serviceCode: actualServiceCode.value, locationLabel: sessionLocationLabel.value, isTelehealth: csIsTelehealth.value, skipMse: skipMentalStatusExam.value });
+    const { data } = await api.post('/note-aid/section-draft', { agencyId: Number(noteAidAgencyId.value || currentAgencyId.value), clientId, clinicalSessionId, serviceCode: actualServiceCode.value, section: 'Plan', inputText }, { skipGlobalLoading: true });
+    if (owner !== workQueueActivateSeq || clientId !== Number(effectiveClientId.value) || clinicalSessionId !== Number(sessionClinicalSessionId.value)) return;
+    if (!String(data?.text || '').trim()) throw new Error('The writer did not return a plan proposal.');
+    csNoteBuildState.value = { ...csNoteBuildState.value, ...state, planProposed: data.text, planEdited: data.text };
+    csNoteBuildPanelRef.value?.setProposedPlan?.(data.text);
+  } catch (error) { if (owner === workQueueActivateSeq) generateError.value = error.response?.data?.error?.message || error.message || 'The plan proposal could not be generated. Your entries are preserved.'; }
+  finally { csProposingPlan.value = false; }
 }
 
 watch(isProgressAid, (ok) => {
@@ -6522,7 +6618,7 @@ const buildApprovedPayloadText = () => {
   if (isTerminationAid.value) {
     const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', client_exchange: 'Referred to the Client Exchange for a new provider', lack_of_progress: 'Lack of progress', other: 'Other' };
     sections['Reason for Termination'] = [labels[terminationReason.value], terminationDetails.value].filter(Boolean).join('. ');
-    sections.Recommendations = terminationRecommendation.value.trim();
+    if (!String(sections.Recommendations || '').trim() || /^Write this section[.…]*$/i.test(String(sections.Recommendations).trim())) sections.Recommendations = terminationRecommendation.value.trim();
   }
   if (!sections || Object.keys(sections).length === 0) return '';
   return JSON.stringify(
@@ -6711,6 +6807,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         aiGenerated: !manualSections,
         manualSections,
         writerMode:noteWriterMode.value,
+        narrivaPreflight: outputObj.value?.meta?.narrivaPreflight || null,
         underlyingServiceCode:narrivaUnderlyingCode.value || null,
         narrivaContext:narrivaContext(),
         presentingProblem:chartPresentingProblem.value || '',
@@ -6748,6 +6845,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         printableDocument: !!isTreatmentSummaryAid.value,
         attachMode: isClientChartAid.value ? 'client_chart' : undefined,
         structuredChart: isClientChartAid.value ? null : structuredChart,
+        smartNotes: useCsNoteBuildPathway.value ? csNoteBuildState.value : undefined,
         termination: isTerminationAid.value ? terminationMetadata() : null,
         terminationNextStep: noteTreatmentRecommendation.value === 'terminate' ? terminationNextStep.value : null,
         terminationTodoKey: noteTreatmentRecommendation.value === 'terminate' ? terminationTodoKey.value || null : null,
@@ -7106,6 +7204,7 @@ const focusArchivedShelf = async () => {
 };
 
 const resetClientClinicalContext = () => {
+  sessionPresentingProblemOverride.value = null;
   narrivaUnderlyingServiceCode.value='';narrivaConsentConfirmed.value=false;narrivaModality.value='';narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
   chartPlanLoadSeq += 1;
   intakeLoadSeq += 1;
@@ -7159,6 +7258,8 @@ const resetClientClinicalContext = () => {
 const loadClientTreatmentPlan = async (clientId) => {
   const requestSeq = ++chartPlanLoadSeq;
   const cid = Number(clientId || 0);
+  chartTreatmentPlans.value = [];
+  chartMseHistory.value = [];
   if (!cid) {
     latestTreatmentPlan.value = null;
     chartDiagnoses.value = [];
@@ -7187,6 +7288,7 @@ const loadClientTreatmentPlan = async (clientId) => {
     let bestNotes = [];
     let bestIntakeNotes = [];
     let lastError = null;
+    const allPlans = new Map();
 
     for (const aid of agencies) {
       try {
@@ -7196,6 +7298,11 @@ const loadClientTreatmentPlan = async (clientId) => {
         });
         if (requestSeq !== chartPlanLoadSeq || Number(effectiveClientId.value) !== cid) return;
         const plan = res?.data?.latestPlan || null;
+        for (const row of [...(res.data?.plans || []), ...(plan ? [plan] : [])]) {
+          const scoped = { ...row, agency_id: row.agency_id || aid, client_id: row.client_id || cid };
+          const key = `${scoped.agency_id}:${scoped.client_id}:${scoped.id}`;
+          if (!allPlans.has(key) || scoped.goals) allPlans.set(key, scoped);
+        }
         const score = scoreChartPlan(plan);
         if (score > bestScore) {
           bestScore = score;
@@ -7218,11 +7325,33 @@ const loadClientTreatmentPlan = async (clientId) => {
     }
 
     if (requestSeq !== chartPlanLoadSeq || Number(effectiveClientId.value) !== cid) return;
-    latestTreatmentPlan.value = bestPlan;
+    const rows = [...allPlans.values()];
+    const cutoff = dateOfService.value ? new Date(`${dateOfService.value}T12:00:00Z`) : new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() + 7);
+    const candidates = rows.filter(plan => String(plan.effective_date || plan.created_at || '').slice(0, 10) <= cutoff.toISOString().slice(0, 10))
+      .sort((a, b) => String(b.effective_date || b.created_at || '').localeCompare(String(a.effective_date || a.created_at || '')));
+    const needed = [...candidates.filter(plan => plan.status !== 'draft').slice(0, 5), ...rows.filter(plan => plan.status === 'draft').slice(0, 3)];
+    await Promise.all(needed.filter(plan => !Array.isArray(plan.goals)).map(async plan => {
+      try {
+        const { data } = await api.get(`/medical-billing/treatment-plans/${plan.id}`, { params: { agencyId: plan.agency_id, clientId: plan.client_id }, skipGlobalLoading: true });
+        if (data?.plan) allPlans.set(`${plan.agency_id}:${plan.client_id}:${plan.id}`, data.plan);
+      } catch { /* The server remains authoritative when an older full plan is unavailable. */ }
+    }));
+    if (requestSeq !== chartPlanLoadSeq || Number(effectiveClientId.value) !== cid) return;
+    chartTreatmentPlans.value = [...allPlans.values()];
+    const eligibility = evaluateTreatmentPlanForEncounter({ plans: chartTreatmentPlans.value, dateOfService: dateOfService.value, policy: treatmentPlanRenewalPolicy.value });
+    const approved = chartTreatmentPlans.value.find(plan => Number(plan.id) === Number(eligibility.planId) && plan.status !== 'draft');
+    latestTreatmentPlan.value = approved || (bestPlan && bestPlan.status !== 'draft' ? bestPlan : null);
     chartDiagnoses.value = bestDiagnoses;
     chartObjectiveRatings.value = bestRatings;
     chartSessions.value = bestSessions;
     chartNotesMeta.value = bestNotes;
+    const histories = await Promise.all(agencies.map(async agencyId => {
+      try { const { data } = await api.get(`/medical-billing/clients/${cid}/mse-history`, { params: { agencyId, dateOfService: dateOfService.value || undefined }, skipGlobalLoading: true }); return data?.history || []; }
+      catch { return []; }
+    }));
+    if (requestSeq !== chartPlanLoadSeq || Number(effectiveClientId.value) !== cid) return;
+    chartMseHistory.value = [...new Map(histories.flat().map(row => [String(row.noteId), row])).values()];
     chartIntakeNotes.value = bestIntakeNotes;
     if (bestIntakeNotes.some((n) => {
       const st = String(n.status || '').toLowerCase();
@@ -7231,7 +7360,7 @@ const loadClientTreatmentPlan = async (clientId) => {
       intakeDraftFinalized.value = true;
       intakeImportedOnce.value = true;
     }
-    const freq = splitTreatmentPlanSections(bestPlan || {}).prescribedFrequency;
+    const freq = splitTreatmentPlanSections(latestTreatmentPlan.value || {}).prescribedFrequency;
     planFrequencyBaseline.value = freq;
     if (!String(notePrescribedFrequency.value || '').trim()) {
       notePrescribedFrequency.value = freq || '';
@@ -7239,7 +7368,7 @@ const loadClientTreatmentPlan = async (clientId) => {
     noteTreatmentRecommendation.value = 'continue';
     // Prefer plan diagnostic justification over whatever intake last wrote on the dx row.
     const planJust = String(
-      bestPlan?.diagnostic_justification || bestPlan?.diagnosticJustification || ''
+      latestTreatmentPlan.value?.diagnostic_justification || latestTreatmentPlan.value?.diagnosticJustification || ''
     ).trim();
     if (isIntakeOutput.value && intakeDiagnosisRecommendations.value.length) {
       // Current intake recommendations take precedence while this note is being reviewed.
@@ -7263,6 +7392,10 @@ const loadClientTreatmentPlan = async (clientId) => {
     if (requestSeq === chartPlanLoadSeq) loadingClientPlan.value = false;
   }
 };
+
+watch(dateOfService, (date, previous) => {
+  if (date !== previous && /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) && effectiveClientId.value) void loadClientTreatmentPlan(effectiveClientId.value);
+});
 
 const loadClientIntakeSummary = async (clientId) => {
   const requestSeq = ++intakeLoadSeq;
@@ -7611,7 +7744,7 @@ watch(selectedClientId, () => {
   if (draftId.value) scheduleAutosave(800);
 });
 
-watch([selectedClientId,dateOfService],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
+watch([selectedClientId,dateOfService,sessionClinicalSessionId,sessionOfficeEventId,noteAidAgencyId],(next,previous)=>{ if((Number(next[0]) || Number(previous?.[0])) && canUseTool.value && currentAgencyId.value)refreshPayerServiceChoices(); });
 
 const onPlanImportSaved = async (plan) => {
   // Saving creates a new retained plan version. Reopening the original planId
@@ -8291,6 +8424,7 @@ async function onLibrarySidebarSelect(row) {
 async function activateWorkQueueItem(item) {
   closeSupervisorReview();
   if (!item) return;
+  if (item.draftOnly && item.rawDraft) { await loadDraftIntoWorkspace(item.rawDraft); return; }
   showActualSessionPicker.value = false;
   const incomingStatus = deriveWorkQueueDocStatus(item);
   const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
@@ -9235,6 +9369,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   notePathway.value = loadedMode === 'smart_notes' && showCsNoteBuildPathway.value ? 'csNoteBuild' : 'standard';
   narrivaUnderlyingServiceCode.value = savedMeta.underlyingServiceCode || savedMeta.narrivaContext?.underlyingServiceCode || '';
   narrivaConsentConfirmed.value = savedMeta.narrivaContext?.consentConfirmed === true;
+  sessionPresentingProblemOverride.value = typeof savedMeta.narrivaContext?.presentingProblemOverride === 'string' ? savedMeta.narrivaContext.presentingProblemOverride : null;
   narrivaModality.value = savedMeta.narrivaContext?.modality || '';
   narrivaRiskIncluded.value = savedMeta.narrivaContext?.riskAssessmentIncluded === true;
   narrivaRiskRequired.value = savedMeta.narrivaContext?.riskAssessmentRequired === true;
@@ -9246,6 +9381,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     chartRiskAssessment.value = savedChart.riskAssessment || defaultRiskAssessment();
     chartMedications.value = savedChart.medications || defaultMedicationsBlock();
     chartDiagnosticJustification.value = savedChart.diagnosticJustification || '';
+    for (const diagnosis of savedChart.diagnoses || []) chartDiagnoses.value = mergeSessionDiagnosis(chartDiagnoses.value, diagnosis);
     intakeDiagnosisRecommendations.value = savedChart.intakeDiagnoses || [];
     intakeDiagnosisAppliedFingerprint.value = savedChart.intakeDiagnosisAppliedFingerprint || '';
     intakeAssessmentSnapshot.value = savedChart.intakeAssessmentSnapshot || null;
@@ -10033,9 +10169,11 @@ watch(
 
 watch([() => route.query.recordingId,effectiveClientId,sessionClinicalSessionId,sessionOfficeEventId],loadNarrivaRecording);
 watch([sessionClinicalSessionId,noteAidAgencyId,effectiveClientId],loadNarrivaEncounterService);
-watch(() => narrivaReview.value?.riskAssessmentRequired, required => { if(required)narrivaRiskRequired.value=true; });
-watch([inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) invalidateNarrivaReview(); }, { deep:true });
-watch([narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
+watch([noteAidAgencyId, currentAgencyId], loadNarrivaGeneratorMappings);
+watch([actualServiceCode, selectedProgramId, narrivaUnderlyingCode], syncMappedNarrivaTool);
+watch(() => narrivaReview.value?.riskAssessmentRequired, required => { narrivaRiskRequired.value = required === true; });
+watch([sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); }, { deep:true });
+watch([sessionPresentingProblemOverride,chartDiagnoses,narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaClientLocationDescription,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
 watch([draftId,effectiveClientId], () => { invalidateNarrivaReview(); });
 
 watch(sectionOverrides, () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); }, {deep:true});
@@ -10077,6 +10215,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.na-soap-card--achieved{background:#ecfdf5!important;border-color:#22c55e!important;color:#14532d}.narriva-session-confirmations{display:flex;flex-wrap:wrap;gap:14px;margin:14px 0;font-size:14px}.narriva-session-confirmations label{display:flex;align-items:center;gap:7px}
 .narriva-underlying-service__control{display:flex;align-items:center;gap:8px;min-width:0}.narriva-underlying-service__control>select{min-width:0;flex:1;width:0}.narriva-underlying-service>p{font-size:13px;line-height:1.5}
 
 .na-duration-confirm { position: fixed; z-index: 35000; inset: 25% max(16px, calc((100vw - 560px) / 2)) auto; padding: 24px; background: white; color: #17314b; border: 2px solid #315b79; border-radius: 14px; box-shadow: 0 0 0 100vmax #0008; }

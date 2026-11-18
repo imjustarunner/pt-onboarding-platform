@@ -9391,7 +9391,9 @@ const refreshClientSessionBookingAccess = async () => {
   const providerUserId = scheduleActorUserId.value;
   if (!agencyId || !providerUserId) { clientSessionBookingEnabled.value = false; return false; }
   try {
-    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId,businessType:tutoringWorkspaceOnly.value?'tutoring':'any',...(['admin','super_admin'].includes(authStore.user?.role)&&Number(providerUserId)===Number(authStore.user?.id)?{scope:'agency'}:{})},skipGlobalLoading:true});
+    const staffAgencyScope = (['admin','super_admin'].includes(authStore.user?.role) || (Number(agencyId)===2 && authStore.user?.role==='support'))
+      && Number(providerUserId)===Number(authStore.user?.id);
+    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId,businessType:tutoringWorkspaceOnly.value?'tutoring':'any',...(staffAgencyScope?{scope:'agency'}:{})},skipGlobalLoading:true});
     if (generation !== bookingAccessGeneration) return false;
     clientSessionBookingEnabled.value = result.data?.enabled === true;
     return clientSessionBookingEnabled.value;

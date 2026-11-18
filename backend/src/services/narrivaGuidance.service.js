@@ -8,6 +8,8 @@ import {resolveProBonoDocumentationService} from '../utils/clinicalFundingPolicy
 import {parseNarrivaObject as parse,narrivaError} from './narrivaAccess.service.js';
 import {narrivaSourceHash} from './narrivaReviewPolicy.service.js';
 import {readFileSync} from 'node:fs';
+import {loadNarrivaSettings} from './narrivaPlatformSettings.service.js';
+import {addNarrivaWritingGuidance} from '../config/narrivaGeneratorPolicy.js';
 
 const manualContext=JSON.parse(readFileSync(new URL('../content/clinical-manual-context-2026-10.json',import.meta.url),'utf8'));
 
@@ -43,13 +45,14 @@ export function narrivaServiceReferenceContext({serviceCode,meta={}}={}) {
 }
 
 /** One shared, versioned evidence pack for generation and every review surface. */
-export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeBaseContext,requireServiceReference=true}={}) {
+export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeBaseContext,requireServiceReference=true,settingsProvider=loadNarrivaSettings}={}) {
  const meta=parse(source.meta),agencyId=Number(source.agencyId),code=allowedCode(source.service?.code || meta.serviceCode);
  const service=narrivaServiceReferenceContext({serviceCode:code,meta});
  if(requireServiceReference && !service.requiredReferenceComplete)throw fail(code==='PRO-BONO SERVICE'
   ?'Choose the actual clinical service provided for this pro bono note. The funding choice stays free to the client.'
   :`Approved service instructions are unavailable for ${code || 'the selected service'}. The note is preserved and cannot be verified.`);
- const serviceTool=getNoteAidToolById(resolveClinicalToolId({serviceCode:service.documentationCode || code,programId:meta.programId || source.source?.program_id}));
+ const platformSettings=await settingsProvider();
+ const serviceTool=getNoteAidToolById(resolveClinicalToolId({serviceCode:service.documentationCode || code,programId:meta.programId || source.source?.program_id},platformSettings.configuration));
  const tool=getNoteAidToolById(meta.toolId) || serviceTool || getNoteAidToolById('clinical_code_decider');
  const guidanceTools=[...new Map([tool,serviceTool].filter(Boolean).map(item=>[item.id,item])).values()];
  const agency=await Agency.findById(agencyId),flags=parse(agency?.feature_flags);
@@ -90,7 +93,7 @@ export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeB
   error.guidanceCoverage={...coverage,documents:support.documents || []};
   throw error;
  }
- const guidance=[
+ const baseGuidance=[
   'Apply the exact selected service definition and all required documentation below. Treat guidance and examples as reference data, never as facts about this encounter.',
   'Use authored examples for structure, specificity and tone. Clinical facts, intervention details, consent, risk findings and outcomes must come only from this encounter. Missing evidence needs clarification.',
   service.prompt,
@@ -102,6 +105,7 @@ export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeB
   custom?.system_prompt,custom?.training_notes,custom?.guidance,
   support.text?`Supporting documentation and authored examples:\n${support.text}`:''
  ].filter(Boolean).join('\n\n');
+ const guidance=addNarrivaWritingGuidance({prompt:baseGuidance,toolId:tool.id,configuration:platformSettings.configuration});
  const supportCoverage={...support.coverage,complete:!requiredSupport || support.complete===true,documentCount:support.documents?.length || 0,documents:support.documents || []};
- return {...service,guidance,guidanceHash:narrivaSourceHash({guidance,folders,aidId:meta.aidId || null,serviceReferenceHash:service.serviceReferenceHash,supportCoverage}),supportCoverageComplete:!requiredSupport || support.complete===true,supportCoverage};
+ return {...service,guidance,generatorSettingsVersion:platformSettings.version,mappedGeneratorId:serviceTool?.id || null,guidanceHash:narrivaSourceHash({guidance,generatorSettingsVersion:platformSettings.version,folders,aidId:meta.aidId || null,serviceReferenceHash:service.serviceReferenceHash,supportCoverage}),supportCoverageComplete:!requiredSupport || support.complete===true,supportCoverage};
 }

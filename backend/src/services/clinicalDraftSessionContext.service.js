@@ -2,12 +2,13 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 const fail = (message, status = 409) => Object.assign(new Error(message), { status, code: 'NOTE_SESSION_CONTEXT_REQUIRED' });
 const code = value => String(value || '').trim().toUpperCase();
 function sessionDate(session) {
   const raw = session?.scheduled_start_at;
-  const instant = raw instanceof Date ? raw : new Date(`${String(raw || '').replace(' ', 'T').replace(/Z$/, '')}Z`);
+  const instant = parseUtcDate(raw);
   return utcDateToZonedYmd(instant, session?.source_timezone || 'America/Denver');
 }
 function assertScope(session, input) {

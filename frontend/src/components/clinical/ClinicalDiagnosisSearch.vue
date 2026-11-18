@@ -9,8 +9,7 @@
 </template>
 <script setup>
 import {ref,watch,onBeforeUnmount,useId} from 'vue';
-import api from '../../services/api';
-const props=defineProps({modelValue:String,label:{type:String,default:'Diagnosis'},agencyId:[Number,String],dateOfService:String,disabled:Boolean,search:Function});
+const props=defineProps({modelValue:String,label:{type:String,default:'Diagnosis'},agencyId:[Number,String],dateOfService:String,disabled:Boolean,search:Function,filterResults:Function});
 const emit=defineEmits(['update:modelValue','select']);
 const inputId='diagnosis-'+useId(),query=ref(props.modelValue || ''),items=ref([]),active=ref(-1),open=ref(false),loading=ref(false),searched=ref(false),error=ref('');
 let timer,blurTimer,sequence=0,controller;
@@ -25,14 +24,14 @@ function change(value) {
   controller=new AbortController();loading.value=true;
   try {
    const payload={agencyId:Number(props.agencyId),query:value.trim(),...(props.dateOfService?{dateOfService:props.dateOfService}:{})};
-   const result=props.search?await props.search(payload,{signal:controller.signal}):await api.post('/clinical-notes/diagnosis-search',payload,{skipGlobalLoading:true,signal:controller.signal});
+   const result=props.search?await props.search(payload,{signal:controller.signal}):await (await import('../../services/api')).default.post('/clinical-notes/diagnosis-search',payload,{skipGlobalLoading:true,signal:controller.signal});
    if(current!==sequence)return;
-   items.value=(result.data || result).items || [];searched.value=true;
+   const found=(result.data || result).items || [];items.value=props.filterResults?found.filter(props.filterResults):found;searched.value=true;
   } catch(e){if(current===sequence)error.value=e.response?.data?.error?.message || 'Diagnosis search is unavailable. Your note is preserved.';}
   finally{if(current===sequence)loading.value=false;}
  },250);
 }
-function select(item){cancel();query.value=`${item.code} — ${item.description}`;items.value=[];active.value=-1;open.value=false;emit('update:modelValue',item.code);emit('select',item);}
+function select(item){if(props.filterResults && !props.filterResults(item))return;cancel();query.value=`${item.code} — ${item.description}`;items.value=[];active.value=-1;open.value=false;emit('update:modelValue',item.code);emit('select',item);}
 function move(step){open.value=true;if(items.value.length)active.value=active.value<0?(step>0?0:items.value.length-1):(active.value+step+items.value.length)%items.value.length;}
 function acceptActive(){if(active.value>=0&&items.value[active.value])select(items.value[active.value]);}
 function closeSoon(){blurTimer=setTimeout(()=>{open.value=false;},150);}

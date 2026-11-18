@@ -1,0 +1,48 @@
+{
+  "baseCommit": "a8ffceba4cdf72d1764654561bb042d3180afd60",
+  "validationDate": "2026-11-17",
+  "syntheticDataOnly": true,
+  "productionAccountOperationsPerformed": false,
+  "suites": {
+    "narriva": {
+      "passed": 681,
+      "skipped": 58
+    },
+    "workspace": {
+      "passed": 400,
+      "skipped": 0
+    },
+    "claimsAndSignatures": {
+      "passed": 624,
+      "skipped": 4
+    },
+    "passwordRecovery": {
+      "passed": 130,
+      "skipped": 0
+    },
+    "providerConversionAndRecovery": {
+      "passed": 117
+    },
+    "rolloutAccess": {
+      "passed": 89
+    },
+    "platformExportsSourcesAndReadiness": {
+      "passed": 51
+    },
+    "hydrogenTransportAndPlanLifecycle": {
+      "passed": 23
+    },
+    "releasePackagingAndPublicConfiguration": {
+      "passed": 5
+    }
+  },
+  "sharedBackendRuntimeModulesVerified": 49,
+  "syntheticVertexCheck": {
+    "model": "gemini-4-hydrogen",
+    "location": "us",
+    "thinkingLevel": "MEDIUM",
+    "ready": true,
+    "finishReason": "STOP"
+  },
+  "note": "Suite counts overlap. Optional database integration suites were not run locally. Deployment readiness requires migrations 1846, 1847 and 1848 and all six schema probes."
+}

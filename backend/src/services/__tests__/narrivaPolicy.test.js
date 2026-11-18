@@ -1,3 +1,4 @@
+import { mergeSessionDiagnosis } from '../../../../frontend/src/utils/narrivaClinicalContext.js';
 import {describe,it,expect} from 'vitest';
 import {deriveNarrivaCheck,emptyNarrivaChecks,bypassNarrivaFinding,narrivaSourceHash,narrivaOverall} from '../narrivaReviewPolicy.service.js';
 import {narrivaLocalContext} from '../narrivaSource.service.js';
@@ -13,10 +14,14 @@ describe('Narriva exact-content evidence policy',()=>{
   expect(checks.map(c=>c.id)).toEqual(['risk_safety','service_code','encounter_consent','necessity_interventions','participation_plan']);
   expect(narrivaOverall(checks)).toBe('passed');expect(checks[0].riskAssessmentRequired).toBe(false);
  });
- it.each(['currentRisk','riskUncertain'])('requires an unbypassable risk form for %s',key=>{
+ it.each(['currentRisk','riskUncertain'])('requires risk follow-up or an audited provider Keep-as-is decision for %s',key=>{
   const input=good();input.facts[key]=true;const result=deriveNarrivaCheck('risk_safety',input);
-  expect(result.riskAssessmentRequired).toBe(true);expect(result.findings[0].canBypass).toBe(false);
-  expect(()=>bypassNarrivaFinding({checks:[result]},result.findings[0].id,'Keep this note',1)).toThrow();
+  expect(result.riskAssessmentRequired).toBe(true);expect(result.findings[0].canBypass).toBe(true);
+  expect(bypassNarrivaFinding({checks:[result]},result.findings[0].id,'Provider retained the actual session narrative.',1)).toMatchObject({status:'bypassed',quickSignEligible:false});
+  input.clinical.riskAssessmentIncluded=true;
+  const explicitlyIncluded=deriveNarrivaCheck('risk_safety',input);
+  expect(explicitlyIncluded.findings[0].canBypass).toBe(false);
+  expect(()=>bypassNarrivaFinding({checks:[explicitlyIncluded]},explicitlyIncluded.findings[0].id,'Keep this note',1)).toThrow();
  });
  it('retains the server risk requirement after editing and rejects a contradictory blanket denial',()=>{
   const input=good();input.clinical.riskRequiredFromPriorReview=true;
@@ -141,7 +146,14 @@ describe('Narriva local clinical facts and privacy boundary',()=>{
  it('does not accept arbitrary metadata as a completed risk assessment',()=>{
   for(const data of [{reviewed:false},{foo:0},{items:{}},null])expect(completeNarrivaRiskAssessment(data)).toBe(false);
   expect(completeNarrivaRiskAssessment({patientDeniesAll:true})).toBe(true);
-  expect(completeNarrivaRiskAssessment({areas:[{name:'Current self-harm risk, clinician assessed'}]})).toBe(true);
+  expect(completeNarrivaRiskAssessment({areas:[{name:'Current self-harm risk, clinician assessed'}]})).toBe(false);
+  expect(completeNarrivaRiskAssessment({areas:['Suicidal Ideation','Homicidal Ideation','Self-Harm'].map(name=>({name,level:'Assessed; no current risk reported'}))})).toBe(true);
+ });
+ it('combines participant mode and detail, recognizes mother/father, and preserves client absence',()=>{
+  const input=source();input.meta.sessionContext.participants='Parent/Guardian without Client';input.meta.sessionContext.participantsDetail='Mother attended';
+  expect(narrivaLocalContext(input).encounter).toMatchObject({participants:'Parent/Guardian without Client Mother attended',clientPresent:false,additionalParticipantsDocumented:true});
+  input.meta.sessionContext.participants='Client + Other';input.meta.sessionContext.participantsDetail='Father attended';
+  expect(narrivaLocalContext(input).encounter).toMatchObject({clientPresent:true,additionalParticipantsDocumented:true});
  });
  it('blocks known identities and contact identifiers before generation without echoing PHI',()=>{
   for(const text of ['Jane Example reported','jane@example.test','303-555-0101','DOB: 2014-04-14']){
@@ -161,4 +173,18 @@ describe('Narriva local clinical facts and privacy boundary',()=>{
   expect(maskMobileClientName({first_name:'Li',last_name:'Ng'})).toBe('Li Ng');
   expect(maskMobileClientName({first_name:'Élodie',last_name:'Álvarez'})).toBe('Élo* Álv*');
  });
+
+it('rechecks confirmed structured diagnosis, justification and presenting problem without repeating clinical-context prompts', () => {
+  const input=source(); input.meta.structuredChart={diagnoses:[],diagnosticJustification:''}; input.meta.narrivaContext={presentingProblem:''};
+  const before=narrivaLocalContext(input); expect(before.clinical).toMatchObject({hasDiagnosis:false,hasJustification:false,hasPresentingProblem:false});
+  input.meta.structuredChart.diagnoses=mergeSessionDiagnosis([{icd10_code:'F43.9',justification:'An existing diagnosis remains on file.'}],{icd10_code:'F41.1',description:'Generalized anxiety disorder',justification:'Provider confirmed the reported duration and functional impact.'});
+  input.meta.structuredChart.diagnosticJustification='Provider confirmed the reported duration and functional impact.';
+  input.meta.narrivaContext.presentingProblem='Current worry interferes with sleep and school participation.';
+  const after=narrivaLocalContext(input); expect(after.clinical).toMatchObject({hasDiagnosis:true,hasJustification:true,hasPresentingProblem:true});
+  const reviewInput=good(); reviewInput.clinical={...reviewInput.clinical,...after.clinical};
+  expect(deriveNarrivaCheck('necessity_interventions',reviewInput).findings.map(f=>f.id)).not.toContain('necessity_interventions:diagnosis');
+  expect(deriveNarrivaCheck('necessity_interventions',reviewInput).findings.map(f=>f.id)).not.toContain('necessity_interventions:presenting');
+  expect(input.meta.structuredChart.diagnoses.map(d=>d.icd10_code)).toEqual(['F43.9','F41.1']);
+});
+
 });

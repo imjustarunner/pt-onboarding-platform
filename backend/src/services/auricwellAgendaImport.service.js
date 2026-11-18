@@ -41,7 +41,7 @@ async function loadContext({ actor, agencyId, providerId }) {
   if (!provider || !Number(provider.is_active) || Number(provider.is_archived) || ['terminated', 'inactive'].includes(provider.status)) throw fail(403, 'Select an active provider assigned to this practice.');
   // The shared rollout gate also checks active tenant membership, the assigned
   // care role/provider access, and Sees clients. It supports staff with dual roles.
-  await requireClientSessionBooking(agencyId, providerId);
+  await requireClientSessionBooking(agencyId, providerId, undefined, {actorUserId:actor.id});
   const [clients] = await pool.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.client_type,c.status,c.client_status_id,c.provider_id,c.updated_at
     FROM clients c WHERE c.agency_id=? AND c.compliance_archived_at IS NULL AND UPPER(COALESCE(c.status,''))<>'ARCHIVED'
       AND (c.provider_id=? OR EXISTS (SELECT 1 FROM client_provider_assignments ca WHERE ca.client_id=c.id AND ca.provider_user_id=? AND ca.is_active=1))

@@ -1,0 +1,3 @@
+export const RECORD_DOWNLOAD_NOTICE_VERSION = 'record-download-2026-11-18';
+export const RECORD_DOWNLOAD_NOTICE = 'This file contains confidential client information and may include protected health information (PHI). Once downloaded, the copy is outside the platform’s access controls. Save it only to an agency-approved secure device or storage location, share it only with authorized recipients, and follow your agency’s retention and secure disposal policy. This download is audit logged. Continue with the download?';
+export function confirmRecordDownload() { return window.confirm(RECORD_DOWNLOAD_NOTICE); }

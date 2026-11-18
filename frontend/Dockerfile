@@ -40,8 +40,12 @@ RUN if [ ! -f "index.html" ]; then \
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
 ARG VITE_APP_BUILD_ID=dev
+ARG VITE_RECAPTCHA_SITE_KEY=""
+ARG VITE_RECAPTCHA_USE_ENTERPRISE=false
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_APP_BUILD_ID=${VITE_APP_BUILD_ID}
+ENV VITE_RECAPTCHA_SITE_KEY=${VITE_RECAPTCHA_SITE_KEY}
+ENV VITE_RECAPTCHA_USE_ENTERPRISE=${VITE_RECAPTCHA_USE_ENTERPRISE}
 # Vite production builds OOM under the default Node heap on Cloud Build / CI runners.
 ENV NODE_OPTIONS=--max-old-space-size=8192
 

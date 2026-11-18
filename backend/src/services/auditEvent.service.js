@@ -2,11 +2,11 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 
 import { networkEvidence } from '../utils/securityEvidence.js';
 
-export async function logAuditEvent(req, { actionType, agencyId = null, metadata = null, userId = null, targetType = null, targetId = null } = {}) {
+export async function logAuditEvent(req, { actionType, agencyId = null, metadata = null, userId = null, targetType = null, targetId = null, required = false } = {}) {
   if (!actionType) return;
   const uid = Number(userId || req?.user?.id || 0) || null;
   try {
-    await UserActivityLog.logActivity({
+    const event = await UserActivityLog.logActivity({
       actionType: String(actionType).trim(),
       userId: uid,
       agencyId: agencyId ? Number(agencyId) : null,
@@ -17,7 +17,10 @@ export async function logAuditEvent(req, { actionType, agencyId = null, metadata
         ? { ...metadata, targetType, targetId }
         : metadata || null
     });
+    if (required && !event?.id) throw new Error('Audit event was not retained.');
+    return event;
   } catch (err) {
+    if (required) throw Object.assign(new Error('The download audit could not be recorded. No file was released. Please retry.'), { status: 503, code: 'DOWNLOAD_AUDIT_UNAVAILABLE' });
     // Best-effort logging; never throw, but surface the cause so a broken
     // audit pipeline is visible rather than silently swallowed (the original
     // symptom that left most action types missing from user_activity_log).

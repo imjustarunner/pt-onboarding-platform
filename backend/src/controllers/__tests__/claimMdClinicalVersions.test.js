@@ -30,6 +30,13 @@ beforeEach(() => {
 });
 
 describe('clinical version HTTP authorization and signatures', () => {
+  it('checks the proposed amendment payload rather than the original signed text for risk evidence',async()=>{
+    pending.snapshot.notePayload='Current amendment safety information';
+    pending.snapshot.metadataJson={draftId:55,narrivaContext:{riskAssessmentIncluded:true}};
+    const next=vi.fn();await signClinicalNoteVersion(request(undefined,{attested:true}),response(),next);
+    expect(next).not.toHaveBeenCalled();
+    expect(assertNarrivaRiskBeforeSignature).toHaveBeenCalledWith(expect.objectContaining({note_payload:'Current amendment safety information',metadata_json:pending.snapshot.metadataJson}));
+  });
   it('blocks an amendment signature during a pending actual-session service correction',async()=>{
     m.clinical.mockResolvedValueOnce([[{id:5,agency_id:2,metadata_json:{serviceCodeChangePending:{id:'pending'}}}]]);
     const next=vi.fn();await signClinicalNoteVersion(request(undefined,{attested:true}),response(),next);

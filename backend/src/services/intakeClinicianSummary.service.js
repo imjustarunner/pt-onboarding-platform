@@ -1,17 +1,9 @@
 import ClientNotes from '../models/ClientNotes.model.js';
-import { callGeminiText } from './geminiText.service.js';
+import { callPrivateSessionText } from './sessionAiPrivacy.service.js';
+import { intakeAssessmentResponses } from './intakeAssessmentResponses.service.js';
+import { clinicalRowsFromCompletedIntake } from './intakeClinicalSourcePresentation.js';
 import { buildCompletedIntakeRecord } from './completedIntakeRecord.service.js';
 
-function flattenRecord(spec) {
-  const lines = [];
-  for (const section of spec?.sections || []) {
-    lines.push(`## ${section.title}`);
-    for (const row of section.rows || []) {
-      lines.push(`- ${row.label}: ${row.value}`);
-    }
-  }
-  return lines.join('\n').slice(0, 12000);
-}
 
 export async function persistIntakeClinicianSummaries({
   agency,
@@ -23,11 +15,13 @@ export async function persistIntakeClinicianSummaries({
   const ids = [...new Set((clientIds || []).map((id) => Number(id)).filter(Boolean))];
   if (!ids.length) return;
   const spec = buildCompletedIntakeRecord({ agency, link, submission, signedDocuments });
-  const answers = flattenRecord(spec);
-  if (!answers.trim()) return;
+  const rows = clinicalRowsFromCompletedIntake(spec), screens = intakeAssessmentResponses(submission?.intake_data || {}, link);
+  if (!rows.length && !screens.length) return;
+  const answers = JSON.stringify({ enrollmentAnswers: rows, screeningResponses: screens });
   let summary = '';
   try {
-    const result = await callGeminiText({
+    if (answers.length > 120000) throw new Error('Enrollment briefing requires source review.');
+    const result = await callPrivateSessionText({
       temperature: 0.2,
       maxOutputTokens: 700,
       prompt: [
@@ -41,7 +35,7 @@ export async function persistIntakeClinicianSummaries({
     });
     summary = String(result?.text || result || '').trim();
   } catch (err) {
-    console.warn('[intakeClinicianSummary] AI summary failed', err?.message || err);
+    console.warn('[intakeClinicianSummary] Secure AI summary unavailable; retaining enrollment for clinician review.');
   }
   if (!summary) {
     summary = `Intake received (submission ${submission?.id || ''}). Review the completed packet for answers, signatures, and agreements.`;

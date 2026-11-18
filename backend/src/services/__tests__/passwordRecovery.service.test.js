@@ -26,9 +26,9 @@ describe('passwordRecovery login + recipient', () => {
     expect(pickRecipientEmail(groupHire, 'jane.personal@gmail.com')).toBe('jane.personal@gmail.com');
   });
 
-  it('falls back to login email when no personal recovery is on file', () => {
+  it('never falls back to the Group/work login without a personal recovery recipient', () => {
     const noPersonal = { ...groupHire, personal_email: null };
-    expect(pickRecipientEmail(noPersonal, 'jane.doe@itsco.health')).toBe('jane.doe@itsco.health');
+    expect(pickRecipientEmail(noPersonal, 'jane.doe@itsco.health')).toBeNull();
   });
 
   it('prefers personal recovery for applicants with work + personal', () => {

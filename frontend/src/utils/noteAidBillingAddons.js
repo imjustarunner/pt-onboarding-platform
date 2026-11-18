@@ -194,7 +194,8 @@ export function resolveNoteAidBillingCodes({
     addons.push({ code: ADDON_CODES.INTERACTIVE_COMPLEXITY, units: 1 });
   }
 
-  const want99051 = !!includeAfterHours99051 && !!code && !['90785','90840','99051'].includes(code) && shouldSuggest99051(sessionStartAt,{timeZone,primaryCode:code,metadata});
+  // The saved encounter determines 99051; this is not a provider-selected add-on.
+  const want99051 = !!code && !['90785','90840','99051'].includes(code) && shouldSuggest99051(sessionStartAt,{timeZone,primaryCode:code,metadata});
   if(includeAfterHours99051 && !want99051)warnings.push('99051 was not added. Verify the saved session start, source timezone and eligible clinical service.');
   if (want99051) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });

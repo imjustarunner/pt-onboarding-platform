@@ -102,8 +102,8 @@ class StudentLearningPlan {
     return rows.map(normalizePlan);
   }
 
-  static async findActiveBySubject(studentSubjectId) {
-    const [rows] = await pool.execute(
+  static async findActiveBySubject(studentSubjectId, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM student_learning_plans WHERE student_subject_id = ? AND status = 'active' ORDER BY approved_at DESC, id DESC LIMIT 1`,
       [studentSubjectId]
     );
@@ -218,8 +218,8 @@ class StudentLearningPlan {
     return normalizeGoal(rows[0] || null);
   }
 
-  static async listGoals(learningPlanId) {
-    const [rows] = await pool.execute(
+  static async listGoals(learningPlanId, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM student_learning_plan_goals WHERE learning_plan_id = ? ORDER BY sort_order ASC, id ASC`,
       [learningPlanId]
     );
@@ -294,19 +294,19 @@ class StudentLearningPlan {
     return normalizeObjective(rows[0] || null);
   }
 
-  static async listObjectives(learningPlanId) {
-    const [rows] = await pool.execute(
+  static async listObjectives(learningPlanId, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM student_learning_plan_objectives WHERE learning_plan_id = ? ORDER BY sort_order ASC, id ASC`,
       [learningPlanId]
     );
     return rows.map(normalizeObjective);
   }
 
-  static async getPlanBundle(id) {
-    const plan = await this.findById(id);
+  static async getPlanBundle(id, db = pool) {
+    const plan = await this.findById(id, db);
     if (!plan) return null;
-    const goals = await this.listGoals(id);
-    const objectives = await this.listObjectives(id);
+    const goals = await this.listGoals(id, db);
+    const objectives = await this.listObjectives(id, db);
     return { plan, goals, objectives };
   }
 }

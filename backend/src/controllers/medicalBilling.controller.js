@@ -34,6 +34,9 @@ import { prepareClaimReview } from './claimMdWorkflow.controller.js';
 import { assertOriginalTransmissionAllowed } from '../services/claimServiceChanges.service.js';
 import { recordClaimEvent, syncClaimMdResponses, asList } from '../services/claimMdWorkflow.service.js';
 import { loadRenewalPolicy, renewalStatus } from '../services/treatmentPlanRenewal.service.js';
+import { assertEncounterTreatmentPlanEligibility } from '../services/treatmentPlanEncounterEligibility.service.js';
+import { reviseTreatmentPlanForReview } from '../services/treatmentPlanRevisionReview.service.js';
+import { queueSignedObjectiveAchievements } from '../services/treatmentPlanAchievement.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import Agency from '../models/Agency.model.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -1235,7 +1238,7 @@ export const updateObjectiveKioskPrompts = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const [objRows] = await clinicalPool.execute(
-      `SELECT o.*, p.agency_id, p.client_id, p.id AS treatment_plan_id
+      `SELECT o.*, p.agency_id, p.client_id, p.id AS treatment_plan_id, p.status AS plan_status, p.created_by_user_id AS plan_author_user_id
        FROM clinical_treatment_plan_objectives o
        INNER JOIN clinical_treatment_plan_goals g ON g.id = o.goal_id
        INNER JOIN clinical_treatment_plans p ON p.id = g.treatment_plan_id
@@ -1262,7 +1265,10 @@ export const updateObjectiveKioskPrompts = async (req, res, next) => {
     }
     if (req.body.interventions !== undefined) {
       if (!Array.isArray(req.body.interventions) || req.body.interventions.some((item) => typeof item !== 'string' || item.length > 160)) return res.status(400).json({ error: { message: 'Use an array of intervention names, each up to 160 characters.' } });
-      await clinicalPool.execute('UPDATE clinical_treatment_plan_objectives SET interventions_json = ? WHERE id = ?', [JSON.stringify([...new Set(req.body.interventions.map((v) => v.trim()).filter(Boolean))]), objectiveId]);
+      if (String(objective.plan_status).toLowerCase() !== 'draft') return res.status(409).json({ error: { message: 'Create a treatment-plan revision before changing interventions on an approved plan.' } });
+      if (Number(objective.plan_author_user_id) !== Number(req.user.id)) return res.status(403).json({ error: { message: 'The plan author must prepare clinical content changes for review.' } });
+      const updated = await ClinicalTreatmentPlan.updateDraftObjectiveInterventions({ objectiveId, agencyId, clientId, actorUserId: req.user.id, interventions: req.body.interventions });
+      if (!updated) return res.status(409).json({ error: { message: 'This plan changed during review. Open its current draft before editing interventions.' } });
     }
     await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(objectiveId, {
       kioskPrompt: req.body.kioskPrompt !== undefined ? req.body.kioskPrompt : undefined,
@@ -1287,10 +1293,12 @@ export const amendTreatmentPlan = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const goals = Array.isArray(req.body.goals) ? req.body.goals : [];
-    const plan = await ClinicalTreatmentPlan.amend({
+    const plan = await reviseTreatmentPlanForReview({
       planId,
       agencyId,
       clientId,
+      user: req.user,
+      effectiveDate: req.body.effectiveDate || null,
       goals: goals.map((g, i) => ({
         goalId: parseIntValue(g.goalId),
         goalIndex: g.goalIndex || i + 1,
@@ -1753,47 +1761,10 @@ export const downloadTreatmentSummaryPdf = async (req, res, next) => {
       });
     }
 
-    const {
-      generateTreatmentSummaryPdf,
-      extractNotePayloadText
-    } = await import('../services/treatmentSummaryPdf.service.js');
-
-    let providerName = '';
-    let supervisorName = '';
-    try {
-      const User = (await import('../models/User.model.js')).default;
-      if (note.provider_signed_by_user_id) {
-        const u = await User.findById(note.provider_signed_by_user_id);
-        providerName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
-      } else if (note.created_by_user_id) {
-        const u = await User.findById(note.created_by_user_id);
-        providerName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
-      }
-      if (note.supervisor_cosigned_by_user_id) {
-        const u = await User.findById(note.supervisor_cosigned_by_user_id);
-        supervisorName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
-      }
-    } catch {
-      // names optional
-    }
-
-    const entriesText = formatNoteEntriesForExport(note.clinical_version_addenda || await listNoteAddenda(note.id));
-    const revised = Number(note.clinical_version_number) > 1;
-    const authorSignature = note.clinical_version_signatures?.find(signature => ['author_sign', 'initial_author_sign'].includes(signature.action));
-    const authorAcknowledgement = note.clinical_version_signatures?.find(signature => signature.action === 'author_acknowledge');
-    const versionDetails = note.clinical_version_id ? `Clinical version ${note.clinical_version_number}${revised && !authorSignature ? '\nThe responsible supervisor signed this amendment.' : ''}${authorAcknowledgement ? `\nOriginal author reviewed and acknowledged this version: ${authorAcknowledgement.signedAt}` : ''}` : '';
-    const pdf = await generateTreatmentSummaryPdf({
-      agencyId: note.agency_id,
-      bodyText: [versionDetails, extractNotePayloadText(note), entriesText].filter(Boolean).join('\n\n'),
-      title: note.title || 'Treatment Summary',
-      clientInitials: meta?.structuredChart?.clientInitials || meta?.initials || '',
-      dateOfService: meta?.dateOfService || null,
-      providerName,
-      supervisorName,
-      providerSignedAt: revised ? authorSignature?.signedAt || null : note.provider_signed_at || null,
-      supervisorSignedAt: note.supervisor_cosigned_at || null
-    });
-
+    const { default: exportClinicalRecord } = await import('../services/clinicalRecordExport.service.js');
+    const result = await exportClinicalRecord(req, { agencyId: note.agency_id, noteId });
+    const pdf = result.bytes;
+    res.setHeader('Cache-Control', 'no-store');
     const filename = `treatment-summary-${noteId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1913,7 +1884,8 @@ export const signClinicalNote = async (req, res, next) => {
       if (retryMeta?.source === H0002_SOURCE) await draftClaimAfterSignature(req, note);
       const terminationTodo = await completeNoteAidSigningWorkflow(note);
       await reviewSubmittedNote(req,note);
-      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo });
+      const achievementTasks = await queueSignedObjectiveAchievements(note);
+      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo, achievementTasks });
     }
     const sourceMeta=parseObject(note.metadata_json);
     if(isProgressClinicalNote(note,sourceMeta) || fullProgressNoteRequiresSession({toolId:sourceMeta.toolId,
@@ -1963,33 +1935,9 @@ export const signClinicalNote = async (req, res, next) => {
     }
 
     if (isProgressClinicalNote(note, meta)) {
-      const plans = await ClinicalTreatmentPlan.listByClient({
-        agencyId: note.agency_id,
-        clientId: note.client_id
-      }).catch(() => []);
-      const active = (plans || []).find((p) => {
-        const st = String(p.status || '').toLowerCase();
-        return st === 'active' || st === 'final';
-      });
-      if (!active) {
-        return res.status(400).json({
-          error: {
-            message: 'A treatment plan must be on file before a progress note can be signed.',
-            code: 'treatment_plan_required'
-          }
-        });
-      }
-      const maxAge = await loadTreatmentPlanMaxAgeDays(note.agency_id);
-      const age = treatmentPlanAgeDays(active);
-      const policy = await loadRenewalPolicy(note.agency_id);
-      if (renewalStatus(active, policy).required) {
-        return res.status(400).json({
-          error: {
-            message: `The treatment plan on file is ${age} days old (limit ${maxAge}). Update the plan before signing this progress note.`,
-            code: 'treatment_plan_expired'
-          }
-        });
-      }
+      const sessionMetadata = parseObject(lockedSession?.metadata_json);
+      const serviceDate = meta.dateOfService || sessionMetadata.serviceDate || (lockedSession?.scheduled_start_at ? new Intl.DateTimeFormat('en-CA', { timeZone: lockedSession.source_timezone || 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(lockedSession.scheduled_start_at)) : null);
+      meta.treatmentPlanEligibility = await assertEncounterTreatmentPlanEligibility({ agencyId: note.agency_id, clientId: note.client_id, dateOfService: serviceDate });
       if (!note.primary_diagnosis_id && !meta.primaryDiagnosisId) {
         meta.flags = { ...(meta.flags || {}), missingDiagnosis: true };
       }
@@ -2148,6 +2096,7 @@ export const signClinicalNote = async (req, res, next) => {
     } catch (linkErr) {
       console.warn('[signClinicalNote] objective rating link failed', linkErr?.message || linkErr);
     }
+    const achievementTasks = await queueSignedObjectiveAchievements(persisted);
     // Imported service tasks have no calendar completion action. A signed service
     // note attests to the encounter; never revive a canceled/no-show encounter.
     if (!nonBillable && note.clinical_session_id) {
@@ -2162,7 +2111,7 @@ export const signClinicalNote = async (req, res, next) => {
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
     await reviewSubmittedNote(req,persisted);
-    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo });
+    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo, achievementTasks });
   } catch (e) {
     if (signingDb) { await signingDb.rollback(); signingDb.release(); signingDb=null; }
     next(e);
@@ -2226,6 +2175,7 @@ export const cosignClinicalNote = async (req, res, next) => {
       return res.json({ ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,supervisorCosign:supervisorSignatureReceipt(note),isBillable:!isNonBillableDocument(note) });
     }
     if (current.hash !== req.body.contentHash || req.body.reviewedAndApproved !== true) throw Object.assign(new Error('Read the current note and addenda and attest approval before cosigning.'),{status:409});
+    await assertNarrivaRiskBeforeSignature(note);
     if(req.body.quickSign===true)await (await import('../services/narrivaReview.service.js')).assertNarrivaQuickSign({user:req.user,noteId,agencyId:note.agency_id,reviewId:req.body.narrivaReviewId,clinicalDb:cosignDb});
     let meta = {};
     try {

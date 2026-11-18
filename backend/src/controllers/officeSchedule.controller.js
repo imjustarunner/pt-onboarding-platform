@@ -148,10 +148,10 @@ function bookingSelectionFromBody(body = {}) {
 // A room request retains the selected service's own scheduling eligibility.
 // Clinical services still require their reviewed clinical transition; academic
 // tutoring checks the active tutoring assignment in this exact agency instead.
-function requireOfficeSessionBooking(agencyId, providerId, serviceCode) {
+function requireOfficeSessionBooking(agencyId, providerId, serviceCode, actorUserId = null) {
   return String(serviceCode || '').trim().toUpperCase() === 'TUTORING'
     ? requireClientSessionBooking(agencyId, providerId, undefined, {businessType:'tutoring'})
-    : requireClientSessionBooking(agencyId, providerId);
+    : requireClientSessionBooking(agencyId, providerId, undefined, { actorUserId });
 }
 
 async function resolveOfficeClientSelection(selection, agencyId, tenantServiceId, clientId) {
@@ -2701,7 +2701,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       const actorAgencies = await User.getAgencies(req.user.id);
       if (!actorAgencies.some(row => Number(row.id) === policyAgencyId)) return res.status(403).json({ error: { message: 'Scheduling access to the selected agency is required.' } });
     }
-    if (clientId) await requireOfficeSessionBooking(policyAgencyId, requestedProviderId, rawSelection.serviceCode);
+    if (clientId) await requireOfficeSessionBooking(policyAgencyId, requestedProviderId, rawSelection.serviceCode, req.user.id);
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
@@ -2710,7 +2710,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
         participants:[{role:'client',clientId}],occurrences,timeZone:loc.timezone || 'America/Denver' })) return;
     }
     const validatedSelection = {
-      ...(await validateSchedulingSelection({ enforceSessionRollout: true,
+      ...(await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
         agencyId: policyAgencyId,
         clientIds: clientId ? [clientId] : [],
         userRole: requestedProvider.role,
@@ -3169,9 +3169,9 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     const officeSelection = await resolveOfficeClientSelection({appointmentTypeCode:reqRow.appointment_type_code,
       appointmentSubtypeCode:reqRow.appointment_subtype_code,serviceCode:reqRow.service_code,modality:reqRow.modality},
       policyAgencyId, Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0), reqRow.client_id);
-    if (reqRow.client_id) await requireOfficeSessionBooking(policyAgencyId, requestedProvider.id, officeSelection.serviceCode);
+    if (reqRow.client_id) await requireOfficeSessionBooking(policyAgencyId, requestedProvider.id, officeSelection.serviceCode, req.user.id);
     const validatedSelection = {
-      ...(await validateSchedulingSelection({ enforceSessionRollout: true,
+      ...(await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
         agencyId: policyAgencyId,
         clientIds: reqRow.client_id ? [reqRow.client_id] : [],
         userRole: requestedProvider.role,

@@ -161,6 +161,12 @@
             </div>
           </div>
 
+          <div v-for="(suggestion, index) in newFocusSuggestions" :key="`focus-${index}`" class="na-rewrite-banner">
+            <strong>Possible new treatment focus: {{ suggestion.theme }}</strong>
+            <p>{{ suggestion.suggestedGoal }}</p><p>{{ suggestion.rationale }}</p>
+            <p class="hint">Based on {{ suggestion.evidence?.length || 0 }} recent signed sessions. Review clinical fit and supply the baseline, target, and timeframe.</p>
+            <button type="button" class="na-btn-outline" @click="addSuggestedFocus(suggestion, index)">Add for review</button>
+          </div>
           <div v-for="(g, gi) in model.goals" :key="`g-${gi}`" class="na-import-card na-import-card--goal">
             <label class="na-label">
               Goal {{ gi + 1 }}
@@ -389,6 +395,12 @@ const pasteText = ref('');
 const providerNarrative = ref('');
 const changeSummary = ref('');
 const model = ref(null);
+const newFocusSuggestions = ref([]);
+function addSuggestedFocus(suggestion, index) {
+  if (!model.value) return;
+  model.value.goals.push(mapGoal({ goalText: suggestion.suggestedGoal, objectives: [{ objectiveText: suggestion.suggestedObjective, scaleCurrent: null, scaleTarget: null }] }, model.value.effectiveDate));
+  newFocusSuggestions.value.splice(index, 1);
+}
 const importedSourceText = ref('');
 const parsing = ref(false);
 const proposingUpdate = ref(false);
@@ -562,6 +574,7 @@ function mapGoal(g, effectiveDate) {
 const sourceEffectiveDate=ref('');
 function applyPlanRecord(plan) {
   if (!plan) return;
+  newFocusSuggestions.value = Array.isArray(plan.newFocusSuggestions) ? plan.newFocusSuggestions : [];
   sourceEffectiveDate.value=(plan.effective_date||plan.effectiveDate||'').toString().slice(0,10);
   importedSourceText.value = plan.recordsImportSource?.text || '';
   const sourceParsed = plan.recordsImportSource?.parsed || {};

@@ -111,29 +111,11 @@ jobs:
           echo "CANDIDATE_TAG=verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
           echo "CANDIDATE_SUFFIX=g${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
 
-      - name: Lint — no backend imports of frontend source outside allowed paths
+      - name: Check shared backend runtime imports and Docker packaging
         run: |
-          # backend/src may only import from frontend/src/navigation/ (shared pure-JS catalogs).
-          # Any import of frontend/src outside that directory will fail the build here
-          # rather than silently booting a 503 in production.
-          echo "=== Checking backend for illegal frontend/src imports ==="
-          ILLEGAL=$(grep -rn \
-            --include='*.js' --include='*.mjs' --include='*.ts' \
-            "from ['\"].*frontend/src/" \
-            backend/src/ \
-            | grep -v "frontend/src/navigation/" \
-            | grep -v "^\s*//" || true)
-          if [ -n "$ILLEGAL" ]; then
-            echo ""
-            echo "❌  Backend imports frontend source files outside frontend/src/navigation/:"
-            echo "$ILLEGAL"
-            echo ""
-            echo "Shared code must live in frontend/src/navigation/ (pure JS, no Vue)."
-            echo "If you need new shared files, add them there AND copy the directory"
-            echo "in backend/Dockerfile (see the existing COPY for profileSearchCatalog)."
-            exit 1
-          fi
-          echo "✅  No illegal frontend/src imports found."
+          # Includes transitive pure-JS imports and checks actual final-stage
+          # COPY destinations, so missing shared modules fail before deployment.
+          node scripts/check-backend-runtime-shared-imports.mjs
 
       - name: Configure Docker Hub cache
         run: |

@@ -168,8 +168,8 @@ export async function signGuardianPlan(context, input) {
   return { id: signed.id, status: signed.status, signedAt: signed.signed_at };
 }
 
-// Invoked only after a provider saves an active plan. Each authorized recipient
-// gets a distinct link per content revision; prior signatures remain in the audit.
+// New sharing follows matching provider and supervisor approval. Each authorized
+// recipient gets a distinct link per revision; prior signatures remain in the audit.
 export async function shareGuardianPlanRevision({ plan, actorUserId }) {
   if (!plan || !isSharedPlanStatus(plan.status)) return { shared: 0 };
   const context = { agencyId: plan.agency_id, clientId: plan.client_id, treatmentPlanId: plan.id };
@@ -183,6 +183,8 @@ export async function shareGuardianPlanRevision({ plan, actorUserId }) {
     const current=await ClinicalTreatmentPlan.findById(plan.id);
     if(!current||Number(current.client_id)!==Number(plan.client_id)||Number(current.agency_id)!==Number(plan.agency_id)||!isSharedPlanStatus(current.status))return {shared:0,eligible:0};
     plan=current;
+    const { assertTreatmentPlanShareApproval } = await import('./treatmentPlanApproval.service.js');
+    await assertTreatmentPlanShareApproval(plan);
     const revision = guardianPlanRevision(plan);
     const existing = await TreatmentPlanAckLink.listForPlan(context);
     for (const link of existing.filter(l => l.dashboard_visible && l.meta_json?.planRevision && l.meta_json.planRevision !== revision)) {

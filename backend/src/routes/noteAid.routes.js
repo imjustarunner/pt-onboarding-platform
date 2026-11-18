@@ -3,6 +3,8 @@ import multer from 'multer';
 import { body, query, param } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import { noteAidLimiter } from '../middleware/rateLimiter.middleware.js';
+import { draftNarrivaSection } from '../controllers/narrivaSectionDraft.controller.js';
+import { getNarrivaGeneratorMappings, getNarrivaPlatformSettings, putNarrivaPlatformSettings, testNarrivaGenerator, postNarrivaGeneratorFeedback } from '../controllers/narrivaPlatformSettings.controller.js';
 import {
   listNoteAidTools,
   executeNoteAidTool,
@@ -32,6 +34,13 @@ const upload = multer({
 
 // Documentation Hub is a logged-in tool; also block archived/expired users.
 router.use(authenticate, requireActiveStatus);
+router.get('/generator-mappings', getNarrivaGeneratorMappings);
+router.post('/section-draft', noteAidLimiter, draftNarrivaSection);
+
+router.get('/platform/generators', getNarrivaPlatformSettings);
+router.put('/platform/generators', putNarrivaPlatformSettings);
+router.post('/platform/generators/test', noteAidLimiter, testNarrivaGenerator);
+router.post('/platform/generators/feedback', noteAidLimiter, postNarrivaGeneratorFeedback);
 
 router.get('/tools', [query('agencyId').isInt({ min: 1 })], listNoteAidTools);
 router.get('/catalog', [query('agencyId').isInt({ min: 1 })], listNoteAidAgencyCatalog);

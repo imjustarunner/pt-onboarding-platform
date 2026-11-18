@@ -407,6 +407,7 @@ import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
 import AgencyDepartmentsManagement from './AgencyDepartmentsManagement.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
+import NarrivaGeneratorSettings from './NarrivaGeneratorSettings.vue';
 import NoteAidCatalogSettings from './NoteAidCatalogSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
 import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
@@ -516,6 +517,7 @@ const allCategories = [
     id: 'platform',
     label: 'PLATFORM',
     items: [
+      { id: 'narriva-generators', label: 'Narriva generators & tester', icon: '🧠', component: 'NarrivaGeneratorSettings', roles: ['super_admin'], excludeSupervisor: true },
       { id: 'business-onboarding', label: 'New company requests', icon: '🚀', component: 'BusinessOnboardingReview', roles: ['super_admin'], excludeRoles: ['support', 'clinical_practice_assistant'], excludeSupervisor: true },
       {
         id: 'platform-ws-home',
@@ -1553,6 +1555,7 @@ const componentMap = {
   PayrollScheduleSettings,
   AgencyDepartmentsManagement,
   NoteAidKnowledgeBaseSettings,
+  NarrivaGeneratorSettings,
   NoteAidCatalogSettings,
   SmsNumbersManagement,
   TeamRolesManagement,
@@ -2067,7 +2070,7 @@ const handleAgencySelection = async () => {
 };
 
 /** Platform settings screens that are never scoped to a tenant — URL must not carry agencyId or the route watch will restore the tenant and break platform mode + branding. */
-const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'platform-all-agencies']);
+const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'platform-all-agencies', 'narriva-generators']);
 
 const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null, settingField = null } = {}) => {
   const q = { ...route.query, category: categoryId, item: itemId };

@@ -9,6 +9,7 @@
       <option value="__home__">Home</option>
     </select></label>
     <label v-if="remote">Client’s location during telehealth<select aria-label="Client’s location during telehealth" :value="clientPlace" :disabled="disabled || unavailable" @change="choose(selection,$event.target.value)"><option value="">Choose location</option><option value="10">At home</option><option value="02">Somewhere else</option></select></label>
+    <label v-if="remote && clientPlace === '02'">Where was the client?<input :value="modelValue.clientLocationDescription || ''" :disabled="disabled || unavailable" maxlength="300" placeholder="Describe the setting; no address or identifying details" @input="$emit('update:modelValue', { ...modelValue, clientLocationDescription: $event.target.value })" /></label>
     <p v-if="unavailable" role="status">Assigned locations could not load. Your saved location is preserved.</p>
   </div>
 </template>

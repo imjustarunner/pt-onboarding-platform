@@ -19,7 +19,7 @@ export function ageAtServiceDate(dob, serviceDate) {
 }
 
 export function intakeAgeInstruction(age) {
-  return age == null ? '' : `Chart-derived age at this encounter: ${age} years. Use this age in Identification for this intake/re-intake. Older pasted notes may contain a historical age; do not use that as the current age. Preserve explicitly historical ages in the history. Do not output the birthdate.`;
+  return age == null ? '' : `Chart-derived age at this encounter: ${age >= 90 ? '90 or older' : age} years. Use this age in Identification for this intake/re-intake. Older pasted notes may contain a historical age; do not use that as the current age. Preserve explicitly historical ages in the history. Do not output the birthdate.`;
 }
 
 /** Correct the identifying age locally even if the model repeats an old intake's age. */

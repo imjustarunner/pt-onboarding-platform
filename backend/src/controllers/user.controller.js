@@ -6425,7 +6425,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       || req.body?.sendCalendarInvites === 'false'
     );
 
-    if (Number(req.body?.clientId || 0) > 0) await requireClientSessionBooking(agencyId, userId);
+    if (Number(req.body?.clientId || 0) > 0) await requireClientSessionBooking(agencyId, userId, undefined, { actorUserId: req.user.id });
     const isAppMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(kind);
     assertRecurringWindow({ recurrenceSeriesId, startAt: allDay ? null : clientScheduleInstantToUtcMysql(rawStartAt,timeZone), startDate: allDay ? startDate : null, eventTimezone: timeZone });
     const meetingReminderMinutes = isAppMeeting ? normalizeMeetingReminder(req.body?.reminderMinutes) : undefined;

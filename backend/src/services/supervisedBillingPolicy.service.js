@@ -39,7 +39,7 @@ export function hasCurrentSupervisorCosign(note, supervisorUserId, contentHash =
 }
 export function documentReviewRequirement(note, policy, mandatoryTypes = []) {
   const type = normalizeNoteType(note.note_type || parseObject(note.metadata_json).noteType);
-  const mandatoryReview = hasClinicalAmendments(note) || mandatoryTypes.includes(type);
+  const mandatoryReview = type === 'TREATMENT_PLAN' || hasClinicalAmendments(note) || mandatoryTypes.includes(type);
   return { mandatoryReview, reviewRequested: mandatoryReview || !isNonBillableDocument(note)
     || policy.nonBillableReview === 'all'
     || (policy.nonBillableReview === 'selected' && (policy.noteTypes || []).includes(type)) };

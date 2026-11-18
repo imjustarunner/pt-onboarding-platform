@@ -134,6 +134,8 @@ server.listen(PORT, HOST, () => {
 
   runStartupMigrations()
     .then(async () => {
+      const { requireNarrivaRolloutSchema } = await import('./services/narrivaRolloutSchema.service.js');
+      console.log('[startup:narriva] Required rollout schema verified', JSON.stringify(await requireNarrivaRolloutSchema()));
       const { verifyMessagingRollout } = await import('./services/messagingRolloutReadiness.service.js');
       console.log('[startup:messaging]', JSON.stringify(await verifyMessagingRollout()));
       console.log('[startup:security] Checking required security storage and configuration');

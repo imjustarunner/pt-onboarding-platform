@@ -8,6 +8,7 @@ vi.mock('../../models/TreatmentPlanAckLink.model.js', () => ({ TreatmentPlanAckL
 vi.mock('../../models/Notification.model.js', () => ({ default: { create: vi.fn() } }));
 vi.mock('../guardianClinicalAccess.service.js', () => ({ requireClinicalScope: vi.fn(), ageOn: () => 10 }));
 vi.mock('../kioskObjectivePrompt.service.js', () => ({ verifiedObjectiveQuestion: o => o.kiosk_prompt_other_verified_at ? o.kiosk_prompt_other : '' }));
+vi.mock('../treatmentPlanApproval.service.js', () => ({ assertTreatmentPlanShareApproval: vi.fn(async () => ({ ready: true })) }));
 vi.mock('../treatmentPlanAck.service.js', () => ({ createDashboardShare: vi.fn(), signAcknowledgment: vi.fn() }));
 vi.mock('../guardianLearningPlan.service.js', () => ({ guardianLearningPlanProgress: vi.fn(async () => null) }));
 import pool from '../../config/database.js';
@@ -18,6 +19,7 @@ import Rating from '../../models/clinical/ClinicalTreatmentObjectiveRating.model
 import { TreatmentPlanAckLink as Link } from '../../models/TreatmentPlanAckLink.model.js';
 import Notification from '../../models/Notification.model.js';
 import { requireClinicalScope } from '../guardianClinicalAccess.service.js';
+import { assertTreatmentPlanShareApproval } from '../treatmentPlanApproval.service.js';
 import { signAcknowledgment, createDashboardShare } from '../treatmentPlanAck.service.js';
 vi.mock('../clientServiceEnrollment.service.js', () => ({ guardianServiceContext: vi.fn(async ({ userId, clientId, agencyId }) => (await ClientGuardian.listClientsForGuardian({ guardianUserId: userId })).find(row => Number(row.client_id) === Number(clientId) && Number(row.agency_id) === Number(agencyId))), listClientServices: vi.fn(async () => []) }));
 vi.mock('../guardianLearningPlan.service.js', () => ({ guardianLearningPlanProgress: vi.fn(async () => null) }));
@@ -29,7 +31,7 @@ const objective = () => ({ id: 8, objective_index: 1, objective_text: 'Manage wo
 const plan = () => ({ id: 3, agency_id: 2, client_id: 5, status: 'active', title: 'Support plan', goals: [{ id: 4, goal_index: 1, goal_text: 'Coping', objectives: [objective()] }] });
 let current, db;
 beforeEach(() => {
-  vi.clearAllMocks(); current = plan();
+  vi.clearAllMocks(); assertTreatmentPlanShareApproval.mockResolvedValue({ ready: true }); current = plan();
   ClientGuardian.listClientsForGuardian.mockResolvedValue([{ client_id: 5, agency_id: 2, client_type: 'clinical', relationship_type: 'guardian' }]);
   ClientGuardian.listForClient.mockResolvedValue([{ guardian_user_id: 10, access_enabled: 1 }, { guardian_user_id: 11, access_enabled: 1 }]);
   requireClinicalScope.mockResolvedValue({ scopes: ['treatment_plan', 'approve_goals'] });
@@ -126,4 +128,11 @@ it('publishes explicit provider progress without invalidating the signed content
   const revision = guardianPlanRevision(current); current.goals[0].status = 'achieved';
   expect(guardianPlanRevision(current)).toBe(revision);
   expect((await guardianPlanProgress(context)).goals[0].progressStatus).toBe('achieved');
+});
+
+it('does not reuse an existing portal link to send a new share before actual plan approvals', async () => {
+  Link.listForPlan.mockResolvedValue([{ id: 10, recipient_user_id: 10, meta_json: { planRevision: guardianPlanRevision(current) }, status: 'signed' }]);
+  assertTreatmentPlanShareApproval.mockRejectedValueOnce(Object.assign(new Error('Provider and supervisor review required'), { status: 409 }));
+  await expect(shareGuardianPlanRevision({ plan: current, actorUserId: 4 })).rejects.toMatchObject({ status: 409 });
+  expect(Link.listForPlan).not.toHaveBeenCalled(); expect(Notification.create).not.toHaveBeenCalled(); expect(createDashboardShare).not.toHaveBeenCalled();
 });

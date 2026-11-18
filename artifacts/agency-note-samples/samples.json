@@ -1,0 +1,30 @@
+[
+  {
+    "file": "itsco-90837-psychotherapy.pdf",
+    "pages": 1,
+    "bytes": 242548,
+    "agency": "ITSCO",
+    "source": "Fictional rendering fixture using the platform writer section contract; no live model call"
+  },
+  {
+    "file": "nlu-tutoring.pdf",
+    "pages": 1,
+    "bytes": 178687,
+    "agency": "Next Level Up",
+    "source": "Fictional rendering fixture using the platform writer section contract; no live model call"
+  },
+  {
+    "file": "inner-strength-90791-intake.pdf",
+    "pages": 3,
+    "bytes": 205307,
+    "agency": "The Inner Strength Institute",
+    "source": "Fictional rendering fixture using the platform writer section contract; no live model call"
+  },
+  {
+    "file": "inner-strength-h0031-assessment.pdf",
+    "pages": 3,
+    "bytes": 195479,
+    "agency": "The Inner Strength Institute",
+    "source": "Fictional rendering fixture using the platform writer section contract; no live model call"
+  }
+]

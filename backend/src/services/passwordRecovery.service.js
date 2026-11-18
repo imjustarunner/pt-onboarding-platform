@@ -101,7 +101,10 @@ export function pickRecipientEmail(user, requestedEmail = null) {
   const known = new Set(accountEmails(user));
 
   // Prefer personal as recovery inbox whenever it is on file.
-  if (personal) return personal;
+  if (personal && !(isGroupLoginUser(user) && (personal===normEmail(user.work_email) || (user.login_is_group_email && personal===login)))) return personal;
+  // Group/password-login accounts must never receive recovery at the work
+  // Group, even when that address was entered on Forgot Password.
+  if(isGroupLoginUser(user))return null;
 
   if (requested && known.has(requested)) return requested;
   if (login) return login;

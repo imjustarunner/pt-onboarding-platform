@@ -46,3 +46,14 @@ it('does not treat an undated current score as a previous session', async () => 
   expect(wrapper.text()).toContain('No earlier session rating');
   wrapper.unmount();
 });
+it('highlights reached objective and goal targets and includes the verified achievement in writer input', async () => {
+  const wrapper = mount(Ratings, { props: { dateOfService: '2026-11-17', goals: [{ id: 1, goal_text: 'Synthetic goal', objectives: [{ id: 11, objective_text: 'Practice skill', scale_start: 2, scale_target: 8, scale_direction: 'increase' }] }] } });
+  await wrapper.findAll('.na-scale-btn')[8].trigger('click');
+  expect(wrapper.find('.na-obj-goal--achieved').exists()).toBe(true);
+  expect(wrapper.find('.na-obj-card--achieved').exists()).toBe(true);
+  expect(wrapper.text()).toContain('Goal achieved');
+  const entries = wrapper.vm.getRatings();
+  expect(entries[0].targetAchieved).toBe(true);
+  expect(buildObjectiveRatingsContextText(entries)).toContain('Objective target achieved in this session');
+  wrapper.unmount();
+});

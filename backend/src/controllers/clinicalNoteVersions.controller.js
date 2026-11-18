@@ -221,7 +221,7 @@ async function attest(req, res, next, action, capability) {
         serviceCode:encounter.serviceCode,dateOfService:encounter.dateOfService,note:{...context.note,metadata_json:snapshot.metadataJson,primary_diagnosis_id:snapshot.primaryDiagnosisId,diagnostic_justification:snapshot.diagnosticJustification || null,clinical_version_id:revision.id,clinical_version_encounter_context:encounter},
         diagnoses:snapshot.metadataJson?.structuredChart?.diagnoses || snapshot.metadataJson?.structuredChart?.intakeDiagnoses});
     }
-    if(action!=='author_acknowledge')await assertNarrivaRiskBeforeSignature({...context.note,metadata_json:revision.snapshot?.metadataJson || context.note.metadata_json});
+    if(action!=='author_acknowledge')await assertNarrivaRiskBeforeSignature({...context.note,note_payload:revision.snapshot?.notePayload ?? context.note.note_payload,metadata_json:revision.snapshot?.metadataJson || context.note.metadata_json});
     const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash,
       requestEvidence:clinicalSignatureEvidence(req) });
     const finalSummary = await summaryResponse(context);

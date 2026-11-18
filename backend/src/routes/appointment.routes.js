@@ -1,4 +1,5 @@
 import officeReservations from '../services/appointmentOfficeReservation.service.js';
+import {previewProviderAccountConversion,captureProviderAccountConversion,prepareProviderAccountConversion,activateProviderAccountConversion} from '../controllers/providerAccountConversion.controller.js';
 import { getClientSessionBookingAccess, getClientSessionBookingRollout, putClientSessionBookingRollout } from '../controllers/clientSessionBookingRollout.controller.js';
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts, openAppointmentLearningWorkspace } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
@@ -48,6 +49,10 @@ router.use((req,res,next)=>{if(req.method!=='GET'&&['client_guardian','guardian'
 router.get('/booking-access', getClientSessionBookingAccess);
 router.get('/booking-rollout', getClientSessionBookingRollout);
 router.put('/booking-rollout', putClientSessionBookingRollout);
+router.get('/booking-rollout/providers/:providerUserId/conversion',previewProviderAccountConversion);
+router.post('/booking-rollout/providers/:providerUserId/conversion/capture',captureProviderAccountConversion);
+router.post('/booking-rollout/providers/:providerUserId/conversion/prepare',prepareProviderAccountConversion);
+router.post('/booking-rollout/providers/:providerUserId/conversion/activate',activateProviderAccountConversion);
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
 router.get('/staff-alerts', listAppointmentStaffAlerts);
 router.get('/cancellation-operations', listAppointmentSeriesCancellations);

@@ -9,6 +9,7 @@ import { requireGuardianPlanAccess, isSharedPlanStatus } from './guardianPlanPro
 import { logNoteAidChartEvent } from './noteAidChartAudit.service.js';
 import { listClientServices } from './clientServiceEnrollment.service.js';
 import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
+import { ensureTreatmentPlanAchievementTask } from './treatmentPlanAchievement.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const id = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
@@ -105,7 +106,7 @@ async function progressReceipt(job) {
 
 export function createTreatmentGoalProgressService({ database = clinicalPool, requireProvider = requirePlanProvider,
   recipients = eligibleRecipients, authorizeRecipient = currentRecipient, notify = createProgressNotification,
-  send = sendProgressEmail, audit = logNoteAidChartEvent, receipt = progressReceipt, serviceContext = goalServiceContext } = {}) {
+  send = sendProgressEmail, audit = logNoteAidChartEvent, receipt = progressReceipt, serviceContext = goalServiceContext, achievementTask = ensureTreatmentPlanAchievementTask } = {}) {
   async function history(req, input) {
     if (!req.user?.id || !actorRoles.has(String(req.user.role || '').toLowerCase())) throw fail('A clinical provider must review goal progress.', 403);
     const agencyId = id(input.agencyId), clientId = id(input.clientId), planId = id(input.planId);
@@ -146,7 +147,11 @@ export function createTreatmentGoalProgressService({ database = clinicalPool, re
         FROM clinical_treatment_plan_goals g JOIN clinical_treatment_plans p ON p.id=g.treatment_plan_id
         WHERE g.id=? AND p.id=? AND p.agency_id=? AND p.client_id=? FOR UPDATE`, [goalId, planId, agencyId, clientId]);
       if (!current || !isSharedPlanStatus(current.plan_status) || current.superseded_at || Number(current.created_by_user_id) !== Number(goal.created_by_user_id)) throw fail('The plan changed. Refresh before updating progress.', 409);
-      if (current.status === input.status) { await db.rollback(); return { changed: false, status: current.status, notifications: { pending: 0 } }; }
+      if (current.status === input.status) {
+        await db.rollback();
+        const followUp = input.status === 'achieved' ? await achievementTask({ agencyId, clientId, planId, goalId, providerUserId: goal.created_by_user_id }) : null;
+        return { changed: false, status: current.status, notifications: { pending: 0 }, achievementTask: followUp };
+      }
       if (current.status !== input.expectedStatus) throw fail('The goal changed. Refresh before updating progress.', 409);
       await db.execute('UPDATE clinical_treatment_plan_goals SET status=? WHERE id=? AND treatment_plan_id=?', [input.status, goalId, planId]);
       const [event] = await db.execute(`INSERT INTO clinical_treatment_goal_progress_events
@@ -157,11 +162,12 @@ export function createTreatmentGoalProgressService({ database = clinicalPool, re
       await db.commit();
     } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
     await audit(req, { agencyId, clientId, action: 'clinical_treatment_goal_progress_updated', metadata: { treatmentPlanId: planId, goalId, progressEventId: eventId, status: input.status } });
+    const followUp = input.status === 'achieved' ? await achievementTask({ agencyId, clientId, planId, goalId, providerUserId: goal.created_by_user_id }) : null;
     // Keep the durable jobs pending when downstream channels are unavailable.
     let notifications;
     try { notifications = await dispatch({ eventId }); }
     catch { notifications = { pending: recipientIds.length, followUpRequired: true }; }
-    return { changed: true, status: input.status, progressEventId: eventId, notifications };
+    return { changed: true, status: input.status, progressEventId: eventId, notifications, achievementTask: followUp };
   }
 
   async function deliver(deliveryId) {

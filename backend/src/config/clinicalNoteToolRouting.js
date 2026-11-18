@@ -1,5 +1,10 @@
 // Shared service-to-writer routing. Funding is resolved before selecting the clinical service.
-export function resolveClinicalToolId({ serviceCode, programId }) {
+import { resolveNarrivaGenerator } from './narrivaGeneratorPolicy.js';
+
+export function resolveClinicalToolId({ serviceCode, programId, sessionMode }, configuration = {}) {
+  const mapped = resolveNarrivaGenerator({ serviceCode, sessionMode: sessionMode || (programId ? 'group' : 'individual') }, configuration);
+  if (mapped) return mapped;
+  if (Object.keys(configuration.mappings || {}).some(key => key.split(':')[0] === String(serviceCode || '').trim().toUpperCase())) return null;
   const sc = String(serviceCode || '').trim().toUpperCase();
   if (!sc) return 'clinical_code_decider';
   if (sc === 'H2014') return programId ? 'clinical_h2014_group' : 'clinical_h2014_individual';

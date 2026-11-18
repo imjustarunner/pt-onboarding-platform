@@ -11,16 +11,19 @@ const passed = () => ({ id:24,status:'passed',quickSignEligible:true,scoring:{sc
 afterEach(() => vi.useRealTimers());
 
 describe('Narriva writer choices and evidence', () => {
-  it('offers the three methods, respects manual permissions and saves only an explicit default choice', async () => {
-    const w=mount(NarrivaModeChooser,{props:{modelValue:'manual',defaultMode:'manual'}});
-    expect(w.findAll('.narriva-modes__options button').map(b=>b.find('strong').text())).toEqual(['Manual writer','Narriva','Smart Notes']);
-    expect(w.findAll('.narriva-modes__options button')[0].attributes('aria-pressed')).toBe('true');
+  it('keeps the selected writer compact and saves an explicit choice as the default', async () => {
+    const w = mount(NarrivaModeChooser, { props: { modelValue: 'manual', defaultMode: 'manual', allowManual: true, allowSmart: true } });
+    expect(w.find('.narriva-modes__options').exists()).toBe(false);
+    await w.get('.narriva-modes__summary button').trigger('click');
+    expect(w.findAll('.narriva-modes__options button').map(button => button.find('strong').text())).toEqual(['Manual writer', 'Narriva', 'Smart Notes']);
     await w.findAll('.narriva-modes__options button')[1].trigger('click');
     expect(w.emitted('update:modelValue')[0]).toEqual(['narriva']);
-    expect(w.emitted('save-default')).toBeUndefined();
-    await w.setProps({modelValue:'narriva'});await w.find('.narriva-modes__footer button').trigger('click');
     expect(w.emitted('save-default')[0]).toEqual(['narriva']);
-    await w.setProps({allowManual:false});expect(w.findAll('.narriva-modes__options button')[0].element.disabled).toBe(true);w.unmount();
+    expect(w.find('.narriva-modes__options').exists()).toBe(false);
+    await w.setProps({ modelValue: 'narriva', allowManual: false });
+    await w.get('.narriva-modes__summary button').trigger('click');
+    expect(w.findAll('.narriva-modes__options button')[0].element.disabled).toBe(true);
+    w.unmount();
   });
   it('shows all five checks in the corrected order and grants no local verification', () => {
     const w=mount(NarrivaCompliancePanel,{props:{busy:true}});

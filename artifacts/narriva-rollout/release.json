@@ -1,0 +1,36 @@
+{
+  "status": "staged_no_live_traffic",
+  "applicationSourceCommit": "cee10944af8917988bb8d966ed8b44694d2db3bf",
+  "baseProductionCommit": "a8ffceba4cdf72d1764654561bb042d3180afd60",
+  "backend": {
+    "imageDigest": "sha256:373c0eda8df999655ec664900f50138f9100199385863d92819d221c4e88e885",
+    "buildId": "4249fc3d-ce0f-466b-bdec-5ac83bfc2594",
+    "revision": "onboarding-backend-narriva-1117-cee109",
+    "candidateUrl": "https://narriva-rollout---onboarding-backend-65v3jdyqba-wm.a.run.app",
+    "ready": true
+  },
+  "frontend": {
+    "imageDigest": "sha256:56f091092c14e8d33f0350417de561e58ac203468df6acfae1c9140150e61836",
+    "buildId": "9611bf6e-80b9-445d-8702-5c353e8618f8",
+    "revision": "onboarding-frontend-narriva-1117-cee109",
+    "candidateUrl": "https://narriva-rollout---onboarding-frontend-65v3jdyqba-wm.a.run.app",
+    "pairedVersionVerified": true,
+    "initialAssetHashesVerified": 5
+  },
+  "schema": {
+    "ready": true,
+    "migrations": 3,
+    "tables": 6,
+    "settingsVersion": 1
+  },
+  "liveTrafficUnchanged": true,
+  "liveSourceCommit": "a8ffceba4cdf72d1764654561bb042d3180afd60",
+  "providerConversionsPerformed": 0,
+  "clinicalRecordsAccessedThroughImpersonation": 0,
+  "validationLimitations": [
+    "Real reported client/session not verified through a provider application session.",
+    "Synthetic Vertex test passed using the authorized cloud login; a separate application-runtime-identity model test was rejected by automatic approval review and was not executed.",
+    "Optional database integration suites were skipped locally; candidate startup verified actual required storage."
+  ],
+  "sourceArchivesRetainedForReleaseReview": true
+}

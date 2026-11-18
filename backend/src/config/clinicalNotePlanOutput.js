@@ -1,3 +1,4 @@
+import { DEFAULT_CLINICAL_NOTE_MODEL } from './clinicalNoteModel.js';
 import { CLINICAL_INTERVENTION_SEED } from './clinicalInterventionSeed.js';
 import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.js';
 
@@ -88,6 +89,9 @@ export const INTAKE_OUTPUT_INSTRUCTIONS = [
   'Return the complete intake note first. Use every heading below exactly, each on its own line with a colon, followed by its narrative:',
   ...INTAKE_SECTION_TITLES.map((title) => `${title}:`),
   'Populate every section using all relevant clinician input and supplied history. Preserve the current mental status domains and risk findings when provided.',
+  'Integrate completed enrollment answers and validated assessment responses into the relevant history, presenting problem, risk discussion and Clinical Impressions. Attribute reported findings and clinician observations separately; identify incomplete instruments and never diagnose from a screening total alone.',
+  'Clinical Impressions must explain documented functional impairment and clinical reasoning. Treatment Recommendations must reflect the provider-supported level of care, expected service frequency and follow-up; if these were not assessed or specified, identify that limitation for provider review rather than inventing a disposition.',
+  'Use professional third-person clinical prose appropriate to a diagnostic evaluation. Preserve uncertainty, relevant differential considerations and source limitations. Avoid boilerplate conclusions that the source does not support.',
   'For returning clients, distinguish historical findings from the current assessment; the clinician’s latest information and corrections take precedence over older pasted notes.',
   'Distinguish information not provided or not assessed from information the client declined to discuss. Never invent findings, denials, ratings, baseline scores, diagnoses, or consent.',
   'Include the rationale for a clinician-requested diagnostic reassessment and explain changes from prior diagnoses using only supported evidence.',
@@ -289,7 +293,7 @@ export function applySharedNoteAidToolContracts(tools) {
     if (isSoipProgressNoteToolId(id)) {
       next.outputInstructions = PROGRESS_NOTE_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 4000);
-      next.model = tool.model || 'gemini-2.5-pro';
+      next.model = tool.model || DEFAULT_CLINICAL_NOTE_MODEL;
       next.sectionSchema = 'soip';
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('MACHINE OUTPUT CONTRACT') && id !== 'clinical_psychotherapy_note') {
@@ -310,7 +314,7 @@ export function applySharedNoteAidToolContracts(tools) {
     if (id === 'clinical_h0031_intake') {
       next.outputInstructions = H0031_INTAKE_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 8000);
-      next.model = tool.model || 'gemini-2.5-pro';
+      next.model = tool.model || DEFAULT_CLINICAL_NOTE_MODEL;
       next.sectionSchema = 'h0031_intake';
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('H0031 INTAKE CONTRACT')) {
@@ -328,7 +332,7 @@ export function applySharedNoteAidToolContracts(tools) {
     if (isTreatmentPlanToolId(id) && id !== 'clinical_90791_intake_plan') {
       next.outputInstructions = getOutputInstructionsForTool(id) || TREATMENT_PLAN_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 4000);
-      next.model = tool.model || 'gemini-2.5-pro';
+      next.model = tool.model || DEFAULT_CLINICAL_NOTE_MODEL;
       next.sectionSchema = 'treatment_plan';
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('MACHINE OUTPUT CONTRACT')) {

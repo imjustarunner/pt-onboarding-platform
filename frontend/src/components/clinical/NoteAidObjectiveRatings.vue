@@ -10,7 +10,7 @@
           <span class="na-swatch na-swatch--goal" /> Goal
         </p>
         <ul v-else-if="compactLines.length" class="na-obj-compact-list">
-          <li v-for="(line, idx) in compactLines" :key="idx">
+          <li v-for="(line, idx) in compactLines" :key="idx" :class="{ 'na-obj-achieved': line.achieved }">
             <span class="na-obj-compact-prefix">{{ line.prefix }}</span>
             <span class="na-obj-compact-text">{{ line.text }}</span>
             <span v-if="line.rating" class="na-obj-compact-rating">{{ line.rating }}</span>
@@ -41,10 +41,11 @@
       <input v-model="otherLabel" class="na-obj-other-input" placeholder="Guardian, teacher, …" :readonly="readOnlyText" @focus="readOnlyText && $emit('text-entry-attempt')" @click="readOnlyText && $emit('text-entry-attempt')" />
     </label>
 
-    <div v-for="goal in goals" :key="goal.id" class="na-obj-goal">
+    <div v-for="goal in goals" :key="goal.id" class="na-obj-goal" :class="{ 'na-obj-goal--achieved': goalAchieved(goal) }">
       <div class="na-obj-goal-title">
         <span class="na-obj-badge">G{{ goal.goal_index || '' }}</span>
         <strong>{{ displayGoalText(goal) }}</strong>
+        <span v-if="goalAchieved(goal)" class="na-achieved-label">Goal achieved</span>
       </div>
       <slot name="goal-context" :goal="goal" />
 
@@ -53,9 +54,10 @@
         :key="obj.id"
         class="na-obj-card"
         :data-objective-id="obj.id"
-        :class="{ 'na-obj-card--collapsed': isObjectiveCollapsed(obj.id) }"
+        :class="{ 'na-obj-card--collapsed': isObjectiveCollapsed(obj.id), 'na-obj-card--achieved': objectiveAchieved(obj) }"
       >
         <div v-if="isObjectiveCollapsed(obj.id)" class="na-obj-collapsed-line">
+          <span v-if="objectiveAchieved(obj)" class="na-achieved-label">Objective achieved</span>
           <span>
             <span class="na-obj-compact-prefix">{{ collapsedParts(obj, goal).prefix }}</span>
             <span class="na-obj-compact-text">{{ collapsedParts(obj, goal).text }}</span>
@@ -128,6 +130,7 @@
 
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue';
+import { objectiveTargetReached } from '../../utils/treatmentGoalAchievement.js';
 import {
   computeProgressLabel,
   kioskPromptForObjective,
@@ -205,7 +208,7 @@ function collapsedParts(obj, goal) {
   const prefix = [goalIdx, objIdx].filter(Boolean).join(' · ');
   const text = displayObjectiveText(obj);
   if (!e) {
-    return { prefix: prefix ? `${prefix} ` : '', text, rating: '', progress: '', progressClass: '' };
+    return { prefix: prefix ? `${prefix} ` : '', text, rating: '', progress: '', progressClass: '', achieved: objectiveAchieved(obj) };
   }
   if (e.disposition && e.disposition !== 'rated') {
     return {
@@ -225,7 +228,8 @@ function collapsedParts(obj, goal) {
     text: `${text}: `,
     rating: `${val}${target}`,
     progress: progressShort ? ` · ${progressShort}` : '',
-    progressClass: progressRaw || ''
+    progressClass: progressRaw || '',
+    achieved: objectiveAchieved(obj)
   };
 }
 
@@ -236,6 +240,14 @@ function collapsedLine(obj, goal) {
 
 /** @type {Record<string, object>} keyed objectiveId:raterKind */
 const byObjective = reactive({});
+function objectiveAchieved(objective) {
+  const observed = byObjective[entryKey(objective.id, 'clinician')];
+  return objectiveTargetReached({ status: objective.status, value: observed?.disposition === 'rated' ? observed.scaleValue : null,
+    target: objective.scale_target ?? objective.scaleTarget, direction: objective.scale_direction || objective.scaleDirection, baseline: startValue(objective) });
+}
+function goalAchieved(goal) {
+  return ['achieved', 'completed', 'met'].includes(String(goal.status || '').toLowerCase()) || !!goal.objectives?.length && goal.objectives.every(objectiveAchieved);
+}
 
 const suggestUpdatePlan = computed(() =>
   Object.values(byObjective).some((e) => e?.progressLabel === 'improved')
@@ -335,6 +347,7 @@ function rate(obj, goal, n) {
     scaleStart: startValue(obj),
     disposition: 'rated',
     progressLabel,
+    targetAchieved: raterKind.value === 'clinician' && objectiveTargetReached({ value: n, target, direction: obj.scale_direction || obj.scaleDirection, baseline: startValue(obj) }),
     raterKind: raterKind.value,
     raterLabel: raterKind.value === 'clinician'
       ? 'clinical observation'
@@ -435,6 +448,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.na-obj-goal--achieved,.na-obj-card--achieved,.na-obj-achieved{background:#ecfdf5!important;border-color:#22c55e!important;color:#14532d}.na-achieved-label{font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;background:#d1fae5;color:#166534;white-space:nowrap}
 .na-obj-ratings--interactive-collapse .na-obj-compact-text{display:-webkit-inline-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;vertical-align:top}.na-obj-ratings--interactive-collapse .na-obj-text{align-items:flex-start}.na-obj-ratings--interactive-collapse .na-obj-text>span:nth-child(2){flex:1;min-width:0}.na-obj-ratings--interactive-collapse .na-obj-text>button{flex:none;font-size:11px}
 .na-obj-ratings {
   background: #fff;

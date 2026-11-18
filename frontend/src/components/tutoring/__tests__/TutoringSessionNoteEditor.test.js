@@ -59,3 +59,5 @@ it('discards a stale save response after a service switch and allows the new dra
     expect(wrapper.text()).toContain('Session notes saved');
   } finally { wrapper.unmount(); }
 });
+
+it('does not prefill private plan results into the family summary',async()=>{api.mockResolvedValueOnce({data:{note:{status:'saved',summary:'Private checklist results',homework:'Private staff instructions',metadata_json:{documentationMode:'learning_plan_checklist'}}}});const wrapper=mount(Editor,{props:{appointmentId:375}});try{await flushPromises();expect(wrapper.findAll('textarea').map(t=>t.element.value)).toEqual(['','','']);expect(wrapper.text()).not.toContain('Private checklist results');expect(wrapper.text()).not.toContain('Private staff instructions');}finally{wrapper.unmount();}});

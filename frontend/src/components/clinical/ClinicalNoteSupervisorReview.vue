@@ -57,6 +57,7 @@
           <p v-if="chart.skippedMseReason">{{ chart.skippedMseReason }}</p>
           <ul><li v-for="row in mse.normal" :key="row.domain">{{ row.domain }}: {{ row.status }}</li></ul>
         </details>
+        <section v-if="note.metadata?.narrivaSupervisorFlags?.length || note.narrivaSupervisorFlags?.length" class="clinical-section narriva-supervisor-flags" aria-label="Narriva provider review decisions"><h3>Provider kept these findings as written</h3><ul><li v-for="flag in (note.metadata?.narrivaSupervisorFlags || note.narrivaSupervisorFlags)" :key="flag.id"><strong>{{ flag.message }}</strong><p>{{ flag.reason }}</p></li></ul><p>Quick Sign is unavailable. Review these findings with the note.</p></section>
         <section v-if="riskText" class="clinical-section"><h3>Risk assessment</h3><p class="prose">{{ riskText }}</p></section>
         <section v-if="medicationText" class="clinical-section"><h3>Medications</h3><p class="prose">{{ medicationText }}</p></section>
         <nav class="detail-tabs" aria-label="Additional note information">

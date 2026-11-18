@@ -13,6 +13,15 @@ router.post('/:appointmentId/token',handle(room.bookedTutoringToken));
 router.post('/:appointmentId/admit/:visitId',handle((ctx,req)=>room.admitBookedTutoringParticipant(ctx,req.params.visitId)));
 router.post('/:appointmentId/leave',handle(room.leaveBookedTutoringRoom));
 router.post('/:appointmentId/end',handle(room.endBookedTutoringRoom));
+router.get('/:appointmentId/learning-note-context',handle(room.bookedTutoringLearningContext));
+router.get('/:appointmentId/note/pdf',async(req,res,next)=>{try{
+ const ctx=await room.bookedTutoringAccess(req,req.params.appointmentId);
+ const {note}=await room.bookedTutoringNote(ctx);
+ if(!note) return res.status(404).json({error:{message:'Save the session record first.'}});
+ const {tutoringSessionPdf}=await import('../services/tutoringSessionPdf.service.js');
+ const result=await tutoringSessionPdf(req,note.session_id);
+ res.set({'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="${result.filename}"`,'Cache-Control':'no-store'}).send(result.bytes);
+ }catch(error){next(error);}});
 router.get('/:appointmentId/note',handle(ctx=>room.bookedTutoringNote(ctx)));
 router.put('/:appointmentId/note',handle((ctx,req)=>room.bookedTutoringNote(ctx,req.body)));
 router.get('/:appointmentId/workspace',handle((ctx,req)=>room.bookedTutoringWorkspace(ctx,'read',req.query)));

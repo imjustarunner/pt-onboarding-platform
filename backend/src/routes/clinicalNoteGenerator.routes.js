@@ -1,4 +1,5 @@
 import { getClinicalAppointmentAlerts, acknowledgeClinicalAppointmentAlert } from '../controllers/clinicalAppointmentAlerts.controller.js';
+import { downloadClinicalDraftPdf } from '../controllers/clinicalRecordExport.controller.js';
 import * as contactDocumentation from '../controllers/contactDocumentation.controller.js';
 import {searchDiagnosisCatalog} from '../controllers/clinicalDiagnosisSearch.controller.js';
 import express from 'express';
@@ -79,6 +80,7 @@ router.post('/diagnosis-search',apiLimiter,searchDiagnosisCatalog);
 router.get('/appointment-alerts',apiLimiter,getClinicalAppointmentAlerts);
 router.post('/appointment-alerts/:appointmentId/acknowledge',apiLimiter,acknowledgeClinicalAppointmentAlert);
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
+router.get('/drafts/:draftId/pdf', apiLimiter, downloadClinicalDraftPdf);
 router.get('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
 router.post('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
 router.get('/termination-outcomes', apiLimiter, getTerminationOutcomeStats);

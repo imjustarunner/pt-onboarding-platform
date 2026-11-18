@@ -208,10 +208,20 @@
       :class="{ done: !!model.mse?.mood && !!model.riskLevel }"
     >
       <h3><span>9</span> MSE + Risk / Safety</h3>
+      <div class="csnb-actions">
+        <button type="button" class="csnb-btn" @click="setMseNormal">All Normal</button>
+        <button type="button" class="csnb-btn" @click="setMseNotAssessed">All Not Assessed</button>
+      </div>
+      <NoteAidMseHistoryPicker :history="previewOnly ? [] : mseHistory" @apply="applyHistoricalMse" />
+      <p v-if="model.mseSource?.sourceDate" class="csnb-hint">Reviewed findings from {{ model.mseSource.sourceDate }}; confirmed for this session.</p>
       <div class="csnb-mse-grid">
         <label v-for="field in mseFields" :key="field.key">
           {{ field.label }}
-          <input v-model="model.mse[field.key]" class="csnb-input" />
+          <input v-model="model.mse[field.key]" class="csnb-input" :list="`smart-mse-${field.key}`" :aria-label="field.label" />
+          <datalist :id="`smart-mse-${field.key}`">
+            <option v-for="option in field.options" :key="option.label" :value="option.label">{{ option.description }}</option>
+            <option value="Not assessed" />
+          </datalist>
         </label>
       </div>
       <div class="csnb-row" style="margin-top: 12px;">
@@ -325,6 +335,9 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api.js';
+import NoteAidMseHistoryPicker from './NoteAidMseHistoryPicker.vue';
+import { buildAllNormalMse, buildAllNotAssessedMse } from '../../utils/noteAidMseCatalog.js';
+import { smartMseValues } from '../../utils/noteAidMseHistory.js';
 import {
   CS_AFFECT_AREAS,
   CS_CLIENT_RESPONSE_OPTIONS,
@@ -340,6 +353,7 @@ import {
 
 const props = defineProps({
   modelValue: { type: Object, default: null },
+  mseHistory: { type:Array, default:()=>[] },
   goals: { type: Array, default: () => [] },
   proposedInterventions: { type: Array, default: () => [] },
   symptomSuggestions: { type: Array, default: () => [] },
@@ -355,6 +369,15 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'propose-plan']);
 
 const model = reactive(props.previewOnly ? {...createEmptyCsNoteBuildState(),participantsMode:''} : props.modelValue ? { ...createEmptyCsNoteBuildState(), ...props.modelValue, mse: { ...createEmptyCsNoteBuildState().mse, ...(props.modelValue.mse || {}) } } : createEmptyCsNoteBuildState());
+
+watch(()=>props.modelValue,(value)=>{
+  if(props.previewOnly)return;
+  const empty=createEmptyCsNoteBuildState();
+  const next={...empty,...(value || {}),mse:{...empty.mse,...(value?.mse || {})},telehealthRequired:props.isTelehealth};
+  if(JSON.stringify(model)===JSON.stringify(next))return;
+  for(const key of Object.keys(model))if(!(key in next))delete model[key];
+  Object.assign(model,next);
+},{deep:true});
 
 watch(
   model,
@@ -391,6 +414,21 @@ const responseOptions = CS_CLIENT_RESPONSE_OPTIONS;
 const affectAreas = CS_AFFECT_AREAS;
 const progressRatings = CS_PROGRESS_RATINGS;
 const mseFields = CS_MSE_FIELDS;
+function setMseNormal() {
+  if(props.previewOnly)return;
+  model.mse=smartMseValues(buildAllNormalMse());
+  model.mseSource={type:'clinician_current',confirmedForCurrentSession:true};
+}
+function setMseNotAssessed() {
+  if(props.previewOnly)return;
+  model.mse=smartMseValues(buildAllNotAssessedMse());
+  model.mseSource={type:'clinician_not_assessed',confirmedForCurrentSession:true};
+}
+function applyHistoricalMse(row) {
+  if(props.previewOnly || !row.confirmedForCurrentSession)return;
+  model.mse=smartMseValues(row.mse);
+  model.mseSource={type:'prior_note',noteId:row.noteId,sourceDate:row.sourceDate,confirmedForCurrentSession:true};
+}
 const catalogNames = ref([]);
 const addingIntervention = ref(false);
 const newInterventionName = ref('');

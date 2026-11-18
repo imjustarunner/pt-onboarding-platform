@@ -3,6 +3,20 @@ import pool from '../config/database.js';
 import {maybeEncryptNotePayload,maybeDecryptNotePayload} from './clinicalNoteCrypto.service.js';
 import {utcMysqlToIso} from '../utils/zonedWallTime.util.js';
 const fail=(message,status=409)=>Object.assign(new Error(message),{status});
+export function tutoringFamilyDraft(note) {
+ const saved=note?.metadata_json?.familySummaryDraft;
+ if(!saved)return null;
+ try{return JSON.parse(maybeDecryptNotePayload(saved));}
+ catch{throw fail('The saved family summary needs review. Its original text and private learning results have been kept.');}
+}
+export function tutoringFamilyDraftMetadata(note,input) {
+ const summary={};
+ for(const field of ['workedOn','howItWent','homePractice']){
+  if(typeof input[field]!=='string'||input[field].length>20000)throw fail('Keep each family summary field within 20,000 characters.',400);
+  summary[field]=input[field];
+ }
+ return {...(note?.metadata_json||{}),familySummaryDraft:maybeEncryptNotePayload(JSON.stringify(summary)),familySummaryGoalIds:input.goalIds||[]};
+}
 export function tutoringSummaryInput(input={}) {
  const result={};
  for(const field of ['workedOn','howItWent','homePractice']){
@@ -19,7 +33,7 @@ export async function publishTutoringNote(ctx,session,note,input,db=pool){
  if(existing){const snapshot=JSON.parse(maybeDecryptNotePayload(existing.snapshot_json));if(JSON.stringify(snapshot.summary)!==JSON.stringify(fields))throw fail('This signed summary is read-only. Its original content has been kept.');return {id:Number(existing.id),signedAt:utcMysqlToIso(existing.signed_at),summary:snapshot.summary};}
  if(['no_show_pending','no_show','late_canceled','canceled','canceled_by_client','canceled_by_provider','canceled_by_guardian','rescheduled','voided'].includes(ctx.appointment.status))throw fail('This appointment has no attended service to share. Review its attendance first.');
  if(!session.actual_started_at||!session.actual_ended_at)throw fail('End the attended session before signing and sharing its summary. Draft notes can be saved beforehand.');
- const snapshot={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,sessionId:session.id,subject:ctx.appointment.learningContext?.subjectLabel||'General',startAt:utcMysqlToIso(session.actual_started_at),endAt:utcMysqlToIso(session.actual_ended_at),scheduledStartAt:utcMysqlToIso(ctx.appointment.startAt),scheduledEndAt:utcMysqlToIso(ctx.appointment.endAt),summary:fields,goalIds:note.metadata_json?.goalIds||[],studentSubjectId:session.student_subject_id||null,learningPlanId:note.learning_plan_id||null,authorUserId:ctx.req.user.id};
+ const snapshot={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,sessionId:session.id,subject:ctx.appointment.learningContext?.subjectLabel||'General',startAt:utcMysqlToIso(session.actual_started_at),endAt:utcMysqlToIso(session.actual_ended_at),scheduledStartAt:utcMysqlToIso(ctx.appointment.startAt),scheduledEndAt:utcMysqlToIso(ctx.appointment.endAt),summary:fields,goalIds:note.metadata_json?.familySummaryGoalIds||note.metadata_json?.goalIds||[],studentSubjectId:session.student_subject_id||null,learningPlanId:note.learning_plan_id||null,authorUserId:ctx.req.user.id};
  const json=JSON.stringify(snapshot),hash=crypto.createHash('sha256').update(json).digest('hex');
  const [saved]=await db.execute('INSERT INTO tutoring_note_publications(note_id,appointment_id,session_id,agency_id,client_id,author_user_id,snapshot_json,payload_hash) VALUES (?,?,?,?,?,?,?,?)',[note.id,ctx.appointment.id,session.id,ctx.appointment.agencyId,ctx.clientId,ctx.req.user.id,maybeEncryptNotePayload(json),hash]);
  await db.execute("UPDATE tutoring_session_notes SET status='signed',saved_at=COALESCE(saved_at,UTC_TIMESTAMP()),saved_by_user_id=?,updated_by_user_id=? WHERE id=?",[ctx.req.user.id,ctx.req.user.id,note.id]);

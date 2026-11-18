@@ -1,4 +1,4 @@
-import { callGeminiText } from './geminiText.service.js';
+import { callPrivateSessionText } from './sessionAiPrivacy.service.js';
 
 function extractJsonObject(text) {
   const raw = String(text || '').trim();
@@ -36,7 +36,7 @@ export async function callTutoringAiJson({ prompt, temperature = 0.3, maxOutputT
   ].join('\n');
 
   try {
-    const generated = await callGeminiText({
+    const generated = await callPrivateSessionText({
       prompt: guarded,
       temperature,
       maxOutputTokens
@@ -59,8 +59,8 @@ export async function callTutoringAiJson({ prompt, temperature = 0.3, maxOutputT
       draft: parsed
     };
   } catch (err) {
-    console.warn('[tutoringAi] Gemini unavailable, using rules fallback:', err?.message || err);
-    return { ok: false, error: err?.message || String(err), draft: null };
+    console.warn('[tutoringAi] Secure writing unavailable; using rules fallback.');
+    return { ok: false, error: 'Secure writing unavailable', draft: null };
   }
 }
 

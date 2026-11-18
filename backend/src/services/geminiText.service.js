@@ -61,8 +61,11 @@ function buildCandidateModels(configured) {
   return list;
 }
 
-async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive = false, systemInstruction, jsonMode, signal }) {
-  const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
+async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, thinkingLevel, sensitive = false, systemInstruction, jsonMode, signal }) {
+  const host = location === 'global' ? 'aiplatform.googleapis.com'
+    : ['us', 'eu'].includes(location) ? `aiplatform.${location}.rep.googleapis.com`
+      : `${encodeURIComponent(location)}-aiplatform.googleapis.com`;
+  const url = `https://${host}/v1/projects/${encodeURIComponent(
     projectId
   )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelName)}:generateContent`;
 
@@ -78,7 +81,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
       ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
       model: `projects/${projectId}/locations/${location}/publishers/google/models/${modelName}`,
-      generationConfig: { ...translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget }), ...(jsonMode ? { responseMimeType: 'application/json' } : {}) }
+      generationConfig: { ...translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget, thinkingLevel }), ...(jsonMode ? { responseMimeType: 'application/json' } : {}) }
     })
   });
 
@@ -98,7 +101,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
   const data = await resp.json();
   const parts = data?.candidates?.[0]?.content?.parts;
   const text =
-    Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : parts?.text || '';
+    Array.isArray(parts) ? parts.filter((p) => !p?.thought).map((p) => p?.text || '').filter(Boolean).join('') : parts?.thought ? '' : parts?.text || '';
 
   if (!text) {
     const err = new Error('Vertex Gemini returned empty response');
@@ -110,7 +113,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
   return { text: String(text), modelName, latencyMs, provider: 'vertex', finishReason: data?.candidates?.[0]?.finishReason || null };
 }
 
-async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive = false, systemInstruction, jsonMode, signal }) {
+async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, thinkingLevel, sensitive = false, systemInstruction, jsonMode, signal }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     modelName
   )}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -123,7 +126,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
       ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
-      generationConfig: { ...translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget }), ...(jsonMode ? { responseMimeType: 'application/json' } : {}) }
+      generationConfig: { ...translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget, thinkingLevel }), ...(jsonMode ? { responseMimeType: 'application/json' } : {}) }
     })
   });
 
@@ -143,7 +146,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
   const data = await resp.json();
   const parts = data?.candidates?.[0]?.content?.parts;
   const text =
-    Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : parts?.text || '';
+    Array.isArray(parts) ? parts.filter((p) => !p?.thought).map((p) => p?.text || '').filter(Boolean).join('') : parts?.thought ? '' : parts?.text || '';
 
   if (!text) {
     const err = new Error('Gemini returned empty response');
@@ -159,7 +162,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
  * Attempt the public Generative Language API (GEMINI_API_KEY) path, trying the
  * configured model then known-good fallbacks. Returns a result or throws.
  */
-async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null, thinkingBudget, sensitive, systemInstruction, jsonMode, allowModelFallback = true, signal }) {
+async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null, thinkingBudget, thinkingLevel, sensitive, systemInstruction, jsonMode, allowModelFallback = true, signal }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not configured');
@@ -172,7 +175,7 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = nul
   for (const modelName of candidates) {
     signal?.throwIfAborted();
     try {
-      return await performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive, systemInstruction, jsonMode, signal });
+      return await performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens, thinkingBudget, thinkingLevel, sensitive, systemInstruction, jsonMode, signal });
     } catch (err) {
       lastErr = err;
       if (!allowModelFallback || !isModelLevelError(err?.status)) throw err;
@@ -182,7 +185,7 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = nul
   throw lastErr || new Error('Gemini request failed for all candidate models');
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, vertexOnly = false, sensitive = false, systemInstruction, jsonMode = false, allowModelFallback = true, signal }) {
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, thinkingLevel, vertexLocation, vertexOnly = false, sensitive = false, systemInstruction, jsonMode = false, allowModelFallback = true, signal }) {
   signal?.throwIfAborted();
   const useVertex = shouldUseVertex();
   if (vertexOnly && !useVertex) throw Object.assign(new Error('An approved Vertex configuration is required'), { status: 503 });
@@ -193,7 +196,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
 
   if (useVertex) {
     const projectId = getProjectId();
-    const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
+    const location = String(vertexLocation || process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
 
     // Vertex can be unusable for a project even when GCP creds exist: the project
     // may lack Gemini model access (403/404) or token minting can fail. In those
@@ -207,7 +210,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
       for (const modelName of candidates) {
         try {
           return await performVertexCall({
-            modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive, systemInstruction, jsonMode, signal
+            modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, thinkingLevel, sensitive, systemInstruction, jsonMode, signal
           });
         } catch (err) {
           lastErr = err;
@@ -224,17 +227,20 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
         console.warn(
           `[Vertex] unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY path`
         );
-        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode, allowModelFallback, signal });
+        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, thinkingLevel, sensitive, systemInstruction, jsonMode, allowModelFallback, signal });
       }
       throw vertexErr;
     }
   }
 
-  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, sensitive, systemInstruction, jsonMode, allowModelFallback, signal });
+  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel, thinkingBudget, thinkingLevel, sensitive, systemInstruction, jsonMode, allowModelFallback, signal });
 }
 
 // Optional reasoning configuration; callers that omit it retain existing defaults.
-export function translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget }) {
+export function translationGenerationConfig({ modelName, temperature, maxOutputTokens, thinkingBudget, thinkingLevel }) {
+  if (/^gemini-4(?:-|$)/.test(modelName)) {
+    return { maxOutputTokens, ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}) };
+  }
   const config = { temperature, maxOutputTokens };
   if (thinkingBudget === 0 && /^gemini-2\.5-flash(?:-|$)/.test(modelName)) {
     config.thinkingConfig = { thinkingBudget: 0 };

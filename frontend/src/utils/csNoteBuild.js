@@ -4,6 +4,7 @@
  */
 
 import { CLINICAL_INTERVENTION_SEED } from '../config/clinicalInterventionSeed.js';
+import { MSE_DOMAIN_DEFS } from './noteAidMseCatalog.js';
 
 export const CS_DEFAULT_INTERVENTIONS = [
   ...CLINICAL_INTERVENTION_SEED,
@@ -63,19 +64,13 @@ export const CS_PROGRESS_RATINGS = [
   'Not Addressed Today'
 ];
 
-export const CS_MSE_FIELDS = [
-  { key: 'appearance', label: 'Appearance' },
-  { key: 'behavior', label: 'Behavior' },
-  { key: 'speech', label: 'Speech' },
-  { key: 'mood', label: 'Mood' },
-  { key: 'affect', label: 'Affect' },
-  { key: 'thoughtProcess', label: 'Thought Process' },
-  { key: 'thoughtContent', label: 'Thought Content' },
-  { key: 'orientation', label: 'Orientation' },
-  { key: 'attention', label: 'Attention' },
-  { key: 'insight', label: 'Insight' },
-  { key: 'judgment', label: 'Judgment' }
-];
+export const CS_MSE_FIELDS = MSE_DOMAIN_DEFS.map(def => {
+  const words = def.key.match(/[A-Za-z0-9]+/g) || [];
+  const key = def.key === 'Attention and Concentration' ? 'attention'
+    : def.key === 'Cognition / Fund of Knowledge' ? 'cognition'
+      : words.map((word,index) => index ? word[0].toUpperCase()+word.slice(1) : word.toLowerCase()).join('');
+  return { key, label:def.label, domainKey:def.key, options:def.options, allNormalLabel:def.allNormalLabel };
+});
 
 export const CS_MSE_DEFAULTS = Object.fromEntries(CS_MSE_FIELDS.map(field => [field.key, '']));
 

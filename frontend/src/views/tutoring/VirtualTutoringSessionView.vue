@@ -21,7 +21,7 @@
     <TherapySessionWorkspace v-if="video" :key="video.sessionId" :video="video" :is-host="state.host" :started-at="state.startedAt" :branding="state.branding" product-name="Tutoring" learning :request="workspaceRequest" @connected="connected=true" @disconnected="reconnect" @meeting-ended="reconnect" @leave-request="state.host ? confirmingEnd=true : leave()" />
    </template>
     </div>
-    <details v-if="state.host" class="hub-note" :open="wideHub"><summary>Live notes &amp; summary</summary><TutoringSessionNoteEditor :key="appointmentId" :appointment-id="appointmentId" :params="params()" :ended="ended&&!!state.startedAt" :goals="allGoals" /></details>
+    <details v-if="state.host" class="hub-note" :open="wideHub"><summary>Live notes &amp; summary</summary><details v-if="state.sessionId&&hasApprovedPlan"><summary>Learning plan results</summary><TutoringSessionLearningPanel :key="`${state.sessionId}-${noteVersion}`" :client-id="state.clientId" :agency-id="state.agencyId" :session-id="state.sessionId" :request="request" :session-type="inPerson?'in_person':'virtual'" /></details><TutoringSessionNoteEditor :key="appointmentId" :appointment-id="appointmentId" :params="params()" :ended="ended&&!!state.startedAt" :goals="allGoals" @shared="noteVersion++" /></details>
    </div>
   </template>
   <section v-if="confirmingEnd" role="dialog" aria-modal="true" aria-label="End booked tutoring session"><h2>End appointment #{{state.appointmentId}} for everyone?</h2><p>This closes only this tutoring session and records its actual end time.</p><button :disabled="busy" @click="finish">End session for everyone</button><button :disabled="busy" @click="confirmingEnd=false">Keep session open</button></section>
@@ -30,6 +30,7 @@
 <script setup>
 import TutoringSessionNoteEditor from '../../components/tutoring/TutoringSessionNoteEditor.vue';
 import InPersonTutoringSessionView from './InPersonTutoringSessionView.vue';
+import TutoringSessionLearningPanel from '../../components/tutoring/TutoringSessionLearningPanel.vue';
 import AppointmentNoShowStatus from '../../components/schedule/AppointmentNoShowStatus.vue';
 import {ref,computed,onMounted,onBeforeUnmount,watch} from 'vue';
 import {useRoute} from 'vue-router';
@@ -39,8 +40,9 @@ import api from '../../services/api';
 const route=useRoute(),agencies=useAgencyStore();
 const wideHub=ref(typeof window.matchMedia==='function'&&window.matchMedia('(min-width:1151px)').matches);
 const state=ref(null),loading=ref(true),error=ref(''),video=ref(null),connected=ref(false),wantsJoin=ref(false),busy=ref(false),confirmingEnd=ref(false),billingWarning=ref('');
-const learningContext=ref(null),contextError=ref('');
+const learningContext=ref(null),contextError=ref(''),noteVersion=ref(0);
 const inPerson=computed(()=>String(state.value?.modality).toUpperCase()==='IN_PERSON');
+const hasApprovedPlan=computed(()=>(learningContext.value?.tracks||[]).some(t=>t.bundle));
 const allGoals=computed(()=>(learningContext.value?.subjects||[]).flatMap(s=>s.goals||[]).filter(g=>Number(g.id)>0));
 const note=ref(''),noteLoaded=ref(false),savingNote=ref(false),noteStatus=ref('');
 let appointmentId=Number(route.params.appointmentId),timer,stopped=false,polling=false,refreshQueued=false;
@@ -55,7 +57,7 @@ const scheduleLabel=computed(()=>formatTime(state.value?.startAt));
 const path=suffix=>`/tutoring-sessions/${appointmentId}${suffix||''}`;
 const params=()=>Object.fromEntries(['agencyId','clientId','serviceId'].filter(k=>route.query[k]).map(k=>[k,route.query[k]]));
 const contextKey=()=>`${appointmentId}:${JSON.stringify(params())}`;
-const request=async(suffix,method='get',body)=>{const key=contextKey();const r=await api({url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true});if(stopped||key!==contextKey())throw Object.assign(new Error('Session context changed.'),{stale:true});return r.data;};
+const request=async(suffix,method='get',body,options={})=>{const key=contextKey();const r=await api({...options,url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true});if(stopped||key!==contextKey())throw Object.assign(new Error('Session context changed.'),{stale:true});return r.data;};
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
 async function refresh(){if(stopped||!appointmentId)return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{state.value=await request('');if(ended.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
  if(state.value.host&&!learningContext.value){try{learningContext.value=await request('/learning-context');}catch{contextError.value='Learning context could not be loaded. Retry from this appointment.';}}
@@ -70,7 +72,7 @@ async function finish(){await action(async()=>{const data=await request('/end','
 async function copyJoinLink(){try{await navigator.clipboard.writeText(new URL(`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/tutoring-session/appointment/${appointmentId}`,window.location.origin).href);}catch{error.value='The join link could not be copied. Open this appointment from the family portal.';}}
 async function saveNote(){savingNote.value=true;noteStatus.value='';try{await request('/note','put',{summary:note.value});noteStatus.value='Session notes saved.';}catch(e){noteStatus.value=e.response?.data?.error?.message||'The note was not saved. Your text is kept; retry saving.';}finally{savingNote.value=false;}}
 onMounted(async()=>{try{if(!appointmentId&&route.params.sessionId){const {data}=await api.get(`/learning-class-sessions/sessions/${Number(route.params.sessionId)}`);appointmentId=Number(data.appointmentId);}if(!appointmentId)throw new Error('Open this session from its booked appointment. Ask Support to review any older unlinked visit.');await refresh();if(state.value?.host&&inPerson.value&&!state.value.sessionId){await request('/prepare','post');await refresh();}timer=setInterval(refresh,5000);}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{loading.value=false;}});
-watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId],()=>{appointmentId=Number(route.params.appointmentId);state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
+watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId,route.query.agencyId],()=>{appointmentId=Number(route.params.appointmentId);state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
 onBeforeUnmount(()=>{stopped=true;clearInterval(timer);});
 </script>
 <style scoped>

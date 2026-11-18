@@ -263,7 +263,8 @@ export async function getBriefForSession(req, res, next) {
   try {
     await requireTutorSession(req,req.params.sessionId);
     const brief = await los.TutoringSessionBrief.findBySession(req.params.sessionId);
-    res.json({ brief });
+    if (brief) { await requireTutorSession(req, req.params.sessionId, { client_id: brief.client_id, agency_id: brief.agency_id }); await assertLearningClientAccess(req, brief.client_id, brief.agency_id); }
+    res.set('Cache-Control', 'no-store').json({ brief });
   } catch (e) {
     next(e);
   }
@@ -298,7 +299,7 @@ export async function saveSessionNote(req, res, next) {
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
     await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
     if(req.body.sessionId)await requireTutorSession(req,req.body.sessionId,subject);
-    const result = await los.saveNoteAndUpdateProgress(req.body, actorId(req));
+    const result = await los.saveNoteAndUpdateProgress(req.body, actorId(req), req);
     res.status(201).json(result);
   } catch (e) {
     next(e);
@@ -309,10 +310,23 @@ export async function getNoteForSession(req, res, next) {
   try {
     await requireTutorSession(req,req.params.sessionId);
     const note = await los.TutoringSessionNote.findBySession(req.params.sessionId);
-    res.json({ note });
+    if (note) { await requireTutorSession(req, req.params.sessionId, { client_id: note.client_id, agency_id: note.agency_id }); await assertLearningClientAccess(req, note.client_id, note.agency_id); }
+    res.set('Cache-Control', 'no-store').json({ note });
   } catch (e) {
     next(e);
   }
+}
+
+export async function downloadSessionNotePdf(req, res, next) {
+  try {
+    await requireTutorSession(req, req.params.sessionId);
+    const note = await los.TutoringSessionNote.findBySession(Number(req.params.sessionId));
+    if (!note) return res.status(404).json({ error: { message: 'Save the session record first.' } });
+    await assertLearningClientAccess(req, note.client_id, note.agency_id);
+    const { tutoringSessionPdf } = await import('../services/tutoringSessionPdf.service.js');
+    const result = await tutoringSessionPdf(req, req.params.sessionId);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${result.filename}"`, 'Cache-Control': 'no-store' }).send(result.bytes);
+  } catch (error) { next(error); }
 }
 
 export async function listEvidence(req, res, next) {

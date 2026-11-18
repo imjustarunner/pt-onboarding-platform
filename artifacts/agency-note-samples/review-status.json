@@ -1,0 +1,49 @@
+{
+  "status": "Merged-main validation passed; production deployment authorized and pending.",
+  "fictionalDataOnly": true,
+  "liveModelExecutedForPdfFixtures": false,
+  "sectionContracts": {
+    "psychotherapy": "Actual four SOIP headers",
+    "90791": "Actual 24-section intake contract",
+    "H0031": "Actual intake contract, omitting MSE",
+    "academicTutoring": "Actual approved-plan and matching saved session-brief schema"
+  },
+  "pageCounts": {
+    "itsco90837": 1,
+    "nluTutoring": 1,
+    "innerStrength90791": 3,
+    "innerStrengthH0031": 3
+  },
+  "validation": {
+    "learningDocumentationBackend": 86,
+    "clinicalPlatformExportRegression": 63,
+    "sourceAndPrivacyBackend": 36,
+    "intakeNodeTests": 40,
+    "learningDocumentationFrontend": 23,
+    "desktopAndMobileBrowser": "passed",
+    "note": "Suite counts overlap. No production chart was used for the fixtures.",
+    "mergedArchiveBackend": {
+      "passed": 159,
+      "skipped": 3
+    },
+    "mergedArchiveFrontend": {
+      "passed": 143
+    }
+  },
+  "privacyConfigurationRead": {
+    "approvalAttested": true,
+    "model": "gemini-4-hydrogen",
+    "region": "us",
+    "secretValuesPrinted": false
+  },
+  "sha256": {
+    "itsco-90837-psychotherapy.pdf": "0b904fe4a6ae11de25bc4322701da2c6dc1e8e2e66061118ce677166645a3035",
+    "nlu-tutoring.pdf": "d223be462edbd10a75eb8fedf45ae6246b5808db9ff991d91a559c3e1afa2ce6",
+    "inner-strength-90791-intake.pdf": "3eb8823760a9f8203c282bf256553e6f497ecf3effbb03043c84baf4cd9d9948",
+    "inner-strength-h0031-assessment.pdf": "0fc12099520d90489e563a2855d376a63ad3e5ef33e541d07f77c511a1a70aed",
+    "samples.json": "43a58162b3c718c9fc1397ed899179068c88aa81e7500ed9e564988fdcae8d9f",
+    "nlu-learning-session-preview.html": "9307f7f1e10520a1887952aa0df3bf2884b75dd7434a6c2ce649ae50156668df",
+    "nlu-learning-session-desktop.png": "56c0d068126df9df72a2d96fb348aac3a7e966eb93aa29ea15e6842643ceca1a",
+    "nlu-learning-session-mobile.png": "787e19f11a6cd57ac08c6109b45cc38497abbef666c9d5b3281bedc605c34449"
+  }
+}

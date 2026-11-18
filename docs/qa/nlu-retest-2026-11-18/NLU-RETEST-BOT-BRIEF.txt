@@ -1,3 +1,10 @@
+
+NARRIVA INTEGRATION: The same Session Hub retains the private learning-plan
+checklist. Save those plan results before completing the separate family summary.
+The family draft is stored separately in encrypted form; it must not replace
+private plan prose or evidence. Sign and share locks the saved session record.
+Only the reviewed family summary reaches eligible family portal views.
+
 NLU RETEST — NOVEMBER 18, 2026
 SELF-CONTAINED QA BOT BRIEF — INTERNAL, DO NOT UPLOAD THIS BRIEF INTO THE APP
 

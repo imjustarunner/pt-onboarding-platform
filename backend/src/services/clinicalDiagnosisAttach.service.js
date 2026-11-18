@@ -200,14 +200,14 @@ export async function attachDiagnosisToTreatmentPlan({
   const did = safeInt(primaryDiagnosisId);
   if (!pid || !did) return false;
   try {
-    await clinicalPool.execute(
+    const [result] = await clinicalPool.execute(
       `UPDATE clinical_treatment_plans
        SET primary_diagnosis_id = ?,
            diagnostic_justification = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'draft'`,
       [did, diagnosticJustification ? String(diagnosticJustification) : null, pid]
     );
-    return true;
+    return Number(result?.affectedRows || 0) > 0;
   } catch (e) {
     if (e.code === 'ER_BAD_FIELD_ERROR') return false;
     throw e;
