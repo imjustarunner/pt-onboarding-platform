@@ -9,11 +9,12 @@ import MobileMessageText from './MobileMessageText.vue';
 import MobileMessagePreview from './MobileMessagePreview.vue';
 import MobileIdentityAvatar from './MobileIdentityAvatar.vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
+import HubSmsComposer from '../components/messages/HubSmsComposer.vue';
 import SecureFamilyAudience from '../components/session-comments/SecureFamilyAudience.vue';
 import SecureSessionCommentHistory from '../components/session-comments/SecureSessionCommentHistory.vue';
 import {dispatchFamilySharingNoticeRequired} from '../utils/familySharingNotice.js';
 import {trapDialogKey} from '../components/session-comments/dialogFocus.js';
-const props=defineProps({apiBase:{type:String,required:true},sessionToken:{type:String,required:true},userId:[String,Number],visible:Boolean,preferences:{type:Object,default:()=>({swipeLeft:'archive',swipeRight:'read'})}});
+const props=defineProps({apiBase:{type:String,required:true},sessionToken:{type:String,required:true},userId:[String,Number],agencyId:[String,Number],visible:Boolean,preferences:{type:Object,default:()=>({swipeLeft:'archive',swipeRight:'read'})}});
 const emit=defineEmits(['open-email','compose-email','counts','settings','access-denied']);
 const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const items=ref([]),counts=ref({}),cursor=ref(null),loading=ref(false),error=ref(''),notice=ref(''),undoItem=ref(null);
@@ -43,19 +44,22 @@ function inboxGet(key,options){if(inboxFlights.has(key))return inboxFlights.get(
 const sharingNotice=ref(null),commentHistoryOpen=ref(false),commentHistoryDialog=ref(null);
 async function showCommentHistory(){commentHistoryOpen.value=true;await nextTick();commentHistoryDialog.value?.focus();}
 const chat=ref(null),messages=ref([]),chatLoading=ref(false),chatBusy=ref(false),reply=ref(''),firstUnreadId=ref(null),unreadAbove=ref(false),hasOlder=ref(false),secureOpen=ref(false),revealNames=ref(false),revealedMessages=ref(new Set()),timeline=ref(null),chatFiles=ref([]),uploading=ref(false);
+const smsComposeOpen=ref(false);
 const composeMenu=ref(false),recipientOpen=ref(false),recipientQuery=ref(''),recipients=ref([]),recipientLoading=ref(false),recipientError=ref(''),recipientBusy=ref(null);let recipientRequest=0;
 const recipientNextPage=ref(null),recipientSendKey=ref('');
 const recipientMode=ref('direct'),recipientSending=ref(false),recipientText=ref(''),selectedPeople=ref([]),channelQuery=ref('');
-const recipientTitle=computed(()=>({secure:'New secure message',sms:'New text message',channels:'Browse channels',groups:'New group message'})[recipientMode.value] || 'New direct message');
-const recipientMatches=computed(()=>['secure','sms'].includes(recipientMode.value)?recipients.value:recipients.value.filter(person=>`${person.displayName} ${person.email || ''} ${person.agencyName || ''}`.toLowerCase().includes(recipientQuery.value.toLowerCase())));
+const recipientTitle=computed(()=>({secure:'New secure message',channels:'Browse channels',groups:'New group message'})[recipientMode.value] || 'New direct message');
+const recipientMatches=computed(()=>recipientMode.value==='secure'?recipients.value:recipients.value.filter(person=>`${person.displayName} ${person.email || ''} ${person.agencyName || ''}`.toLowerCase().includes(recipientQuery.value.toLowerCase())));
 const composeLabel=computed(()=>suite.value==='direct'?'New direct message':suite.value==='email' || suite.value==='unknown'?'New email':suite.value==='secure'?'New secure message':suite.value==='sms'?'New text message':suite.value==='channels'?'Browse channels':'New message');
 async function compose(){if(['direct','secure','sms','channels','groups'].includes(suite.value))await chooseRecipient(suite.value);else if(['email','unknown'].includes(suite.value))emit('compose-email');else composeMenu.value=!composeMenu.value;}
 function trapRecipients(event){if(event.key!=='Tab')return;const nodes=[...event.currentTarget.querySelectorAll('button:not(:disabled),input,textarea')];const first=nodes[0],last=nodes.at(-1);if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}}
 function closeRecipients(){clearTimeout(recipientSearchTimer);recipientOpen.value=false;++recipientRequest;recipients.value=[];recipientBusy.value=null;recipientText.value='';selectedPeople.value=[];}
 async function chooseRecipient(mode='direct'){
- composeMenu.value=false;recipientMode.value=typeof mode==='string'?mode:'direct';recipientOpen.value=true;recipientQuery.value='';recipientError.value='';recipients.value=[];recipientNextPage.value=null;recipientLoading.value=true;recipientText.value='';selectedPeople.value=[];const request=++recipientRequest;await nextTick();if(request===recipientRequest)document.querySelector('.mm-recipient-sheet header button')?.focus({preventScroll:true});
+ composeMenu.value=false;
+ if(mode==='sms'){smsComposeOpen.value=true;return;}
+ recipientMode.value=typeof mode==='string'?mode:'direct';recipientOpen.value=true;recipientQuery.value='';recipientError.value='';recipients.value=[];recipientNextPage.value=null;recipientLoading.value=true;recipientText.value='';selectedPeople.value=[];const request=++recipientRequest;await nextTick();if(request===recipientRequest)document.querySelector('.mm-recipient-sheet header button')?.focus({preventScroll:true});
  try{
-  const clientMode=['secure','sms'].includes(recipientMode.value),channelMode=recipientMode.value==='channels';
+  const clientMode=recipientMode.value==='secure',channelMode=recipientMode.value==='channels';
   const path=clientMode?`/messages/clients?channel=${recipientMode.value}`:channelMode?'/messages/channels':'/directory';
   const {data}=await axios.get(`${props.apiBase}${path}`,{...config(),...(!clientMode && !channelMode?{params:{agencyId:'all'}}:{})});if(request!==recipientRequest)return;
   if(clientMode){recipients.value=data.contacts || [];recipientNextPage.value=data.nextPage??null;}
@@ -66,7 +70,7 @@ async function chooseRecipient(mode='direct'){
 async function startDirect(person){
  if(recipientMode.value==='groups'){const key=`${person.agencyId}:${person.id}`;selectedPeople.value=selectedPeople.value.some(p=>`${p.agencyId}:${p.id}`===key)?selectedPeople.value.filter(p=>`${p.agencyId}:${p.id}`!==key):[...selectedPeople.value,person];return;}
  if(person.unavailable)return;
- if((recipientMode.value==='sms'||recipientMode.value==='secure'&&person.requiresInvitation) && !recipientBusy.value){recipientBusy.value=person;recipientSendKey.value=crypto.randomUUID();return;}
+ if((recipientMode.value==='secure'&&person.requiresInvitation) && !recipientBusy.value){recipientBusy.value=person;recipientSendKey.value=crypto.randomUUID();return;}
  if(recipientBusy.value)return;recipientBusy.value=person.id;recipientError.value='';const request=recipientRequest;
  try{
   let target;
@@ -76,9 +80,9 @@ async function startDirect(person){
   if(request!==recipientRequest)return;closeRecipients();await go({view:'home',...target});
  }catch(e){if(request===recipientRequest)recipientError.value=e.response?.data?.error?.message || 'Could not open this conversation.';}finally{if(request===recipientRequest && !recipientBusy.value?.clientId)recipientBusy.value=null;}
 }
-async function sendNewText(){
+async function sendSecureInvitation(){
  const person=recipientBusy.value;if(recipientSending.value || !person?.clientId || !recipientText.value.trim())return;recipientError.value='';recipientSending.value=true;
- try{const secureInvite=recipientMode.value==='secure';const {data}=await axios.post(`${props.apiBase}/messages/clients/${person.clientId}/contact/send`,{agencyId:person.agencyId,recipientKey:person.recipientKey,channel:secureInvite?'secure':'sms',text:recipientText.value,...(secureInvite?{invite:true,requestKey:recipientSendKey.value}:{})},config());closeRecipients();notice.value=secureInvite?(data.deliveryStatus==='sent'?'Secure message saved. Portal invitation sent.':`Secure message saved. Invitation: ${data.deliveryStatus || 'needs review'}. Check communication history before resending.`):'Text sent';await loadInbox();}
+ try{const {data}=await axios.post(`${props.apiBase}/messages/clients/${person.clientId}/contact/send`,{agencyId:person.agencyId,recipientKey:person.recipientKey,channel:'secure',text:recipientText.value,invite:true,requestKey:recipientSendKey.value},config());closeRecipients();notice.value=data.deliveryStatus==='sent'?'Secure message saved. Portal invitation sent.':`Secure message saved. Invitation: ${data.deliveryStatus || 'needs review'}. Check communication history before resending.`;await loadInbox();}
  catch(e){dispatchFamilySharingNoticeRequired(e);recipientError.value=e.response?.data?.error?.message || 'Message was not sent. Your draft is preserved.';}finally{recipientSending.value=false;}
 }
 async function startGroup(){
@@ -88,7 +92,7 @@ async function startGroup(){
 }
 let recipientSearchTimer;
 watch(recipientQuery,value=>{
- if(!recipientOpen.value || !['secure','sms'].includes(recipientMode.value))return;
+ if(!recipientOpen.value || recipientMode.value!=='secure')return;
  clearTimeout(recipientSearchTimer);recipientSearchTimer=setTimeout(async()=>{
   const request=++recipientRequest;recipientLoading.value=true;recipientError.value='';
   try{const {data}=await axios.get(`${props.apiBase}/messages/clients?channel=${recipientMode.value}`,{...config(),params:{q:value}});if(request===recipientRequest){recipients.value=data.contacts || [];recipientNextPage.value=data.nextPage??null;}}
@@ -134,6 +138,20 @@ const timelineMessages=computed(()=>messages.value.filter(m=>!parentId.value || 
 const selectedCounts=computed(()=>counts.value[suite.value] || {total:0,unread:0,needs:0});
 const date=computed(()=>new Date().toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}));
 const config=()=>({headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});
+const smsApi={
+ get:(path,options)=>axios.get(`${props.apiBase}${path}`,{...options,...config()}),
+ post:(path,body,options)=>axios.post(`${props.apiBase}${path}`,body,{...options,...config()})
+};
+async function smsSent(){
+ smsComposeOpen.value=false;
+ invalidateInbox();
+ if(suite.value==='sms' && filter.value==='sent' && !threadId.value)await loadInbox({force:true});
+ else {
+  counts.value={};
+  await go({view:'home',suite:'sms',filter:'sent'});
+ }
+ notice.value='Text sent';
+}
 const draftKey=()=>`${threadId.value}:${parentId.value || 'root'}`;
 let inboxRequest=0,chatRequest=0,timer,observer,scrollTimer;
 let drag=null,suppressClickUntil=0;
@@ -253,7 +271,7 @@ async function applyBulk(action){
  for(const item of rows){if(token!==props.sessionToken || scope!==inboxScope)break;try{await axios.patch(`${props.apiBase}/messages/${item.kind}/${item.id}/${action==='archive'?'archive':'state'}`,action==='archive'?{archived:true}:{read:true},config());succeeded++;}catch{failed.set(item.key,item);}}
  if(batch!==bulkRequest)return;bulkBusy.value=false;if(token!==props.sessionToken || scope!==inboxScope)return;selectedRows.value=failed;selectionMode.value=failed.size>0;invalidateInbox();notice.value=`${succeeded} conversation${succeeded===1?'':'s'} ${action==='archive'?'archived':'marked as read'}.`;await loadInbox({quiet:true,force:true});if(failed.size)error.value=`${failed.size} conversation${failed.size===1?' could':'s could'} not be updated. They remain selected; try again.${error.value?' '+error.value:''}`;
 }
-watch(()=>[props.sessionToken,props.apiBase],()=>{invalidateInbox();chatCache.clear();clearChat();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;inboxScope='';});
+watch(()=>[props.sessionToken,props.apiBase],()=>{smsComposeOpen.value=false;invalidateInbox();chatCache.clear();clearChat();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;inboxScope='';});
 watch([suite,filter,includeArchived,()=>props.sessionToken],()=>{stopSwipeGuide();++bulkRequest;bulkBusy.value=false;selectionMode.value=false;selectedRows.value=new Map();rowMenu.value=null;spamItem.value=null;closePreview();});
 const knownSender=ref(null),savingKnown=ref(false);let holdTimer=null;
 watch(knownSender,async value=>{if(value){await nextTick();const panel=document.querySelector('[aria-label="Create known contact"]');panel?.setAttribute('tabindex','-1');panel?.focus({preventScroll:true});}});
@@ -331,7 +349,7 @@ const fileName=file=>file.original_filename || file.originalFilename || file.fil
 const fileSize=file=>file.byte_size || file.byteSize?`${Math.max(1,Math.round(Number(file.byte_size || file.byteSize)/1024))} KB`:'';
 let routeKey='';
 async function syncRoute(){
-  composeMenu.value=false;closeRecipients();
+  composeMenu.value=false;smsComposeOpen.value=false;closeRecipients();
   if(route.query.view && route.query.view!=='home')return;
   const key=`${threadId.value || ''}:${parentId.value || ''}:${suite.value}:${filter.value}:${includeArchived.value}:${route.query.messageId || ''}`;if(key===routeKey)return;routeKey=key;
   clearFile();error.value='';notice.value='';
@@ -343,7 +361,7 @@ async function syncRoute(){
   else{clearChat();await loadInbox();await restoreTabs(true);await nextTick();const pane=document.getElementById('qv-workspace');if(pane)pane.scrollTop=scrollPositions.get(`${suite.value}:${filter.value}`)||0;}
 }
 watch(()=>route.fullPath,syncRoute);
-watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{stopSwipeGuide();closePreview();rowMenu.value=null;spamItem.value=null;commentHistoryOpen.value=false;knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
+watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{stopSwipeGuide();closePreview();rowMenu.value=null;spamItem.value=null;commentHistoryOpen.value=false;knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;smsComposeOpen.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
 function markConversationRead(conversation){const item=items.value.find(row=>['email','sms'].includes(row.kind) && Number(row.id)===Number(conversation.id));if(item?.unread)return markRead(item,true);}
 defineExpose({refresh:()=>loadInbox({force:true}),markConversationRead});
 onMounted(async()=>{await syncRoute();timer=setInterval(()=>{if(!props.visible || document.hidden || chatBusy.value || uploading.value || pendingRead.size)return;if(threadId.value)loadChat({quiet:true});else loadInbox({quiet:true,force:true});},15000);});
@@ -357,9 +375,10 @@ onUnmounted(()=>{stopSwipeGuide();closePreview();cancelHold();clearTimeout(notic
   <section class="mobile-messages" :class="{'is-chat':threadId}" aria-label="Messages by Conversa">
   <Teleport to="body"><div v-if="commentHistoryOpen" class="mm-file-overlay" @click.self="commentHistoryOpen=false"><section ref="commentHistoryDialog" role="dialog" aria-modal="true" aria-label="Secure session comment history" tabindex="-1" @keydown="trapDialogKey($event,commentHistoryDialog,()=>commentHistoryOpen=false)"><button type="button" @click="commentHistoryOpen=false">Close history</button><SecureSessionCommentHistory schedule-path="/mobile/workspace" :schedule-query="{view:'calendar'}" /></section></div></Teleport>
   <Teleport to="body"><div v-if="knownSender" class="mm-file-overlay" @click.self="!savingKnown && (knownSender=null)"><section role="dialog" aria-modal="true" aria-label="Create known contact" @keydown.esc="!savingKnown && (knownSender=null)"><h2>Create known contact</h2><p>{{ knownSender.sender }} · {{ knownSender.senderEmail }}</p><p>Save this sender to your external contacts. Their emails will appear in your regular inbox.</p><button :disabled="savingKnown" @click="saveKnownSender">{{ savingKnown?'Saving…':'Save contact' }}</button><button :disabled="savingKnown" @click="knownSender=null">Cancel</button></section></div></Teleport>
+  <Teleport to="body"><HubSmsComposer v-if="smsComposeOpen" :api-client="smsApi" :agency-id="agencyId" mobile @close="smsComposeOpen=false" @sent="smsSent"/></Teleport>
   <Teleport to="body"><div v-if="recipientOpen" class="mm-recipient-overlay" role="dialog" aria-modal="true" :aria-label="recipientTitle" @click.self="closeRecipients" @keydown.esc.stop="closeRecipients" @keydown="trapRecipients"><section class="mm-recipient-sheet"><header><h2>{{ recipientTitle }}</h2><button :aria-label="`Close ${recipientTitle.toLowerCase()}`" @click="closeRecipients"><X :size="20"/></button></header>
-   <template v-if="['sms','secure'].includes(recipientMode) && recipientBusy?.clientId"><p>{{ recipientBusy.displayName }} · {{ recipientBusy.contactName }}</p><p v-if="recipientMode==='secure'">The message stays in the secure portal. An email from your agency will invite this contact to sign in or complete setup and verify the client’s birth date. Authorized care-team and family participants share this conversation.</p><form @submit.prevent="sendNewText"><label>Message<textarea v-model="recipientText" rows="5" maxlength="5000" required/></label><button type="submit" :disabled="recipientSending">{{ recipientSending?'Sending…':recipientMode==='secure'?'Send secure message & portal invitation':'Send text' }}</button></form></template>
-   <template v-else><label>{{ ['secure','sms'].includes(recipientMode)?'Find one of my clients':recipientMode==='channels'?'Search channels':'Find a teammate' }}<input v-model="recipientQuery" type="search" :placeholder="['secure','sms'].includes(recipientMode)?'Client name':'Name or email'"/></label><p v-if="recipientLoading" role="status">Loading contacts…</p><button v-for="person in recipientMatches" :key="`${person.agencyId}:${person.id}`" class="mm-recipient" :aria-pressed="recipientMode==='groups'?selectedPeople.some(p=>p.id===person.id && p.agencyId===person.agencyId):undefined" :disabled="!!recipientBusy || person.unavailable" @click="startDirect(person)"><MobileIdentityAvatar :photo="imageUrl(person.profilePhotoUrl)" :agency-icon="imageUrl(person.agencyLogoUrl)" :name="person.displayName" :private-identity="['secure','sms'].includes(recipientMode)"/><span><strong>{{ person.displayName }}<template v-if="person.age!=null"> · Age {{ person.age }}</template></strong><small>{{ person.contactName || person.email || person.description }}</small><small>{{ person.agencyName }}</small><small v-if="person.requiresInvitation">Send &amp; invite to portal</small><small v-if="person.unavailable">{{ person.reason || 'Review Portal settings with support.' }}</small></span></button><button v-if="recipientNextPage!==null && ['secure','sms'].includes(recipientMode)" :disabled="recipientLoading" @click="loadMoreRecipients">Load more clients</button><p v-if="!recipientLoading && !recipientError && !recipientMatches.length">No matching authorized contacts.</p><button v-if="recipientMode==='groups'" :disabled="selectedPeople.length<2" @click="startGroup">Open group · {{ selectedPeople.length }} people</button></template>
+   <template v-if="recipientMode==='secure' && recipientBusy?.clientId"><p>{{ recipientBusy.displayName }} · {{ recipientBusy.contactName }}</p><p>The message stays in the secure portal. An email from your agency will invite this contact to sign in or complete setup and verify the client’s birth date. Authorized care-team and family participants share this conversation.</p><form @submit.prevent="sendSecureInvitation"><label>Message<textarea v-model="recipientText" rows="5" maxlength="5000" required/></label><button type="submit" :disabled="recipientSending">{{ recipientSending?'Sending…':'Send secure message & portal invitation' }}</button></form></template>
+   <template v-else><label>{{ recipientMode==='secure'?'Find one of my clients':recipientMode==='channels'?'Search channels':'Find a teammate' }}<input v-model="recipientQuery" type="search" :placeholder="recipientMode==='secure'?'Client name':'Name or email'"/></label><p v-if="recipientLoading" role="status">Loading contacts…</p><button v-for="person in recipientMatches" :key="`${person.agencyId}:${person.id}`" class="mm-recipient" :aria-pressed="recipientMode==='groups'?selectedPeople.some(p=>p.id===person.id && p.agencyId===person.agencyId):undefined" :disabled="!!recipientBusy || person.unavailable" @click="startDirect(person)"><MobileIdentityAvatar :photo="imageUrl(person.profilePhotoUrl)" :agency-icon="imageUrl(person.agencyLogoUrl)" :name="person.displayName" :private-identity="recipientMode==='secure'"/><span><strong>{{ person.displayName }}<template v-if="person.age!=null"> · Age {{ person.age }}</template></strong><small>{{ person.contactName || person.email || person.description }}</small><small>{{ person.agencyName }}</small><small v-if="person.requiresInvitation">Send &amp; invite to portal</small><small v-if="person.unavailable">{{ person.reason || 'Review Portal settings with support.' }}</small></span></button><button v-if="recipientNextPage!==null && recipientMode==='secure'" :disabled="recipientLoading" @click="loadMoreRecipients">Load more clients</button><p v-if="!recipientLoading && !recipientError && !recipientMatches.length">No matching authorized contacts.</p><button v-if="recipientMode==='groups'" :disabled="selectedPeople.length<2" @click="startGroup">Open group · {{ selectedPeople.length }} people</button></template>
    <p v-if="recipientError" role="alert">{{ recipientError }} <button v-if="!recipientBusy" @click="chooseRecipient(recipientMode)">Try again</button></p>
   </section></div></Teleport>
     <div v-if="error" class="mm-error" role="alert">{{ error }} <button @click="threadId?loadChat():loadInbox()">Try again</button></div>
@@ -388,7 +407,7 @@ onUnmounted(()=>{stopSwipeGuide();closePreview();cancelHold();clearTimeout(notic
         <div class="mm-swipe" :class="[`action-${swipeAction(item)}`,{'swipe-left':swipeOffset(item)<0}]"><span class="mm-swipe-label">{{ swipeLabel(item) }}</span>
           <button class="mm-row" :class="{'is-demonstrating':swipeGuide===item.key}" :aria-pressed="selectionMode && selectable(item) ? selectedRows.has(item.key) : undefined" :disabled="bulkBusy" :style="{transform:`translateX(${swipeOffset(item)}px)`}" @pointerdown="startSwipe(item,$event)" @pointermove="moveSwipe" @pointerup="finishSwipe(item)" @pointercancel="cancelSwipe" @contextmenu.prevent="showPreview(item)" @click="openItem(item)">
             <span v-if="selectionMode && selectable(item)" class="mm-select-check" role="checkbox" :aria-checked="selectedRows.has(item.key)" :aria-label="`Select ${item.title}`">{{ selectedRows.has(item.key) ? '✓' : '' }}</span><MobileIdentityAvatar v-else :photo="imageUrl(item.avatar)" :contain-photo="!!item.schoolId && !item.staffId" :agency-icon="imageUrl(item.agencyLogoUrl)" :name="item.title" :private-identity="item.secure"/>
-            <span class="mm-meta"><span class="mm-row-top"><strong>{{ item.category==='groups' && item.groupName ? item.groupName : ['chat','threads','mentions','sms'].includes(item.kind)?item.title:(item.sender || item.title) }}</strong><time>{{ time(item.at) }}</time></span><strong v-if="item.kind==='email' || item.kind==='files' || ['draft','chat-draft'].includes(item.kind)" class="mm-subject">{{ item.title }}</strong><span class="mm-preview"><template v-if="item.kind==='chat' && item.sender && item.sender!==item.title && !item.secure">{{ item.sender }}: </template>{{ previewText(item) }}</span><span class="mm-category-label">{{ item.category==='groups' ? 'Groups' : item.category }}<template v-if="item.destinationAccount && item.category!=='groups'"> · To {{ item.destinationAccount }}</template><template v-if="item.agencyName"> · {{ item.agencyName }}</template><template v-if="item.reply_count"> · {{ item.reply_count }} replies</template><template v-if="item.kind==='files'"> · {{ fileSize(item) }}</template><template v-if="item.archived"> · Archived</template></span></span>
+            <span class="mm-meta"><span class="mm-row-top"><strong>{{ item.category==='groups' && item.groupName ? item.groupName : ['chat','threads','mentions','sms'].includes(item.kind)?item.title:(item.sender || item.title) }}</strong><time>{{ time(item.at) }}</time></span><strong v-if="item.kind==='email' || item.kind==='files' || ['draft','chat-draft'].includes(item.kind)" class="mm-subject">{{ item.title }}</strong><span class="mm-preview"><template v-if="item.kind==='chat' && item.sender && item.sender!==item.title && !item.secure">{{ item.sender }}: </template>{{ previewText(item) }}</span><span v-if="item.sms?.relationship && item.sms.clientName" class="mm-category-label">{{ item.sms.relationship }} for {{ item.sms.clientName }}</span><span class="mm-category-label">{{ item.category==='groups' ? 'Groups' : item.category }}<template v-if="item.destinationAccount && item.category!=='groups'"> · To {{ item.destinationAccount }}</template><template v-if="item.agencyName"> · {{ item.agencyName }}</template><template v-if="item.reply_count"> · {{ item.reply_count }} replies</template><template v-if="item.kind==='files'"> · {{ fileSize(item) }}</template><template v-if="item.archived"> · Archived</template></span></span>
             <span v-if="item.unread" class="mm-unread" :aria-label="`${item.unreadCount || 1} unread`">{{ item.unreadCount || 1 }}</span><span v-if="swipeGuide===item.key" class="mm-swipe-tip" role="status">Swipe left: {{ actionName(preferences.swipeLeft) }}. Swipe right: {{ actionName(preferences.swipeRight) }}.</span>
           </button>
         </div>

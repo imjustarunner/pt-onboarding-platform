@@ -292,3 +292,33 @@ it('clears cached rows and counters on a delayed denied request even after movin
 it('refreshes the recent Drafts folder when a conversation has a newly unsent reply',async()=>{
  const original=api.get.getMockImplementation();api.get.mockImplementation((url,config)=>config?.params?.suite==='drafts'?Promise.resolve({data:{items:[],counts:{drafts:{total:0}},nextCursor:null}}):original(url,config));await start('/mobile/workspace?view=home&suite=direct&filter=drafts');expect(wrapper.findAll('.mm-row')).toHaveLength(0);await router.push('/mobile/workspace?view=home&suite=direct&threadId=10');await flushPromises();await wrapper.get('.mm-composer textarea').setValue('NEW UNSENT REPLY');await wrapper.get('.mm-back').trigger('click');await new Promise(resolve=>setTimeout(resolve,30));await flushPromises();expect(router.currentRoute.value.query.filter).toBe('drafts');expect(wrapper.text()).toContain('NEW UNSENT REPLY');expect(api.get.mock.calls.filter(([_url,config])=>config?.params?.suite==='drafts')).toHaveLength(2);
 });
+
+it('uses the selected provider line and guardian, then refreshes Texts Sent once',async()=>{
+ const original=api.get.getMockImplementation();
+ const sentText={key:'sms:21',id:21,kind:'sms',category:'sms',title:'Casey Example',preview:'Synthetic text',hasSent:true,sms:{relationship:'Parent',clientName:'Child Example'},agencyName:'Clinic Two'};
+ const lines=[{agencyId:2,agencyName:'Clinic One',numberId:9,phoneNumber:'+12025550102'},{agencyId:3,agencyName:'Clinic Two',numberId:10,phoneNumber:'+12025550103'}];
+ api.get.mockImplementation(async(url,config)=>{
+  if(url.endsWith('/sms-lines'))return {data:{lines}};
+  if(url.endsWith('/sms-recipients'))return {data:{recipients:[{clientId:27,guardianUserId:33,name:'Casey Example',clientName:'Child Example',relationship:'Parent',phoneEnding:'0101'}]}};
+  if(url.endsWith('/messages/inbox'))return {data:{items:config.params.filter==='sent'?[sentText]:[],counts:{sms:{total:1,sent:1,unread:0}}}};
+  return original(url,config);
+ });
+ await start('/mobile/workspace?view=home&suite=sms',{agencyId:2});
+ await wrapper.get('[aria-label="New text message"]').trigger('click');await flushPromises();
+ const dialog=document.querySelector('.sms-compose');
+ expect(dialog.querySelector('select').value).toBe('9');
+ dialog.querySelector('select').value='10';
+ dialog.querySelector('select').dispatchEvent(new Event('change'));
+ const search=dialog.querySelector('input');
+ search.value='Casey';search.dispatchEvent(new Event('input'));
+ await vi.waitFor(()=>expect(dialog.querySelector('.sms-recipients button')).toBeTruthy());
+ expect(api.get).toHaveBeenCalledWith('/api/quick-view/messages/hub/sms-recipients',expect.objectContaining({params:{agencyId:3,numberId:10,q:'Casey'},headers:{'X-Quick-View-Session':'scoped'}}));
+ dialog.querySelector('.sms-recipients button').click();await flushPromises();
+ const body=dialog.querySelector('textarea');
+ body.value='Synthetic text';body.dispatchEvent(new Event('input'));await flushPromises();
+ dialog.querySelector('[type="submit"]').click();await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/api/quick-view/messages/send',{clientId:27,guardianUserId:33,numberId:10,body:'Synthetic text',startNewConversation:true},expect.objectContaining({headers:{'X-Quick-View-Session':'scoped'}}));
+ expect(router.currentRoute.value.query.filter).toBe('sent');
+ expect(wrapper.text()).toContain('Parent for Child Example');
+ expect(api.get.mock.calls.filter(([url,config])=>url.endsWith('/messages/inbox') && config.params.filter==='sent')).toHaveLength(1);
+});

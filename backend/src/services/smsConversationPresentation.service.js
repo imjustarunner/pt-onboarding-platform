@@ -4,7 +4,7 @@ import { normalizeSmsPhone, parseSmsThreadKey } from '../utils/smsThreadIdentity
 const placeholders = values => values.map(() => '?').join(',');
 const personName = row => [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
 
-export async function describeSmsConversations(conversations) {
+export async function describeSmsConversations(conversations, {db = pool} = {}) {
   const parsed = conversations.map(row => row.channel === 'sms' ? parseSmsThreadKey(row.external_thread_id) : null);
   if (!parsed.some(Boolean)) return conversations;
   const ids = key => [...new Set(parsed.map(row => row?.[key]).filter(Boolean))];
@@ -12,12 +12,12 @@ export async function describeSmsConversations(conversations) {
   const contactIds = ids('contactId');
   const agencyIds = [...new Set(conversations.filter((row, index) => parsed[index]).map(row => Number(row.agency_id)).filter(Boolean))];
   const [clients, links, contacts, agencies] = await Promise.all([
-    clientIds.length ? pool.execute(`SELECT id,full_name,initials,contact_phone FROM clients WHERE id IN (${placeholders(clientIds)})`, clientIds).then(([rows]) => rows) : [],
-    clientIds.length ? pool.execute(`SELECT cg.client_id,cg.guardian_user_id,cg.relationship_type,cg.relationship_title,cg.access_enabled,u.is_active,u.first_name,u.last_name,
+    clientIds.length ? db.execute(`SELECT id,full_name,initials,contact_phone FROM clients WHERE id IN (${placeholders(clientIds)})`, clientIds).then(([rows]) => rows) : [],
+    clientIds.length ? db.execute(`SELECT cg.client_id,cg.guardian_user_id,cg.relationship_type,cg.relationship_title,cg.access_enabled,u.is_active,u.first_name,u.last_name,
       COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone
       FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id IN (${placeholders(clientIds)})`, clientIds).then(([rows]) => rows) : [],
-    contactIds.length ? pool.execute(`SELECT id,full_name,phone FROM agency_contacts WHERE id IN (${placeholders(contactIds)})`, contactIds).then(([rows]) => rows) : [],
-    agencyIds.length ? pool.execute(`SELECT id,name FROM agencies WHERE id IN (${placeholders(agencyIds)})`, agencyIds).then(([rows]) => rows) : []
+    contactIds.length ? db.execute(`SELECT id,full_name,phone FROM agency_contacts WHERE id IN (${placeholders(contactIds)})`, contactIds).then(([rows]) => rows) : [],
+    agencyIds.length ? db.execute(`SELECT id,name FROM agencies WHERE id IN (${placeholders(agencyIds)})`, agencyIds).then(([rows]) => rows) : []
   ]);
   return conversations.map((row, index) => {
     const thread = parsed[index];

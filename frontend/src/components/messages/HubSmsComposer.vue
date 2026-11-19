@@ -1,9 +1,9 @@
 <template>
-  <div class="sms-compose-overlay" @click.self="emit('close')">
-    <form class="sms-compose" role="dialog" aria-modal="true" aria-labelledby="sms-compose-title" @submit.prevent="send">
+  <div class="sms-compose-overlay" :class="{ 'is-mobile': mobile }" @click.self="close">
+    <form class="sms-compose" role="dialog" aria-modal="true" aria-labelledby="sms-compose-title" @keydown.esc.stop.prevent="close" @submit.prevent="send">
       <header>
         <h2 id="sms-compose-title">New SMS</h2>
-        <button type="button" class="btn btn-secondary btn-sm" @click="emit('close')">Close</button>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="sending" @click="close">Close</button>
       </header>
 
       <p v-if="loadingLines" role="status">Loading provider lines…</p>
@@ -56,7 +56,11 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
-const props = defineProps({ agencyId: { type: [Number, String], default: null } });
+const props = defineProps({
+  agencyId: { type: [Number, String], default: null },
+  apiClient: { type: Object, default: () => api },
+  mobile: Boolean
+});
 const emit = defineEmits(['close', 'sent']);
 const lines = ref([]);
 const lineId = ref(null);
@@ -73,6 +77,10 @@ let searchTimer;
 let searchController;
 const lineController = new AbortController();
 const recipientKey = item => `${item.clientId}:${item.guardianUserId || 0}`;
+
+function close() {
+  if (!sending.value) emit('close');
+}
 
 function choose(item) {
   recipient.value = item;
@@ -93,7 +101,7 @@ watch([lineId, query], () => {
   searchController = controller;
   searchTimer = setTimeout(async () => {
     try {
-      const { data } = await api.get('/messages/hub/sms-recipients', {
+      const { data } = await props.apiClient.get('/messages/hub/sms-recipients', {
         params: { agencyId: selectedLine.agencyId, numberId: selectedLine.numberId, q },
         signal: controller.signal, skipGlobalLoading: true
       });
@@ -112,7 +120,7 @@ async function send() {
   sending.value = true;
   error.value = '';
   try {
-    await api.post('/messages/send', {
+    await props.apiClient.post('/messages/send', {
       clientId: target.clientId, guardianUserId: target.guardianUserId,
       numberId: line.value.numberId, body: body.value.trim(), startNewConversation: true
     }, { skipGlobalLoading: true });
@@ -126,7 +134,7 @@ async function send() {
 
 onMounted(async () => {
   try {
-    const { data } = await api.get('/messages/hub/sms-lines', { signal: lineController.signal, skipGlobalLoading: true });
+    const { data } = await props.apiClient.get('/messages/hub/sms-lines', { signal: lineController.signal, skipGlobalLoading: true });
     lines.value = data?.lines || [];
     lineId.value = (lines.value.find(item => Number(item.agencyId) === Number(props.agencyId)) || lines.value[0])?.numberId ?? null;
   } catch {
@@ -154,4 +162,13 @@ onUnmounted(() => {
 .sms-recipients button { text-align: left; width: 100%; display: grid; gap: 2px; padding: 8px; border: 0; border-bottom: 1px solid var(--border, #e2e8f0); background: transparent; color: inherit; cursor: pointer; }
 .sms-recipients span, .sms-compose-recipient span { display: block; color: var(--text-secondary, #475569); font-size: .86rem; }
 .sms-compose-error { color: var(--danger, #b42318); }
+.is-mobile .sms-compose {
+  max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 32px);
+}
+.is-mobile .sms-compose input,
+.is-mobile .sms-compose select,
+.is-mobile .sms-compose textarea { font-size: 16px; }
+.is-mobile .sms-compose .btn { min-height: 44px; padding: 8px 14px; border: 1px solid #dbe3ef; border-radius: 10px; background: #f2f4f9; color: #183054; font: inherit; }
+.is-mobile .sms-compose .btn-primary { background: #3157d3; border-color: #3157d3; color: #fff; }
+.is-mobile .sms-compose .btn:disabled { opacity: .5; }
 </style>

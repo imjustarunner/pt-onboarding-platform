@@ -41,7 +41,10 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE communication_conversation_reads(conversation_id INT,user_id INT,forced_unread BOOLEAN DEFAULT 0,last_read_at DATETIME);
     CREATE TABLE communication_participants(id INT PRIMARY KEY,conversation_id INT,is_primary BOOLEAN,email VARCHAR(100),display_name VARCHAR(100));
     CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,agency_id INT DEFAULT 10,chat_thread_id INT,label VARCHAR(255),email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,is_active BOOLEAN DEFAULT 1);
-    CREATE TABLE message_logs(id INT PRIMARY KEY,agency_id INT,sms_thread_key VARCHAR(80),user_id INT,assigned_user_id INT,number_id INT);
+    CREATE TABLE message_logs(id INT PRIMARY KEY,agency_id INT,sms_thread_key VARCHAR(80),user_id INT,assigned_user_id INT,number_id INT,direction VARCHAR(10),delivery_status VARCHAR(24),created_at DATETIME);
+    CREATE TABLE clients(id INT PRIMARY KEY,full_name VARCHAR(100),initials VARCHAR(10),contact_phone VARCHAR(20));
+    CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(24),relationship_title VARCHAR(30),access_enabled BOOLEAN);
+    ALTER TABLE users ADD first_name VARCHAR(50),ADD last_name VARCHAR(50),ADD phone_number VARCHAR(20),ADD personal_phone VARCHAR(20),ADD work_phone VARCHAR(20),ADD is_active BOOLEAN DEFAULT 1;
     CREATE TABLE twilio_number_assignments(number_id INT,user_id INT,is_active BOOLEAN,sms_access_enabled BOOLEAN);`);
   await db.query(`CREATE TABLE IF NOT EXISTS support_tickets(id INT PRIMARY KEY,agency_id INT,status VARCHAR(40),claimed_by_user_id INT);
     CREATE TABLE IF NOT EXISTS user_communication_contacts(id INT PRIMARY KEY,owner_user_id INT,agency_id INT,email VARCHAR(254) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,trust_status VARCHAR(20));`);
@@ -49,7 +52,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE IF EXISTS ${name}`);await admin.end();}});
  beforeEach(async()=>{
-  await db.query(`TRUNCATE icons;TRUNCATE school_profiles;TRUNCATE organization_affiliations;TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
+  await db.query(`TRUNCATE icons;TRUNCATE school_profiles;TRUNCATE organization_affiliations;TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;TRUNCATE message_logs;TRUNCATE clients;TRUNCATE client_guardians;
     INSERT INTO agencies(id) VALUES(10),(20);
     INSERT INTO users(id,email,work_email,personal_email) VALUES(1,'owner@example.invalid',NULL,NULL),(2,'staff@example.invalid',NULL,'personal@example.invalid');
     INSERT INTO user_agencies VALUES(1,10,1),(2,10,1);
@@ -188,6 +191,27 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  it('orders mixed source kinds consistently when a timestamp has more than a page',async()=>{
   await seedMailRange(1000,1105);
   await mail(1,{channel:'sms',unknown:true});const rows=await store.emails(1);expect(rows[0]).toMatchObject({id:1,category:'sms',unknown:false});
+ });
+ it('uses the signed-in author and incoming replies for SMS folders, and shows the guardian',async()=>{
+  await mail(1,{channel:'sms'});await mail(2,{channel:'sms'});await mail(3,{channel:'sms'});
+  await db.query(`DELETE FROM communication_messages;
+   UPDATE agencies SET name='Example clinic' WHERE id=10;
+   UPDATE users SET first_name='Casey',last_name='Example',phone_number='+12025550101' WHERE id=2;
+   INSERT INTO clients VALUES(27,'Child Example','CE',NULL);
+   INSERT INTO client_guardians VALUES(27,2,'parent','Parent',1);
+   UPDATE communication_conversations SET external_thread_id='sms:v2:client:27:+12025550102:+12025550101' WHERE id=1;
+   UPDATE communication_conversations SET external_thread_id=CONCAT('legacy-',id) WHERE id IN(2,3);
+   INSERT INTO message_logs VALUES
+    (1,10,'sms:v2:client:27:+12025550102:+12025550101',1,1,9,'OUTBOUND','delivered','2026-11-06 11:00:00'),
+    (2,10,'sms:v2:client:27:+12025550102:+12025550101',1,1,9,'INBOUND','received','2026-11-06 12:00:00'),
+    (3,10,'legacy-2',2,1,9,'OUTBOUND','delivered','2026-11-06 12:00:00'),
+    (4,10,'legacy-3',1,1,9,'OUTBOUND','failed','2026-11-06 12:00:00');`);
+  const [sent,counts]=await store.emailInbox(1,{suite:'sms',filter:'sent'});
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({id:1,title:'Casey Example',hasSent:true,unread:true,sms:{relationship:'Parent',clientName:'Child Example',organizationName:'Example clinic'}});
+  expect(counts.find(row=>row.category==='sms')).toMatchObject({total:3,unread:1,sent:1});
+  await db.query("INSERT INTO communication_conversation_reads VALUES(1,1,0,'2026-11-06 12:01:00')");
+  expect(await store.emails(1,{suite:'sms',filter:'unread'})).toEqual([]);
  });
  it('persists personal swipe and navigation choices without crossing accounts',async()=>{
   await store.savePreferences(1,{swipeRight:'unread',navigationMode:'pinned',pinnedNavigation:['mywork','home']});expect(await store.preferences(1)).toMatchObject({swipeRight:'unread',navigationMode:'pinned',pinnedNavigation:['mywork','home']});expect((await store.preferences(2)).swipeRight).toBe('read');

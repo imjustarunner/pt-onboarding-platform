@@ -13,7 +13,7 @@ import StorageService from '../services/storage.service.js';
 import fs from 'node:fs/promises';
 import {getMobileDocumentationQueue} from '../services/mobile/documentationQueue.service.js';
 import {getWorkspaceCounts} from '../services/mobile/workspaceCounts.service.js';
-import {mobileQaAgencyId,assertMobileQaThread,assertMobileQaConversation} from '../services/mobile/qaConversaScope.service.js';
+import {mobileQaAgencyId,mobileQaScopeError,assertMobileQaThread,assertMobileQaConversation} from '../services/mobile/qaConversaScope.service.js';
 
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const mobile=fn=>async(req,res,next)=>{
@@ -171,6 +171,50 @@ async function clinicalContactRequest(request,agencyId,clientId){
  return Object.assign(Object.create(request),{user,quickView:{...request.quickView,agencyId:Number(agencyId)},mobileClinical:undefined,
   query:{agencyId:Number(agencyId)},body:{...request.body,agencyId:Number(agencyId)},params:{clientId:String(clientId)},headers:{...request.headers,'x-agency-id':String(agencyId)}});
 }
+async function listMobileSmsLines(req) {
+  if (mobileQaAgencyId(req)) throw mobileQaScopeError();
+  const { listMobileAgencies } = await import('../services/mobile/agencyScope.service.js');
+  const { listClinicalSmsLines } = await import('../services/clinicalSmsDirectory.service.js');
+  const userId = req.quickView.userId;
+  const user = await User.findById(userId, { raw: true });
+  if (!user) throw fail(403, 'This workspace is unavailable.');
+  const { agencies } = await listMobileAgencies(user);
+  const agencyIds = new Set(agencies.map(agency => Number(agency.id)));
+  return (await listClinicalSmsLines(userId)).filter(line => agencyIds.has(Number(line.agencyId)));
+}
+
+export const getMobileSmsLines = mobile(async (req, res) => {
+  res.json({ lines: await listMobileSmsLines(req) });
+});
+
+export const getMobileSmsRecipients = mobile(async (req, res) => {
+  const agencyId = Number(req.query.agencyId);
+  const numberId = Number(req.query.numberId);
+  const lines = await listMobileSmsLines(req);
+  if (!lines.some(line => Number(line.agencyId) === agencyId && Number(line.numberId) === numberId)) {
+    throw fail(403, 'Choose an available provider line for this organization.');
+  }
+  const { findConfirmedSmsRecipients } = await import('../services/clinicalSmsDirectory.service.js');
+  res.json({ recipients: await findConfirmedSmsRecipients({
+    userId: req.quickView.userId, agencyId, numberId, query: req.query.q
+  }) });
+});
+
+export const postMobileSms = mobile(async (req, res, next) => {
+  const { clientId, guardianUserId, body } = req.body || {};
+  const numberId = Number(req.body?.numberId);
+  const lines = await listMobileSmsLines(req);
+  if (!lines.some(line => Number(line.numberId) === numberId)) {
+    throw fail(403, 'Choose an available provider line for this organization.');
+  }
+  const { sendMessage } = await import('./message.controller.js');
+  const scoped = Object.assign(Object.create(req), {
+    user: { id: req.quickView.userId },
+    body: { clientId, guardianUserId, body, numberId, startNewConversation: true }
+  });
+  return sendMessage(scoped, res, next);
+});
+
 export const getMobileClientRecipients=mobile(async(req,res)=>{
  const channel=String(req.query.channel || 'secure');if(!['secure','sms'].includes(channel))throw fail(400,'Choose Secure messages or Texts.');
  const query=String(req.query.q || '').trim().slice(0,100),user=await User.findById(req.quickView.userId,{raw:true});

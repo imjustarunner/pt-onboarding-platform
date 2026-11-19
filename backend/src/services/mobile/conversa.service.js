@@ -4,6 +4,8 @@ import {groupEmailIdentity,groupEmailNameSql} from '../groupEmailIdentity.js';
 import {mobileAgencyIcon} from './agencyBrand.service.js';
 import pool from '../../config/database.js';
 import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
+import {sentSmsConversationSql} from '../../utils/assignedSmsAccessSql.js';
+import {describeSmsConversations} from '../smsConversationPresentation.service.js';
 
 export async function requireMobileThreadMembership(userId,threadId,db=pool,verifyAccess=null){
   if (db === pool && await assertCompanyEventConversationMember({threadId,userId,db})) return true;
@@ -69,7 +71,11 @@ const unknownSqlFor=userId=>`(c.channel='email' AND COALESCE(c.is_unknown_sender
   AND NOT EXISTS(SELECT 1 FROM managed_workspace_groups known_group WHERE ${emailAddressSql('known_group.email')}=${senderAddress})
   AND NOT EXISTS(SELECT 1 FROM email_sender_identities known_sender WHERE known_sender.is_active=1 AND ${emailAddressSql('known_sender.from_email')}=${senderAddress})
   AND NOT EXISTS(SELECT 1 FROM communication_inboxes known_box WHERE ${emailAddressSql('known_box.from_email')}=${senderAddress}))`;
-const unreadSql=`(COALESCE(r.forced_unread,0)=1 OR EXISTS(SELECT 1 FROM communication_messages incoming WHERE incoming.conversation_id=c.id AND incoming.direction='inbound' AND COALESCE(incoming.is_internal_note,0)=0 AND COALESCE(incoming.send_status,'sent') NOT IN('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at<COALESCE(incoming.sent_at,incoming.created_at))))`;
+const unreadSql=`(COALESCE(r.forced_unread,0)=1 OR (c.channel='sms' AND EXISTS(
+  SELECT 1 FROM message_logs inbound_sms WHERE inbound_sms.agency_id=c.agency_id
+    AND inbound_sms.sms_thread_key=c.external_thread_id AND inbound_sms.direction='INBOUND'
+    AND (r.last_read_at IS NULL OR r.last_read_at<inbound_sms.created_at)
+)) OR EXISTS(SELECT 1 FROM communication_messages incoming WHERE incoming.conversation_id=c.id AND incoming.direction='inbound' AND COALESCE(incoming.is_internal_note,0)=0 AND COALESCE(incoming.send_status,'sent') NOT IN('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at<COALESCE(incoming.sent_at,incoming.created_at))))`;
 export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess=null,groupKeys=null}={}) {
   async function preferences(userId) {
     const [[row]]=await db.execute('SELECT preferences_json FROM mobile_workspace_preferences WHERE user_id=?',[userId]);
@@ -111,14 +117,14 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
     return {where:`c.channel IN('email','sms') AND ${access} ${includeArchived?'':`AND ((c.archived_at IS NULL AND archive.archived_at IS NULL) OR ${spamSqlFor(userId)})`} ${agencyId?'AND c.agency_id=?':''}`,params:[...params,...(agencyId?[agencyId]:[])],groupIds,agencyBrands};
   }
   function groupSql(scope){return scope.groupIds.length?`(c.inbox_id IN(${scope.groupIds.join(',')}))`:'0';}
-  const sentSql=userId=>`EXISTS(SELECT 1 FROM communication_messages outbound WHERE outbound.conversation_id=c.id AND outbound.direction='outbound' AND COALESCE(outbound.is_internal_note,0)=0 AND COALESCE(outbound.send_status,'sent')='sent' AND outbound.author_user_id=${Number(userId)})`;
+  const sentSql=userId=>`(${sentSmsConversationSql.replace('?', String(Number(userId)))} OR (c.channel='email' AND EXISTS(SELECT 1 FROM communication_messages outbound WHERE outbound.conversation_id=c.id AND outbound.direction='outbound' AND COALESCE(outbound.is_internal_note,0)=0 AND COALESCE(outbound.send_status,'sent')='sent' AND outbound.author_user_id=${Number(userId)})))`;
   // A group ticket's canonical claimant, not its historical conversation owner,
   // determines whose personal unread badge it belongs in. Visibility is unchanged.
    const effectiveUnread=(scope,userId)=>`(${unreadSql} AND (NOT ${groupSql(scope)} OR t.id IS NULL OR (t.claimed_by_user_id=${Number(userId)} AND t.status NOT IN('closed','resolved','done','answered','waiting','pending_external'))))`;
   const groupNameSql=groupEmailNameSql;
   async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={},resolvedScope=null) {
     const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);
-    const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.inbox_id,${spamSqlFor(userId)} AS mobile_spam,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,${groupNameSql} AS group_name,i.from_email AS destination_account,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
+    const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.inbox_id,${spamSqlFor(userId)} AS mobile_spam,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,c.external_thread_id,${groupNameSql} AS group_name,i.from_email AS destination_account,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
       COALESCE(archive.archived_at,c.archived_at) AS archived_at,${effectiveRead} AS is_unread,${sentSql(userId)} AS has_sent,${unknownSql} AS is_unknown_sender,
       (SELECT p.display_name FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1) AS sender_name,
       ${senderAddress} AS sender_email,
@@ -128,10 +134,10 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
       WHERE ${scope.where} AND ${spamSqlFor(userId)}=${suite==='spam'?1:0} ${suite==='groups'?`AND ${groupSql(scope)}`:['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql} AND NOT ${groupSql(scope)}`:suite==='unknown'?`AND ${unknownSql}`:''} ${filter==='unread'?`AND ${effectiveRead}`:filter==='needs'?"AND c.status IN('new','needs_reply')":filter==='sent'?`AND ${sentSql(userId)}`:''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
       ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.channel DESC,c.id DESC LIMIT 101`,[userId,userId,...scope.params,...(beforeAt?(beforeKey?[new Date(beforeAt),new Date(beforeAt),beforeKey]:[new Date(beforeAt)]):[])]);
-    const [schools,people]=await Promise.all([mobileEmailSchoolIdentities(rows,{db}),mobileEmailPersonIdentities(rows,{db})]);
-    return rows.map(r=>{
+    const [schools,people,describedRows]=await Promise.all([mobileEmailSchoolIdentities(rows,{db}),mobileEmailPersonIdentities(rows,{db}),describeSmsConversations(rows,{db})]);
+    return describedRows.map(r=>{
       let from=r.latest_from || {};if(typeof from==='string')try{from=JSON.parse(from);}catch{from={};}
-      return {...(scope.agencyBrands?.get(Number(r.agency_id))||{}),...(schools.get(Number(r.id))||{}),...(people.get(Number(r.id))||{}),key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.mobile_spam)?'spam':Number(r.is_group)?'groups':r.channel,groupName:Number(r.is_group)?r.group_name || 'Group':null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.mobile_spam) && !Number(r.is_group) && !!Number(r.is_unknown_sender)};
+      return {...(scope.agencyBrands?.get(Number(r.agency_id))||{}),...(schools.get(Number(r.id))||{}),...(people.get(Number(r.id))||{}),key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.mobile_spam)?'spam':Number(r.is_group)?'groups':r.channel,groupName:Number(r.is_group)?r.group_name || 'Group':null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.sms?.recipientName || r.subject || '(No subject)',...(r.sms?{sms:r.sms}:{}),sender:r.sms?.recipientName || from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.mobile_spam) && !Number(r.is_group) && !!Number(r.is_unknown_sender)};
     });
   }
   async function emailCounts(userId,includeArchived=false,agencyId=null,resolvedScope=null) {
