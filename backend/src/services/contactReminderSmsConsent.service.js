@@ -111,12 +111,13 @@ export async function applyContactReminderSmsKeyword({ sender, phone, keyword, m
       AND (?='STOP' OR (a.is_active=1 AND c.is_active=1 AND a.sms_reminders_enabled=1
         AND a.sms_sender_number_id=? AND a.sms_invitation_sent_at IS NOT NULL
         AND a.sms_invitation_permission_at IS NOT NULL AND a.notify_ack_at IS NOT NULL
-        AND (EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id=a.client_id
-          AND cg.guardian_user_id=a.notify_ack_by_user_id AND cg.access_enabled=1
+        AND EXISTS (SELECT 1 FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id
+          WHERE cg.client_id=a.client_id AND cg.guardian_user_id=a.notify_ack_by_user_id
+          AND cg.access_enabled=1 AND u.is_active=1
           AND COALESCE(JSON_EXTRACT(cg.permissions_json,'$.noView'),false)=false
-          AND COALESCE(JSON_EXTRACT(cg.permissions_json,'$.noViewOtherGuardian'),false)=false)
-          OR EXISTS (SELECT 1 FROM clients cl JOIN users u ON u.id=cl.user_id
-            WHERE cl.id=a.client_id AND cl.user_id=a.notify_ack_by_user_id AND u.role='client' AND u.is_active=1))))`,
+          AND COALESCE(JSON_EXTRACT(cg.permissions_json,'$.noViewOtherGuardian'),false)=false
+          AND COALESCE(JSON_EXTRACT(cg.permissions_json,'$.billingOnly'),false)=false
+          AND COALESCE(JSON_EXTRACT(cg.permissions_json,'$.pendingGuardianVerification'),false)=false)))`,
     [sender.agency_id, digits, local, keyword, sender.id]);
   if (keyword === 'START' && (validateSmsRegistration(sender.registration).length || sender.registration.allowRestart !== true)) return 0;
   let changed = 0;

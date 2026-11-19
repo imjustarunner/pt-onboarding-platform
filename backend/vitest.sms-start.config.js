@@ -12,6 +12,7 @@ export default {
     'src/services/__tests__/guardianNotificationSetup.test.js',
     'src/services/__tests__/guardianReminderPreferences.test.js',
     'src/services/__tests__/contactReminderSmsConsent.test.js',
+    'src/services/__tests__/contactReminderSmsKeyword.schema.test.js',
     'src/services/__tests__/sessionNotification.affiliatedRecipients.test.js',
     'src/services/__tests__/schoolAppointmentNotifications.test.js'
   ] }
