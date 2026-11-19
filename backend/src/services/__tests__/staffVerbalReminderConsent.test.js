@@ -4,6 +4,10 @@ vi.mock('../clientAccountSupportAccess.service.js',()=>({requireClientAccountSup
 vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:vi.fn()}));
 vi.mock('../smsCompliance.service.js',()=>({getSmsSender:vi.fn(),resolveRegisteredSmsSender:vi.fn(),isSmsSuppressed:vi.fn()}));
 vi.mock('../intakeCommunicationChoices.service.js',()=>({latestIntakeCommunicationChoices:vi.fn(async()=>null)}));
+vi.mock('../clientSmsStartConsent.service.js', async importOriginal => ({
+  ...await importOriginal(), clientSmsStartAllowed: vi.fn()
+}));
+import { clientSmsStartAllowed } from '../clientSmsStartConsent.service.js';
 import pool from '../../config/database.js';
 import {requireClientAccountSupport} from '../clientAccountSupportAccess.service.js';
 import {authorizedAppointmentClient} from '../guardianAppointments.service.js';
@@ -31,6 +35,7 @@ beforeEach(()=>{
   if(sql.includes('SELECT id,evidence_json,created_at'))return [events.filter(e=>e.scope_key===args[0]).slice(-1)];
   if(sql.includes('SELECT evidence_json FROM sms_permission_events'))return [events.filter(e=>e.id===args[0]&&e.scope_key===args[1]&&e.phone===args[2])];
   if(sql.startsWith('INSERT INTO sms_permission_events')){const row={id:events.length+1,scope_key:args[0],phone:args[1],evidence_json:JSON.parse(args[2]),provider_message_id:args[3]};events.push(row);return [{insertId:row.id}];}
+  if(sql.includes('SELECT purpose,status,evidence_json'))return [permission?[{purpose:'reminders',status:'opted_in',evidence_json:permission}]:[]];
   if(sql.includes('SELECT evidence_json FROM sms_recipient_permissions'))return [permission?[{evidence_json:permission}]:[]];
   if(sql.startsWith('INSERT INTO sms_recipient_permissions')){permission=JSON.parse(args[2]);return [{affectedRows:1}];}
   if(sql.includes('SELECT channels_json'))return [[{channels_json:{email:false,in_app:true,sms:false}}]];
@@ -121,4 +126,30 @@ it('preserves a parent’s separately recorded grants for two clients sharing th
 it('retains earlier signed reminder evidence for existing recipients while recording the new scoped verbal grant',async()=>{
  permission={source:'web_form',signerVerified:true,signatureReference:'signed:12',collectedAt:'2026-01-01T12:00:00Z'};
  await save();expect(permission.previousSignedConsent).toMatchObject({signatureReference:'signed:12'});
+});
+
+it('shows the dated START for the eligible recipient without a verbal attestation', async () => {
+  const collectedAt = new Date(Date.now() - 10000).toISOString();
+  const enrolledSender = {...sender, registration: {...registration, purposes:['reminders','care'], allowRestart:true, verbalReminderConsentApproved:false}};
+  getSmsSender.mockResolvedValue(enrolledSender);
+  permission = {source:'inbound_start', collectedAt};
+  clientSmsStartAllowed.mockResolvedValue(true);
+  let careStatus = 'opted_in';
+  const execute = pool.execute.getMockImplementation();
+  pool.execute.mockImplementation((sql, args) => sql.includes('SELECT purpose,status,evidence_json')
+    ? Promise.resolve([[{purpose:'reminders',status:'opted_in',evidence_json:permission},
+      {purpose:'care',status:careStatus,evidence_json:permission}]]) : execute(sql,args));
+  const read = async () => (await staffReminderConsentContext(user, client.id)).recipients[0];
+  expect(await read()).toMatchObject({enabled:true, textChoices:{reminders:{state:'on',at:collectedAt},care:{state:'on',at:collectedAt}}, lastConsent:null});
+  expect(clientSmsStartAllowed).toHaveBeenCalledWith({sender:enrolledSender, phone:guardian.phone,
+    purpose:'reminders', evidence:permission, clientId:client.id, recipientUserId:guardian.id});
+  careStatus = 'opted_out';
+  expect(await read()).toMatchObject({enabled:true, textChoices:{care:{state:'opted_out'},reminders:{state:'on'}}});
+  clientSmsStartAllowed.mockResolvedValue(false);
+  expect(await read()).toMatchObject({enabled:false});
+  isSmsSuppressed.mockResolvedValue(true);
+  clientSmsStartAllowed.mockClear();
+  expect(await read()).toMatchObject({stopped:true, enabled:false, textChoices:{reminders:{state:'stopped'},care:{state:'stopped'}}});
+  expect(clientSmsStartAllowed).not.toHaveBeenCalled();
+  expect(sends).not.toHaveBeenCalled();
 });

@@ -1,21 +1,32 @@
 <template>
-  <section class="reminder-consent" aria-label="Appointment text reminders">
-    <h3>Appointment text reminders</h3>
-    <p>Record a client or guardian’s verbal agreement for their saved phone. This enables appointment texts only.</p>
+  <section class="reminder-consent" aria-label="Client and guardian texting">
+    <h3>Client and guardian texting</h3>
     <p v-if="loading" role="status">Loading contact and texting status…</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <template v-if="context">
-      <p v-if="context.activationBlocked" class="pending">{{ context.activationBlocked }}</p>
+      <p v-if="context.activationBlocked && !person?.enabled" class="pending">{{ context.activationBlocked }}</p>
       <p v-if="!context.recipients.length">Save an eligible guardian’s phone and link their account first. Adult clients may use their own saved contact phone.</p>
       <form v-else @submit.prevent="save">
         <label>Recipient<select v-model="selectedId" :disabled="busy" @change="resetAttestation"><option value="">Choose a client or guardian</option><option v-for="person in context.recipients" :key="person.id" :value="String(person.id)">{{ person.name }} — {{ person.relationship === 'self' ? 'Client' : 'Guardian' }}</option></select></label>
         <template v-if="person">
           <p><strong>Phone:</strong> {{ person.phone || 'No valid phone saved' }}</p>
+          <template v-if="Object.keys(person.textChoices || {}).length">
+            <dl class="text-choices">
+              <template v-for="(label, purpose) in textLabels" :key="purpose">
+                <template v-if="person.textChoices[purpose]">
+                  <dt>{{ label }}</dt>
+                  <dd>{{ textState(person.textChoices[purpose]) }}<span v-if="person.textChoices[purpose].at"> · {{ formatDate(person.textChoices[purpose].at) }}</span></dd>
+                </template>
+              </template>
+            </dl>
+            <p v-if="person.textChoices.reminders && person.textChoices.care">Text START<span v-if="context.senderNumber"> to {{ context.senderNumber }}</span> to opt into both. NOREMIND stops appointment reminders, NOPROVIDER stops provider texts, and STOP turns off all texts.</p>
+          </template>
           <p v-if="person.stopped" class="pending">This number selected STOP. Staff cannot turn texts back on. The recipient must restart through the registered program.</p>
-          <p v-else-if="person.enabled" role="status">Verbal consent recorded; appointment texts enabled. Current delivery permissions still apply.</p>
-          <template v-else-if="person.phone">
+          <p v-else-if="person.enabled && !person.textChoices?.reminders" role="status">Verbal consent recorded; appointment texts enabled. Current delivery permissions still apply.</p>
+          <template v-else-if="person.phone && !person.enabled">
             <p v-if="person.lastConsent">Verbal consent previously recorded by staff #{{ person.lastConsent.actorUserId }} at {{ formatDate(person.lastConsent.collectedAt) }}. Activation remains pending.</p>
+            <h4>Record verbal consent for appointment reminders</h4>
             <details open><summary>Read this disclosure to the recipient</summary><p class="disclosure">{{ context.disclosure }}</p></details>
             <label>How consent was obtained<select v-model="method" :disabled="busy"><option value="phone">Phone call</option><option value="in_person">In person</option></select></label>
             <label>When they agreed<input v-model="collectedAt" type="datetime-local" required :disabled="busy" /><small>Shown in your device’s local time. Use the actual conversation time.</small></label>
@@ -37,6 +48,15 @@ const context=ref(null),loading=ref(false),busy=ref(false),error=ref(''),notice=
 const method=ref('phone'),collectedAt=ref(''),attested=ref(false),phoneConfirmed=ref(false),authorityConfirmed=ref(false);
 let generation=0,requestKey=crypto.randomUUID();
 const person=computed(()=>context.value?.recipients.find(r=>String(r.id)===selectedId.value));
+const textLabels = {reminders:'Appointment reminders', care:'Provider texting'};
+function textState(choice) {
+  if (choice.state === 'on') return 'On · opted in by texting START';
+  if (choice.state === 'opted_out') return 'Off · opted out';
+  if (choice.state === 'stopped') return 'Off · STOP';
+  if (choice.state === 'verbal') return 'On · verbal consent';
+  if (choice.state === 'inactive') return 'START received · currently unavailable';
+  return 'No active START recorded';
+}
 const localNow=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
 function resetAttestation(){attested.value=false;phoneConfirmed.value=false;authorityConfirmed.value=false;collectedAt.value=localNow();requestKey=crypto.randomUUID();}
 const formatDate=value=>new Date(value).toLocaleString();
@@ -54,6 +74,6 @@ async function save(){
 }
 watch(()=>props.clientId,()=>{generation++;context.value=null;selectedId.value='';busy.value=false;error.value='';notice.value='';resetAttestation();load(generation);},{immediate:true});
 </script>
-<style scoped>
+<style scoped>.text-choices{display:grid;grid-template-columns:auto 1fr;gap:6px 16px}.text-choices dt{font-weight:600}.text-choices dd{margin:0}
 .reminder-consent{border:1px solid #d4dfeb;border-radius:10px;padding:20px;margin:18px 0;background:#fff;color:#24374c;line-height:1.6}.reminder-consent h3{margin:0}.reminder-consent form{display:grid;gap:12px;max-width:760px}.reminder-consent label{display:grid;gap:5px}.reminder-consent input,.reminder-consent select{padding:9px;border:1px solid #b8c9db;border-radius:6px;max-width:100%;min-width:0;box-sizing:border-box}.reminder-consent .check{display:flex;align-items:flex-start;gap:10px}.check input{margin-top:6px;flex:none}.disclosure{background:#f4f7fb;padding:16px;overflow-wrap:anywhere}.pending{color:#795b15}.error{color:#a52e38}.reminder-consent small{color:#607286}
 </style>

@@ -16,7 +16,7 @@ export function clientStartPurposes(sender) {
   const registration = sender.registration;
   return registration?.provider === 'notifyre' && registration.allowRestart === true
     && registration.startEnrollment == null
-    && !validateSmsRegistration(registration).length
+    && Array.isArray(registration.purposes) && !validateSmsRegistration(registration).length
     ? purposes.filter(purpose => registration.purposes.includes(purpose)) : [];
 }
 
@@ -104,7 +104,7 @@ export async function clientSmsStartAllowed({ sender, phone, purpose, evidence, 
   const grantedAt = time(evidence.collectedAt);
   if (!Number.isFinite(grantedAt) || grantedAt > Date.now() + 300000) return false;
   const recipients = await clientSmsStartRecipients({ agencyId: sender.agency_id, phone, clientId }, db);
-  const matching = recipientUserId ? recipients.filter(r => Number(r.guardianUserId) === Number(recipientUserId)) : recipients;
+  const matching = recipientUserId != null ? recipients.filter(r => Number(r.guardianUserId) === Number(recipientUserId)) : recipients;
   if (!matching.length) return false;
   for (const recipient of matching) {
     const cp = await latestIntakeCommunicationChoices(recipient.clientId, sender.agency_id, recipient.guardianUserId);

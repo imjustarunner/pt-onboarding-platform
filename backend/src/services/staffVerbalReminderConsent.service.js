@@ -4,6 +4,7 @@ import { requireClientAccountSupport } from './clientAccountSupportAccess.servic
 import { authorizedAppointmentClient } from './guardianAppointments.service.js';
 import { ageOn } from './guardianClinicalAccess.service.js';
 import { getSmsSender, resolveRegisteredSmsSender, isSmsSuppressed } from './smsCompliance.service.js';
+import { clientStartPurposes, clientSmsStartAllowed } from './clientSmsStartConsent.service.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { contactReminderConsentLock, contactReminderPhoneHash } from '../utils/contactReminderConsent.js';
 import { VERBAL_REMINDER_CONSENT_VERSION, verbalReminderProgramReady, verbalReminderDisclosure } from '../utils/staffVerbalReminderConsent.js';
@@ -42,7 +43,6 @@ async function program(agencyId){
   const registration=sender?.registration;
   let reason=null;
   if(!sender || validateSmsRegistration(registration).length)reason='The agency’s appointment-text sender is not ready. Consent can be recorded; texts remain off.';
-  else if(!verbalReminderProgramReady(registration))reason='An administrator must confirm that the carrier approved this verbal reminder opt-in script before activation.';
   if(!reason){
     try { smsTransport({registration,agencyId,purpose:'reminders'}); }
     catch(error){
@@ -50,7 +50,11 @@ async function program(agencyId){
       reason='The agency’s clinical texting service is awaiting activation. An administrator must finish texting setup; consent can be recorded, but texts remain off.';
     }
   }
-  return {sender,reason,disclosure:verbalReminderDisclosure(agency,registration),version:VERBAL_REMINDER_CONSENT_VERSION};
+  const deliveryReady = !reason;
+  if (deliveryReady && !verbalReminderProgramReady(registration)) {
+    reason = 'An administrator must confirm that the carrier approved this verbal reminder opt-in script before activation.';
+  }
+  return {sender,reason,deliveryReady,disclosure:verbalReminderDisclosure(agency,registration),version:VERBAL_REMINDER_CONSENT_VERSION};
 }
 export async function staffReminderConsentContext(user,clientId){
   const client=await requireClientAccountSupport(user,clientId);
@@ -63,11 +67,35 @@ export async function staffReminderConsentContext(user,clientId){
       AND JSON_UNQUOTE(JSON_EXTRACT(evidence_json,'$.source'))='staff_verbal_attestation'
       ORDER BY id DESC LIMIT 1`,[eventScope(client.agency_id),person.phone||'',client.id,person.id]);
     person.lastConsent=latest?{id:latest.id,collectedAt:parse(latest.evidence_json).collectedAt,actorUserId:parse(latest.evidence_json).actorUserId}:null;
-    const [[permission]]=p.sender&&person.phone?await pool.execute("SELECT evidence_json FROM sms_recipient_permissions WHERE scope_key=? AND phone=? AND purpose='reminders' AND status='opted_in' AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP())",[p.sender.scope,person.phone]):[[]];
-    const grants=parse(permission?.evidence_json).grants||[];
-    person.enabled=!person.stopped&&!p.reason&&grants.some(g=>Number(g.clientId)===Number(client.id)&&g.recipientUserId===person.id);
+    const [permissions] = p.sender && person.phone ? await pool.execute(
+      `SELECT purpose,status,evidence_json FROM sms_recipient_permissions
+        WHERE scope_key=? AND phone=? AND purpose IN ('reminders','care')
+          AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP())`, [p.sender.scope, person.phone]
+    ) : [[]];
+    const reminder = permissions.find(row => row.purpose === 'reminders' && row.status === 'opted_in');
+    const verbalGrant = parse(reminder?.evidence_json).grants?.find(g => Number(g.clientId) === Number(client.id) && g.recipientUserId === person.id);
+    person.enabled = !!verbalGrant && !person.stopped && !p.reason;
+    person.textChoices = {};
+    const purposes = p.sender ? clientStartPurposes(p.sender) : [];
+    for (const purpose of purposes) {
+      const row = permissions.find(r => r.purpose === purpose);
+      const evidence = parse(row?.evidence_json);
+      let state = 'no_start';
+      if (person.stopped) state = 'stopped';
+      else if (row?.status === 'opted_out') state = 'opted_out';
+      else if (evidence.source === 'inbound_start' && row?.status === 'opted_in') {
+        const allowed = p.deliveryReady && await clientSmsStartAllowed({
+          sender: p.sender, phone: person.phone, purpose, evidence, clientId: client.id, recipientUserId: person.id
+        });
+        state = allowed ? 'on' : 'inactive';
+        if (allowed && purpose === 'reminders') person.enabled = true;
+      } else if (purpose === 'reminders' && person.enabled) state = 'verbal';
+      person.textChoices[purpose] = {
+        state, at: ['on', 'opted_out'].includes(state) ? evidence.collectedAt || null : null
+      };
+    }
   }
-  return {agencyId:client.agency_id,recipients:people,disclosure:p.disclosure,version:p.version,activationBlocked:p.reason};
+  return {agencyId:client.agency_id,senderNumber:p.sender?.phone_number || null,recipients:people,disclosure:p.disclosure,version:p.version,activationBlocked:p.reason};
 }
 
 // This is consent evidence from a named staff attestation, never a fabricated

@@ -5,6 +5,7 @@ import {assertContactOwner} from './clientContactPolicy.service.js';
 import pool from '../config/database.js';
 import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import { contactReminderPhoneHash, contactReminderConsentLock } from '../utils/contactReminderConsent.js';
+import { clientStartPurposes } from './clientSmsStartConsent.service.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
@@ -13,8 +14,11 @@ import { sendNotifyreSms, smsTransport } from './notifyre.service.js';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const oneLine = value => String(value || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 100);
-export function contactSmsInvitationText({ assignerName, agencyName, isSelf = false }) {
-  return `${oneLine(agencyName) || 'Care team'}: ${oneLine(assignerName) || 'An authorized account holder'} added you to appointment reminders for ${isSelf ? 'their own appointments' : "their dependent's appointments"}. Reply START to opt in. Message frequency varies. Message and data rates may apply. STOP to stop, HELP for help.`;
+export function contactSmsInvitationText({ assignerName, agencyName, isSelf = false, includesProviderTexts = false }) {
+  const instructions = includesProviderTexts
+    ? 'Reply START for appointment reminders and provider texts. NOREMIND stops reminders. NOPROVIDER stops provider texts.'
+    : 'Reply START to opt in.';
+  return `${oneLine(agencyName) || 'Care team'}: ${oneLine(assignerName) || 'An authorized account holder'} added you to appointment reminders for ${isSelf ? 'their own appointments' : "their dependent's appointments"}. ${instructions} Message frequency varies. Message and data rates may apply. STOP to stop, HELP for help.`;
 }
 
 export async function requestContactSmsInvitation({ affiliationId, clientId, userId, recipientPermissionToInvite }) {
@@ -67,7 +71,7 @@ export async function requestContactSmsInvitation({ affiliationId, clientId, use
       throw fail(409, 'This contact selected STOP. Invitations cannot be resent.');
     }
     if (!allowQaSmsDelivery({ id: agency.id, slug: agency.slug, feature_flags: agency.feature_flags }, { to: phone, purpose: 'reminders', clientId })) return await blocked(row, 'sms_qa_recipient_blocked');
-    const body = contactSmsInvitationText({ agencyName: agency.name, assignerName: [assigner?.first_name, assigner?.last_name].filter(Boolean).join(' '), isSelf: assigner?.role === 'client' });
+    const body = contactSmsInvitationText({ agencyName: agency.name, assignerName: [assigner?.first_name, assigner?.last_name].filter(Boolean).join(' '), isSelf: assigner?.role === 'client', includesProviderTexts: clientStartPurposes(sender).includes('care') });
     const delivery = { to: phone, from: sender.phone_number, agencyId: sender.agency_id, purpose: 'reminders', body, registration: sender.registration };
     try { smsTransport(delivery); } catch (error) { return await blocked(row, error.code || 'notifyre_not_ready'); }
     await ClientContactAffiliation.update(row.id, {

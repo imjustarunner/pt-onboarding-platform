@@ -82,6 +82,10 @@ describe('additional contact opt-in invitations', () => {
     expect(await requestContactSmsInvitation(input)).toMatchObject({ status: 'uncertain', sent: false });
     expect(m.update).toHaveBeenLastCalledWith(7, expect.objectContaining({ smsInvitationStatus: 'uncertain' }));
   });
+  it('discloses both categories when START requests both', () => {
+    const text = contactSmsInvitationText({agencyName:'Practice',assignerName:'Parent',includesProviderTexts:true});
+    for (const phrase of ['START for appointment reminders and provider texts','NOREMIND','NOPROVIDER','STOP']) expect(text).toContain(phrase);
+  });
   it('uses a separate own-appointments description for an adult client', () => {
     expect(contactSmsInvitationText({ agencyName: 'ITSCO', assignerName: 'Alex', isSelf: true })).toContain('their own appointments');
   });

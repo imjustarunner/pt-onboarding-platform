@@ -50,8 +50,8 @@ beforeEach(() => {
     if (sql.includes('INSERT INTO sms_recipient_permissions')) {
       const [scope, recipient, purpose] = args;
       if (purpose === failPurpose) throw new Error('Simulated database interruption');
-      const literalStatus = sql.includes("VALUES (?,?,?,'opted_in'");
-      permissions.set(key(scope, recipient, purpose), { status: literalStatus ? 'opted_in' : args[3],
+      const literalStatus = sql.match(/VALUES \(\?,\?,\?,'(opted_in|opted_out)'/)?.[1];
+      permissions.set(key(scope, recipient, purpose), { status: literalStatus || args[3],
         evidence_json: JSON.parse(args[literalStatus ? 3 : 4]), updated_at: new Date() });
       return [{ affectedRows: 1 }];
     }
@@ -148,3 +148,16 @@ it('explains fresh START enrollment on new forms and preserves the exact histori
   expect(old.version).toBe('2026-10-05.1'); expect(old.text).toContain('reactivates existing subscriptions only');
   expect(buildSmsConsentDisclosure({ ...registration, provider: 'vonage' }).text).toContain('reactivates existing subscriptions only');
 });
+
+it.each([['NOREMIND','reminders','care'],['NOPROVIDER','care','reminders']])(
+  'applies %s to just its category, then stops both on STOP', async (keyword, disabled, enabled) => {
+    await command('START');
+    await command(keyword, at + 1000);
+    await expect(delivery(disabled)).rejects.toMatchObject({code:'sms_consent_required'});
+    await expect(delivery(enabled)).resolves.toMatchObject({purpose:enabled});
+    await command('STOP', at + 2000);
+    for (const purpose of [disabled, enabled]) {
+      await expect(delivery(purpose)).rejects.toMatchObject({code:'sms_opted_out'});
+    }
+  }
+);

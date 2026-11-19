@@ -28,3 +28,18 @@ it('clears consent and stale contacts when navigating to another client',async()
 it('preserves the retry identifier after an uncertain request and shows the server error',async()=>{
  api.post.mockRejectedValue({response:{data:{error:{message:'Consent is being updated. Please retry.'}}}});const w=await selected();for(const c of w.findAll('input[type="checkbox"]'))await c.setValue(true);await w.find('form').trigger('submit');await flushPromises();await w.find('form').trigger('submit');await flushPromises();expect(api.post.mock.calls[0][1].requestKey).toBe(api.post.mock.calls[1][1].requestKey);expect(w.text()).toContain('Consent is being updated');w.unmount();
 });
+
+it('shows a recipient’s dated START without asking staff to attest again', async () => {
+  api.get.mockResolvedValue({data:{...context, activationBlocked:'Verbal script approval pending',
+    recipients:[{...person, enabled:true, textChoices:{reminders:{state:'on',at:'2026-10-12T12:30:00Z'},care:{state:'opted_out',at:null}}}]}});
+  const w = await selected();
+  expect(w.text()).toContain('opted in by texting START');
+  expect(w.text()).toContain('Provider texting');
+  expect(w.text()).toContain('Off · opted out');
+  expect(w.text()).toContain('NOPROVIDER');
+  expect(w.text()).not.toContain('Verbal consent recorded');
+  expect(w.text()).not.toContain('Verbal script approval pending');
+  expect(w.find('input[type="checkbox"]').exists()).toBe(false);
+  expect(api.post).not.toHaveBeenCalled();
+  w.unmount();
+});

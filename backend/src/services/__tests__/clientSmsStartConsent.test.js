@@ -123,6 +123,7 @@ describe('current and future client/guardian integration', () => {
   it('requires the exact client and guardian when a delivery names them', async () => {
     clients = [{ id: 42, contact_phone: phone }];
     expect(await allowed({ clientId: 43 })).toBe(false);
+    expect(await allowed({ clientId: 42, recipientUserId: 0 })).toBe(false);
     expect(await allowed({ clientId: 42, recipientUserId: 999 })).toBe(false);
     expect(await allowed({ clientId: 42, recipientUserId: 1449 })).toBe(true);
   });
