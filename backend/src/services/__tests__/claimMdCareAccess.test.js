@@ -13,5 +13,14 @@ it('denies guardian and school users before reading any financial summary',async
 it('denies a provider outside client-record access and derives tenant scope from the client record',async()=>{
  const req={user:{id:5,role:'provider'},params:{id:2},query:{agencyId:99}};
  resolveClientRecordAccess.mockResolvedValue({ok:false,status:403,message:'Not assigned'});const denied=response();await getClientCareBillingSummary(req,denied,vi.fn());expect(denied.status).toHaveBeenCalledWith(403);expect(clientCareBillingSummary).not.toHaveBeenCalled();
- resolveClientRecordAccess.mockResolvedValue({ok:true});const allowed=response(),next=vi.fn();await getClientCareBillingSummary(req,allowed,next);expect(clientCareBillingSummary).toHaveBeenCalledWith(1,2);expect(allowed.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(next).not.toHaveBeenCalled();
+ resolveClientRecordAccess.mockResolvedValue({ok:true});
+ for (const includeVerification of [false, true]) {
+   const allowed = response();
+   const next = vi.fn();
+   const query = includeVerification ? { ...req.query, includeVerification: '1' } : req.query;
+   await getClientCareBillingSummary({ ...req, query }, allowed, next);
+   expect(clientCareBillingSummary).toHaveBeenLastCalledWith(1, 2, undefined, { includeVerification });
+   expect(allowed.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
+   expect(next).not.toHaveBeenCalled();
+ }
 });
