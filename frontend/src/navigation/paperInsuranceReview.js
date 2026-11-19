@@ -1,4 +1,4 @@
-import { policyIsMedicaid } from './insurancePaymentPolicy.js';
+import { applyConfiguredCarrier, policyIsMedicaid } from './insurancePaymentPolicy.js';
 
 const nameKey = value => String(value || '').normalize('NFKC').trim().replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
 export const isColoradoMedicaidPolicy = policy => ['COCHA','SKCO0'].includes(String(policy?.eligibilityPayerId || policy?.payerId || '').toUpperCase());
@@ -78,5 +78,6 @@ export function matchConfiguredPayer(policy, payers = []) {
     && (!policy?.payerId || policy.payerId === payer.payerId));
   return matches.length === 1 ? matches[0] : null;
 }
-export const withConfiguredPayer = (policy, payer) => ({ ...policy, payerCatalogId: String(payer.id), insurerName: payer.name,
-  payerId: payer.payerId, eligibilityPayerId: payer.eligibilityPayerId, isMedicaid: policy.isMedicaid === true || payer.isMedicaid === true });
+export const withConfiguredPayer = (policy, payer) => ({
+  ...applyConfiguredCarrier(policy, payer), payerCatalogId:String(payer.id)
+});

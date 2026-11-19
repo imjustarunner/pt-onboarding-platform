@@ -1,5 +1,5 @@
 import { listPayerSetupRequests } from './payerSetupCatalog.service.js';
-import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
+import { applyConfiguredCarrier, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 export async function clientInsurancePayers(agencyId, db) {
@@ -24,5 +24,5 @@ export function resolveConfiguredPolicy(policy, payers) {
   if (!policy?.payerCatalogId) return policy;
   const payer = payers.find(row => String(row.id) === String(policy.payerCatalogId));
   if (!payer) throw Object.assign(new Error('The selected carrier is no longer configured for this agency. Reload and select its current payer.'), {status:409});
-  return {...policy, insurerName:payer.name, payerId:payer.payerId, eligibilityPayerId:payer.eligibilityPayerId, isMedicaid:policy.isMedicaid === true || payer.isMedicaid === true};
+  return applyConfiguredCarrier(policy, payer);
 }

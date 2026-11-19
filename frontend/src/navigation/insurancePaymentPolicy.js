@@ -7,6 +7,22 @@ export function policyIsMedicaid(policy) {
     || /\bmedicaid\b|health\s+first\s+colorado|\bccha\b|colorado\s+community\s+health\s+alliance/i.test(String(policy?.insurerName || ''))
     || /\bmedicaid\b/i.test(String(policy?.planType || ''));
 }
+// A carrier can administer several programs. Preserve a reviewed program for this
+// policy, and clear the previous program when the user selects a different carrier.
+export function applyConfiguredCarrier(policy, payer) {
+  const normalize = name => String(name || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const sameCarrier = !!(policy.payerId || policy.insurerName)
+    && (!policy.payerCatalogId || String(policy.payerCatalogId) === String(payer.id))
+    && (!policy.payerId || policy.payerId === payer.payerId)
+    && (!policy.insurerName || [payer.name, ...(payer.names || [])].some(name => normalize(name) === normalize(policy.insurerName)));
+  const result = {...policy, insurerName:payer.name, payerId:payer.payerId, eligibilityPayerId:payer.eligibilityPayerId,
+    isMedicaid:payer.isMedicaid === true || (sameCarrier && policy.isMedicaid === true)};
+  if (!sameCarrier) {
+    delete result.programType;
+    delete result.planType;
+  }
+  return result;
+}
 // One electronic payer route may handle multiple actual insurance policies.
 // Identical policies must never become two payer orders by copying a slot.
 export function distinctInsurancePolicies(primary, secondary) {
