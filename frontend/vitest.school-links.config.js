@@ -16,6 +16,7 @@ export default defineConfig({
       'src/utils/__tests__/schoolCareBridge.test.js',
       'src/utils/__tests__/schoolCareBridgeTenant.test.js',
       'src/utils/__tests__/schoolStaffRoiLabels.test.js',
+      'src/utils/__tests__/profileAssignmentOrganizations.test.js',
       'src/router/__tests__/schoolCareBridgeRoutes.test.js',
       'src/components/school/__tests__/SchoolClientChatModal.test.js',
       'src/components/school/redesign/__tests__/PublicDocumentsPanel.test.js',

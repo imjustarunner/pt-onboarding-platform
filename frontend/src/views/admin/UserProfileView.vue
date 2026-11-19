@@ -1955,10 +1955,15 @@
                 <p v-else class="aff-sidebar-empty">No {{ activeAffiliationPluralLabel.toLowerCase() }} assigned yet.</p>
 
                 <div v-if="canEditUser" class="aff-sidebar-add">
+                  <p v-if="affiliationOptionsAgencyName" class="aff-sidebar-item-meta">{{ activeAffiliationPluralLabel }} for {{ affiliationOptionsAgencyName }}</p>
+                  <div v-if="affiliationOptionsError" class="error" role="alert">
+                    {{ affiliationOptionsError }}
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="assigningAgency" @click="fetchAvailableAgencies">Retry</button>
+                  </div>
                   <select
                     v-model="affiliationTabAddOrgId"
                     class="agency-select aff-sidebar-add-select"
-                    :disabled="assigningAgency"
+                    :disabled="assigningAgency || affiliationOptionsLoading || !!affiliationOptionsError"
                   >
                     <option value="">Add {{ activeAffiliationSingleLabel.toLowerCase() }}…</option>
                     <option
@@ -1972,7 +1977,7 @@
                   <button
                     type="button"
                     class="btn btn-primary btn-sm aff-sidebar-add-btn"
-                    :disabled="!affiliationTabAddOrgId || assigningAgency"
+                    :disabled="!affiliationTabAddOrgId || assigningAgency || affiliationOptionsLoading || !!affiliationOptionsError"
                     @click="addAffiliationFromTab"
                   >
                     {{ assigningAgency ? 'Adding…' : `+ Add ${activeAffiliationSingleLabel}` }}
@@ -1994,7 +1999,7 @@
                     v-if="canEditUser"
                     type="button"
                     class="btn btn-primary btn-sm"
-                    :disabled="assigningAgency || !availableAffiliationOrgsToAdd.length"
+                    :disabled="assigningAgency || affiliationOptionsLoading || !!affiliationOptionsError || !availableAffiliationOrgsToAdd.length"
                     title="Use the sidebar to pick an organization, then Add"
                     @click="focusAffiliationAddSelect"
                   >
@@ -2753,6 +2758,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { loadProfileAssignmentOrganizations, profileAssignmentOrganizations, resolveProfileAssignmentAgency } from '../../utils/profileAssignmentOrganizations.js';
 import { useBrandingStore } from '../../store/branding';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import { isSupervisor } from '../../utils/helpers.js';
@@ -3835,6 +3841,23 @@ const activeAffiliationConfig = computed(() => AFFILIATION_TAB_CONFIG[String(act
 const activeAffiliationOrgType = computed(() => String(activeAffiliationConfig.value?.type || ''));
 
 const affiliationTabAddOrgId = ref('');
+const affiliationOptionsLoadError = ref('');
+const affiliationOptionsLoading = ref(false);
+const affiliationOptionsFailedAgencyIds = ref([]);
+const affiliationOptionsAgencyId = computed(() => resolveProfileAssignmentAgency({
+  routeAgencyId: route.query?.agencyId, routeSlug: route.params?.organizationSlug,
+  currentAgency: agencyStore.currentAgency, memberships: userAgencies.value, catalog: availableAgencies.value
+}));
+const affiliationOptionsAgencyName = computed(() => {
+  const id = affiliationOptionsAgencyId.value;
+  return (availableAgencies.value || []).find((org) => Number(org.id) === id)?.name ||
+    (Number(agencyStore.currentAgency?.id) === id ? agencyStore.currentAgency?.name : '') || '';
+});
+const affiliationOptionsError = computed(() => affiliationOptionsLoadError.value ||
+  (affiliationOptionsAgencyId.value
+    ? (affiliationOptionsFailedAgencyIds.value.includes(affiliationOptionsAgencyId.value)
+      ? `Could not load organizations for ${affiliationOptionsAgencyName.value || 'this agency'}. Please retry.` : '')
+    : (affiliationOptionsFailedAgencyIds.value.length ? 'Some organization choices could not be loaded. Please retry.' : '')));
 
 const userAssignedOrgIds = computed(() => new Set(
   (userAgencies.value || [])
@@ -3845,11 +3868,8 @@ const userAssignedOrgIds = computed(() => new Set(
 const availableAffiliationOrgsToAdd = computed(() => {
   const type = activeAffiliationOrgType.value;
   if (!type) return [];
-  return (availableAgencies.value || []).filter((org) => {
-    const id = Number(org?.id || 0);
-    if (!id || userAssignedOrgIds.value.has(id)) return false;
-    if (isAgencyOrg(org)) return false;
-    return String(org?.organization_type || '').toLowerCase() === type;
+  return profileAssignmentOrganizations(availableAgencies.value, {
+    type, agencyId: affiliationOptionsAgencyId.value, assignedIds: userAssignedOrgIds.value
   });
 });
 const activeAffiliationTabLabel = computed(() => String(activeAffiliationConfig.value?.label || 'Affiliation'));
@@ -4759,7 +4779,7 @@ const selectedProviderProfileAgency = computed(() => {
   const agencies = Array.isArray(userAgencies.value) ? userAgencies.value : [];
   const requested = agencies.find(a=>Number(a.id)===Number(route.query.agencyId));
   if(requested)return requested;
-  const agencyOrg = agencies.find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  const agencyOrg = agencies.find((a) => String(a?.organization_type || (a?.affiliated_agency_id ? 'school' : 'agency')).trim().toLowerCase() === 'agency');
   if (agencyOrg?.id) return agencyOrg;
   if (agencies?.[0]?.id) return agencies[0];
   return null;
@@ -4771,7 +4791,7 @@ watch(selectedProviderProfileAgencyId, async () => {
   await loadProviderPublicProfile();
 });
 
-const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
+const orgTypeFor = (org) => String(org?.organization_type || (org?.affiliated_agency_id ? 'school' : 'agency')).trim().toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
 const isAffiliationOrg = (org) => !isAgencyOrg(org);
 
@@ -6362,48 +6382,25 @@ const savePrelicensedSettings = async (agency, patch) => {
 const fetchAvailableAgencies = async () => {
   if (fetchAvailableAgenciesInflight) return fetchAvailableAgenciesInflight;
   fetchAvailableAgenciesInflight = (async () => {
-  if (isSscMemberProfileMode.value) {
-    availableAgencies.value = [];
-    return;
-  }
-  try {
-    if (authStore.user?.role === 'super_admin') {
-      await agencyStore.fetchAgencies();
-      availableAgencies.value = agencyStore.agencies || [];
-    } else {
-      await agencyStore.fetchUserAgencies();
-      availableAgencies.value = agencyStore.userAgencies || [];
+    if (isSscMemberProfileMode.value) {
+      availableAgencies.value = [];
+      return;
     }
-
-    // Expand options with affiliated orgs for each parent agency the admin can access.
-    const base = availableAgencies.value || [];
-    const parents = base.filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
-    const affLists = await Promise.all(
-      parents.map(async (a) => {
-        try {
-          const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
-          return (r.data || []).map((org) => ({
-            ...org,
-            affiliated_agency_id: org.affiliated_agency_id || a.id,
-            __affiliatedAgencyId: a.id
-          }));
-        } catch (e) {
-          return [];
-        }
-      })
-    );
-    const merged = [...base, ...affLists.flat()];
-    const byId = new Map();
-    for (const org of merged) {
-      if (!org?.id) continue;
-      if (!byId.has(org.id)) byId.set(org.id, org);
+    affiliationOptionsLoading.value = true;
+    affiliationOptionsLoadError.value = '';
+    affiliationOptionsFailedAgencyIds.value = [];
+    try {
+      const result = await loadProfileAssignmentOrganizations(api, { agencyId: affiliationOptionsAgencyId.value });
+      availableAgencies.value = result.organizations;
+      affiliationOptionsFailedAgencyIds.value = result.failedAgencyIds;
+      availableAgenciesReady.value = true;
+    } catch {
+      availableAgencies.value = [];
+      availableAgenciesReady.value = false;
+      affiliationOptionsLoadError.value = 'Could not load organization choices. Please retry.';
+    } finally {
+      affiliationOptionsLoading.value = false;
     }
-    availableAgencies.value = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-    availableAgenciesReady.value = true;
-  } catch (err) {
-    console.error('Failed to load agencies:', err);
-    availableAgencies.value = [];
-  }
   })().finally(() => {
     fetchAvailableAgenciesInflight = null;
   });
@@ -6417,6 +6414,12 @@ const ensureAvailableAgencies = async () => {
 
 watch(userId, () => {
   availableAgenciesReady.value = false;
+});
+
+watch(affiliationOptionsAgencyId, () => {
+  affiliationTabAddOrgId.value = '';
+  availableAgenciesReady.value = false;
+  if (activeTab.value === 'assignments') void ensureAvailableAgencies();
 });
 
 watch(activeTab, (tab) => {
@@ -6451,7 +6454,7 @@ const focusAffiliationAddSelect = () => {
 
 const addAffiliationFromTab = async () => {
   const orgId = parseInt(String(affiliationTabAddOrgId.value || ''), 10);
-  if (!orgId) return;
+  if (!orgId || affiliationOptionsLoading.value || affiliationOptionsError.value || !availableAffiliationOrgsToAdd.value.some((org) => Number(org.id) === orgId)) return;
   try {
     assigningAgency.value = true;
     await api.post('/users/assign/agency', {
