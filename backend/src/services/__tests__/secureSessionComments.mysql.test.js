@@ -22,6 +22,8 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
       `CREATE TABLE client_provider_assignments(id INT PRIMARY KEY AUTO_INCREMENT,client_id INT,provider_user_id INT,organization_id INT,is_active TINYINT DEFAULT 1)`,
       `CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(30),access_enabled TINYINT DEFAULT 1,permissions_json JSON,PRIMARY KEY(client_id,guardian_user_id))`,
       `CREATE TABLE guardian_clinical_grants(agency_id INT,client_id INT,guardian_user_id INT,access_level VARCHAR(30),medical_rights_verified TINYINT,consent_basis VARCHAR(40),scopes_json JSON,review_due_date DATE,revoked_at DATETIME NULL)`,
+      `CREATE TABLE client_portal_independence(client_id INT,status VARCHAR(30))`,
+      `CREATE TABLE guardian_clinical_access_events(id BIGINT PRIMARY KEY AUTO_INCREMENT,client_id INT,guardian_user_id INT,action VARCHAR(64))`,
       `CREATE TABLE client_service_enrollments(id INT PRIMARY KEY AUTO_INCREMENT,client_id INT,agency_id INT,service_kind VARCHAR(30),provider_user_id INT,organization_id INT,label VARCHAR(80),is_active TINYINT DEFAULT 1)`,
       `CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,provider_user_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(40),source_timezone VARCHAR(80))`,
       `CREATE TABLE appointment_participants(id INT PRIMARY KEY AUTO_INCREMENT,appointment_id INT,client_id INT)`,
@@ -46,7 +48,7 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
     comments=createSecureSessionComments({db,clock});shared=createFamilySharedConversations({db});notice=createSharedFamilyNotice({db,audit:()=>{}});
   },30000);
   beforeEach(async()=>{
-    for(const table of ['secure_session_comments','secure_session_comment_revisions','secure_session_comment_recipients','secure_session_comment_deliveries','secure_session_comment_audit','secure_session_comment_attention','secure_family_communication_acknowledgments','family_shared_conversations','secure_message_events','chat_thread_participants','chat_threads','users','agencies','user_agencies','clients','client_guardians','guardian_clinical_grants','client_provider_assignments','client_service_enrollments','appointments','appointment_participants','user_preferences'])await db.query(`DELETE FROM ${table}`);
+    for(const table of ['secure_session_comments','secure_session_comment_revisions','secure_session_comment_recipients','secure_session_comment_deliveries','secure_session_comment_audit','secure_session_comment_attention','secure_family_communication_acknowledgments','family_shared_conversations','secure_message_events','chat_thread_participants','chat_threads','users','agencies','user_agencies','clients','client_guardians','guardian_clinical_grants','client_portal_independence','guardian_clinical_access_events','client_provider_assignments','client_service_enrollments','appointments','appointment_participants','user_preferences'])await db.query(`DELETE FROM ${table}`);
     await db.query("INSERT INTO agencies(id,name,slug)VALUES(450,'Fictional QA','fictional-qa'),(999,'Other QA','other-qa')");
     await db.query(`INSERT INTO users(id,role,first_name,last_name,email) VALUES
       (1,'provider','Provider','QA','testing+provider@itsco.health'),(2,'client_guardian','Parent','One','testing+parent1@itsco.health'),
@@ -68,6 +70,18 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
   afterAll(async()=>{vi.unstubAllEnvs();await fixture?.close();});
   const post=(extra={})=>comments.create({user:{id:1},appointmentId:101,clientId:10,body:'Synthetic encrypted family update',recipientUserIds:[2,3],requestId:'mysql_request_unique_001',...extra});
   async function acknowledge(...users){for(const userId of users)await notice.acknowledge({userId,agencyId:450,version:'2026-11-11',acknowledged:true});}
+
+  it('rechecks recorded client privacy choices against actual SQL before showing family comments',async()=>{
+    const thread=()=>comments.thread({user:{id:2},appointmentId:101,clientId:10});
+    await expect(thread()).resolves.toBeDefined();
+    await db.query("INSERT INTO client_portal_independence(client_id,status)VALUES(10,'requested')");
+    await expect(thread()).rejects.toMatchObject({status:403});
+    await db.query('DELETE FROM client_portal_independence');
+    await db.query("INSERT INTO guardian_clinical_access_events(client_id,guardian_user_id,action)VALUES(10,2,'client_restriction_requested')");
+    await expect(thread()).rejects.toMatchObject({status:403});
+    await db.query("INSERT INTO guardian_clinical_access_events(client_id,guardian_user_id,action)VALUES(10,2,'grant_reviewed')");
+    await expect(thread()).resolves.toBeDefined();
+  });
 
   it('applies real migrations, enforces first-send notice, encrypts persisted data and preserves one send across a concurrent retry',async()=>{
     await expect(post()).rejects.toMatchObject({status:409,code:'FAMILY_SHARING_ACK_REQUIRED'});

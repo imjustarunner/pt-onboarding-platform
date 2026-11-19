@@ -12,15 +12,17 @@ import {createCoGuardianInvite,acceptCoGuardianInvite,maybeCreateFromIntakeGuard
 const user={id:11,role:'client_guardian',email:'other@example.test'};
 const invite={id:7,agency_id:2,public_key:'packet',source:'office',status:'pending',expires_at:new Date(Date.now()+86400000),invited_email:user.email,invited_first_name:'Other',invited_last_name:'Parent'};
 beforeEach(()=>{vi.resetAllMocks();delete process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED;m.deliver.mockResolvedValue({sent:true,queued:false,deliveryStatus:'sent',communicationId:90});m.create.mockResolvedValue(user);m.execute.mockImplementation(async sql=>{
+ if(sql.includes('AS independent_client'))return [[{independent_client:0,latest_clinical_choice:null}]];
  if(sql.includes('FROM co_guardian_invites WHERE token_hash'))return [[invite]];
  if(sql.startsWith('SELECT id FROM clients'))return [[{id:22}]];
  if(sql.includes('FROM co_guardian_invite_clients'))return [[{id:22,agency_id:2,full_name:'Synthetic Child'}]];
  return [{insertId:7,affectedRows:1}];
 });});
-it('sends requested enrollment without the portal provisioning flag, while keeping account access restricted',async()=>{
+it('prepares full care access for the listed second parent without sending password credentials',async()=>{
  const result=await createCoGuardianInvite({agencyId:2,clientIds:[22],publicKey:'packet',otherGuardian:{email:user.email,firstName:'Other',lastName:'Parent',sendInvite:true}});
  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({status:'PENDING_SETUP',passwordHash:null}));
- expect(m.link).toHaveBeenCalledWith(expect.objectContaining({guardianUserId:11,permissionsJson:expect.objectContaining({noView:true,canViewDocs:false})}));
+ expect(m.link).toHaveBeenCalledWith(expect.objectContaining({guardianUserId:11,accessEnabled:true,permissionsJson:expect.objectContaining({canViewDocs:true,canMessage:true,enrollmentAccessConfirmed:true,hideOtherGuardianAnswers:true})}));
+ expect(m.link.mock.calls[0][0].permissionsJson.noView).toBeUndefined();
  expect(result.emailed).toBe(true);expect(m.deliver).toHaveBeenCalledWith(expect.objectContaining({to:user.email,inviteId:7}));
 });
 it.each(['office','school'])('sends the requested %s second-parent enrollment and reports actual transport state',async source=>{
@@ -40,7 +42,7 @@ it('does not invite a child’s other guardian into the adult’s own care',asyn
  const result=await maybeCreateFromIntakeGuardian({agencyId:2,clientIds:[22],publicKey:'packet',intakeData:{intakeForSelf:true,guardian:{other_guardian_has_legal_rights:'shared',other_guardian_email:user.email}}});
  expect(result).toBeNull();expect(m.deliver).not.toHaveBeenCalled();expect(m.link).not.toHaveBeenCalled();
 });
-it('reuses the existing second-parent login for both siblings without replacing prior children or permissions',async()=>{
+it('reuses the existing second-parent login for both siblings and restores full care permissions',async()=>{
  m.find.mockResolvedValue(user);m.getLink.mockResolvedValue({access_enabled:1,relationship_type:'guardian',permissions_json:{canMessage:false}});
  const execute=m.execute.getMockImplementation();
  m.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM co_guardian_invite_clients')
@@ -48,17 +50,24 @@ it('reuses the existing second-parent login for both siblings without replacing 
  const result=await acceptCoGuardianInvite({token:'synthetic',enrollmentCompleted:true});
  expect(result.acceptedUserId).toBe(11);expect(m.create).not.toHaveBeenCalled();
  expect(m.link.mock.calls.map(([row])=>row.clientId)).toEqual([22,23]);
- for(const [row] of m.link.mock.calls) expect(row).toMatchObject({guardianUserId:11,permissionsJson:{canMessage:false}});
+ for(const [row] of m.link.mock.calls) expect(row).toMatchObject({guardianUserId:11,accessEnabled:true,permissionsJson:{canMessage:true,enrollmentAccessConfirmed:true,hideOtherGuardianAnswers:true}});
  expect(m.execute.mock.calls.some(([sql])=>/DELETE FROM client_guardians/i.test(sql))).toBe(false);
 });
 it('keeps queued mail distinguishable from successful transmission',async()=>{
  m.deliver.mockResolvedValue({sent:false,queued:true,deliveryStatus:'pending'});
  expect(await maybeCreateFromIntakeGuardian({agencyId:2,clientIds:[22],publicKey:'packet',intakeData:{guardian:{other_guardian_has_legal_rights:'yes',other_guardian_email:user.email}}})).toMatchObject({emailed:false,queued:true,deliveryStatus:'pending'});
 });
-it('keeps a manually disabled existing guardian link disabled',async()=>{
+it('restores a listed guardian’s disabled link when there is no client privacy restriction',async()=>{
  m.find.mockResolvedValue({...user,role:'client'});m.getLink.mockResolvedValue({access_enabled:0,permissions_json:{noView:true}});
  await createCoGuardianInvite({agencyId:2,clientIds:[22],publicKey:'packet',otherGuardian:{email:user.email}});
- expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:false,permissionsJson:expect.objectContaining({noView:true})}));
+ expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:true,permissionsJson:expect.objectContaining({canViewDocs:true,canMessage:true})}));
+ expect(m.link.mock.calls[0][0].permissionsJson.noView).toBeUndefined();
+});
+it.each([{independent_client:1},{latest_clinical_choice:'client_restriction_requested'}])('preserves a recorded client privacy restriction during co-guardian completion: %j',async choice=>{
+ m.find.mockResolvedValue(user);m.getLink.mockResolvedValue({access_enabled:0,permissions_json:{noView:true}});
+ const execute=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,...args)=>sql.includes('AS independent_client')?[[choice]]:execute(sql,...args));
+ await acceptCoGuardianInvite({token:'synthetic',enrollmentCompleted:true});
+ expect(m.link).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:false,permissionsJson:expect.objectContaining({noView:true})}));
 });
 it('completed enrollment prepares the account even without a portal-invite selection',async()=>{
  const result=await acceptCoGuardianInvite({token:'synthetic',enrollmentCompleted:true,createPortal:false});
@@ -67,7 +76,7 @@ it('completed enrollment prepares the account even without a portal-invite selec
 it('reuses a parent’s own client account on co-guardian completion',async()=>{
  m.find.mockResolvedValue({...user,role:'client'});m.getLink.mockResolvedValue({access_enabled:1,permissions_json:{canMessage:false}});
  const result=await acceptCoGuardianInvite({token:'synthetic',enrollmentCompleted:true});
- expect(result.acceptedUserId).toBe(11);expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({permissionsJson:expect.objectContaining({canMessage:false})}));
+ expect(result.acceptedUserId).toBe(11);expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({permissionsJson:expect.objectContaining({canMessage:true,hideOtherGuardianAnswers:true})}));
 });
 it('addresses the invite to the second parent with inviter name, email, and child initials only',async()=>{
  m.origin.mockResolvedValue({name:'Robin Parent',email:'robin@example.test',clientInitials:'EQ'});

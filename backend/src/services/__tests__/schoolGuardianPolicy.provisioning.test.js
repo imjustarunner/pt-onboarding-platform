@@ -50,10 +50,10 @@ it('prepares an office account despite the old no-invite flag and sends no setup
  const result=await PublicIntakeClientService.provisionGuardianForIntakeClients({link:{id:1,scope_type:'agency',create_guardian:0},agencyId:2,clients:[{id:22,client_type:'clinical'}],payload:{guardian:{email:guardian.email}}});
  expect(result.guardianUser.id).toBe(8);expect(m.link).toHaveBeenCalled();expect(m.token).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();expect(result.newGuardianPasswordlessLoginUrl).toBeNull();
 });
-it('reuses a parent’s own client account and preserves restricted dependent access',async()=>{
+it('reuses a parent’s own client account and enables full dependent care access after enrollment',async()=>{
  m.find.mockResolvedValue({...guardian,role:'client'});m.getLink.mockResolvedValue({access_enabled:0,permissions_json:{noView:true}});
  const result=await PublicIntakeClientService.provisionGuardianForIntakeClients({link:{id:1,scope_type:'agency',create_guardian:0},agencyId:2,clients:[{id:22}],payload:{guardian:{email:guardian.email}}});
- expect(result.guardianUser.role).toBe('client');expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:false,permissionsJson:{noView:true}}));expect(m.token).not.toHaveBeenCalled();
+ expect(result.guardianUser.role).toBe('client');expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:true,permissionsJson:expect.objectContaining({canMessage:true,canViewDocs:true,enrollmentAccessConfirmed:true,hideOtherGuardianAnswers:true})}));expect(m.link.mock.calls[0][0].permissionsJson.noView).toBeUndefined();expect(m.token).not.toHaveBeenCalled();
 });
 
 it('links a new sibling to the existing login without affecting the first child or password', async () => {

@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 vi.mock('../../config/database.js', () => ({ default: {}, onTableWrite: vi.fn() }));
 import { persistSubmissionRoster, restoreSubmissionRoster, submittedChildCount, submissionArtifactsComplete } from '../enrollmentSubmissionRoster.service.js';
-import { isDobAdultLocked } from '../../utils/guardianWaivers.utils.js';
+import { isGuardianPortalLocked } from '../../utils/guardianWaivers.utils.js';
 
 it('saves both child references before document generation, without duplicating a retry', async () => {
  const saved = [{ client_id: 5 }];
@@ -34,10 +34,11 @@ it.each([null, { id: 5, agency_id: 2 }, { id: 5, agency_id: 450 }])('preserves a
 it('allows an adult’s self profile while retaining adult-dependent and no-view restrictions', () => {
  const source = fs.readFileSync(new URL('../../controllers/guardianPortal.controller.js', import.meta.url), 'utf8');
  const start = source.indexOf('function enrichGuardianClientRow('), end = source.indexOf('function isSuperadminGuardianPreview(', start);
- const enrich = new Function('ClientGuardian', 'isDobAdultLocked', 'firstNameOnly', `${source.slice(start, end)} return enrichGuardianClientRow;`)
-  ({ isNoView: p => p?.noView === true }, isDobAdultLocked, name => name.split(' ')[0]);
+ const enrich = new Function('ClientGuardian', 'isGuardianPortalLocked', 'firstNameOnly', `${source.slice(start, end)} return enrichGuardianClientRow;`)
+  ({ isNoView: p => p?.noView === true }, isGuardianPortalLocked, name => name.split(' ')[0]);
  const adult = { full_name: 'Pat Example', date_of_birth: '1985-01-01' };
  expect(enrich({ ...adult, relationship_type: 'self' }).guardian_portal_locked).toBe(false);
  expect(enrich({ ...adult, relationship_type: 'guardian' }).guardian_portal_locked).toBe(true);
+ expect(enrich({ ...adult, relationship_type: 'guardian', permissions_json: { enrollmentAccessConfirmed: true } }).guardian_portal_locked).toBe(false);
  expect(enrich({ ...adult, relationship_type: 'self', permissions_json: { noView: true } })).toMatchObject({ no_view: true, date_of_birth: null, full_name: 'Pat' });
 });
