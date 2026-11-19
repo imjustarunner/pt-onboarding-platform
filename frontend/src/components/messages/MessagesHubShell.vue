@@ -1820,8 +1820,15 @@ async function refreshMail({ quiet = false } = {}) {
     if (!quiet) error.value = messagingError(e, 'Could not refresh messages. Please try again.');
   } finally { refreshing.value = false; }
 }
+// Focus, reconnect and composer events may arrive together. Share a minimum
+// interval for automatic refreshes. The explicit Refresh button stays immediate.
+let lastBackgroundRefreshAt = -Infinity;
 function refreshMailInBackground() {
-  if (!document.hidden) void refreshMail({ quiet: true });
+  if (document.hidden || refreshing.value || loadingList.value || sessionBlocked.value || !agencyId.value) return;
+  const now = Date.now();
+  if (now - lastBackgroundRefreshAt < 5000) return;
+  lastBackgroundRefreshAt = now;
+  void refreshMail({ quiet: true });
 }
 
 async function discardListedDraft(c){try{await api.delete(`/communications/drafts/${c.draftId}`,{skipGlobalLoading:true});await loadConversations({quiet:true});window.dispatchEvent(new CustomEvent('email-workspace-changed'));}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}}
@@ -2108,7 +2115,12 @@ const queuedItems = ref([]);
 const loadingQueued = ref(false);
 
 const agencyId = computed(()=>route.query.secureClientId&&/^[1-9]\d*$/.test(String(route.query.agencyId||''))?Number(route.query.agencyId):agencyStore.currentAgency?.id||null);
-const messageAgencyIds = computed(() => [...new Set([agencyId.value, ...(agencyStore.userAgencies || []).filter(agency => ![false, 0, '0'].includes(agency.is_active)).map(agency => agency.agency_id || agency.id)].map(Number).filter(id => id > 0))]);
+const messageAgencyIds = computed(() => {
+  const memberships = (agencyStore.userAgencies || []).filter(agency =>
+    isTenantOrganizationType(agency) && ![false, 0, '0'].includes(agency.is_active));
+  const ids = [agencyId.value, ...memberships.map(agency => agency.agency_id || agency.id)];
+  return [...new Set(ids.map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
+});
 const { summary: emailWorkspace, draftByConversation } = useEmailWorkspace(agencyId);
 
 const baseInboxNavItems = [
@@ -4063,12 +4075,38 @@ async function openTeamChat(tab = null) {
 
 async function scopedGet(path, params, config = {}, responseKey = 'conversations') {
   const { append = false, ...requestConfig } = config;
-  const results = await Promise.all(scopeAgencyIds().map(async (aid, index) => {
-    const { data } = await api.get(path, { ...requestConfig, params: { ...params, agencyId: aid, includeGlobal: index === 0 ? '1' : '0',
-      offset: append ? conversations.value.filter(row => Number(row.agency_id || agencyId.value) === Number(aid)).length : Number(params.offset || 0),
-      ...(inboxChannel.value === 'group' ? { [path.startsWith('/messages/hub/') || path.endsWith('attention-summary') ? 'inboxId' : 'groupInboxId']: scopeInboxId(aid), claimState: claimState.value || undefined } : {}) } });
-    return (data?.[responseKey] || []).map(row => ({ ...row, agency_id: row.agency_id || aid, agencyId: row.agencyId || aid }));
+  const scopes = scopeAgencyIds().map((aid, index) => ({
+    agencyId: aid,
+    includeGlobal: index === 0 ? '1' : '0',
+    offset: append
+      ? conversations.value.filter(row => Number(row.agency_id || agencyId.value) === aid).length
+      : Number(params.offset || 0),
+    groupInboxId: inboxChannel.value === 'group' ? scopeInboxId(aid) : undefined
   }));
+  const filters = { ...params };
+  if (inboxChannel.value === 'group') filters.claimState = claimState.value || undefined;
+
+  let results;
+  if (path === '/communications/conversations' && scopes.length > 1) {
+    const agencyScopes = scopes.map(({ agencyId, offset, groupInboxId }) => ({
+      agencyId, offset, groupInboxId: Number(groupInboxId) || undefined
+    }));
+    const { data } = await api.get(path, {
+      ...requestConfig,
+      params: { ...filters, ...scopes[0], agencyScopes: JSON.stringify(agencyScopes) }
+    });
+    results = [data?.[responseKey] || []];
+  } else {
+    results = await Promise.all(scopes.map(async ({ groupInboxId, ...scope }) => {
+      const inboxFilter = inboxChannel.value === 'group'
+        ? { [path.startsWith('/messages/hub/') ? 'inboxId' : 'groupInboxId']: groupInboxId }
+        : {};
+      const { data } = await api.get(path, { ...requestConfig, params: { ...filters, ...scope, ...inboxFilter } });
+      return (data?.[responseKey] || []).map(row => ({
+        ...row, agency_id: row.agency_id || scope.agencyId, agencyId: row.agencyId || scope.agencyId
+      }));
+    }));
+  }
   const rows = uniqueMessageRows(results.flat());
   rows.sort((a, b) => (new Date(b.sortAt || b.last_message_at || b.created_at || 0) - new Date(a.sortAt || a.last_message_at || a.created_at || 0)) * (unreadSort.value === 'oldest' ? -1 : 1));
   return rows;
@@ -5528,7 +5566,9 @@ watch(sessionBlocked, (blocked, wasBlocked) => {
   }
 });
 
-watch(() => [route.query.folder,route.query.channel], () => {if(route.query.folder || route.query.channel)restoreMailboxView();});
+watch([() => route.query.folder, () => route.query.channel], () => {
+  if (route.query.folder || route.query.channel) restoreMailboxView();
+});
 watch(agencyId, () => { departmentInboxes.value = []; internalGroups.value = []; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; activeTicketId.value = null; void loadGroupMemberships(); });
 onMounted(() => {
   window.addEventListener('keydown', onReaderEscape);

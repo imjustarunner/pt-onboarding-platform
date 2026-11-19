@@ -78,16 +78,48 @@ describe('scoped message workspace', () => {
     expect(document.querySelector('.list-fullscreen')).not.toBeNull();
     state.exitReaderFullscreen();
   });
-  it('groups Payroll across organizations and requests each mailbox with the ownership filter', async () => {
+  it('batches Payroll mailbox scopes and keeps the selected ownership filter', async () => {
     state.selected = null; state.inboxChannel = 'group'; state.navId = 'unknown'; state.claimState = 'claimed';
     state.departmentInboxes = [2, 3].map(aid => ({ id: aid + 10, agency_id: aid, group_key: 'payroll', is_ticketed_group: true, display_name: 'Payroll' }));
     state.selectedGroupInboxId = 'payroll';
-    api.get.mockImplementation(async (url, config) => ({ data: url === '/communications/conversations' ? { conversations: [{ id: config.params.agencyId + 20, inbox_id: config.params.groupInboxId, channel: 'email', is_ticketed_group: true }] } : {} }));
+    api.get.mockImplementation(async (url, config) => ({
+      data: url === '/communications/conversations' ? {
+        conversations: JSON.parse(config.params.agencyScopes).map(scope => ({
+          id: scope.agencyId + 20, agency_id: scope.agencyId, inbox_id: scope.groupInboxId, channel: 'email', is_ticketed_group: true
+        }))
+      } : {}
+    }));
     await state.loadConversations();
     expect(state.groupedDepartmentInboxes).toHaveLength(1);
     expect(state.filteredConversations).toHaveLength(2);
     const requests = api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
-    expect(requests.map(([, config]) => [config.params.agencyId, config.params.groupInboxId, config.params.claimState])).toEqual([[2, 12, 'claimed'], [3, 13, 'claimed']]);
+    expect(requests).toHaveLength(1);
+    const { params } = requests[0][1];
+    expect(params.claimState).toBe('claimed');
+    expect(JSON.parse(params.agencyScopes)).toEqual([
+      { agencyId: 2, groupInboxId: 12, offset: 0 }, { agencyId: 3, groupInboxId: 13, offset: 0 }
+    ]);
+  });
+  it('loads more than forty department scopes in one conversation request', async () => {
+    state.inboxChannel = 'group'; state.navId = 'unknown'; state.selectedGroupInboxId = 'payroll';
+    state.departmentInboxes = Array.from({ length: 45 }, (_, idx) => ({
+      id: idx + 20, agency_id: idx + 2, group_key: 'payroll', is_ticketed_group: true
+    }));
+    await state.loadConversations();
+    const requests = api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
+    expect(requests).toHaveLength(1);
+    expect(JSON.parse(requests[0][1].params.agencyScopes)).toHaveLength(45);
+  });
+  it('coalesces repeated background refresh notifications while keeping explicit refresh immediate', async () => {
+    state.navId = 'unknown';
+    for (let event = 0; event < 12; event++) {
+      state.refreshMailInBackground();
+      await flushPromises();
+    }
+    const reads = () => api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
+    expect(reads()).toHaveLength(1);
+    await state.refreshMail();
+    expect(reads()).toHaveLength(2);
   });
   it('shows the Unknown Senders count for the selected Payroll mailboxes', () => {
     state.inboxChannel = 'group'; state.selectedGroupInboxId = 'payroll';

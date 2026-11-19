@@ -153,98 +153,151 @@ export async function getUnifiedConversations(req, res, next) {
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-    const adminViewer = isBackofficeRole(req.user);
-    const hubScope = req.query.hubScope === '1' || req.query.hubScope === 'true';
-    const rawInbox = req.query.inboxId;
-    let inboxId =
-      rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox' && rawInbox !== 'group_email' && rawInbox !== 'school_groups'
-        ? parseInt(String(rawInbox), 10)
-        : null;
-    let ownerUserId = null;
-    let filter = String(req.query.filter || 'all');
-    let scopeToUserId = null;
-
-    if (rawInbox === 'assigned') {
-      inboxId = null;
-      filter = filter === 'all' ? 'assigned' : filter;
-      ownerUserId = req.user.id;
+    if (req.query.agencyScopes == null) {
+      const conversations = await listUnifiedConversationsForAgency(req.user, agencyId, req.query);
+      return res.json({ conversations });
     }
 
-    // Non-ops roles: never browse shared agency/tickets mailboxes (messages@, etc.).
-    // Their Hub "Inbox" is assigned-to-me + personal App inbox only.
-    // Messages Hub (hubScope) uses the same personal scope even for admins.
-    if (!adminViewer || hubScope) {
-      scopeToUserId = req.user.id;
-      if (Number.isFinite(inboxId)) {
-        const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
-        const box = await CommunicationInbox.findById(inboxId);
-        if (!box || (box.agency_id != null && Number(box.agency_id) !== Number(agencyId))) {
-          return res.status(404).json({ error: { message: 'Inbox not found' } });
-        }
-        if (String(box.kind || '') === 'shared') {
-          const groupKey = groupKeyForIdentity(box);
-          const permitted = groupKey ? (await listUserDepartmentalGroupKeys({ agencyId, userId: req.user.id })).includes(groupKey) : (await (await import('../services/unifiedInbox.service.js')).loadGroupEmailInboxScope({agencyId,userId:req.user.id})).allowedGroupInboxIds.includes(Number(box.id));
-          if (!permitted) return deny(res);
-        } else if (
-          String(box.kind || '') === 'personal' &&
-          Number(box.owner_user_id) !== Number(req.user.id)
-        ) {
-          return deny(res);
+    if (!['1', 'true'].includes(req.query.hubScope)) return deny(res);
+    const scopes = readConversationScopes(req.query.agencyScopes);
+    const { default: User } = await import('../models/User.model.js');
+    const memberships = new Set((await User.getAgencies(req.user.id)).map(agency => Number(agency.id)));
+    if (scopes.some(scope => !memberships.has(scope.agencyId))) return deny(res);
+
+    // Keep at most four agency reads in flight per request. A canceled folder
+    // navigation stops launching further reads for the old view.
+    const pages = new Array(scopes.length);
+    let cursor = 0;
+    let failed = false;
+    await Promise.all(Array.from({ length: Math.min(4, scopes.length) }, async () => {
+      while (!failed && !res.destroyed && cursor < scopes.length) {
+        const index = cursor++;
+        const { agencyId, offset, groupInboxId } = scopes[index];
+        try {
+          const rows = await listUnifiedConversationsForAgency(req.user, agencyId, {
+            ...req.query, offset, groupInboxId, includeGlobal: index === 0 ? '1' : '0'
+          }, { confirmedMembership: true });
+          pages[index] = rows.map(row => ({ ...row, agency_id: row.agency_id || agencyId }));
+        } catch (error) {
+          failed = true;
+          throw error;
         }
       }
-      if (rawInbox === 'my_inbox') {
-        const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
-        const personal = await CommunicationInbox.findPersonalForUser(agencyId, req.user.id);
-        inboxId = personal?.id || null;
-        // Still keep scopeToUserId so empty personal inbox does not fall open to shared
-      }
-    }
-
-    // Sender trust is refreshed by the policy scheduler. Reading a folder must
-    // not wait for agency-wide directory checks or classify other owners' mail.
-
-    if (filter === 'sent' && [undefined, 'all', 'sms'].includes(req.query.channel)) {
-      const { default: User } = await import('../models/User.model.js');
-      const allowed = req.user.role === 'super_admin' || (await User.getAgencies(req.user.id)).some(agency => Number(agency.id) === agencyId);
-      if (!allowed) return deny(res);
-      const { syncSmsThreads } = await import('../services/channelInboxAdapter.service.js');
-      await syncSmsThreads({ agencyId, sentByUserId: req.user.id, limit: (Number(req.query.offset) || 0) + (Number(req.query.limit) || 80) });
-    }
-
-    const conversations = await listConversations({
-      agencyId,
-      inboxId: Number(req.query.groupInboxId) > 0 ? Number(req.query.groupInboxId) : Number.isFinite(inboxId) ? inboxId : null,
-      channel: ['group','groups'].includes(req.query.channel) ? 'email' : req.query.channel || null,
-      includeGlobal: req.query.includeGlobal !== '0',
-      claimState: req.query.claimState,
-      category: String(req.query.category || '') || null, sort: req.query.sort,
-      status: req.query.status || null,
-      filter,
-      ownerUserId,
-      q: req.query.q || null,
-      fromEmail: req.query.fromEmail || req.query.from || null,
-      hasAttachment:
-        req.query.hasAttachment != null && req.query.hasAttachment !== ''
-          ? req.query.hasAttachment
-          : null,
-      dateFrom: req.query.dateFrom || null,
-      dateTo: req.query.dateTo || null,
-      limit: req.query.limit,
-      offset: req.query.offset,
-      userId: req.user.id,
-      syncTickets: req.query.sync !== '0' && adminViewer && !hubScope,
-      isAdminViewer: adminViewer && !hubScope,
-      scopeToUserId,
-      groupOnly: rawInbox === 'group_email' || (['group','groups'].includes(req.query.channel) && !req.query.category),
-      excludeGroup: req.query.channel === 'email' && hubScope,
-      schoolGroupsOnly: rawInbox === 'school_groups',
-      unknownOnly: filter === 'unknown' || req.query.unknown === '1',
-      includeHeld: req.query.includeHeld === '1' && adminViewer && !hubScope
-    });
-    res.json({ conversations });
+    }));
+    if (!res.destroyed) res.json({ conversations: pages.flat() });
   } catch (e) {
+    if (e.conversationListError) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
+}
+
+function conversationListError(status, message) {
+  return Object.assign(new Error(message), { status, conversationListError: true });
+}
+
+function readConversationScopes(raw) {
+  const invalid = () => conversationListError(400, 'Invalid conversation organization scope');
+  let scopes;
+  try { scopes = typeof raw === 'string' ? JSON.parse(raw) : null; }
+  catch { throw invalid(); }
+  if (!Array.isArray(scopes) || !scopes.length || scopes.length > 100) throw invalid();
+  const ids = new Set();
+  for (const scope of scopes) {
+    if (!scope || !Number.isSafeInteger(scope.agencyId) || scope.agencyId < 1 || ids.has(scope.agencyId)
+      || !Number.isSafeInteger(scope.offset) || scope.offset < 0
+      || (scope.groupInboxId != null && (!Number.isSafeInteger(scope.groupInboxId) || scope.groupInboxId < 1))) throw invalid();
+    ids.add(scope.agencyId);
+  }
+  return scopes;
+}
+
+async function listUnifiedConversationsForAgency(user, agencyId, query, { confirmedMembership = false } = {}) {
+  const adminViewer = isBackofficeRole(user);
+  const hubScope = query.hubScope === '1' || query.hubScope === 'true';
+  const rawInbox = query.inboxId;
+  let inboxId =
+    rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox' && rawInbox !== 'group_email' && rawInbox !== 'school_groups'
+      ? parseInt(String(rawInbox), 10)
+      : null;
+  let ownerUserId = null;
+  let filter = String(query.filter || 'all');
+  let scopeToUserId = null;
+
+  if (rawInbox === 'assigned') {
+    inboxId = null;
+    filter = filter === 'all' ? 'assigned' : filter;
+    ownerUserId = user.id;
+  }
+
+  // Non-ops roles: never browse shared agency/tickets mailboxes (messages@, etc.).
+  // Their Hub "Inbox" is assigned-to-me + personal App inbox only.
+  // Messages Hub (hubScope) uses the same personal scope even for admins.
+  if (!adminViewer || hubScope) {
+    scopeToUserId = user.id;
+    if (Number.isFinite(inboxId)) {
+      const box = await CommunicationInbox.findById(inboxId);
+      if (!box || (box.agency_id != null && Number(box.agency_id) !== Number(agencyId))) {
+        throw conversationListError(404, 'Inbox not found');
+      }
+      if (String(box.kind || '') === 'shared') {
+        const groupKey = groupKeyForIdentity(box);
+        const permitted = groupKey ? (await listUserDepartmentalGroupKeys({ agencyId, userId: user.id })).includes(groupKey) : (await (await import('../services/unifiedInbox.service.js')).loadGroupEmailInboxScope({agencyId,userId:user.id})).allowedGroupInboxIds.includes(Number(box.id));
+        if (!permitted) throw conversationListError(403, 'Communications inbox access required');
+      } else if (
+        String(box.kind || '') === 'personal' &&
+        Number(box.owner_user_id) !== Number(user.id)
+      ) {
+        throw conversationListError(403, 'Communications inbox access required');
+      }
+    }
+    if (rawInbox === 'my_inbox') {
+      const personal = await CommunicationInbox.findPersonalForUser(agencyId, user.id);
+      inboxId = personal?.id || null;
+      // Still keep scopeToUserId so empty personal inbox does not fall open to shared
+    }
+  }
+
+  // Sender trust is refreshed by the policy scheduler. Reading a folder must
+  // not wait for agency-wide directory checks or classify other owners' mail.
+
+  if (filter === 'sent' && [undefined, 'all', 'sms'].includes(query.channel)) {
+    const { default: User } = await import('../models/User.model.js');
+    const allowed = confirmedMembership || user.role === 'super_admin' || (await User.getAgencies(user.id)).some(agency => Number(agency.id) === agencyId);
+    if (!allowed) throw conversationListError(403, 'Communications inbox access required');
+    const { syncSmsThreads } = await import('../services/channelInboxAdapter.service.js');
+    await syncSmsThreads({ agencyId, sentByUserId: user.id, limit: (Number(query.offset) || 0) + (Number(query.limit) || 80) });
+  }
+
+  return listConversations({
+    agencyId,
+    inboxId: Number(query.groupInboxId) > 0 ? Number(query.groupInboxId) : Number.isFinite(inboxId) ? inboxId : null,
+    channel: ['group','groups'].includes(query.channel) ? 'email' : query.channel || null,
+    includeGlobal: query.includeGlobal !== '0',
+    claimState: query.claimState,
+    category: String(query.category || '') || null, sort: query.sort,
+    status: query.status || null,
+    filter,
+    ownerUserId,
+    q: query.q || null,
+    fromEmail: query.fromEmail || query.from || null,
+    hasAttachment:
+      query.hasAttachment != null && query.hasAttachment !== ''
+        ? query.hasAttachment
+        : null,
+    dateFrom: query.dateFrom || null,
+    dateTo: query.dateTo || null,
+    limit: query.limit,
+    offset: query.offset,
+    userId: user.id,
+    syncTickets: query.sync !== '0' && adminViewer && !hubScope,
+    isAdminViewer: adminViewer && !hubScope,
+    scopeToUserId,
+    groupOnly: rawInbox === 'group_email' || (['group','groups'].includes(query.channel) && !query.category),
+    excludeGroup: query.channel === 'email' && hubScope,
+    schoolGroupsOnly: rawInbox === 'school_groups',
+    unknownOnly: filter === 'unknown' || query.unknown === '1',
+    includeHeld: query.includeHeld === '1' && adminViewer && !hubScope
+  });
 }
 
 export async function postClaimGroupEmail(req, res, next) {
