@@ -1059,6 +1059,8 @@ export const getMessagesHubUnread = async (req, res, next) => {
       channel: String(req.query.channel || 'all'),
       sort,
       inboxId: Number(req.query.inboxId) || null,
+      claimState: req.query.claimState,
+      includeGlobal: req.query.includeGlobal !== '0',
       category: String(req.query.category || '') || null
     });
     res.json(data);
@@ -1086,6 +1088,8 @@ export const getMessagesHubInbox = async (req, res, next) => {
       channel: String(req.query.channel || 'all'),
       sort,
       inboxId: Number(req.query.inboxId) || null,
+      claimState: req.query.claimState,
+      includeGlobal: req.query.includeGlobal !== '0',
       category: String(req.query.category || '') || null
     });
     res.json(data);

@@ -108,10 +108,17 @@ export async function getUnifiedAttentionSummary(req, res, next) {
     const summary = await getAttentionSummary({
       agencyId,
       userId: req.user.id,
-      scopeToUserId
+      scopeToUserId,
+      includeResponseTime: !hubScope,
+      includeGlobal: req.query.includeGlobal !== '0',
+      channel: req.query.channel === 'group' ? 'email' : req.query.channel,
+      groupOnly: req.query.channel === 'group',
+      excludeGroup: req.query.channel === 'email' && hubScope,
+      inboxId: Number(req.query.inboxId) || null,
+      claimState: req.query.claimState
     });
     // Hub Unread badge = email unread + unread chat/channel threads
-    if (hubScope) {
+    if (hubScope && !req.query.channel && !req.query.inboxId && !req.query.claimState) {
       try {
         const { countHubChatUnreadThreads } = await import('../services/messagesHub.service.js');
         const chatByChannel = await countHubChatUnreadThreads({
@@ -196,10 +203,20 @@ export async function getUnifiedConversations(req, res, next) {
     // Sender trust is refreshed by the policy scheduler. Reading a folder must
     // not wait for agency-wide directory checks or classify other owners' mail.
 
+    if (filter === 'sent' && [undefined, 'all', 'sms'].includes(req.query.channel)) {
+      const { default: User } = await import('../models/User.model.js');
+      const allowed = req.user.role === 'super_admin' || (await User.getAgencies(req.user.id)).some(agency => Number(agency.id) === agencyId);
+      if (!allowed) return deny(res);
+      const { syncSmsThreads } = await import('../services/channelInboxAdapter.service.js');
+      await syncSmsThreads({ agencyId, sentByUserId: req.user.id, limit: (Number(req.query.offset) || 0) + (Number(req.query.limit) || 80) });
+    }
+
     const conversations = await listConversations({
       agencyId,
       inboxId: Number(req.query.groupInboxId) > 0 ? Number(req.query.groupInboxId) : Number.isFinite(inboxId) ? inboxId : null,
       channel: ['group','groups'].includes(req.query.channel) ? 'email' : req.query.channel || null,
+      includeGlobal: req.query.includeGlobal !== '0',
+      claimState: req.query.claimState,
       category: String(req.query.category || '') || null, sort: req.query.sort,
       status: req.query.status || null,
       filter,

@@ -1,4 +1,4 @@
-import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
+import { assignedSmsConversationSql, sentSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { groupEmailConversationSql, schoolGroupConversationSql, personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
@@ -175,7 +175,7 @@ class CommunicationConversation {
     /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
     scopeToUserId = null,
     groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], groupOnly = false, excludeGroup = false,
-    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false
+    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     const params = [];
@@ -191,8 +191,10 @@ class CommunicationConversation {
     if (schoolGroupsOnly) where.push(schoolGroupConversationSql);
     if (filter === 'tickets') where.push("t.id IS NOT NULL AND t.status NOT IN ('closed','resolved','done')");
     if (excludeGroup) where.push(`NOT (${groupSql.isGroup})`);
+    if (claimState === 'claimed') where.push('t.claimed_by_user_id IS NOT NULL');
+    if (claimState === 'unclaimed') where.push('t.id IS NOT NULL AND t.claimed_by_user_id IS NULL');
     if (agencyId != null) {
-      where.push('(c.agency_id = ? OR c.agency_id IS NULL)');
+      where.push(includeGlobal ? '(c.agency_id = ? OR c.agency_id IS NULL)' : 'c.agency_id = ?');
       params.push(agencyId);
     }
     // Already-received mail stays readable, including legacy availability holds.
@@ -207,10 +209,12 @@ class CommunicationConversation {
     }
     // Providers/staff must not see shared messages@ / tickets unless assigned or in their App inbox
     if (scopeToUserId) {
+      const includeSentSms = filter === 'sent' && (!channel || ['all', 'sms'].includes(channel));
       where.push(`(
         (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ?
         ${groupSql.personalScopeExtension}
         OR ${assignedSmsConversationSql}
+        ${includeSentSms ? `OR ${sentSmsConversationSql}` : ''}
         OR EXISTS (
           SELECT 1 FROM mailbox_access pi
           WHERE pi.id = c.inbox_id
@@ -218,7 +222,9 @@ class CommunicationConversation {
         )
       )`);
       where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id <> ?))`);
-      params.push(scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId);
+      params.push(scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId);
+      if (includeSentSms) params.push(scopeToUserId);
+      params.push(scopeToUserId, scopeToUserId);
     }
     if (inboxId) {
       where.push('c.inbox_id = ?');
@@ -356,8 +362,19 @@ class CommunicationConversation {
       where.push('COALESCE(c.is_unknown_sender, 0) = 0');
       params.push(now);
     } else if (filter === 'sent' && userId) {
-      where.push(`EXISTS (SELECT 1 FROM communication_messages sent_message WHERE sent_message.conversation_id=c.id AND sent_message.direction='outbound' AND sent_message.author_user_id=? AND COALESCE(sent_message.send_status,'sent')='sent')`);
-      params.push(userId);
+      const sentMail = `EXISTS (SELECT 1 FROM communication_messages sent_message
+        WHERE sent_message.conversation_id=c.id AND sent_message.direction='outbound'
+        AND sent_message.author_user_id=? AND COALESCE(sent_message.send_status,'sent')='sent')`;
+      if (channel === 'sms') {
+        where.push(sentSmsConversationSql);
+        params.push(userId);
+      } else if (!channel || channel === 'all') {
+        where.push(`(${sentMail} OR ${sentSmsConversationSql})`);
+        params.push(userId, userId);
+      } else {
+        where.push(sentMail);
+        params.push(userId);
+      }
     } else if (filter === 'starred') {
       where.push('c.starred = 1');
     } else if (filter === 'snoozed') {
@@ -550,12 +567,21 @@ class CommunicationConversation {
     return rows.length;
   }
 
-  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [] } = {}) {
+  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], channel, inboxId, claimState, groupOnly, excludeGroup, includeGlobal = true } = {}) {
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access, resolvedMailboxVisibilitySql(userId, 'i')];
     const params = [];
-    if (agencyId != null) { where.push('(c.agency_id=? OR c.agency_id IS NULL)'); params.push(agencyId); }
+    if (agencyId != null) { where.push(includeGlobal ? '(c.agency_id=? OR c.agency_id IS NULL)' : 'c.agency_id=?'); params.push(agencyId); }
+    if (channel && channel !== 'all') {
+      if (channel === 'calls') where.push("c.channel IN ('call','voicemail')");
+      else { where.push('c.channel=?'); params.push(channel); }
+    }
+    if (inboxId) { where.push('c.inbox_id=?'); params.push(inboxId); }
+    if (groupOnly) where.push(groupSql.isGroup);
+    if (excludeGroup) where.push(`NOT (${groupSql.isGroup})`);
+    if (claimState === 'claimed') where.push('t.claimed_by_user_id IS NOT NULL');
+    if (claimState === 'unclaimed') where.push('t.id IS NOT NULL AND t.claimed_by_user_id IS NULL');
     if (scopeToUserId) {
       where.push(`((CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)=?
         ${groupSql.personalScopeExtension} OR ${assignedSmsConversationSql}
@@ -577,7 +603,7 @@ class CommunicationConversation {
       SUM(is_unread AND NOT unknown_sender) AS unread_count,SUM(is_unread AND is_group AND NOT unknown_sender) AS group_unread,
       SUM(is_unread AND is_school) AS school_unread,SUM(needs_reply) AS needs_reply,
       SUM(waiting) AS waiting,SUM(follow_up) AS follow_up,SUM(assigned AND status<>'resolved') AS assigned,
-      SUM(unknown_sender) AS unknown_sender,SUM(snoozed) AS snoozed,
+      SUM(unknown_sender) AS unknown_sender,SUM(snoozed AND NOT unknown_sender) AS snoozed,
       SUM(is_unread AND assigned) AS unread_assigned,SUM(is_unread AND starred) AS unread_starred,
       SUM(is_unread AND needs_reply) AS unread_needs_reply,SUM(is_unread AND waiting) AS unread_waiting,
       SUM(is_unread AND follow_up) AS unread_follow_up,SUM(is_unread AND unknown_sender) AS unread_unknown,
@@ -599,14 +625,18 @@ class CommunicationConversation {
         LIMIT 18446744073709551615) visible
       GROUP BY inbox_id,channel`,params);
     const summary = { needsAttention:0,waitingOnOthers:0,followUpsDue:0,assignedToYou:0,unknownSenders:0,snoozed:0,unread:0,
-      unreadByInbox:{},unreadByChannel:{},unreadViews:{all:0,unread:0,assigned:0,starred:0,snoozed:0,needs_reply:0,waiting:0,follow_up:0,unknown:0,tickets:0,group_email:0,school_groups:0},channels:{all:0} };
+      unreadByInbox:{},unreadByChannel:{},unknownByInbox:{},unknownByChannel:{},unreadViews:{all:0,unread:0,assigned:0,starred:0,snoozed:0,needs_reply:0,waiting:0,follow_up:0,unknown:0,tickets:0,group_email:0,school_groups:0},channels:{all:0} };
     for (const row of rows) {
       const n = key => Number(row[key] || 0), unread = n('unread_count');
       summary.unread += unread;
       summary.channels.all += n('total');
       summary.channels[row.channel] = (summary.channels[row.channel] || 0) + n('total');
       summary.unreadByChannel[row.channel] = (summary.unreadByChannel[row.channel] || 0) + unread;
-      if (row.inbox_id != null) summary.unreadByInbox[row.inbox_id] = (summary.unreadByInbox[row.inbox_id] || 0) + unread;
+      summary.unknownByChannel[row.channel] = (summary.unknownByChannel[row.channel] || 0) + n('unknown_sender');
+      if (row.inbox_id != null) {
+        summary.unreadByInbox[row.inbox_id] = (summary.unreadByInbox[row.inbox_id] || 0) + unread;
+        summary.unknownByInbox[row.inbox_id] = (summary.unknownByInbox[row.inbox_id] || 0) + n('unknown_sender');
+      }
       for (const [target,key] of Object.entries({needsAttention:'needs_reply',waitingOnOthers:'waiting',followUpsDue:'follow_up',assignedToYou:'assigned',unknownSenders:'unknown_sender',snoozed:'snoozed'})) summary[target] += n(key);
       for (const key of ['assigned','starred','needs_reply','waiting','follow_up','unknown','tickets']) summary.unreadViews[key] += n('unread_'+key);
       summary.unreadViews.group_email += n('group_unread'); summary.unreadViews.school_groups += n('school_unread');

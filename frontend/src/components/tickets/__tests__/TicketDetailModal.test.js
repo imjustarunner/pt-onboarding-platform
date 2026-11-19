@@ -32,3 +32,13 @@ it('embeds the existing ticket desk and restores focus and scrolling on close', 
   expect(document.body.style.overflow).toBe('auto');
   expect(document.activeElement).toBe(launcher);
 });
+it('provides unread navigation and a full screen ticket interface when opened from Messages', async () => {
+  wrapper = mount(TicketDetailModal, { props: { ticketId: 101, agencyId: 2, hasNext: true, fullscreen: true }, attachTo: document.body });
+  expect(document.querySelector('.ticket-detail-fullscreen')).not.toBeNull();
+  const next = document.querySelector('.ticket-modal-navigation button');
+  next.click();
+  expect(wrapper.emitted('next')).toHaveLength(1);
+  await wrapper.setProps({ ticketId: 102, hasNext: false });
+  expect(wrapper.findComponent({ name: 'TicketDeskView' }).props('initialTicketId')).toBe(102);
+  expect(next.disabled).toBe(true);
+});

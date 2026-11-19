@@ -27,6 +27,7 @@ import { encryptSupportEmailText } from './supportEmailEncryption.js';
 import { supportEmailError } from './supportTicketEmailPolicy.js';
 import { groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
 import { INBOX_REVIEW_CATEGORIES } from './messageInboxPolicy.js';
+import { markSupportTicketRead } from './supportTicketRead.service.js';
 
 export async function loadGroupEmailInboxScope({ agencyId, userId }) {
   const [inboxes, keys, [managedGroups], [memberGroups]] = await Promise.all([
@@ -134,7 +135,7 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
   } catch (e) {
     console.warn('[unifiedInbox] messages@ mailbox:', e?.message || e);
   }
-  const rows = await CommunicationInbox.listForAgency({ agencyId, userId });
+  const rows = await CommunicationInbox.listForAgency({ agencyId, userId, includeActivity: true });
   const groupScope = await loadGroupEmailInboxScope({agencyId,userId});
   const groupIds=new Set(groupScope.groupInboxIds),allowedGroups=new Set(groupScope.allowedGroupInboxIds);
   const personal = rows.find((r) => r.kind === 'personal' && Number(r.owner_user_id) === Number(userId));
@@ -154,6 +155,7 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
       reply_to: r.reply_to,
       signature_image_url: r.signature_image_url,
       owner_user_id: r.owner_user_id || null,
+      has_communications: !!Number(r.has_communications),
       group_key: groupKey, group_name:groupIdentity?.groupName || null, is_group_email: !!groupIdentity, is_ticketed_group: !!groupIdentity?.ticketed,
       ticketing_access: !!groupKey,
       routing: isPersonal ? 'app_group_alias' : (groupKey ? 'ticketed_group' : r.kind === 'shared' ? 'shared_team' : null)
@@ -221,15 +223,15 @@ export async function listConversations(opts) {
   return rows.map((row) => withGroupEmailMetadata(row, userId, scope.managedGroups));
 }
 
-export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null } = {}) {
+export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null, includeResponseTime = true, ...filters } = {}) {
   // Do not re-sync tickets here — listConversations already syncs on load.
   const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const summary = await CommunicationConversation.attentionSummary({
     agencyId,
     userId,
-    scopeToUserId, ...scope
+    scopeToUserId, ...scope, ...filters
   });
-  const responseTime = await computeResponseTimeMetrics({ agencyId, days: 7 }).catch(() => null);
+  const responseTime = includeResponseTime ? await computeResponseTimeMetrics({ agencyId, days: 7 }).catch(() => null) : null;
   return { ...summary, responseTime };
 }
 
@@ -252,7 +254,8 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   const messages=hydrated || storedMessages;
   conv = withGroupEmailMetadata(conv, userId, managedGroups);
   if (markRead && userId) {
-    await CommunicationConversation.markRead(conversationId, userId);
+    if (conv.support_ticket_id) await markSupportTicketRead({ ticketId: conv.support_ticket_id, userId });
+    else await CommunicationConversation.markRead(conversationId, userId);
   }
   return { conversation: conv, messages, context, ticketThreadRevision, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };
 }
@@ -263,6 +266,9 @@ export async function updateConversation(conversationId, patch, { userId } = {})
     if (Object.keys(patch).some(key => !['markRead', 'markUnread'].includes(key))) {
       throw supportEmailError('Manage this group message in its linked ticket.', 409, 'GROUP_EMAIL_READ_ONLY');
     }
+  }
+  if (existing?.support_ticket_id && (patch.markRead || patch.markUnread)) {
+    await markSupportTicketRead({ ticketId: existing.support_ticket_id, userId, unread: !!patch.markUnread });
   }
   const updates = {};
   if (patch.status !== undefined) updates.status = patch.status;

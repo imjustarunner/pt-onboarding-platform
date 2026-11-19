@@ -3291,6 +3291,7 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
     const ph = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT t.id, t.name, t.agency_id, t.thread_type, COUNT(DISTINCT p.user_id) AS member_count,
+       EXISTS (SELECT 1 FROM chat_messages gm WHERE gm.thread_id=t.id AND NOT EXISTS (SELECT 1 FROM chat_message_deletes hd WHERE hd.message_id=gm.id AND hd.user_id=${Number(userId) || 0})) AS has_messages,
        (SELECT COUNT(*) FROM chat_messages gm LEFT JOIN chat_thread_reads gr ON gr.thread_id=gm.thread_id AND gr.user_id=${Number(userId) || 0}
          WHERE gm.thread_id=t.id AND gm.sender_user_id<>${Number(userId) || 0} AND gm.id>COALESCE(gr.last_read_message_id,0)
            AND NOT EXISTS (SELECT 1 FROM chat_message_deletes gd WHERE gd.message_id=gm.id AND gd.user_id=${Number(userId) || 0})) AS unread_count
@@ -3315,6 +3316,7 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
       kinds: r.thread_type === 'channel' ? ['group', 'channel'] : ['group'],
       threadType: r.thread_type,
       groupId: Number(r.id),
+      hasMessages: !!Number(r.has_messages),
       unreadCount: Number(r.unread_count || 0),
       agencyId: Number(r.agency_id) || ids[0],
       relationshipMeta: `${r.thread_type === 'channel' ? '# Channel' : 'Group chat'} · ${Number(r.member_count) || 0} members`,
@@ -4114,7 +4116,7 @@ export async function listHubConversationFeed({
   limit = 60,
   sort = 'newest',
   channel: channelFilter = 'all',
-  mode = 'inbox', inboxId = null, category = null
+  mode = 'inbox', inboxId = null, category = null, claimState = null, includeGlobal = true
 } = {}) {
   const aid = Number(agencyId || 0) || null;
   const uid = Number(userId || 0);
@@ -4148,7 +4150,7 @@ export async function listHubConversationFeed({
       syncTickets: false,
       userId: uid,
       scopeToUserId: uid,
-      inboxId, category, sort,
+      inboxId, category, sort, claimState, includeGlobal,
       limit: lim,
       offset: 0,
       isAdminViewer: false
@@ -4226,6 +4228,7 @@ export async function listHubConversationFeed({
         unreadCount: isUnread ? 1 : 0,
         is_unread: isUnread,
         conversationId: Number(c.id),
+        agencyId: c.agency_id || aid,
         inbox_id: c.inbox_id || null,
         message_category: c.message_category || 'correspondence', is_review_notice: !!c.is_review_notice,
         subject: c.subject || null,
@@ -4343,7 +4346,7 @@ export async function listHubConversationFeed({
          LIMIT 1
        )
        WHERE td.deleted_at IS NULL
-         AND ${inboxId || category ? '0=1' : chatInboxVisibilitySql(uid)}
+         AND ${inboxId || category || claimState ? '0=1' : chatInboxVisibilitySql(uid)}
          ${agencyClause}
        ${havingClause}
        ORDER BY COALESCE(last_message_at, t.updated_at) ${sortNewest ? 'DESC' : 'ASC'},t.id ${sortNewest ? 'DESC' : 'ASC'}

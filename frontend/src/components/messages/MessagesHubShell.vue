@@ -8,6 +8,7 @@
     :class="{
       'msg-hub--drawer': isDrawerLayout,
       'reader-fullscreen': readerFullscreen,
+      'list-fullscreen': readerFullscreen && !hasOpenReader,
       'folders-collapsed': foldersCollapsed,
       'msg-hub--mobile-thread': mobileShowThread && (!!selected || !!selectedConversation || !!conversationPreview),
       'person-focus': personFocus,
@@ -47,10 +48,15 @@
 
     <QaRecipientEmailInbox />
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
-      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :data-channel="channel.id" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">
+      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :data-channel="channel.id" :aria-pressed="!isTicketQueue && inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">
         <ConversaIcon :type="channel.id" :size="16" />{{ channel.label }}
         <span v-if="channelUnreadCount(channel.id)" class="msg-hub-channel-count" :aria-label="`${channelUnreadCount(channel.id)} unread conversations`">{{ channelUnreadCount(channel.id) }}</span>
+        <span v-if="channel.id === 'group' && reviewNoticeCount" class="msg-hub-review-count" :aria-label="`${reviewNoticeCount} email notices to review`">{{ reviewNoticeCount }} notices</span>
       </button>
+      <template v-if="canUseTickets">
+        <button type="button" data-ticket-queue="mine" :aria-pressed="navId === 'my_tickets'" @click="selectTicketQueue('my_tickets')">My tickets</button>
+        <button type="button" data-ticket-queue="all" :aria-pressed="navId === 'tickets'" @click="selectTicketQueue('tickets')">Tickets</button>
+      </template>
     </div>
     <div v-if="channelActivationMessage" class="msg-hub-channel-status" role="status">{{ channelActivationMessage }}</div>
     <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
@@ -59,12 +65,12 @@
       <button v-else type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
     </div>
     <section v-if="inboxChannel === 'group'" class="msg-hub-memberships" aria-label="Your groups">
-      <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span></button>
-      <button v-for="box in departmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ inboxCounts.unreadByInbox?.[box.id] || 0 }}</span></button>
+      <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
+      <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
       <span class="msg-hub-group-label">Email notices</span>
       <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
-      <span v-if="internalGroups.length" class="msg-hub-group-label">Group conversations</span>
-      <button v-for="group in internalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
+      <span v-if="visibleInternalGroups.length" class="msg-hub-group-label">Group conversations</span>
+      <button v-for="group in visibleInternalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} · Chat <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
     </section>
     <div v-if="inboxChannel === 'group' && selectedReviewCategory" class="msg-hub-group-help">
       <span>These email notices stay here for review and are excluded from unread mail and app notifications.</span>
@@ -81,12 +87,16 @@
           <button type="button" class="btn btn-secondary" :aria-expanded="!listColCollapsed" :disabled="!hasOpenReader" @click="listColCollapsed = !listColCollapsed">{{ listColCollapsed ? 'Show message list' : 'Hide message list' }}</button>
           <button type="button" class="btn btn-secondary" :aria-expanded="!detailsCollapsed" @click="detailsCollapsed = !detailsCollapsed">{{ detailsCollapsed ? 'Show details' : 'Hide details' }}</button>
         </div>
-        <button ref="fullscreenButton" type="button" class="btn btn-secondary" :disabled="!hasOpenReader" @click="readerFullscreen = true">Full screen</button>
+        <button ref="fullscreenButton" type="button" class="btn btn-secondary" @click="readerFullscreen = true">Full screen</button>
       </template>
+      <label v-if="inboxChannel === 'group' && !selectedReviewCategory" class="msg-hub-sort">Ownership
+        <select v-model="claimState" @change="changeMessageScope"><option value="">All</option><option value="claimed">Claimed</option><option value="unclaimed">Unclaimed</option></select>
+      </label>
+      <label v-if="isTicketQueue" class="msg-hub-sort"><input v-model="ticketUnreadOnly" type="checkbox" @change="loadConversations" /> Unread only</label>
       <div v-if="hasOpenReader" class="msg-hub-message-navigation">
         <button type="button" class="btn btn-secondary" :disabled="readerNavigating || loadingEmail || readingIndex <= 0" @click="navigateReader(-1)">← Previous</button>
         <span v-if="readingIndex >= 0" role="status">{{ readingIndex + 1 }} of {{ readingSequence.length }}</span>
-        <button type="button" class="btn btn-secondary" :disabled="readerNavigating || loadingEmail || readingIndex < 0 || readingIndex >= readingSequence.length - 1" @click="navigateReader(1)">Next →</button>
+        <button type="button" class="btn btn-secondary" :disabled="readerNavigating || loadingEmail || !hasNextReader" @click="navigateReader(1)">Next →</button>
         <button v-if="readerFullscreen" type="button" class="btn btn-secondary" :disabled="readerNavigating || readingIndex < 0 || readingIndex >= readingSequence.length - 1" @click="reviewAndNext(false)">Mark read &amp; next</button>
         <button v-if="readerFullscreen" type="button" class="btn btn-secondary" :disabled="readerNavigating || readingIndex < 0 || readingIndex >= readingSequence.length - 1" @click="reviewAndNext(true)">Keep unread &amp; next</button>
       </div>
@@ -123,7 +133,7 @@
           </button>
         </div>
         <div v-if="canUseTickets" class="msg-hub-rail-section">
-          <button type="button" class="msg-hub-rail-item" @click="openTicketDesk">Tickets</button>
+          <button type="button" class="msg-hub-rail-item" @click="selectTicketQueue('tickets')">Tickets</button>
         </div>
         <div class="msg-hub-rail-section">
           <p class="msg-hub-rail-label">People</p>
@@ -199,6 +209,13 @@
             />
           </label>
           <button v-if="emailSearchEnabled && listSearch.trim() && hasMoreEmailResults" type="button" :disabled="loadingList" @click="moreEmailResults">Show more search results</button>
+          <div v-if="isConversationMode && selectableConversations.length" class="msg-hub-bulk-actions" role="toolbar" aria-label="Selected messages">
+            <label><input type="checkbox" :checked="allVisibleSelected" :indeterminate="selectedMessageKeys.length > 0 && !allVisibleSelected" :disabled="bulkUpdating" @change="selectAllVisible($event.target.checked)" /> Select all shown</label>
+            <span role="status">{{ selectedMessageKeys.length }} selected</span>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="bulkUpdating || !selectedMessageKeys.length" @click="bulkUpdateMessages('read')">Mark read</button>
+            <button v-if="!selectionContainsTickets" type="button" class="btn btn-secondary btn-sm" :disabled="bulkUpdating || !selectedMessageKeys.length" @click="bulkUpdateMessages('archive')">Archive</button>
+            <button v-if="selectedMessageKeys.length" type="button" class="btn btn-secondary btn-sm" :disabled="bulkUpdating" @click="selectedMessageKeys = []">Clear</button>
+          </div>
           <div v-if="loadingList || loadingQueued" class="msg-hub-muted pad">Loading…</div>
 
           <ul v-else-if="isQueuedMode && queuedItems.length" class="msg-hub-list">
@@ -275,6 +292,7 @@
               @mouseenter="previewEmail(c, $event)" @mouseleave="scheduleHidePreview" @focus="previewEmail(c, $event)" @blur="scheduleHidePreview"
               @click="pickConversation(c)"
             >
+              <input v-if="canSelectMessage(c)" class="msg-hub-select-message" type="checkbox" :aria-label="`Select ${c.subject || conversationThreadTitle(c)}`" :checked="selectedMessageKeys.includes(readerKey(c))" :disabled="bulkUpdating" @click.stop @keydown.stop @change="toggleMessageSelection(c, $event.target.checked)" />
               <div class="msg-hub-avatar-wrap">
                 <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" icon-only />
                 <div v-else class="msg-hub-avatar" aria-hidden="true">
@@ -298,6 +316,7 @@
                   <span v-if="c.is_unread" :class="c.is_review_notice ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">
                     {{ c.is_review_notice ? 'To review' : c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
                   </span>
+                  <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
                   <span v-if="c.last_message_at" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
                 </div>
                 <p v-if="c.channel === 'email'" class="msg-hub-snippet"><strong>{{ c.subject || '(No subject)' }}</strong></p>
@@ -309,7 +328,7 @@
                   <span>Ticket #{{ c.support_ticket_id }}</span>
                   <span v-if="c.ticket_replied">Replied</span>
                   <span v-else-if="c.ticket_claimed_by_user_id">Claimed{{ c.owner_first_name ? ` by ${c.owner_first_name}` : '' }}</span>
-                  <span v-else>Available to claim</span>
+                  <span v-else>Unclaimed</span>
                 </div>
                 <p class="msg-hub-snippet">
                   <span v-if="isConversationSnoozed(c)" class="msg-hub-snooze-tag" title="Snoozed">⏰</span>
@@ -415,9 +434,9 @@
 
           <div v-else class="msg-hub-empty">
             <p>{{ error ? 'Messages could not be loaded. Please try Refresh.' : emptyListCopy }}</p>
-            <button v-if="navId === 'unread' && inboxChannel !== 'all' && inboxCounts.unread > inboxBadgeCount('unread')" type="button" class="btn btn-secondary" @click="selectInboxChannel('all')">Show unread across all channels ({{ inboxCounts.unread }})</button>
+            <button v-if="navId === 'unread' && !selectedReviewCategory && inboxChannel !== 'all' && inboxCounts.unread > inboxBadgeCount('unread')" type="button" class="btn btn-secondary" @click="selectInboxChannel('all')">Show unread across all channels ({{ inboxCounts.unread }})</button>
             <button
-              v-if="navSection !== 'tools'"
+              v-if="navSection !== 'tools' && !selectedReviewCategory && !isTicketQueue"
               type="button"
               class="btn btn-primary"
               @click="openNewConversation()" :disabled="channelNeedsActivation" :title="channelActivationMessage || newMessageLabel"
@@ -425,6 +444,7 @@
               + {{ newMessageLabel }}
             </button>
           </div>
+          <button v-if="hasMoreConversations && !['inbox','unread','my_tickets','tickets','assigned'].includes(navId) && !(emailSearchEnabled && listSearch.trim())" type="button" class="btn btn-secondary" :disabled="loadingList" @click="loadConversations({ append: true })">Show more messages</button>
         </section>
 
         <section class="msg-hub-thread-col" aria-label="Conversation">
@@ -1619,7 +1639,7 @@
       </div>
     </div>
   </div>
-  <TicketDetailModal v-if="activeTicketId" :ticket-id="activeTicketId" :agency-id="activeTicketAgencyId" @close="closeTicketModal" @updated="refreshMail({ quiet: true })" />
+  <TicketDetailModal v-if="activeTicketId" :ticket-id="activeTicketId" :agency-id="activeTicketAgencyId" :has-next="hasNextReader && !readerNavigating" :fullscreen="readerFullscreen" @next="navigateReader(1)" @fullscreen="readerFullscreen = !readerFullscreen" @loaded="onTicketLoaded" @close="closeTicketModal" @updated="refreshMail({ quiet: true })" />
   <Teleport to="body"><aside v-if="hoverEmail" class="email-hover-preview" role="tooltip" :style="{top:hoverEmail.top+'px',left:hoverEmail.left+'px'}" @mouseenter="clearTimeout(hidePreviewTimer)" @mouseleave="scheduleHidePreview">
     <strong>{{ hoverEmail.subject || '(No subject)' }}</strong><pre>{{ hoverEmail.body || 'Loading message…' }}</pre>
   </aside></Teleport>
@@ -1659,6 +1679,8 @@ import GroupEmailBadge from '../unifiedInbox/GroupEmailBadge.vue';
 import { isTicketedGroup } from '../../utils/groupEmailPresentation';
 import { canAccessTicketDesk } from '../../utils/ticketAccess';
 import TicketDetailModal from '../tickets/TicketDetailModal.vue';
+import { mergeInboxSummaries, uniqueMessageRows, groupMailboxes } from '../../utils/messageWorkspace';
+import { lockMessageScroll } from '../../utils/messageScrollLock';
 
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
@@ -1670,13 +1692,26 @@ const channelActivationMessage = computed(() => ({
 })[inboxChannel.value] || '');
 const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'group',label:'Groups'},{id:'internal',label:'Direct message'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'calls',label:'Calls / Voicemails'},{id:'channel',label:'Channels'}];
 const departmentInboxes = ref([]), internalGroups = ref([]), selectedGroupInboxId = ref(null);
+const claimState = ref(''), ticketUnreadOnly = ref(true), scopedInboxCounts = ref(null), scopedCountScope = ref('');
+const scopedSummary = computed(() => scopedCountScope.value === currentCountScope() ? scopedInboxCounts.value : null);
+const groupedDepartmentInboxes = computed(() => groupMailboxes(departmentInboxes.value));
+const visibleDepartmentInboxes = computed(() => groupedDepartmentInboxes.value.filter(box => String(selectedGroupInboxId.value) === String(box.id) || groupMailboxCount(box, 'unreadByInbox') > 0 || box.mailboxes.some(mailbox => ![false, 0, '0'].includes(mailbox.has_communications))));
+const visibleInternalGroups = computed(() => internalGroups.value.filter(group => group.hasMessages || Number(group.unreadCount) > 0));
+const selectedDepartment = computed(() => groupedDepartmentInboxes.value.find(box => String(box.id) === String(selectedGroupInboxId.value) || box.mailboxes.some(mailbox => String(mailbox.id) === String(selectedGroupInboxId.value))));
+const reviewNoticeCount = computed(() => Object.values(inboxCounts.value.reviewByCategory || {}).reduce((sum, n) => sum + Number(n || 0), 0));
+const isTicketQueue = computed(() => ['my_tickets', 'tickets'].includes(navId.value));
+function groupMailboxCount(box, field) { return box.mailboxes.reduce((sum, mailbox) => sum + Number(inboxCounts.value[field]?.[mailbox.id] || 0), 0); }
+function selectTicketQueue(id) { inboxChannel.value = 'all'; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; claimState.value = ''; selectNav('inbox', id); }
+function changeMessageScope() { closePerson(); scopedInboxCounts.value = null; selectedMessageKeys.value = []; void loadConversations(); }
+function scopeInboxId(aid) { return selectedDepartment.value?.mailboxes.find(box => Number(box.agency_id) === Number(aid))?.id || (selectedDepartment.value ? null : selectedGroupInboxId.value); }
+function scopeAgencyIds() { return selectedDepartment.value ? [...new Set(selectedDepartment.value.mailboxes.map(box => Number(box.agency_id || agencyId.value)))] : messageAgencyIds.value; }
 const selectedReviewCategory = ref(null), reviewingNotices = ref(false), closingPreviewTicket = ref(false);
 const reviewCategories = [{ id: 'provider_assignments', label: 'Provider Assignments' }, { id: 'enrollment_packets', label: 'Submitted Enrollment Packets' }];
-function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; void loadConversations(); }
-function selectReviewCategory(id) { selectedGroupInboxId.value = null; selectedReviewCategory.value = id; void loadConversations(); }
+function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (!inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
+function selectReviewCategory(id) { selectedGroupInboxId.value = null; selectedReviewCategory.value = id; claimState.value = ''; navId.value = 'unread'; changeMessageScope(); }
 async function reviewAllNotices() {
   reviewingNotices.value = true;
-  try { await api.post('/communications/review-notices', { agencyId: agencyId.value, category: selectedReviewCategory.value }); await Promise.all([loadConversations(), loadInboxCounts()]); }
+  try { await Promise.all(scopeAgencyIds().map(aid => api.post('/communications/review-notices', { agencyId: aid, category: selectedReviewCategory.value }))); await Promise.all([loadConversations(), loadInboxCounts()]); }
   catch (e) { error.value = messagingError(e, 'Could not mark these notices reviewed.'); }
   finally { reviewingNotices.value = false; }
 }
@@ -1701,14 +1736,19 @@ const canUseTickets = computed(() => departmentInboxes.value.length > 0 || canAc
 async function loadGroupMemberships() {
   const aid = agencyId.value;
   if (!aid) return;
-  const results = await Promise.allSettled([
-    api.get('/communications/inboxes', { params: { agencyId: aid }, skipGlobalLoading: true }),
-    api.get('/messages/hub/start-directory', { params: { agencyId: aid, allAgencies: false, perSection: 40 }, skipGlobalLoading: true })
-  ]);
+  const results = await Promise.allSettled(messageAgencyIds.value.map(async id => {
+    const [boxes, directory] = await Promise.all([
+      api.get('/communications/inboxes', { params: { agencyId: id }, skipGlobalLoading: true }),
+      api.get('/messages/hub/start-directory', { params: { agencyId: id, allAgencies: false, perSection: 40 }, skipGlobalLoading: true })
+    ]);
+    return { boxes: (boxes.data?.inboxes || []).filter(isTicketedGroup).map(box => ({ ...box, agency_id: id })), groups: directory.data?.sections?.groups || [] };
+  }));
   if (aid !== agencyId.value) return;
-  if (results[0].status === 'fulfilled') departmentInboxes.value = (results[0].value.data?.inboxes || []).filter(isTicketedGroup);
-  if (results[1].status === 'fulfilled') internalGroups.value = results[1].value.data?.sections?.groups || [];
+  const successes = results.filter(result => result.status === 'fulfilled').map(result => result.value);
+  departmentInboxes.value = [...new Map(successes.flatMap(result => result.boxes).map(box => [box.id, box])).values()];
+  internalGroups.value = [...new Map(successes.flatMap(result => result.groups).map(group => [group.groupId, group])).values()];
 }
+
 function openTicketDesk() {
   return router.push({ path: route.params.organizationSlug ? `/${route.params.organizationSlug}/tickets` : '/tickets', query: { agencyId: agencyId.value } });
 }
@@ -1718,7 +1758,11 @@ function openPreviewTicket() {
   activeTicketAgencyId.value = conversation.agency_id || agencyId.value;
   activeTicketId.value = conversation.support_ticket_id;
 }
-function closeTicketModal() { activeTicketId.value = null; void refreshMail({ quiet: true }); }
+function closeTicketModal() { activeTicketId.value = null; closePerson(); selectedConversation.value = null; conversationPreview.value = null; void refreshMail({ quiet: true }); }
+async function onTicketLoaded({ ticketId, readBefore }) {
+  try { await api.post(`/support-tickets/${ticketId}/read`, { readBefore }, { skipGlobalLoading: true }); markLocalMessageRead(readingSequence.value.find(row => Number(row.support_ticket_id) === Number(ticketId))); }
+  catch (e) { error.value = messagingError(e, 'Could not mark the ticket read.'); }
+}
 async function claimPreviewTicket() {
   const conversation = conversationPreview.value?.conversation;
   if (!conversation?.id || claimingGroupTicket.value) return;
@@ -1746,7 +1790,7 @@ let inboxController=null,emailReadController=null;
 const loadingEmail = ref(false);
 const openNewDrafts = ref([]);
 const personNewDrafts = computed(() => openNewDrafts.value.filter(d => selected.value?.email && [Number(selected.value.agencyId), Number(agencyId.value)].includes(Number(d.agencyId)) && String(d.to || '').split(/[,;]/).some(address => address.trim().toLowerCase() === selected.value.email.toLowerCase())));
-function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value && (!['drafts','needs_attention'].includes(navId.value) || ['all','email'].includes(channel)) ? navId.value : 'inbox');}
+function selectInboxChannel(channel) { inboxChannel.value = channel; selectNav('inbox', inboxNavItems.value.some(item => item.id === navId.value) ? navId.value : 'inbox'); }
 function composeEmail(mode='new') {
   const preset=typeof mode==='object'?mode:null;
   if(preset)mode=preset.mode||'reply';
@@ -1755,7 +1799,7 @@ function composeEmail(mode='new') {
   if (supportTicketId) return openPreviewTicket();
   const conversationId=conversationPreview.value?.conversation?.id || selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
-  openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:preset?.to ?? (mode==='new'?selected.value?.email:undefined),...(preset?{cc:preset.cc,forwardRecipient:preset.forwardRecipient}: {})});
+  openEmailComposer(router,{mode,agencyId:conversationPreview.value?.conversation?.agency_id || selectedConversation.value?.agency_id || agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:preset?.to ?? (mode==='new'?selected.value?.email:undefined),...(preset?{cc:preset.cc,forwardRecipient:preset.forwardRecipient}: {})});
 }
 async function refreshMail({ quiet = false } = {}) {
   if (refreshing.value || loadingList.value || sessionBlocked.value || !agencyId.value) return;
@@ -1861,30 +1905,77 @@ const readerNavigating = ref(false);
 const hasOpenReader = computed(() => !!(selected.value || selectedConversation.value || conversationPreview.value));
 const readerKey = c => `${c?.hubKind || c?.channel || 'email'}:${c?.conversationId || c?.threadId || c?.id}`;
 const readingIndex = computed(() => readingSequence.value.findIndex(c => readerKey(c) === activeReaderKey.value));
+const selectedMessageKeys = ref([]), bulkUpdating = ref(false), hasMoreConversations = ref(false);
+const nextReader = computed(() => readingSequence.value.slice(readingIndex.value + 1).find(row => activeTicketId.value ? row.support_ticket_id && row.is_unread : !isTicketQueue.value || row.is_unread));
+const hasNextReader = computed(() => !!nextReader.value || (hasMoreConversations.value && (navId.value === 'unread' || isTicketQueue.value)));
+function canSelectMessage(row) { return !row.draftId && !row.deliveryLabel && row.type !== 'cancellation_contact'; }
+const selectableConversations = computed(() => filteredConversations.value.filter(canSelectMessage));
+const selectedMessageRows = computed(() => selectableConversations.value.filter(row => selectedMessageKeys.value.includes(readerKey(row))));
+const allVisibleSelected = computed(() => selectableConversations.value.length > 0 && selectableConversations.value.every(row => selectedMessageKeys.value.includes(readerKey(row))));
+const selectionContainsTickets = computed(() => selectedMessageRows.value.some(row => row.support_ticket_id || isTicketedGroup(row) || row.threadId));
+function selectAllVisible(checked) { selectedMessageKeys.value = checked ? selectableConversations.value.map(readerKey) : []; }
+function toggleMessageSelection(row, checked) { selectedMessageKeys.value = checked ? [...new Set([...selectedMessageKeys.value, readerKey(row)])] : selectedMessageKeys.value.filter(key => key !== readerKey(row)); }
+function markLocalMessageRead(row) {
+  if (!row) return;
+  for (const list of [conversations.value, readingSequence.value]) for (const item of list) if (readerKey(item) === readerKey(row)) { item.is_unread = false; item.unreadCount = 0; }
+}
+async function updateMessageRead(row, unread = false) {
+  if (row.hubKind === 'ticket') await api.post(`/support-tickets/${row.support_ticket_id}/read`, { markUnread: unread }, { skipGlobalLoading: true });
+  else if (row.threadId) await api.post(`/chat/threads/${row.threadId}/${unread ? 'unread' : 'read'}`, {}, { skipGlobalLoading: true });
+  else await api.patch(`/communications/conversations/${row.conversationId || row.id}`, unread ? { markUnread: true } : { markRead: true }, { skipGlobalLoading: true });
+  if (!unread) markLocalMessageRead(row);
+}
+async function bulkUpdateMessages(action) {
+  if (bulkUpdating.value || !selectedMessageRows.value.length || (action === 'archive' && selectionContainsTickets.value)) return;
+  bulkUpdating.value = true;
+  const failed = [];
+  try {
+    const rows = [...selectedMessageRows.value];
+    // Keep requests bounded; each endpoint applies the existing access checks.
+    for (const row of rows) {
+      try {
+        if (action === 'read') await updateMessageRead(row);
+        else await api.patch(`/communications/conversations/${row.conversationId || row.id}`, { archive: true }, { skipGlobalLoading: true });
+      } catch { failed.push(readerKey(row)); }
+    }
+    await Promise.all([loadConversations(), loadInboxCounts()]);
+    selectedMessageKeys.value = failed;
+    if (failed.length) error.value = `${failed.length} messages could not be updated. They remain selected so you can retry.`;
+  } finally { bulkUpdating.value = false; }
+}
+
 async function reviewAndNext(keepUnread) {
   const current = readingSequence.value[readingIndex.value];
-  if (!current || readerNavigating.value || readingIndex.value >= readingSequence.value.length - 1) return;
+  if (!current || readerNavigating.value || !nextReader.value) return;
   readerNavigating.value = true;
   try {
-    if (['chat','channel','group'].includes(current.hubKind) && current.threadId) {
-      await api.post(`/chat/threads/${current.threadId}/${keepUnread ? 'unread' : 'read'}`, {}, { skipGlobalLoading: true });
-    } else {
-      await api.patch(`/communications/conversations/${current.conversationId || current.id}`,
-        keepUnread ? { markUnread: true } : { markRead: true }, { skipGlobalLoading: true });
-    }
-    await pickConversation(readingSequence.value[readingIndex.value + 1], { preserveSequence: true });
+    const target = nextReader.value;
+    await updateMessageRead(current, keepUnread);
+    await pickConversation(target, { preserveSequence: true });
     readerFullscreen.value = true;
     await loadInboxCounts();
   } catch (e) { error.value = messagingError(e, 'Could not update the message.'); }
   finally { readerNavigating.value = false; }
 }
 async function navigateReader(offset) {
-  const target = readingSequence.value[readingIndex.value + offset];
-  if (!target || readingIndex.value < 0 || readerNavigating.value) return;
+  if (readingIndex.value < 0 || readerNavigating.value) return;
   readerNavigating.value = true;
-  try { await pickConversation(target, { preserveSequence: true }); }
-  finally { readerNavigating.value = false; }
+  try {
+    let target = offset > 0 ? nextReader.value : readingSequence.value[readingIndex.value - 1];
+    if (!target && offset > 0 && hasMoreConversations.value) {
+      await loadConversations({ nextUnread: true });
+      const known = new Set(readingSequence.value.map(readerKey));
+      readingSequence.value.push(...filteredConversations.value.filter(row => !known.has(readerKey(row))));
+      target = nextReader.value;
+    }
+    if (target) {
+      const navigatingTicket = !!activeTicketId.value;
+      await pickConversation(target, { preserveSequence: true });
+      if (navigatingTicket && target.hubKind !== 'ticket' && target.support_ticket_id) openPreviewTicket();
+    }
+  } finally { readerNavigating.value = false; }
 }
+
 function exitReaderFullscreen() {
   readerFullscreen.value = false;
   nextTick(() => fullscreenButton.value?.focus());
@@ -1907,16 +1998,15 @@ function onReaderEscape(event) {
     exitReaderFullscreen();
   }
 }
-let previousBodyOverflow = null;
+let releaseReaderScroll = null;
 watch(readerFullscreen, async active => {
   if (active) {
-    previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    releaseReaderScroll = lockMessageScroll();
     await nextTick();
-    document.querySelector('.reader-fullscreen .msg-hub-reading-controls button')?.focus();
-  } else if (previousBodyOverflow !== null) {
-    document.body.style.overflow = previousBodyOverflow;
-    previousBodyOverflow = null;
+    if (!activeTicketId.value) document.querySelector('.reader-fullscreen .msg-hub-reading-controls button')?.focus();
+  } else {
+    releaseReaderScroll?.();
+    releaseReaderScroll = null;
   }
 });
 
@@ -2018,9 +2108,10 @@ const queuedItems = ref([]);
 const loadingQueued = ref(false);
 
 const agencyId = computed(()=>route.query.secureClientId&&/^[1-9]\d*$/.test(String(route.query.agencyId||''))?Number(route.query.agencyId):agencyStore.currentAgency?.id||null);
+const messageAgencyIds = computed(() => [...new Set([agencyId.value, ...(agencyStore.userAgencies || []).filter(agency => ![false, 0, '0'].includes(agency.is_active)).map(agency => agency.agency_id || agency.id)].map(Number).filter(id => id > 0))]);
 const { summary: emailWorkspace, draftByConversation } = useEmailWorkspace(agencyId);
 
-const inboxNavItems = [
+const baseInboxNavItems = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'assigned', label: 'Assigned to me' },
   { id: 'unread', label: 'Unread' },
@@ -2033,6 +2124,15 @@ const inboxNavItems = [
   { id: 'drafts', label: 'Drafts' },
   { id: 'needs_attention', label: 'Needs attention' }
 ];
+const inboxNavItems = computed(() => {
+  if (isTicketQueue.value) return [{ id: navId.value, label: navId.value === 'my_tickets' ? 'My tickets' : 'Tickets' }];
+  if (inboxChannel.value === 'group' && selectedReviewCategory.value) return [{ id: 'unread', label: 'To review' }, { id: 'inbox', label: 'All notices' }];
+  const allowed = inboxChannel.value === 'group' ? ['inbox', 'unread', 'unknown', 'sent']
+    : inboxChannel.value === 'email' ? ['inbox', 'assigned', 'unread', 'unknown', 'starred', 'queued', 'snoozed', 'sent', 'drafts', 'needs_attention']
+    : inboxChannel.value === 'all' ? baseInboxNavItems.map(item => item.id)
+    : inboxChannel.value === 'sms' ? ['inbox', 'unread', 'sent'] : ['inbox', 'unread'];
+  return baseInboxNavItems.filter(item => allowed.includes(item.id));
+});
 
 const peopleNavItems = [
   { id: 'contacts', label: 'Contacts' },
@@ -2085,7 +2185,7 @@ const listColumnTitle = computed(() => {
     return selected.value?.displayName || threadTitle.value || 'Conversations';
   }
   if (navSection.value === 'inbox') {
-    return inboxNavItems.find((x) => x.id === navId.value)?.label || 'Inbox';
+    return inboxNavItems.value.find((x) => x.id === navId.value)?.label || 'Inbox';
   }
   if (navSection.value === 'tools') {
     return toolsNavItems.find((x) => x.id === navId.value)?.label || 'Tools';
@@ -2106,7 +2206,7 @@ const listSearchPlaceholder = computed(() => {
 
 const isConversationMode = computed(() => {
   if (navSection.value !== 'inbox') return false;
-  return ['inbox', 'assigned', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention'].includes(navId.value);
+  return ['inbox', 'assigned', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention', 'tickets', 'my_tickets'].includes(navId.value);
 });
 
 const isQueuedMode = computed(() => navSection.value === 'inbox' && navId.value === 'queued');
@@ -2263,10 +2363,10 @@ const filteredPeople = computed(() => {
 const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
-  if (inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel)
+  if (!isTicketQueue.value && inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel)
     : inboxChannel.value === 'group' ? selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
     : inboxChannel.value === 'email' ? c.channel === 'email' && !isTicketedGroup(c) : c.channel === inboxChannel.value);
-  if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => String(c.inbox_id) === String(selectedGroupInboxId.value));
+  if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => selectedDepartment.value ? selectedDepartment.value.mailboxes.some(box => String(box.id) === String(c.inbox_id)) : String(c.inbox_id) === String(selectedGroupInboxId.value));
   if (!q || emailSearchEnabled.value) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
@@ -2275,6 +2375,7 @@ const filteredConversations = computed(() => {
 });
 
 const emptyListCopy = computed(() => {
+  if (isTicketQueue.value) return ticketUnreadOnly.value ? 'No unread tickets in this queue.' : 'No open tickets in this queue.';
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return 'No email notices in this category.';
   if (navSection.value === 'tools' && navId.value === 'calls') {
     return 'Calls and voicemail in Communications management.';
@@ -3284,44 +3385,29 @@ async function saveSendDelayPrefs() {
   }
 }
 
+async function scopedQueuedItems() {
+  const items = await scopedGet('/messages/hub/queued', {}, { skipGlobalLoading: true }, 'items');
+  return items.filter(item => inboxChannel.value === 'all' || item.channel === inboxChannel.value);
+}
 async function loadQueued() {
   loadingQueued.value = true;
   queuedItems.value = [];
+  const scope = currentCountScope();
   try {
-    const { data } = await api.get('/messages/hub/queued', {
-      params: { agencyId: agencyId.value },
-      skipGlobalLoading: true
-    });
-    queuedItems.value = Array.isArray(data?.items) ? data.items : [];
-    inboxCounts.value = {
-      ...inboxCounts.value,
-      queued: Number(data?.count ?? queuedItems.value.length) || 0
-    };
-  } catch (e) {
-    queuedItems.value = [];
-    error.value = e?.response?.data?.error?.message || 'Could not load queued messages';
-  } finally {
-    loadingQueued.value = false;
-  }
+    const items = await scopedQueuedItems();
+    if (scope !== currentCountScope()) return;
+    queuedItems.value = items;
+    inboxCounts.value = { ...inboxCounts.value, queued: items.length };
+  } catch (e) { error.value = messagingError(e, 'Could not load queued messages'); }
+  finally { loadingQueued.value = false; }
 }
-
 async function refreshQueuedCount() {
-  if (!agencyId.value) {
-    inboxCounts.value = { ...inboxCounts.value, queued: 0 };
-    return;
-  }
+  if (!agencyId.value || !['all', 'email'].includes(inboxChannel.value) || selectedReviewCategory.value) return;
+  const scope = currentCountScope();
   try {
-    const { data } = await api.get('/messages/hub/queued', {
-      params: { agencyId: agencyId.value, limit: 1 },
-      skipGlobalLoading: true
-    });
-    inboxCounts.value = {
-      ...inboxCounts.value,
-      queued: Number(data?.count ?? data?.items?.length) || 0
-    };
-  } catch {
-    /* keep prior */
-  }
+    const items = await scopedQueuedItems();
+    if (scope === currentCountScope()) inboxCounts.value = { ...inboxCounts.value, queued: items.length };
+  } catch { /* Keep prior counts during a connection interruption. */ }
 }
 
 async function undoQueuedItem(item) {
@@ -3887,9 +3973,11 @@ function restoreMailboxView() {
   const folder=route.query.folder || saved.folder || 'inbox';
   const channel=route.query.channel || saved.channel || 'all';
   inboxChannel.value=inboxChannels.some(item=>item.id===channel)?channel:'all';
-  selectNav('inbox',inboxNavItems.some(item=>item.id===folder)?folder:'inbox');
+  selectNav('inbox',inboxNavItems.value.some(item=>item.id===folder)?folder:'inbox');
 }
 function selectNav(section, id) {
+  selectedMessageKeys.value = [];
+  scopedInboxCounts.value = null;
   closePerson();
   ++inboxRequest;
   inboxController?.abort();
@@ -3973,8 +4061,21 @@ async function openTeamChat(tab = null) {
   await router.push({ path, query: q }).catch(() => {});
 }
 
-async function loadConversations({ quiet = false, append = false } = {}) {
+async function scopedGet(path, params, config = {}, responseKey = 'conversations') {
+  const { append = false, ...requestConfig } = config;
+  const results = await Promise.all(scopeAgencyIds().map(async (aid, index) => {
+    const { data } = await api.get(path, { ...requestConfig, params: { ...params, agencyId: aid, includeGlobal: index === 0 ? '1' : '0',
+      offset: append ? conversations.value.filter(row => Number(row.agency_id || agencyId.value) === Number(aid)).length : Number(params.offset || 0),
+      ...(inboxChannel.value === 'group' ? { [path.startsWith('/messages/hub/') || path.endsWith('attention-summary') ? 'inboxId' : 'groupInboxId']: scopeInboxId(aid), claimState: claimState.value || undefined } : {}) } });
+    return (data?.[responseKey] || []).map(row => ({ ...row, agency_id: row.agency_id || aid, agencyId: row.agencyId || aid }));
+  }));
+  const rows = uniqueMessageRows(results.flat());
+  rows.sort((a, b) => (new Date(b.sortAt || b.last_message_at || b.created_at || 0) - new Date(a.sortAt || a.last_message_at || a.created_at || 0)) * (unreadSort.value === 'oldest' ? -1 : 1));
+  return rows;
+}
+async function loadConversations({ quiet = false, append = false, nextUnread = false } = {}) {
   if (quiet && loadingList.value) return;
+  hasMoreConversations.value = false;
   const request = ++inboxRequest;
   inboxController?.abort();
   const controller = new AbortController();
@@ -3987,13 +4088,23 @@ async function loadConversations({ quiet = false, append = false } = {}) {
       return;
     }
     const id = navId.value;
+    if (isTicketQueue.value) {
+      const results = await Promise.all(messageAgencyIds.value.filter(aid => canAccessTicketDesk(authStore.user, aid) || departmentInboxes.value.some(box => Number(box.agency_id) === aid)).map(async aid => {
+        const { data } = await api.get('/support-tickets', { params: { agencyId: aid, mine: id === 'my_tickets' ? '1' : undefined, includeReadState: '1', unread: ticketUnreadOnly.value || nextUnread ? '1' : undefined, status: 'open', limit: 200 }, signal: controller.signal });
+        return (Array.isArray(data) ? data : []).map(ticket => ({ ...ticket, id: `ticket-${ticket.id}`, hubKind: 'ticket', channel: 'email', support_ticket_id: ticket.id, ticket_status: ticket.status,
+          ticket_claimed_by_user_id: ticket.claimed_by_user_id, primary_participant_name: ticket.created_by_first_name || ticket.source_email_from || `Ticket #${ticket.id}`, last_message_at: ticket.updated_at || ticket.created_at, is_unread: !!Number(ticket.is_unread), agency_id: ticket.agency_id || aid }));
+      }));
+      if (request !== inboxRequest) return;
+      conversations.value = uniqueMessageRows(results.flat()); hasMoreConversations.value = results.some(rows => rows.length === 200);
+      return;
+    }
     if (id === 'assigned') {
-      const { data } = await api.get('/communications/conversations', { params: { agencyId: agencyId.value, hubScope: 1, inboxId: 'assigned', filter: 'all', limit: 80,
+      const rows = await scopedGet('/communications/conversations', { agencyId: agencyId.value, hubScope: 1, inboxId: 'assigned', filter: 'all', limit: 80,
         channel: inboxChannel.value === 'all' ? undefined : inboxChannel.value,
         groupInboxId: inboxChannel.value === 'group' ? selectedGroupInboxId.value : undefined,
-        category: inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined, sort: unreadSort.value }, signal: controller.signal });
+        category: inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined, sort: unreadSort.value }, { signal: controller.signal });
       if (request !== inboxRequest) return;
-      conversations.value = data?.conversations || [];
+      conversations.value = rows; hasMoreConversations.value = rows.length >= 80;
       await loadInboxCounts();
       return;
     }
@@ -4012,9 +4123,8 @@ async function loadConversations({ quiet = false, append = false } = {}) {
     }
 
     if (emailSearchEnabled.value && listSearch.value.trim()) {
-      const {data}=await api.get('/communications/conversations',{params:{agencyId:agencyId.value,hubScope:1,channel:'email',filter:id==='inbox'?'all':id,q:listSearch.value.trim(),limit:80,offset:append?conversations.value.length:0},signal:controller.signal});
+      const rows = await scopedGet('/communications/conversations', {hubScope:1,channel:'email',filter:id==='inbox'?'all':id,q:listSearch.value.trim(),limit:80}, {signal:controller.signal, append});
       if(request!==inboxRequest)return;
-      const rows=data.conversations || [];
       conversations.value=append?[...conversations.value,...rows.filter(row=>!conversations.value.some(existing=>existing.id===row.id))]:rows;
       hasMoreEmailResults.value=rows.length===80;
       return;
@@ -4022,19 +4132,16 @@ async function loadConversations({ quiet = false, append = false } = {}) {
     hasMoreEmailResults.value=false;
     // Unified Inbox / Unread: email + secure + internal + SMS + groups
     if (id === 'unread' || id === 'inbox') {
-      const { data } = await api.get(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
-        params: {
+      const items = await scopedGet(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
           agencyId: agencyId.value,
           sort: unreadSort.value,
           channel: inboxChannel.value,
           inboxId: inboxChannel.value === 'group' ? selectedGroupInboxId.value : undefined,
           category: inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined,
           limit: 80
-        },
-        signal: controller.signal
-      });
+        }, { signal: controller.signal }, 'items');
       if (request !== inboxRequest) return;
-      const items = Array.isArray(data?.items) ? data.items : [];
+      hasMoreConversations.value = items.length >= 80;
       conversations.value = items.map((item) => ({
         ...item,
         id: item.conversationId || item.id,
@@ -4077,12 +4184,9 @@ async function loadConversations({ quiet = false, append = false } = {}) {
     } else {
       params.filter = id; // starred, snoozed
     }
-    const { data } = await api.get('/communications/conversations', {
-      params,
-      signal: controller.signal
-    });
+    const rows = await scopedGet('/communications/conversations', params, { signal: controller.signal, append });
     if (request !== inboxRequest) return;
-    conversations.value = Array.isArray(data?.conversations) ? data.conversations : [];
+    conversations.value = append ? uniqueMessageRows([...conversations.value, ...rows]) : rows; hasMoreConversations.value = rows.length >= 80;
     await loadInboxCounts();
   } catch (e) {
     if (request !== inboxRequest || e?.code === 'ERR_CANCELED' || quiet) return;
@@ -4097,25 +4201,37 @@ async function loadConversations({ quiet = false, append = false } = {}) {
   }
 }
 
+function currentCountScope() { return JSON.stringify([messageAgencyIds.value, inboxChannel.value, selectedGroupInboxId.value, selectedReviewCategory.value, claimState.value]); }
 async function loadInboxCounts() {
   if (authStore.user?.role === 'school_staff') return;
+  const countScope = currentCountScope();
   if (!agencyId.value) {
     inboxCounts.value = { unread: 0, snoozed: 0, unknown: 0, queued: 0 };
     return;
   }
   try {
-    const { data } = await api.get('/communications/attention-summary', {
-      params: { agencyId: agencyId.value, hubScope: 1 },
-      skipGlobalLoading: true
-    });
-    const s = data?.summary || {};
+    const summaries = await Promise.all(messageAgencyIds.value.map(async (aid, index) => {
+      const { data } = await api.get('/communications/attention-summary', { params: { agencyId: aid, hubScope: 1, includeGlobal: index === 0 ? '1' : '0' }, skipGlobalLoading: true });
+      return data?.summary || {};
+    }));
+    const s = mergeInboxSummaries(summaries);
+    if (!selectedReviewCategory.value && (inboxChannel.value === 'email' || (inboxChannel.value === 'group' && (selectedGroupInboxId.value != null || claimState.value)))) {
+      const scoped = await Promise.all(scopeAgencyIds().map(async (aid, index) => {
+        const { data } = await api.get('/communications/attention-summary', { params: { agencyId: aid, hubScope: 1, includeGlobal: index === 0 ? '1' : '0', channel: inboxChannel.value, inboxId: inboxChannel.value === 'group' ? scopeInboxId(aid) : undefined, claimState: inboxChannel.value === 'group' ? claimState.value || undefined : undefined }, skipGlobalLoading: true });
+        return data?.summary || {};
+      }));
+      if (countScope !== currentCountScope()) return;
+      scopedCountScope.value = countScope;
+      scopedInboxCounts.value = mergeInboxSummaries(scoped);
+    } else scopedInboxCounts.value = null;
+    if (countScope !== currentCountScope()) return;
     inboxCounts.value = {
       ...inboxCounts.value,
       unread: Number(s.unread || 0),
       unreadByChannel: s.unreadByChannel || null,
       unreadByInbox: s.unreadByInbox || {}, reviewByCategory: s.reviewByCategory || {},
       snoozed: Number(s.snoozed || 0),
-      unknown: Number(s.unknownSenders || 0)
+      unknown: Number(s.unknownSenders || 0), unknownByInbox: s.unknownByInbox || {}, unknownByChannel: s.unknownByChannel || {}
     };
     communicationsCountsStore.unreadMessagesCount = inboxCounts.value.unread;
     emit('unread-change', inboxCounts.value.unread);
@@ -4129,12 +4245,17 @@ function inboxBadgeCount(id) {
   if (id === 'drafts') return emailWorkspace.value?.draftCount || 0;
   if (id === 'needs_attention') return emailWorkspace.value?.attentionCount || 0;
   if (id === 'unread') {
-    if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) return Number(inboxCounts.value.unreadByInbox?.[selectedGroupInboxId.value] || 0);
-    if (inboxChannel.value === 'group' && selectedReviewCategory.value) return 0;
+    if (inboxChannel.value === 'group' && selectedReviewCategory.value) return Number(inboxCounts.value.reviewByCategory?.[selectedReviewCategory.value] || 0);
+    if (scopedSummary.value && inboxChannel.value === 'group' && (selectedGroupInboxId.value != null || claimState.value)) return Number(scopedSummary.value.unread || 0);
+    if (inboxChannel.value === 'group' && selectedDepartment.value) return groupMailboxCount(selectedDepartment.value, 'unreadByInbox');
     return channelUnreadCount(inboxChannel.value);
   }
-  if (id === 'snoozed') return inboxCounts.value.snoozed > 0 ? inboxCounts.value.snoozed : 0;
-  if (id === 'unknown') return inboxCounts.value.unknown > 0 ? inboxCounts.value.unknown : 0;
+  if (id === 'snoozed') return Number(scopedSummary.value?.snoozed ?? inboxCounts.value.snoozed ?? 0);
+  if (id === 'unknown') {
+    if (scopedSummary.value) return Number(scopedSummary.value.unknownSenders || 0);
+    if (inboxChannel.value === 'group' && selectedDepartment.value) return groupMailboxCount(selectedDepartment.value, 'unknownByInbox');
+    return inboxChannel.value === 'all' ? Number(inboxCounts.value.unknown || 0) : Number(inboxCounts.value.unknownByChannel?.[inboxChannel.value] || 0);
+  }
   if (id === 'queued') return inboxCounts.value.queued > 0 ? inboxCounts.value.queued : 0;
   return 0;
 }
@@ -4287,6 +4408,7 @@ async function pickConversation(conv, { preserveSequence = false } = {}) {
   }
   hoverEmail.value = null;
   if (conv.draftId) return openEmailComposer(router, { draftId: conv.draftId });
+  if (conv.hubKind === 'ticket') { selected.value = null; selectedConversation.value = conv; conversationPreview.value = null; activeTicketId.value = conv.support_ticket_id; activeTicketAgencyId.value = conv.agency_id || agencyId.value; return; }
   const request = ++emailReadRequest;
   emailReadController?.abort();
   const controller = new AbortController();
@@ -4339,7 +4461,7 @@ async function pickConversation(conv, { preserveSequence = false } = {}) {
   loadingEmail.value = true;
   try {
     const { data } = await api.get(`/communications/conversations/${emailConvId}`, {
-      params: { agencyId: agencyId.value },
+      params: { agencyId: conv.agency_id || conv.agencyId || agencyId.value },
       signal: controller.signal
     });
     if (request !== emailReadRequest) return;
@@ -5431,7 +5553,7 @@ onMounted(() => {
 onUnmounted(() => {
   linkedSecureRequest++;
   window.removeEventListener('keydown', onReaderEscape);
-  if (previousBodyOverflow !== null) document.body.style.overflow = previousBodyOverflow;
+  releaseReaderScroll?.();
   clearInterval(mailPollTimer);
   clearTimeout(hoverTimer); clearTimeout(hidePreviewTimer);
   window.removeEventListener('focus', refreshMailInBackground);
@@ -7511,10 +7633,15 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .reader-fullscreen > .msg-hub-group-help,
 .reader-fullscreen .msg-hub-rail,
 .reader-fullscreen .msg-hub-rail-backdrop,
-.reader-fullscreen .msg-hub-list-col,
+.reader-fullscreen:not(.list-fullscreen) .msg-hub-list-col,
 .reader-fullscreen .msg-hub-context { display: none !important; }
 .msg-hub.reader-fullscreen .msg-hub-grid { grid-template-columns: minmax(0, 1fr) !important; }
 .msg-hub.reader-fullscreen .msg-hub-thread-col { display: flex; }
+.msg-hub.list-fullscreen .msg-hub-list-col { display: flex !important; }
+.msg-hub.list-fullscreen .msg-hub-thread-col { display: none !important; }
+.msg-hub-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--conversa-border); }
+.msg-hub-claim-pill { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--mh-muted); }
+.msg-hub-select-message { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }
 @media (min-width: 801px) {
   .msg-hub .reader-layout:not(.context-collapsed) .msg-hub-context { display: flex; }
   .msg-hub .reader-layout:not(.context-collapsed):not(.list-collapsed) { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) minmax(180px, 240px); }

@@ -19,6 +19,7 @@ let wrapper;
 let state;
 let lock;
 beforeEach(async () => {
+  localStorage.removeItem('messaging-view:5:2');
   vi.clearAllMocks();
   lock = reactive({isLocked:false,warningActive:false});
   useSessionLockStore.mockReturnValue(lock);
@@ -35,6 +36,127 @@ beforeEach(async () => {
   await nextTick();
 });
 afterEach(() => wrapper?.unmount());
+describe('scoped message workspace', () => {
+  it('shows Sent under SMS and loads only that channel', async () => {
+    state.selectInboxChannel('sms');
+    expect(state.inboxNavItems.map(item => item.id)).toContain('sent');
+    state.selectNav('inbox', 'sent');
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('/communications/conversations', expect.objectContaining({
+      params: expect.objectContaining({ filter: 'sent', channel: 'sms' })
+    }));
+  });
+  it('shows only review folders for provider assignments and enrollment notices', async () => {
+    state.selected = null;
+    state.inboxChannel = 'group';
+    for (const category of ['provider_assignments', 'enrollment_packets']) {
+      state.selectReviewCategory(category);
+      await flushPromises();
+      expect(state.inboxNavItems.map(item => item.label)).toEqual(['To review', 'All notices']);
+      expect(state.navId).toBe('unread');
+      expect(wrapper.findAll('.msg-hub-rail-item').some(item => /Unknown Senders|Queued|Snoozed/.test(item.text()))).toBe(false);
+    }
+  });
+  it('hides empty chats while retaining read conversations with messages', async () => {
+    state.inboxChannel = 'group';
+    state.internalGroups = [{ groupId: 1, displayName: 'Empty payroll' }, { groupId: 2, displayName: 'Office', hasMessages: true, unreadCount: 0 }];
+    await nextTick();
+    expect(wrapper.get('[aria-label="Your groups"]').text()).not.toContain('Empty payroll');
+    expect(wrapper.get('[aria-label="Your groups"]').text()).toContain('Office · Chat');
+  });
+  it('hides empty department mailboxes while retaining departments with read mail', () => {
+    state.departmentInboxes = [{ id: 7, group_key: 'payroll', has_communications: false }, { id: 8, group_key: 'billing', has_communications: true }];
+    expect(state.visibleDepartmentInboxes.map(box => box.group_key)).toEqual(['billing']);
+  });
+  it('opens the list in full screen without requiring a selected message', async () => {
+    state.selected = null; state.selectedConversation = null; state.conversationPreview = null;
+    state.navId = 'unknown';
+    await nextTick();
+    const fullScreen = wrapper.findAll('button').find(button => button.text() === 'Full screen');
+    expect(fullScreen.element.disabled).toBe(false);
+    await fullScreen.trigger('click');
+    expect(document.querySelector('.list-fullscreen')).not.toBeNull();
+    state.exitReaderFullscreen();
+  });
+  it('groups Payroll across organizations and requests each mailbox with the ownership filter', async () => {
+    state.selected = null; state.inboxChannel = 'group'; state.navId = 'unknown'; state.claimState = 'claimed';
+    state.departmentInboxes = [2, 3].map(aid => ({ id: aid + 10, agency_id: aid, group_key: 'payroll', is_ticketed_group: true, display_name: 'Payroll' }));
+    state.selectedGroupInboxId = 'payroll';
+    api.get.mockImplementation(async (url, config) => ({ data: url === '/communications/conversations' ? { conversations: [{ id: config.params.agencyId + 20, inbox_id: config.params.groupInboxId, channel: 'email', is_ticketed_group: true }] } : {} }));
+    await state.loadConversations();
+    expect(state.groupedDepartmentInboxes).toHaveLength(1);
+    expect(state.filteredConversations).toHaveLength(2);
+    const requests = api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
+    expect(requests.map(([, config]) => [config.params.agencyId, config.params.groupInboxId, config.params.claimState])).toEqual([[2, 12, 'claimed'], [3, 13, 'claimed']]);
+  });
+  it('shows the Unknown Senders count for the selected Payroll mailboxes', () => {
+    state.inboxChannel = 'group'; state.selectedGroupInboxId = 'payroll';
+    state.departmentInboxes = [{ id: 7, agency_id: 2, group_key: 'payroll' }];
+    state.inboxCounts = { unknown: 29, unknownByInbox: { 7: 0 }, unknownByChannel: { group: 15, email: 14 } };
+    expect(state.inboxBadgeCount('unknown')).toBe(0);
+    state.inboxChannel = 'all';
+    expect(state.inboxBadgeCount('unknown')).toBe(29);
+  });
+  it('counts email notices separately from unread group correspondence', async () => {
+    state.inboxCounts = { unreadByChannel: { group: 422 }, reviewByCategory: { provider_assignments: 37, enrollment_packets: 66 } };
+    await nextTick();
+    expect(wrapper.get('[data-channel="group"]').text()).toContain('422');
+    expect(wrapper.get('[data-channel="group"]').text()).toContain('103 notices');
+  });
+  it('selects multiple messages without opening them and marks them read', async () => {
+    state.selected = null; state.navId = 'unknown';
+    state.conversations = [10, 20].map(id => ({ id, channel: 'email', subject: `Mail ${id}`, is_unread: true }));
+    await nextTick();
+    await wrapper.findAll('.msg-hub-select-message')[0].setValue(true);
+    expect(state.selectedConversation).toBeNull();
+    state.selectAllVisible(true);
+    await state.bulkUpdateMessages('read');
+    expect(api.patch.mock.calls.filter(([, body]) => body.markRead).map(([url]) => url)).toEqual(['/communications/conversations/10', '/communications/conversations/20']);
+  });
+  it('archives selected ordinary email and blocks archive for tickets', async () => {
+    state.selected = null; state.navId = 'unknown';
+    state.conversations = [{ id: 10, channel: 'email' }]; state.selectAllVisible(true);
+    await state.bulkUpdateMessages('archive');
+    expect(api.patch).toHaveBeenCalledWith('/communications/conversations/10', { archive: true }, expect.anything());
+    api.patch.mockClear();
+    state.conversations = [{ id: 20, channel: 'email', support_ticket_id: 12 }]; state.selectAllVisible(true);
+    await state.bulkUpdateMessages('archive');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+  it('bulk reads tickets without claiming or closing them', async () => {
+    state.selected = null; state.navId = 'tickets';
+    state.conversations = [10, 20].map(id => ({ id: `ticket-${id}`, hubKind: 'ticket', channel: 'email', support_ticket_id: id, is_unread: true }));
+    state.selectAllVisible(true);
+    await state.bulkUpdateMessages('read');
+    expect(api.post.mock.calls.map(([url]) => url)).toEqual(['/support-tickets/10/read', '/support-tickets/20/read']);
+  });
+  it('loads My tickets as an assigned unread queue and opens tickets here', async () => {
+    state.selected = null; state.navId = 'my_tickets';
+    state.departmentInboxes = [{ id: 7, agency_id: 2, is_ticketed_group: true }];
+    api.get.mockResolvedValue({ data: [{ id: 101, agency_id: 2, is_unread: 1, claimed_by_user_id: 5 }] });
+    await state.loadConversations();
+    expect(api.get).toHaveBeenCalledWith('/support-tickets', expect.objectContaining({ params: expect.objectContaining({ agencyId: 2, mine: '1', unread: '1' }) }));
+    await state.pickConversation(state.conversations[0]);
+    expect(state.activeTicketId).toBe(101);
+    expect(routing.push).not.toHaveBeenCalled();
+  });
+  it('skips read tickets when Next moves through either ticket queue', async () => {
+    state.selected = null; state.navId = 'my_tickets';
+    state.conversations = [10, 20, 30].map(id => ({ id: `ticket-${id}`, hubKind: 'ticket', channel: 'email', support_ticket_id: id, is_unread: id !== 20 }));
+    await state.pickConversation(state.conversations[0]);
+    await state.onTicketLoaded({ ticketId: 10, readBefore: '2026-11-18T17:00:00Z' });
+    await state.navigateReader(1);
+    expect(state.activeTicketId).toBe(30);
+    expect(api.post).toHaveBeenCalledWith('/support-tickets/10/read', { readBefore: '2026-11-18T17:00:00Z' }, expect.anything());
+  });
+  it('scopes Queued to email when Email is selected', async () => {
+    state.inboxChannel = 'email';
+    api.get.mockResolvedValue({ data: { items: [{ id: 'email-1', channel: 'email' }, { id: 'hubq-2', channel: 'secure' }] } });
+    await state.loadQueued();
+    expect(state.queuedItems.map(item => item.id)).toEqual(['email-1']);
+    expect(state.inboxBadgeCount('queued')).toBe(1);
+  });
+});
 describe('Messages hub thread interactions', () => {
   it('offers the subject list when a delayed secure send has not selected a conversation', async () => {
     state.sendMethod='secure';state.activeEmailThreadKey=null;state.mobileShowThread=true;
@@ -82,7 +204,7 @@ describe('Messages hub thread interactions', () => {
     state.selected = null;
     state.inboxChannel = 'group';
     state.departmentInboxes = [{ id: 7, kind: 'shared', group_key: 'payroll', is_ticketed_group: true, display_name: 'Payroll' }];
-    state.internalGroups = [{ groupId: 33, displayName: 'Office team' }];
+    state.internalGroups = [{ groupId: 33, displayName: 'Office team', hasMessages: true }];
     state.conversations = [
       { id: 20, inbox_id: 7, channel: 'email', is_ticketed_group: true, group_key: 'payroll', support_ticket_id: 4 },
       { id: 'chat-33', channel: 'group', hubKind: 'group', threadId: 33 },
@@ -373,7 +495,7 @@ describe('reading layout and unread navigation', () => {
     await nextTick();
     expect(state.filteredConversations).toHaveLength(1);
     expect(wrapper.text()).toContain('2 to review');
-    expect(state.inboxBadgeCount('unread')).toBe(0);
+    expect(state.inboxBadgeCount('unread')).toBe(2);
     expect(wrapper.findAll('.msg-hub-review-count').some(item => item.text() === 'To review')).toBe(true);
     await state.reviewAllNotices();
     expect(api.post).toHaveBeenCalledWith('/communications/review-notices', { agencyId: 2, category: 'enrollment_packets' }, expect.objectContaining({ skipGlobalLoading: true }));

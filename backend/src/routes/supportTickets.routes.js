@@ -20,6 +20,7 @@ import {
   markClientSupportTicketThreadRead,
   listClientSupportTickets,
   listSupportTicketMessages,
+  markSupportTicketReadForViewer,
   createSupportTicketMessage,
   deleteSupportTicketMessage,
   generateSupportTicketResponse,
@@ -79,6 +80,7 @@ router.use('/:id', restrictGuardianBillingTicketAccess);
 router.post('/:id/email-preview',previewSupportTicketReply);
 router.get('/:id/email-receipts/:communicationId/preview',getSupportTicketEmailPreview);
 router.get('/:id/messages', listSupportTicketMessages);
+router.post('/:id/read', markSupportTicketReadForViewer);
 router.get('/:id/client-assigned-providers', listClientAssignedProvidersForSupportTicket);
 router.post('/:id/forward-to-providers', forwardSupportTicketToProviders);
 router.post('/:id/messages', createSupportTicketMessage);

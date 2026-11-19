@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
 import CommunicationConversation from '../../models/CommunicationConversation.model.js';
+import { syncSmsThreads } from '../channelInboxAdapter.service.js';
 import { claimGroupEmailConversation } from '../groupEmailClaim.service.js';
 import { resolveTicketInbox } from '../ticketEmailInboxAdapter.service.js';
 import { groupEmailConversationSql } from '../groupEmailConversationPolicy.js';
@@ -126,5 +127,33 @@ test('historical outbound notices share the review badge rule even without an in
     assert.match(query, /nr.last_read_at>=COALESCE\(c.last_message_at,c.created_at\)/);
     const where = query.slice(query.indexOf('WHERE c.archived_at'));
     assert.doesNotMatch(where, /COALESCE\(c.is_unknown_sender, 0\) = 0/);
+  } finally { pool.execute = original; }
+});
+
+test('SMS Sent only lists the viewer’s accepted outbound texts and recovers missing thread projections', async () => {
+  const original = pool.execute;
+  const queries = [];
+  pool.execute = async (sql, params) => {
+    queries.push({ sql, params });
+    assert.equal((sql.replace(/'[^']*'/g, "''").match(/\?/g) || []).length, params.length);
+    return [[]];
+  };
+  try {
+    await syncSmsThreads({ agencyId: 2, sentByUserId: 8 });
+    assert.deepEqual(queries[0].params, [2, 8]);
+    assert.match(queries[0].sql, /source.user_id = \?.*source.direction = 'OUTBOUND'/s);
+    assert.match(queries[0].sql, /source.delivery_status IN \('sent','submitted','accepted','delivered'\)/);
+    assert.match(queries[0].sql, /NOT EXISTS .*existing.external_thread_id=source.sms_thread_key/s);
+
+    const options = { agencyId: 2, userId: 8, scopeToUserId: 8, filter: 'sent' };
+    await CommunicationConversation.list({ ...options, channel: 'sms' });
+    assert.match(queries[1].sql, /sent_sms.user_id = \?/);
+    assert.match(queries[1].sql, /sent_sms.sms_thread_key = c.external_thread_id/);
+    assert.doesNotMatch(queries[1].sql, /sent_message.author_user_id/);
+    await CommunicationConversation.list({ ...options, channel: 'all' });
+    assert.match(queries[2].sql, /sent_message.author_user_id/);
+    assert.match(queries[2].sql, /sent_sms.user_id = \?/);
+    await CommunicationConversation.list({ ...options, channel: 'email' });
+    assert.doesNotMatch(queries[3].sql, /sent_sms.user_id/);
   } finally { pool.execute = original; }
 });

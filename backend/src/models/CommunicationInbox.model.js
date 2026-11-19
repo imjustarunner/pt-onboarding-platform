@@ -14,7 +14,7 @@ class CommunicationInbox {
     return rows[0] || null;
   }
 
-  static async listForAgency({ agencyId, userId = null, includeInactive = false } = {}) {
+  static async listForAgency({ agencyId, userId = null, includeInactive = false, includeActivity = false } = {}) {
     const params = [];
     let where = '1=1';
     if (agencyId != null) {
@@ -41,6 +41,8 @@ class CommunicationInbox {
     }
     const [rows] = await pool.execute(
       `SELECT i.*, ${privateMailboxProjectionSql('i')},
+              ${includeActivity ? `EXISTS (SELECT 1 FROM communication_conversations activity WHERE activity.inbox_id=i.id
+                AND activity.archived_at IS NULL AND COALESCE(activity.is_spam,0)=0) AS has_communications,` : ''}
               esi.signature_image_url,
               esi.reply_to,
               (SELECT COUNT(*) FROM communication_inbox_members m WHERE m.inbox_id = i.id) AS member_count

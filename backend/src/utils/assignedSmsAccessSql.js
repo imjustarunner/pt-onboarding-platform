@@ -21,3 +21,11 @@ export const assignedSmsConversationSql = `(c.channel = 'sms' AND EXISTS (
   SELECT 1 FROM message_logs ml WHERE ml.agency_id = c.agency_id
     AND ml.sms_thread_key = c.external_thread_id AND ${assignedSmsAccessSql}
 ))`;
+
+
+// Bound user ID is the sender, not the owner of the SMS number or thread.
+export const sentSmsConversationSql = `(c.channel = 'sms' AND EXISTS (
+  SELECT 1 FROM message_logs sent_sms WHERE sent_sms.agency_id = c.agency_id
+    AND sent_sms.sms_thread_key = c.external_thread_id AND sent_sms.user_id = ?
+    AND sent_sms.direction = 'OUTBOUND' AND sent_sms.delivery_status IN ('sent','submitted','accepted','delivered')
+))`;

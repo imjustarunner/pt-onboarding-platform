@@ -1091,7 +1091,7 @@ const props = defineProps({
   theme: { type: String, default: 'default' } // default | platform
 });
 
-const emit = defineEmits(['selection-change', 'updated']);
+const emit = defineEmits(['selection-change', 'updated', 'loaded']);
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1973,6 +1973,7 @@ async function loadMessages(ticketId, { quiet = false } = {}) {
       draftThreadRevision.value = r.data?.draftThreadRevision ?? null;
     }
     draftWarnings.value = r.data?.draftWarnings || [];
+    if (!quiet) emit('loaded', { ticketId, readBefore: r.data?.readBefore });
     if (canAnswer.value) loadTicketActions(ticketId);
     if (!draft.value.trim()) maybeAutoPrepareDraftOnOpen(selected.value);
     await nextTick();

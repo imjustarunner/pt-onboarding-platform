@@ -19,6 +19,7 @@ import { sendTicketAssignmentEmail } from '../services/ticketAssignmentEmail.ser
 import { ticketMailVisibilitySql } from '../services/messageInboxPolicy.js';
 import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
 import pool from '../config/database.js';
+import { markSupportTicketRead, ticketUnreadSql } from '../services/supportTicketRead.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -1196,6 +1197,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     const draftState = req.query?.draftState ? String(req.query.draftState).trim().toLowerCase() : null;
     const sentState = req.query?.sentState ? String(req.query.sentState).trim().toLowerCase() : null;
     const mine = parseBool(req.query?.mine);
+    const includeReadState = req.query?.includeReadState === '1' || req.query?.unread === '1';
     const qRaw = req.query?.q ? String(req.query.q) : '';
     const q = qRaw.trim().slice(0, 120);
     const limitRaw = req.query?.limit ? parseInt(req.query.limit, 10) : 200;
@@ -1271,6 +1273,8 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       where.push('t.sent_at IS NULL');
     }
 
+    if (req.query?.unread === '1') where.push(ticketUnreadSql(req.user.id));
+
     // "My tickets" = claimed by current user.
     if (mine === true) {
       where.push('t.claimed_by_user_id = ?');
@@ -1313,7 +1317,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
     }
 
     const sql = `
-      SELECT t.*,
+      SELECT t.*,${includeReadState ? ` (${ticketUnreadSql(req.user.id)}) AS is_unread,` : ''}
              cb.first_name AS created_by_first_name,
              cb.last_name AS created_by_last_name,
              cb.email AS created_by_email,
@@ -2379,8 +2383,25 @@ export async function authorizeSupportTicketConversation(req,ticket) {
   return {role,restrictToOwnTicket};
 }
 
+export const markSupportTicketReadForViewer = async (req, res, next) => {
+  try {
+    const ticketId = Number(req.params.id);
+    if (!Number.isSafeInteger(ticketId) || ticketId <= 0) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+    const [[ticket]] = await pool.execute('SELECT * FROM support_tickets WHERE id = ? LIMIT 1', [ticketId]);
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    await authorizeSupportTicketConversation(req, ticket);
+    const now = new Date();
+    const requestedBefore = new Date(req.body?.readBefore || now);
+    const readBefore = Number.isFinite(requestedBefore.getTime()) && requestedBefore <= now ? requestedBefore : now;
+    const unread = req.body?.markUnread === true;
+    await markSupportTicketRead({ ticketId, userId: req.user.id, unread, readBefore });
+    res.json({ ticketId, is_unread: unread });
+  } catch (e) { next(e); }
+};
+
 export const listSupportTicketMessages = async (req, res, next) => {
   try {
+    const readBefore = new Date();
     const ticketId = parseInt(req.params.id, 10);
     if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
 
@@ -2455,6 +2476,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
 
     res.json({
       ticket: enrichTicketForClient(ticket),
+      readBefore: readBefore.toISOString(),
       messages: normalized.map((m) => ({ ...m, email_delivery: deliveryByMessage.get(Number(m.id)) || null })),
       emailReply: res.locals.emailReply || res.locals.websiteEmailReply || null,
       senderOptions,
