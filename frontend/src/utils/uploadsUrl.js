@@ -30,6 +30,11 @@ export function toUploadsUrl(pathOrUrl) {
   // Already absolute
   if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) return pathOrUrl;
 
+  // Trial-company logos are served by a public API route, not uploaded files.
+  // Branding responses and stored paths may include or omit its leading slash.
+  const plotlineLogo = pathOrUrl.replace(/^\/+/, '').match(/^(?:api\/)?(plotline\/logos\/[^/?#]+\.webp)$/i);
+  if (plotlineLogo) return `${getBackendBaseUrl().replace(/\/$/, '').replace(/\/api$/, '')}/api/${plotlineLogo[1]}`;
+
   const cleaned = normalizeUploadsPath(pathOrUrl);
   const apiBase = getBackendBaseUrl();
   // Encode each segment so filenames with spaces or special chars form a valid URL

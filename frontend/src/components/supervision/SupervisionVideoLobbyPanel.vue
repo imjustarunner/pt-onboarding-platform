@@ -6,7 +6,7 @@
     {{ overlayOpen ? 'Hide waiting room' : (waitingCount ? `Waiting room (${waitingCount})` : 'Waiting room') }}
   </button>
   <div v-show="!overlay || overlayOpen" class="lobby-host-float__panel">
-  <CalendarGuestLobby v-if="isSupervisor && !unavailable && sessionId" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="stopUnavailable" />
+  <CalendarGuestLobby v-if="isSupervisor && !unavailable && sessionId && calendarGuestsEnabled && calendarAvailable" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="calendarAvailable=false; calendarGuests=[]" />
   <div
     v-if="waitingRoomEnabled"
     class="lobby-panel"
@@ -75,6 +75,7 @@ import WaitingRoomAlerts from '../meetings/WaitingRoomAlerts.vue';
 const props = defineProps({
   sessionId: { type: [Number, String], default: null },
   isSupervisor: { type: Boolean, default: false },
+  calendarGuestsEnabled: { type: Boolean, default: true },
   /** supervision | team-meeting */
   meetingKind: { type: String, default: 'supervision' },
   /** default | dark — dark for live meeting shells */
@@ -104,6 +105,11 @@ const participants = ref([]);
 const unavailable = ref(false);
 function stopUnavailable(){unavailable.value=true;stopPolling();participants.value=[];calendarGuests.value=[];emit('update:waitingCount',0);}
 const calendarLobby = ref(null), calendarGuests = ref([]), calendarBusy = ref(false);
+const calendarAvailable = ref(true);
+watch(() => props.calendarGuestsEnabled, enabled => {
+  calendarAvailable.value=true;
+  if (!enabled) calendarGuests.value=[];
+});
 const alertParticipants = computed(() => [
   ...(waitingRoomEnabled.value ? participants.value.map(p => ({ ...p, alertKey: `member:${p.joinIdentity}` })) : []),
   ...calendarGuests.value.map(p => ({ ...p, isGuest: true, calendarGuest: true, alertKey: `calendar:${p.id}` }))
@@ -282,6 +288,7 @@ watch(
     stopPolling();
     pollingGeneration += 1;
     unavailable.value=false;
+    calendarAvailable.value=true;
     participants.value = [];
     calendarGuests.value = [];
     arrivalKeys.value = [];

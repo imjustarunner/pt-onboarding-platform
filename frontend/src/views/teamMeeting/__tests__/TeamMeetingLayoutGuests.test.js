@@ -1,7 +1,7 @@
 import { shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), workspace: {}, agenda: [], host: true, failContent: false }));
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), workspace: {}, agenda: [], host: true, failContent: false, capabilities:undefined }));
 vi.mock('../../../services/api', () => ({ default: { get: m.get, post: m.post } }));
 vi.mock('../../../utils/orgScopedPath', () => ({ resolveHostImpliedPortalSlug: () => '' }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ isAuthenticated: true, user: { id: 9, role: 'provider' } }) }));
@@ -14,7 +14,7 @@ import JoinTeamMeetingView from '../JoinTeamMeetingView.vue';
 
 let wrapper;
 beforeEach(() => {
-  vi.useFakeTimers(); vi.clearAllMocks(); m.host = true; m.failContent = false;
+  vi.useFakeTimers(); vi.clearAllMocks(); m.host = true; m.failContent = false; m.capabilities=undefined;
   m.workspace = { goals: [], actionItems: [] }; m.agenda = [];
   m.get.mockImplementation(async url => {
     if (url.endsWith('/workspace')) {
@@ -23,7 +23,7 @@ beforeEach(() => {
     }
     if (url === '/meeting-agendas') return { data: { items: m.agenda } };
     if (url.includes('join-info')) return { data: { orgSlug: 'tenant', eventId: 101, meetingSubtype: 'general' } };
-    if (url.includes('video-token')) return { data: { token: 'video', sessionId: 'room', applicationId: 'app', eventId: 101, isHost: m.host, identity: 'user-9', meetingSubtype: 'general' } };
+    if (url.includes('video-token')) return { data: { token: 'video', sessionId: 'room', applicationId: 'app', eventId: 101, capabilities:m.capabilities, isHost: m.host, identity: 'user-9', meetingSubtype: 'general' } };
     if (url.includes('meeting-candidates')) return { data: { users: [{ id: 12, firstName: 'Test', lastName: 'Attendee' }] } };
     return { data: {} };
   });
@@ -109,4 +109,13 @@ describe('guest link and invitation feedback', () => {
     expect(wrapper.text()).toContain('Added, but the notification could not be sent.');
     expect(wrapper.text()).not.toContain('Invitation queued');
   });
+});
+
+describe('optional room controls follow server capabilities',()=>{
+ it.each([undefined,{dialIn:false,calendarGuests:false},{dialIn:true,calendarGuests:true}])('keeps media and normal lobby while restricting optional controls for %j',async capabilities=>{
+  m.capabilities=capabilities;m.workspace={goals:[{id:'kept',text:'Existing content'}],actionItems:[]};
+  await render();expect(video().exists()).toBe(true);
+  expect(wrapper.findComponent({name:'MeetingDialInPanel'}).exists()).toBe(capabilities?.dialIn===true);
+  expect(wrapper.findComponent({name:'SupervisionVideoLobbyPanel'}).props('calendarGuestsEnabled')).toBe(capabilities?.calendarGuests===true);
+ });
 });

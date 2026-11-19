@@ -105,6 +105,20 @@ describe('host and cohost waiting-room alerts',()=>{
   expect(person.alertKey).toBe('calendar:99');alerts.vm.$emit('admit',person);await flushPromises();
   expect(apiMock.post).toHaveBeenCalledWith('/team-meetings/42/calendar-guests/99/admit');
  });
+ it('keeps invited participants and admission polling after only calendar-guest access is denied',async()=>{
+  people=[{userId:11,joinIdentity:'user-11',displayName:'Invited applicant'}];
+  apiMock.get.mockImplementation(async path=>{if(path.endsWith('/calendar-guests'))throw {response:{status:403}};return {data:{waitingRoomEnabled:true,participants:people}};});
+  await render('team-meeting');await vi.advanceTimersByTimeAsync(6000);await flushPromises();
+  expect(wrapper.text()).toContain('Invited applicant');expect(wrapper.find('.lobby-panel-item button').text()).toBe('Admit');
+  expect(apiMock.get.mock.calls.filter(([path])=>path.endsWith('/calendar-guests'))).toHaveLength(1);
+  expect(apiMock.get.mock.calls.filter(([path])=>path.endsWith('/lobby-participants')).length).toBeGreaterThan(1);
+ });
+ it('skips the calendar endpoint when that control is unavailable, preserving the normal lobby',async()=>{
+  await render('team-meeting',false);apiMock.get.mockClear();
+  await wrapper.setProps({isSupervisor:true,calendarGuestsEnabled:false});await flushPromises();
+  expect(apiMock.get.mock.calls.some(([path])=>path.endsWith('/calendar-guests'))).toBe(false);
+  expect(apiMock.get.mock.calls.some(([path])=>path.endsWith('/lobby-participants'))).toBe(true);
+ });
  it.each([403,410])('stops polling and hides host controls after terminal %s',async status=>{
   apiMock.get.mockRejectedValue({response:{status}});
   await render('team-meeting');
@@ -113,12 +127,14 @@ describe('host and cohost waiting-room alerts',()=>{
   expect(apiMock.get).toHaveBeenCalledTimes(calls);
   expect(wrapper.find('.lobby-panel').exists()).toBe(false);
  });
- it('ignores an in-flight lobby response after calendar access is revoked',async()=>{
+ it('keeps a separately authorized in-flight lobby response until participant access itself is revoked',async()=>{
   let finishLobby;
   apiMock.get.mockImplementation(path=>path.endsWith('/calendar-guests')?Promise.reject({response:{status:403}}):new Promise(resolve=>{finishLobby=resolve;}));
   await render('team-meeting');
   finishLobby({data:{participants:[{userId:11,joinIdentity:'user-11',displayName:'Late response'}]}});await flushPromises();
-  expect(wrapper.emitted('update:waitingCount').at(-1)).toEqual([0]);expect(sound.play).not.toHaveBeenCalled();
+  expect(wrapper.emitted('update:waitingCount').at(-1)).toEqual([1]);expect(sound.play).toHaveBeenCalledOnce();
+  apiMock.get.mockRejectedValue({response:{status:403}});await vi.advanceTimersByTimeAsync(6000);await flushPromises();
+  expect(wrapper.emitted('update:waitingCount').at(-1)).toEqual([0]);expect(wrapper.find('.lobby-panel').exists()).toBe(false);
  });
  it('ignores an old meeting’s delayed lobby response after switching sessions',async()=>{
   let resolveOld;

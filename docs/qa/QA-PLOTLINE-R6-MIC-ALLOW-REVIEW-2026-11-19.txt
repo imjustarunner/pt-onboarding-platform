@@ -1,0 +1,104 @@
+PLOTLINE R6 MICROPHONE-ALLOW ADDENDUM — ENGINEERING REVIEW
+November 19, 2026 / America/Denver
+
+SOURCE AND SCOPE
+Provided r6-addendum-mic-allow.csv has 9 PASS rows (R6A-00 through R6A-08).
+Evidence archive contains 7 PNGs. Original files and hashes are retained in
+ deliverables/plotline-r6-mic-review-2026-11-19/SOURCE-EVIDENCE.json.
+The complete earlier R6 CSV and referenced TXT/build-check files were not part
+of this attachment. Preserve earlier findings; do not infer a complete R6 pass.
+
+Tester: Jordan 1434; top-level support role with qa_automation actor attribution.
+Company 463 Juniper / applicant Rory 1849 / Job 42 / hiring interview 24 /
+provider schedule event 646. Interview 24 and event 646 are distinct identifiers.
+The source build is 7c7ef4b9, a descendant of f7bd45cf8. Engineering inspected
+current main 8e110c8d1, also a descendant, without signing in as any app user.
+
+ACCEPTED TESTER EVIDENCE
+- Correct company/applicant/staff room; normal automation sign-in.
+- Chrome displayed its microphone permission prompt; tester chose Allow this time.
+- Audio-only connection completed within approximately 15 seconds of that choice.
+- Room showed Jordan as Host and one participant, with speech-capture notice.
+- No media-start timeout or Retry occurred in this permission-allowed attempt.
+- After Leave, tester observed the recording dot and microphone indicator gone
+  after approximately 15 seconds. The provided after-Leave screenshot agrees.
+
+This proves the tested one-person, permission-allowed audio path. It does not
+prove camera capture, two-person audio, applicant admission, every device, or
+leaving while a browser permission prompt remains unanswered. R6-05d was not
+reproduced in this variant; keep its unanswered-prompt variant open until retested.
+
+R6A-06 is PASS for media, but reports three non-media requests:
+- /api/uploads/api/plotline/logos/<slug>.webp -> 404
+- /api/team-meetings/646/dial-in -> 409
+- /api/team-meetings/646/calendar-guests -> 403
+The ordered network log was not captured. The file named room-console-view
+shows the room, without a visible console/network panel. Treat the HTTP details
+as tester-reported CSV evidence, not an independently captured network trace.
+
+ENGINEERING REPAIRS
+1. Frontend and backend public-asset helpers now preserve /api/plotline/logos/
+   routes. They no longer wrap those public logos inside /uploads/.
+2. Video credentials include availability hints for dial-in and calendar-guest
+   controls, evaluated using their existing policies. The room mounts those
+   controls only when available for this actor and event. Disabled pilot/settings,
+   guest identity, unconfirmed availability and denied calendar-host authority
+   do not trigger routine unsupported requests. The optional calendar assessment
+   has a two-second bound and cannot indefinitely delay video credentials.
+3. CalendarGuestLobby becoming unavailable now disables only that guest list.
+   Normal invited-participant waiting-room polling and admission remain available
+   when separately authorized. Revocation from the normal participant endpoint
+   still stops polling, clears participants and removes its controls.
+
+Existing action endpoints continue to authorize every request. A video-host
+label does not grant calendar-host permissions. No phone feature or pilot was
+enabled. Media capture/connection code was unchanged in this follow-up.
+No company, applicant, interview, invitation, consent or historical audit record
+was created/changed by engineering. No invitation or external message was sent.
+No database migration is required.
+
+VALIDATION
+- R6 frontend suite: 144 tests / 14 files, including R5 company/release/video
+  checks. Full run plus corrected focused lobby rerun passed all cases.
+- R6 backend suite: 68 tests / 7 files passed.
+- Prior interview backend suite: 111 tests / 20 files passed. It overlaps the
+  R6 backend suite; do not sum those counts as distinct tests.
+- Changed Vue components compiled and changed JS syntax/diff checks passed.
+- Deployment and browser retest remain separate from local engineering checks.
+
+LIMITED LIVE RETEST AFTER MATCHING DEPLOYED BUILDS
+Use Jordan's ordinary qa_automation vault login and existing Juniper/Maple
+fixtures. Create no company/user/job/applicant/interview. Send no invitation,
+email or text. Do not change sender gates, clocks, memberships or audit history.
+Use the same hiring interview 24 / event 646. Leave does not mean End interview.
+Do not click End interview, revoke guest access or finalize a scorecard for this
+cleanup test. Store private candidate tokens only in the existing QA vault.
+
+1. Preserve work, refresh deliberately and record loaded frontend, required
+   backend and live backend IDs. Wait for a matching pair. Check again between
+   cases; two-service rollouts remain non-atomic.
+2. Open Rory from Juniper Applicants, then Join as interviewer once. Confirm
+   company 463, applicant 1849, interview 24, event 646 and Jordan identity.
+3. Verify the logo request uses /api/plotline/logos/<actual slug>.webp and has
+   a successful response or documented true missing-asset cause. No doubled
+   /uploads/api/ path should be generated.
+4. Allow the microphone normally. Recheck connected audio-only state and Leave;
+   preserve the successful R6A evidence. Verify no capture remains after leaving.
+5. Inspect sanitized failed-request evidence: disabled/unavailable dial-in and
+   denied calendar-guest controls should not be mounted/probed on initial join.
+   If capability changes after joining, endpoint denials remain authoritative.
+6. If an already approved, current applicant token is available, use its ordinary
+   candidate entry in an isolated signed-out browser. Confirm the normal invited
+   candidate lobby, individual admission, shared questions and two-person audio.
+   Do not create/reissue an invitation to obtain this evidence. If unavailable,
+   record BLOCKED. A second staff login is not the same test as a candidate token.
+7. On approved QA devices, test camera and the unanswered-permission branch
+   separately. Leave before answering the permission request, then answer late:
+   no new room connection, audio track or speech capture may survive that Leave.
+   The browser owns its permission popup; do not confuse popup visibility with
+   evidence of an active media track. Record actual indicators and timing.
+
+Record PASS/FAIL/BLOCKED/NOT RUN per variant, build/role/object IDs, Denver time,
+actual click path and screenshots. Capture sanitized first failing endpoint/status
+and first console error if a failure recurs; never publish tokens or credentials.
+Retain missing sender, independent-account and other prior Plotline findings.
