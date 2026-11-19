@@ -35,3 +35,12 @@ it.each(['anonymous','login','family','ordinary'])('does not start a second empl
  if(lane==='ordinary')state.agencies.currentAgency.feature_flags={};
  wrapper=mount(App,{global:{stubs:{RouterView:true}}});await flushPromises();expect(wrapper.find('[data-session-boundary]').exists()).toBe(false);
 });
+it('keeps a branded Plotline interview out of the broad employee workspace and its clinical polling',async()=>{
+ state.route.name='BrandedInterview';state.route.params={interviewAgencySlug:'juniper'};state.route.query={staff:'1'};
+ wrapper=mount(App,{global:{stubs:{RouterView:true}}});await flushPromises();
+ expect(wrapper.find('[data-ordinary-workspace]').exists()).toBe(false);expect(wrapper.find('[data-plotline-shell]').exists()).toBe(false);expect(wrapper.find('[data-session-boundary]').exists()).toBe(true);
+});
+it('waits for company metadata during a switch without mounting employee widgets from the previous company',async()=>{
+ state.route.params.organizationSlug='maple';wrapper=mount(App,{global:{stubs:{RouterView:true}}});await flushPromises();
+ expect(wrapper.text()).toContain('Opening company');expect(wrapper.find('[data-ordinary-workspace]').exists()).toBe(false);expect(wrapper.find('[data-session-boundary]').exists()).toBe(true);
+});

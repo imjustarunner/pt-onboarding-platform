@@ -1,6 +1,13 @@
 const ATTEMPT_KEY = 'app-version-reload-attempt';
 const knownBuild = id => typeof id === 'string' && !!id.trim() && !['dev', 'unknown'].includes(id.trim());
 
+export function deploymentReadiness(loadedBuildId, frontend, backend) {
+  if (!knownBuild(loadedBuildId) || frontend?.schemaVersion !== 1 || !knownBuild(frontend.buildId)
+    || !knownBuild(frontend.requiredBackendBuildId) || !knownBuild(backend?.buildId)) return 'unconfirmed';
+  if (backend.ready !== true || frontend.requiredBackendBuildId !== backend.buildId) return 'rolling-out';
+  return loadedBuildId === frontend.buildId ? 'ready' : 'update-available';
+}
+
 export function readyFrontendRelease(loadedBuildId, frontend, backend) {
   if (!knownBuild(loadedBuildId) || frontend?.schemaVersion !== 1 || backend?.ready !== true) return null;
   const target = frontend.buildId;

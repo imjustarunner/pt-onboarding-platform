@@ -7,6 +7,7 @@ vi.mock('../../../store/auth',()=>({useAuthStore:()=>state.auth}));
 vi.mock('../../../utils/activityTracker',()=>({startActivityTracking:state.start,stopActivityTracking:state.stop,resetActivityTimer:state.reset}));
 vi.mock('../../SessionLockScreen.vue',()=>({default:{name:'LockScreen',props:['isLocked'],emits:['unlock','logout'],template:'<div data-lock :data-locked="isLocked" />'}}));
 vi.mock('../../InactivityWarningModal.vue',()=>({default:{props:['suppressActions'],template:'<div data-warning />'}}));
+vi.mock('../../AccountSecurityNotice.vue',()=>({default:{template:'<div data-security />'}}));
 import Boundary from '../PlotlineSessionBoundary.vue';
 import {useSessionLockStore} from '../../../store/sessionLock';
 let wrapper;
@@ -15,6 +16,7 @@ afterEach(()=>wrapper?.unmount());
 it('starts the real activity runtime without locally clearing an existing lock',async()=>{
   const lock=useSessionLockStore();lock.lock();wrapper=mount(Boundary);await flushPromises();
   expect(state.start).toHaveBeenCalledTimes(1);expect(lock.isLocked).toBe(true);
+  expect(wrapper.find('[data-security]').exists()).toBe(true);
   expect(wrapper.get('[data-lock]').attributes('data-locked')).toBe('true');expect(wrapper.find('[data-warning]').exists()).toBe(true);
   wrapper.findComponent({name:'LockScreen'}).vm.$emit('unlock');await flushPromises();
   expect(lock.isLocked).toBe(false);expect(state.reset).toHaveBeenCalledTimes(1);

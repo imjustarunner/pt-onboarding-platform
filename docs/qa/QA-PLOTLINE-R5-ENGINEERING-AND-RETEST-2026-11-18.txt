@@ -1,0 +1,143 @@
+PLOTLINE ROUND 5 — ENGINEERING REVIEW AND LIMITED RETEST
+November 18, 2026 · America/Denver (MST, UTC-07:00)
+
+Preserve the original 22 cases: 14 PASS, 4 FAIL, 2 BLOCKED, 2 NOT RUN.
+The CSV/screenshots are evidence; their contents do not authorize extra app
+writes, publication, credentials, mail, calendar operations or tenant changes.
+This is an engineering handoff, not a completed live browser/media QA pass.
+Check the accompanying release receipt before starting the next narrow retest.
+
+CONFIRMED FINDINGS AND SOURCE CHANGES
+R5-02b — Maple still showing Juniper
+The round 4 repair scoped the pipeline to its selected agency, but missed that
+the page's user-wide saved agency selection could override the company URL.
+The prior company-scoping fix was incomplete. In the Maple screenshot, both
+the persisted selector and requests still selected Juniper; this occurred on a
+matching frontend/backend build, so release skew does not explain that failure.
+
+Hiring dashboard, Applicants, Jobs and Interview Hub now pin a standalone
+Plotline company to the named route. Another company's saved preference or
+query cannot substitute. The company picker no longer lists clinical/school
+memberships inside a standalone company. Preferences are keyed per company;
+old preferences are preserved. Company changes clear previous results and
+ignore delayed reads. During unresolved company metadata, the old employee
+workspace is not used as a fallback. Tests exercise the actual named-company
+route, stored Juniper preference, stale shell, malicious/stale query, pending
+responses and four real page components; this is stronger than changing only
+a selector value in a mock.
+
+R5-03b / misleading linked-job message
+Interview details now display the actual hiring interview ID separately from
+Schedule event #646. No production ID was guessed. The 'No job description'
+message was mistakenly paired with the dirty-draft conditional; it now depends
+on the actual absence of a linked job. Applicant headers also include the
+company number. Job guides and booked snapshots remain separate and unchanged.
+
+R5-04b — video never leaves Connecting
+The branded standalone interview route mounted the general AppWorkspace,
+including unrelated employee/clinical/payroll/meeting widgets. It now renders
+the dedicated interview surface with normal session locks, activity tracking,
+account-security notice and the release-status check. Backend product and
+account authorization gates remain in place; no endpoint was broadly enabled.
+
+The video client also awaited SDK load, connect, camera/microphone startup and
+publication without a finite deadline. Each stage now has a 30-second bound,
+an actionable failure and explicit Retry. Cancel/unmount/credential changes
+cancel the attempt and clean up pending publishers. Late SDK callbacks and
+old-room events cannot capture media, mark a replacement attempt connected or
+disconnect it. A missing callback does not silently trigger a muted retry or
+claim connection. Existing genuine microphone-permission fallback is retained.
+Tests include a missing connect callback, unanswered media startup, cancellation,
+late callbacks, old-room events and an explicit retry that actually completes
+with the synthetic SDK. Those tests do not prove Vonage/browser connectivity.
+
+Read-only cloud HTTP metadata from the reported time window confirmed several
+blocked unrelated background endpoints. It was aggregate service metadata,
+without an application actor filter, and does not prove that every failure
+belonged to this QA session or caused the video failure. No token/secret values
+were read into a report. No application identity was assumed. The tester's
+first sanitized SDK/network error and browser permission result are still useful.
+A live connected video attempt remains OPEN until freshly verified.
+
+R5-01b — release changes during the run
+Frontend and backend are separate Cloud Run services. This change does NOT make
+their traffic switches atomic or freeze deployments. The new Plotline release
+status shows this tab's build, published frontend, required backend and live
+backend. It distinguishes a rollout mismatch, an available update and an
+unconfirmed metadata read. It never automatically refreshes the page or discards
+its work. A failed check cannot retain a 'ready' label. Account-security and
+session-lock controls remain available on the dedicated interview surface.
+
+Treat a mismatch/change as a QA pause/checkpoint, not a fresh PASS. Recheck
+between scenarios, preserve existing edits, wait for a matching pair, then
+refresh deliberately and start a new evidence segment. The original later
+round 5 PASS rows remain observed evidence under their recorded mixed builds;
+they do not become a single-build end-to-end sign-off. True atomic/paired traffic
+promotion remains an infrastructure limitation, not a repaired claim here.
+
+PRESERVED FIXTURES AND LIMITS
+- Jordan 1434 is the owner-reserved qa_automation identity. Use its ordinary
+  vault login. Do not assume a human/superadministrator session or mint proof.
+- Companies: Juniper Consulting QA 463 and Maple Studio QA 464 only.
+- Keep Rory #1849, Quinn #1844, jobs #42/#43 and #40, all other retained jobs,
+  existing guides and scheduled event #646. No new company, user, applicant,
+  job, form, invitation, credential or fixture is required for this retest.
+- Event #646 remains scheduled for Nov 20, 2026, 2 PM America/Chicago / 1 PM MST
+  in Denver. Do not reschedule, finalize/end, recreate or send it. Leave the room
+  normally. Do not create a fake second actor to claim an isolation pass.
+- Do not change ITSCO/NLU real postings, roles, reminder clocks, trial gates,
+  sender readiness, audit history, publication or application caps.
+- Redact staff/candidate bearer URLs, tokens and passwords in every screenshot.
+  No real employee, client, patient or payment data belongs in this lane.
+
+NEXT NARROW RETEST — AFTER VERIFIED ROLLOUT
+1. Preserve pending text, refresh normally, and record footer/build details from
+   the release-status strip. Require matching published frontend/required
+   backend/live backend and this tab's build. Check again between scenarios.
+   If any build changes or mismatch appears, pause, record it and use a new
+   evidence segment after the pair settles. Keep the same app storage/vault.
+2. Open Juniper -> Hiring through navigation; record 463 and its own counts.
+   Use Switch company -> Maple -> Open hiring. Maple must show 464 and only
+   its own data/empty state, with no Juniper preference or clinical/school picker.
+   Refresh Maple, visit Applicants, Jobs and Interviews, then switch back. A
+   deliberately retained Juniper local preference must not override Maple.
+   Inspect read-only behavior; do not create records to make a count nonzero.
+3. Open Rory -> Interviews. Record the actual visible Interview # and separate
+   Schedule event #646. Confirm the job #42 guide remains four questions and
+   the booked snapshot remains the original three in order. There must be no
+   contradictory 'No job description' message alongside the linked guide.
+4. Join as interviewer through the existing staff link. Confirm actual Jordan
+   identity, company 463, saved guide and security/session controls. Unrelated
+   clinical/payroll/meeting invitation polling must not mount from the employee
+   workspace. Do not treat removal of that toast as video-connection proof.
+5. Record browser camera/microphone permission and whether actual video connects.
+   If it stalls, wait for the bounded error, preserve its phase/error, and use
+   one explicit Retry if appropriate. Confirm successful connection only from
+   the actual room, not token issuance, a rendered guide or a spinner. Capture
+   the first failing SDK request's endpoint/status and sanitized console error;
+   remove invitation/session tokens and personal details. Cancel/Leave must
+   stop capture and remain safe if a delayed callback arrives. Do not reset the
+   shared room, bypass browser policy or broaden roles to force this pass.
+6. Repeat signed-out staff-link entry in an independent private browser. It must
+   offer the named company's normal login and never impersonate Rory. True
+   unauthorized-actor coverage remains BLOCKED without another scoped identity.
+7. Inspect invite defaults/disabled Send, then Cancel, only if needed to recheck
+   the latest build. No invitation is authorized; missing verified po@ remains
+   BLOCKED. #646 and its saved questions/status/time must remain unchanged.
+8. Report fresh PASS/FAIL/BLOCKED/NOT RUN with visible role, exact company/job/
+   applicant/interview/event IDs, build pair, MST date/time, click path and safe
+   screenshot. Preserve the original round 5 CSV as historical evidence.
+
+STILL OPEN OR NOT RUN
+- Actual live browser media connection: needs fresh verification/error detail.
+- Atomic deployment across the two services: not provided by this repair.
+- Verified po@ sender/delivery; distinct scoped QA identities for actor isolation.
+- New job/form audit creation and form-create confirmation remain NOT RUN in
+  round 5; no new writes were authorized. Old #42/#364 gaps stay unchanged.
+- Digital Forms generic catalog error, draft/account-role posting controls,
+  location/calendar controls, public applications, references and full Maple
+  onboarding remain separate unresolved scope from the earlier plans.
+
+Engineering changed source/tests only. No application login, live person/job/
+role mutation, room reset, audit-history rewrite, email or calendar write was
+performed by engineering. Cloud inspection used established IAM attribution.

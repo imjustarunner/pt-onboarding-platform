@@ -171,7 +171,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     });
     await flushPromises();
     await vi.dynamicImportSettled();
-    videoSdk.session.subscribe = vi.fn((_stream, target) => {
+    videoSdk.session.subscribe = vi.fn((stream, target) => {
       const element = document.createElement('div');
       element.appendChild(document.createElement('video')); target.appendChild(element);
       return { stream, element, on: vi.fn() };
@@ -184,6 +184,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
       await flushPromises();
     }
     expect(wrapper.videoDOM.findAll('.vsr__tile--featured')).toHaveLength(1);
+    expect(videoSdk.session.subscribe.mock.results.every(result => result.type === 'return')).toBe(true);
     expect(wrapper.videoDOM.find('.vsr__tile--featured').text()).toContain('candidate');
     expect(wrapper.videoDOM.findAll('.vsr__tile--remote.vsr__tile--pip')).toHaveLength(2);
     expect(wrapper.videoDOM.find('.vsr__stage--side-left').exists()).toBe(true);
@@ -936,4 +937,30 @@ describe('shared presentation layout and exclusive screen sharing', () => {
     expect(screen.destroy).toHaveBeenCalledOnce();
   });
 
+});
+describe('bounded video connection attempts',()=>{
+ afterEach(()=>vi.useRealTimers());
+ it('shows an actionable retry when the SDK never calls back and ignores late success after timeout',async()=>{
+  vi.useFakeTimers();const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'synthetic-interview',token:'eyJ.test.token',playJoinTone:false}});
+  try{await flushPromises();await vi.dynamicImportSettled();const late=videoSdk.connectCallback;await vi.advanceTimersByTimeAsync(30001);await flushPromises();expect(wrapper.text()).toContain('Connecting to video did not finish');expect(wrapper.videoDOM.find('.vsr__connecting').exists()).toBe(false);late(null);await flushPromises();expect(wrapper.emitted('connected')).toBeUndefined();}finally{wrapper.unmount();}
+ });
+ it('cancels before connection without allowing the late callback to start capture',async()=>{
+  vi.useFakeTimers();videoSdk.initPublisher.mockClear();const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'synthetic-interview',token:'eyJ.test.token',playJoinTone:false}});
+  try{await flushPromises();await vi.dynamicImportSettled();const late=videoSdk.connectCallback;await wrapper.videoDOM.get('.vsr__connecting button').trigger('click');late(null);await flushPromises();expect(videoSdk.initPublisher).not.toHaveBeenCalled();expect(wrapper.emitted('connected')).toBeUndefined();expect(wrapper.videoDOM.find('.vsr__connecting').exists()).toBe(false);}finally{wrapper.unmount();}
+ });
+ it('destroys a pending publisher when camera permission never resolves',async()=>{
+  vi.useFakeTimers();const publisher={destroy:vi.fn(),on:vi.fn()};videoSdk.initPublisher.mockReturnValue(publisher);
+  const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'synthetic-interview',token:'eyJ.test.token',playJoinTone:false}});
+  try{await flushPromises();await vi.dynamicImportSettled();videoSdk.connectCallback(null);await flushPromises();await vi.advanceTimersByTimeAsync(30001);await flushPromises();expect(wrapper.text()).toContain('Starting camera and microphone did not finish');expect(publisher.destroy).toHaveBeenCalled();expect(wrapper.emitted('connected')).toBeUndefined();}finally{wrapper.unmount();}
+ });
+});
+it('lets an explicit retry connect while ignoring success from the abandoned attempt',async()=>{
+ vi.useFakeTimers();videoSdk.initPublisher.mockReset();const publisher={on:vi.fn(),destroy:vi.fn(),publishVideo:vi.fn(),publishAudio:vi.fn()};videoSdk.initPublisher.mockImplementation((_el,_options,done)=>{queueMicrotask(()=>done(null));return publisher;});
+ const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'synthetic-retry',token:'eyJ.test.token',playJoinTone:false}});
+ try{
+  await flushPromises();await vi.dynamicImportSettled();const retired=videoSdk.session;const late=videoSdk.connectCallback;await vi.advanceTimersByTimeAsync(30001);await flushPromises();
+  await wrapper.videoDOM.findAll('button').find(b=>b.text()==='Retry').trigger('click');await flushPromises();await vi.dynamicImportSettled();
+  const current=videoSdk.session;current.publish.mockImplementation((_pub,done)=>done(null));late(null);await flushPromises();expect(videoSdk.initPublisher).not.toHaveBeenCalled();
+  videoSdk.connectCallback(null);await flushPromises();expect(wrapper.emitted('connected')).toHaveLength(1);retired._handlers.sessionDisconnected({reason:'late old room event'});expect(wrapper.emitted('disconnected')).toBeUndefined();expect(wrapper.videoDOM.find('.vsr__connecting').exists()).toBe(false);
+ }finally{wrapper.unmount();vi.useRealTimers();}
 });

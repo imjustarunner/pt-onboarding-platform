@@ -126,7 +126,7 @@
                   <div class="detail-role muted">
                     {{ detail.jobDescription?.title || detail.profile?.applied_role || 'Applicant' }}
                   </div>
-                  <div class="detail-role muted">Applicant #{{ detail.user?.id }} · {{ agencyChoices.find(a => Number(a.id) === Number(effectiveAgencyId))?.name || `Company #${effectiveAgencyId}` }}<span v-if="detail.jobDescription?.id"> · Job #{{ detail.jobDescription.id }}</span> · Account role: {{ detail.user?.role || 'Not available' }}</div>
+                  <div class="detail-role muted">Applicant #{{ detail.user?.id }} · Company #{{ effectiveAgencyId }} · {{ agencyChoices.find(a => Number(a.id) === Number(effectiveAgencyId))?.name || `Company #${effectiveAgencyId}` }}<span v-if="detail.jobDescription?.id"> · Job #{{ detail.jobDescription.id }}</span> · Account role: {{ detail.user?.role || 'Not available' }}</div>
                   <div class="detail-meta contact-meta">
                     <span v-if="detail.user?.personal_email || detail.user?.email">{{ detail.user?.personal_email || detail.user?.email }}</span>
                     <span v-if="detail.user?.phone_number">{{ detail.user.phone_number }}</span>
@@ -658,6 +658,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';
+import {usePlotlineCompanyScope} from '../../composables/usePlotlineCompanyScope';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
@@ -852,6 +853,7 @@ const onHubInterviewsUpdated = (list) => {
 };
 
 const loadHubInterviews = async () => {
+  const requestedAgencyId = effectiveAgencyId.value;
   if (!selectedId.value || !effectiveAgencyId.value) {
     hubInterviews.value = [];
     return;
@@ -861,15 +863,17 @@ const loadHubInterviews = async () => {
     const r = await api.get(`/hiring/interview-hub/candidates/${selectedId.value}/interviews`, {
       params: { agencyId: effectiveAgencyId.value }
     });
-    if (requestedId !== selectedId.value) return;
+    if (requestedId !== selectedId.value || requestedAgencyId !== effectiveAgencyId.value) return;
     hubInterviews.value = r.data?.data || r.data || [];
   } catch {
-    if (requestedId !== selectedId.value) return;
+    if (requestedId !== selectedId.value || requestedAgencyId !== effectiveAgencyId.value) return;
     hubInterviews.value = [];
   }
 };
 
+const companyScope = usePlotlineCompanyScope(route, agencyStore);
 const agencyChoices = computed(() => {
+  if (companyScope.locked.value) return companyScope.company.value ? [companyScope.company.value] : [];
   // Super admin: can browse all agencies. Others: only assigned agencies.
   const role = String(authStore.user?.role || '').toLowerCase();
   const base = role === 'super_admin'
@@ -883,9 +887,10 @@ const agencyChoices = computed(() => {
 
 const canChooseAgency = computed(() => (agencyChoices.value || []).length > 1);
 const selectedAgencyId = ref('');
-const agencyStorageKey = computed(() => `hiring_selected_agency_v1_${authStore.user?.id || 'anon'}`);
+const agencyStorageKey = computed(() => `hiring_selected_agency_v1_${authStore.user?.id || 'anon'}${companyScope.storageSuffix.value}`);
 
 const effectiveAgencyId = computed(() => {
+  if (companyScope.locked.value) return companyScope.companyId.value;
   const embeddedAid = Number(props.embeddedAgencyId || 0);
   if (embeddedAid > 0) return embeddedAid;
 
@@ -1198,9 +1203,11 @@ const searchSuggestionsHtml = computed(() => {
 });
 
 const loadDashboardStats = async () => {
+  const requestedAgencyId = effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   try {
     const r = await api.get('/hiring/dashboard', { params: { agencyId: effectiveAgencyId.value } });
+    if (requestedAgencyId !== effectiveAgencyId.value) return;
     dashboardStats.value = {
       stageCounts: r.data?.stageCounts || {},
       totalApplicants: r.data?.totalApplicants || 0
@@ -1211,6 +1218,7 @@ const loadDashboardStats = async () => {
 };
 
 const refresh = async () => {
+  const requestedAgencyId = effectiveAgencyId.value;
   if (!effectiveAgencyId.value) {
     error.value = 'No agency selected. Please pick an agency in the header selector, then refresh.';
     allCandidates.value = [];
@@ -1227,12 +1235,14 @@ const refresh = async () => {
         q: q.value || undefined
       }
     });
+    if (requestedAgencyId !== effectiveAgencyId.value) return;
     allCandidates.value = r.data || [];
     await loadDashboardStats();
   } catch (e) {
+    if (requestedAgencyId !== effectiveAgencyId.value) return;
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load applicants';
   } finally {
-    loading.value = false;
+    if (requestedAgencyId === effectiveAgencyId.value) loading.value = false;
   }
 };
 
@@ -1300,12 +1310,13 @@ const selectCandidate = async (id) => {
 };
 
 const loadDetail = async () => {
+  const requestedAgencyId = effectiveAgencyId.value;
   if (!selectedId.value || !effectiveAgencyId.value) return;
   const requestedId = selectedId.value;
   try {
     detailLoading.value = true;
     const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
-    if (requestedId !== selectedId.value) return;
+    if (requestedId !== selectedId.value || requestedAgencyId !== effectiveAgencyId.value) return;
     detail.value = r.data || {
       user: null,
       profile: null,
@@ -1317,10 +1328,10 @@ const loadDetail = async () => {
       latestPreScreen: null
     };
   } catch (e) {
-    if (requestedId !== selectedId.value) return;
+    if (requestedId !== selectedId.value || requestedAgencyId !== effectiveAgencyId.value) return;
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
   } finally {
-    if (requestedId !== selectedId.value) return;
+    if (requestedId !== selectedId.value || requestedAgencyId !== effectiveAgencyId.value) return;
     detailLoading.value = false;
   }
 };
@@ -2279,20 +2290,11 @@ const reactionCounts = (reactions) => {
 };
 
 watch(effectiveAgencyId, async (next) => {
-  if (!next) return;
-  await refresh();
-  await loadJobDescriptions();
-  selectedId.value = null;
-  detail.value = {
-    user: null,
-    profile: null,
-    jobDescription: null,
-    notes: [],
-    reviews: [],
-    myTimeCapsules: [],
-    latestResearch: null,
-    latestPreScreen: null
-  };
+  allCandidates.value=[]; hubInterviews.value=[]; dashboardStats.value={stageCounts:{},totalApplicants:0};
+  selectedId.value=null; detail.value=null; candidatePhotoUrl.value=''; resumes.value=[]; resumeSummary.value=null; tasks.value=[]; jobDescriptions.value=[];
+  showCreate.value=false;
+  if (!next) { loading.value=false; return; }
+  await Promise.all([refresh(),loadJobDescriptions()]);
 });
 
 watch(

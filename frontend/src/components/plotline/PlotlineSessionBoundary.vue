@@ -1,4 +1,6 @@
 <template>
+  <PlotlineReleaseStatus />
+  <AccountSecurityNotice />
   <SessionLockScreen :is-locked="lock.isLocked" @unlock="unlocked" @logout="signOut" />
   <InactivityWarningModal :suppress-actions="lock.isLocked" />
 </template>
@@ -9,6 +11,8 @@ import {useSessionLockStore} from '../../store/sessionLock';
 import {startActivityTracking,stopActivityTracking,resetActivityTimer} from '../../utils/activityTracker';
 import SessionLockScreen from '../SessionLockScreen.vue';
 import InactivityWarningModal from '../InactivityWarningModal.vue';
+import PlotlineReleaseStatus from './PlotlineReleaseStatus.vue';
+import AccountSecurityNotice from '../AccountSecurityNotice.vue';
 const auth=useAuthStore(),lock=useSessionLockStore();
 let mounted=false;
 function sync(){if(!mounted)return;if(auth.isAuthenticated)void startActivityTracking();else stopActivityTracking();}

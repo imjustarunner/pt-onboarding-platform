@@ -266,6 +266,7 @@ import InterviewQuestionPicker from '../../components/hiring/InterviewQuestionPi
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import {usePlotlineCompanyScope} from '../../composables/usePlotlineCompanyScope';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
@@ -300,7 +301,9 @@ const showScheduleModal = ref(false);
 const editingJobSet = ref(false);
 
 const selectedAgencyId = ref('');
+const companyScope = usePlotlineCompanyScope(route, agencyStore);
 const agencyChoices = computed(() => {
+  if (companyScope.locked.value) return companyScope.company.value ? [companyScope.company.value] : [];
   const role = String(authStore.user?.role || '').toLowerCase();
   const base = role === 'super_admin'
     ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
@@ -311,6 +314,7 @@ const agencyChoices = computed(() => {
 });
 const canChooseAgency = computed(() => agencyChoices.value.length > 1);
 const effectiveAgencyId = computed(() => {
+  if (companyScope.locked.value) return companyScope.companyId.value;
   const chosen = Number(selectedAgencyId.value || 0) || null;
   if (chosen) return chosen;
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -567,10 +571,12 @@ function addCriterion() {
 }
 
 async function loadInterviews() {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   const r = await api.get('/hiring/interview-hub/interviews', {
     params: { agencyId: effectiveAgencyId.value }
   });
+  if(requestedAgencyId!==effectiveAgencyId.value)return;
   interviews.value = Array.isArray(r.data?.data) ? r.data.data : [];
   if (selectedInterviewId.value && !interviews.value.some((i) => Number(i.id) === Number(selectedInterviewId.value))) {
     selectedInterviewId.value = null;
@@ -581,39 +587,47 @@ async function loadInterviews() {
 }
 
 async function loadCandidates() {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   const r = await api.get('/hiring/candidates', {
     params: { agencyId: effectiveAgencyId.value, stageFilter: 'all' }
   });
+  if(requestedAgencyId!==effectiveAgencyId.value)return;
   const data = r.data?.data ?? r.data;
   candidates.value = Array.isArray(data) ? data : (Array.isArray(data?.candidates) ? data.candidates : []);
 }
 
 async function loadAssignees() {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   const r = await api.get('/hiring/assignees', {
     params: { agencyId: effectiveAgencyId.value }
   });
+  if(requestedAgencyId!==effectiveAgencyId.value)return;
   const data = r.data?.data ?? r.data;
   assignees.value = Array.isArray(data) ? data : [];
 }
 
 async function loadJobDescriptions() {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   const r = await api.get('/hiring/job-descriptions', {
     params: { agencyId: effectiveAgencyId.value, includeInactive: 1 }
   });
+  if(requestedAgencyId!==effectiveAgencyId.value)return;
   const data = r.data?.data ?? r.data;
   jobDescriptions.value = Array.isArray(data) ? data : [];
 }
 
 async function loadJobSets() {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   loadingJobSets.value = true;
   try {
     const r = await api.get('/hiring/interview-hub/job-question-sets', {
       params: { agencyId: effectiveAgencyId.value }
     });
+    if(requestedAgencyId!==effectiveAgencyId.value)return;
     jobSets.value = Array.isArray(r.data?.data) ? r.data.data : [];
   } finally {
     loadingJobSets.value = false;
@@ -621,6 +635,7 @@ async function loadJobSets() {
 }
 
 async function loadTemplatesTab() {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   loadingTemplates.value = true;
   error.value = '';
@@ -629,6 +644,7 @@ async function loadTemplatesTab() {
     const r = await api.get('/hiring/interview-hub/templates', {
       params: { agencyId: effectiveAgencyId.value }
     });
+    if(requestedAgencyId!==effectiveAgencyId.value)return;
     const list = Array.isArray(r.data?.data) ? r.data.data : [];
     template.value = list.find((t) => t.is_default) || list[0] || null;
     if (template.value) hydrateTemplateForm(template.value);
@@ -823,7 +839,9 @@ watch(() => scheduleForm.value.candidateUserId, (cid) => {
 });
 
 watch(effectiveAgencyId, async (v, prev) => {
-  if (!v || v === prev) return;
+  if (v === prev) return;
+  interviews.value=[]; candidates.value=[]; assignees.value=[]; jobDescriptions.value=[]; jobSets.value=[]; template.value=null; selectedInterviewId.value=null; showScheduleModal.value=false;
+  if (!v) { loading.value=false; return; }
   await refresh();
 });
 

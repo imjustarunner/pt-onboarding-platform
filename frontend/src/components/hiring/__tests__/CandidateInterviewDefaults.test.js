@@ -58,3 +58,8 @@ it('defaults to no sends and requires a current successful preview before enabli
  await checkbox.setValue(true);const submit=()=>wrapper.findAll('button').find(b=>b.text()==='Schedule & send invitations');expect(submit().attributes('disabled')).toBeDefined();
  wrapper.findComponent(Preview).vm.$emit('availability',true);await flushPromises();expect(submit().attributes('disabled')).toBeUndefined();
 });
+it('displays the exact interview ID and does not contradict a linked job guide',async()=>{
+ const original=api.get.getMockImplementation();api.get.mockImplementation(async(url,...args)=>url.endsWith('/interviews')?{data:{data:[{id:81,status:'scheduled',interviewer_user_ids_json:[],provider_schedule_event_id:646}]}}:original(url,...args));
+ wrapper=mount(Panel,{props:{candidateUserId:31,agencyId:463,jobDescriptionId:42},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(wrapper.get('.cip-detail').text()).toContain('Interview#81');expect(wrapper.text()).not.toContain('No job description is linked yet');
+});

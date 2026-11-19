@@ -750,6 +750,7 @@ import ContractExpectationsEditor from '../../components/careers/ContractExpecta
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import {usePlotlineCompanyScope} from '../../composables/usePlotlineCompanyScope';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import JobApplicationPagePreview from '../../components/careers/JobApplicationPagePreview.vue';
@@ -1075,7 +1076,9 @@ const editHeroFileRef = ref(null);
 const createIconFileRef = ref(null);
 const editIconFileRef = ref(null);
 
+const companyScope = usePlotlineCompanyScope(route, agencyStore);
 const agencyChoices = computed(() => {
+  if (companyScope.locked.value) return companyScope.company.value ? [companyScope.company.value] : [];
   const role = String(authStore.user?.role || '').toLowerCase();
   const base = role === 'super_admin'
     ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
@@ -1092,6 +1095,7 @@ const orgPath = (path) => {
   return `/${slug}${path}`;
 };
 const effectiveAgencyId = computed(() => {
+  if (companyScope.locked.value) return companyScope.companyId.value;
   const chosen = Number(selectedAgencyId.value || 0) || null;
   if (chosen) return chosen;
   return Number(agencyStore.currentAgency?.id || authStore.user?.agencyId || 0) || null;
@@ -1273,6 +1277,7 @@ const loadLinks = async () => {
 };
 
 const loadApplicantCounts = async () => {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   const r = await api.get('/hiring/candidates', { params: { agencyId: effectiveAgencyId.value, stageFilter: 'all', status: 'PROSPECTIVE' } });
   const list = Array.isArray(r.data) ? r.data : [];
@@ -1285,14 +1290,17 @@ const loadApplicantCounts = async () => {
     if (stage === 'not_hired') counts[id].inactive += 1;
     else if (stage !== 'hired') counts[id].active += 1;
   }
+  if(requestedAgencyId!==effectiveAgencyId.value)return;
   applicantCounts.value = counts;
 };
 
 const loadAgencyCareersPage = async () => {
+  const requestedAgencyId=effectiveAgencyId.value;
   if (!effectiveAgencyId.value) return;
   const r = await api.get('/hiring/careers-page', {
     params: { agencyId: effectiveAgencyId.value }
   });
+  if(requestedAgencyId!==effectiveAgencyId.value)return;
   agencyPageForm.value = normalizeApplicationPage(r.data?.careersPage);
   agencyHeroImageFile.value = null;
   if (agencyHeroFileRef.value) agencyHeroFileRef.value.value = '';
@@ -1635,7 +1643,8 @@ const copyPublicCareersUrl = async () => {
 };
 
 watch(effectiveAgencyId, async (v) => {
-  if (!v) return;
+  jobs.value=[]; links.value=[]; applicantCounts.value={}; formNotice.value=''; editingRow.value=null;
+  if (!v) { loading.value=false; return; }
   restoreCreateRecovery();
   await refresh();
 });

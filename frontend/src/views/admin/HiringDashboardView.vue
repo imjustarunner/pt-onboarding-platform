@@ -209,11 +209,13 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
 import PeopleOpsPipelineCard from '../../components/admin/opsDashboard/PeopleOpsPipelineCard.vue';
+import {usePlotlineCompanyScope} from '../../composables/usePlotlineCompanyScope';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
 const router = useRouter();
+const companyScope = usePlotlineCompanyScope(route, agencyStore);
 
 const loading = ref(false);
 const error = ref('');
@@ -233,6 +235,7 @@ const stats = ref({
 const firstName = computed(() => String(authStore.user?.firstName || authStore.user?.first_name || '').trim());
 
 const agencyChoices = computed(() => {
+  if (companyScope.locked.value) return companyScope.company.value ? [companyScope.company.value] : [];
   const role = String(authStore.user?.role || '').toLowerCase();
   const base = role === 'super_admin'
     ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
@@ -244,9 +247,10 @@ const agencyChoices = computed(() => {
 
 const canChooseAgency = computed(() => (agencyChoices.value || []).length > 1);
 const selectedAgencyId = ref('');
-const agencyStorageKey = computed(() => `hiring_selected_agency_v1_${authStore.user?.id || 'anon'}`);
+const agencyStorageKey = computed(() => `hiring_selected_agency_v1_${authStore.user?.id || 'anon'}${companyScope.storageSuffix.value}`);
 
 const effectiveAgencyId = computed(() => {
+  if (companyScope.locked.value) return companyScope.companyId.value;
   const chosen = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
   if (chosen) return chosen;
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -389,6 +393,7 @@ async function load() {
   const agencyId = effectiveAgencyId.value;
   stats.value = {openJobs:0,totalApplicants:0,pendingReviews:0,upcomingInterviewsCount:0,stageCounts:{},jobs:[],upcomingInterviews:[],recentApplicants:[],pipeline:[]};
   if (!effectiveAgencyId.value) {
+    loading.value = false;
     error.value = 'Select an agency to view hiring stats.';
     return;
   }
@@ -432,7 +437,7 @@ watch(
 watch(
   () => effectiveAgencyId.value,
   (id, prev) => {
-    if (id && id !== prev) load();
+    if (id !== prev) load();
   }
 );
 

@@ -554,6 +554,10 @@
 </template>
 
 <script setup>
+import {createVideoConnectAttempt} from './videoConnectAttempt';
+let connectAttempt = null;
+const pendingConnectPublishers = new Set();
+
 import { createMeetingWaitPolicy, participantIdentity } from './meetingWaitPolicy';
 import { startLiveMeetingPresence } from '../../utils/liveMeetingPresence';
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue';
@@ -2429,6 +2433,7 @@ function isMicAccessError(err) {
 }
 
 function sanitizeVideoError(err) {
+  if (err?.code === 'VIDEO_CONNECTION_WAIT_EXPIRED') return {message:err.message,kind:'timeout'};
   const name = String(err?.name || '');
   const code = err?.code != null ? Number(err.code) : null;
   const raw = stripSecrets(err?.message || err || 'Could not connect to the video session.');
@@ -2505,6 +2510,10 @@ const diagnosticHints = computed(() => {
 });
 
 async function connect() {
+  disconnect(false);
+  const attempt = createVideoConnectAttempt();
+  connectAttempt = attempt;
+  const current = () => connectAttempt === attempt && !attempt.canceled;
   aloneTimedOut.value = false;
   errorMessage.value = '';
   errorMeta.value = null;
@@ -2518,20 +2527,23 @@ async function connect() {
 
   connecting.value = true;
   try {
-    const mod = await import('@vonage/client-sdk-video');
+    const mod = await attempt.wait(() => import('@vonage/client-sdk-video'), 'Loading video');
     const OT = mod?.default || mod;
     videoSdk = OT;
     if (!OT?.initSession) {
       throw new Error('Vonage Video client SDK failed to load.');
     }
     OTApi = OT;
-    disconnect(false);
     connecting.value = true;
     // Vonage Video JWT tokens: first arg must be Application ID (not account API key).
     session = OT.initSession(projectId, props.sessionId);
+    const connectingSession = session;
+    const on = (event, handler) => connectingSession.on(event, (...args) => {
+      if (current() && session === connectingSession) handler(...args);
+    });
 
-    session.on('connectionCreated', (event) => observeConnection(event.connection));
-    session.on('connectionDestroyed', (event) => {
+    on('connectionCreated', (event) => observeConnection(event.connection));
+    on('connectionDestroyed', (event) => {
       const id = connectionIdFrom(event.connection);
       const previous = roomConnections.get(id);
       roomConnections.delete(id);
@@ -2543,7 +2555,7 @@ async function connect() {
         emit('participant-left', { displayName: person.name, connectionId: id });
       }
     });
-    session.on('streamCreated', (event) => {
+    on('streamCreated', (event) => {
       observeConnection(event.stream?.connection);
       void subscribeToStream(event.stream).then(() => {
         // New peer may have missed our earlier mic_state signal — nudge them.
@@ -2553,7 +2565,7 @@ async function connect() {
     });
 
     // Authoritative camera/mic flips — more reliable than subscriber-only events across SDK builds.
-    session.on('streamPropertyChanged', (event) => {
+    on('streamPropertyChanged', (event) => {
       const stream = event?.stream;
       if (!stream || isOwnStream(stream) || isScreenStream(stream)) return;
       const changed = String(event?.changedProperty || '').toLowerCase();
@@ -2568,7 +2580,7 @@ async function connect() {
       }
     });
 
-    session.on('streamDestroyed', (event) => {
+    on('streamDestroyed', (event) => {
       const stream = event.stream;
       const streamId = String(stream?.streamId || '');
       forgetStream(streamId);
@@ -2593,22 +2605,22 @@ async function connect() {
     });
 
     // Signals are refresh hints only; permissions still come from the API.
-    session.on('signal:training_state_changed', () => {
+    on('signal:training_state_changed', () => {
       if (props.trainingPolicy) emit('training-state-changed');
     });
 
-    session.on('sessionReconnecting', () => {
+    on('sessionReconnecting', () => {
       emit('connection-status', { event: 'reconnecting' });
       showConnectionNotice('Connection interrupted. Trying to reconnect…');
     });
-    session.on('sessionReconnected', () => {
+    on('sessionReconnected', () => {
       emit('connection-status', { event: 'reconnected' });
       showConnectionNotice('Connection restored.');
       reconcileSubscriptions();
       handleVisibilityResume();
     });
     const connectedSession = session;
-    session.on('sessionDisconnected', (event) => {
+    on('sessionDisconnected', (event) => {
       if (intentionallyDisconnectedSessions.has(connectedSession)) {
         intentionallyDisconnectedSessions.delete(connectedSession);
         return;
@@ -2620,7 +2632,7 @@ async function connect() {
     });
 
     // Host/server broadcasts this when the meeting is marked completed.
-    session.on('signal:meeting_ended', (event) => {
+    on('signal:meeting_ended', (event) => {
       // Clinical closure is enforced by the backend. A participant signal is not authority to end it.
       if (props.serverManagedEnd) return;
       let payload = null;
@@ -2637,7 +2649,7 @@ async function connect() {
     });
 
     // Interviewers end guest access: interviewee is signaled/disconnected; hosts stay in.
-    session.on('signal:interview_guest_ended', (event) => {
+    on('signal:interview_guest_ended', (event) => {
       let payload = null;
       try {
         payload = event?.data ? JSON.parse(event.data) : null;
@@ -2647,7 +2659,7 @@ async function connect() {
       emit('interview-guest-ended', payload);
     });
 
-    session.on('signal:hand_raised', (event) => {
+    on('signal:hand_raised', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
       const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
@@ -2657,7 +2669,7 @@ async function connect() {
       if (connId === localConnectionId()) localHandRaised.value = raised;
     });
 
-    session.on('signal:reaction', (event) => {
+    on('signal:reaction', (event) => {
       if (!sessionReady.value) return;
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
@@ -2671,7 +2683,7 @@ async function connect() {
       emit('reaction', payload);
     });
 
-    session.on('signal:screen_share_takeover', (event) => {
+    on('signal:screen_share_takeover', (event) => {
       // This request only stops this participant's current presentation. It
       // cannot turn media on, grant permissions, or end the meeting.
       let data;
@@ -2691,7 +2703,7 @@ async function connect() {
       stopScreenShare();
       showConnectionNotice(`${cleanPersonName(participantIdentity(event.from).name) || 'Another participant'} is taking over screen sharing.`);
     });
-    session.on('signal:screen_share_grant', (event) => {
+    on('signal:screen_share_grant', (event) => {
       if (props.trainingPolicy) return;
       let data = {};
       try { data = JSON.parse(event?.data || '{}'); } catch { data = {}; }
@@ -2707,7 +2719,7 @@ async function connect() {
         screenShareGrants.value = next;
       }
     });
-    session.on('signal:force_mute', (event) => {
+    on('signal:force_mute', (event) => {
       if (props.trainingPolicy) return;
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
@@ -2716,7 +2728,7 @@ async function connect() {
       if (target && me && target === me) applyForceMuteLocal();
     });
 
-    session.on('signal:mic_state', (event) => {
+    on('signal:mic_state', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
       const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
@@ -2726,7 +2738,7 @@ async function connect() {
       }
     });
 
-    session.on('signal:mic_lock', () => {
+    on('signal:mic_lock', () => {
       if (props.trainingPolicy) return;
       micLockedByHost.value = true;
       forceMutedByHost.value = false;
@@ -2739,17 +2751,17 @@ async function connect() {
       }
     });
 
-    session.on('signal:mic_unlock', () => {
+    on('signal:mic_unlock', () => {
       if (props.trainingPolicy) return;
       micLockedByHost.value = false;
     });
 
     // Peer joined or missed a toggle — reply with our current mic/camera flags.
-    session.on('signal:media_state_request', () => {
+    on('signal:media_state_request', () => {
       rebroadcastLocalMediaState();
     });
 
-    session.on('signal:camera_state', (event) => {
+    on('signal:camera_state', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
       const connId = String(payload.connectionId || event?.from?.connectionId || '').trim();
@@ -2759,13 +2771,13 @@ async function connect() {
       }
     });
 
-    session.on('signal:transcript_control', (event) => {
+    on('signal:transcript_control', (event) => {
       let payload = {};
       try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
       emit('transcript-control', payload);
     });
 
-    session.on('signal:cohost_grant', (event) => {
+    on('signal:cohost_grant', (event) => {
       if (props.trainingPolicy) return;
       // Received by everyone; only act if it targets this connection.
       let payload = {};
@@ -2776,9 +2788,9 @@ async function connect() {
       }
     });
 
-    await new Promise((resolve, reject) => {
-      session.connect(props.token, (err) => (err ? reject(err) : resolve()));
-    });
+    await attempt.wait(() => new Promise((resolve, reject) => {
+      connectingSession.connect(props.token, (err) => { if (current()) err ? reject(err) : resolve(); });
+    }), 'Connecting to video');
 
     transportConnected.value = true;
     await nextTick();
@@ -2813,11 +2825,13 @@ async function connect() {
 
     const createPublisher = async (withAudio, { captureAudio = !props.lobbyMode } = {}) => {
       try {
-        const pub = await new Promise((resolve, reject) => {
-          const nextPublisher = OT.initPublisher(
+        const pub = await attempt.wait(() => new Promise((resolve, reject) => {
+          let nextPublisher;
+          nextPublisher = OT.initPublisher(
             publisherMountEl,
             buildPublisherOpts(withAudio, captureAudio),
-            (err) => {
+            (err) => { queueMicrotask(() => {
+              if (!current()) { try { nextPublisher?.destroy(); } catch {} return; }
               if (err) {
                 console.error('[VideoSessionRoom] publisher error', err);
                 try { nextPublisher.destroy(); } catch { /* ignore */ }
@@ -2827,9 +2841,10 @@ async function connect() {
               forceMediaFill(publisherMountEl);
               silenceLocalPublisherMedia(publisherMountEl);
               resolve(nextPublisher);
-            }
+            }); }
           );
-        });
+          pendingConnectPublishers.add(nextPublisher);
+        }), 'Starting camera and microphone');
         pub?.on?.('videoElementCreated', (event) => {
           silenceLocalPublisherMedia(event?.element || event?.videoElement || null);
           silenceLocalPublisherMedia(publisherMountEl);
@@ -2848,8 +2863,9 @@ async function connect() {
 
     const publishLocal = async (withAudio, options = {}) => {
       const pub = await createPublisher(withAudio, options);
-      await new Promise((resolve, reject) => {
-        session.publish(pub, (err) => {
+      await attempt.wait(() => new Promise((resolve, reject) => {
+        connectingSession.publish(pub, (err) => {
+          if (!current()) return;
           if (err) {
             try { pub.destroy(); } catch { /* ignore */ }
             releasePublisherAudioSource();
@@ -2858,7 +2874,8 @@ async function connect() {
           }
           resolve();
         });
-      });
+      }), 'Joining with camera and microphone');
+      pendingConnectPublishers.delete(pub);
       return pub;
     };
 
@@ -2868,6 +2885,8 @@ async function connect() {
       // is a simple track enable and never needs a camera/publisher restart.
       needsAudioSourceAttach.value = !props.lobbyMode && !publisher?.getAudioSource?.();
     } catch (publishErr) {
+      if (!current()) return;
+      if (publishErr?.code === 'VIDEO_CONNECTION_WAIT_EXPIRED') throw publishErr;
       if (!props.lobbyMode && isPublishTimeoutError(publishErr)) {
         console.warn('[VideoSessionRoom] publish timed out; retrying without extra audio processing', publishErr?.message || publishErr);
         if (publisherMountEl) publisherMountEl.innerHTML = '';
@@ -2913,7 +2932,8 @@ async function connect() {
     attachPublisherAudioLevel();
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
     if (!props.lobbyMode) {
-      await enhanceLocalPublisherAudio();
+      try { await attempt.wait(() => enhanceLocalPublisherAudio(), 'Preparing microphone audio'); }
+      catch (error) { if (!current()) return; showMicHint('Joined with basic microphone audio.'); }
       // Keep the published track stable; processing is configured once per source.
     } else {
       refreshAudioEnhancementStatus(publisher);
@@ -2945,6 +2965,7 @@ async function connect() {
     setTimeout(() => rebroadcastLocalMediaState(), 1200);
     emit('connected');
   } catch (err) {
+    if (!current()) return;
     console.error('[VideoSessionRoom] connect failed', {
       name: err?.name,
       code: err?.code,
@@ -3122,6 +3143,10 @@ async function toggleScreenShare() {
 }
 
 function disconnect(emitEvent = true) {
+  connectAttempt?.cancel();
+  connectAttempt = null;
+  for (const pub of pendingConnectPublishers) { try { pub?.destroy(); } catch {} }
+  pendingConnectPublishers.clear();
   for (const finish of screenShareEndWaiters.values()) finish(false);
   blockedSubscribers.clear();
   blockedAudioCount.value = 0;

@@ -1,10 +1,10 @@
 name: Plotline self-service boundaries
 on:
   pull_request:
-    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
+    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','frontend/src/composables/usePlotlineCompanyScope.js','frontend/src/views/admin/Hiring*','frontend/src/views/admin/CareersView.vue','frontend/src/views/admin/InterviewHubView.vue','frontend/src/components/video/**','frontend/src/App.vue','frontend/src/utils/appReleaseMonitor.js','frontend/vitest.plotline-r5.config.js','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
   push:
     branches: [main]
-    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
+    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','frontend/src/composables/usePlotlineCompanyScope.js','frontend/src/views/admin/Hiring*','frontend/src/views/admin/CareersView.vue','frontend/src/views/admin/InterviewHubView.vue','frontend/src/components/video/**','frontend/src/App.vue','frontend/src/utils/appReleaseMonitor.js','frontend/vitest.plotline-r5.config.js','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -38,3 +38,5 @@ jobs:
           SKIP_DB_CONNECT: '1'
       - name: Interviewer entry and round 4 UI regressions
         run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-r4.config.js
+      - name: Named company navigation, video recovery and release status
+        run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-r5.config.js

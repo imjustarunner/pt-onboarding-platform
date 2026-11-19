@@ -15,7 +15,7 @@
 
     <JobInterviewGuideEditor v-if="jobDescriptionId" :agency-id="agencyId" :job-description-id="jobDescriptionId" :job-title="jobTitle" @saved="jobGuideSaved" @dirty-change="guideDirty = $event" />
     <p v-if="guideDirty" role="status">Save or cancel the edited job questions before scheduling an interview.</p>
-    <p v-else class="muted small">No job description is linked yet. Interviews use the agency or platform default questions and ratings.</p>
+    <p v-if="!jobDescriptionId" class="muted small">No job description is linked yet. Interviews use the agency or platform default questions and ratings.</p>
     <div v-if="showSchedule" ref="scheduleSectionRef" class="cip-schedule">
       <div class="cip-schedule-title">New Interview Hub meeting</div>
       <div class="cip-schedule-form">
@@ -159,6 +159,7 @@
       </div>
 
       <div class="kv"><div class="k">Status</div><div class="v">{{ selected.status }}</div></div>
+      <div class="kv"><div class="k">Interview</div><div class="v">#{{ selected.id }}</div></div>
       <details v-if="savedInterviewQuestions.length" class="cip-saved-questions" open>
         <summary>Questions saved for this interview · {{ savedInterviewQuestions.length }}</summary>
         <p class="muted small">This is the guide saved when this interview was scheduled. Changes to the job default apply to future interviews.</p>

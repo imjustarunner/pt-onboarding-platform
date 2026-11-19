@@ -53,3 +53,11 @@ describe('release readiness', () => {
     m.dispose(); finish(); await Promise.all([one,two]); expect(onChange).toHaveBeenCalledTimes(1); expect(onChange).toHaveBeenLastCalledWith(null);
   });
 });
+it('distinguishes the loaded tab from a release pair and requires complete metadata',async()=>{
+ const {deploymentReadiness}=await import('../appReleaseMonitor.js');
+ expect(deploymentReadiness('a',fe('a'),be('a'))).toBe('ready');
+ expect(deploymentReadiness('a',fe('b'),be('b'))).toBe('update-available');
+ expect(deploymentReadiness('b',fe('b'),be('a'))).toBe('rolling-out');
+ expect(deploymentReadiness('b',fe('b'),{...be('b'),ready:false})).toBe('rolling-out');
+ expect(deploymentReadiness('a',{},be('a'))).toBe('unconfirmed');
+});
