@@ -214,13 +214,16 @@
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
         <button type="button" class="qv-btn ghost qv-message-back" :aria-label="isMobile?'Back':undefined" @click="closeConversation">← {{ isMobile?'Back':'Conversations' }}</button>
-        <h2 v-if="activeConv?.channel !== 'email'">{{ activeConv?.subject || 'Conversation' }}</h2>
+        <h2 v-if="activeConv?.channel !== 'email'">{{ activeConv?.sms?.recipientName || activeConv?.subject || 'Conversation' }}</h2>
+        <p v-if="activeConv?.channel === 'sms' && activeConv.sms" class="qv-detail-meta">
+          <template v-if="activeConv.sms.relationship && activeConv.sms.clientName">{{ activeConv.sms.relationship }} for {{ activeConv.sms.clientName }} · </template>{{ activeConv.sms.organizationName }}<template v-if="activeConv.sms.fromNumber"> · {{ activeConv.sms.fromNumber }}</template>
+        </p>
         <p v-if="threadLoading" role="status">Loading conversation…</p>
         <EmailThreadReader v-if="activeConv?.channel === 'email' && !threadLoading" :conversation="activeConv" :messages="threadMessages" :mobile="isMobile" :current-user-photo="mobileSession?.profile?.user?.profilePhotoPath" :has-older="!!nextBeforeId" :loading-older="olderLoading"
           @compose="openDetachedEmail" @unread="keepEmailUnread" @older="loadOlderEmail" @attachment="downloadEmailFile" @like="likeEmail" />
         <template v-else>        <button v-if="nextBeforeId" type="button" class="qv-btn ghost" :disabled="olderLoading" @click="loadOlderEmail">{{ olderLoading ? 'Loading…' : 'Load older messages' }}</button>
         <div v-for="m in threadMessages" :key="m.id" class="qv-bubble" :class="m.direction">
-          <div class="when"><strong>{{ m.from?.name || m.from?.email || (m.direction === 'outbound' ? 'You' : 'Sender') }}</strong> · {{ formatTime(m.sent_at || m.scheduled_send_at || m.created_at) }}
+          <div class="when"><strong>{{ activeConv?.channel === 'sms' && m.direction === 'inbound' ? activeConv.sms?.recipientName || m.from?.name || 'Sender' : m.from?.name || m.from?.email || (m.direction === 'outbound' ? 'You' : 'Sender') }}</strong> · {{ formatTime(m.sent_at || m.scheduled_send_at || m.created_at) }}
             <span v-if="m.is_auto_reply" class="badge">Auto-reply</span>
             <span v-if="m.send_status && m.send_status !== 'sent'" class="badge">{{ m.send_status === 'scheduled' ? 'Queued' : m.send_status }}</span>
           </div>
@@ -1896,7 +1899,7 @@ async function openConversation(c, { refresh = false, preserveCurrent = true } =
   if (preserveCurrent) rememberReply();
   const request = ++conversationRequest,activeToken=session.value,cacheEpoch=emailCacheEpoch;
   const cached=isMobile.value && !refresh?emailDetailCache.get(String(c.id)):null;
-  const fresh=cached && Date.now()-cached.at<60000;
+  const fresh=cached && cached.data.conversation?.channel!=='sms' && c.kind!=='sms' && Date.now()-cached.at<60000;
   activeConv.value = fresh?cached.data.conversation:c; threadMessages.value = fresh?cached.data.messages || []:[]; threadLoading.value = !fresh; tab.value = 'thread';
   if(isMobile.value)void mobileMessages.value?.markConversationRead(c);
   if(isMobile.value && String(route.query.conversationId || '')!==String(c.id))await mobileNavigate({...route.query,view:'home',suite:msgSuite.value,conversationId:String(c.id),threadId:undefined,parentId:undefined,secure:undefined,compose:undefined});

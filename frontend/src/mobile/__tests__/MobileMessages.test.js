@@ -61,7 +61,7 @@ it('shows file details and can view the file without first navigating to its mes
 });
 it('shows category and filter counts, including groups',async()=>{
  await start();expect(wrapper.findAll('.mm-categories button').find(button=>button.text().includes('Groups')).text()).toContain('0');
- expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['All','Unread 1','Sent 0','Drafts —']);
+ expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['Inbox','Unread 1','Sent 0','Drafts —']);
 });
 
 it('keeps recipient and group names on cards when the latest author is someone else',async()=>{
@@ -136,7 +136,7 @@ it('opens the channel browser from Channels plus and filters authorized channels
 it('exposes saved email drafts and reopens the exact draft and originating agency',async()=>{
  const original=api.get.getMockImplementation();api.get.mockImplementation(async(url,config)=>config?.params?.suite==='drafts'?{data:{items:[{key:'draft:abc',kind:'draft',id:'abc',agencyId:20,title:'Saved synthetic draft',sender:'recipient@example.invalid',preview:'Unsent content'}],counts:{drafts:{total:1,unread:0,needs:0}}}}:original(url,config));await start('/mobile/workspace?view=home&suite=drafts');expect(wrapper.text()).toContain('Saved synthetic draft');await wrapper.get('.mm-row').trigger('click');expect(wrapper.emitted('compose-email')[0][0]).toEqual({draftId:'abc',agencyId:20});
 });
-it('keeps Show all explicit when All starts in the unread view',async()=>{await start('/mobile/workspace?view=home&suite=all');const link=wrapper.findAll('button').find(b=>b.text()==='Show all conversations');expect(link).toBeTruthy();await link.trigger('click');await flushPromises();expect(router.currentRoute.value.query.filter).toBe('all');});
+it('keeps Show all explicit when All starts in the unread view',async()=>{await start('/mobile/workspace?view=home&suite=all');const link=wrapper.findAll('button').find(b=>b.text()==='Go to Inbox');expect(link).toBeTruthy();await link.trigger('click');await flushPromises();expect(router.currentRoute.value.query.filter).toBe('all');});
 
 it('keeps the keyboard closed on opening Direct and shows the agency mark below a photo',async()=>{
  const original=api.get.getMockImplementation();api.get.mockImplementation((url,options)=>url.endsWith('/directory')?Promise.resolve({data:{providers:[{id:2,displayName:'Synthetic Teammate',agencyId:4,agencyName:'ITSCO',profilePhotoUrl:'photos/person.png',agencyLogoUrl:'/email-signatures/staff-html/itsco-main-logo.png'}]}}):original(url,options));
@@ -193,7 +193,7 @@ it('shows group names without personal account labels or redundant destination e
  api.get.mockResolvedValue({data:{items:[{key:'email:42',id:42,kind:'email',category:'groups',title:'Synthetic ticket',sender:'External sender',groupName:'Agency Technology Team',destinationAccount:'technology@agency.invalid',preview:'Synthetic preview'}],counts:{all:{total:999,unread:27},groups:{total:111,unread:27,needs:43}}}});
  await start('/mobile/workspace?view=home&suite=groups');
  expect(wrapper.get('.mm-row-top strong').text()).toBe('Agency Technology Team');expect(wrapper.text()).not.toContain('technology@agency.invalid');
- expect(wrapper.findAll('.mm-filters button').map(b=>b.text())).toEqual(['All','Unread 27','Sent 0','Drafts —']);expect(wrapper.text()).not.toContain('Needs reply');expect(wrapper.findAll('.mm-categories button').find(b=>b.text().startsWith('All')).text()).toContain('27');
+ expect(wrapper.findAll('.mm-filters button').map(b=>b.text())).toEqual(['Inbox','Unread 27','Sent 0','Drafts —']);expect(wrapper.text()).not.toContain('Needs reply');expect(wrapper.findAll('.mm-categories button').find(b=>b.text().startsWith('All')).text()).toContain('27');
 });
 
 it('maps an older needs-reply bookmark to Unread',async()=>{await start('/mobile/workspace?view=home&suite=direct&filter=needs');expect(wrapper.findAll('.mm-filters button').find(b=>b.attributes('aria-pressed')==='true').text()).toContain('Unread');expect(api.get).toHaveBeenCalledWith('/api/quick-view/messages/inbox',expect.objectContaining({params:expect.objectContaining({filter:'unread'})}));});

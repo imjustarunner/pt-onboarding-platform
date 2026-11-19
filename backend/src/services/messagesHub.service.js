@@ -1,3 +1,4 @@
+import { messageFeedBoundary, messageFeedPosition } from '../utils/messageFeedCursor.js';
 import { pruneUserCompanyEventConversations } from './companyEventConversation.service.js';
 import { familyMessageVisibilitySql, currentSecureThreadFilterSql } from './familySecureMessageAccess.service.js';
 import { resolveClientForSecureRecipients, refreshClientSecureAccess } from './clientSecureConversation.service.js';
@@ -4136,7 +4137,7 @@ export async function listHubConversationFeed({
   limit = 60,
   sort = 'newest',
   channel: channelFilter = 'all',
-  mode = 'inbox', inboxId = null, category = null, claimState = null, includeGlobal = true
+  mode = 'inbox', inboxId = null, category = null, claimState = null, includeGlobal = true, cursor = null
 } = {}) {
   const aid = Number(agencyId || 0) || null;
   const uid = Number(userId || 0);
@@ -4172,9 +4173,9 @@ export async function listHubConversationFeed({
       userId: uid,
       scopeToUserId: uid,
       inboxId, category, sort, claimState, includeGlobal,
-      limit: lim,
+      limit: lim + 1,
       offset: 0,
-      isAdminViewer: false
+      isAdminViewer: false, feedCursor: cursor
     });
     const emailAddrs = [
       ...new Set(
@@ -4243,9 +4244,7 @@ export async function listHubConversationFeed({
         id: `email-${c.id}`,
         kind: resolvedChannel === 'sms' ? 'sms' : 'email',
         channel: resolvedChannel,
-        sortAt: unreadOnly
-          ? c.last_inbound_at || c.last_message_at || c.updated_at || c.created_at
-          : c.last_message_at || c.last_inbound_at || c.updated_at || c.created_at,
+        sortAt: c.last_message_at || c.updated_at || c.created_at,
         unreadCount: isUnread ? 1 : 0,
         is_unread: isUnread,
         conversationId: Number(c.id),
@@ -4286,7 +4285,7 @@ export async function listHubConversationFeed({
   }
 
   // Chat threads (direct + channels / team / club)
-  try {
+  if (!['email', 'sms', 'calls'].includes(channelFilter)) try {
     const agencyClause = aid ? "AND (t.agency_id = ? OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))" : '';
     // unread(2) + other(1) + tp/r/td(3) + lm delete(1) + ou(1) [+ agency]
     // For inbox, last message is any sender; for unread, prefer unread inbound preview.
@@ -4294,6 +4293,16 @@ export async function listHubConversationFeed({
       ? [uid, uid, uid, uid, uid, uid, uid, uid, uid]
       : [uid, uid, uid, uid, uid, uid, uid, uid];
     if (aid) params.push(aid);
+    const activitySql = 'COALESCE(lm.created_at,t.updated_at)';
+    const boundary = messageFeedBoundary(cursor, 0, activitySql, 't.id', !sortNewest);
+    params.push(...boundary.params);
+    const chatFilter = {
+      secure: "AND t.message_channel='secure'",
+      internal: "AND t.message_channel='internal' AND t.thread_type IN ('direct','group','client_secure')",
+      channel: "AND t.thread_type='channel'",
+      group: "AND t.thread_type NOT IN ('direct','client_secure')",
+      groups: "AND t.thread_type NOT IN ('direct','client_secure')"
+    }[channelFilter] || '';
 
     const lastMessageSql = unreadOnly
       ? `LEFT JOIN chat_messages lm ON lm.id = (
@@ -4331,7 +4340,7 @@ export async function listHubConversationFeed({
               lm.body_iv,
               lm.body_auth_tag,
               lm.encryption_key_id,
-              lm.created_at AS last_message_at,
+              ${activitySql} AS last_message_at,
               lm.sender_user_id AS last_sender_id,
               (
                 SELECT COUNT(*)
@@ -4369,10 +4378,10 @@ export async function listHubConversationFeed({
        )
        WHERE td.deleted_at IS NULL
          AND ${inboxId || category || claimState ? '0=1' : chatInboxVisibilitySql(uid)}
-         ${agencyClause}
+         ${agencyClause} ${chatFilter} ${boundary.sql}
        ${havingClause}
        ORDER BY COALESCE(last_message_at, t.updated_at) ${sortNewest ? 'DESC' : 'ASC'},t.id ${sortNewest ? 'DESC' : 'ASC'}
-       LIMIT ${Number(lim)}`,
+       LIMIT ${lim + 1}`,
       params
     );
 
@@ -4513,13 +4522,17 @@ export async function listHubConversationFeed({
   collapsed.sort((a, b) => {
     const ta = new Date(a.sortAt || 0).getTime();
     const tb = new Date(b.sortAt || 0).getTime();
-    return sortNewest ? tb - ta : ta - tb;
+    const left = messageFeedPosition(a), right = messageFeedPosition(b);
+    const order = ta - tb || left.source - right.source || left.id - right.id;
+    return sortNewest ? -order : order;
   });
 
-  const sliced = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
+  const matching = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
     || (['group','groups'].includes(channelFilter) ? (category ? item.is_review_notice : item.is_ticketed_group || ['group','channel'].includes(item.channel))
       : channelFilter === 'email' ? item.channel === 'email' && !item.is_ticketed_group
-      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect)))).slice(0, lim);
+      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect))));
+  const sliced = matching.slice(0, lim);
+  const nextCursor = matching.length > lim ? Buffer.from(JSON.stringify(messageFeedPosition(sliced.at(-1)))).toString('base64url') : null;
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
   const smsCount = sliced.filter((i) => i.channel === 'sms').length;
   const chatCount = sliced.filter((i) =>
@@ -4528,7 +4541,7 @@ export async function listHubConversationFeed({
   const unreadCount = sliced.filter((i) => i.is_unread).length;
 
   return {
-    items: sliced,
+    items: sliced, nextCursor,
     counts: {
       total: sliced.length,
       email: emailCount,

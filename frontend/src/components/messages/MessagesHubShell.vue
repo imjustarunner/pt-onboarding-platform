@@ -207,9 +207,14 @@
               class="msg-hub-sort"
             >
               <span class="sr-only">Sort list</span>
-              <select v-model="unreadSort" @change="loadConversations">
+              <select v-model="inboxSort" @change="changeInboxSort">
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
+                <optgroup label="Sort loaded messages">
+                  <option value="unread">Unread first</option>
+                  <option value="sender">Sender A–Z</option>
+                  <option value="subject">Subject A–Z</option>
+                </optgroup>
               </select>
             </label>
           </div>
@@ -301,6 +306,7 @@
                 'email-list-row': c.channel === 'email',
                 'sms-list-row': c.channel === 'sms',
                 'selectable-list-row': canSelectMessage(c),
+                'compact-inbox-row': readerFullscreen && !hasOpenReader,
                 unread: c.is_unread
               }"
               tabindex="0" role="button" @keydown.enter.self="pickConversation(c)" @keydown.space.self.prevent="pickConversation(c)"
@@ -308,6 +314,18 @@
               @click="pickConversation(c)"
             >
               <input v-if="canSelectMessage(c)" class="msg-hub-select-message" type="checkbox" :aria-label="`Select ${c.subject || conversationThreadTitle(c)}`" :checked="selectedMessageKeys.includes(readerKey(c))" :disabled="bulkUpdating" @click.stop @keydown.stop @change="toggleMessageSelection(c, $event.target.checked)" />
+              <div v-if="readerFullscreen && !hasOpenReader" class="msg-hub-compact-fields">
+                <strong class="msg-hub-compact-sender" :title="conversationThreadTitle(c)">{{ conversationThreadTitle(c) }}</strong>
+                <span class="msg-hub-compact-subject" :title="c.subject">{{ c.channel === 'sms' ? (c.sms?.relationship && c.sms?.clientName ? c.sms.relationship + ' for ' + c.sms.clientName : '') : c.subject }}</span>
+                <span class="msg-hub-compact-preview">{{ emailPreviewText(c.last_message_preview || '') }}</span>
+                <span class="msg-hub-compact-status">
+                  <ConversaBadge :type="c.channel || c.hubKind" :label="c.hubChannelLabel || undefined" />
+                  <span v-if="c.is_unread" :class="c.is_review_notice ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">{{ c.is_review_notice ? 'To review' : 'Unread' }}</span>
+                  <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
+                </span>
+                <time v-if="c.last_message_at">{{ formatTime(c.last_message_at) }}</time>
+              </div>
+              <template v-else>
               <div class="msg-hub-avatar-wrap">
                 <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" icon-only />
                 <div v-else class="msg-hub-avatar" aria-hidden="true">
@@ -395,6 +413,7 @@
                   {{ c.starred ? '★' : '☆' }}
                 </button>
               </div>
+              </template>
             </li>
           </ul>
 
@@ -463,7 +482,7 @@
               + {{ newMessageLabel }}
             </button>
           </div>
-          <button v-if="hasMoreConversations && !['inbox','unread','my_tickets','tickets','assigned'].includes(navId) && !(emailSearchEnabled && listSearch.trim())" type="button" class="btn btn-secondary" :disabled="loadingList" @click="loadConversations({ append: true })">Show more messages</button>
+          <button v-if="hasMoreConversations && !['my_tickets','tickets','assigned'].includes(navId) && !(emailSearchEnabled && listSearch.trim())" type="button" class="btn btn-secondary" :disabled="loadingList || loadingMoreList" @click="loadConversations({ append: true })">{{ loadingMoreList ? 'Loading more…' : 'Show more messages' }}</button>
         </section>
 
         <section class="msg-hub-thread-col" aria-label="Conversation">
@@ -1962,6 +1981,7 @@ function onWorkspaceChanged(event) {
 }
 function scheduleHidePreview(){clearTimeout(hoverTimer);hidePreviewTimer=setTimeout(()=>hoverEmail.value=null,200);}
 function previewEmail(c,event){
+ if(readerFullscreen.value && !hasOpenReader.value)return;
   clearTimeout(hidePreviewTimer);clearTimeout(hoverTimer);if(c.channel!=='email'||c.draftId)return;
   const rect=event.currentTarget.getBoundingClientRect();
   hoverTimer=setTimeout(async()=>{const item={id:c.id,subject:c.subject,body:emailPreviewText(c.last_message_preview),top:Math.min(rect.top,Math.max(8,window.innerHeight-350)),left:Math.max(8,Math.min(rect.right+8,window.innerWidth-440))};hoverEmail.value=item;
@@ -2013,6 +2033,13 @@ const conversations = ref([]);
 const listFilter = ref('unread');
 const listSearch = ref('');
 const unreadSort = ref('newest');
+const inboxSort = ref('newest'), loadingMoreList = ref(false), hubPagesExpanded = ref(false);
+let hubPageCursors = new Map();
+function changeInboxSort() {
+  if (!['newest', 'oldest'].includes(inboxSort.value) || unreadSort.value === inboxSort.value) return;
+  unreadSort.value = inboxSort.value;
+  void loadConversations();
+}
 const selected = ref(null);
 const listColCollapsed = ref(false);
 const detailsCollapsed = ref(true);
@@ -2083,7 +2110,7 @@ async function navigateReader(offset) {
   try {
     let target = offset > 0 ? nextReader.value : readingSequence.value[readingIndex.value - 1];
     if (!target && offset > 0 && hasMoreConversations.value) {
-      await loadConversations({ nextUnread: true });
+      await loadConversations({ nextUnread: true, append: !isTicketQueue.value });
       const known = new Set(readingSequence.value.map(readerKey));
       readingSequence.value.push(...filteredConversations.value.filter(row => !known.has(readerKey(row))));
       target = nextReader.value;
@@ -2513,6 +2540,13 @@ const filteredConversations = computed(() => {
     : inboxChannel.value === 'group' ? selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
     : inboxChannel.value === 'email' ? c.channel === 'email' && !isTicketedGroup(c) : c.channel === inboxChannel.value);
   if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => selectedDepartment.value ? selectedDepartment.value.mailboxes.some(box => String(box.id) === String(c.inbox_id)) : String(c.inbox_id) === String(selectedGroupInboxId.value));
+  const field = inboxSort.value;
+  if (hubPagesExpanded.value) {
+    list.sort((a, b) => (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)) * (unreadSort.value === 'oldest' ? -1 : 1));
+  }
+  if (field === 'unread') list.sort((a, b) => Number(!!b.is_unread) - Number(!!a.is_unread));
+  if (field === 'sender') list.sort((a, b) => conversationThreadTitle(a).localeCompare(conversationThreadTitle(b)));
+  if (field === 'subject') list.sort((a, b) => String(a.subject || '').localeCompare(String(b.subject || '')));
   if (!q || emailSearchEnabled.value) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
@@ -4208,7 +4242,8 @@ async function openTeamChat(tab = null) {
 }
 
 async function scopedGet(path, params, config = {}, responseKey = 'conversations') {
-  const { append = false, ...requestConfig } = config;
+  const { append = false, paged = false, ...requestConfig } = config;
+  const nextCursors = new Map();
   const scopes = scopeAgencyIds().map((aid, index) => ({
     agencyId: aid,
     includeGlobal: index === 0 ? '1' : '0',
@@ -4216,7 +4251,7 @@ async function scopedGet(path, params, config = {}, responseKey = 'conversations
       ? conversations.value.filter(row => Number(row.agency_id || agencyId.value) === aid).length
       : Number(params.offset || 0),
     groupInboxId: inboxChannel.value === 'group' ? scopeInboxId(aid) : undefined
-  }));
+  })).filter(scope => !paged || !append || hubPageCursors.has(scope.agencyId));
   const filters = { ...params };
   if (inboxChannel.value === 'group') filters.claimState = claimState.value || undefined;
 
@@ -4235,7 +4270,11 @@ async function scopedGet(path, params, config = {}, responseKey = 'conversations
       const inboxFilter = inboxChannel.value === 'group'
         ? { [path.startsWith('/messages/hub/') ? 'inboxId' : 'groupInboxId']: groupInboxId }
         : {};
-      const { data } = await api.get(path, { ...requestConfig, params: { ...filters, ...scope, ...inboxFilter } });
+      const { data } = await api.get(path, {
+        ...requestConfig,
+        params: { ...filters, ...scope, ...inboxFilter, ...(paged && append ? { cursor: hubPageCursors.get(scope.agencyId) } : {}) }
+      });
+      if (paged && data?.nextCursor) nextCursors.set(scope.agencyId, data.nextCursor);
       return (data?.[responseKey] || []).map(row => ({
         ...row, agency_id: row.agency_id || scope.agencyId, agencyId: row.agencyId || scope.agencyId
       }));
@@ -4243,16 +4282,22 @@ async function scopedGet(path, params, config = {}, responseKey = 'conversations
   }
   const rows = uniqueMessageRows(results.flat());
   rows.sort((a, b) => (new Date(b.sortAt || b.last_message_at || b.created_at || 0) - new Date(a.sortAt || a.last_message_at || a.created_at || 0)) * (unreadSort.value === 'oldest' ? -1 : 1));
-  return rows;
+  return paged ? { rows, nextCursors } : rows;
 }
 async function loadConversations({ quiet = false, append = false, nextUnread = false } = {}) {
-  if (quiet && loadingList.value) return;
-  hasMoreConversations.value = false;
+  if ((quiet || append) && (loadingList.value || loadingMoreList.value)) return;
+  if (quiet && hubPagesExpanded.value) return loadInboxCounts();
+  if (!append) {
+    hubPagesExpanded.value = false;
+    hasMoreConversations.value = false;
+  } else {
+    loadingMoreList.value = true;
+  }
   const request = ++inboxRequest;
   inboxController?.abort();
   const controller = new AbortController();
   inboxController = controller;
-  if (!quiet) { loadingList.value = true; error.value = ''; }
+  if (!quiet) { loadingList.value = !append; error.value = ''; }
   people.value = [];
   try {
     if (!agencyId.value) {
@@ -4304,17 +4349,19 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
     hasMoreEmailResults.value=false;
     // Unified Inbox / Unread: email + secure + internal + SMS + groups
     if (id === 'unread' || id === 'inbox') {
-      const items = await scopedGet(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
+      const { rows: items, nextCursors } = await scopedGet(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
           agencyId: agencyId.value,
           sort: unreadSort.value,
           channel: inboxChannel.value,
           inboxId: inboxChannel.value === 'group' ? selectedGroupInboxId.value : undefined,
           category: inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined,
           limit: 80
-        }, { signal: controller.signal }, 'items');
+        }, { signal: controller.signal, append, paged: true }, 'items');
       if (request !== inboxRequest) return;
-      hasMoreConversations.value = items.length >= 80;
-      conversations.value = items.map((item) => ({
+      hubPageCursors = nextCursors;
+      hasMoreConversations.value = Boolean(nextCursors.size);
+      if (append) hubPagesExpanded.value = true;
+      const rows = items.map((item) => ({
         ...item,
         id: item.conversationId || item.id,
         hubKind: item.kind,
@@ -4339,7 +4386,8 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
         is_unknown_sender: !!item.isUnknownSender,
         photoUrl: item.photoUrl || null
       }));
-      await loadInboxCounts();
+      conversations.value = append ? uniqueMessageRows([...conversations.value, ...rows]) : rows;
+      if (!append) await loadInboxCounts();
       return;
     }
 
@@ -4369,7 +4417,7 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
       error.value = messagingError(e, 'Could not load conversations. Please try Refresh.');
     }
   } finally {
-    if (request === inboxRequest) loadingList.value = false;
+    if (request === inboxRequest) { loadingList.value = false; loadingMoreList.value = false; }
   }
 }
 
@@ -7835,6 +7883,29 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .msg-hub.reader-fullscreen .msg-hub-thread-col { display: flex; }
 .msg-hub.list-fullscreen .msg-hub-list-col { display: flex !important; }
 .msg-hub.list-fullscreen .msg-hub-thread-col { display: none !important; }
+.msg-hub.list-fullscreen .msg-hub-row.compact-inbox-row {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr); min-height: 40px;
+  align-items: center; gap: 8px; padding: 5px 12px;
+}
+.msg-hub.list-fullscreen .compact-inbox-row .msg-hub-select-message { margin: 0; }
+.msg-hub-compact-fields {
+  grid-column: 2; display: grid; grid-template-columns: minmax(100px, .9fr) minmax(120px, 1.2fr) minmax(115px, 1.3fr) max-content 9rem;
+  align-items: center; gap: 10px; min-width: 0; font-size: .83rem;
+}
+.msg-hub-compact-sender, .msg-hub-compact-subject, .msg-hub-compact-preview {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.msg-hub-compact-preview, .msg-hub-compact-fields time { color: var(--mh-muted); }
+.msg-hub-compact-fields time { text-align: right; font-size: .75rem; }
+.msg-hub-compact-status { display: flex; align-items: center; gap: 4px; }
+@media (max-width: 920px) {
+  .msg-hub-compact-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content 7rem; }
+  .msg-hub-compact-preview { display: none; }
+}
+@media (max-width: 540px) {
+  .msg-hub-compact-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .msg-hub-compact-fields time, .msg-hub-compact-status .msg-hub-claim-pill { display: none; }
+}
 .msg-hub-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--conversa-border); }
 .msg-hub-claim-pill { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--mh-muted); }
 .msg-hub-select-message { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }

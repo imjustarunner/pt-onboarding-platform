@@ -1,3 +1,4 @@
+import { decodeMessageFeedCursor } from '../utils/messageFeedCursor.js';
 import { openQueuedMessage } from '../services/secureQueuePayload.service.js';
 import { resolveClientForSecureRecipients, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import { assertChatChannel, recordSecureThreadOpen } from '../services/secureMessageBoundary.service.js';
@@ -1055,7 +1056,7 @@ export const getMessagesHubUnread = async (req, res, next) => {
     const data = await listHubUnreadFeed({
       agencyId,
       userId: req.user.id,
-      limit,
+      limit, cursor: decodeMessageFeedCursor(req.query.cursor),
       channel: String(req.query.channel || 'all'),
       sort,
       inboxId: Number(req.query.inboxId) || null,
@@ -1084,7 +1085,7 @@ export const getMessagesHubInbox = async (req, res, next) => {
     const data = await listHubInboxFeed({
       agencyId,
       userId: req.user.id,
-      limit,
+      limit, cursor: decodeMessageFeedCursor(req.query.cursor),
       channel: String(req.query.channel || 'all'),
       sort,
       inboxId: Number(req.query.inboxId) || null,

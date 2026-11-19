@@ -40,3 +40,9 @@ export const supportReminderSmsConversationSql = `(c.channel='sms' AND EXISTS (
     AND reminder_line.id<>COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(reminder_agency.feature_flags,'$.smsSharedCareNumberId')) AS UNSIGNED),0)
     AND reminder_line.phone_number=SUBSTRING_INDEX(SUBSTRING_INDEX(c.external_thread_id,':',-2),':',1)
 ))`;
+
+
+export const latestInboundSmsAtSql = `(SELECT MAX(inbound_sms.created_at)
+  FROM message_logs inbound_sms
+  WHERE inbound_sms.agency_id=c.agency_id AND inbound_sms.sms_thread_key=c.external_thread_id
+    AND inbound_sms.direction='INBOUND')`;

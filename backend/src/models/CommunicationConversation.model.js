@@ -1,4 +1,5 @@
-import { assignedSmsConversationSql, sentSmsConversationSql, supportReminderSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
+import { messageFeedBoundary } from '../utils/messageFeedCursor.js';
+import { assignedSmsConversationSql, sentSmsConversationSql, supportReminderSmsConversationSql, latestInboundSmsAtSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { groupEmailConversationSql, schoolGroupConversationSql, personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
@@ -175,7 +176,7 @@ class CommunicationConversation {
     /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
     scopeToUserId = null,
     groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], groupOnly = false, excludeGroup = false,
-    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true, hideSupportReminderSms = false
+    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true, hideSupportReminderSms = false, feedCursor = null
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     if (hideSupportReminderSms) where.push(`NOT ${supportReminderSmsConversationSql}`);
@@ -402,6 +403,8 @@ class CommunicationConversation {
       params.push(now);
     }
 
+    const activitySql = 'COALESCE(c.last_message_at,c.updated_at,c.created_at)';
+    const feedBoundary = messageFeedBoundary(feedCursor, 1, activitySql, 'c.id', sort === 'oldest');
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const off = Math.max(Number(offset) || 0, 0);
 
@@ -458,7 +461,7 @@ class CommunicationConversation {
                 WHERE r.conversation_id = c.id AND r.user_id = ${Number(userId)}
                 LIMIT 1
               ) AS forced_unread,
-              (
+              CASE WHEN c.channel='sms' THEN ${latestInboundSmsAtSql} ELSE (
                 SELECT COALESCE(m.sent_at, m.created_at)
                 FROM communication_messages m
                 WHERE m.conversation_id = c.id
@@ -467,7 +470,7 @@ class CommunicationConversation {
                   AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
                 ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
                 LIMIT 1
-              ) AS last_inbound_at,
+              ) END AS last_inbound_at,
               (
                 SELECT LEFT(COALESCE(m.body_text, m.subject, ''), 240)
                 FROM communication_messages m
@@ -486,10 +489,10 @@ class CommunicationConversation {
        LEFT JOIN mailbox_access i ON i.id = c.inbox_id
        LEFT JOIN support_tickets t ON t.id = c.support_ticket_id
        LEFT JOIN users u ON u.id = (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)
-       WHERE ${where.join(' AND ')}
-       ORDER BY COALESCE(c.last_message_at, c.updated_at) ${sort === 'oldest' ? 'ASC' : 'DESC'}, c.id ${sort === 'oldest' ? 'ASC' : 'DESC'}
+       WHERE ${where.join(' AND ')} ${feedBoundary.sql}
+       ORDER BY ${activitySql} ${sort === 'oldest' ? 'ASC' : 'DESC'}, c.id ${sort === 'oldest' ? 'ASC' : 'DESC'}
        LIMIT ${lim} OFFSET ${off}`,
-      [...accessParams, ...params]
+      [...accessParams, ...params, ...feedBoundary.params]
     );
 
     return rows.map((r) => {

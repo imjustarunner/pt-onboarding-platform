@@ -601,6 +601,31 @@ describe('reading layout and unread navigation', () => {
     expect(state.selectedConversation.id).toBe(20); expect(state.readerFullscreen).toBe(true);
     await state.navigateReader(-1); expect(state.selectedConversation.id).toBe(10);
   });
+  it('opens a compact full-screen inbox, sorts loaded rows and appends the next scoped page', async () => {
+    state.selected = null;
+    state.inboxChannel = 'all';
+    state.navId = 'inbox';
+    const item = (id, displayName, is_unread) => ({ id: 'email-'+id, conversationId: id, kind: 'email', channel: 'email', displayName, subject: 'Subject '+id, preview: 'Preview', is_unread, sortAt: '2026-11-19T12:00:00Z' });
+    api.get.mockImplementation(async (url, config) => {
+      if (url !== '/messages/hub/inbox') return { data: {} };
+      if (config.params.cursor === 'next-page') return { data: { items: [item(5, 'Avery Example', false)] } };
+      return { data: { items: [item(7, 'Zoe Example', false), item(6, 'Jordan Example', true)], nextCursor: 'next-page' } };
+    });
+    await state.loadConversations();
+    await wrapper.findAll('button').find(button => button.text() === 'Full screen').trigger('click');
+    const fullscreen = document.querySelector('.msg-hub.list-fullscreen');
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(2);
+    const sort = fullscreen.querySelector('.msg-hub-sort select');
+    sort.value = 'sender';
+    sort.dispatchEvent(new Event('change'));
+    await nextTick();
+    expect(fullscreen.querySelector('.compact-inbox-row').textContent).toContain('Jordan Example');
+    [...fullscreen.querySelectorAll('button')].find(button => button.textContent === 'Show more messages').click();
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/inbox', expect.objectContaining({ params: expect.objectContaining({ agencyId: 2, cursor: 'next-page' }) }));
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
+    expect(fullscreen.querySelector('.compact-inbox-row').textContent).toContain('Avery Example');
+  });
   it('collapses folders, list, and details independently', async () => {
     expect(state.detailsCollapsed).toBe(true);
     for (const label of ['Hide folders', 'Hide message list', 'Show details']) {
