@@ -43,8 +43,9 @@ defineEmits(['share-documents','share-assessments','manage-access']);
 const assigningDocuments=ref(false),assignmentWorkspace=ref(null);
 const canAssignDocuments=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(props.actor.role));
 function openDocumentAssignments(){if(canAssignDocuments.value)assigningDocuments.value=true;}
-defineExpose({openDocumentAssignments});
-function closeAssignments(){if(assignmentWorkspace.value?.prepareToLeave?.()!==false)assigningDocuments.value=false;}
+function prepareToLeave(){return assignmentWorkspace.value?.prepareToLeave?.()!==false;}
+defineExpose({openDocumentAssignments,prepareToLeave});
+function closeAssignments(){if(prepareToLeave())assigningDocuments.value=false;}
 const canViewAs=computed(()=>['admin','support','super_admin'].includes(props.actor.role));
 const invitationFailureLabel = kind => ({send_failed:'The invitation could not be sent. Support can review the failed delivery.',bounced:'The recipient’s server rejected the invitation.',undelivered:'The invitation was not delivered.'}[kind] || 'The recorded delivery failed; no detailed reason is available.');
 const setupLabel = status => ({ password_set:'Password setup complete', temporary_password:'Temporary password issued — permanent password setup still required', temporary_password_expired:'Temporary password expired — password setup required', setup_link_pending:'Password setup pending — current link available', setup_link_expired:'Password setup link expired — request a fresh link', setup_required:'Password setup required', unknown:'Password setup not verified' }[status] || 'Password setup not verified');

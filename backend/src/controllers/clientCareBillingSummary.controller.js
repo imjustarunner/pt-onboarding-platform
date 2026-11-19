@@ -20,7 +20,7 @@ export async function getClientCareBillingSummary(req,res,next){try{
  if(['school_staff','guardian','client_guardian','client'].includes(role))return res.status(403).json({error:{message:'Agency care-team access required'}});
  const access=await resolveClientRecordAccess({userId:req.user.id,role,clientId:client.id,client});
  if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
- const result=await clientCareBillingSummary(client.agency_id,client.id);
+ const result=await clientCareBillingSummary(client.agency_id,client.id,undefined,{includeVerification:req.query?.includeVerification==='1'});
  await logClientAccess(req,client.id,'view_care_coverage_status');
  res.set('Cache-Control','no-store').json(result);
 }catch(e){next(e);}}

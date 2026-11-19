@@ -1425,7 +1425,7 @@
 
         <!-- Medical Record Tab (clinical clients only — chronological record) -->
         <div v-if="showPanel('medical-record') && canViewMedicalRecord" class="detail-section">
-          <ClientMedicalRecordsTab
+          <ClientMedicalRecordsTab ref="medicalRecordsRef"
             :agency-id="Number(selectedAgencyId || props.client?.agency_id || 0) || null"
             :client-id="Number(props.client?.id || 0) || null"
             :client="client"
@@ -3073,6 +3073,7 @@ const headerCollapsed = ref(false);
 const pendingChartViewKey = ref('');
 const documentsTabRef = ref(null);
 const portalOverviewRef = ref(null);
+const medicalRecordsRef = ref(null);
 const clinicalNotesFeedRef = ref(null);
 const chartHub = computed(() => resolveChartTab(activeTab.value).hub);
 const chartSubnav = computed(() => {
@@ -4415,7 +4416,7 @@ let assignmentDraftRequest=0;
 async function loadPendingAssignmentDraft(){const id=Number(props.client?.id),own=++assignmentDraftRequest;if(!canEditAccount.value||!['super_admin','admin','support'].includes(roleNorm.value)){pendingAssignmentDraft.value=false;return;}try{const {data}=await api.get(`/clients/${id}/chart-import/drafts/assignments`,{skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.client.agency_id)}});if(own===assignmentDraftRequest&&id===Number(props.client?.id))pendingAssignmentDraft.value=!!data?.draft?.value?.text;}catch{/* Draft details stay private if account access is unavailable. */}}
 async function openAssignmentDraft(){reviewAssignmentDraft.value=true;await goChartSub('assignments');}
 async function closeAssignmentDraft(){if(await savedAssignmentPanel.value?.saveWorkingDraft?.()===false)return;reviewAssignmentDraft.value=false;await loadPendingAssignmentDraft();}
-async function saveClientWorkspaceDrafts(){if(await recordsImportPanel.value?.prepareLeave?.()===false)return false;if(await savedAssignmentPanel.value?.saveWorkingDraft?.()===false)return false;if(savedAssignmentPanel.value)pendingAssignmentDraft.value=savedAssignmentPanel.value.hasPendingDraft?.()===true;return true;}
+async function saveClientWorkspaceDrafts(){if(portalOverviewRef.value?.prepareToLeave?.()===false || medicalRecordsRef.value?.prepareToLeave?.()===false)return false;if(await recordsImportPanel.value?.prepareLeave?.()===false)return false;if(await savedAssignmentPanel.value?.saveWorkingDraft?.()===false)return false;if(savedAssignmentPanel.value)pendingAssignmentDraft.value=savedAssignmentPanel.value.hasPendingDraft?.()===true;return true;}
 watch([()=>props.client?.id,canEditAccount],()=>{pendingAssignmentDraft.value=false;reviewAssignmentDraft.value=false;void loadPendingAssignmentDraft();},{immediate:true});
 const recordsImportSetup=ref(null);
 const recordsImportHint=computed(()=>{

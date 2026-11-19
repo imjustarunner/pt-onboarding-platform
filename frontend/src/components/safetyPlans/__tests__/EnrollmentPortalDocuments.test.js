@@ -37,12 +37,12 @@ it('exposes a leave guard during creation and preserves unsaved portal answers u
  confirmDiscard.mockReturnValue(true);expect(wrapper.vm.prepareToLeave()).toBe(true);
  await back.trigger('click');await flushPromises();expect(wrapper.find('.document-editor').exists()).toBe(false);
 });
-it('guards the medical record tabs before unmounting portal or clinical answers',async()=>{
+it('opens medical record history first and guards clinical answers when leaving forms',async()=>{
  const prepareToLeave=vi.fn(()=>false),confirmDiscard=vi.fn(()=>false);
  wrapper=shallowMount(ClientMedicalRecordsTab,{props:{clientId:41,agencyId:2},global:{stubs:{EnrollmentPortalDocuments:{template:'<div class="portal-editor" />',methods:{prepareToLeave}},SafetyPlansPanel:{template:'<div class="clinical-editor" />',methods:{confirmDiscard}}}}});
  await flushPromises();const tabs=wrapper.findAll('.medical-document-tabs button');
- await tabs[1].trigger('click');expect(prepareToLeave).toHaveBeenCalled();expect(wrapper.find('.portal-editor').exists()).toBe(true);
- prepareToLeave.mockReturnValue(true);await tabs[1].trigger('click');expect(wrapper.find('.clinical-editor').exists()).toBe(true);
+ expect(tabs[0].text()).toBe('Record history');expect(wrapper.find('.portal-editor').exists()).toBe(false);
+ await tabs[1].trigger('click');expect(wrapper.find('.clinical-editor').exists()).toBe(true);
  await tabs[2].trigger('click');expect(confirmDiscard).toHaveBeenCalled();expect(wrapper.find('.clinical-editor').exists()).toBe(true);
  confirmDiscard.mockReturnValue(true);await tabs[2].trigger('click');expect(wrapper.find('.clinical-editor').exists()).toBe(false);expect(wrapper.find('.paper-enrollment-upload').exists()).toBe(true);
 });

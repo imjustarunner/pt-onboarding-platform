@@ -283,9 +283,11 @@ const props = defineProps({
 
 const documentTab=ref('record');
 const clinicalDocumentsRef=ref(null);
+function prepareToLeave(){return documentTab.value!=='clinical' || clinicalDocumentsRef.value?.confirmDiscard?.()!==false;}
+defineExpose({prepareToLeave});
 function selectDocumentTab(tab){
   if(tab===documentTab.value)return;
-  if(documentTab.value==='clinical'&&clinicalDocumentsRef.value?.confirmDiscard?.()===false)return;
+  if(!prepareToLeave())return;
   documentTab.value=tab;
 }
 const documentTabs=[{key:'record',label:'Record history'},{key:'clinical',label:'Clinical forms'},{key:'paper',label:'Full paper enrollment'}];

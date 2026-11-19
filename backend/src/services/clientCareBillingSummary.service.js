@@ -13,11 +13,11 @@ export function summarizeCareBalances(rows, now=new Date()) {
  }
  return {status:due?(oldest?'overdue':'balance_due'):review?'billing_review':'no_balance_due',ageBand:oldest>90?'over_90_days':oldest>60?'61_90_days':oldest>30?'31_60_days':oldest>0?'1_30_days':null,hasItemsUnderReview:review};
 }
-export async function clientCareBillingSummary(agencyId,clientId,db=pool,{includeAmounts=false}={}){
+export async function clientCareBillingSummary(agencyId,clientId,db=pool,{includeAmounts=false, includeVerification=false}={}){
  const insurance=await readClientInsurance(clientId,agencyId,db);
  const policies=['primary','secondary'].filter(slot=>insurance?.[slot]?.insurerName).map(slot=>({position:slot,insurerName:insurance[slot].insurerName}));
  const {summary:paymentSetup}=await clientPaymentSetup(agencyId,clientId,db);
- const [verification, payerResponses]=policies.length ? await Promise.all([readCoverageVerificationSummary({agencyId,clientId},insurance,db), latestPayerResponses({agencyId,clientId},insurance,db)]) : [null,{}];
+ const [verification, payerResponses]=includeVerification && policies.length ? await Promise.all([readCoverageVerificationSummary({agencyId,clientId},insurance,db), latestPayerResponses({agencyId,clientId},insurance,db)]) : [null,{}];
  if(!includeAmounts)return {policies,paymentSetup,verification,payerResponses};
  const rows=[];let after=0;
  while(true){

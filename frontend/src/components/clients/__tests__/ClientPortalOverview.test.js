@@ -32,3 +32,14 @@ it('opens the inline document assignment workspace from the shared quick action 
  const w=mount(Overview,{props:{...props,showActions:false},global});await flushPromises();expect(w.find('.portal-actions').exists()).toBe(false);
  w.vm.openDocumentAssignments();await flushPromises();expect(w.find('.inline-document-assignment').exists()).toBe(true);w.unmount();
 });
+
+it('preserves an open document editor when navigating away from Portal', async()=>{
+ const prepareToLeave=vi.fn(()=>false);
+ const w=mount(Overview,{props,global:{stubs:{...global.stubs,EnrollmentPortalDocuments:{template:'<aside class="portal-editor" />',methods:{prepareToLeave}}}}});
+ await flushPromises(); w.vm.openDocumentAssignments(); await flushPromises();
+ expect(w.vm.prepareToLeave()).toBe(false);
+ await w.findAll('button').find(button=>button.text()==='Done assigning documents').trigger('click');
+ expect(w.find('.portal-editor').exists()).toBe(true);
+ prepareToLeave.mockReturnValue(true);expect(w.vm.prepareToLeave()).toBe(true);
+ w.unmount();
+});

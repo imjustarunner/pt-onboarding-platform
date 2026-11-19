@@ -14,7 +14,7 @@ it('recovers a valid cookie on a public event before deciding whether to show si
   api.get.mockImplementation(async url => ({ data: url === '/users/me' ? { id: 712, role: 'staff', status: 'active', email: 'synthetic@example.test' } : {} }));
   expect(useAuthStore().isAuthenticated).toBe(false);
   await router.push('/conversa/events/itsco/potluck-8#event-potluck');
-  expect(api.get).toHaveBeenCalledWith('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true });
+  expect(api.get).toHaveBeenCalledWith('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true, timeout: 10000 });
   expect(useAuthStore().user.id).toBe(712);
   expect(router.currentRoute.value.fullPath).toBe('/conversa/events/itsco/potluck-8#event-potluck');
 });
