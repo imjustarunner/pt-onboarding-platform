@@ -1,19 +1,26 @@
 import pool from '../../config/clinicalDatabase.js';
 import main from '../../config/database.js';
 import {recipientAccess} from './access.js';
-import {ensureTenantFormsMailbox} from '../tenantMessageMailboxes.service.js';
-import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
 import {guardianReminderPreferences} from '../guardianAppointments.service.js';
 import ClientGuardian from '../../models/ClientGuardian.model.js';
 import {resolveRegisteredSmsSender} from '../smsCompliance.service.js';
 import {normalizeSmsPhone} from '../../utils/smsThreadIdentity.js';
 import Vonage from '../vonage.service.js';
 import {shareEventStillOpen} from '../portalShareNotice.service.js';
-const escape=v=>String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function clinicalPortalNotice({agencyName,portalUrl}) {
- const subject='Documents and forms are ready in your portal';
- return {subject,text:`${agencyName} has shared documents or forms with you in AuricWell. Sign in to review, complete, or sign the items available to you.\n\nOpen your secure portal: ${portalUrl}\n\nPlease keep personal and clinical information inside the secure portal.`,
- html:`<div style="font-family:Arial,sans-serif;padding:24px;color:#183d39"><p style="font-size:20px;font-weight:bold">AuricWell <span style="font-weight:normal;font-size:14px">· ${escape(agencyName)}</span></p><h1 style="font-size:25px">Your documents and forms are ready</h1><p style="line-height:1.6">Your care team has shared documents or forms with you. Open your secure portal to review, complete, or sign the items available to you.</p><p style="margin:28px 0"><a href="${escape(portalUrl)}" style="background:#175b48;color:white;padding:14px 20px;border-radius:7px;text-decoration:none">Open documents &amp; forms</a></p><p style="font-size:12px;line-height:1.6">Please keep personal and clinical information inside the secure portal.</p></div>`};
+import {clientEmailContext,sendClientPortalEmail} from '../clientPortalEmail.service.js';
+import {familyEnrollmentContext,portalUrlWithLocale} from '../familyPortalLocale.service.js';
+import {familyNotificationDeliveryGate} from '../familyNotificationChoices.service.js';
+import {portalMessageHtml} from '../portalEmailBranding.service.js';
+export function clinicalPortalNotice({agencyName,portalUrl,locale='en'}) {
+ const spanish=locale==='es';
+ const subject=spanish?'Hay documentos y formularios esperando en su portal':'Documents and forms are waiting in your portal';
+ const introduction=spanish
+  ? `${agencyName} ha compartido documentos o formularios con usted en AuricWell. Inicie sesión para revisar, completar o firmar los elementos que le esperan.`
+  : `${agencyName} has shared documents or forms with you in AuricWell. Sign in to review, complete, or sign the items waiting for you.`;
+ const privacy=spanish?'Mantenga su información personal y clínica dentro del portal seguro.':'Please keep personal and clinical information inside the secure portal.';
+ const linkLabel=spanish?'Abrir documentos y formularios':'Open documents & forms';
+ const text=`${introduction}\n\n${portalUrl}\n\n${privacy}`;
+ return {subject,text,locale,linkLabel,html:portalMessageHtml({text,linkUrl:portalUrl,linkLabel})};
 }
 async function contextFor(batch,db) {
  const [shares]=await db.execute(`SELECT p.*,s.signer_kind FROM clinical_form_signers s
@@ -28,7 +35,6 @@ async function contextFor(batch,db) {
   const [events]=await main.execute(`SELECT * FROM client_portal_share_events WHERE agency_id=? AND recipient_user_id=?
     AND created_at>=FROM_UNIXTIME(?) AND created_at<FROM_UNIXTIME(?+1800) ORDER BY id DESC`,[batch.agency_id,batch.recipient_user_id,batch.batch_key,batch.batch_key]);
   const {currentClientUpdateRecipient}=await import('../clientUpdate.service.js');
-  const {familyNotificationDeliveryGate}=await import('../familyNotificationChoices.service.js');
   const [[recipient]]=await main.execute('SELECT email FROM users WHERE id=? AND is_active=1',[batch.recipient_user_id]);
   for(const event of events) {
    if(!await shareEventStillOpen(event,main))continue;
@@ -43,30 +49,23 @@ async function contextFor(batch,db) {
  const [[recipient]]=await main.execute('SELECT email FROM users WHERE id=? AND is_active=1',[batch.recipient_user_id]);
  const [[agency]]=await main.execute('SELECT name,slug FROM agencies WHERE id=?',[batch.agency_id]);
  if(!recipient||!agency)return null;
- const base=String(process.env.APP_PUBLIC_URL||process.env.FRONTEND_URL||'https://plottwisthq.com').replace(/\/$/,'');
- const portalUrl=`${base}/${encodeURIComponent(agency.slug)}/guardian?panel=documents&clientId=${share.client_id}`;
- if(shareEvent) {
-  const {clientEmailContext}=await import('../clientPortalEmail.service.js');
-  const mail=await clientEmailContext({agencyId:batch.agency_id,clientId:share.client_id});
-  const currentUrl=new URL(mail.url('guardian'));currentUrl.searchParams.set('panel','documents');currentUrl.searchParams.set('clientId',String(share.client_id));
-  return {share,recipient,agency,portalUrl:currentUrl.toString(),shareEvent,mail};
- }
- return {share,recipient,agency,portalUrl};
+ const mail=await clientEmailContext({agencyId:batch.agency_id,clientId:share.client_id});
+ const {locale}=await familyEnrollmentContext(batch.recipient_user_id,batch.agency_id);
+ const currentUrl=new URL(mail.url('guardian'));
+ currentUrl.searchParams.set('panel','documents');
+ currentUrl.searchParams.set('clientId',String(share.client_id));
+ const portalUrl=portalUrlWithLocale(currentUrl.toString(),locale);
+ return {share,recipient,agency,portalUrl,shareEvent,mail,locale};
 }
 async function deliverEmail(batch,context) {
  if(!context.recipient.email)return {skipped:true};
- if(context.shareEvent) {
-  const {sendClientPortalEmail}=await import('../clientPortalEmail.service.js');
-  return sendClientPortalEmail({agencyId:batch.agency_id,clientId:context.share.client_id,context:context.mail,to:context.recipient.email,
-    ...clinicalPortalNotice({agencyName:context.agency.name,portalUrl:context.portalUrl}),userId:batch.recipient_user_id,
-    templateType:'client_portal_share',linkUrl:context.portalUrl,source:'auto'});
- }
- const {forms,domain}=await ensureTenantFormsMailbox(batch.agency_id);
- return sendEmailFromIdentity({senderIdentityId:forms.id,to:context.recipient.email,
-  ...clinicalPortalNotice({agencyName:context.agency.name,portalUrl:context.portalUrl}),
-  fromDisplayNameOverride:`${context.agency.name} · AuricWell`,replyToOverride:`support@${domain}`,
-  userId:batch.recipient_user_id,clientId:context.share.client_id,templateType:'clinical_portal_documents',
-  linkUrl:context.portalUrl,source:'auto',usedFallbackSender:false});
+ const templateType=context.shareEvent?'client_portal_share':'clinical_portal_documents';
+ const gate=await familyNotificationDeliveryGate({agencyId:batch.agency_id,clientId:context.share.client_id,
+  to:context.recipient.email,channel:'email',templateType,notificationCategory:'documents'});
+ if(!gate.allowed)return {skipped:true,reason:gate.reason};
+ return sendClientPortalEmail({agencyId:batch.agency_id,clientId:context.share.client_id,context:context.mail,to:context.recipient.email,
+  ...clinicalPortalNotice({agencyName:context.agency.name,portalUrl:context.portalUrl,locale:context.locale}),
+  userId:batch.recipient_user_id,templateType,linkUrl:context.portalUrl,source:'auto'});
 }
 async function deliverSms(batch,context) {
  if(context.shareEvent)return {skipped:true,reason:'portal_share_email_only'};
@@ -79,7 +78,9 @@ async function deliverSms(batch,context) {
  if(!from)return {skipped:true};
  // Transport rechecks campaign registration, purpose-specific consent and STOP at send time.
  return Vonage.sendSms({agencyId:batch.agency_id,purpose:'reminders',from,to,
-  body:`${context.agency.name}: Documents or forms are ready in your AuricWell portal. Review, complete or sign them securely: ${context.portalUrl}`});
+  body:context.locale==='es'
+   ? `${context.agency.name}: Hay documentos o formularios esperando en su portal AuricWell. Revise, complete o firme aquí: ${context.portalUrl}`
+   : `${context.agency.name}: Documents or forms are waiting in your AuricWell portal. Review, complete or sign them securely: ${context.portalUrl}`});
 }
 export function createClinicalFormNotifier({db=pool,context=contextFor,email=deliverEmail,sms=deliverSms}={}) {
  return async function process({limit=20}={}) {
@@ -92,17 +93,22 @@ export function createClinicalFormNotifier({db=pool,context=contextFor,email=del
    if(batch[`${channel}_state`]!=='pending')continue;
    const [claim]=await db.execute(`UPDATE clinical_form_notification_batches SET ${channel}_state='sending' WHERE id=? AND batch_key=? AND ${channel}_state='pending'`,[batch.id,batch.batch_key]);
    if(!claim.affectedRows)continue;
-   let state='review',reference=null;
+   let state='review',reference=null,transportStarted=false;
    try{
     // Re-read the live grant separately before each channel, including after email delivery.
     const current=await context(batch,db);
     if(!current)state='skipped';
     else{
+     transportStarted=true;
      const result=await (channel==='email'?email:sms)(batch,current);
      reference=result?.id||result?.sid||null;
      state=result?.skipped||result?.blocked?'skipped':reference&&!result?.redirected&&!result?.queued?'sent':'review';
     }
-   }catch(e){console.warn('[Clinical form notification]',channel,'requires review',e.code||'delivery_failed');}
+   }catch(e){
+    const connectionFailure=['PROTOCOL_CONNECTION_LOST','ECONNRESET','ECONNREFUSED','ETIMEDOUT','ER_CON_COUNT_ERROR'].includes(e.code);
+    if(!transportStarted && connectionFailure)state='pending';
+    console.warn('[Clinical form notification]',channel,state==='pending'?'retry pending':'requires review',e.code||'delivery_failed');
+   }
    await db.execute(`UPDATE clinical_form_notification_batches SET ${channel}_state=?,${channel}_provider_ref=? WHERE id=? AND batch_key=?`,[state,reference?String(reference).slice(0,255):null,batch.id,batch.batch_key]);
   }
  };
