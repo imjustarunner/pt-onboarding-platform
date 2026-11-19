@@ -119,37 +119,54 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
   const noticePredicate=policy=>`${policy.category} IN ('${INBOX_REVIEW_CATEGORIES.join("','")}')`;
   const effectiveUnread=(policy)=>`(${unreadSql} AND NOT (${policy.schoolAutoRead}) AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW()))`;
   const noticeUnread=`(COALESCE(r.forced_unread,0)=1 OR r.last_read_at IS NULL OR r.last_read_at<COALESCE(c.last_message_at,c.created_at))`;
+  const visibleConversations=scope=>`SELECT c.*, archive.archived_at AS mobile_archive_at
+    FROM communication_conversations c
+    LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
+    WHERE ${scope.where} LIMIT 18446744073709551615`;
+  const effectiveUnknown=(scope,userId)=>`(CASE WHEN ${groupSql(scope)} THEN COALESCE(c.is_unknown_sender,0)=1 ELSE ${unknownSqlFor(userId)} END)`;
   const groupNameSql=groupEmailNameSql;
   async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={},resolvedScope=null) {
-    const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId);
+    const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId),unknownSql=effectiveUnknown(scope,userId);
     const policy=messageInboxPolicySql({userId,schoolGroupInboxIds:scope.schoolGroupIds});
     const effectiveRead=suite==='notices'?noticeUnread:effectiveUnread(policy);
     const classification=suite==='notices'?noticePredicate(policy):policy.correspondence;
-    const [rows]=await db.execute(`SELECT /*+ MAX_EXECUTION_TIME(12000) */ c.id,c.agency_id,c.inbox_id,${spamSqlFor(userId)} AS mobile_spam,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,c.external_thread_id,${groupNameSql} AS group_name,i.from_email AS destination_account,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
-      COALESCE(archive.archived_at,c.archived_at) AS archived_at,${effectiveRead} AS is_unread,${sentSql(userId)} AS has_sent,${unknownSql} AS is_unknown_sender,
+    const [rows]=await db.execute(`WITH visible AS (${visibleConversations(scope)})
+      SELECT /*+ MAX_EXECUTION_TIME(12000) */ c.id,c.agency_id,c.inbox_id,${spamSqlFor(userId)} AS mobile_spam,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,c.external_thread_id,${groupNameSql} AS group_name,i.from_email AS destination_account,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
+      COALESCE(c.mobile_archive_at,c.archived_at) AS archived_at,${effectiveRead} AS is_unread,${sentSql(userId)} AS has_sent,${unknownSql} AS is_unknown_sender,
       (SELECT p.display_name FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1) AS sender_name,
       ${senderAddress} AS sender_email,
       (SELECT m.auto_reply_kind FROM communication_messages m WHERE m.conversation_id=c.id AND COALESCE(m.is_internal_note,0)=0 AND m.auto_reply_kind='school_group_notification' LIMIT 1) AS latest_kind,
       (SELECT m.from_json FROM communication_messages m WHERE m.conversation_id=c.id AND COALESCE(m.is_internal_note,0)=0 AND COALESCE(m.send_status,'sent') NOT IN('cancelled','preparing') ORDER BY m.id DESC LIMIT 1) AS latest_from
-      FROM communication_conversations c LEFT JOIN communication_inboxes i ON i.id=c.inbox_id LEFT JOIN support_tickets t ON t.id=c.support_ticket_id AND t.agency_id=c.agency_id LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
-      LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
-      WHERE ${scope.where} AND (${classification}) AND ${spamSqlFor(userId)}=${suite==='spam'?1:0} ${suite==='groups'?`AND ${groupSql(scope)}`:['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql} AND NOT ${groupSql(scope)}`:suite==='unknown'?`AND ${unknownSql}`:suite==='all'?`AND (${groupSql(scope)} OR NOT ${unknownSql})`:''} ${filter==='unread'?`AND ${effectiveRead}`:filter==='needs'?"AND c.status IN('new','needs_reply')":filter==='sent'?`AND ${sentSql(userId)}`:''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
-      ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.channel DESC,c.id DESC LIMIT 101`,[userId,userId,...scope.params,...(beforeAt?(beforeKey?[new Date(beforeAt),new Date(beforeAt),beforeKey]:[new Date(beforeAt)]):[])]);
+      FROM visible c LEFT JOIN communication_inboxes i ON i.id=c.inbox_id LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
+      WHERE (${classification}) AND ${spamSqlFor(userId)}=${suite==='spam'?1:0} ${suite==='groups'?`AND ${groupSql(scope)} AND NOT ${unknownSql}`:['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql} AND NOT ${groupSql(scope)}`:suite==='unknown'?`AND ${unknownSql}`:suite==='all'?`AND NOT ${unknownSql}`:''} ${filter==='unread'?`AND ${effectiveRead}`:filter==='needs'?"AND c.status IN('new','needs_reply')":filter==='sent'?`AND ${sentSql(userId)}`:''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
+      ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.channel DESC,c.id DESC LIMIT 101`,[userId,...scope.params,userId,...(beforeAt?(beforeKey?[new Date(beforeAt),new Date(beforeAt),beforeKey]:[new Date(beforeAt)]):[])]);
     const [schools,people,describedRows]=await Promise.all([mobileEmailSchoolIdentities(rows,{db}),mobileEmailPersonIdentities(rows,{db}),describeSmsConversations(rows,{db})]);
     return describedRows.map(r=>{
       let from=r.latest_from || {};if(typeof from==='string')try{from=JSON.parse(from);}catch{from={};}
-      return {...(scope.agencyBrands?.get(Number(r.agency_id))||{}),...(schools.get(Number(r.id))||{}),...(people.get(Number(r.id))||{}),key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.mobile_spam)?'spam':suite==='notices'?'notices':Number(r.is_group)?'groups':r.channel,groupName:Number(r.is_group)?r.group_name || 'Group':null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.sms?.recipientName || r.subject || '(No subject)',...(r.sms?{sms:r.sms}:{}),sender:r.sms?.recipientName || from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:suite!=='notices' && !Number(r.mobile_spam) && !Number(r.is_group) && !!Number(r.is_unknown_sender)};
+      return {...(scope.agencyBrands?.get(Number(r.agency_id))||{}),...(schools.get(Number(r.id))||{}),...(people.get(Number(r.id))||{}),key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.mobile_spam)?'spam':suite==='notices'?'notices':Number(r.is_group)?'groups':r.channel,groupName:Number(r.is_group)?r.group_name || 'Group':null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.sms?.recipientName || r.subject || '(No subject)',...(r.sms?{sms:r.sms}:{}),sender:r.sms?.recipientName || from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:suite!=='notices' && !Number(r.mobile_spam) && !!Number(r.is_unknown_sender)};
     });
   }
   async function emailCounts(userId,includeArchived=false,agencyId=null,resolvedScope=null) {
-    const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId);
-    const policy=messageInboxPolicySql({userId,schoolGroupInboxIds:scope.schoolGroupIds}),effectiveRead=effectiveUnread(policy);
-    const isNotice=noticePredicate(policy);
-    const [rows]=await db.execute(`SELECT /*+ MAX_EXECUTION_TIME(12000) */ c.channel,${spamSqlFor(userId)} AS mobile_spam,${groupSql(scope)} AS is_group,${unknownSql} AS effective_unknown,(${isNotice}) AS is_notice,COUNT(*) AS total,SUM(CASE WHEN ${isNotice} THEN ${noticeUnread} ELSE ${effectiveRead} END) AS unread,SUM(c.status IN('new','needs_reply')) AS needs,SUM(${sentSql(userId)}) AS sent FROM communication_conversations c
-      LEFT JOIN communication_inboxes i ON i.id=c.inbox_id LEFT JOIN support_tickets t ON t.id=c.support_ticket_id AND t.agency_id=c.agency_id
-      LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
-      LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
-      WHERE ${scope.where} AND (${policy.correspondence} OR ${isNotice}) GROUP BY c.channel,mobile_spam,is_group,effective_unknown,is_notice`,[userId,userId,...scope.params]);
+    const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId);
+    const policy=messageInboxPolicySql({userId,schoolGroupInboxIds:scope.schoolGroupIds});
+    const reviewCategories=INBOX_REVIEW_CATEGORIES.map(category=>`'${category}'`).join(',');
+    const [rows]=await db.execute(`WITH visible AS (${visibleConversations(scope)}),
+      classified AS (
+        SELECT c.channel,${spamSqlFor(userId)} AS mobile_spam,${groupSql(scope)} AS is_group,
+          ${effectiveUnknown(scope,userId)} AS effective_unknown,${policy.category} AS category,
+          ${effectiveUnread(policy)} AS correspondence_unread,${noticeUnread} AS notice_unread,
+          c.status IN('new','needs_reply') AS needs_reply,${sentSql(userId)} AS has_sent
+        FROM visible c
+        LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
+        LIMIT 18446744073709551615
+      )
+      SELECT /*+ MAX_EXECUTION_TIME(12000) */ channel,mobile_spam,is_group,effective_unknown,
+        category IN (${reviewCategories}) AS is_notice, COUNT(*) AS total,
+        SUM(CASE WHEN category='correspondence' THEN correspondence_unread ELSE notice_unread END) AS unread,
+        SUM(needs_reply) AS needs,SUM(has_sent) AS sent
+      FROM classified
+      WHERE category IN ('correspondence',${reviewCategories})
+      GROUP BY channel,mobile_spam,is_group,effective_unknown,is_notice`,[userId,...scope.params,userId]);
     return rows.map(r=>({category:Number(r.mobile_spam)?'spam':Number(r.is_notice)?'notices':Number(r.is_group)?'groups':r.channel,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0,sent:Number(r.sent)||0}));
   }
   async function extraCounts(userId,threadIds) {

@@ -87,6 +87,13 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   const grouped=createMobileConversaStore(db,{listAgencies:async()=>({agencies:[{id:10}]}),groupAccess:async()=>true});
   expect((await grouped.emails(1,{suite:'groups'}))).toHaveLength(4);expect((await grouped.emails(1,{suite:'groups',filter:'unread'})).map(i=>i.id)).toEqual([4,3,2,1]);expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({groupName:'Support',destinationAccount:'support@example.invalid'});expect((await grouped.emailCounts(1)).find(c=>c.category==='groups').unread).toBe(4);
   await db.execute('UPDATE support_tickets SET claimed_by_user_id=2 WHERE id=1');expect(await grouped.emails(1,{suite:'groups',filter:'unread'})).toHaveLength(4);
+  await db.execute('UPDATE communication_conversations SET is_unknown_sender=1 WHERE id=4');
+  expect((await grouped.emails(1,{suite:'groups',filter:'unread'})).map(item=>item.id)).toEqual([3,2,1]);
+  expect((await grouped.emails(1,{suite:'unknown'}))[0]).toMatchObject({id:4,unknown:true});
+  expect((await grouped.emailCounts(1)).filter(row=>row.category==='groups')).toEqual(expect.arrayContaining([
+    expect.objectContaining({unread:3,unknown:false}),expect.objectContaining({unread:1,unknown:true})
+  ]));
+
  });
  it('uses the exact school recipient logo with mixed collations, not a school named in the subject',async()=>{
   await mail(1);

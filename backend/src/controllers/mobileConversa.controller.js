@@ -60,7 +60,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
   if(includeCounts){
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category || (category==='direct' && i.isGroupDirect)));
   for(const category of ['email','sms','unknown','spam','notices'])counts[category]={total:0,unread:0,needs:0,sent:0};
-  for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && !['groups','notices'].includes(row.category)?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
+  for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && row.category!=='notices'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
   counts.all=['direct','groups','channels','secure','email','sms'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
   }
   if(includeCounts) { const overlap=countsFor(chats.filter(i=>i.isGroupDirect)); for(const field of ['total','unread','needs','sent']) counts.all[field]-=overlap[field] || 0; }
