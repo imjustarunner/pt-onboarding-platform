@@ -76,10 +76,13 @@
           <button type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
         </div>
         <div class="msg-hub-memberships">
-          <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
+          <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory && navId !== claimedTicketNoticeCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
           <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
           <span class="msg-hub-group-label">Email notices</span>
           <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
+          <button type="button" :aria-pressed="navId === claimedTicketNoticeCategory" @click="openGroupClaimedTicketNotices">
+            Claimed ticket notices <span class="msg-hub-review-count">{{ inboxCounts.claimedTicketNoticesByChannel?.group || 0 }} to review</span>
+          </button>
           <span v-if="visibleInternalGroups.length" class="msg-hub-group-label">Group conversations</span>
           <button v-for="group in visibleInternalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} · Chat <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
         </div>
@@ -102,7 +105,10 @@
         </div>
         <button ref="fullscreenButton" type="button" class="btn btn-secondary" @click="readerFullscreen = true">Full screen</button>
       </template>
-      <label v-if="inboxChannel === 'group' && !selectedReviewCategory" class="msg-hub-sort">Ownership
+      <div v-if="readerFullscreen && !hasOpenReader && fullscreenInboxFiltersVisible" class="msg-hub-fullscreen-filters" role="group" aria-label="Full-screen inbox filters">
+        <button v-for="item in availableFullscreenInboxFilters" :key="item.id" type="button" class="btn btn-secondary" :aria-pressed="navId === item.id" @click="selectNav('inbox',item.id,{keepFullscreen:true})">{{ item.label }}</button>
+      </div>
+      <label v-if="inboxChannel === 'group' && !selectedReviewCategory && navId !== claimedTicketNoticeCategory" class="msg-hub-sort">Ownership
         <select v-model="claimState" @change="changeMessageScope"><option value="">All</option><option value="claimed">Claimed</option><option value="unclaimed">Unclaimed</option></select>
       </label>
       <label v-if="isTicketQueue" class="msg-hub-sort"><input v-model="ticketUnreadOnly" type="checkbox" @change="loadConversations" /> Unread only</label>
@@ -203,7 +209,7 @@
               {{ listColCollapsed ? '»' : '«' }}
             </button>
             <label
-              v-if="(navId === 'unread' || navId === 'inbox') && isConversationMode"
+              v-if="fullscreenInboxFilters.some(item => item.id === navId) && isConversationMode"
               class="msg-hub-sort"
             >
               <span class="sr-only">Sort list</span>
@@ -307,6 +313,7 @@
                 'sms-list-row': c.channel === 'sms',
                 'selectable-list-row': canSelectMessage(c),
                 'compact-inbox-row': readerFullscreen && !hasOpenReader,
+                'claimed-ticket-notice': isClaimedTicketNotice(c),
                 unread: c.is_unread
               }"
               tabindex="0" role="button" @keydown.enter.self="pickConversation(c)" @keydown.space.self.prevent="pickConversation(c)"
@@ -320,7 +327,7 @@
                 <span class="msg-hub-compact-preview">{{ emailPreviewText(c.last_message_preview || '') }}</span>
                 <span class="msg-hub-compact-status">
                   <ConversaBadge :type="c.channel || c.hubKind" :label="c.hubChannelLabel || undefined" />
-                  <span v-if="c.is_unread" :class="c.is_review_notice ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">{{ c.is_review_notice ? 'To review' : 'Unread' }}</span>
+                  <span v-if="c.is_unread" :class="needsNoticeReview(c) ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">{{ needsNoticeReview(c) ? 'To review' : 'Unread' }}</span>
                   <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
                 </span>
                 <time v-if="c.last_message_at">{{ formatTime(c.last_message_at) }}</time>
@@ -340,14 +347,14 @@
                 >
                   <ConversaIcon :type="c.channel || c.hubKind" :size="12" />
                 </span>
-                <span v-if="c.is_unread" class="msg-hub-unread-dot" :class="{ 'msg-hub-review-dot': c.is_review_notice }" aria-hidden="true" />
+                <span v-if="c.is_unread" class="msg-hub-unread-dot" :class="{ 'msg-hub-review-dot': needsNoticeReview(c) }" aria-hidden="true" />
               </div>
               <div class="msg-hub-row-body">
                 <div class="msg-hub-row-top">
                   <strong>{{ conversationThreadTitle(c) }}</strong>
                   <ConversaBadge :type="c.channel || c.hubKind" :label="c.hubChannelLabel || undefined" />
-                  <span v-if="c.is_unread" :class="c.is_review_notice ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">
-                    {{ c.is_review_notice ? 'To review' : c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
+                  <span v-if="c.is_unread" :class="needsNoticeReview(c) ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">
+                    {{ needsNoticeReview(c) ? 'To review' : c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
                   </span>
                   <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
                   <span v-if="c.last_message_at && c.channel !== 'sms'" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
@@ -1764,13 +1771,36 @@ const groupedDepartmentInboxes = computed(() => groupMailboxes(departmentInboxes
 const visibleDepartmentInboxes = computed(() => groupedDepartmentInboxes.value.filter(box => String(selectedGroupInboxId.value) === String(box.id) || groupMailboxCount(box, 'unreadByInbox') > 0 || box.mailboxes.some(mailbox => ![false, 0, '0'].includes(mailbox.has_communications))));
 const visibleInternalGroups = computed(() => internalGroups.value.filter(group => group.hasMessages || Number(group.unreadCount) > 0));
 const selectedDepartment = computed(() => groupedDepartmentInboxes.value.find(box => String(box.id) === String(selectedGroupInboxId.value) || box.mailboxes.some(mailbox => String(mailbox.id) === String(selectedGroupInboxId.value))));
-const reviewNoticeCount = computed(() => Object.values(inboxCounts.value.reviewByCategory || {}).reduce((sum, n) => sum + Number(n || 0), 0));
+const reviewNoticeCount = computed(() => Object.values(inboxCounts.value.reviewByCategory || {}).reduce((sum, n) => sum + Number(n || 0), Number(inboxCounts.value.claimedTicketNoticesByChannel?.group || 0)));
 const isTicketQueue = computed(() => ['my_tickets', 'tickets'].includes(navId.value));
 function groupMailboxCount(box, field) { return box.mailboxes.reduce((sum, mailbox) => sum + Number(inboxCounts.value[field]?.[mailbox.id] || 0), 0); }
 function selectTicketQueue(id) { inboxChannel.value = 'all'; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; claimState.value = ''; selectNav('inbox', id); }
 function changeMessageScope() { closePerson(); scopedInboxCounts.value = null; selectedMessageKeys.value = []; void loadConversations(); }
 function scopeInboxId(aid) { return selectedDepartment.value?.mailboxes.find(box => Number(box.agency_id) === Number(aid))?.id || (selectedDepartment.value ? null : selectedGroupInboxId.value); }
 function scopeAgencyIds() { return selectedDepartment.value ? [...new Set(selectedDepartment.value.mailboxes.map(box => Number(box.agency_id || agencyId.value)))] : messageAgencyIds.value; }
+const claimedTicketNoticeCategory = 'claimed_ticket_notices';
+const claimedTicketNoticeLabel = 'Claimed ticket notices';
+const fullscreenInboxFilters = [
+  { id: 'inbox', label: 'Inbox' },
+  { id: 'unread', label: 'Unread' },
+  { id: claimedTicketNoticeCategory, label: claimedTicketNoticeLabel }
+];
+const isClaimedTicketNotice = row => !row.is_review_notice && row.channel === 'email' && !!row.is_unread
+  && !!row.support_ticket_id && !!row.ticket_claimed_by_user_id;
+const needsNoticeReview = row => row.is_review_notice || isClaimedTicketNotice(row);
+const claimedNoticeView = computed(() => navId.value === claimedTicketNoticeCategory);
+const unreadListView = computed(() => navId.value === 'unread' || claimedNoticeView.value);
+const availableFullscreenInboxFilters = computed(() => fullscreenInboxFilters.filter(item =>
+  item.id !== claimedTicketNoticeCategory || ['all','email','group'].includes(inboxChannel.value)));
+const fullscreenInboxFiltersVisible = computed(() => isConversationMode.value && !selectedReviewCategory.value
+  && availableFullscreenInboxFilters.value.some(item => item.id === navId.value));
+
+function openGroupClaimedTicketNotices() {
+  selectedGroupInboxId.value = null;
+  selectedReviewCategory.value = null;
+  selectNav('inbox', claimedTicketNoticeCategory);
+}
+
 const selectedReviewCategory = ref(null), reviewingNotices = ref(false), closingPreviewTicket = ref(false);
 const reviewCategories = [{ id: 'provider_assignments', label: 'Provider Assignments' }, { id: 'enrollment_packets', label: 'Submitted Enrollment Packets' }];
 const groupFiltersId = useId();
@@ -1778,7 +1808,7 @@ const groupFilters = ref(null), groupFilterToggle = ref(null), groupFilterOption
 const groupFiltersCollapsed = ref(false);
 const groupFilterSummary = computed(() =>
   reviewCategories.find(category => category.id === selectedReviewCategory.value)?.label
-  || selectedDepartment.value?.display_name || 'All groups'
+  || (claimedNoticeView.value ? claimedTicketNoticeLabel : selectedDepartment.value?.display_name || 'All groups')
 );
 let groupFiltersReopened = false;
 
@@ -1817,7 +1847,7 @@ watch(inboxChannel, () => {
   groupFiltersReopened = false;
 });
 
-function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (!inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
+function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (claimedNoticeView.value || !inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
 function selectReviewCategory(id) { selectedGroupInboxId.value = null; selectedReviewCategory.value = id; claimState.value = ''; navId.value = 'unread'; changeMessageScope(); }
 async function reviewAllNotices() {
   reviewingNotices.value = true;
@@ -2054,7 +2084,7 @@ const readerKey = c => `${c?.hubKind || c?.channel || 'email'}:${c?.conversation
 const readingIndex = computed(() => readingSequence.value.findIndex(c => readerKey(c) === activeReaderKey.value));
 const selectedMessageKeys = ref([]), bulkUpdating = ref(false), hasMoreConversations = ref(false);
 const nextReader = computed(() => readingSequence.value.slice(readingIndex.value + 1).find(row => activeTicketId.value ? row.support_ticket_id && row.is_unread : !isTicketQueue.value || row.is_unread));
-const hasNextReader = computed(() => !!nextReader.value || (hasMoreConversations.value && (navId.value === 'unread' || isTicketQueue.value)));
+const hasNextReader = computed(() => !!nextReader.value || (hasMoreConversations.value && (unreadListView.value || isTicketQueue.value)));
 function canSelectMessage(row) { return !row.draftId && !row.deliveryLabel && row.type !== 'cancellation_contact'; }
 const selectableConversations = computed(() => filteredConversations.value.filter(canSelectMessage));
 const selectedMessageRows = computed(() => selectableConversations.value.filter(row => selectedMessageKeys.value.includes(readerKey(row))));
@@ -2287,6 +2317,7 @@ const baseInboxNavItems = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'assigned', label: 'Assigned to me' },
   { id: 'unread', label: 'Unread' },
+  { id: claimedTicketNoticeCategory, label: claimedTicketNoticeLabel },
   { id: 'unknown', label: 'Unknown Senders' },
   { id: 'mentions', label: 'Mentions' },
   { id: 'starred', label: 'Starred' },
@@ -2299,8 +2330,8 @@ const baseInboxNavItems = [
 const inboxNavItems = computed(() => {
   if (isTicketQueue.value) return [{ id: navId.value, label: navId.value === 'my_tickets' ? 'My tickets' : 'Tickets' }];
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return [{ id: 'unread', label: 'To review' }, { id: 'inbox', label: 'All notices' }];
-  const allowed = inboxChannel.value === 'group' ? ['inbox', 'unread', 'unknown', 'sent']
-    : inboxChannel.value === 'email' ? ['inbox', 'assigned', 'unread', 'unknown', 'starred', 'queued', 'snoozed', 'sent', 'drafts', 'needs_attention']
+  const allowed = inboxChannel.value === 'group' ? ['inbox', 'unread', claimedTicketNoticeCategory, 'unknown', 'sent']
+    : inboxChannel.value === 'email' ? ['inbox', 'assigned', 'unread', claimedTicketNoticeCategory, 'unknown', 'starred', 'queued', 'snoozed', 'sent', 'drafts', 'needs_attention']
     : inboxChannel.value === 'all' ? baseInboxNavItems.map(item => item.id)
     : inboxChannel.value === 'sms' ? ['inbox', 'unread', 'sent'] : ['inbox', 'unread'];
   return baseInboxNavItems.filter(item => allowed.includes(item.id));
@@ -2352,6 +2383,7 @@ const hubSubtitle = computed(() => {
 });
 
 const listColumnTitle = computed(() => {
+  if (claimedNoticeView.value) return claimedTicketNoticeLabel;
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return reviewCategories.find(item => item.id === selectedReviewCategory.value)?.label || 'To review';
   if (personFocus.value && isSubjectChannel.value) {
     return selected.value?.displayName || threadTitle.value || 'Conversations';
@@ -2378,7 +2410,7 @@ const listSearchPlaceholder = computed(() => {
 
 const isConversationMode = computed(() => {
   if (navSection.value !== 'inbox') return false;
-  return ['inbox', 'assigned', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention', 'tickets', 'my_tickets'].includes(navId.value);
+  return ['inbox', 'assigned', 'unread', claimedTicketNoticeCategory, 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention', 'tickets', 'my_tickets'].includes(navId.value);
 });
 
 const isQueuedMode = computed(() => navSection.value === 'inbox' && navId.value === 'queued');
@@ -2537,8 +2569,9 @@ const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
   if (!isTicketQueue.value && inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel)
-    : inboxChannel.value === 'group' ? selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
+    : inboxChannel.value === 'group' ? claimedNoticeView.value ? c.is_group_email || isTicketedGroup(c) : selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
     : inboxChannel.value === 'email' ? c.channel === 'email' && !isTicketedGroup(c) : c.channel === inboxChannel.value);
+  if (claimedNoticeView.value) list = list.filter(isClaimedTicketNotice);
   if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => selectedDepartment.value ? selectedDepartment.value.mailboxes.some(box => String(box.id) === String(c.inbox_id)) : String(c.inbox_id) === String(selectedGroupInboxId.value));
   const field = inboxSort.value;
   if (hubPagesExpanded.value) {
@@ -2555,6 +2588,7 @@ const filteredConversations = computed(() => {
 });
 
 const emptyListCopy = computed(() => {
+  if (claimedNoticeView.value) return 'No claimed tickets need review.';
   if (isTicketQueue.value) return ticketUnreadOnly.value ? 'No unread tickets in this queue.' : 'No open tickets in this queue.';
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return 'No email notices in this category.';
   if (navSection.value === 'tools' && navId.value === 'calls') {
@@ -4155,10 +4189,11 @@ function restoreMailboxView() {
   inboxChannel.value=inboxChannels.some(item=>item.id===channel)?channel:'all';
   selectNav('inbox',inboxNavItems.value.some(item=>item.id===folder)?folder:'inbox');
 }
-function selectNav(section, id) {
+function selectNav(section, id, { keepFullscreen = false } = {}) {
+  if (id === claimedTicketNoticeCategory) claimState.value = '';
   selectedMessageKeys.value = [];
   scopedInboxCounts.value = null;
-  closePerson();
+  closePerson({ keepFullscreen });
   ++inboxRequest;
   inboxController?.abort();
   loadingList.value = false;
@@ -4340,7 +4375,7 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
     }
 
     if (emailSearchEnabled.value && listSearch.value.trim()) {
-      const rows = await scopedGet('/communications/conversations', {hubScope:1,channel:'email',filter:id==='inbox'?'all':id,q:listSearch.value.trim(),limit:80}, {signal:controller.signal, append});
+      const rows = await scopedGet('/communications/conversations', {hubScope:1,channel:'email',filter:claimedNoticeView.value?'unread':id==='inbox'?'all':id,category:claimedNoticeView.value?claimedTicketNoticeCategory:undefined,q:listSearch.value.trim(),limit:80}, {signal:controller.signal, append});
       if(request!==inboxRequest)return;
       conversations.value=append?[...conversations.value,...rows.filter(row=>!conversations.value.some(existing=>existing.id===row.id))]:rows;
       hasMoreEmailResults.value=rows.length===80;
@@ -4348,13 +4383,13 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
     }
     hasMoreEmailResults.value=false;
     // Unified Inbox / Unread: email + secure + internal + SMS + groups
-    if (id === 'unread' || id === 'inbox') {
-      const { rows: items, nextCursors } = await scopedGet(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
+    if (unreadListView.value || id === 'inbox') {
+      const { rows: items, nextCursors } = await scopedGet(unreadListView.value ? '/messages/hub/unread' : '/messages/hub/inbox', {
           agencyId: agencyId.value,
           sort: unreadSort.value,
           channel: inboxChannel.value,
           inboxId: inboxChannel.value === 'group' ? selectedGroupInboxId.value : undefined,
-          category: inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined,
+          category: claimedNoticeView.value ? claimedTicketNoticeCategory : inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined,
           limit: 80
         }, { signal: controller.signal, append, paged: true }, 'items');
       if (request !== inboxRequest) return;
@@ -4450,6 +4485,7 @@ async function loadInboxCounts() {
       unread: Number(s.unread || 0),
       unreadByChannel: s.unreadByChannel || null,
       unreadByInbox: s.unreadByInbox || {}, reviewByCategory: s.reviewByCategory || {},
+      claimedTicketNoticesByInbox: s.claimedTicketNoticesByInbox || {}, claimedTicketNoticesByChannel: s.claimedTicketNoticesByChannel || {},
       snoozed: Number(s.snoozed || 0),
       unknown: Number(s.unknownSenders || 0), unknownByInbox: s.unknownByInbox || {}, unknownByChannel: s.unknownByChannel || {}
     };
@@ -4464,6 +4500,11 @@ async function loadInboxCounts() {
 function inboxBadgeCount(id) {
   if (id === 'drafts') return emailWorkspace.value?.draftCount || 0;
   if (id === 'needs_attention') return emailWorkspace.value?.attentionCount || 0;
+  if (id === claimedTicketNoticeCategory) {
+    if (inboxChannel.value === 'group' && selectedDepartment.value) return groupMailboxCount(selectedDepartment.value, 'claimedTicketNoticesByInbox');
+    const counts = inboxCounts.value.claimedTicketNoticesByChannel || {};
+    return inboxChannel.value === 'all' ? Object.values(counts).reduce((sum,n) => sum + Number(n || 0), 0) : Number(counts[inboxChannel.value] || 0);
+  }
   if (id === 'unread') {
     if (inboxChannel.value === 'group' && selectedReviewCategory.value) return Number(inboxCounts.value.reviewByCategory?.[selectedReviewCategory.value] || 0);
     if (scopedSummary.value && inboxChannel.value === 'group' && (selectedGroupInboxId.value != null || claimState.value)) return Number(scopedSummary.value.unread || 0);
@@ -4735,8 +4776,8 @@ async function loadPersonContext(personKey) {
   }
 }
 
-function closePerson() {
-  readerFullscreen.value = false;
+function closePerson({ keepFullscreen = false } = {}) {
+  if (!keepFullscreen) readerFullscreen.value = false;
   activeReaderKey.value = null;
   readingSequence.value = [];
   rememberEmailDraft();
@@ -4914,7 +4955,7 @@ async function onOpenGroupFromModal(group) {
 }
 
 function dropOpenedFromUnread(match = {}) {
-  if (navId.value !== 'unread') return;
+  if (!unreadListView.value) return;
   const personKey = match.personKey || null;
   const threadId = match.threadId != null ? Number(match.threadId) : null;
   const conversationId = match.conversationId != null ? Number(match.conversationId) : null;
@@ -5987,6 +6028,15 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .msg-hub-row.unread {
   background: color-mix(in srgb, var(--mh-primary) 10%, #fff);
   box-shadow: inset 3px 0 0 var(--mh-primary);
+}
+.msg-hub-row.unread.claimed-ticket-notice {
+  background: #edf8f0;
+  box-shadow: inset 3px 0 0 #2b8451;
+}
+.msg-hub-fullscreen-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.msg-hub-fullscreen-filters button[aria-pressed='true'] {
+  background: #e8f0fc;
+  border-color: #96b6e9;
 }
 .msg-hub-row.unread strong {
   font-weight: 800;

@@ -626,6 +626,41 @@ describe('reading layout and unread navigation', () => {
     expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
     expect(fullscreen.querySelector('.compact-inbox-row').textContent).toContain('Avery Example');
   });
+  it('keeps claimed unread tickets in All, highlights their notices, and filters full-screen Inbox on the server', async () => {
+    state.selected = null;
+    state.inboxChannel = 'all';
+    state.navId = 'inbox';
+    const item = (id, subject, is_unread, claimant) => ({ id: 'email-'+id, conversationId:id, kind:'email', channel:'email',
+      displayName:'Example sender', subject, is_unread, support_ticket_id:id, ticket_claimed_by_user_id:claimant });
+    const claimed = item(1, 'Claimed and unread', true, 5);
+    const unclaimed = item(2, 'Unclaimed and unread', true, null);
+    const read = item(3, 'Claimed and read', false, 5);
+    api.get.mockImplementation(async (url, config) => {
+      if (url === '/messages/hub/inbox') return { data:{items:[claimed, unclaimed, read]} };
+      if (url === '/messages/hub/unread') return { data: {items:config.params.category === 'claimed_ticket_notices' ? [claimed] : [claimed, unclaimed]} };
+      return { data:{} };
+    });
+    await state.loadConversations();
+    expect(wrapper.findAll('.msg-hub-row')).toHaveLength(3);
+    expect(wrapper.findAll('.claimed-ticket-notice')).toHaveLength(1);
+    expect(wrapper.get('.claimed-ticket-notice').text()).toContain('To review');
+    await wrapper.findAll('button').find(button => button.text() === 'Full screen').trigger('click');
+    const fullscreen = document.querySelector('.msg-hub.list-fullscreen');
+    const filters = fullscreen.querySelector('[aria-label="Full-screen inbox filters"]');
+    const select = async label => {
+      [...filters.querySelectorAll('button')].find(button => button.textContent.trim() === label).click();
+      await flushPromises();
+    };
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
+    await select('Claimed ticket notices');
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/unread', expect.objectContaining({ params: expect.objectContaining({ channel:'all', category:'claimed_ticket_notices' }) }));
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(1);
+    expect(fullscreen.querySelector('.compact-inbox-row.claimed-ticket-notice')).not.toBeNull();
+    await select('Unread');
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(2);
+    await select('Inbox');
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
+  });
   it('collapses folders, list, and details independently', async () => {
     expect(state.detailsCollapsed).toBe(true);
     for (const label of ['Hide folders', 'Hide message list', 'Show details']) {

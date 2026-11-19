@@ -8,7 +8,7 @@ import { messageSender } from '../utils/messageSender.js';
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
 import pool from '../config/database.js';
-import { chatInboxVisibilitySql } from './messageInboxPolicy.js';
+import { chatInboxVisibilitySql, CLAIMED_TICKET_NOTICE_CATEGORY } from './messageInboxPolicy.js';
 import { privateMailboxVisibilitySql } from './privateMailboxPolicy.js';
 import { hubClientScope, hubContactScope, scopeHubPeople, canAccessHubClient, canAccessHubContact, ownEmailCorrespondent } from './hubPeopleAccess.service.js';
 import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
@@ -4143,7 +4143,8 @@ export async function listHubConversationFeed({
   const uid = Number(userId || 0);
   const lim = Math.min(Math.max(Number(limit) || 60, 1), 120);
   const sortNewest = String(sort || 'newest').toLowerCase() !== 'oldest';
-  const unreadOnly = String(mode || 'inbox').toLowerCase() === 'unread';
+  const claimedTicketNotices = category === CLAIMED_TICKET_NOTICE_CATEGORY;
+  const unreadOnly = claimedTicketNotices || String(mode || 'inbox').toLowerCase() === 'unread';
   const assignedOnly = String(mode || '').toLowerCase() === 'assigned';
   if (!uid) {
     return {
@@ -4166,7 +4167,7 @@ export async function listHubConversationFeed({
       agencyId: aid,
       filter: assignedOnly ? 'assigned' : unreadOnly ? 'unread' : 'all',
       channel: channelFilter === 'calls' ? 'call' : ['group','groups','email'].includes(channelFilter) ? 'email' : channelFilter === 'sms' ? 'sms' : null,
-      groupOnly: ['group','groups'].includes(channelFilter) && !category,
+      groupOnly: ['group','groups'].includes(channelFilter) && (!category || claimedTicketNotices),
       excludeGroup: channelFilter === 'email',
       syncTickets: false,
       hideSupportReminderSms: true,
@@ -4528,7 +4529,7 @@ export async function listHubConversationFeed({
   });
 
   const matching = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
-    || (['group','groups'].includes(channelFilter) ? (category ? item.is_review_notice : item.is_ticketed_group || ['group','channel'].includes(item.channel))
+    || (['group','groups'].includes(channelFilter) ? (claimedTicketNotices ? item.is_group_email : category ? item.is_review_notice : item.is_ticketed_group || ['group','channel'].includes(item.channel))
       : channelFilter === 'email' ? item.channel === 'email' && !item.is_ticketed_group
       : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect))));
   const sliced = matching.slice(0, lim);

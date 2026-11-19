@@ -2,7 +2,7 @@ export function mergeInboxSummaries(summaries) {
   const merged = { unread: 0, snoozed: 0, unknownSenders: 0 };
   for (const summary of summaries) {
     for (const key of ['unread', 'snoozed', 'unknownSenders']) merged[key] += Number(summary[key] || 0);
-    for (const key of ['unreadByChannel', 'unreadByInbox', 'unknownByChannel', 'unknownByInbox', 'reviewByCategory']) {
+    for (const key of ['unreadByChannel', 'unreadByInbox', 'unknownByChannel', 'unknownByInbox', 'reviewByCategory', 'claimedTicketNoticesByInbox', 'claimedTicketNoticesByChannel']) {
       merged[key] ||= {};
       for (const [id, count] of Object.entries(summary[key] || {})) merged[key][id] = Number(merged[key][id] || 0) + Number(count || 0);
     }

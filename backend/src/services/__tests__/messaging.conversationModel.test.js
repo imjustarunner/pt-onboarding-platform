@@ -45,6 +45,25 @@ describe('conversation persistence', () => {
     expect(params.slice(-3)).toEqual([new Date(cursor.at), new Date(cursor.at), 200]);
     expect(sql).toContain('LIMIT 81 OFFSET 0');
   });
+  it('filters claimed ticket notices by the ticket claimant and the personal unread policy before pagination', async () => {
+    pool.execute.mockResolvedValueOnce([[]]);
+    await Conversation.list({ agencyId: 2, userId: 3, category: 'claimed_ticket_notices', filter: 'all' });
+    const sql = pool.execute.mock.calls[0][0];
+    expect(sql).toContain("(c.channel='email' AND t.id IS NOT NULL AND t.claimed_by_user_id IS NOT NULL)");
+    expect(sql.indexOf('AND (EXISTS (SELECT 1 FROM communication_conversation_reads')).toBeLessThan(sql.lastIndexOf('LIMIT'));
+    expect(sql).toContain("c.snoozed_until <= ?");
+    expect(sql).toContain("'correspondence'");
+  });
+
+  it('counts claimed notices within the same mailbox access and unread totals', async () => {
+    pool.execute.mockResolvedValueOnce([[{ channel: 'group', inbox_id: 7, claimed_ticket_notices: 2, unread_count: 3 }]])
+      .mockResolvedValueOnce([[]]);
+    const summary = await Conversation.attentionSummary({ agencyId: 2, userId: 3 });
+    expect(summary.unread).toBe(3);
+    expect(summary.claimedTicketNoticesByChannel).toEqual({group:2});
+    expect(summary.claimedTicketNoticesByInbox).toEqual({7:2});
+    expect(pool.execute.mock.calls[0][0]).toContain('SUM(is_unread AND claimed_ticket AND NOT unknown_sender)');
+  });
   it('preserves a draft while attachments are still being prepared', async () => {
     pool.execute.mockResolvedValueOnce([{ insertId: 2 }]);
     await Conversation.addMessage({ conversationId: 1, direction: 'outbound', bodyText: 'Draft', sendStatus: 'preparing' });

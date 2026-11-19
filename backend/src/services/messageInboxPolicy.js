@@ -1,5 +1,8 @@
 // One classification for lists, badges, and historical records. Source messages
 // and audit events are retained; operational notices have their own review queue.
+// This view overlaps correspondence. Claimed unread mail stays in the ordinary inbox.
+export const CLAIMED_TICKET_NOTICE_CATEGORY = 'claimed_ticket_notices';
+export const claimedTicketEmailSql = "(c.channel='email' AND t.id IS NOT NULL AND t.claimed_by_user_id IS NOT NULL)";
 export const INBOX_REVIEW_CATEGORIES = Object.freeze(['provider_assignments', 'enrollment_packets']);
 export const RACHEL_SCHOOL_EMAIL = 'rachel@itsco.health';
 const ids = values => [...new Set((values || []).map(Number).filter(n => Number.isSafeInteger(n) && n > 0))];
