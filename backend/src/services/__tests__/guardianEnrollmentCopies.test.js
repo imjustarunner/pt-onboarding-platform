@@ -22,5 +22,5 @@ it('does not disclose an adult child’s old enrollment to a guardian',async()=>
 it('counts distinct dependents rather than retry rows and retains unknown-child isolation',async()=>{
  pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT date')?[[{date_of_birth:'2020-01-01'}]]:[[{id:30,bundle_pdf_path:'single.pdf',combined_pdf_path:'single.pdf',child_count:1}]]);
  expect(await listEnrollmentCopies(input)).toHaveLength(1);
- expect(pool.execute.mock.calls[1][0]).toContain('COUNT(DISTINCT COALESCE(other.client_id,-other.id))');
+ expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('COUNT(DISTINCT COALESCE(other.client_id,-other.id))'),expect.any(Array));
 });
