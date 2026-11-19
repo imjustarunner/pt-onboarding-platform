@@ -43,11 +43,46 @@ export async function notifyreRequest(token, path, body, fetcher = fetch) {
     return result.payload ?? result.Payload;
   } catch { throw fail(503, 'Notifyre did not confirm the request. Check the account activity before retrying a send.'); }
 }
+function notifyreNumberRows(payload) {
+  const rows = Array.isArray(payload) ? payload : payload?.smsNumbers ?? payload?.SmsNumbers ?? payload?.Numbers ?? payload?.numbers ?? payload?.VirtualNumbers;
+  if (!Array.isArray(rows)) throw fail(503, 'Notifyre returned an unrecognized number list. Contact support before enabling texts.');
+  return rows;
+}
+
+function notifyrePhone(row) {
+  const value = typeof row === 'string' ? row : row?.e164 ?? row?.E164 ?? row?.assignedNumber ?? row?.AssignedNumber ?? row?.Number ?? row?.PhoneNumber ?? row?.number ?? row?.phoneNumber;
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  return /^\d{11,15}$/.test(digits) ? `+${digits}` : null;
+}
+
+function notifyreStatus(row) {
+  return String(row?.status ?? row?.Status ?? '').trim().toLowerCase();
+}
+
 export function notifyreNumbers(payload) {
-  const values = Array.isArray(payload) ? payload : payload?.smsNumbers ?? payload?.SmsNumbers ?? payload?.Numbers ?? payload?.numbers ?? payload?.VirtualNumbers;
-  if (!Array.isArray(values)) throw fail(503, 'Notifyre returned an unrecognized number list. Contact support before enabling texts.');
-  return values.map(n => typeof n === 'string' ? n : n.Number || n.PhoneNumber || n.number || n.phoneNumber).filter(Boolean)
-    .map(n => `+${String(n).replace(/\D/g, '')}`);
+  return notifyreNumberRows(payload)
+    .filter(row => !notifyreStatus(row) || notifyreStatus(row) === 'active')
+    .map(notifyrePhone).filter(Boolean);
+}
+
+export function assertNotifyreVerificationSender({ numbers, campaigns, from, campaignId }) {
+  const campaignRows = Array.isArray(campaigns) ? campaigns : campaigns?.campaigns ?? campaigns?.Campaigns;
+  if (!Array.isArray(campaignRows)) throw fail(503, 'Notifyre returned an unrecognized campaign list.');
+  const campaignIds = campaign => [campaign.id, campaign.Id, campaign.campaignID, campaign.campaignId, campaign.CampaignID, campaign.CampaignId].filter(Boolean).map(String);
+  const campaign = campaignRows.find(row => row && campaignIds(row).includes(String(campaignId)));
+  if (!campaign || notifyreStatus(campaign) !== 'active' || String(campaign.useCase ?? campaign.UseCase ?? '').trim().toUpperCase() !== '2FA') {
+    throw fail(409, 'Notifyre must report the selected verification campaign as active for 2FA.');
+  }
+
+  const linkedIds = campaignIds(campaign);
+  const matching = notifyreNumberRows(numbers).some(row =>
+    notifyrePhone(row) === from && notifyreStatus(row) === 'active'
+    && linkedIds.includes(String(row?.campaignID ?? row?.campaignId ?? row?.CampaignID ?? row?.CampaignId))
+  );
+  if (!matching) {
+    throw fail(409, 'Notifyre has not activated this number on the selected 2FA campaign. Check the number status in Notifyre.');
+  }
 }
 
 export function notifyreReceipt(payload) {

@@ -77,6 +77,33 @@ describe('scoped message workspace', () => {
       expect(wrapper.findAll('.msg-hub-rail-item').some(item => /Unknown Senders|Queued|Snoozed/.test(item.text()))).toBe(false);
     }
   });
+  it('collapses group filters on scroll and keeps a manually reopened panel open', async () => {
+    state.selected = null;
+    state.inboxChannel = 'group';
+    state.navId = 'unread';
+    state.selectedReviewCategory = 'provider_assignments';
+    state.conversations = [{ id: 20, channel: 'email', message_category: 'provider_assignments', is_review_notice: true, is_unread: true }];
+    await nextTick();
+    const toggle = wrapper.get('.msg-hub-group-toolbar button');
+    const list = wrapper.get('.msg-hub-list');
+    const scroll = async top => {
+      list.element.scrollTop = top;
+      await list.trigger('scroll');
+    };
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    const reads = api.get.mock.calls.length;
+    await scroll(64);
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(wrapper.get('.msg-hub-group-toolbar').text()).toContain('Provider Assignments');
+    await toggle.trigger('click');
+    await scroll(80);
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    await scroll(0);
+    await scroll(64);
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(state.selectedReviewCategory).toBe('provider_assignments');
+    expect(api.get.mock.calls).toHaveLength(reads);
+  });
   it('hides empty chats while retaining read conversations with messages', async () => {
     state.inboxChannel = 'group';
     state.internalGroups = [{ groupId: 1, displayName: 'Empty payroll' }, { groupId: 2, displayName: 'Office', hasMessages: true, unreadCount: 0 }];

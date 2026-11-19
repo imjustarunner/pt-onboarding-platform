@@ -59,18 +59,31 @@
       </template>
     </div>
     <div v-if="channelActivationMessage" class="msg-hub-channel-status" role="status">{{ channelActivationMessage }}</div>
-    <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
-      <span>{{ inboxChannel === 'group' ? 'Your department mail and message groups. Department email is managed through its linked ticket.' : 'Messages go to the members of the selected channel.' }}</span>
-      <button v-if="inboxChannel === 'channel'" type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
-      <button v-else type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
+    <div v-if="inboxChannel === 'channel'" class="msg-hub-group-help">
+      <span>Messages go to the members of the selected channel.</span>
+      <button type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
     </div>
-    <section v-if="inboxChannel === 'group'" class="msg-hub-memberships" aria-label="Your groups">
-      <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
-      <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
-      <span class="msg-hub-group-label">Email notices</span>
-      <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
-      <span v-if="visibleInternalGroups.length" class="msg-hub-group-label">Group conversations</span>
-      <button v-for="group in visibleInternalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} · Chat <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
+    <section v-if="inboxChannel === 'group'" ref="groupFilters" class="msg-hub-group-filters" aria-label="Your groups">
+      <div class="msg-hub-group-toolbar">
+        <button ref="groupFilterToggle" type="button" class="btn btn-secondary btn-sm" :aria-expanded="!groupFiltersCollapsed" :aria-controls="groupFiltersId" @click="toggleGroupFilters">
+          {{ groupFiltersCollapsed ? 'Show group filters' : 'Hide group filters' }}
+        </button>
+        <span v-if="groupFiltersCollapsed">{{ groupFilterSummary }}</span>
+      </div>
+      <div v-show="!groupFiltersCollapsed" :id="groupFiltersId" ref="groupFilterOptions">
+        <div class="msg-hub-group-help">
+          <span>Your department mail and message groups. Department email is managed through its linked ticket.</span>
+          <button type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
+        </div>
+        <div class="msg-hub-memberships">
+          <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
+          <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
+          <span class="msg-hub-group-label">Email notices</span>
+          <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
+          <span v-if="visibleInternalGroups.length" class="msg-hub-group-label">Group conversations</span>
+          <button v-for="group in visibleInternalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} · Chat <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
+        </div>
+      </div>
     </section>
     <div v-if="inboxChannel === 'group' && selectedReviewCategory" class="msg-hub-group-help">
       <span>These email notices stay here for review and are excluded from unread mail and app notifications.</span>
@@ -102,7 +115,7 @@
       </div>
     </div>
 
-    <div class="msg-hub-body">
+    <div class="msg-hub-body" @scroll.capture.passive="onReadingPaneScroll">
       <div
         v-if="railOpen"
         class="msg-hub-rail-backdrop"
@@ -1691,7 +1704,7 @@ import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
 import ConversaMailbox from '../conversa/ConversaMailbox.vue';
 import { downloadAttachment } from '../../utils/communicationAttachments';
 import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRecipients } from '../../utils/messageThreads';
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api, { messagingError } from '../../services/messagingApi';
 import { useSessionLockStore } from '../../store/sessionLock';
@@ -1741,6 +1754,50 @@ function scopeInboxId(aid) { return selectedDepartment.value?.mailboxes.find(box
 function scopeAgencyIds() { return selectedDepartment.value ? [...new Set(selectedDepartment.value.mailboxes.map(box => Number(box.agency_id || agencyId.value)))] : messageAgencyIds.value; }
 const selectedReviewCategory = ref(null), reviewingNotices = ref(false), closingPreviewTicket = ref(false);
 const reviewCategories = [{ id: 'provider_assignments', label: 'Provider Assignments' }, { id: 'enrollment_packets', label: 'Submitted Enrollment Packets' }];
+const groupFiltersId = useId();
+const groupFilters = ref(null), groupFilterToggle = ref(null), groupFilterOptions = ref(null);
+const groupFiltersCollapsed = ref(false);
+const groupFilterSummary = computed(() =>
+  reviewCategories.find(category => category.id === selectedReviewCategory.value)?.label
+  || selectedDepartment.value?.display_name || 'All groups'
+);
+let groupFiltersReopened = false;
+
+function toggleGroupFilters() {
+  groupFiltersReopened = groupFiltersCollapsed.value;
+  groupFiltersCollapsed.value = !groupFiltersCollapsed.value;
+}
+
+function updateGroupFiltersOnScroll(pastFilters) {
+  if (!pastFilters) {
+    groupFiltersReopened = false;
+  } else if (!groupFiltersReopened && !groupFiltersCollapsed.value) {
+    if (groupFilterOptions.value?.contains(document.activeElement)) groupFilterToggle.value?.focus({ preventScroll: true });
+    groupFiltersCollapsed.value = true;
+  }
+}
+
+function onReadingPaneScroll(event) {
+  if (!groupFilters.value || readerFullscreen.value || !event.target.matches?.('.msg-hub-list, .msg-hub-timeline, .msg-hub-thread-col')) return;
+  updateGroupFiltersOnScroll(event.target.scrollTop > 32);
+}
+
+function onGroupPageScroll(event) {
+  const section = groupFilters.value;
+  if (!section || readerFullscreen.value) return;
+  const scrollHost = event.target;
+  if (scrollHost === document || scrollHost === window) {
+    updateGroupFiltersOnScroll(section.getBoundingClientRect().bottom < 0);
+  } else if (scrollHost.contains?.(section)) {
+    updateGroupFiltersOnScroll(section.getBoundingClientRect().bottom < scrollHost.getBoundingClientRect().top);
+  }
+}
+
+watch(inboxChannel, () => {
+  groupFiltersCollapsed.value = false;
+  groupFiltersReopened = false;
+});
+
 function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (!inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
 function selectReviewCategory(id) { selectedGroupInboxId.value = null; selectedReviewCategory.value = id; claimState.value = ''; navId.value = 'unread'; changeMessageScope(); }
 async function reviewAllNotices() {
@@ -5650,6 +5707,7 @@ watch([() => route.query.folder, () => route.query.channel], () => {
 watch(agencyId, () => { departmentInboxes.value = []; internalGroups.value = []; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; activeTicketId.value = null; void loadGroupMemberships(); });
 onMounted(() => {
   window.addEventListener('keydown', onReaderEscape);
+  window.addEventListener('scroll', onGroupPageScroll, { capture: true, passive: true });
   restoreMailboxView();
   mailPollTimer = setInterval(refreshMailInBackground, 15000);
   window.addEventListener('focus', refreshMailInBackground);
@@ -5671,6 +5729,7 @@ onMounted(() => {
 onUnmounted(() => {
   linkedSecureRequest++;
   window.removeEventListener('keydown', onReaderEscape);
+  window.removeEventListener('scroll', onGroupPageScroll, true);
   releaseReaderScroll?.();
   clearInterval(mailPollTimer);
   clearTimeout(hoverTimer); clearTimeout(hidePreviewTimer);
@@ -5722,6 +5781,8 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 <style scoped>
 .msg-hub-memberships, .msg-hub-ticket-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .msg-hub-memberships { padding: 4px 16px 12px; }
+.msg-hub-group-filters { flex-shrink: 0; }
+.msg-hub-group-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 16px; font-size: 13px; }
 .msg-hub-group-label { flex-basis: 100%; margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .msg-hub-memberships > button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--conversa-border); background: var(--conversa-surface); color: inherit; border-radius: 8px; cursor: pointer; }
 .msg-hub-memberships > button[aria-pressed=true] { outline: 2px solid var(--conversa-blue); outline-offset: 1px; }
@@ -7762,7 +7823,7 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   position: fixed; inset: 0; z-index: 2100; width: 100%; height: 100dvh;
   max-height: none; padding: 12px; box-sizing: border-box; background: var(--mh-surface);
 }
-.reader-fullscreen > .msg-hub-memberships,
+.reader-fullscreen > .msg-hub-group-filters,
 .reader-fullscreen > .msg-hub-head,
 .reader-fullscreen > .email-channel-filters,
 .reader-fullscreen > .msg-hub-group-help,

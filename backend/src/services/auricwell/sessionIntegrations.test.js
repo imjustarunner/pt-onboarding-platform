@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { integrationDefaults, cleanPlatformSettings, publicPlatformSettings, requirePlatformSuperadmin, assertVideoWindow, smsScope, normalizeSessionPhone } from './integrationPolicy.js';
-import { notifyreRequest, notifyreNumbers, notifyreReceipt } from './sessionTransports.js';
+import { notifyreRequest, notifyreNumbers, notifyreReceipt, assertNotifyreVerificationSender } from './sessionTransports.js';
 
 test('only MFA-verified platform operators can change services', () => {
   for (const ctx of [{}, { profile: { operator: false }, verified: true, permissions: ['admin'] }, { profile: { operator: true }, verified: false }])
@@ -61,6 +61,22 @@ test('Notifyre live lowercase envelope and number inventory are recognized', asy
     await assert.rejects(() => notifyreRequest('synthetic-token', '/sms/numbers', undefined,
       async () => ({ ok: true, json: async () => envelope })), { status: 503 });
 });
+test('Notifyre verification requires an active number on the exact active 2FA campaign', () => {
+  const from = '+17195550123';
+  const campaigns = { campaigns: [{ id: 'record-1', campaignID: 'registered-2fa', status: 'ACTIVE', useCase: '2FA' }] };
+  const row = { assignedNumber: 7195550123, e164: '17195550123', status: 'active', campaignID: 'record-1' };
+  const verify = (number = row, options = {}) => assertNotifyreVerificationSender({
+    numbers: { smsNumbers: [number] }, campaigns, from, campaignId: 'registered-2fa', ...options
+  });
+  assert.deepEqual(notifyreNumbers({ smsNumbers: [row, { assignedNumber: 7195550124, status: 'submitted' }] }), [from]);
+  assert.doesNotThrow(() => verify());
+  assert.doesNotThrow(() => verify({ ...row, e164: undefined, campaignID: 'registered-2fa' }));
+  assert.throws(() => verify({ ...row, status: 'submitted' }), { status: 409 });
+  assert.throws(() => verify({ ...row, campaignID: 'other-campaign' }), { status: 409 });
+  assert.throws(() => verify(row, { campaignId: 'other-campaign' }), { status: 409 });
+  assert.throws(() => verify(row, { campaigns: { campaigns: [{ ...campaigns.campaigns[0], useCase: 'CUSTOMER_CARE' }] } }), { status: 409 });
+});
+
 test('Notifyre receipts recognize message IDs and reject invalid recipients', () => {
   assert.equal(notifyreReceipt({ smsMessageID: 'synthetic-message', invalidToNumbers: [] }), 'synthetic-message');
   assert.equal(notifyreReceipt({ SmsMessageID: 'synthetic-message', InvalidToNumbers: [] }), 'synthetic-message');
