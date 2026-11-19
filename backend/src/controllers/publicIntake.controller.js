@@ -152,7 +152,7 @@ import ProgramStaffAssignment from '../models/ProgramStaffAssignment.model.js';
 import ProgramShiftSignup from '../models/ProgramShiftSignup.model.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
-import { assertPortalEnrollmentIdentity } from '../utils/portalEnrollmentBinding.js';
+import { assertPortalEnrollmentIdentity, enrollmentAccountRole, enrollmentRelationship } from '../utils/portalEnrollmentBinding.js';
 import { persistSubmissionRoster, restoreSubmissionRoster, submittedChildCount, submissionArtifactsComplete } from '../services/enrollmentSubmissionRoster.service.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
@@ -2218,6 +2218,7 @@ export const ensureGuardianAccountLinkedForClient = async ({ clientId, profile =
   if (!cid) return null;
   const email = String(profile?.email || '').trim().toLowerCase();
   if (!email || !email.includes('@')) return null;
+  const payload = { guardian: profile };
   let guardianUser = await User.findByEmail(email);
   if (guardianUser && !['client_guardian', 'guardian', 'client'].includes(String(guardianUser.role || '').toLowerCase())) {
     return null;
@@ -2230,7 +2231,7 @@ export const ensureGuardianAccountLinkedForClient = async ({ clientId, profile =
       lastName: String(profile?.lastName || '').trim(),
       phoneNumber: String(profile?.phone || '').trim() || null,
       personalEmail: email,
-      role: 'client_guardian',
+      role: enrollmentAccountRole(payload),
       status: 'PENDING_SETUP'
     });
   }
@@ -2256,14 +2257,15 @@ export const ensureGuardianAccountLinkedForClient = async ({ clientId, profile =
     });
   }
   const existingLink = await ClientGuardian.getLink({clientId:cid,guardianUserId:Number(guardianUser.id)});
+  const relationshipType = enrollmentRelationship(payload, existingLink);
   const access = accessEnabled
-    ? await completedGuardianAccess({ clientId: cid, guardianUserId: Number(guardianUser.id), link: existingLink,
+    ? await completedGuardianAccess({ clientId: cid, guardianUserId: Number(guardianUser.id), link: existingLink, relationshipType,
       permissions: { intakeLinkGuardianProfile: true } })
     : enrollmentGuardianAccess(existingLink, { permissions: { intakeLinkGuardianProfile: true } });
   await ClientGuardian.upsertLink({
     clientId: cid,
     guardianUserId: Number(guardianUser.id),
-    relationshipType: existingLink?.relationship_type || (String(profile?.relationship || '').trim().toLowerCase() === 'self' ? 'self' : 'guardian'),
+    relationshipType,
     relationshipTitle: String(profile?.relationship || 'Guardian').trim() || 'Guardian',
     ...access,
     createdByUserId: null
@@ -12906,11 +12908,15 @@ const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
   if(!user)user=await User.findByEmail(email);
   const firstName=String(guardian.firstName || submission.signer_name || 'Guardian').trim().split(/\s+/)[0];
   const lastName=String(guardian.lastName || '').trim();
+  const accountRole = enrollmentAccountRole({ intakeData: data, guardian });
   if(!user){
-    try {user=await User.create({email,passwordHash:null,firstName,lastName,phoneNumber:guardian.phone || submission.signer_phone || null,personalEmail:email,role:'client_guardian',status:'ACTIVE_EMPLOYEE'});}
+    try {user=await User.create({email,passwordHash:null,firstName,lastName,phoneNumber:guardian.phone || submission.signer_phone || null,personalEmail:email,role:accountRole,status:'ACTIVE_EMPLOYEE'});}
     catch(e){user=await User.findByEmail(email);if(!user)throw e;}
   }
-  if(!user?.id || String(user.role).toLowerCase()!=='client_guardian') throw Object.assign(new Error('Use your guardian account to continue payment setup'),{status:403});
+  const role = String(user?.role || '').toLowerCase();
+  if (!user?.id || (role !== 'client_guardian' && !(role === 'client' && accountRole === 'client'))) {
+    throw Object.assign(new Error('Use the account associated with this enrollment to continue payment setup'), { status: 403 });
+  }
   // A public email match may bind this submission's new card, but never edits
   // the existing user's identity, password, agency access, or family links.
   if(Number(submission.guardian_user_id||0)!==Number(user.id))await IntakeSubmission.updateById(submission.id,{guardian_user_id:user.id});
