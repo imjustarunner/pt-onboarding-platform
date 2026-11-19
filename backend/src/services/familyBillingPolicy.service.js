@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { encryptFamilyBilling } from './familyBillingEncryption.service.js';
 import {parseSupportJson} from './clientSupportPolicy.service.js';
-import {guardianLearningAccessOnly} from '../utils/guardianServiceRestrictions.js';
+import {guardianLearningAccessOnly,guardianServiceAllowed} from '../utils/guardianServiceRestrictions.js';
 
 export const BILLING_TERMS_VERSION = 'family-billing-2026-10-21-v2';
 export const TUTORING_BILLING_TERMS_VERSION = 'tutoring-billing-2026-11-13-v1';
@@ -69,6 +69,25 @@ async function requireFinancialScope(userId, clientId, agencyId, db, scope) {
   return {...rows[0],agency_id:positiveId(agencyId)};
 }
 export const requireBillingLink=(userId,clientId,agencyId,db=pool)=>requireFinancialScope(userId,clientId,agencyId,db,'billing');
+// A designated tutoring payer can sign a tutoring authorization without gaining access
+// to clinical balances, insurance, other services, or another guardian’s payment cards.
+export async function requirePaymentAuthorizationLink(userId,clientId,agencyId,db=pool){
+  try{return await requireBillingLink(userId,clientId,agencyId,db);}
+  catch(e){if(e.status!==403)throw e;}
+  const [[link]]=await db.execute(`SELECT cg.*,c.agency_id FROM client_guardians cg
+    JOIN clients c ON c.id=cg.client_id AND c.agency_id=?
+    JOIN users u ON u.id=cg.guardian_user_id AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
+    JOIN client_billing_responsibility_profiles r ON r.client_id=c.id AND r.agency_id=c.agency_id AND r.responsible_user_id=u.id AND r.party_kind='account'
+    WHERE cg.client_id=? AND cg.guardian_user_id=? AND cg.relationship_type='guardian' AND cg.access_enabled=1
+    AND c.client_type IN ('learning','tutoring') AND c.date_of_birth>DATE_SUB(CURRENT_DATE,INTERVAL 18 YEAR)
+    AND EXISTS(SELECT 1 FROM client_service_enrollments se WHERE se.client_id=c.id AND se.agency_id=c.agency_id AND se.service_kind='tutoring' AND se.is_active=1)
+    AND NOT EXISTS(SELECT 1 FROM client_portal_independence i WHERE i.client_id=c.id AND i.status='active')
+    AND NOT EXISTS(SELECT 1 FROM dependent_portal_access d WHERE d.user_id=u.id)
+    AND NOT EXISTS(SELECT 1 FROM client_service_enrollments se WHERE se.client_id=c.id AND se.agency_id=c.agency_id AND se.service_kind='counseling' AND se.is_active=1)`,[agencyId,clientId,userId]);
+  const permissions=typeof link?.permissions_json==='string'?JSON.parse(link.permissions_json):link?.permissions_json;
+  if(!link || !guardianLearningAccessOnly(link) || !guardianServiceAllowed(link,{agency_id:agencyId,service_kind:'tutoring'}) || ['noView','noViewOtherGuardian','noContact','no_contact','contactRestricted','revoked','relationshipRevoked'].some(k=>permissions?.[k]))throw billingError(403,'A current authorized payer is required for this payment task.');
+  return {...link,tutoringAuthorizationOnly:true};
+}
 export const requireInsuranceLink=(userId,clientId,agencyId,db=pool)=>requireFinancialScope(userId,clientId,agencyId,db,'insurance');
 export async function requireResponsiblePayer(userId, clientId, agencyId, db = pool) {
   await requireBillingLink(userId, clientId, agencyId, db);
@@ -84,7 +103,8 @@ export async function auditBilling({ agencyId, userId, clientId = null, action, 
 }
 export async function recordBillingConsent({ userId, agencyId, clientId = null, cardId = null, submissionId = null, purpose, consent, ip, userAgent }, db = pool) {
   if (consent?.accepted !== true || ![BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS_VERSION].includes(consent?.version) || !String(consent?.signatureName || '').trim()) throw billingError(400, 'Read and sign the current billing authorization');
-  const current=await resolveBillingTerms({userId,agencyId,clientId},db);
+  let current=await resolveBillingTerms({userId,agencyId,clientId},db);
+  if(purpose==='responsible_payer' && consent.version===TUTORING_BILLING_TERMS_VERSION && clientId && (await requirePaymentAuthorizationLink(userId,clientId,agencyId,db)).tutoringAuthorizationOnly)current={terms:TUTORING_BILLING_TERMS,termsVersion:TUTORING_BILLING_TERMS_VERSION};
   if (consent?.accepted !== true || consent?.version !== current.termsVersion || !String(consent?.signatureName || '').trim()) throw billingError(400, 'Read and sign the current billing authorization');
   const evidence = { terms: current.terms, recurringLimitCents: consent.limitCents || null, frequency: purpose === 'recurring' ? (current.termsVersion===TUTORING_BILLING_TERMS_VERSION?'per agreed tutoring service':'per scheduled service or verified patient balance') : null, signatureName: String(consent.signatureName).trim().slice(0, 255), ip: String(ip || '').slice(0, 80), userAgent: String(userAgent || '').slice(0, 500), acceptedAt: new Date().toISOString() };
   const [r] = await db.execute(`INSERT INTO guardian_billing_consents (agency_id, guardian_user_id, client_id, payment_card_id, intake_submission_id, purpose, terms_version, terms_hash, evidence_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,

@@ -133,6 +133,13 @@ export async function createClientUpdate({ agencyId, clientId, body = {}, actorU
   if (Number(client.agency_id) !== Number(agencyId)) throw fail(403, 'Client does not belong to this agency');
   if(['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'Review the current client record before requesting updates.');
 
+  let recipientId=null;
+  if(body.guardianUserId!=null){
+    recipientId=Number(body.guardianUserId);
+    if(!Number.isSafeInteger(recipientId)||recipientId<1)throw fail(400,'Select a linked portal account.');
+    await currentClientUpdateRecipient({agencyId,clientId,to:body.guardianEmail,guardianUserId:recipientId});
+  }
+
   const documentRows = [];
   for (const id of selection.documents) {
     const template = await templateName(id, agencyId);
@@ -162,9 +169,9 @@ export async function createClientUpdate({ agencyId, clientId, body = {}, actorU
   try {
     await connection.beginTransaction();
     const [result] = await connection.execute(
-      `INSERT INTO client_update_requests (agency_id, client_id, status, created_by_user_id)
-       VALUES (?, ?, 'draft', ?)`,
-      [Number(client.agency_id), Number(client.id), actorUserId ? Number(actorUserId) : null]
+      `INSERT INTO client_update_requests (agency_id, client_id, status, created_by_user_id, guardian_user_id)
+       VALUES (?, ?, 'draft', ?, ?)`,
+      [Number(client.agency_id), Number(client.id), actorUserId ? Number(actorUserId) : null,recipientId]
     );
     requestId = result.insertId;
     for (const [itemType, referenceKey, title] of inserts) {
@@ -262,6 +269,23 @@ async function ensureAssessments(request, items, actorUserId) {
   }
 }
 
+export async function assignmentRecipients(clientId, agencyId) {
+  const {requirePaymentAuthorizationLink} = await import('./familyBillingPolicy.service.js');
+  const contacts = [];
+  for (const row of await ClientGuardian.listForClient(clientId)) {
+    if (!singleClientUpdateMailbox(row.email) || Number(row.access_enabled) !== 1 || Number(row.is_active) !== 1 || Number(row.is_archived) || row.terminated_at) continue;
+    if(!['client_guardian','guardian','client'].includes(row.role) || row.permissions_json?.noContact || row.permissions_json?.contactRestricted || row.permissions_json?.revoked || row.permissions_json?.relationshipRevoked)continue;
+    const id = Number(row.guardian_user_id);
+    const contact = {id, name: [row.first_name,row.last_name].filter(Boolean).join(' '), email: row.email, forms:false, billing:false};
+    try { await currentClientUpdateRecipient({agencyId,clientId,to:row.email,guardianUserId:id}); contact.forms=true; }
+    catch (e) { if (![403,404,409].includes(e.status)) throw e; }
+    try { const link=await requirePaymentAuthorizationLink(id,clientId,agencyId); contact.billing=true;contact.cardAllowed=!link.tutoringAuthorizationOnly; }
+    catch (e) { if (![403,404].includes(e.status)) throw e; }
+    if (contact.forms || contact.billing) contacts.push(contact);
+  }
+  return contacts;
+}
+
 /** Existing portal authority only. Operational email eligibility never grants
  * access to a clinical document, account or relationship. Reused at transport. */
 export async function currentClientUpdateRecipient({agencyId,clientId,to,guardianUserId=null,reenrollment=false}) {
@@ -331,22 +355,7 @@ async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } 
   const prepared = await ensureDocumentPacket(request, items, actorUserId);
   await ensureAssessments(prepared, items, actorUserId);
   items = await loadItems(request.id);
-  const {clientEmailContext,sendClientPortalEmail}=await import('./clientPortalEmail.service.js');
-  const {clientPortalInviteUrl}=await import('./clientPortalContext.service.js');
-  const context=await clientEmailContext({agencyId:request.agency_id,clientId:request.client_id,client});
-  const url=clientPortalInviteUrl({portal:context.portal,existingAccount:true});
-  const login=new URL(url),destination=new URL(login.searchParams.get('redirect')||context.url('guardian'),login.origin);
-  destination.searchParams.set('panel',reenrollment?'past_providers':'updates');if(reenrollment)destination.searchParams.set('serviceId',String(request.service_enrollment_id));destination.searchParams.set('clientId',String(request.client_id));login.searchParams.set('redirect',destination.pathname+destination.search);
-  const {familyEnrollmentContext,portalUrlWithLocale}=await import('./familyPortalLocale.service.js');
-  const {locale}=await familyEnrollmentContext(recipient.guardian_user_id,request.agency_id);
-  const localizedLogin=portalUrlWithLocale(login.toString(),locale),spanish=locale==='es';
-  const text=reenrollment
-    ? (spanish?'Su paquete de nueva inscripción está listo en su portal seguro. Inicie sesión para revisar los acuerdos actuales y confirmar sus datos de contacto, seguro, pago y comunicación. Los documentos se agregarán a su expediente existente. Completar el paquete no reinicia los servicios ni reserva citas; el equipo revisará los próximos pasos.':'A fresh enrollment package is ready in your secure portal. Sign in to review the current agreements and confirm contact, insurance/payment and communication details. Your documents will be added to your existing client file. Completing the package does not restart services or book appointments; the team will review next steps.')
-    : (spanish?'Su equipo de atención seleccionó algunas actualizaciones para su perfil existente. Inicie sesión para revisar solo los elementos solicitados. No necesita completar una nueva inscripción.':'Your care team has selected a few updates for your existing profile. Sign in to review only the requested items. You do not need to complete a new enrollment.');
-  const action=spanish?'Revisar actualizaciones del portal':'Review portal updates';
-  const delivery=await sendClientPortalEmail({agencyId:request.agency_id,clientId:request.client_id,context,to:recipient.email,userId:recipient.guardian_user_id,
-    subject:reenrollment?(spanish?'Su paquete de inscripción seguro está listo':'Your secure enrollment package is ready'):(spanish?'Hay actualizaciones en su portal seguro':'Updates are ready in your secure portal'),text:`${text}\n\n${action}: ${localizedLogin}`,html:`<div lang="${spanish?'es':'en'}"><p>${escapePortalHtml(text)}</p>${portalMessageHtml({text:localizedLogin,linkUrl:localizedLogin,linkLabel:action})}</div>`,
-    linkUrl:localizedLogin,templateType:reenrollment?'care_reenrollment':'client_update',source:'manual',generatedByUserId:actorUserId||null});
+  const delivery=await notifyUpdateRecipient({request,client,recipient,actorUserId,reenrollment});
   const sent=!!delivery?.id&&!delivery.redirected&&!delivery.queued&&!delivery.pendingApproval&&!delivery.blocked&&!delivery.skipped;
   if(sent)await pool.execute("UPDATE client_update_requests SET status='sent' WHERE id=? AND status='in_progress'",[request.id]);
   return {request:await loadRequest(request.id),items:await loadItems(request.id),delivery,
@@ -697,4 +706,37 @@ export async function confirmUpdateInformation({ user, agencyId, clientId, itemI
     [item.id]
   );
   return guardianClientUpdate({ user, agencyId, clientId });
+}
+
+async function notifyUpdateRecipient({request,client,recipient,actorUserId,reenrollment=false}) {
+  const {clientEmailContext,sendClientPortalEmail}=await import('./clientPortalEmail.service.js');
+  const {clientPortalInviteUrl}=await import('./clientPortalContext.service.js');
+  const context=await clientEmailContext({agencyId:request.agency_id,clientId:request.client_id,client});
+  const url=clientPortalInviteUrl({portal:context.portal,existingAccount:true});
+  const login=new URL(url),destination=new URL(login.searchParams.get('redirect')||context.url('guardian'),login.origin);
+  destination.searchParams.set('panel',reenrollment?'past_providers':'updates');if(reenrollment)destination.searchParams.set('serviceId',String(request.service_enrollment_id));destination.searchParams.set('clientId',String(request.client_id));login.searchParams.set('redirect',destination.pathname+destination.search);
+  const {familyEnrollmentContext,portalUrlWithLocale}=await import('./familyPortalLocale.service.js');
+  const {locale}=await familyEnrollmentContext(recipient.guardian_user_id,request.agency_id);
+  const localizedLogin=portalUrlWithLocale(login.toString(),locale),spanish=locale==='es';
+  const text=reenrollment
+    ? (spanish?'Su paquete de nueva inscripción está listo en su portal seguro. Inicie sesión para revisar los acuerdos actuales y confirmar sus datos de contacto, seguro, pago y comunicación. Los documentos se agregarán a su expediente existente. Completar el paquete no reinicia los servicios ni reserva citas; el equipo revisará los próximos pasos.':'A fresh enrollment package is ready in your secure portal. Sign in to review the current agreements and confirm contact, insurance/payment and communication details. Your documents will be added to your existing client file. Completing the package does not restart services or book appointments; the team will review next steps.')
+    : (spanish?'Su equipo de atención seleccionó algunas actualizaciones para su perfil existente. Inicie sesión para revisar solo los elementos solicitados. No necesita completar una nueva inscripción.':'Your care team has selected a few updates for your existing profile. Sign in to review only the requested items. You do not need to complete a new enrollment.');
+  const action=spanish?'Revisar actualizaciones del portal':'Review portal updates';
+  return sendClientPortalEmail({agencyId:request.agency_id,clientId:request.client_id,context,to:recipient.email,userId:recipient.guardian_user_id,
+    subject:reenrollment?(spanish?'Su paquete de inscripción seguro está listo':'Your secure enrollment package is ready'):(spanish?'Hay actualizaciones en su portal seguro':'Updates are ready in your secure portal'),text:`${text}\n\n${action}: ${localizedLogin}`,html:`<div lang="${spanish?'es':'en'}"><p>${escapePortalHtml(text)}</p>${portalMessageHtml({text:localizedLogin,linkUrl:localizedLogin,linkLabel:action})}</div>`,
+    linkUrl:localizedLogin,templateType:reenrollment?'care_reenrollment':'client_update',source:'manual',generatedByUserId:actorUserId||null});
+}
+
+export async function remindUpdateItem({clientId,agencyId,itemId,actorUserId}) {
+  assertEnabled();
+  const [[request]]=await pool.execute(`SELECT r.* FROM client_update_requests r JOIN client_update_items i ON i.request_id=r.id WHERE i.id=? AND r.client_id=? AND r.agency_id=? AND r.status IN ('sent','in_progress') AND i.status='pending' AND COALESCE(r.purpose,'') <> 'reenrollment'`,[itemId,clientId,agencyId]);
+  if(!request)throw fail(409,'This item is no longer awaiting a reminder.');
+  const links=await ClientGuardian.listForClient(clientId);
+  const link=links.find(row=>Number(row.guardian_user_id)===Number(request.guardian_user_id));
+  const {client,recipient}=await currentClientUpdateRecipient({agencyId,clientId,to:link?.email,guardianUserId:request.guardian_user_id});
+  const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
+  const gate=await familyNotificationDeliveryGate({agencyId,clientId,to:recipient.email,templateType:'client_update'});
+  if(!gate.allowed)throw fail(409,'This contact’s notification preferences do not allow a reminder.');
+  const result=await notifyUpdateRecipient({request,client,recipient,actorUserId});
+  return {status:result?.blocked||result?.skipped?'held':result?.redirected?'redirected':result?.queued||result?.pendingApproval?'queued':result?.id?'sent':'unconfirmed'};
 }

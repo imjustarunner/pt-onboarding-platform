@@ -1,5 +1,5 @@
 import { listFamilySecureHistory } from '../services/familySecureHistory.service.js';
-import { familyMessageVisibilitySql } from '../services/familySecureMessageAccess.service.js';
+import { currentSecureThreadFilterSql, familyMessageVisibilitySql } from '../services/familySecureMessageAccess.service.js';
 import {guardianServiceContext,guardianCareContexts} from '../services/clientServiceEnrollment.service.js';
 import { refreshClientSecureAccess, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import pool from '../config/database.js';
@@ -345,3 +345,30 @@ export const openGuardianClientThread = async (req, res, next) => {
     next(e);
   }
 };
+
+export async function guardianMessageAlerts(req,res,next) {
+  try {
+    if(req.guardianPreviewMode || !['client','client_guardian','guardian'].includes(req.user.role)) return res.json({count:0});
+    const uid=req.user.id;
+    const [[cursor]]=await pool.execute('SELECT MAX(last_message_id) AS lastId FROM portal_message_alert_cursors WHERE user_id IN (0,?)',[uid]);
+    const after=Number(req.query.after||0);
+    const since=Math.max(Number(cursor?.lastId||0),Number.isSafeInteger(after)?after:0);
+    const [[candidate]]=await pool.execute(`SELECT m.id FROM chat_thread_participants p JOIN chat_threads t ON t.id=p.thread_id JOIN chat_messages m ON m.thread_id=t.id WHERE p.user_id=? AND t.message_channel='secure' AND m.id>? AND m.sender_user_id<>? LIMIT 1`,[uid,since,uid]);
+    if(!candidate)return res.json({count:0});
+    const authorized=await currentSecureThreadFilterSql(uid);
+    const [[row]]=await pool.execute(`SELECT COUNT(*) AS count, MAX(m.id) AS latest FROM chat_threads t JOIN chat_thread_participants p ON p.thread_id=t.id JOIN chat_messages m ON m.thread_id=t.id
+      WHERE p.user_id=? AND t.message_channel='secure' AND m.id>? AND m.sender_user_id<>? AND ${authorized} AND ${familyMessageVisibilitySql(uid)}
+      AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[uid,since,uid,uid]);
+    res.json({count:Number(row.count),latest:row.latest});
+  } catch(e){next(e);}
+}
+export async function acknowledgeGuardianMessageAlert(req,res,next) {
+  try {
+    const id=Number(req.body.latest);
+    if(req.guardianPreviewMode || !['client','client_guardian','guardian'].includes(req.user.role) || !Number.isSafeInteger(id) || id<1)return res.sendStatus(400);
+    const [[latest]]=await pool.execute('SELECT MAX(id) AS id FROM chat_messages');
+    if(id>Number(latest.id))return res.sendStatus(400);
+    await pool.execute('INSERT INTO portal_message_alert_cursors (user_id,last_message_id) VALUES (?,?) ON DUPLICATE KEY UPDATE last_message_id=GREATEST(last_message_id,VALUES(last_message_id))',[req.user.id,id]);
+    res.sendStatus(204);
+  } catch(e){next(e);}
+}

@@ -2,6 +2,7 @@
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
   <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand" :brand-name="loading ? 'Loading your portal…' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="ft(portalAccountLabel)" :test-environment="isQaPortal" :logo-url="loading ? '' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="'help'" @navigate="navigatePortal">
     <template #context>
+      <PortalMessageAlert v-if="!isSuperadminPreview && authStore.user?.id" :key="authStore.user.id" :spanish="familyLocale==='es'" @open="navigatePortal('family_messages')" />
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
         <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">{{ ft("English") }}</option><option value="es">{{ ft("Español") }}</option></select>
       </label>
@@ -648,6 +649,7 @@ import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue
 import GuardianClinicalBooking from '../../components/guardian/GuardianClinicalBooking.vue';
 import ClientNotificationHistory from '../../components/conversa/ClientNotificationHistory.vue';
 import SecureSessionCommentHistory from '../../components/session-comments/SecureSessionCommentHistory.vue';
+import PortalMessageAlert from '../../components/guardian/PortalMessageAlert.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 import GuardianTutoringDashboard from '../../components/guardian/GuardianTutoringDashboard.vue';
 import {normalizeTenantBrandKey} from '../../utils/tenantBrandAssets';
@@ -1045,7 +1047,7 @@ const portalNavigation = computed(() => {
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
-  const available=ordered.filter(i=>(!billingOnlyAccess.value || ['family','family_billing','billing','payment_methods','notifications','account','help','signout'].includes(i.key)) && (!learningOnlySelectedProfile.value || !['updates','assistance'].includes(i.key))
+  const available=ordered.filter(i=>(!billingOnlyAccess.value || ['family','family_billing','billing','payment_methods','notifications','account','help','signout'].includes(i.key)) && (!learningOnlySelectedProfile.value || i.key !== 'assistance')
     && !(restrictedLearningGuardian.value && ['billing','payment_methods','family_billing'].includes(i.key))
     && !(selectedGuardianPermissions.value.canViewDocs===false && i.key==='documents'));
   return available.map(i=>({...i,secondary:['overview','registrations','past_providers','notification_history','billing','updates','checkins','evaluations','assistance','enroll','contact','messages','payment_methods','notifications'].includes(i.key),label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));

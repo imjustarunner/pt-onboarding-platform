@@ -133,7 +133,8 @@ export async function assertCollectible(receivable, db = pool) {
     if (!receivable.insurance_reviewed || receivable.insurance_fingerprint !== insuranceFingerprint(insurance)) throw billingError(409, 'Patient responsibility must be verified against current coverage or agreed self-pay terms first');
   }
 }
-export async function transaction(work) {
+export async function transaction(work, existingConnection = null) {
+  if (existingConnection) return work(existingConnection);
   const db = await pool.getConnection();
   try { await db.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED'); await db.beginTransaction(); const value = await work(db); await db.commit(); return value; }
   catch (e) { await db.rollback(); throw e; }

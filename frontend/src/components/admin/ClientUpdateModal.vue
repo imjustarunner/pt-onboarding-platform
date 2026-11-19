@@ -1,12 +1,12 @@
 <template>
-  <div v-if="open" class="cu-backdrop" @click.self="close">
-    <div class="cu-modal" role="dialog" aria-label="Client update">
+  <div v-if="open" class="cu-backdrop" :class="{inline}" @click.self="close">
+    <div class="cu-modal" :role="inline ? 'region' : 'dialog'" aria-label="Client update">
       <header>
         <div>
-          <h3>Client update</h3>
-          <p>Choose only what this person still needs. This does not send a full enrollment.</p>
+          <h3><img src="/auricwell/mark.svg" alt="AuricWell" /> Documents &amp; assessments</h3>
+          <p>Assign a package or choose individual items for this client.</p>
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" @click="close">Close</button>
+        <button v-if="!inline" type="button" class="btn btn-secondary btn-sm" @click="close">Close</button>
       </header>
 
       <p v-if="!enabled" role="status">{{ readinessLoading?'Checking update availability…':'Client updates are on hold while delivery and portal access are reviewed. No updates have been sent.' }}</p>
@@ -37,6 +37,19 @@
 
       <template v-else-if="enabled">
         <p class="cu-who">{{ activeName || 'Client' }} <span v-if="activeClientId">· #{{ activeClientId }}</span></p>
+        <p v-if="schoolClient">School release expires · {{ schoolExpiry || 'No expiration recorded' }}</p>
+        <section class="cu-metrics" aria-label="Assignment summary">
+          <div><strong>{{ items.length }}</strong> Assigned</div><div><strong>{{ items.filter(i=>i.status==='pending').length }}</strong> Pending</div><div><strong>{{ items.filter(i=>i.status==='in_progress').length }}</strong> In progress</div><div><strong>{{ items.filter(i=>i.status==='complete').length }}</strong> Completed</div><div><strong>{{ items.filter(i=>Number(i.has_result)).length }}</strong> With results</div>
+        </section>
+        <fieldset class="cu-layout" :disabled="saving"><div><details class="cu-section"><summary>Agency packages</summary>
+          <label>Filter <select v-model="packageFilter"><option value="">All packages</option><option value="school">School packages</option></select></label>
+          <button v-for="pkg in packages.filter(p=>!packageFilter || Number(p.school_only))" type="button" :key="pkg.id" @click="usePackage(pkg)">{{ pkg.name }}</button>
+          <p v-if="!packages.length">No packages created for this agency.</p>
+          <label>Package name <input v-model.trim="packageName" maxlength="100" /></label>
+          <label><input v-model="schoolOnly" type="checkbox" /> School package</label>
+          <button type="button" :disabled="saving||!packageName||!anySelected" @click="savePackage">Save selected items as package</button>
+        </details>
+        <details open class="cu-section"><summary>Individual forms, assessments and portal steps</summary>
         <div class="cu-grid">
           <section>
             <h4>Documents</h4>
@@ -52,17 +65,25 @@
             <label v-for="step in catalog.portalSteps" :key="step.key"><input v-model="selected.portalSteps" type="checkbox" :value="step.key" /> {{ step.title }}</label>
           </section>
         </div>
-        <div class="cu-guardian">
-          <label>Guardian first name <input v-model="guardianFirstName" maxlength="80" /></label>
-          <label>Guardian last name <input v-model="guardianLastName" maxlength="80" /></label>
-          <label>Guardian email <input v-model="guardianEmail" type="email" required maxlength="255" /></label>
-        </div>
-        <p class="hint">Choose an existing authorized portal contact. If this person needs a portal account or an access review, complete the portal-contact setup first. The update does not change portal rights. One email links to the selected items after sign-in.</p>
-        <p v-if="error" class="cu-error">{{ error }}</p>
+        </details>
+        <label class="cu-recipient">Portal recipient
+          <select v-model="chosenId"><option value="">Select a linked account</option><option v-for="r in eligible" :value="r.id" :key="r.id">{{ r.name }} · {{ r.email }}</option></select>
+        </label>
+        <p v-if="!eligible.length" class="hint">No linked account has access to this selection. Open Portal → Manage portal access to check the link. For a tutoring-only guardian, check the responsible payer under Account → Billing.</p>
+        </div><details open class="cu-section assigned-list"><summary>Assigned items ({{ items.length }})</summary>
+          <input v-model="search" placeholder="Search assigned items" aria-label="Search assigned items" />
+          <select aria-label="Filter by type" v-model="itemType"><option value="">All types</option><option v-for="type in [...new Set(items.map(i=>i.item_type))]" :key="type">{{ type }}</option></select>
+          <select aria-label="Filter by status" v-model="itemStatus"><option value="">All statuses</option><option v-for="status in [...new Set(items.map(i=>i.status))]" :value="status" :key="status">{{ status.replaceAll('_',' ') }}</option></select>
+          <p v-if="!filteredItems.length">No assigned items match.</p>
+          <table v-else><thead><tr><th>Item</th><th>Recipient</th><th>Status</th><th></th></tr></thead><tbody>
+            <tr v-for="item in filteredItems" :key="item.item_type+item.id"><td>{{ item.title }}</td><td>{{ item.first_name }} {{ item.last_name }}</td><td>{{ item.status.replaceAll('_',' ') }}{{ Number(item.has_result) ? ' · Result available' : '' }}</td><td><button v-if="['pending','in_progress'].includes(item.status)" :disabled="saving" @click="remind(item)">Resend reminder</button></td></tr>
+          </tbody></table>
+        </details>
+        </fieldset><p v-if="error" class="cu-error">{{ error }}</p>
         <p v-if="success" class="cu-ok">{{ success }}</p>
         <footer>
           <button type="button" class="btn btn-secondary" @click="close">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="saving || attemptedDelivery || !anySelected" @click="send">{{ saving ? 'Sending…' : 'Send portal update' }}</button>
+          <button type="button" class="btn btn-primary" :disabled="saving || attemptedDelivery || !anySelected || !chosen" @click="send">{{ saving ? 'Sending…' : 'Send portal update' }}</button>
         </footer>
       </template>
     </div>
@@ -73,7 +94,7 @@ import { computed, reactive, ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  open: Boolean,
+  open: Boolean, inline:Boolean,
   clientId: { type: [Number, String], default: null },
   agencyId: { type: [Number, String], default: null },
   clientName: { type: String, default: '' },
@@ -103,6 +124,40 @@ const activeName = computed(() => props.clientName || createdName.value);
 const anySelected = computed(() => selected.documents.length + selected.assessments.length + selected.portalSteps.length > 0);
 const selectedOrgType = computed(() => String(organizations.value.find((org) => Number(org.id) === Number(shell.organizationId))?.organization_type || '').toLowerCase());
 
+const schoolClient=ref(false),schoolExpiry=ref('');
+const packages=ref([]),items=ref([]),recipients=ref([]),chosenId=ref(''),packageName=ref(''),schoolOnly=ref(false),packageFilter=ref(''),search=ref('');
+const itemType=ref(''),itemStatus=ref('');
+const filteredItems=computed(()=>items.value.filter(i=>(!itemType.value||i.item_type===itemType.value)&&(!itemStatus.value||i.status===itemStatus.value)&&i.title.toLowerCase().includes(search.value.toLowerCase())));
+const paymentSelected=computed(()=>selected.portalSteps.some(k=>['payment','authorization'].includes(k)));
+const paymentOnly=computed(()=>paymentSelected.value && !selected.documents.length && !selected.assessments.length && selected.portalSteps.every(k=>['payment','authorization'].includes(k)));
+const eligible=computed(()=>recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing) && (!selected.portalSteps.includes('payment') || r.cardAllowed!==false)));
+const chosen=computed(()=>eligible.value.find(r=>r.id===chosenId.value));
+watch(eligible,rows=>{if(!rows.some(r=>r.id===chosenId.value))chosenId.value=rows.length===1?rows[0].id:'';},{flush:'sync'});
+function usePackage(pkg){
+  const allowed={documents:catalog.documents.map(r=>r.id),assessments:catalog.assessments.map(r=>r.family),portalSteps:catalog.portalSteps.map(r=>r.key)};
+  if(Object.keys(allowed).some(k=>(pkg.selection_json[k]||[]).some(v=>!allowed[k].includes(v)))){
+    error.value='This package contains an unavailable item. Choose current items individually.';
+    return;
+  }
+  error.value='';
+  for(const key of Object.keys(allowed))selected[key]=[...(pkg.selection_json[key]||[])];
+}
+async function savePackage(){
+  const current=generation;
+  saving.value=true;error.value='';
+  try{
+    await api.post(`/clients/${activeClientId.value}/updates/packages`,{...selected,name:packageName.value,schoolOnly:schoolOnly.value});
+    if(current===generation){packageName.value='';await loadCatalog();}
+  }catch(e){if(current===generation)error.value=e.response?.data?.error?.message||'Could not save package.';}
+  finally{if(current===generation)saving.value=false;}
+}
+async function remind(item){
+  const current=generation;
+  saving.value=true;error.value='';
+  try{const {data}=await (item.item_type==='billing'?api.post(`/family-billing/staff/tasks/${item.id}/remind`,{clientId:activeClientId.value,agencyId:Number(props.agencyId)}):api.post(`/clients/${activeClientId.value}/updates/items/${item.id}/remind`));if(current===generation)success.value='Reminder: '+data.status;}
+  catch(e){if(current===generation)error.value=e.response?.data?.error?.message||'Could not confirm the reminder.';}
+  finally{if(current===generation)saving.value=false;}
+}
 function providerName(provider) {
   return provider.name || [provider.first_name, provider.last_name].filter(Boolean).join(' ') || `Provider ${provider.id}`;
 }
@@ -117,9 +172,11 @@ async function loadCatalog() {
   const current=generation;
   const response = await api.get(`/clients/${activeClientId.value}/updates/catalog`);
   if(current!==generation)return;
+  schoolClient.value=response.data?.schoolClient===true;schoolExpiry.value=String(response.data?.schoolRoiExpiresAt||'').slice(0,10);
+  recipients.value=response.data?.recipients||[];packages.value=response.data?.packages||[];items.value=response.data?.items||[];
   catalog.documents = response.data?.documents || [];
   catalog.assessments = response.data?.assessments || [];
-  catalog.portalSteps = response.data?.portalSteps || [];
+  catalog.portalSteps = (response.data?.portalSteps || []).filter(s=>response.data.canAssignPayments!==false || !['payment','authorization'].includes(s.key));
 }
 
 async function loadShellOptions() {
@@ -205,20 +262,31 @@ async function send() {
   if (saving.value || attemptedDelivery.value || !enabled.value || !anySelected.value) return;
   error.value = '';
   success.value = '';
-  if (!guardianFirstName.value.trim() || !guardianLastName.value.trim() || !guardianEmail.value.includes('@')) {
-    error.value = 'Enter the guardian’s first name, last name, and email.';
-    return;
-  }
+  if (!chosen.value) return;
+  const recipient=chosen.value;
+  guardianEmail.value=recipient.email;
   saving.value = true;
-  const current=generation,clientId=activeClientId.value;
+  const current=generation,clientId=activeClientId.value,agencyId=Number(props.agencyId);
   try {
+    if(paymentSelected.value){
+      attemptedDelivery.value=true;
+      const {data}=await api.post('/family-billing/staff/tasks',{agencyId,guardianUserId:recipient.id,clientIds:[clientId],fromPortal:true,requireCard:selected.portalSteps.includes('payment')});
+      if(current!==generation)return;
+      if(paymentOnly.value){
+        const notice=await api.post(`/family-billing/staff/notices/${data.noticeId}/send`,{agencyId});
+        if(current===generation)success.value=notice.data?.blocked||notice.data?.skipped?'Payment authorization assigned. Notification held.':notice.data?.queued||notice.data?.pendingApproval?'Payment authorization assigned. Notification queued.':'Payment authorization assigned. Check Billing for delivery status.';
+        return;
+      }
+      success.value='Payment authorization assigned in Billing.';
+    }
     const created=await api.post(`/clients/${clientId}/updates`, {
       agencyId: Number(props.agencyId),
       send: false,
       documents: selected.documents,
       assessments: selected.assessments,
       portalSteps: selected.portalSteps,
-      guardianEmail: guardianEmail.value.trim(),
+      guardianUserId: recipient.id,
+      guardianEmail: recipient.email,
       guardianFirstName: guardianFirstName.value.trim(),
       guardianLastName: guardianLastName.value.trim()
     });
@@ -226,12 +294,13 @@ async function send() {
     requestId.value=created.data?.request?.id;
     if(!requestId.value)throw new Error('The update request could not be saved.');
     attemptedDelivery.value=true;
-    const {data}=await api.post(`/clients/${clientId}/updates/${requestId.value}/send`,{guardianEmail:guardianEmail.value.trim()});
+    const {data}=await api.post(`/clients/${clientId}/updates/${requestId.value}/send`,{guardianEmail:recipient.email});
     if(current!==generation)return;
     success.value=({sent:'Portal update sent.',queued:'The update email is queued for approval. No delivery has been confirmed.',skipped:'The update email was not sent. Review notification preferences and email history.',redirected:'The update email went to the configured test inbox.',unconfirmed:'Delivery could not be confirmed. Check email history before creating another update.'})[data.deliveryStatus]||'Delivery could not be confirmed. Check email history.';
     if (Array.isArray(data.deliveries)) success.value = data.deliveries.map(row => `${row.name || row.email || 'Guardian'}: ${row.deliveryStatus.replaceAll('_', ' ')}`).join(' · ');
-    if(data.deliveryStatus==='sent')emit('sent');
+    if(data.deliveryStatus==='sent'){emit('sent');if(props.inline)await loadCatalog();}
   } catch (err) {
+    if(paymentOnly.value && err.response?.status>=400 && err.response?.status<500)attemptedDelivery.value=false;
     if(current===generation)error.value = err.response?.data?.error?.message || (attemptedDelivery.value?'Delivery could not be confirmed. Check email history before creating another update.':'The update could not be saved.');
   } finally {
     saving.value = false;
@@ -248,6 +317,7 @@ watch(() => [props.open,props.clientId,props.agencyId], async ([open]) => {
   selected.documents = [];
   selected.assessments = [];
   selected.portalSteps = [];
+  itemType.value='';itemStatus.value='';schoolClient.value=false;schoolExpiry.value='';packages.value=[];items.value=[];recipients.value=[];chosenId.value='';packageName.value='';schoolOnly.value=false;packageFilter.value='';search.value='';saving.value=false;
   catalog.documents=[];catalog.assessments=[];catalog.portalSteps=[];organizations.value=[];providers.value=[];
   enabled.value=false;requestId.value=null;attemptedDelivery.value=false;readinessLoading.value=true;
   try{const {data}=await api.get('/client-updates/status');if(current!==generation)return;enabled.value=data.enabled===true;}catch{if(current===generation)error.value='Update availability could not be checked.';}finally{if(current===generation)readinessLoading.value=false;}
@@ -281,4 +351,6 @@ onBeforeUnmount(()=>{generation++;});
 .cu-ok { color: #1f7a45; }
 .hint, small { color: #52647c; }
 @media (max-width: 800px) { .cu-grid, .cu-guardian { grid-template-columns: 1fr; display: grid; } }
+.cu-modal{font-family:Montserrat,Arial,sans-serif;border-top:5px solid #c19b50;width:min(1080px,100%)}.cu-modal h3{display:flex;align-items:center;gap:10px;color:#132c51}.cu-modal h3 img{width:34px}.cu-metrics{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.cu-metrics div{flex:1;padding:15px;background:#eef3fa;border-radius:9px}.cu-metrics div:nth-child(2){background:#fcf6e8}.cu-metrics strong{font-size:1.4rem}.cu-section{padding:14px;border:1px solid #d0dbe7;border-radius:9px;margin:12px 0}.cu-section summary{cursor:pointer;font-weight:650}.cu-section label,.cu-section button{margin:8px}.cu-section table{width:100%;text-align:left}.cu-recipient{display:grid;gap:6px}.cu-recipient select{padding:10px}
+.inline.cu-backdrop{position:static;display:block;padding:0;background:transparent}.inline .cu-modal{box-sizing:border-box;max-height:none;width:100%;overflow:visible}.cu-layout{padding:0;margin:0;min-width:0;border:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.cu-grid{grid-template-columns:1fr}.cu-grid section{max-height:175px}.assigned-list{align-self:start;overflow:auto}.cu-layout th,.cu-layout td{text-align:left;padding:9px 4px;border-bottom:1px solid #dbe3eb}.cu-layout table{font-size:.85rem}.cu-layout button{cursor:pointer}@media(max-width:800px){.cu-layout{display:block}}
 </style>

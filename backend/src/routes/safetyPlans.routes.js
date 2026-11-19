@@ -29,6 +29,7 @@ router.post('/:id/review-update',handle(req=>records.reviewUpdate(req.user,req.p
 router.post('/:id/revoke-authorization',handle(req=>records.revokeAuthorization(req.user,req.params.id,req.body)));
 router.post('/:id/link',handle(req=>records.linkPlan(req.user,req.params.id,req.body)));
 router.post('/:id/signers',handle(req=>records.addSigner(req.user,req.params.id,req.body)));
+router.post('/:id/signers/:signerId/remind',handle(req=>records.remindSigner(req.user,req.params.id,req.params.signerId)));
 router.post('/:id/signers/:signerId/revoke',handle(req=>records.revokeSigner(req.user,req.params.id,req.params.signerId,req.body)));
 router.post('/:id/signers/:signerId/sign',handle(req=>records.signPlan(req.user,req.params.id,req.params.signerId,req.body)));
 export default router;

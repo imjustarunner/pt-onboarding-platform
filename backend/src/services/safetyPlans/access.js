@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import {requireClientAccountSupport} from '../clientAccountSupportAccess.service.js';
 import User from '../../models/User.model.js';
 import {resolveClientRecordAccess} from '../clientRecordAccess.service.js';
 import {requireStaffCareEligibility} from '../staffCareEligibility.service.js';
@@ -14,7 +15,14 @@ export async function agencyAccess(user,id,{write=false}={}){
  if(user.role!=='super_admin'&&!(await User.getAgencies(user.id)).some(a=>Number(a.id)===Number(id)))fail(403,'Organization access is required.');
  if(write)await requireStaffCareEligibility(user.id,id);
 }
-export async function clientAccess(user,id,{write=false}={}){
+export async function clientAccess(user,id,{write=false,documentKey}={}){
+ if(user?.role==='support' && documentKey==='release-of-information'){
+  if(user.demoMode||user.switchedFromUserId)fail(403,'Use your own staff account.');
+  const chart=await requireClientAccountSupport(user,id);
+  const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId:Number(id)});
+  if(!access.ok || Number(access.client?.agency_id)!==Number(chart.agency_id))fail(403,'Access to this chart is required.');
+  return access.client;
+ }
  staffRole(user);positiveId(id);
  const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId:Number(id)});
  if(!access.ok)fail(access.status||403,'You cannot access this client’s clinical record.');
@@ -27,7 +35,7 @@ export async function clientAccess(user,id,{write=false}={}){
 }
 export async function planAccess(user,row,{write=false}={}){
  if(!row)fail(404,'Safety plan not found.');
- if(row.client_id){const client=await clientAccess(user,row.client_id,{write});if(Number(client.agency_id)!==Number(row.agency_id))fail(403,'The client’s organization has changed. Ask an administrator to review the record.');}
+ if(row.client_id){const client=await clientAccess(user,row.client_id,{write,documentKey:row.document_key});if(Number(client.agency_id)!==Number(row.agency_id))fail(403,'The client’s organization has changed. Ask an administrator to review the record.');}
  else{await agencyAccess(user,row.agency_id,{write});if(Number(row.created_by_user_id)!==Number(user.id)&&!['admin','super_admin'].includes(user.role))fail(403,'This unlinked plan is private to its author and authorized administrators.');}
 }
 export async function recipientAccess(row,userId,kind){

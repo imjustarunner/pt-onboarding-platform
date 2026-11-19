@@ -1,6 +1,6 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
-import {billingTermsForProfiles,resolveBillingTerms,recordBillingConsent,BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS} from '../familyBillingPolicy.service.js';
+import {requirePaymentAuthorizationLink, billingTermsForProfiles,resolveBillingTerms,recordBillingConsent,BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS} from '../familyBillingPolicy.service.js';
 import {decryptFamilyBilling} from '../familyBillingEncryption.service.js';
 beforeEach(()=>{vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,3).toString('base64'));vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_ID','v1');});
 it('uses educational terms for pure learning and keeps clinical terms for a mixed family',()=>{
@@ -25,4 +25,14 @@ it('rejects an old authorization version and appends the exact educational terms
  expect(inserts[0][1][6]).toBe(TUTORING_BILLING_TERMS_VERSION);
  expect(decryptFamilyBilling(inserts[0][1][8],'consent:453:1759')).toMatchObject({terms:TUTORING_BILLING_TERMS,signatureName:'Morgan QA',frequency:'per agreed tutoring service'});
  expect(db.execute.mock.calls.some(([sql])=>/^(UPDATE|DELETE)/.test(sql))).toBe(false);
+});
+
+it('limits a tutoring-only payment authorization to the designated payer and current agency',async()=>{
+ const link={guardian_user_id:9,agency_id:6,access_enabled:1,permissions_json:{learningOnly:true,serviceAgencyIds:[6]}};
+ const db={execute:vi.fn(async sql=>sql.startsWith('SELECT id FROM clients')?[[]]:[[link]])};
+ expect(await requirePaymentAuthorizationLink(9,20,6,db)).toMatchObject({tutoringAuthorizationOnly:true});
+ expect(db.execute.mock.calls.at(-1)[0]).toContain('r.responsible_user_id=u.id');
+ await expect(requirePaymentAuthorizationLink(9,20,2,db)).rejects.toMatchObject({status:403});
+ link.permissions_json.noView=true;
+ await expect(requirePaymentAuthorizationLink(9,20,6,db)).rejects.toMatchObject({status:403});
 });

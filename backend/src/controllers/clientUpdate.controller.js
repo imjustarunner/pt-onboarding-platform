@@ -1,3 +1,5 @@
+import {normalizeUpdateSelection} from '../services/clientUpdateSelection.js';
+import {requireBillingStaff} from '../services/familyLedger/policy.js';
 import Client from '../models/Client.model.js';
 import * as ClientUpdate from '../services/clientUpdate.service.js';
 import pool from '../config/database.js';
@@ -33,7 +35,27 @@ export async function getClientUpdateCatalog(req, res, next) {
     const access = await requireManagedClient(req, clientId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const catalog = await ClientUpdate.listUpdateCatalog(access.client.agency_id);
-    res.json({ client_id: clientId, ...catalog });
+    const agencyId = access.client.agency_id;
+    if(!catalog.enabled)return res.json({client_id:clientId,...catalog});
+    const recipients=await ClientUpdate.assignmentRecipients(clientId,agencyId);
+    const [[school]]=await pool.execute(`SELECT org.id FROM agencies org WHERE org.organization_type='school'
+      AND (org.id=? OR EXISTS(SELECT 1 FROM client_organization_assignments ca WHERE ca.client_id=? AND ca.organization_id=org.id AND ca.is_active=1))
+      AND (EXISTS(SELECT 1 FROM organization_affiliations f WHERE f.organization_id=org.id AND f.agency_id=? AND f.is_active=1)
+      OR EXISTS(SELECT 1 FROM agency_schools f WHERE f.school_organization_id=org.id AND f.agency_id=? AND f.is_active=1)) LIMIT 1`,[access.client.organization_id||null,clientId,agencyId,agencyId]);
+    const [packages] = await pool.execute('SELECT id,name,school_only,selection_json FROM portal_assignment_packages WHERE agency_id=? ORDER BY name',[agencyId]);
+    const [items]=await pool.execute(`SELECT i.id,i.title,i.item_type,
+      CASE WHEN i.status='complete' THEN 'complete' WHEN i.item_type='assessment' AND i.assessment_id IS NOT NULL AND EXISTS(SELECT 1 FROM client_assessment_deliverables partial WHERE partial.client_id=r.client_id AND partial.agency_id=r.agency_id AND BINARY partial.assessment_family=BINARY i.reference_key AND partial.assessment_id=i.assessment_id) THEN 'in_progress' ELSE i.status END AS status,
+      EXISTS(SELECT 1 FROM client_assessment_deliverables d WHERE i.item_type='assessment' AND d.client_id=r.client_id AND d.agency_id=r.agency_id AND BINARY d.assessment_family=BINARY i.reference_key AND d.assessment_id=i.assessment_id AND d.kind='result') AS has_result,r.status AS request_status,r.sent_at,u.first_name,u.last_name FROM client_update_items i JOIN client_update_requests r ON r.id=i.request_id LEFT JOIN users u ON u.id=r.guardian_user_id WHERE r.client_id=? AND r.agency_id=? AND r.status IN ('sent','in_progress','completed') AND COALESCE(r.purpose,'')<>'reenrollment' ORDER BY i.id DESC`,[clientId,agencyId]);
+    let canAssignPayments=true;
+    try{await requireBillingStaff(req.user,agencyId);}catch(e){if(e.status!==403)throw e;canAssignPayments=false;}
+    if(canAssignPayments){
+      const [tasks]=await pool.execute(`SELECT task.id,'Payment authorization' AS title,'billing' AS item_type,
+        CASE WHEN task.status='completed' THEN 'complete' WHEN task.status='pending' AND task.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE task.status END AS status,
+        u.first_name,u.last_name FROM family_billing_tasks task JOIN users u ON u.id=task.guardian_user_id
+        WHERE task.agency_id=? AND JSON_LENGTH(task.client_ids_json)=1 AND JSON_CONTAINS(task.client_ids_json,CAST(? AS JSON)) ORDER BY task.id DESC`,[agencyId,JSON.stringify(clientId)]);
+      items.push(...tasks);
+    }
+    res.json({ client_id: clientId, ...catalog, canAssignPayments, recipients, items, schoolClient:!!school, schoolRoiExpiresAt:school?access.client.roi_expires_at:null, packages:packages.map(row=>({...row,selection_json:typeof row.selection_json==='string'?JSON.parse(row.selection_json):row.selection_json})) });
   } catch (error) {
     sendError(res, error, next);
   }
@@ -107,4 +129,29 @@ export async function sendClientUpdate(req, res, next) {
   } catch (error) {
     sendError(res, error, next);
   }
+}
+
+export async function createAssignmentPackage(req,res,next) {
+  try {
+    const access=await requireManagedClient(req,Number(req.params.id));
+    if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+    const name=String(req.body.name||'').trim();
+    const selection=normalizeUpdateSelection(req.body);
+    const catalog=await ClientUpdate.listUpdateCatalog(access.client.agency_id);
+    if(!name || name.length>100 || !catalog.enabled || selection.documents.some(id=>!catalog.documents.some(d=>d.id===id)) || selection.assessments.some(key=>!catalog.assessments.some(a=>a.family===key)))return res.status(400).json({error:{message:'Enter a package name and select current agency items.'}});
+    const [result]=await pool.execute('INSERT INTO portal_assignment_packages (agency_id,name,school_only,selection_json,created_by_user_id) VALUES (?,?,?,?,?)',[access.client.agency_id,name,req.body.schoolOnly===true,JSON.stringify(selection),req.user.id]);
+    res.status(201).json({id:result.insertId});
+  } catch(error) {
+    if(error.code==='ER_DUP_ENTRY')return res.status(409).json({error:{message:'This agency already has a package with that name.'}});
+    sendError(res,error,next);
+  }
+}
+
+export async function remindAssignment(req,res,next){
+  try{
+    const clientId=Number(req.params.id);
+    const access=await requireManagedClient(req,clientId);
+    if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+    res.json(await ClientUpdate.remindUpdateItem({clientId,agencyId:access.client.agency_id,itemId:Number(req.params.itemId),actorUserId:req.user.id}));
+  }catch(error){sendError(res,error,next);}
 }

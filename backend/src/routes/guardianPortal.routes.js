@@ -54,7 +54,7 @@ import {
   putMyClientWaiverSection
 } from '../controllers/guardianWaiver.controller.js';
 import {
-  listGuardianMessageThreads,
+  listGuardianMessageThreads, guardianMessageAlerts, acknowledgeGuardianMessageAlert,
   listGuardianThreadMessages,
   locateGuardianSecureSubject,
   sendGuardianThreadMessage,
@@ -186,6 +186,8 @@ router.get('/clients/:clientId/care-access',requireActiveStatus,async(req,res,ne
   res.set('Cache-Control','no-store').json({participants:conversation.participants,shared:true});
 }catch(e){next(e);}});
 router.post('/clients/:clientId/details', guardianDemographics.submit);
+router.get('/message-alerts',guardianMessageAlerts);
+router.post('/message-alerts/ack',acknowledgeGuardianMessageAlert);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);
 router.get('/emails', listGuardianEmails);

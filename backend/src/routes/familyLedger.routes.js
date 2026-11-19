@@ -24,7 +24,7 @@ import { listBalances,listReceipts,receiptFor,renderReceiptPdf } from '../servic
 import { proposePlan,acceptPlan,cancelPlan,runDuePlans,PLAN_TERMS_VERSION } from '../services/familyLedger/plans.js';
 import { setStatementSharing,requestSplit,respondToSplit,listSplitRequests } from '../services/familyLedger/sharing.js';
 import { createPaymentTask,getPaymentTask,listPaymentTasks,authorizePaymentTask,completePaymentTask,cancelPaymentTask } from '../services/familyLedger/tasks.js';
-import { aging,draftNotice,listNotices,previewNotice,sendNotice } from '../services/familyLedger/collections.js';
+import { aging,remindPaymentTask,draftNotice,listNotices,previewNotice,sendNotice } from '../services/familyLedger/collections.js';
 import { seedBillingSenders,provisionBillingSenders } from '../services/familyLedger/senders.js';
 import { handoffWorkspace,transferToCollections,collectionCaseDetail,collectionOrganizations } from '../services/familyLedger/collectionHandoff.js';
 import { guardianStatementPdf } from '../services/familyLedger/views.js';
@@ -122,7 +122,16 @@ router.post('/staff/receipt-deliveries/:id/retry',limited,run(async(req,res)=>re
 router.post('/staff/allocations/:id/plan',run(async(req,res)=>res.json(await proposePlan({...req.body,...context(req),allocationId:positiveId(req.params.id)}))));
 router.post('/staff/plans/:id/cancel',run(async(req,res)=>{await cancelPlan({...context(req),planId:positiveId(req.params.id),staff:true});res.json({success:true});}));
 router.post('/staff/plans/collect-due',limited,run(async(req,res)=>res.json({results:await runDuePlans(context(req))})));
-router.post('/staff/tasks',run(async(req,res)=>{const c=context(req),task=await createPaymentTask({...req.body,...c});const draft=await draftNotice({...c,payerUserId:positiveId(req.body.guardianUserId),kind:'payment_setup',idempotencyKey:`setup-task:${task.taskId}`,task});res.json({taskId:task.taskId,expiresAt:task.expiresAt,...draft});}));
+router.post('/staff/tasks',run(async(req,res)=>{
+  const c=context(req);
+  const result=await transaction(async db=>{
+    const task=await createPaymentTask({...req.body,...c},db);
+    const notice=task.noticeId?{noticeId:task.noticeId}:await draftNotice({...c,payerUserId:positiveId(req.body.guardianUserId),kind:'payment_setup',idempotencyKey:`setup-task:${task.taskId}`,task},db);
+    return {taskId:task.taskId,expiresAt:task.expiresAt,...notice};
+  });
+  res.json(result);
+}));
+router.post('/staff/tasks/:id/remind',limited,run(async(req,res)=>res.json(await remindPaymentTask({...context(req),taskId:positiveId(req.params.id),clientId:positiveId(req.body.clientId)}))));
 router.post('/staff/tasks/:id/cancel',run(async(req,res)=>{await cancelPaymentTask({...context(req),taskId:positiveId(req.params.id)});res.json({success:true});}));
 router.post('/staff/notices',run(async(req,res)=>res.json(await draftNotice({...req.body,...context(req)}))));
 router.get('/staff/notices/:id.pdf',run(async(req,res)=>res.type('pdf').set('Content-Disposition',`attachment; filename="statement-${req.params.id}.pdf"`).send(await previewNotice({...context(req),noticeId:positiveId(req.params.id)}))));

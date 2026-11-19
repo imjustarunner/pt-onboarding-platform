@@ -4563,7 +4563,7 @@ const profileQuickActions = computed(() => [...clientProfileActions({
   canPortal: canViewGuardians.value, canInvite: canManageGuardians.value,
   canClinical: canViewMedicalRecord.value, canBilling: canViewClientBillingImport.value,
   canDocuments: roleNorm.value !== 'support',
-  canPortalDocuments: ['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(roleNorm.value),
+  canPortalDocuments: ['support','admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(roleNorm.value),
   canRequestUpdates: canEditAccount.value && ['super_admin', 'admin', 'support'].includes(roleNorm.value),
   canSecureMessage: canOpenClientSecureMessage.value,
   canUpload: canEditPaperwork.value && (paperProcessingAvailable.value || roleNorm.value !== 'support'),
