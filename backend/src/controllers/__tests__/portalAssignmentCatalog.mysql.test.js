@@ -1,7 +1,7 @@
 import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
 import {readFile} from 'node:fs/promises';
 import {isolatedWorkflowMysql,recoveryMysqlEnabled} from '../../services/__tests__/fixtures/isolatedWorkflowMysql.js';
-import {createAssignmentPackage,getClientUpdateCatalog} from '../clientUpdate.controller.js';
+import {createAssignmentPackage,getClientUpdateCatalog,previewUpdateItem} from '../clientUpdate.controller.js';
 
 const fixture=vi.hoisted(()=>({db:null}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>fixture.db.execute(...args)}}));
@@ -29,13 +29,13 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
       CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active BOOL);
       CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOL);
       CREATE TABLE agency_schools(school_organization_id INT,agency_id INT,is_active BOOL);
-      CREATE TABLE family_billing_tasks(id INT,agency_id INT,guardian_user_id INT,client_ids_json JSON,status VARCHAR(30),expires_at DATETIME);
-      CREATE TABLE client_assessment_deliverables(client_id INT,agency_id INT,assessment_family VARCHAR(64),assessment_id INT,kind VARCHAR(30));
+      CREATE TABLE family_billing_tasks(id INT,agency_id INT,guardian_user_id INT,client_ids_json JSON,status VARCHAR(30),expires_at DATETIME,completed_at DATETIME);
+      CREATE TABLE client_assessment_deliverables(id INT,scores_snapshot_json JSON,client_id INT,agency_id INT,assessment_family VARCHAR(64),assessment_id INT,kind VARCHAR(30));
       INSERT INTO users VALUES(7,'Support','Staff',1,0,NULL,'ACTIVE'),(8,'Test','Guardian',1,0,NULL,'ACTIVE');
       INSERT INTO user_agencies VALUES(7,3,1);
       INSERT INTO agencies VALUES(17,'school');
       INSERT INTO organization_affiliations VALUES(17,3,1);
-      INSERT INTO family_billing_tasks VALUES(9,3,8,JSON_ARRAY(44),'pending',DATE_ADD(NOW(),INTERVAL 15 DAY));
+      INSERT INTO family_billing_tasks VALUES(9,3,8,JSON_ARRAY(44),'pending',DATE_ADD(NOW(),INTERVAL 15 DAY),NULL);
     `);
     await runSql(await migration('1752_client_update_workflows.sql'));
     await runSql("ALTER TABLE client_update_requests ADD COLUMN purpose VARCHAR(30);");
@@ -62,4 +62,27 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
     expect(data.items).toMatchObject([{id:9,item_type:'billing',status:'pending',last_name:'Guardian'}]);
     expect(data.recipients).toMatchObject([{id:8,billing:true,forms:false}]);
   });
+  it('counts completed items in each sent request using the actual assessment state', async () => {
+    await fixture.db.execute('CREATE TABLE teen_wellbeing_assessments(id INT PRIMARY KEY, agency_id INT, client_id INT, status VARCHAR(40))');
+    await fixture.db.execute("INSERT INTO teen_wellbeing_assessments VALUES(11,3,44,'in_progress')");
+    await fixture.db.execute("INSERT INTO client_update_requests(id,agency_id,client_id,guardian_user_id,status) VALUES(100,3,44,8,'sent')");
+    await fixture.db.execute(`INSERT INTO client_update_items(request_id,item_type,reference_key,title,status,assessment_id)
+      VALUES(100,'assessment','teen_wellbeing','Well-being','pending',11),(100,'information','information','Check details','complete',NULL)`);
+    const req = {params:{id:44},user:{id:7,role:'support'}};
+    const res = {json:vi.fn()};
+    await getClientUpdateCatalog(req,res,e=>{throw e;});
+    const items = res.json.mock.lastCall[0].items.filter(i=>i.request_id===100);
+    expect(items).toHaveLength(2);
+    expect(items.find(i=>i.item_type==='assessment')).toMatchObject({status:'in_progress',requestCompleted:1,requestTotal:2});
+  });
+
+  it('limits previews to authorized staff and the selected agency catalog', async () => {
+    const res = {set:vi.fn(),sendStatus:vi.fn(),status:vi.fn().mockReturnThis(),json:vi.fn()};
+    const req = {params:{id:44,kind:'document',key:111},user:{id:7,role:'guardian'}};
+    await previewUpdateItem(req,res,e=>{throw e;});
+    expect(res.status).toHaveBeenCalledWith(403);
+    await previewUpdateItem({...req,user:{id:7,role:'support'}},res,e=>{throw e;});
+    expect(res.sendStatus).toHaveBeenCalledWith(404);
+  });
+
 });

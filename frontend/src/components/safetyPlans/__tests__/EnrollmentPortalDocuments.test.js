@@ -48,7 +48,7 @@ it('opens medical record history first and guards clinical answers when leaving 
 });
 it('keeps the portal section expanded when its editor blocks closing',async()=>{
  const prepareToLeave=vi.fn(()=>false);
- wrapper=shallowMount(ClientDocumentsTab,{props:{clientId:41,client:{agency_id:2}},global:{stubs:{EnrollmentPortalDocuments:{template:'<div class="portal-editor" />',methods:{prepareToLeave}}}}});
+ wrapper=shallowMount(ClientDocumentsTab,{props:{clientId:41,client:{agency_id:2}},global:{stubs:{ClientUpdateModal:{template:'<div class="portal-editor" />',methods:{prepareToLeave}}}}});
  await flushPromises();const details=wrapper.find('details'),summary=details.find('summary');
  await summary.trigger('click');expect(wrapper.find('.portal-editor').exists()).toBe(true);
  await summary.trigger('click');expect(prepareToLeave).toHaveBeenCalled();expect(details.element.open).toBe(true);expect(wrapper.find('.portal-editor').exists()).toBe(true);

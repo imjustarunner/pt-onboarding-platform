@@ -8,7 +8,7 @@ describe('contextual client profile actions', () => {
   });
   it('uses portal sharing and access actions without clinical shortcuts for support', () => {
     const actions = clientProfileActions({hub:'portal',canPortal:true,canInvite:true,canDocuments:true});
-    expect(actions.map(action=>action.label)).toEqual(['Portal access','Invite to portal','Share documents']);
+    expect(actions.map(action=>action.label)).toEqual(['Portal access','Invite to portal','Documents & assessments']);
     expect(actions[0].target).toBe('guardians');
   });
   it('does not offer assignment editing, invitations, or billing without access', () => {

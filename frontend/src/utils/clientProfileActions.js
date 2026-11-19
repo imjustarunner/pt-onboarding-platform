@@ -12,7 +12,7 @@ export function clientProfileActions({ hub = 'overview', sub = '', canEdit = fal
   const upload = canUpload ? action('upload', 'Upload document', 'file') : null;
   const processPaper = canProcessPaper ? action('process-paper', 'Process paper packet', 'file') : null;
   if (hub === 'overview') return [assignments, canSchedule ? action('schedule','Schedule','calendar') : null, edit, secure, canPortal ? action('portal', 'Portal', 'portal') : null, upload || documents, processPaper].filter(Boolean);
-  if (hub === 'portal') return [portal, invite, canPortalDocuments ? action('documents', 'Share documents', 'file') : null, canClinical ? action('assessments', 'Assessments', 'chart') : null].filter(Boolean);
+  if (hub === 'portal') return [portal, invite, canPortalDocuments ? action('documents', 'Documents & assessments', 'file') : null, canClinical ? action('assessments', 'Assessments', 'chart') : null].filter(Boolean);
   if (hub === 'account') {
     if (sub === 'guardians') return [invite, canPortal ? action('portal', 'Portal overview', 'portal') : null, message].filter(Boolean);
     if (sub === 'assignments') return [edit, action('lifecycle', 'Care timeline', 'calendar'), message].filter(Boolean);

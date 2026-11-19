@@ -1117,7 +1117,7 @@
         </div>
 
         <ClientStatusEditor v-if="headerStatusOpen" :key="client.id" :client="client" @close="headerStatusOpen=false" @saved="onHeaderStatusSaved" />
-        <ClientUpdateModal :open="clientUpdateModalOpen" :client-id="client?.id" :agency-id="client?.agency_id" :client-name="client?.full_name || client?.initials || ''" :guardian-email="guardianIntakeEmail || ''" :guardian-name="guardianIntakeName || ''" @close="clientUpdateModalOpen = false" @sent="clientUpdateModalOpen = false" />
+        <ClientUpdateModal :clinical-mode="roleNorm === 'support' ? 'release' : ['admin','super_admin'].includes(roleNorm) ? 'full' : ''" :open="clientUpdateModalOpen" :client-id="client?.id" :agency-id="client?.agency_id" :client-name="client?.full_name || client?.initials || ''" :guardian-email="guardianIntakeEmail || ''" :guardian-name="guardianIntakeName || ''" @close="clientUpdateModalOpen = false" @sent="clientUpdateModalOpen = false" />
         <ClientRenewalPushModal
           :open="clientRenewalModalOpen"
           :client-id="client?.id"

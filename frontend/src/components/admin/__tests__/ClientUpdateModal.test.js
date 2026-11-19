@@ -31,3 +31,77 @@ it('keeps an intake email from becoming a recipient without a linked account',as
  api.get.mockImplementation(async url=>({data:url.endsWith('/status')?{enabled:true}:{documents:[{id:1,name:'Consent'}],recipients:[]}}));
  wrapper=mount(Modal,{props});await selectDocument();expect(sendButton().attributes('disabled')).toBeDefined();expect(api.post).not.toHaveBeenCalled();
 });
+
+const recipient = {id:3, name:'Test Guardian', kind:'guardian', email:'guardian@example.invalid', forms:true, billing:true};
+const foundation = {key:'client-rights', title:'Client rights'};
+function combinedWorkspace() {
+  api.get.mockImplementation(async url => {
+    if (url.endsWith('/status')) return {data:{enabled:true}};
+    if (url==='/clinical-forms') return {data:{plans:[
+      {id:80,version:1,title:'Signed release',documentKey:'release-of-information',portalAssignments:[
+        {signerId:11,version:1,recipient:recipient.name,signedAt:'2026-11-01T12:00:00Z'}
+      ]},
+      {id:81,version:1,title:'Unshared draft'}
+    ]}};
+    if (url==='/clients/5/updates/catalog') return {data:{
+      recipients:[recipient],portalSteps:[{key:'authorization',title:'Payment authorization'}],items:[
+        {id:9,item_type:'assessment',title:'Sample assessment',status:'in_progress',requestCompleted:1,requestTotal:2}
+      ]}};
+    if (url==='/enrollment-portal/clients/5/catalog') return {data:{recipients:[recipient],documents:[foundation]}};
+    if (url.endsWith('/preview/client-rights')) return {data:{key:'enrollment-document',title:'Client rights',sourceHtml:'<p>Actual enrollment notice</p>',sections:[]}};
+    if (url.endsWith('/preview/portalSteps/authorization')) return {data:{terms:'Payment terms for the selected family'}};
+    throw new Error('Unexpected request '+url);
+  });
+  wrapper=mount(Modal,{props:{...props,inline:true,clinicalMode:'full',agencyName:'Example Agency'}});
+}
+const button = label => wrapper.findAll('button').find(b=>b.text()===label);
+async function selectMixedItems() {
+  await flushPromises();
+  await button('Select individual items').trigger('click');
+  for(const row of wrapper.findAll('.pick-row').filter(r=>['Payment authorization','Client rights'].some(title=>r.text().startsWith(title)))) {
+    await row.get('input[type=checkbox]').setValue(true);
+  }
+}
+it('combines both histories and previews multiple actual forms in recipient order without assigning them',async()=>{
+  combinedWorkspace();
+  await flushPromises();
+  expect(wrapper.find('.picker-panel').exists()).toBe(false);
+  expect(wrapper.findAll('.cu-metrics button')).toHaveLength(5);
+  expect(wrapper.get('.assigned-list').text()).toContain('Signed release');
+  expect(wrapper.get('.assigned-list').text()).not.toContain('Unshared draft');
+  expect(wrapper.get('progress').attributes('max')).toBe('2');
+  await selectMixedItems();
+  expect(sendButton().attributes('disabled')).toBeDefined();
+  await button('Preview selection').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('dialog').text()).toContain('Payment terms for the selected family');
+  await button('Next').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('dialog fieldset[disabled]').text()).toContain('Actual enrollment notice');
+  expect(wrapper.get('dialog').text()).toContain('2 of 2');
+  await button('Close preview').trigger('click');
+  await button('Refresh').trigger('click');
+  await flushPromises();
+  expect(wrapper.findAll('.review-selection li')).toHaveLength(2);
+  expect(api.post).not.toHaveBeenCalled();
+});
+it('preserves a successfully assigned form when the remaining billing assignment needs a retry',async()=>{
+  combinedWorkspace();
+  await selectMixedItems();
+  await wrapper.get('.review-selection input[type=checkbox]').setValue(true);
+  api.post.mockImplementation(async url=>{
+    if(url.endsWith('/assignments'))return {data:{assignedCount:1}};
+    throw {response:{status:422,data:{error:{message:'Review payer selection'}}}};
+  });
+  await sendButton().trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Enrollment documents were assigned');
+  expect(wrapper.findAll('.review-selection li').map(li=>li.text())).toEqual(['Payment authorization']);
+  expect(wrapper.get('.review-selection select').element.value).toBe('3');
+  expect(api.post.mock.calls[0][1]).toMatchObject({recipient:{id:3,kind:'guardian'},documents:[{foundationKey:'client-rights'}],authorityConfirmed:true});
+  api.post.mockImplementation(async url=>({data:url.endsWith('/tasks')?{noticeId:23}:{queued:true}}));
+  await sendButton().trigger('click');
+  await flushPromises();
+  expect(api.post.mock.calls.filter(([url])=>url.endsWith('/assignments'))).toHaveLength(1);
+  expect(wrapper.text()).toContain('Notification queued');
+});
