@@ -7,10 +7,8 @@ import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext
 export async function enrollmentPortalAccess({ submission, agency, schoolOrganizationId, enrollmentChannel, sendSetupEmail, invitationDeferred, req }, { users = User, recover = requestPasswordRecoveryEmail, db = pool } = {}) {
   const fail = message => Object.assign(new Error(message), { status:409 });
   if (submission?.status !== 'submitted' || !submission.guardian_user_id) throw fail('Portal access is available after enrollment is submitted and the account is linked.');
-  if (invitationDeferred && sendSetupEmail !== true) return { invitationDeferred: true, deliveryStatus: 'not_requested',
-    note: 'Portal setup is optional. You may request a password setup email now or wait for your care team’s invitation.' };
   const guardian = await users.findById(submission.guardian_user_id);
-  if (!guardian || guardian.role !== 'client_guardian') throw fail('Please contact the agency for help with portal access.');
+  if (!guardian || !['client_guardian', 'guardian', 'client'].includes(guardian.role)) throw fail('Please contact the agency for help with portal access.');
   let deliveryStatus = null;
   if (sendSetupEmail === true) {
     const connection = await db.getConnection();

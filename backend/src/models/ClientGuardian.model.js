@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isDeepStrictEqual } from 'node:util';
 
 class ClientGuardian {
   static _hasRelationshipTypeColumn = null;
@@ -104,7 +105,7 @@ class ClientGuardian {
     return map;
   }
 
-  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId }) {
+  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink }) {
     const cid = Number(clientId);
     const uid = Number(guardianUserId);
     if (!cid || !uid) throw new Error('clientId and guardianUserId are required');
@@ -119,11 +120,19 @@ class ClientGuardian {
     try {
       await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      if (expectedLink !== undefined) {
+        const [[current]] = await db.execute(`SELECT access_enabled, permissions_json FROM client_guardians
+          WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE`, [cid, uid]);
+        const unchanged = expectedLink === null ? !current : !!current
+          && Number(current.access_enabled) === Number(expectedLink.access_enabled)
+          && isDeepStrictEqual(this.parsePermissions(current.permissions_json), this.parsePermissions(expectedLink.permissions_json));
+        if (!unchanged) throw Object.assign(new Error('Guardian access changed during enrollment. Review the current relationship before retrying.'), { status: 409 });
+      }
       if(enabled){
-        const [[independent]]=await db.execute("SELECT user_id FROM client_portal_independence WHERE client_id=? AND status='active'",[cid]);
+        const [[independent]]=await db.execute("SELECT user_id FROM client_portal_independence WHERE client_id=? AND status IN ('requested','active')",[cid]);
         if(independent&&(Number(independent.user_id)!==uid||relType!=='self'))throw Object.assign(new Error('This client controls their own account. Use client-approved assistance permissions; a guardian link cannot restore family access.'),{status:409});
       }
-      if (enabled && relType !== 'self') {
+      if (enabled && relType !== 'self' && permissionsJson?.enrollmentAccessConfirmed !== true) {
         const [active] = await db.execute(
           `SELECT guardian_user_id FROM client_guardians WHERE client_id = ? AND access_enabled = 1 AND guardian_user_id <> ? ${hasRelationshipType ? "AND relationship_type <> 'self'" : ''}`, [cid, uid]);
         if (active.length >= 2) throw Object.assign(new Error('This account already has two guardians with access. Additional people can receive guardian-authorized session reminders.'), { status: 409 });
@@ -216,6 +225,10 @@ class ClientGuardian {
     );
     const visible=[];
     for (const r of rows || []) {
+      if (r.relationship_type !== 'self') {
+        const { guardianClientPrivacy } = await import('../services/guardianClientPrivacy.service.js');
+        if (await guardianClientPrivacy({ clientId: r.client_id, guardianUserId: uid })) continue;
+      }
       if (requiredClinicalScope && ['clinical','mental_health'].includes(String(r.client_type||r.organization_type||'').toLowerCase())) {
         const { clinicalAccess } = await import('../services/guardianClinicalAccess.service.js');
         const access = await clinicalAccess({agencyId:r.agency_id,clientId:r.client_id,userId:uid});

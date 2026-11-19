@@ -22,7 +22,7 @@ import {
   recordKioskWaiverConfirmation,
   upsertGuardianWaiverSection
 } from '../services/guardianWaivers.service.js';
-import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import { isGuardianPortalLocked } from '../utils/guardianWaivers.utils.js';
 import {
   recordSkillBuilderEventClockIn,
   recordSkillBuilderEventClockOut
@@ -765,7 +765,7 @@ export const postKioskGuardianWaiverSection = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Site not found at this location' } });
     }
 
-    if (await isClientAdultLockedForGuardian(cid)) {
+    if (await isClientAdultLockedForGuardian(cid, gid)) {
       return res.status(403).json({
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
       });
@@ -862,7 +862,7 @@ export const listKioskGuardianClients = async (req, res, next) => {
         id: c.client_id,
         initials: c.initials,
         display_name: c.full_name || c.initials || `Client ${c.client_id}`,
-        guardian_portal_locked: isDobAdultLocked(c.date_of_birth)
+        guardian_portal_locked: isGuardianPortalLocked(c, c.date_of_birth)
       }))
     );
   } catch (e) {

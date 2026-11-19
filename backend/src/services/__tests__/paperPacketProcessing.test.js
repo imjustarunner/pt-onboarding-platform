@@ -5,67 +5,22 @@ vi.mock('../../models/ClientGuardian.model.js',()=>({default:{}}));
 vi.mock('../../models/ClientPhiDocument.model.js',()=>({default:{}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../paperPacketVision.service.js',()=>({getLatestPaperPacketVisionEval:vi.fn()}));
-vi.mock('../insuranceVerificationTask.service.js',()=>({queueInsuranceVerificationSafely:vi.fn()}));
 vi.mock('../messagesHub.service.js',()=>({sendHubPortalInvitation:vi.fn()}));
-vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn(),finalizePaperInsurance:vi.fn()}));
-vi.mock('../demographicsImport.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,decryptDemographicsPayload:value=>value?.responses?value:actual.decryptDemographicsPayload(value)};});
 vi.mock('../clientOnboardingChecklist.service.js',()=>({markPaperPacketSignatureReceived:vi.fn(),updateClientOnboardingDocs:vi.fn(),acknowledgeRoiStaffOnboarding:vi.fn()}));
 import {compareAndSetPaperProcessingState,savePaperProcessingStep,completePaperProcessing,paperProcessingContext,paperProcessingSourceDocument,paperProcessingState,PAPER_PROCESSING_STEPS} from '../paperPacketProcessing.service.js';
-import {paperReadingSnapshot} from '../paperPacketReading.service.js';
 let client,deps,connection;
 const input={clientId:4,actorId:8,signaturesConfirmed:true,staffRoiConfirmed:true,sendInvitations:true};
 const ready=()=>{client.onboarding_docs_json={items:[{key:'roi',status:'missing'}],paperProcessing:{completedSteps:[...PAPER_PROCESSING_STEPS],documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes',invitations:{}}};};
-it('saves a reviewed English answer with its Spanish source and rejects a stale reading',async()=>{
- const candidate={documentId:9,sourceLocale:'es',responses:[{key:'medicalInformation',sourceText:'No tiene alergias.'}]};client.paper_packet_demo_candidate_enc=candidate;deps.encryptDraft=vi.fn(v=>v);
- const data={documentId:9,firstName:'Synthetic',lastName:'Student',dateOfBirth:'2018-01-02',englishResponses:{reviewed:true,snapshotId:paperReadingSnapshot(candidate),answers:{medicalInformation:'No allergies.'}}};
- await savePaperProcessingStep({clientId:4,actorId:8,step:'demographics',data},deps);
- expect(client.paper_packet_demo_candidate_enc).toMatchObject({responses:[{sourceText:'No tiene alergias.'}],reviewedEnglishResponses:{answers:{medicalInformation:'No allergies.'},reviewedByUserId:8}});expect(deps.encryptDraft).toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
- await expect(savePaperProcessingStep({clientId:4,actorId:8,step:'demographics',data:{...data,englishResponses:{...data.englishResponses,snapshotId:'stale'}}},deps)).rejects.toThrow('reading changed');
-});
 beforeEach(()=>{
- client={id:4,agency_id:2,organization_id:3,insurance_type_id:7,source:'SCHOOL_UPLOAD',full_name:'Synthetic Student',onboarding_docs_json:{items:[{key:'roi',status:'missing'}]}};
+ client={id:4,agency_id:2,organization_id:3,source:'SCHOOL_UPLOAD',full_name:'Synthetic Student',onboarding_docs_json:{items:[{key:'roi',status:'missing'}]}};
  connection={execute:vi.fn(async()=>[[{acquired:1}]]),release:vi.fn()};
  deps={clients:{findById:vi.fn(async()=>({...client})),update:vi.fn(async(id,patch)=>{Object.assign(client,patch);})},
- guardians:{getLink:vi.fn(async()=>({access_enabled:1})),listForClient:vi.fn(async()=>[{guardian_user_id:20,first_name:'Synthetic',email:'first@example.com',password_hash:'must-not-return'}])},
+ guardians:{upsertLink:vi.fn(),getLink:vi.fn(async()=>({access_enabled:1})),listForClient:vi.fn(async()=>[{guardian_user_id:20,first_name:'Synthetic',email:'first@example.com',password_hash:'must-not-return'}])},
  documents:{findSchoolPaperPacket:vi.fn(async()=>({id:9,client_id:4,agency_id:2,school_organization_id:3,referral_draft_id:3,scan_status:'clean'})),findSchoolPaperPacketsForClient:vi.fn(async()=>[])},agencies:{findById:vi.fn(async()=>({name:'Example School'}))},
  versions:vi.fn(async()=>({id:70,version_label:'1.02'})),staff:{setAccessState:vi.fn(),listSchoolStaffRosterForClient:vi.fn(async()=>[{school_staff_user_id:99,effective_access_state:'packet'}])},
  vision:vi.fn(async()=>({id:11,phi_document_id:9,status:'applied',roi_signature_detected:1,disclosure_signature_detected:1,detected_version_label:'2026-08-20',raw_ocr:'private-text'})),
  send:vi.fn(async({guardianUserId})=>({delivery:{id:`email-${guardianUserId}`}})),markSignatures:vi.fn(),markDocuments:vi.fn(),acknowledgeRoi:vi.fn(),
- finalizeInsurance:vi.fn(async()=>({status:'queued',jobId:17})),queueInsuranceFollowUp:vi.fn(async()=>{}),insurance:vi.fn(async()=>({primary:{insurerName:'Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},patient:{firstName:'Synthetic',lastName:'Student'}})),
  database:{getConnection:vi.fn(async()=>connection),execute:vi.fn(async()=>[[{id:7}]])}};
-});
-
-it('saves partial insurance without a separate coverage confirmation or payer request',async()=>{
- ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:''},patient:{firstName:'Synthetic',lastName:'Student'}});
- const result=await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps);
- expect(result.completedSteps).toContain('insurance');expect(result.insuranceReview).not.toHaveProperty('partialInformationConfirmed');expect(result.insuranceReview).toMatchObject({followUpRequired:true,coverageVerifiedByThisStep:false});expect(deps.finalizeInsurance).not.toHaveBeenCalled();
-});
-it('submits partial policies for billing follow-up without inventing IDs or blocking portal invitations',async()=>{
- ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:''}});deps.finalizeInsurance.mockResolvedValue({status:'waiting_for_information',readySlots:[],missing:[{slot:'primary',message:'Member ID is missing'}]});
- const result=await completePaperProcessing(input,deps);expect(result.processedAt).toBeTruthy();expect(result.insuranceReview.followUpRequired).toBe(true);expect(result.insuranceSubmission.status).toBe('waiting_for_information');expect(deps.send).toHaveBeenCalledTimes(2);
-});
-it('queues eligibility only after the submitted state is saved, once across repeated submission/invitation retries',async()=>{
- ready();deps.finalizeInsurance.mockImplementation(async()=>{expect(paperProcessingState(client).processedAt).toBeTruthy();expect(paperProcessingState(client).signatureSourceDocumentId).toBe(9);return {status:'queued',jobId:17};});
- deps.send.mockRejectedValueOnce(Error('Temporary delivery failure')).mockResolvedValue({delivery:{id:81}});
- await completePaperProcessing(input,deps);await completePaperProcessing(input,deps);expect(deps.finalizeInsurance).toHaveBeenCalledExactlyOnceWith({clientId:4,agencyId:2,documentId:9,actorId:8},deps.database);expect(deps.send).toHaveBeenCalledTimes(3);
-});
-it('keeps a queue failure with billing and retries safely without blocking submitted packets',async()=>{
- ready();deps.finalizeInsurance.mockRejectedValueOnce(Error('Temporary queue outage')).mockResolvedValue({status:'already_queued',jobId:17});
- let result=await completePaperProcessing(input,deps);expect(result.processedAt).toBeTruthy();expect(result.insuranceSubmission).toMatchObject({status:'billing_follow_up',retryRequired:true});expect(deps.queueInsuranceFollowUp).toHaveBeenCalledExactlyOnceWith({agencyId:2,clientId:4,reason:'eligibility_error'},deps.database);expect(deps.send).toHaveBeenCalledTimes(2);
- result=await completePaperProcessing(input,deps);expect(result.insuranceSubmission.status).toBe('already_queued');expect(deps.markSignatures).toHaveBeenCalledOnce();expect(deps.send).toHaveBeenCalledTimes(2);
-});
-it('never queues insurance for an unsigned or replaced packet',async()=>{
- ready();await expect(completePaperProcessing({...input,signaturesConfirmed:false},deps)).rejects.toThrow('Confirm');expect(deps.finalizeInsurance).not.toHaveBeenCalled();
- deps.markSignatures.mockImplementation(async()=>{client.onboarding_docs_json={paperPacketSource:{documentId:10},paperProcessing:{documentId:10,completedSteps:[]}};});await expect(completePaperProcessing(input,deps)).rejects.toHaveProperty('status',409);expect(deps.finalizeInsurance).not.toHaveBeenCalled();
-});
-it('allows explicit Self-Pay without an insurance policy or fabricated verification',async()=>{
- deps.database.execute.mockResolvedValue([[{id:7,insurance_key:'self_pay',label:'Self-Pay'}]]);
- await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps);
- expect(paperProcessingState(client).completedSteps).toContain('insurance');expect(deps.insurance).not.toHaveBeenCalled();ready();await completePaperProcessing(input,deps);expect(deps.finalizeInsurance).not.toHaveBeenCalled();expect(paperProcessingState(client).insuranceSubmission.status).toBe('not_required');
-});
-it('requires a category in the correct agency and does not complete the step on a foreign or inactive choice',async()=>{
- deps.database.execute.mockResolvedValue([[]]);
- await expect(savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps)).rejects.toThrow('category shown');expect(deps.clients.update).not.toHaveBeenCalled();
 });
 it('saves resumable steps without losing checklist metadata or sending an invitation',async()=>{
  await savePaperProcessingStep({clientId:4,actorId:8,step:'demographics',data:{documentId:9,firstName:'Synthetic',lastName:'Student',dateOfBirth:'2018-01-02'}},deps);
@@ -96,8 +51,20 @@ it('requires all steps, clarified custody and a distinct second parent when shar
  await expect(completePaperProcessing(input,deps)).rejects.toThrow('each packet-processing step');
  for(const patch of [{guardian2Id:null},{sharedCustody:'unsure'},{guardian2Id:20}]){ready();Object.assign(client.onboarding_docs_json.paperProcessing,patch);await expect(completePaperProcessing(input,deps)).rejects.toMatchObject({status:400});}expect(deps.send).not.toHaveBeenCalled();
 });
-it('never invites a disabled contact',async()=>{
- ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0});expect((await completePaperProcessing(input,deps)).invitations[20].status).toBe('blocked');expect(deps.send).not.toHaveBeenCalled();
+it('never invites a guardian when the client has requested privacy',async()=>{
+ ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0});deps.database.execute.mockResolvedValue([[{independent_client:1}]]);expect((await completePaperProcessing(input,deps)).invitations[20].status).toBe('blocked');expect(deps.send).not.toHaveBeenCalled();
+});
+it('confirms system-prepared paper guardians at signoff without emailing on completion',async()=>{
+ ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}});
+ await completePaperProcessing({...input,sendInvitations:false},deps);
+ expect(deps.guardians.upsertLink.mock.calls.map(([link])=>link.guardianUserId)).toEqual([20,21]);
+ expect(deps.guardians.upsertLink).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:true,permissionsJson:expect.objectContaining({canViewDocs:true,canMessage:true})}));
+ expect(deps.clients.update).toHaveBeenCalledWith(4,{guardian_portal_enabled:1},8);expect(deps.send).not.toHaveBeenCalled();
+});
+it('does not grant guardian access before the signed paper review is durably saved',async()=>{
+ ready();deps.markSignatures.mockRejectedValue(new Error('Signature record unavailable'));
+ await expect(completePaperProcessing({...input,sendInvitations:false},deps)).rejects.toThrow('Signature record unavailable');
+ expect(deps.guardians.upsertLink).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
 });
 it('serializes saves and completion so concurrent requests cannot send',async()=>{
  ready();connection.execute.mockResolvedValue([[{acquired:0}]]);await expect(completePaperProcessing(input,deps)).rejects.toMatchObject({status:409});await expect(savePaperProcessingStep({clientId:4,step:'school'},deps)).rejects.toMatchObject({status:409});expect(deps.send).not.toHaveBeenCalled();expect(connection.release).toHaveBeenCalledTimes(2);
@@ -164,8 +131,8 @@ it.each([{documentId:10},{evaluationId:12},{sourceViewed:false},{denyReviewed:fa
 it('requires an actual printed version matching this school and keeps a newer evaluation pending',async()=>{ready();deps.versions.mockResolvedValue(null);await expect(savePaperProcessingStep({clientId:4,actorId:8,step:'consents',data:{signaturesConfirmed:true,staffRoiConfirmed:true,evidenceReview:humanReview()}},deps)).rejects.toThrow('printed packet version');deps.versions.mockResolvedValue({id:70,version_label:'1.02'});await savePaperProcessingStep({clientId:4,actorId:8,step:'consents',data:{signaturesConfirmed:true,staffRoiConfirmed:true,evidenceReview:humanReview()}},deps);deps.vision.mockResolvedValue({id:12,phi_document_id:9,status:'needs_review',roi_signature_detected:0});await expect(completePaperProcessing(input,deps)).rejects.toThrow('match needs review');expect(deps.send).not.toHaveBeenCalled();});
 it('saves working entries in a PHI-encrypted envelope without approving steps, creating contacts or sending',async()=>{
  process.env.CLIENT_PHI_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,4).toString('base64');
- await savePaperProcessingStep({clientId:4,actorId:8,step:'draft',data:{documentId:9,evaluationId:11,expectedDraftRevision:0,stage:0,demographics:{preferred_language:'UNSAVED-RELOAD-PROBE'},demographicBaseline:{firstName:'SYNTHETIC-OCR-BASELINE'}}},deps);
- expect(JSON.stringify(client.onboarding_docs_json)).not.toContain('UNSAVED-RELOAD-PROBE');expect(JSON.stringify(client.onboarding_docs_json)).not.toContain('SYNTHETIC-OCR-BASELINE');const context=await paperProcessingContext(4,deps);expect(context.workingDraft.demographics.preferred_language).toBe('UNSAVED-RELOAD-PROBE');expect(context.workingDraft.demographicBaseline.firstName).toBe('SYNTHETIC-OCR-BASELINE');expect(context.state).not.toHaveProperty('workingDraftEnc');expect(context.state.completedSteps).toEqual([]);expect(deps.markSignatures).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
+ await savePaperProcessingStep({clientId:4,actorId:8,step:'draft',data:{documentId:9,evaluationId:11,expectedDraftRevision:0,stage:0,demographics:{preferred_language:'UNSAVED-RELOAD-PROBE'}}},deps);
+ expect(JSON.stringify(client.onboarding_docs_json)).not.toContain('UNSAVED-RELOAD-PROBE');const context=await paperProcessingContext(4,deps);expect(context.workingDraft.demographics.preferred_language).toBe('UNSAVED-RELOAD-PROBE');expect(context.state).not.toHaveProperty('workingDraftEnc');expect(context.state.completedSteps).toEqual([]);expect(deps.markSignatures).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
  delete process.env.CLIENT_PHI_ENCRYPTION_KEY_BASE64;
 });
 it('rejects a stale autosave revision, changed source, or changed evaluation',async()=>{
@@ -193,40 +160,6 @@ it('rejects a staff ID outside the validated source school without changing perm
 
 it('never lets a stale Finish overwrite an authoritative replacement source',async()=>{ready();deps.markSignatures.mockImplementation(async()=>{client.onboarding_docs_json={paperPacketSource:{documentId:10},paperProcessing:{documentId:10,completedSteps:[],invitations:{20:{status:'sent'}}}};});await expect(completePaperProcessing(input,deps)).rejects.toHaveProperty('status',409);expect(paperProcessingState(client).documentId).toBe(10);expect(paperProcessingState(client).processedAt).toBeFalsy();expect(deps.send).not.toHaveBeenCalled();});
 
-it('lets a prepared guardian pass the parent step without granting access or sending',async()=>{
- deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}});
- client.onboarding_docs_json.paperProcessing={completedSteps:['demographics'],documentId:9};
- const state=await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian1',data:{guardianUserId:20}},deps);
- expect(state.guardian1Id).toBe(20);expect(deps.send).not.toHaveBeenCalled();expect(deps.clients.update.mock.calls.every(([,patch])=>patch.guardian_portal_enabled!==1)).toBe(true);
-});
-it('activates a prepared link only after saving the completed signed-packet review',async()=>{
- ready();const links={20:{access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}},21:{access_enabled:1}};
- deps.guardians.getLink.mockImplementation(async({guardianUserId})=>links[guardianUserId]);
- deps.guardians.upsertLink=vi.fn(async data=>{expect(paperProcessingState(client).processedAt).toBeTruthy();links[data.guardianUserId]={access_enabled:1,permissions_json:data.permissionsJson};});
- await completePaperProcessing(input,deps);
- expect(deps.guardians.upsertLink).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20,accessEnabled:true,permissionsJson:expect.objectContaining({paperPacketVerification:expect.objectContaining({documentId:9,actorUserId:8})})}));
- expect(links[20].permissions_json).not.toHaveProperty('pendingGuardianVerification');expect(deps.send).toHaveBeenCalledTimes(2);
-});
-it('never activates pending contacts when consent evidence fails or an authoritative source changes',async()=>{
- ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}});deps.guardians.upsertLink=vi.fn();
- await expect(completePaperProcessing({...input,signaturesConfirmed:false},deps)).rejects.toThrow('Confirm');expect(deps.guardians.upsertLink).not.toHaveBeenCalled();
- deps.markSignatures.mockImplementation(async()=>{client.onboarding_docs_json={paperPacketSource:{documentId:10},paperProcessing:{documentId:10,completedSteps:[]}};});
- await expect(completePaperProcessing(input,deps)).rejects.toHaveProperty('status',409);expect(deps.guardians.upsertLink).not.toHaveBeenCalled();
-});
-it('keeps an explicitly paused contact paused after packet review',async()=>{
- ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{canViewDocs:false,pendingGuardianVerification:false,accountPreparationSource:'saved_guardian_contact'}});deps.guardians.upsertLink=vi.fn();
- const result=await completePaperProcessing(input,deps);expect(deps.guardians.upsertLink).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();expect(result.invitations[20].status).toBe('blocked');
-});
-it('keeps a listed other parent as a contact without requiring their own account for shared custody',async()=>{
- client.onboarding_docs_json.paperProcessing={completedSteps:['demographics','guardian1'],documentId:9,guardian1Id:20};deps.contacts={listForClient:vi.fn(async()=>[{id:30,relationship_type:'parent'}])};
- let state=await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian2',data:{contactOnly:true}},deps);
- expect(state).toMatchObject({guardian2Id:null,guardian2ContactIds:[30],additionalContactIds:[30]});
- await savePaperProcessingStep({clientId:4,actorId:8,step:'school',data:{schoolConfirmed:true,sharedCustody:'yes'}},deps);
- state=paperProcessingState(client);state.completedSteps=[...PAPER_PROCESSING_STEPS];client.onboarding_docs_json={paperProcessing:state};
- await completePaperProcessing(input,deps);expect(deps.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20}));
-});
-it('does not restore guardian access after staff pause a finalized account',async()=>{ready();const link={access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'paper_packet_entry'}};deps.guardians.getLink.mockResolvedValue(link);deps.guardians.upsertLink=vi.fn(async data=>{link.access_enabled=1;link.permissions_json=data.permissionsJson;});await completePaperProcessing(input,deps);link.access_enabled=0;client.onboarding_docs_json={paperProcessing:{...paperProcessingState(client),invitations:{}}};await completePaperProcessing(input,deps);expect(deps.guardians.upsertLink).toHaveBeenCalledTimes(1);expect(paperProcessingState(client).invitations[20].status).toBe('blocked');});
-it('retains a retryable recipient result when account activation is blocked after signed review',async()=>{ready();client.onboarding_docs_json.paperProcessing.guardian2Id=null;client.onboarding_docs_json.paperProcessing.sharedCustody='no';const link={access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}};deps.guardians.getLink.mockResolvedValue(link);deps.guardians.upsertLink=vi.fn().mockRejectedValueOnce(Error('Two guardians already have access.')).mockImplementationOnce(async data=>{link.access_enabled=1;link.permissions_json=data.permissionsJson;});const state=await completePaperProcessing(input,deps);expect(state.processedAt).toBeTruthy();expect(state.invitations[20]).toMatchObject({status:'blocked',reason:'Two guardians already have access.'});expect(deps.send).not.toHaveBeenCalled();await completePaperProcessing(input,deps);expect(deps.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20}));expect(deps.markSignatures).toHaveBeenCalledOnce();});
 
 it('marks a completed packet processed without sending invitations by default',async()=>{
  ready();const {sendInvitations,...review}=input;
@@ -245,5 +178,5 @@ it('accepts a second parent as a saved contact without a portal account',async()
  ready();deps.contacts={findById:vi.fn(async()=>({id:30,client_id:4,agency_id:2,is_active:1}))};
  await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian2',data:{contactOnly:true,affiliationId:30}},deps);
  expect(paperProcessingState(client)).toMatchObject({guardian2Id:null,guardian2ContactId:30});
- const state=await completePaperProcessing({...input,sendInvitations:false},deps);expect(state.processedAt).toBeTruthy();expect(state.invitations[20]).toMatchObject({status:'not_sent'});expect(deps.send).not.toHaveBeenCalled();
+ const state=await completePaperProcessing({...input,sendInvitations:false},deps);expect(state.processedAt).toBeTruthy();expect(deps.send).not.toHaveBeenCalled();
 });

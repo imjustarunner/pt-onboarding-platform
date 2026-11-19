@@ -9,6 +9,7 @@ import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import { completedGuardianAccess } from './enrollmentGuardianAccess.service.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
@@ -487,15 +488,19 @@ class PublicIntakeClientService {
 
       for (const client of createdClients) {
         const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
+        const access = await completedGuardianAccess({ clientId: client.id, guardianUserId: guardianUser.id,
+          link: priorLink, permissions: priorLink ? {} : { intakeLink: link.id } });
         await ClientGuardian.upsertLink({
           clientId: client.id,
           guardianUserId: guardianUser.id,
           relationshipType: enrollmentRelationship(payload, priorLink),
           relationshipTitle: priorLink?.relationship_title || (enrollmentRelationship(payload, priorLink) === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
-          accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
-          permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
+          ...access,
           createdByUserId: null
         });
+        if (access.accessEnabled) {
+          await Client.update(client.id, { guardian_portal_enabled: 1 }, null);
+        }
       }
     }
 
@@ -676,15 +681,19 @@ class PublicIntakeClientService {
 
     for (const client of createdClients) {
       const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
+      const access = await completedGuardianAccess({ clientId: client.id, guardianUserId: guardianUser.id,
+        link: priorLink, permissions: priorLink ? {} : { intakeLink: link.id } });
         await ClientGuardian.upsertLink({
         clientId: client.id,
         guardianUserId: guardianUser.id,
         relationshipType: enrollmentRelationship(payload, priorLink),
         relationshipTitle: priorLink?.relationship_title || (enrollmentRelationship(payload, priorLink) === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
-        accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
-        permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
+        ...access,
         createdByUserId: null
       });
+      if (access.accessEnabled) {
+        await Client.update(client.id, { guardian_portal_enabled: 1 }, null);
+      }
     }
 
     return {

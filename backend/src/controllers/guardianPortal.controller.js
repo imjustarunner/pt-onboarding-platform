@@ -26,7 +26,7 @@ import {
 } from '../services/classPresentationDocuments.service.js';
 import { getClassPresentationForEvent } from '../services/classPresentationLibrary.service.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
-import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import { isGuardianPortalLocked } from '../utils/guardianWaivers.utils.js';
 import { isClientAdultLockedForGuardian } from '../services/guardianWaivers.service.js';
 import { notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
@@ -86,7 +86,7 @@ function enrichGuardianClientRow(c) {
     full_name: noView ? (firstNameOnly(fullName) || c.initials || 'Dependent') : (fullName || c.full_name),
     date_of_birth: noView ? null : c.date_of_birth,
     no_view: noView,
-    guardian_portal_locked: c.relationship_type !== 'self' && isDobAdultLocked(c.date_of_birth)
+    guardian_portal_locked: isGuardianPortalLocked(c, c.date_of_birth)
   };
 }
 
@@ -216,7 +216,7 @@ export const getGuardianPortalOverview = async (req, res, next) => {
         initials: c?.initials || null,
         full_name: noView ? (firstNameOnly(fullName) || c?.initials || 'Dependent') : (fullName || null),
         no_view: noView,
-        guardian_portal_locked: c.relationship_type !== 'self' && isDobAdultLocked(meta?.date_of_birth)
+        guardian_portal_locked: isGuardianPortalLocked(c, meta?.date_of_birth)
       });
     }
 
@@ -1272,7 +1272,7 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
         error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
       });
     }
-    if (link.relationship_type !== 'self' && await isClientAdultLockedForGuardian(clientId)) {
+    if (link.relationship_type !== 'self' && await isClientAdultLockedForGuardian(clientId, uid)) {
       return res.status(403).json({
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
       });
@@ -1308,7 +1308,7 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
         error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
       });
     }
-    if (link.relationship_type !== 'self' && await isClientAdultLockedForGuardian(clientId)) {
+    if (link.relationship_type !== 'self' && await isClientAdultLockedForGuardian(clientId, uid)) {
       return res.status(403).json({
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
       });

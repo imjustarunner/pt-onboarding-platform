@@ -12,10 +12,12 @@ import {
   isValidSectionKey,
   linkHasGuardianWaiverStep,
   isDobAdultLocked,
+  isGuardianPortalLocked,
   parseFeatureFlags,
   resolveRequiredSectionKeys,
   summarizeWaiverPayloadForKiosk
 } from '../utils/guardianWaivers.utils.js';
+import { guardianClientPrivacy } from './guardianClientPrivacy.service.js';
 
 function normalizeSignatureData(sig) {
   const s = String(sig || '').trim();
@@ -58,11 +60,17 @@ async function assertGuardianClientRelationshipExists(guardianUserId, clientId) 
   }
 }
 
-export async function isClientAdultLockedForGuardian(clientId) {
+export async function isClientAdultLockedForGuardian(clientId, guardianUserId = null) {
   const cid = Number(clientId);
   if (!cid) return false;
   const [rows] = await pool.execute('SELECT date_of_birth FROM clients WHERE id = ? LIMIT 1', [cid]);
   const dob = rows?.[0]?.date_of_birth;
+  if (guardianUserId) {
+    const link = await ClientGuardian.getLink({ clientId: cid, guardianUserId });
+    if (link?.relationship_type === 'self') return false;
+    if (await guardianClientPrivacy({ clientId: cid, guardianUserId })) return true;
+    if (Number(link?.access_enabled) === 1) return isGuardianPortalLocked(link, dob);
+  }
   return isDobAdultLocked(dob);
 }
 
@@ -163,7 +171,7 @@ export async function upsertGuardianWaiverSection({
 
   const gid = Number(guardianUserId);
   const cid = Number(clientId);
-  if (!skipAdultGuard && (await isClientAdultLockedForGuardian(cid))) {
+  if (!skipAdultGuard && (await isClientAdultLockedForGuardian(cid, gid))) {
     throw Object.assign(
       new Error('This client has aged out of guardian-managed waivers and documents.'),
       { status: 403, code: 'GUARDIAN_ADULT_CLIENT' }
@@ -273,7 +281,7 @@ export async function getGuardianWaiverProfileForGuardian({ guardianUserId, clie
   const gid = Number(guardianUserId);
   const cid = Number(clientId);
   await assertGuardianLinkedToClient(gid, cid);
-  if (await isClientAdultLockedForGuardian(cid)) {
+  if (await isClientAdultLockedForGuardian(cid, gid)) {
     throw Object.assign(
       new Error('This client has aged out of guardian-managed waivers and documents.'),
       { status: 403, code: 'GUARDIAN_ADULT_CLIENT' }
@@ -335,7 +343,7 @@ export async function evaluateKioskGuardianWaiverGate({
   companyEventId = null
 }) {
   const cid = Number(clientId);
-  if (cid && (await isClientAdultLockedForGuardian(cid))) {
+  if (cid && (await isClientAdultLockedForGuardian(cid, guardianUserId))) {
     return {
       enabled: false,
       complete: true,
@@ -440,7 +448,7 @@ export async function persistIntakeGuardianWaiversFromFinalize({
     const clientId = Number(clientIdsOrdered[i]);
     if (!clientId) continue;
 
-    if (await isClientAdultLockedForGuardian(clientId)) continue;
+    if (await isClientAdultLockedForGuardian(clientId, gid)) continue;
     const waiversOk = await isWaiversEnabledForClient(clientId);
     if (!waiversOk) continue;
 

@@ -13,14 +13,14 @@ it('looks up the linked account and never emails a browser-supplied address or r
 it('does not send or rotate credentials when the completion page opens',async()=>{
  const recover=vi.fn();await enrollmentPortalAccess(context,{users:{findById:async()=>guardian},recover});expect(recover).not.toHaveBeenCalled();
 });
-it('does not look up or email school credentials merely when the completion page opens',async()=>{
- const recover=vi.fn(),users={findById:vi.fn()};
- for(const school of [{invitationDeferred:true}]) {
-   const result=await enrollmentPortalAccess({...context,...school,sendSetupEmail:false},{users,recover});
-   expect(result).toMatchObject({invitationDeferred:true,deliveryStatus:'not_requested'});
-   expect(result).not.toHaveProperty('portalLoginUrl');
+it('shows a school family its portal without sending or rotating credentials on page load',async()=>{
+ const recover=vi.fn(),users={findById:vi.fn(async()=>guardian)};
+ for(const school of [{schoolOrganizationId:20},{invitationDeferred:true}]) {
+   const result=await enrollmentPortalAccess({...context,...school,enrollmentChannel:'counseling',sendSetupEmail:false},{users,recover});
+   expect(result.portalLoginUrl).toContain('auricwell.com');
+   expect(result.needsPasswordSetup).toBe(true);
  }
- expect(recover).not.toHaveBeenCalled();expect(users.findById).not.toHaveBeenCalled();
+ expect(recover).not.toHaveBeenCalled();expect(users.findById).toHaveBeenCalledWith(guardian.id);
 });
 it('allows a school parent to explicitly request optional password setup',async()=>{
  const recover=vi.fn().mockResolvedValue({deliveryStatus:'sent'}),users={findById:async()=>guardian};

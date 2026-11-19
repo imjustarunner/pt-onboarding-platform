@@ -6,7 +6,7 @@ import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
-import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import { isGuardianPortalLocked } from '../utils/guardianWaivers.utils.js';
 import { updateLinkedGuardianContact } from '../services/linkedGuardianContact.service.js';
 import { permissionsForAccessMode } from '../utils/portalRelationshipAccess.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -251,7 +251,7 @@ export const listMyGuardianClients = async (req, res, next) => {
     res.json(
       (rows || []).map((c) => ({
         ...c,
-        guardian_portal_locked: c.relationship_type !== 'self' && isDobAdultLocked(c?.date_of_birth)
+        guardian_portal_locked: isGuardianPortalLocked(c, c?.date_of_birth)
       }))
     );
   } catch (e) {

@@ -138,6 +138,14 @@ export function isDobAdultLocked(dob, asOf = new Date()) {
   return age >= 18;
 }
 
+export function isGuardianPortalLocked(link, dob, asOf = new Date()) {
+  if (link?.relationship_type === 'self') return false;
+  let permissions = link?.permissions_json || {};
+  if (typeof permissions === 'string') { try { permissions = JSON.parse(permissions); } catch { permissions = {}; } }
+  if (permissions?.enrollmentAccessConfirmed === true) return false;
+  return isDobAdultLocked(dob, asOf);
+}
+
 function parseIntakeStepsArray(raw) {
   let steps = raw;
   if (steps == null) return [];

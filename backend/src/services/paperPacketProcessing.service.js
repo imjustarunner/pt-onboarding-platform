@@ -10,6 +10,7 @@ import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.mod
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import { completedGuardianAccess } from './enrollmentGuardianAccess.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 
 import Agency from '../models/Agency.model.js';
@@ -235,13 +236,14 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
     if(!state.guardianAccessFinalizedAt) {
       for (const guardianId of (state.verifiedGuardianIds || [])) {
         const link = await deps.guardians.getLink({clientId:client.id,guardianUserId:guardianId});
-        if (!link || Number(link.access_enabled)===1 || Number(object(link.permissions_json).paperPacketVerification?.documentId)===Number(state.documentId) || (!preparedGuardianLink(link) && !(state.reactivationGuardianIds || []).includes(Number(guardianId)))) continue;
-        const permissions = object(link.permissions_json);
-        const {pendingGuardianVerification, ...retained} = permissions;
-        try{await deps.guardians.upsertLink({clientId:client.id,guardianUserId:guardianId,
-          relationshipType:link.relationship_type || 'guardian',relationshipTitle:link.relationship_title || 'Parent / guardian',accessEnabled:true,
-          permissionsJson:{canViewDocs:true,canSignDocs:true,canViewLinks:true,canViewProgramMaterials:true,canViewProgress:true,canMessage:true,hideOtherGuardianAnswers:true,...retained,
-            paperPacketVerification:{documentId:Number(state.documentId),actorUserId:actorId,verifiedAt:new Date().toISOString()}},createdByUserId:actorId});}
+        if (!link) { activationBlocked.add(Number(guardianId)); continue; }
+        try {
+          const access=await completedGuardianAccess({clientId:client.id,guardianUserId:guardianId,link},deps.database);
+          await deps.guardians.upsertLink({clientId:client.id,guardianUserId:guardianId,
+            relationshipType:link.relationship_type || 'guardian',relationshipTitle:link.relationship_title || 'Parent / guardian',
+            ...access,permissionsJson:{...access.permissionsJson,
+              paperPacketVerification:{documentId:Number(state.documentId),actorUserId:actorId,verifiedAt:new Date().toISOString()}},createdByUserId:actorId});
+        }
         catch(error){activationBlocked.add(Number(guardianId));state.invitations={...(state.invitations||{}),[guardianId]:{status:'blocked',reason:error.message || 'Portal access could not be finalized. Review this contact and retry.'}};}
       }
       if(!activationBlocked.size)state.guardianAccessFinalizedAt=new Date().toISOString();

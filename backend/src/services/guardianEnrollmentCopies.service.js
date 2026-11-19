@@ -1,7 +1,8 @@
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
-import { ageOn } from './guardianClinicalAccess.service.js';
+import { isGuardianPortalLocked } from '../utils/guardianWaivers.utils.js';
+import { guardianClientPrivacy } from './guardianClientPrivacy.service.js';
 import StorageService from './storage.service.js';
 
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -9,7 +10,7 @@ export async function guardianEnrollmentCopies({userId,clientId,agencyId,service
   const link=await ClientGuardian.getLink({clientId,guardianUserId:userId});
   if(!guardianCanReadIntakeDocuments(link))throw fail(403,'These enrollment records are not shared with this account.');
   const [[client]]=await db.execute('SELECT date_of_birth FROM clients WHERE id=?',[clientId]);
-  if(!client||(link.relationship_type!=='self'&&ageOn(client.date_of_birth)>=18))throw fail(403,'These enrollment records require a care-team access review.');
+  if(!client||isGuardianPortalLocked(link,client.date_of_birth)||(link.relationship_type!=='self'&&await guardianClientPrivacy({clientId,guardianUserId:userId},db)))throw fail(403,'These enrollment records require a care-team access review.');
   let channel=null;
   if(serviceId){const {guardianServiceContext}=await import('./clientServiceEnrollment.service.js');const care=await guardianServiceContext({userId,clientId,agencyId,serviceId,scope:null,allowEndedServices:true});channel=care.service.service_kind==='tutoring'?'tutoring':'clinical';}
   // A signer sees only a linked child's bundle. Never expose an entire sibling

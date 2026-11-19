@@ -2,14 +2,17 @@ import pool from '../config/database.js';
 import { billingError,positiveId } from './familyBillingPolicy.service.js';
 import { encryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { parseJson,dateOnly,today,transaction } from './familyLedger/policy.js';
+import { guardianClientPrivacy } from './guardianClientPrivacy.service.js';
 import {guardianLearningAccessOnly} from '../utils/guardianServiceRestrictions.js';
 export const CLINICAL_SCOPES=['treatment_plan','approve_goals','session_frequency','safety_plan','clinical_documents','clinical_messages'];
 export function ageOn(dob,asOf=today()){if(!dob)return null;const date=dateOnly(dob);return Number(asOf.slice(0,4))-Number(date.slice(0,4))-(asOf.slice(5)<date.slice(5)?1:0);}
-export function effectiveClinicalAccess({grant,link,dob,asOf=today()}){
+export function effectiveClinicalAccess({grant,link,dob,asOf=today(),privacyProtected=false}){
   const denied={level:'payer_only',scopes:[],reviewRequired:true};
   const permissions=parseJson(link?.permissions_json,{});
   if(!link||Number(link.access_enabled)!==1||permissions.noView||permissions.noViewOtherGuardian||permissions.billingOnly||guardianLearningAccessOnly(link))return denied;
   if(link.relationship_type==='self')return {level:'self',scopes:[...CLINICAL_SCOPES],reviewRequired:false};
+  if(privacyProtected)return denied;
+  if(permissions.enrollmentAccessConfirmed===true)return {level:'full',scopes:[...CLINICAL_SCOPES],reviewRequired:false};
   if(!grant||grant.revoked_at||!grant.medical_rights_verified||!dob)return denied;
   const age=ageOn(dob,asOf);if(age===null||age<0)return denied;
   if(grant.review_due_date&&dateOnly(grant.review_due_date)<=asOf)return denied;
@@ -32,7 +35,9 @@ export async function clinicalAccess({agencyId,clientId,userId},db=pool){
     const scopes=Number(rows[0].access_enabled)===1&&!permissions.noView&&!permissions.noViewOtherGuardian?await dependentClinicalScopes(userId,clientId,agencyId,db):[];
     return {level:'personal_portal',scopes:scopes||[],reviewRequired:false};
   }
-  return effectiveClinicalAccess({grant:grants[0],link:rows[0],dob:rows[0]?.date_of_birth});
+  const privacyProtected=rows[0] && rows[0].relationship_type!=='self'
+    ? await guardianClientPrivacy({clientId,guardianUserId:userId},db) : false;
+  return effectiveClinicalAccess({grant:grants[0],link:rows[0],dob:rows[0]?.date_of_birth,privacyProtected});
 }
 export async function requireClinicalScope({agencyId,clientId,userId,scope}){const access=await clinicalAccess({agencyId,clientId,userId});if(!access.scopes.includes(scope))throw billingError(403,'This clinical information is not authorized for this relationship. Contact the care team for an access review.');return access;}
 export async function requireClinicalAccessManager(user,agencyId){

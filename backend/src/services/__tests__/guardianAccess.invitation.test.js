@@ -12,6 +12,10 @@ describe('co-parent invitation boundaries',()=>{
  it('rejects a different tenant or packet',()=>{expect(()=>assertActiveCoGuardianInvite(invite(),{agencyId:3})).toThrow('different');expect(()=>assertActiveCoGuardianInvite(invite(),{publicKey:'other'})).toThrow('different');});
  it('accepts only the active bound packet',()=>{expect(assertActiveCoGuardianInvite(invite(),{agencyId:2,publicKey:'packet'}).id).toBe(1);});
  it('releases invitation-only restrictions after completion without sharing intake answers',()=>{expect(completedCoGuardianPermissions(1,{coGuardianInviteId:1,coGuardianInviteRestricted:true,noView:true,noViewOtherGuardian:true})).toMatchObject({noView:false,noViewOtherGuardian:false,hideOtherGuardianAnswers:true,canMessage:true});});
+ it('restores links, materials and progress when the second guardian finishes enrollment',()=>{
+  const result=completedCoGuardianPermissions(1,{coGuardianInviteId:1,coGuardianInviteRestricted:true,noView:true,noViewOtherGuardian:true,canViewLinks:false,canViewProgramMaterials:false,canViewProgress:false});
+  expect(result).toMatchObject({canViewLinks:true,canViewProgramMaterials:true,canViewProgress:true,hideOtherGuardianAnswers:true});
+ });
  it('preserves a deliberate restriction on an existing relationship',()=>{expect(completedCoGuardianPermissions(1,{noView:true,canMessage:false})).toMatchObject({noView:true,canMessage:false});});
  it('does not release restrictions from a different invitation',()=>{expect(completedCoGuardianPermissions(1,{coGuardianInviteId:2,coGuardianInviteRestricted:true,noView:true})).toMatchObject({noView:true});});
 });

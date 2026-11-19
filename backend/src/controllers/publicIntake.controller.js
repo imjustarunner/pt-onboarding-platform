@@ -1,3 +1,5 @@
+import { enrollmentGuardianAccess } from '../utils/enrollmentGuardianAccess.js';
+import { completedGuardianAccess } from '../services/enrollmentGuardianAccess.service.js';
 import { validateTutoringIntakeSubmission } from '../services/learningIntakeSteps.js';
 import { isTutoringIntake, isValidEnrollmentEmail } from '../../../frontend/src/navigation/tutoringEnrollmentPolicy.js';
 import {assertQaStripeTestMode,qaStripeCollectionState} from '../services/qaStripePaymentGuard.service.js';
@@ -2211,13 +2213,13 @@ const queueSchoolIntakeReviewTask = async ({
   }
 };
 
-const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
+export const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
   const cid = Number(clientId || 0);
   if (!cid) return null;
   const email = String(profile?.email || '').trim().toLowerCase();
   if (!email || !email.includes('@')) return null;
   let guardianUser = await User.findByEmail(email);
-  if (guardianUser && String(guardianUser.role || '').toLowerCase() !== 'client_guardian') {
+  if (guardianUser && !['client_guardian', 'guardian', 'client'].includes(String(guardianUser.role || '').toLowerCase())) {
     return null;
   }
   if (!guardianUser) {
@@ -2254,16 +2256,19 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, ac
     });
   }
   const existingLink = await ClientGuardian.getLink({clientId:cid,guardianUserId:Number(guardianUser.id)});
+  const access = accessEnabled
+    ? await completedGuardianAccess({ clientId: cid, guardianUserId: Number(guardianUser.id), link: existingLink,
+      permissions: { intakeLinkGuardianProfile: true } })
+    : enrollmentGuardianAccess(existingLink, { permissions: { intakeLinkGuardianProfile: true } });
   await ClientGuardian.upsertLink({
     clientId: cid,
     guardianUserId: Number(guardianUser.id),
     relationshipType: existingLink?.relationship_type || (String(profile?.relationship || '').trim().toLowerCase() === 'self' ? 'self' : 'guardian'),
     relationshipTitle: String(profile?.relationship || 'Guardian').trim() || 'Guardian',
-    accessEnabled: existingLink ? Number(existingLink.access_enabled) === 1 : !!accessEnabled,
-    permissionsJson: { ...(existingLink?.permissions_json || {}), intakeLinkGuardianProfile: true },
+    ...access,
     createdByUserId: null
   });
-  if (accessEnabled) {
+  if (access.accessEnabled) {
     try {
       await pool.execute(`UPDATE clients SET guardian_portal_enabled = 1 WHERE id = ?`, [cid]);
     } catch (e) {
@@ -6235,7 +6240,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         company_event_id: link.company_event_id ?? null,
         job_description_id: link.job_description_id ?? null,
         create_client: link.create_client,
-        create_guardian: link.create_guardian,
+        create_guardian: (link.create_guardian || isEnrollmentReminderLink(link)) ? 1 : 0,
         guardian_portal_invitation_deferred: false,
         intake_fields: link.intake_fields,
         intake_steps: ensureEnrollmentCommunicationStep(link, hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link)),
@@ -9110,7 +9115,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         ...(coGuardianToken ? {} : { resume: { ...coGuardianScope, submissionId, sessionToken: resumeSessionToken } }),
         contact: req.body?.guardian || {}, createPortal: !!link.create_guardian, enrollmentCompleted: true });
       createdClients = coGuardianBinding.clients;
-      const guardian = accepted.portalAccess ? await User.findByEmail(accepted.portalAccess.email) : null;
+      const acceptedGuardianId = accepted.acceptedUserId || coGuardianBinding.acceptedUserId;
+      const guardian = acceptedGuardianId ? await User.findById(acceptedGuardianId) : null;
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
         client_id: createdClients[0].id,
         guardian_user_id: guardian?.id || accepted.acceptedUserId || coGuardianBinding.acceptedUserId || null
@@ -10626,11 +10632,15 @@ export const finalizePublicIntake = async (req, res, next) => {
           source: 'public_intake'
         });
         if (guardianProfile?.email) {
-          await ensureGuardianAccountLinkedForClient({
+          const guardian = await ensureGuardianAccountLinkedForClient({
             clientId,
             profile: guardianProfile,
-            accessEnabled: !!link.create_guardian
+            accessEnabled: isEnrollmentReminderLink(link) || !!link.create_guardian
           });
+          if (guardian && isEnrollmentReminderLink(link) && !updatedSubmission.guardian_user_id) {
+            await IntakeSubmission.updateById(submissionId, { guardian_user_id: guardian.id });
+            updatedSubmission.guardian_user_id = guardian.id;
+          }
         }
       } catch (persistErr) {
         console.error('[publicIntake] guardian profile persist failed', {
@@ -12050,11 +12060,15 @@ export const submitPublicIntake = async (req, res, next) => {
           source: 'public_intake'
         });
         if (guardianProfile?.email) {
-          await ensureGuardianAccountLinkedForClient({
+          const guardian = await ensureGuardianAccountLinkedForClient({
             clientId,
             profile: guardianProfile,
-            accessEnabled: !!link.create_guardian
+            accessEnabled: isEnrollmentReminderLink(link) || !!link.create_guardian
           });
+          if (guardian && isEnrollmentReminderLink(link) && !updatedSubmission.guardian_user_id) {
+            await IntakeSubmission.updateById(submissionId, { guardian_user_id: guardian.id });
+            updatedSubmission.guardian_user_id = guardian.id;
+          }
         }
       } catch (persistErr) {
         console.error('[publicIntake] guardian profile persist failed (submit)', {
@@ -12304,7 +12318,7 @@ export const submitPublicIntake = async (req, res, next) => {
     // Legacy document packets use submit instead of finalize. Create the same
     // invitation server-side, using only clients created/linked by this submission.
     let coGuardianInvite = null;
-    if (!req.body?.coGuardianToken && link.create_guardian && createdClients.length) {
+    if (!req.body?.coGuardianToken && (isEnrollmentReminderLink(link) || link.create_guardian) && createdClients.length) {
       try {
         const agencyIdForInvite = sharedOrgContext?.agency?.id || await resolveAgencyIdForLink(link);
         coGuardianInvite = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
@@ -12729,7 +12743,7 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     const sessionToken = String(req.body?.sessionToken || req.headers['x-intake-session'] || '').trim();
-    if (sessionToken && submission.session_token && sessionToken !== submission.session_token) {
+    if (!sessionToken || !submission.session_token || sessionToken !== submission.session_token) {
       return res.status(403).json({ error: { message: 'Invalid session' } });
     }
 

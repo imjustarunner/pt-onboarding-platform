@@ -7,6 +7,7 @@ import User from '../models/User.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import { completedGuardianAccess } from './enrollmentGuardianAccess.service.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
 import { deliverCoGuardianInvite, guardianDeliveryFailureCode } from './coGuardianDelivery.service.js';
 import { buildPublicPortalBaseUrl, buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
@@ -47,7 +48,8 @@ export function completedCoGuardianPermissions(inviteId, existing) {
   // care-team restriction on an existing guardian relationship.
   if (!existing || (existing.coGuardianInviteRestricted === true && Number(existing.coGuardianInviteId) === Number(inviteId))) {
     return { ...p, noView: false, noViewOtherGuardian: false, hideOtherGuardianAnswers: true,
-      coGuardianInviteRestricted: false, canViewDocs: true, canSignDocs: true, canMessage: true };
+      coGuardianInviteRestricted: false, canViewDocs: true, canSignDocs: true, canMessage: true,
+      canViewLinks: true, canViewProgramMaterials: true, canViewProgress: true };
   }
   return p;
 }
@@ -238,15 +240,16 @@ async function silentlyLinkMatchingGuardian({
     const title = String(relationshipTitle || 'Guardian').trim() || 'Guardian';
     for (const clientId of clientIds) {
       const existing = await ClientGuardian.getLink({ clientId, guardianUserId: user.id });
+      const access = await completedGuardianAccess({ clientId, guardianUserId: user.id, link: existing,
+        permissions: noViewPermissionsForInvite(inviteId, existing?.permissions_json) });
       await ClientGuardian.upsertLink({
         clientId,
         guardianUserId: user.id,
         relationshipType: 'guardian',
         relationshipTitle: existing?.relationship_title || title,
-        accessEnabled: existing ? Number(existing.access_enabled)===1 : true,
-        permissionsJson: noViewPermissionsForInvite(inviteId, existing?.permissions_json)
+        ...access
       });
-      if (enablePortal === false) continue;
+      if (enablePortal === false || !access.accessEnabled) continue;
       try {
         await pool.execute(
           `UPDATE clients SET guardian_portal_enabled = 1 WHERE id = ? AND (guardian_portal_enabled IS NULL OR guardian_portal_enabled = 0)`,
@@ -717,13 +720,14 @@ export async function acceptCoGuardianInvite({ token, resume = null, contact = {
 
   for (const client of clients) {
     const existing = await ClientGuardian.getLink({ clientId: client.id, guardianUserId: user.id });
+    const access = await completedGuardianAccess({ clientId: client.id, guardianUserId: user.id, link: existing,
+      permissions: completedCoGuardianPermissions(row.id, existing?.permissions_json) });
     await ClientGuardian.upsertLink({
       clientId: client.id,
       guardianUserId: user.id,
       relationshipType: 'guardian',
       relationshipTitle: String(contact.relationship || row.relationship_title || existing?.relationship_title || 'Guardian').trim() || 'Guardian',
-      accessEnabled: existing ? Number(existing.access_enabled) === 1 : true,
-      permissionsJson: completedCoGuardianPermissions(row.id, existing?.permissions_json)
+      ...access
     });
   }
 
