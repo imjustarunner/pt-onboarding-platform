@@ -1,5 +1,5 @@
-vi.mock('../sharedCareNumber.service.js',()=>({sharedCareNumberId:vi.fn(),getSharedCareNumber:vi.fn()}));
-import {sharedCareNumberId,getSharedCareNumber} from '../sharedCareNumber.service.js';
+vi.mock('../sharedCareNumber.service.js',()=>({sharedCareNumberId:vi.fn(),getSharedCareNumber:vi.fn(),configuredReminderNumberId:vi.fn()}));
+import {sharedCareNumberId,getSharedCareNumber,configuredReminderNumberId} from '../sharedCareNumber.service.js';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(),getAgencies:vi.fn()}}));
@@ -21,7 +21,7 @@ import Vacation from '../vacationScheduleSync.service.js';
 import {resolveProfilePhoneMatch} from '../smsProfileAudit.service.js';
 import {resolveInboundRoute,resolveOutboundNumber} from '../communicationRouting.service.js';
 beforeEach(()=>{
- vi.clearAllMocks();sharedCareNumberId.mockResolvedValue(null);getSharedCareNumber.mockResolvedValue(null);
+ vi.clearAllMocks();sharedCareNumberId.mockResolvedValue(null);getSharedCareNumber.mockResolvedValue(null);configuredReminderNumberId.mockResolvedValue(null);
  PhoneNumber.findByPhoneNumber.mockResolvedValue({id:1,agency_id:2,number_purpose:'clinical_care'});
  PhoneNumberAssignment.listByNumberId.mockResolvedValue([{user_id:10}]);
  PhoneNumberAssignment.listEligibleUserIdsForNumber.mockResolvedValue([10]);
@@ -40,6 +40,14 @@ describe('provider communication coverage',()=>{
  it('keeps ordinary after-hours messages in the provider inbox without an away notice',async()=>{isUserAvailable.mockResolvedValue({available:false});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[10],coverageReason:null,supportAccess:'observe',allCaregiversAway:false});expect(isUserAvailable).not.toHaveBeenCalled();});
  it('holds vacation messages even within work hours',async()=>{Vacation.getUserAbsence.mockResolvedValue({key:'manual:one'});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[],coverageReason:'provider_away',allCaregiversAway:true});});
  it('rejects outbound use by a terminated provider',async()=>{User.findById.mockResolvedValue({id:10,status:'TERMINATED_PENDING'});expect(await resolveOutboundNumber({userId:10})).toEqual({error:'staff_unavailable'});});
+});
+
+it('routes replies on the reminder line to agency Support instead of a provider inbox',async()=>{
+ configuredReminderNumberId.mockResolvedValue(1);
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({
+   agencyId:2,clientId:4,ownerType:'agency',eligibleUserIds:[20],careOwnerUserId:null,
+   supportAccess:'respond',reminderLine:true
+ });
 });
 
 describe('shared care line assignment',()=>{

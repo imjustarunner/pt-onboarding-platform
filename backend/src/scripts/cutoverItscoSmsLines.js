@@ -8,6 +8,8 @@ import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 const ITSCO = 2;
 const NLU = 6;
 const QA = 450;
+const TISI = 377;
+const tisiReminderId = 4;
 const pairs = [
   { agencyId: ITSCO, currentAgencyId: QA, reminderId: 5, providerId: 6, oldProviderId: 1 },
   { agencyId: NLU, currentAgencyId: NLU, reminderId: 7, providerId: 8, oldProviderId: 7 }
@@ -20,14 +22,14 @@ export async function runClinicalSmsCutover({ database = pool, apply = false, en
   const db = await database.getConnection();
   try {
     await db.beginTransaction();
-    const [agencyRows] = await db.execute('SELECT id,slug,feature_flags FROM agencies WHERE id IN (2,6,450) ORDER BY id FOR UPDATE');
+    const [agencyRows] = await db.execute('SELECT id,slug,feature_flags FROM agencies WHERE id IN (2,6,377,450) ORDER BY id FOR UPDATE');
     const agencies = new Map(agencyRows.map(row => [Number(row.id), { ...row, flags: parse(row.feature_flags) || {} }]));
     requireExpected(agencies.get(ITSCO)?.slug === 'itsco' && agencies.get(NLU)?.slug === 'nlu'
-      && agencies.get(QA)?.slug === 'auricwell-qa-demo', 'The organization identifiers differ from the approved cutover.');
+      && agencies.get(TISI)?.slug === 'tisi' && agencies.get(QA)?.slug === 'auricwell-qa-demo', 'The organization identifiers differ from the approved cutover.');
 
     const [numbers] = await db.execute(`SELECT n.id,n.agency_id,n.phone_number,n.status,n.is_active,n.number_purpose,
       r.campaign_id,r.registration_json FROM twilio_numbers n
-      JOIN sms_sender_registrations r ON r.number_id=n.id WHERE n.id IN (5,6,7,8) ORDER BY n.id FOR UPDATE`);
+      JOIN sms_sender_registrations r ON r.number_id=n.id WHERE n.id IN (4,5,6,7,8) ORDER BY n.id FOR UPDATE`);
     const lines = new Map(numbers.map(row => [Number(row.id), row]));
     const planned = [];
     for (const pair of pairs) {
@@ -53,6 +55,19 @@ export async function runClinicalSmsCutover({ database = pool, apply = false, en
       }
       planned.push({ ...pair, alreadyReady, reminderEnding: reminder.phone_number.slice(-4), providerEnding: provider.phone_number.slice(-4) });
     }
+
+    const tisiFlags = agencies.get(TISI).flags;
+    const tisiReminder = lines.get(tisiReminderId);
+    const tisiRegistration = parse(tisiReminder?.registration_json);
+    const tisiReady = Number(tisiFlags.smsReminderNumberId) === tisiReminderId && !tisiFlags.smsSharedCareNumberId;
+    requireExpected(tisiReady || (!tisiFlags.smsReminderNumberId && Number(tisiFlags.smsSharedCareNumberId) === tisiReminderId),
+      'Inner Strength line settings changed since review.');
+    requireExpected(Number(tisiReminder?.agency_id) === TISI && tisiReminder.is_active
+      && tisiReminder.status === 'active' && tisiReminder.number_purpose === 'clinical_care'
+      && !validateSmsRegistration(tisiRegistration).length
+      && ['reminders', 'care'].every(purpose => tisiRegistration.purposes.includes(purpose)),
+      'Inner Strength’s reminder and Support line needs an approved registration.');
+    assertNotifyreAgencyCampaign(tisiRegistration, TISI, env);
 
     const transfer = planned.find(pair => pair.agencyId === ITSCO && !pair.alreadyReady);
     let qaAssignments = 0;
@@ -88,11 +103,19 @@ export async function runClinicalSmsCutover({ database = pool, apply = false, en
       [pair.providerId, pair.reminderId, pair.agencyId]);
       await recordOperation(db, pair.agencyId, { providerNumberId: pair.providerId, reminderNumberId: pair.reminderId, sourceAgencyId: pair.currentAgencyId });
     }
+    if (apply && !tisiReady) {
+      await db.execute(`UPDATE agencies SET feature_flags=JSON_SET(
+        JSON_REMOVE(COALESCE(feature_flags,JSON_OBJECT()),'$.smsSharedCareNumberId'),
+        '$.smsReminderNumberId',CAST(? AS UNSIGNED),'$.smsReminderSenderMode','agency_default') WHERE id=?`,
+      [tisiReminderId, TISI]);
+      await recordOperation(db, TISI, { reminderNumberId: tisiReminderId, providerNumberId: null });
+    }
     if (apply) await db.commit();
     else await db.rollback();
     return { applied: apply, lines: planned.map(({ agencyId, reminderEnding, providerEnding, alreadyReady }) => ({
       agencyId, reminderEnding, providerEnding, alreadyReady
-    })), disabledQaAssignments: qaAssignments, disabledQaRelayEnrollments: qaRelays };
+    })), reminderOnly: { agencyId: TISI, reminderEnding: tisiReminder.phone_number.slice(-4), alreadyReady: tisiReady },
+    disabledQaAssignments: qaAssignments, disabledQaRelayEnrollments: qaRelays };
   } catch (error) {
     await db.rollback();
     throw error;
