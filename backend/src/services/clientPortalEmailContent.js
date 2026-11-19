@@ -12,13 +12,47 @@ export function portalActionHtml(label, url) {
   return `${portalMessageHtml({ text: url, linkUrl: url, linkLabel: label })}<p style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;color:#627187">Or copy and paste this link into your browser:<br><a href="${e(url)}" style="color:#16457c">${e(url)}</a></p>`;
 }
 
-export function buildPaperPacketPortalEmail(input) {
-  const email = buildClientEnrollmentEmail(input);
-  const notice = `${input.agencyName}'s support team has processed your paper packet and your online portal has been established.`;
-  const school = input.schoolName ? `School: ${input.schoolName}` : '';
-  return { ...email, subject: `${input.agencyName}: your paper packet has been processed`,
-    text: `${notice}\n${school}\n\n${email.text}`,
-    html: `<p>${e(notice)}</p>${school ? `<p>${e(school)}</p>` : ''}${email.html}` };
+export function buildPaperPacketPortalEmail({ firstName, agencyName, schoolName, existingAccount, url, locale = 'en' }) {
+  const spanish = String(locale).toLowerCase().startsWith('es');
+  const copy = spanish ? {
+    subject: `${agencyName}: recibimos su inscripción escolar`,
+    greeting: firstName ? `Hola, ${firstName}:` : 'Hola:',
+    heading: 'Recibimos su inscripción',
+    received: schoolName
+      ? `Recibimos su formulario de inscripción en papel para ${schoolName} y terminamos de procesarlo.`
+      : 'Recibimos su formulario de inscripción escolar en papel y terminamos de procesarlo.',
+    next: `El equipo de ${agencyName} está revisando su inscripción y se comunicará con usted para coordinar los próximos pasos.`,
+    portal: existingAccount
+      ? 'Puede iniciar sesión en su cuenta de AuricWell con el correo y la contraseña que ya usa.'
+      : 'Su cuenta de AuricWell está lista. Cree su contraseña para iniciar sesión por primera vez.',
+    action: existingAccount ? 'Iniciar sesión en AuricWell' : 'Crear mi contraseña',
+    recovery: 'Para crear o recuperar su contraseña, seleccione Recuperación de contraseña en la página de inicio de sesión de AuricWell.com y use el correo que recibió este mensaje.',
+    coordination: 'Coordinación escolar a través de SchoolCareBridge, un programa de MH4Kidz.'
+  } : {
+    subject: `${agencyName}: we received your school enrollment`,
+    greeting: `Hi ${firstName || 'there'},`,
+    heading: 'We received your enrollment',
+    received: schoolName
+      ? `We received and processed your paper enrollment packet for ${schoolName}.`
+      : 'We received and processed your paper school enrollment packet.',
+    next: `The ${agencyName} team is reviewing your enrollment and will be in touch about next steps.`,
+    portal: existingAccount
+      ? 'You can sign in to AuricWell with your existing email and password.'
+      : 'Your AuricWell account is ready. Create a password to sign in for the first time.',
+    action: existingAccount ? 'Sign in to AuricWell' : 'Create my password',
+    recovery: 'To set a password or regain access, choose Password recovery on the AuricWell.com sign-in page and enter the email address that received this message.',
+    coordination: 'School coordination through SchoolCareBridge, a program of MH4Kidz.'
+  };
+  return {
+    subject: copy.subject,
+    locale: spanish ? 'es' : 'en',
+    text: [copy.greeting, copy.received, copy.next, copy.portal, `${copy.action}: ${url}`, copy.recovery, copy.coordination].join('\n\n'),
+    html: `<div lang="${spanish ? 'es' : 'en'}"><p>${e(copy.greeting)}</p><h2>${e(copy.heading)}</h2>
+      <p>${e(copy.received)}</p><p>${e(copy.next)}</p><p>${e(copy.portal)}</p>
+      ${portalMessageHtml({ text: url, linkUrl: url, linkLabel: copy.action })}
+      <p>${e(copy.recovery)}</p><p>${e(copy.coordination)}</p></div>`,
+    linkUrl: url
+  };
 }
 
 export function buildClientEnrollmentEmail({ firstName, agencyName, clients = [], learning = false, existingAccount = false, url, username = null, locale = 'en' }) {

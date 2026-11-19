@@ -853,7 +853,7 @@ export const APP_PAGES = [
     title: 'Email Settings',
     section: 'Communications',
     path: '/admin/email-settings',
-    keywords: ['email settings', 'auto email', 'automated email', 'sender identity', 'from address', 'notifications@', 'fallback', 'forgot password', 'delivery settings'],
+    keywords: ['email settings', 'auto email', 'automated email', 'sender identity', 'from address', 'notifications@', 'fallback', 'password recovery', 'forgot password', 'delivery settings'],
     desc: 'Tenant automated emails — From identity, triggers, and approval vs. send.'
   },
   {

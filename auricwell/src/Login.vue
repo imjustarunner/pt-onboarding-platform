@@ -43,7 +43,7 @@
           ><button :disabled="busy">
             {{ busy ? "Signing in…" : "Sign in →" }}</button
           ><button class="link-button" type="button" @click="recover">
-            Forgot your password?
+            Password recovery
           </button>
           <RouterLink class="text-security-link" to="/account/text-verification?mode=recovery">Recover using a text code</RouterLink>
           <p class="muted">

@@ -2565,7 +2565,7 @@ export const resolvePacketCompletionEmailContent = async ({
           : regPlainLogin && regPasswordless && regPlainLogin !== regPasswordless
             ? `Main login page: ${regPlainLogin}`
           : (!regPasswordless && regPlainLogin ? `Sign in: ${regPlainLogin}` : ''),
-        regPw ? 'If this password expires before you sign in, use "Forgot password" on the login page to receive a reset link.' : '',
+        regPw ? 'If this password expires before you sign in, choose "Password recovery" on the login page to receive a reset link.' : '',
         regEvent ? `Event / registration: ${regEvent}` : ''
       ].filter(Boolean).join('\n')
     : '';

@@ -29,7 +29,10 @@ it('saves resumable steps without losing checklist metadata or sending an invita
 });
 it('sends distinct invitations once and retains the uploaded signatures as evidence',async()=>{
  ready();const state=await completePaperProcessing(input,deps);
- expect(deps.send.mock.calls.map(([p])=>p.guardianUserId)).toEqual([20,21]);expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({existingLinkOnly:true,paperPacketProcessed:true}));
+ expect(deps.send.mock.calls.map(([p])=>p.guardianUserId)).toEqual([20,21]);
+ expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({existingLinkOnly:true,paperPacketProcessed:true}));
+ expect(deps.send.mock.calls[0][0]).not.toHaveProperty('migration');
+ expect(deps.guardians.upsertLink.mock.invocationCallOrder[1]).toBeLessThan(deps.send.mock.invocationCallOrder[0]);
  expect(state).toMatchObject({signatureSourceDocumentId:9,packetEvaluationId:11,invitations:{20:{status:'sent'},21:{status:'sent'}}});
  await completePaperProcessing({...input,signaturesConfirmed:false,staffRoiConfirmed:false},deps);expect(deps.send).toHaveBeenCalledTimes(2);expect(deps.markSignatures).toHaveBeenCalledTimes(1);
 });

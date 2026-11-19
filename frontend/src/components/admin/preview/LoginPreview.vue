@@ -38,7 +38,7 @@
           </form>
           
           <div class="login-help">
-            <a href="#" class="help-link">Forgot Password?</a>
+            <a href="#" class="help-link">Password recovery</a>
             <span class="help-separator">|</span>
             <a href="#" class="help-link">Forgot Username?</a>
           </div>

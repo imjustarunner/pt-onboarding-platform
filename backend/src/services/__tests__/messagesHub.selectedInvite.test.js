@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import {beforeEach,expect,it,vi} from 'vitest';
+import {buildPaperPacketPortalEmail} from '../clientPortalEmailContent.js';
 
 // Exercise the actual transport entrypoint without importing unrelated Hub
 // integrations. Every model/transport is an in-memory synthetic boundary.
@@ -10,12 +11,13 @@ const handlerSource=source.slice(start,end).replace('export async function','asy
  .replaceAll(/await import\('([^']+)'\)/g,(_match,path)=>`await load(${JSON.stringify(path)})`);
 let m,send;
 beforeEach(()=>{
- const child=id=>({id,agency_id:4,guardian_portal_enabled:1,initials:`C${id}`});
+ const child=id=>({id,agency_id:4,organization_id:9,guardian_portal_enabled:1,initials:`C${id}`});
  m={user:vi.fn(async()=>({id:10,email:'testing+selected@example.com',role:'client_guardian',is_active:1,status:'ACTIVE'})),
   clients:vi.fn(async id=>child(id)),links:vi.fn(async()=>[{guardian_user_id:10,access_enabled:1,permissions_json:{}}]),
   access:vi.fn(async()=>({ok:true})),prepare:vi.fn(async()=>({existingAccount:true})),email:vi.fn(async()=>({id:42})),
   build:vi.fn(args=>({subject:'Synthetic',text:args.clients.map(c=>c.initials).join(',')})),upsert:vi.fn(),create:vi.fn()};
  const models={
+  '../models/Agency.model.js':{default:{findById:async()=>({name:'Synthetic school'})}},
   '../models/Client.model.js':{default:{findById:m.clients,update:vi.fn()}},
   '../models/ClientGuardian.model.js':{default:{listForClient:m.links,upsertLink:m.upsert,parsePermissions:p=>p||{}}},
   '../models/User.model.js':{default:{findById:m.user,findByEmail:m.user,create:m.create,assignToAgency:vi.fn(async()=>{})}},
@@ -24,7 +26,7 @@ beforeEach(()=>{
   './portalInvitationAccess.service.js':{preparePortalInvitationAccess:m.prepare},
   './clientPortalEmail.service.js':{clientEmailContext:async()=>({}),sendClientPortalEmail:m.email},
   './familyPortalLocale.service.js':{familyEnrollmentContext:async()=>({locale:'en'}),portalUrlWithLocale:url=>url},
-  './clientPortalEmailContent.js':{buildClientEnrollmentEmail:m.build}
+  './clientPortalEmailContent.js':{buildClientEnrollmentEmail:m.build,buildPaperPacketPortalEmail}
  };
  const pool={execute:async sql=>sql.includes('SELECT role')?[[{role:'support'}]]:[[child(5),child(6),child(7)]]};
  send=new Function('load','pool','formatPersonKey',`${handlerSource}; return sendHubPortalInvitation;`)(async path=>{
@@ -59,4 +61,15 @@ it('never replaces a deleted or suspended existing contact with a new account',a
   m.user.mockResolvedValue(account);await expect(send(args())).rejects.toHaveProperty('status',409);
  }
  expect(m.create).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();
+});
+
+it('delivers the school paper welcome to the current guardian account',async()=>{
+ const result=await send({...args(),selectedClientIds:undefined,paperPacketProcessed:true});
+ expect(result.delivery).toEqual({id:42});
+ expect(m.email).toHaveBeenCalledWith(expect.objectContaining({
+   clientId:5,userId:10,to:args().expectedRecipientEmail,templateType:'hub_portal_invite',
+   text:expect.stringContaining('paper enrollment packet for Synthetic school')
+ }));
+ expect(m.build).not.toHaveBeenCalled();
+ expect(m.create).not.toHaveBeenCalled();
 });

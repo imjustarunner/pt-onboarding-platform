@@ -35,7 +35,7 @@ it('builds an account invitation with choice links, portal access, initials and 
   expect(email.text).toContain('AVBE');expect(email.text).not.toContain('Avery Bennett');
   expect(email.text).toContain('do not need to have logged in');expect(email.text).toContain('Texts remain off');
   expect(email.text).toContain('Email is the default for account updates');expect(email.text).toContain('Insurance-card requests are email only');
-  expect(email.text).toContain('https://auricwell.com/itsco/login');expect(email.html).toContain('Forgot Password');
+  expect(email.text).toContain('https://auricwell.com/itsco/login');expect(email.html).toContain('Password recovery');
   expect(email.html).toContain('data-schoolcarebridge="account-updates"');
   expect(email.text).toContain('START');
   const office=buildFamilyNotificationInvitationEmail({agencyName:'ITSCO',client:{full_name:'Demo Person',client_type:'office'},url:'https://auricwell.com/test'});

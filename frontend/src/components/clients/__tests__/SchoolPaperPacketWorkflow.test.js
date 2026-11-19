@@ -40,20 +40,20 @@ it('finishes only after saving ROI corrections and displays each recipient outco
  context.state={completedSteps:steps,documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes'};await render();
  await fillHuman();
  saveRoi.mockResolvedValueOnce(false);await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('ROI corrections');
- await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true,sendInvitations:false});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
- await w.findAll('button').find(b=>b.text()==='Retry failed invitations').trigger('click');await flushPromises();expect(saveRoi).toHaveBeenCalledTimes(2);expect(api.post).toHaveBeenCalledTimes(2);
+ await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
+ await w.findAll('button').find(b=>b.text()==='Retry welcome emails').trigger('click');await flushPromises();expect(saveRoi).toHaveBeenCalledTimes(2);expect(api.post).toHaveBeenCalledTimes(2);
 });
-it('closes the seventh review independently of invitations and keeps follow-up state on the profile',async()=>{
+it('finishes the seventh review and keeps welcome delivery and follow-up state on the profile',async()=>{
  context.state={completedSteps:[...steps,'consents'],documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes',consentReview:{kind:'human_source_review',documentId:9,evaluationId:11,roi:{signerName:'Synthetic Parent',signedDate:'2026-11-10',page:5},disclosure:{signerName:'Synthetic Parent',signedDate:'2026-11-10',page:6}}};
  await render();await w.findAll('nav button')[6].trigger('click');
  expect(w.findAll('button').some(b=>b.text()==='Finish paper packet review')).toBe(true);
  const saved={...context.state,processedAt:'2026-11-17T15:00:00Z',insuranceReview:{followUpRequired:true,missingFields:['Member ID pending']},invitations:{20:{status:'not_sent'}},pendingActions:['provider','service_day']};api.post.mockResolvedValueOnce({data:{state:saved}});
- await next();await flushPromises();expect(w.emitted('close')).toHaveLength(1);expect(w.emitted('processed')[0][0]).toEqual(saved);expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',expect.objectContaining({sendInvitations:false}));
+ await next();await flushPromises();expect(w.emitted('close')).toHaveLength(1);expect(w.emitted('processed')[0][0]).toEqual(saved);expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',expect.objectContaining({signaturesConfirmed:true,staffRoiConfirmed:true}));
 });
 it('offers Finish for an already processed packet without retrying a failed preview or sending invitations',async()=>{
  context.state={completedSteps:[...steps,'consents'],documentId:9,processedAt:'2026-11-17T15:00:00Z',invitations:{20:{status:'not_sent'}},insuranceReview:{followUpRequired:true,missingFields:['Member ID pending']}};const saved=structuredClone(context.state);await render();
  await w.findAll('nav button')[6].trigger('click');await w.findAll('button').find(b=>b.text()==='Finish paper packet review').trigger('click');await flushPromises();
- expect(w.emitted('close')).toHaveLength(1);expect(w.emitted('processed')[0][0]).toEqual(saved);expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('remain separate pending actions');
+ expect(w.emitted('close')).toHaveLength(1);expect(w.emitted('processed')[0][0]).toEqual(saved);expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('Welcome email status appears below');expect(w.text()).toContain('Send pending welcome emails');
 });
 it('keeps an unmatched paper packet pending without offering a new signature form',async()=>{
  context.state={completedSteps:steps,documentId:9};context.packetRead.status='needs_review';context.packetRead.versionLabel='';await render();await w.findAll('nav button')[5].trigger('click');expect(w.text()).toContain('Confirm the evidence on this uploaded packet');await next();await flushPromises();expect(api.put).not.toHaveBeenCalled();expect(w.text()).toContain('Printed packet version');expect(w.text()).toContain('no new signatures');expect(w.find('canvas').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();

@@ -342,7 +342,7 @@ export async function fileGuardianAccessHelpTicket({ email, user = null, orgSlug
   const subject = 'Parent/guardian needs a new access token or temporary password';
   const question = [
     'A parent or guardian could not use their access token (invite link expired, never arrived, or they waited too long).',
-    'This is not the staff Forgot password flow.',
+    'This is not the staff password recovery flow.',
     'Please send a new access token manually, or issue a temporary password if they already have a guardian account.',
     '',
     user?.id ? `User ID: ${user.id}` : 'No guardian user matched yet (token-only).',

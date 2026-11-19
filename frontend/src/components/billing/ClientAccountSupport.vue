@@ -19,7 +19,7 @@
       <label v-if="summary.portalUrl">Client portal link<input :value="summary.portalUrl" readonly @click="$event.target.select()" /></label>
     </template>
     <p>Clients and authorized guardians can add a card, pay their balances, and access receipts and payment history in their own portal. Saving a card does not authorize recurring charges.</p>
-    <p>Send an invitation for portal access. Existing users can choose <strong>Forgot password</strong> on the sign-in page to receive a reset email.</p>
+    <p>Send an invitation for portal access. Existing users can choose <strong>Password recovery</strong> on the sign-in page to receive a link to set or recover their password.</p>
     <div class="account-support-actions">
       <button type="button" class="btn btn-secondary" @click="showInvite=true">Send portal invitation</button>
       <button v-if="summary?.portalUrl" type="button" class="btn btn-secondary" @click="copyPortal">Copy portal link</button>

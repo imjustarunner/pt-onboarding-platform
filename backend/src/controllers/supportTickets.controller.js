@@ -935,7 +935,7 @@ function buildSupportTicketResponsePrompt({
       '- Remind the counselor they can upload referral/intake packets directly in the school portal.',
       '- Portal URL: https://app.itsco.health',
       '- Username = the email address they used to send this message (their school/work email).',
-      '- If they do not know their password, tell them to use Forgot password on the login page.',
+      '- If they do not know their password, tell them to choose Password recovery on the login page.',
       '- After login, upload the packet for the student rather than emailing it.',
       '- Keep the reply short and actionable; do not ask for the student name/ID if the ask is only about starting services / sending a packet.'
     );

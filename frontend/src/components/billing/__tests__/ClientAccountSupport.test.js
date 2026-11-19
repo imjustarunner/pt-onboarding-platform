@@ -9,7 +9,7 @@ beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:data()});});
 it('shows only account assistance and routes receipts and payment actions to the client portal',async()=>{
   const w=mountPanel();await flushPromises();expect(api.get).toHaveBeenCalledWith('/clients/20/account-support');
   expect(w.text()).toContain('$75.00');expect(w.text()).toContain('Visa ending 4242');expect(w.text()).toContain('excluded from this amount');
-  expect(w.text()).toContain('Forgot password');expect(w.find('input[readonly]').element.value).toBe(data().portalUrl);
+  expect(w.text()).toContain('Password recovery');expect(w.find('input[readonly]').element.value).toBe(data().portalUrl);
   expect(w.findAll('button').map(b=>b.text())).toEqual(['Send portal invitation','Copy portal link','Manage portal contacts','Refresh account status']);
   expect(w.findAll('a')).toHaveLength(0);w.unmount();
 });

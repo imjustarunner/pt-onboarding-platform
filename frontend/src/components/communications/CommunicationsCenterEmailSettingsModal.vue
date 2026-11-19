@@ -351,8 +351,8 @@ const emailTypeRows = [
   },
   {
     key: 'password_reset',
-    label: 'Forgot password',
-    description: 'Reset-link emails when someone clicks Forgot Password on login.'
+    label: 'Password recovery',
+    description: 'Emails with a link to set or recover a password after a request from the sign-in page.'
   },
   {
     key: 'school_roi_signing',

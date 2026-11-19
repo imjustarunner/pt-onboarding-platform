@@ -50,9 +50,9 @@ export const AUTOMATED_EMAIL_CATALOG = [
     key: 'password_reset',
     kind: 'template',
     category: 'Login & accounts',
-    label: 'Forgot password',
-    description: 'Sent when a school staff member or guardian clicks Forgot Password on the login page. The email includes a one-time link (48 hours) to set a new password.',
-    trigger: 'Someone clicks Forgot Password and submits their email on the login screen.',
+    label: 'Password recovery',
+    description: 'Sent when a school staff member or guardian selects Password recovery on the login page. The email includes a one-time link (48 hours) to set a new password.',
+    trigger: 'Someone selects Password recovery and submits their email on the login screen.',
     triggerKind: 'Immediate · Event-based',
     sourceLinks: [
       { label: 'Login page', path: '/login' }
@@ -74,7 +74,7 @@ export const AUTOMATED_EMAIL_CATALOG = [
       { label: 'School Staff Accounts', path: '/admin/school-staff-accounts' }
     ],
     preferredKeys: ['technology', 'login_recovery', 'notifications'],
-    recommendedFromHint: 'Same From as Forgot Password — Technology@itsco.health for ITSCO.'
+    recommendedFromHint: 'Same From as Password recovery — Technology@itsco.health for ITSCO.'
   },
   {
     key: 'school_staff_account_recovery',

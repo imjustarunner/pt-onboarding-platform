@@ -10,7 +10,7 @@ export function formatPasswordRecoveryAudit(metadata) {
   m = m || {};
   const actor = m.performedByName || m.performedByEmail ||
     (m.performedByUserId ? `Staff user #${m.performedByUserId}` :
-      (m.requestSource === 'public_forgot_password' ? 'Public Forgot Password form (not signed in)' : 'Requester not recorded'));
+      (m.requestSource === 'public_forgot_password' ? 'Public password recovery form (not signed in)' : 'Requester not recorded'));
   const source = { school_portal: 'School portal', admin_profile: 'Admin profile', public_forgot_password: 'Public sign-in page' }[m.requestSource];
   const status = { sent: 'Sent', failed: 'Failed', not_sent: 'Link generated; email not sent' }[m.deliveryStatus];
   return [

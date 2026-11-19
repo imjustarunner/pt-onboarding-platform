@@ -4058,40 +4058,60 @@ export async function sendHubPortalInvitation({
 
   let delivery = null;
   if (!skipEmail) {
+    const { clientEmailContext, sendClientPortalEmail } = await import('./clientPortalEmail.service.js');
+    const { buildClientEnrollmentEmail, buildPaperPacketPortalEmail } = await import('./clientPortalEmailContent.js');
+    const emailContext = await clientEmailContext({ agencyId: inviteAgencyId, clientId: cid });
+    let built;
+    if (paperPacketProcessed) {
+      const { default: Agency } = await import('../models/Agency.model.js');
+      const school = client.organization_id ? await Agency.findById(client.organization_id) : null;
+      built = buildPaperPacketPortalEmail({
+        firstName: firstName || guardian.first_name,
+        agencyName: agency.name,
+        schoolName: school?.name,
+        existingAccount,
+        url: setupUrl,
+        locale: enrollmentLocale
+      });
+    } else {
+      const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id,cg.permissions_json,o.organization_type
+        FROM clients c JOIN client_guardians cg ON cg.client_id=c.id LEFT JOIN agencies o ON o.id=c.organization_id
+        WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND c.agency_id=?
+          AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[guardian.id,inviteAgencyId]);
+      const included = [];
+      for (const sibling of siblings) {
+        const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
+        if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
+        if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
+        if(existingLinkOnly&&Array.isArray(selectedClientIds)&&!selectedClientIds.map(Number).includes(Number(sibling.id)))continue;
+        const siblingContext = await resolveClientPortalContext(sibling);
+        if (siblingContext.learning === portalContext.learning) included.push(sibling);
+      }
+      if(migration){
+        const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
+        for(const profile of included.length?included:[client]){
+          const gate=await familyNotificationDeliveryGate({agencyId:inviteAgencyId,clientId:profile.id,to:email,templateType:'portal_migration_invite'});
+          if(!gate.allowed)return {ok:false,delivery:{blocked:true,reason:gate.reason},guardianUserId:guardian.id,clientId:cid};
+        }
+      }
 
-  const { clientEmailContext, sendClientPortalEmail } = await import('./clientPortalEmail.service.js');
-  const { buildClientEnrollmentEmail, buildPaperPacketPortalEmail } = await import('./clientPortalEmailContent.js');
-  const emailContext = await clientEmailContext({agencyId:inviteAgencyId,clientId:cid});
-  const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id,cg.permissions_json,o.organization_type
-    FROM clients c JOIN client_guardians cg ON cg.client_id=c.id LEFT JOIN agencies o ON o.id=c.organization_id
-    WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND c.agency_id=?
-      AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[guardian.id,inviteAgencyId]);
-  const included = [];
-  for (const sibling of siblings) {
-    const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
-    if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
-    if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
-    if(existingLinkOnly&&Array.isArray(selectedClientIds)&&!selectedClientIds.map(Number).includes(Number(sibling.id)))continue;
-    const siblingContext = await resolveClientPortalContext(sibling);
-    if (siblingContext.learning === portalContext.learning) included.push(sibling);
-  }
-  if(migration){
-    const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
-    for(const profile of included.length?included:[client]){
-      const gate=await familyNotificationDeliveryGate({agencyId:inviteAgencyId,clientId:profile.id,to:email,templateType:'portal_migration_invite'});
-      if(!gate.allowed)return {ok:false,delivery:{blocked:true,reason:gate.reason},guardianUserId:guardian.id,clientId:cid};
+      built = migration
+        ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
+          agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
+          portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school'),locale:enrollmentLocale,documents:migrationDocuments})
+        : buildClientEnrollmentEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
+          agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl});
     }
-  }
-  const built = migration
-    ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
-      agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
-      portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school'),locale:enrollmentLocale,documents:migrationDocuments})
-    : (paperPacketProcessed ? buildPaperPacketPortalEmail : buildClientEnrollmentEmail)({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
-      agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl,
-      schoolName:paperPacketProcessed && client.organization_id ? (await (await import('../models/Agency.model.js')).default.findById(client.organization_id))?.name : null});
-  delivery = await sendClientPortalEmail({agencyId:inviteAgencyId,clientId:cid,context:emailContext,
-    to:email,...built,source:'auto',templateType:migration?'portal_migration_invite':'hub_portal_invite',userId:guardian.id});
-
+    delivery = await sendClientPortalEmail({
+      agencyId: inviteAgencyId,
+      clientId: cid,
+      context: emailContext,
+      to: email,
+      ...built,
+      source: 'auto',
+      templateType: migration && !paperPacketProcessed ? 'portal_migration_invite' : 'hub_portal_invite',
+      userId: guardian.id
+    });
   }
 
   return {

@@ -482,7 +482,7 @@
                 <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" @change="saveRememberPreference" />
                 {{ authText("Remember me on this browser") }}
               </label>
-              <a v-if="isPlatformLogin" href="#" @click.prevent="showForgotPassword" class="help-link">{{ authText("Forgot password?") }}</a>
+              <a v-if="isPlatformLogin" href="#" @click.prevent="showForgotPassword" class="help-link">{{ authText("Password recovery") }}</a>
             </div>
             
             <button v-if="needsOrgChoice" type="submit" class="btn btn-primary" :disabled="verifying || loading || !selectedOrgSlug">
@@ -518,7 +518,7 @@
           <RouterLink v-if="isFundThredLogin" to="/fundthred/pricing" class="help-link">Explore FundThred plans and bundles</RouterLink>
           <RouterLink v-else-if="isPlatformLogin" to="/plans" class="help-link">Compare Basic, Premium and Premium Plus</RouterLink>
           <div v-if="!isPlatformLogin" class="login-help">
-            <a href="#" @click.prevent="showForgotPassword" class="help-link">{{ authText("Forgot Password?") }}</a>
+            <a href="#" @click.prevent="showForgotPassword" class="help-link">{{ authText("Password recovery") }}</a>
             <span class="help-separator">|</span>
             <a href="#" @click.prevent="showForgotUsername" class="help-link">{{ authText("Forgot Username?") }}</a>
             <template v-if="loginSlug">
@@ -563,12 +563,12 @@
 
         <p v-if="isPlatformLogin" class="hq-powered">Powered by <a href="https://plottwistco.com/">PlotTwistCo</a></p>
 
-        <!-- Forgot Password Modal -->
+        <!-- Password recovery modal -->
         <div v-if="showForgotPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
-            <h3>{{ isSchoolPortalOrg ? authText("Set your password") : authText("Reset your password") }}</h3>
+            <h3>{{ authText("Password recovery") }}</h3>
             <p class="modal-subtitle">
-              {{ authLocale === 'es' ? authText('Enter your email to receive a link to set or reset your portal password.') : isSchoolPortalOrg
+              {{ authLocale === 'es' || isAuricWellLogin ? authText('Enter your email to receive a link to set or reset your portal password.') : isSchoolPortalOrg
                 ? 'Enter the email on your school staff account. If you have never logged in or your temporary password expired, we will email you a link to set your password.'
                 : 'Enter your work login email or personal recovery email. We\'ll send a set/reset link and remind you of your login username (always your work email).' }}
             </p>
@@ -2534,7 +2534,7 @@ const forgotPasswordSubmitLabel = computed(() => {
   if (forgotPasswordCooldownRemaining.value > 0) {
     return authText('Sent ({seconds}s)', { seconds:forgotPasswordCooldownRemaining.value });
   }
-  return isSchoolPortalOrg.value ? 'Send set-password link' : authText("Send reset link");
+  return authText("Send recovery link");
 });
 
 onUnmounted(() => {
@@ -2643,7 +2643,7 @@ const submitForgotPassword = async () => {
       organizationSlug: loginSlug.value || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
 
-    recoverySuccess.value = resp?.data?.message || authText("If the email matches an account, you will receive a reset link shortly.");
+    recoverySuccess.value = resp?.data?.message || authText("If the email matches an account, you will receive a recovery link shortly.");
     recoveryDebug.value = resp?.data?.debug || null;
     startForgotPasswordCooldown();
   } catch (e) {
@@ -2674,7 +2674,7 @@ const submitCurrentEmployeeRescue = async () => {
     const method = String(resp?.data?.login?.method || 'password').toLowerCase();
     if (method === 'google') {
       if (isIOSNative) {
-        recoveryError.value = 'Google sign-in is only available on the web. Use reset password to set a password you can use in this app.';
+        recoveryError.value = 'Google sign-in is only available on the web. Use Password recovery to set a password you can use in this app.';
         return;
       }
       const path = withSsoNext(String(resp?.data?.login?.googleStartUrl || '').trim());
@@ -2686,9 +2686,9 @@ const submitCurrentEmployeeRescue = async () => {
       continueWithGoogle();
       return;
     }
-    recoveryError.value = 'This account is set to password login. Use reset password or sign in with your password.';
+    recoveryError.value = 'This account is set to password login. Sign in with your password or choose Password recovery.';
   } catch {
-    recoveryError.value = 'We could not route your sign-in right now. Please try again or use reset password.';
+    recoveryError.value = 'We could not route your sign-in right now. Please try again or choose Password recovery.';
   } finally {
     currentEmployeeRescueLoading.value = false;
   }
