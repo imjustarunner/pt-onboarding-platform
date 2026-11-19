@@ -65,6 +65,7 @@ export async function appendComplianceFooter({
   agencyId = null,
   userId = null,
   skipOptOutLink = false,
+  skipConfidentialityNotice = false,
   misdirectedReportUrl = null
 } = {}) {
   let optOutUrl = null;
@@ -101,7 +102,7 @@ export async function appendComplianceFooter({
 
   const textParts = [String(text || '').trim()];
   if (!disclaimerAlreadyPresent) {
-    textParts.push('', '---', CONFIDENTIALITY_DISCLAIMER);
+    if (!skipConfidentialityNotice) textParts.push('', '---', CONFIDENTIALITY_DISCLAIMER);
     if (reportUrl) {
       textParts.push('', `Report a misdirected email: ${reportUrl}`);
     }
@@ -141,6 +142,8 @@ export async function appendComplianceFooter({
 
   const disclaimerBodyHtml = disclaimerAlreadyPresent
     ? ''
+    : skipConfidentialityNotice
+      ? (reportUrl ? `<p><a href="${escapeHtml(reportUrl)}">Report a misdirected email</a></p>` : '')
     : `
       <p style="margin:0 0 8px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.02em;">
         CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!

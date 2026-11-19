@@ -24,7 +24,7 @@ export function enrollmentMailBrand({ agency, domain, school = false, channel = 
   if (slug === 'itsco' || name === 'ITSCO') agencyLogo = 'https://itsco.health/assets/plotline/careers/itsco-logo.png';
   if (slug === 'nlu' || name === 'Next Level Up') agencyLogo = 'https://nextleveluplcc.com/assets/nlu/logo.png';
   return {
-    clinical, name, agencyLogo,
+    clinical, learning: !clinical && ['tutoring','learning'].includes(channel), name, agencyLogo,
     displayName: clinical ? 'AuricWell Portal' : `${name} Portal`,
     fromEmail: clinical ? 'portal@auricwell.com' : `portal@${domain}`,
     replyTo: `support@${domain}`,

@@ -1,5 +1,6 @@
 import {appointmentAttendanceView,appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
+import {tutoringBookingSubjects} from './tutoringBookingContext.service.js';
 import {learningAttendanceHistory} from './learningAttendanceHistory.service.js';
 import {listPublishedTutoringSummaries} from './tutoringNotePublication.service.js';
 import { checklistMasteryReview } from '../../../frontend/src/navigation/tutoringSessionDocumentation.js';
@@ -787,8 +788,8 @@ export async function matchTutorsForRequest({
 /**
  * Learning overview for chart hub.
  */
-export async function getLearningOverview(clientId,{agencyId=null,providerId=null}={}) {
-  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>providerId==null||(Number(providerId)>0&&Number(s.primary_tutor_user_id)===Number(providerId)));
+export async function getLearningOverview(clientId,{agencyId=null,providerId=null,subjectIds=null}={}) {
+  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>subjectIds!==null?subjectIds.includes(Number(s.id)):providerId==null||(Number(providerId)>0&&Number(s.primary_tutor_user_id)===Number(providerId)));
   const overview = [];
   for (const s of subjects) {
     const plan = await StudentLearningPlan.findActiveBySubject(s.id);
@@ -1633,8 +1634,16 @@ export async function buildAssessmentBlueprint(payload, actorUserId) {
 /**
  * Guardian-facing Learning OS snapshot: published reports, practice, subject progress.
  */
-export async function getGuardianLearningSnapshot(clientId,{agencyId=null,providerId=null}={}) {
-  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>providerId==null||(Number(providerId)>0&&Number(s.primary_tutor_user_id)===Number(providerId)));
+export async function getGuardianLearningSnapshot(clientId,{agencyId=null,providerId=null,serviceId=null}={}) {
+  const matchedSubjectId = Number(providerId)>0 && serviceId
+    ? (await tutoringBookingSubjects({agencyId,providerId,clientId})).find(choice=>choice.serviceEnrollmentId===Number(serviceId))?.studentSubjectId
+    : null;
+  const subjects = (await StudentSubject.listByClient(clientId,{agencyId})).filter(s=>{
+    if(providerId==null)return true;
+    if(!(Number(providerId)>0))return false;
+    if(serviceId)return Number(s.id)===matchedSubjectId;
+    return Number(s.primary_tutor_user_id)===Number(providerId);
+  });
   const out = [];
   for (const s of subjects) {
     const workspaceLite = {
@@ -1689,7 +1698,7 @@ export async function getGuardianLearningSnapshot(clientId,{agencyId=null,provid
 // null intentionally aggregates authorized agency work. Zero represents an
 // explicitly selected service awaiting assignment and must never become null.
 export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null,serviceId=null,portalContext=null}={}) {
-  const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId});
+  const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId,serviceId});
   let upcomingSessions = [];
   let recentSessions = [];
   try {

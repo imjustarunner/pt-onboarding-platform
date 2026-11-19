@@ -10,7 +10,7 @@
     <p v-if="error" role="alert">{{ error }} <button @click="refresh">Retry</button></p>
     <div class="therapy-layout" :class="{'has-share': shared && shared.payload.mode !== 'video', 'side-open':panel}">
       <div class="therapy-main">
-        <div class="therapy-video"><slot name="video"><VideoSessionRoom ref="videoRef" v-bind="video" :hide-controls="true" :server-managed-end="true" :equal-tiles-when-remote="true" @screen-sharing-change="onScreenSharing" :is-host-or-cohost="isHost" :show-layout-controls="true" @connected="$emit('connected')" @disconnected="$emit('disconnected')" @leave-request="$emit('leave-request')" @meeting-ended="$emit('meeting-ended')" /></slot></div>
+        <div class="therapy-video"><slot name="video"><VideoSessionRoom ref="videoRef" v-bind="video" :hide-controls="true" :server-managed-end="true" :defer-alone-warning="deferAloneWarning" :equal-tiles-when-remote="true" @screen-sharing-change="onScreenSharing" :is-host-or-cohost="isHost" :show-layout-controls="true" @connected="$emit('connected')" @disconnected="$emit('disconnected')" @leave-request="$emit('leave-request')" @meeting-ended="$emit('meeting-ended')" /></slot></div>
         <section v-if="shared && shared.payload.mode !== 'video'" class="therapy-shared" :aria-label="shared.payload.title || 'Shared tool'">
           <div class="shared-heading"><div><small>{{ shared.role==='client' ? 'SHARED BY CLIENT' : 'SHARED IN SESSION' }}</small><h2>{{ shared.payload.title || modeLabel(shared.payload.mode) }}</h2></div><button @click="save('share',{mode:'video'})">Close tool</button></div>
           <template v-if="shared.payload.mode === 'whiteboard'">
@@ -81,7 +81,7 @@ import {defineAsyncComponent,computed,onMounted,onBeforeUnmount,ref,watch} from 
 import {Mic,Video,ScreenShare,Pencil,MessageCircle,FolderOpen,FileText,Gamepad2,Play,Link,BookOpen,ClipboardList,Heart,ChevronRight,Minimize2} from '@lucide/vue';
 import VideoSessionRoom from '../video/VideoSessionRoom.vue';
 const SharedSessionPdf=defineAsyncComponent(()=>import('./SharedSessionPdf.vue'));
-const props=defineProps({video:{type:Object,default:()=>({})},isHost:Boolean,learning:Boolean,startedAt:{type:[String,Number,Date],default:undefined},identified:Boolean,showBrand:{type:Boolean,default:true},branding:Object,productName:{type:String,default:'AuricWell'},request:{type:Function,required:true},videoControl:Function});
+const props=defineProps({video:{type:Object,default:()=>({})},isHost:Boolean,learning:Boolean,deferAloneWarning:Boolean,startedAt:{type:[String,Number,Date],default:undefined},identified:Boolean,showBrand:{type:Boolean,default:true},branding:Object,productName:{type:String,default:'AuricWell'},request:{type:Function,required:true},videoControl:Function});
 defineEmits(['connected','disconnected','leave-request','meeting-ended']);
 const videoRef=ref(null),artifacts=ref([]),error=ref(''),saving=ref(false),panel=ref(''),chat=ref(''),draftMode=ref(''),draftTitle=ref(''),draftUrl=ref(''),draftQuestions=ref(''),documentData=ref(''),planId=ref(''),treatmentPlans=ref([]),page=ref(1),answers=ref([]),rating=ref(5),savedMessage=ref(''),ink=ref('#2563eb'),stroke=ref([]),now=ref(Date.now());
 const started=Date.now();let poll,clock,drawing=false,polling=false,cursor=0;

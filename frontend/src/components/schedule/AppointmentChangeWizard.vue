@@ -426,7 +426,7 @@
                 <h3 class="acw-h">System-generated note</h3>
                 <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? 'Signed · Nonbillable' : 'Ready for review' }}</span>
               </div>
-              <p class="muted">This note is attached to the session and is nonbillable. {{ isLearning ? 'Signing does not itself create a tutoring charge.' : 'Signing does not create an insurance claim.' }}</p>
+              <p class="muted">{{ isLearning ? 'This note records the tutoring attendance decision. Any fee follows the reviewed missed-session policy.' : 'This note is attached to the session and is nonbillable. Signing does not create an insurance claim.' }}</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
               <div v-if="change.preview.value?.seriesChange" class="acw-client-notice" data-series-cancellation-review>
                 <h4 class="acw-h4">{{ change.preview.value.seriesChange.count }} visits in this series</h4>

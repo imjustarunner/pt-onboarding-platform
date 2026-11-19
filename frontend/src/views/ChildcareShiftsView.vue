@@ -1,6 +1,6 @@
 <template>
   <main class="childcare-page">
-    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><button type="button" @click="addSticky">Add a sticky</button><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
+    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><MomentumStickyComposer label="Add a sticky" /><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading childcare shifts…</p>
@@ -33,12 +33,12 @@
           <p v-if="selected.note" class="operational-note">{{ selected.note }}</p>
           <ul class="caregivers"><li v-for="person in selected.providers || []" :key="person.userId">{{ person.firstName }} {{ person.lastName }} · {{ person.clockedIn ? 'Clocked in' : person.clockedOut ? 'Clocked out' : 'Not clocked in' }}</li></ul>
           <template v-if="selected.status !== 'cancelled' && selected.status !== 'canceled'">
-            <fieldset v-if="isAssigned || context.canManage || context.canApprove"><legend>Were the scheduled {{ selected.plannedChildren }} children present?</legend><label class="check"><input v-model="countChoice" type="radio" value="planned" name="childcare-count" />Yes, {{ selected.plannedChildren }} children</label><label class="check"><input v-model="countChoice" type="radio" value="actual" name="childcare-count" />A different number</label><label v-if="countChoice === 'actual'">Actual children present<input v-model="actualCount" type="number" min="0" step="1" /></label><label class="check"><input v-model="countChoice" type="radio" value="later" name="childcare-count" />Attendance needs review; record my time now</label></fieldset>
+            <fieldset class="child-count-choices" v-if="isAssigned || context.canManage || context.canApprove"><legend>Were the scheduled {{ selected.plannedChildren }} children present?</legend><label class="check"><input v-model="countChoice" type="radio" value="planned" name="childcare-count" />Yes, {{ selected.plannedChildren }} children</label><label class="check"><input v-model="countChoice" type="radio" value="actual" name="childcare-count" />A different number</label><label v-if="countChoice === 'actual'">Actual children present<input v-model="actualCount" type="number" min="0" step="1" /></label><label class="check"><input v-model="countChoice" type="radio" value="later" name="childcare-count" />Attendance needs review; record my time now</label></fieldset>
             <div class="actions"><button v-if="isAssigned && !clockedIn && selected.status!=='completed'" type="button" :disabled="busy" @click="punch('clock-in')">Clock in</button><button v-if="isAssigned && clockedIn" type="button" :disabled="busy" @click="punch('clock-out')">Clock out</button><button v-if="isAssigned || context.canManage || context.canApprove" type="button" :disabled="busy || countChoice === 'later'" @click="saveAttendance">Record attendance change</button><button v-if="canEdit" type="button" :disabled="busy" @click="editShift">Edit schedule</button><button v-if="canEdit" type="button" :disabled="busy" @click="cancelShift">Cancel shift</button></div>
           </template>
           <p v-if="selected.myParticipation?.clockedInAt">Clocked in: {{ instant(selected.myParticipation.clockedInAt, selected.timezone) }}</p><p v-if="selected.myParticipation?.clockedOutAt">Clocked out: {{ instant(selected.myParticipation.clockedOutAt, selected.timezone) }}</p>
           <form v-if="(context.canManage || context.canApprove) && selected.attendanceReviewRequired" class="review" @submit.prevent="resolveAttendance"><h3>Review attendance</h3><label>Reviewed actual child count<input v-model="reviewCount" type="number" min="0" step="1" required /></label><label>Count applied from ({{ selected.timezone }})<input v-model="reviewEffectiveLocal" type="datetime-local" required /></label><label>Review explanation<textarea v-model="reviewNote" required maxlength="2000" placeholder="Explain how the recorded attendance and work intervals were verified." /></label><p>The original observations and punches stay in history. This records a reviewed count for the stated work interval.</p><button type="submit" :disabled="busy">Record attendance review</button></form>
-          <section id="childcare-finalize" tabindex="-1" class="work-review"><h3>Recorded work and childcare sign-off</h3>
+          <section id="childcare-finalize" tabindex="-1" class="work-review"><h3>{{ finalizeShift ? 'Finalize this childcare shift' : 'Recorded work and childcare sign-off' }}</h3>
             <p>Clocking out records time. The employee submits their work, then a separate authorized reviewer signs off. Payroll approval remains separate.</p>
             <template v-if="isAssigned">
               <p>Your submission: {{ownWorkReview?.status || 'Not submitted'}}</p><p v-if="ownWorkReview?.status==='draft'">The recorded work changed. Review and submit the current intervals again.</p>
@@ -72,14 +72,13 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, zonedDatetimeLocalToIso, isoToZonedDatetimeLocal, formatViewerEventWhen, parseUtcInstant } from '../utils/timezones';
-import { useMomentumStickiesStore } from '../store/momentumStickies';
+import MomentumStickyComposer from '../components/momentum/MomentumStickyComposer.vue';
 import { nextTick } from 'vue';
 import { CHILDCARE_BANDS, childcareCountPayload, childcareMoney } from '../utils/childcarePresentation';
 
 const props = defineProps({ agencyId: { type: Number, default: null }, http: { type: Object, default: null }, shiftId: { type: Number, default: null }, userId: { type: Number, default: null } });
 const route = useRoute(), router = useRouter(), agencyStore = useAgencyStore(), auth = useAuthStore();
-function addSticky(){const stickies=useMomentumStickiesStore();stickies.requestExpandOverlay();stickies.requestCreateNewSticky();}
-async function focusFinalize(){if(route.query.focus!=='finalize')return;await nextTick();const el=document.getElementById('childcare-finalize');el?.scrollIntoView?.({block:'start',behavior:'smooth'});el?.focus?.();}
+async function focusFinalize(){if(!finalizeShift.value&&route.query.focus!=='finalize')return;await nextTick();const el=document.getElementById('childcare-finalize');el?.scrollIntoView?.({block:'start',behavior:'smooth'});el?.focus?.();}
 const http = computed(() => props.http || api);
 const agencyId = computed(() => Number(props.agencyId || agencyStore.currentAgency?.id) || null);
 const context = ref(null), shifts = ref([]), selected = ref(null), pay = ref(null), eligibleStaff = ref([]);
@@ -88,6 +87,7 @@ const locationRooms = computed(() => locations.value.find(site => Number(site.id
 const loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), editing = ref(false), editId = ref(null);
 const confirmWork=ref(false),correctionIntervals=ref([{startLocal:'',endLocal:''}]),correctionChildren=ref(''),correctionReason=ref('');
 const workNotes=reactive({}),workConfirmed=reactive({}),timeNotes=reactive({});let correctionKey=null,correctionPending=null;
+const finalizeShift=ref(false);
 const ownWorkReview=computed(()=>selected.value?.workReviews?.find(row=>Number(row.user_id)===myId.value));
 const pendingReviewCount=shift=>(shift.workReviews||[]).filter(row=>row.status==='submitted'&&Number(row.user_id)!==myId.value).length+(shift.timeCorrections||[]).filter(row=>row.status==='pending'&&Number(row.user_id)!==myId.value).length+(shift.attendanceReviewRequired?1:0);
 const reviewQueue=computed(()=>shifts.value.filter(shift=>pendingReviewCount(shift)>0));
@@ -143,7 +143,7 @@ async function openShift(id, expectedGeneration = generation) {
   try {
     const data = unwrap(await http.value.get(`/childcare/shifts/${id}`, { params: { agencyId: agencyId.value } }));
     if (expectedGeneration !== generation || selectionToken !== selectionGeneration) return;
-    selected.value = data.shift || data; confirmWork.value=false;correctionKey=null;correctionPending=null; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
+    selected.value = data.shift || data; finalizeShift.value=route.query.focus==='finalize'; confirmWork.value=false;correctionKey=null;correctionPending=null; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
     correctionIntervals.value=(ownWorkReview.value?.intervals?.length?ownWorkReview.value.intervals:selected.value.myParticipation?.intervals||[]).map(row=>({startLocal:isoToZonedDatetimeLocal(row.startedAt,selected.value.timezone,{includeSeconds:true}),endLocal:isoToZonedDatetimeLocal(row.endedAt,selected.value.timezone,{includeSeconds:true})}));if(!correctionIntervals.value.length)correctionIntervals.value=[{startLocal:'',endLocal:''}];
     if (!props.http && Number(route.query.shiftId) !== Number(id)) router.replace({ query: { ...route.query, shiftId: String(id) } });
     if (isAssigned.value) {
@@ -183,7 +183,14 @@ async function perform(action, body, success) {
     await http.value.post(`/childcare/shifts/${id}/${action}`, { agencyId: aid, ...body });
     actionKey = null; pendingPunch = null;
     if (aid !== agencyId.value) return;
-    notice.value = success; window.dispatchEvent(new Event('childcare-clock-changed')); await openShift(id);
+    notice.value = success;
+    window.dispatchEvent(new Event('childcare-clock-changed'));
+    await openShift(id);
+    if(action==='clock-out'&&aid===agencyId.value&&Number(selected.value?.id)===Number(id)){
+      if(!props.http) await router.replace({query:{...route.query,shiftId:String(id),focus:'finalize'}});
+      finalizeShift.value=true;
+      await focusFinalize();
+    }
   } catch (e) { if (aid === agencyId.value) error.value = message(e); }
   finally { busy.value = false; }
 }
@@ -235,5 +242,5 @@ watch(()=>selected.value?.id,focusFinalize);
 
 <style scoped>
 .childcare-page{max-width:1120px;margin:auto;padding:24px;color:var(--text-primary,#203b32)}header,.actions{display:flex;gap:12px;align-items:center;justify-content:space-between}header p{margin:5px 0}.eyebrow{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em}h1{margin:0}.card{border:1px solid #b7cfc3;border-radius:12px;background:var(--bg-card,#fff);padding:20px;margin:14px 0}.shift-layout{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,2fr);gap:24px}.shift-choice{display:flex;flex-direction:column;text-align:left;gap:8px;width:100%}.shift-choice[aria-pressed=true]{outline:2px solid #27654e}.shift-form{display:grid;gap:14px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:grid;gap:6px}.check{display:flex;align-items:center;gap:8px;margin:8px 0}.check input{width:auto}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #95b4a5;border-radius:7px;padding:10px;background:var(--bg-input,#fff);color:inherit}button{border:1px solid #739b87;border-radius:7px;padding:10px 14px;cursor:pointer;color:inherit;background:var(--bg-card,#fff)}button:disabled{opacity:.6;cursor:wait}.actions{justify-content:flex-start;flex-wrap:wrap}.error{background:#fff0ef;color:#8b2020;padding:14px;border-radius:8px}.notice{background:#e8f5ee;padding:12px;border-radius:8px}.review{color:#754800;background:#fff4d6;padding:12px}.operational-note{white-space:pre-wrap}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{text-align:left;padding:10px;border-bottom:1px solid #d4e1da}fieldset{border:1px solid #bbcec2;border-radius:8px;padding:14px;margin:14px 0}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #367bd4;outline-offset:2px}@media(max-width:700px){.childcare-page{padding:16px}.shift-layout,.columns{grid-template-columns:1fr}.card{padding:16px}header{align-items:flex-start;flex-wrap:wrap}}
-.shift-layout>*{min-width:0}.card{min-width:0;box-sizing:border-box}.table-wrap{max-width:100%}fieldset{min-inline-size:0}.check{overflow-wrap:anywhere}@media(max-width:700px){.shift-layout,.columns{grid-template-columns:minmax(0,1fr)}}
+.shift-layout>*{min-width:0}.card{min-width:0;box-sizing:border-box}.table-wrap{max-width:100%}fieldset{min-inline-size:0}.check{overflow-wrap:anywhere}.child-count-choices .check{cursor:pointer;min-height:44px;text-align:left;justify-content:flex-start}.child-count-choices input[type=radio]{flex:0 0 18px;width:18px;height:18px;max-width:18px;margin:0;cursor:pointer}@media(max-width:700px){.shift-layout,.columns{grid-template-columns:minmax(0,1fr)}}
 </style>

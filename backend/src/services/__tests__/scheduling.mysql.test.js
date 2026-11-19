@@ -49,6 +49,10 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     }
     const mainDdl = [
       `CREATE TABLE provider_schedule_event_attendees (event_id INT, user_id INT)`,
+      `CREATE TABLE learning_program_classes (id INT PRIMARY KEY,organization_id INT)`,
+      `CREATE TABLE learning_class_sessions (id INT PRIMARY KEY,learning_class_id INT,provider_user_id INT,status VARCHAR(32),actual_started_at DATETIME,actual_ended_at DATETIME)`,
+      `CREATE TABLE tutoring_appointment_sessions (appointment_id INT PRIMARY KEY,session_id INT UNIQUE)`,
+
       `CREATE TABLE office_locations (id INT PRIMARY KEY,name VARCHAR(100),agency_id INT)`,
       `CREATE TABLE office_rooms (id INT PRIMARY KEY,location_id INT DEFAULT 2,room_number INT,label VARCHAR(100),name VARCHAR(100))`,
       `CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOLEAN)`,

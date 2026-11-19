@@ -18,7 +18,7 @@ export async function clientEmailContext({ agencyId, clientId, client = null, le
   const isLearning = learning ?? context.learning;
   const isClinical = !isLearning && (clinical ?? (client?.client_type ? context.clinical : enrollmentMailBrand({agency:context.tenant,domain}).clinical));
   const portal = context.portal || {...context.tenant, clinical_portal:isClinical};
-  const brand = enrollmentMailBrand({agency:context.tenant,domain,school:client?.client_type === 'school',clinicalOverride:isClinical});
+  const brand = enrollmentMailBrand({agency:context.tenant,domain,school:client?.client_type === 'school',channel:isLearning?'tutoring':null,clinicalOverride:isClinical});
   return {...context,client,portal:{...portal,clinical_portal:isClinical},learning:!!isLearning,clinical:!!isClinical,brand,domain,
     url:path=>clientPortalAppUrl({...portal,clinical_portal:isClinical},path)};
 }

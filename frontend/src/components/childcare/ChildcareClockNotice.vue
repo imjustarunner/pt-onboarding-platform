@@ -1,5 +1,5 @@
 <template>
-  <aside v-if="clocks.length || (onChildcarePage && lookupError)" class="clock-notice" aria-label="Childcare time clock">
+  <aside v-if="!onTutoringPage && (clocks.length || (onChildcarePage && lookupError))" class="clock-notice" aria-label="Childcare time clock">
     <p v-for="shift in clocks" :key="shift.id"><strong>You’re clocked in for {{ shift.title || 'childcare' }}.</strong> Since {{ when(shift) }}. <button type="button" @click="open(shift)">Clock out / review shift</button></p>
     <p v-if="lookupError" role="alert">{{ lookupError }} <button type="button" @click="refresh">Retry</button></p>
     <p v-if="error && !prompt" role="alert">{{error}}</p>
@@ -28,6 +28,7 @@ import { childcareCountPayload } from '../../utils/childcarePresentation';
 const auth=useAuthStore(),router=useRouter();
 const clocks=ref([]),prompt=ref(null),dialog=ref(null),busy=ref(false),error=ref(''),choice=ref(''),actual=ref('');
 const lookupError=ref('');
+const onTutoringPage=computed(()=>/\/(?:tutoring-session|in-person-tutoring)(?:\/|$)/.test(router.currentRoute?.value?.path||''));
 const onChildcarePage=computed(()=>/\/childcare(?:\/|$)/.test(router.currentRoute?.value?.path||''));
 let generation=0,timer,previousFocus,punchKey=null;
 const when=shift=>parseUtcInstant(shift.clockedInAt)?.toLocaleString('en-US',{timeZone:shift.timezone||'America/Denver',timeZoneName:'short'})||'the recorded start';

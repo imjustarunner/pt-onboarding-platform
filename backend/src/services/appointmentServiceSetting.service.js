@@ -27,7 +27,7 @@ export async function resolveAppointmentServiceSetting(appt) {
   }
   placeOfService = String(location?.place_of_service || placeOfService || '').padStart(2, '0');
   const isSchool = !!location?.school_organization_id || location?.location_kind === 'school' || placeOfService === '03';
-  const isRemote = ['telehealth', 'virtual', 'video'].includes(String(appt.modality || '').toLowerCase());
+  const isRemote = ['telehealth', 'virtual', 'video', 'online'].includes(String(appt.modality || '').toLowerCase());
   // Tutoring uses its actual physical office/room, independently of medical POS.
   let learningOffice=null;
   if (!location && !isRemote && ['tutoring','learning'].includes(String(appt.businessType).toLowerCase()) && Number(appt.officeLocationId)>0) {
@@ -41,7 +41,7 @@ export async function resolveAppointmentServiceSetting(appt) {
     serviceLocationId,
     setting: isSchool ? 'school' : isRemote ? 'telehealth' : location || learningOffice ? 'in_person' : 'unknown',
     isSchool,
-    locationLabel: location?.name || (learningOffice?[learningOffice.name,roomLabel].filter(Boolean).join(' · '):isSchool ? 'School' : isRemote ? 'Online' : 'Service location needs review'),
+    locationLabel: isRemote && ['tutoring','learning'].includes(appt.businessType) ? 'Online' : location?.name || (learningOffice?[learningOffice.name,roomLabel].filter(Boolean).join(' · '):isSchool ? 'School' : isRemote ? 'Online' : 'Service location needs review'),
     physicalOfficeLocationId:learningOffice?Number(learningOffice.id):null,
     roomId:learningOffice?.room_id?Number(learningOffice.room_id):null,
     roomLabel,

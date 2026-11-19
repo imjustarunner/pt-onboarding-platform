@@ -115,7 +115,7 @@
         </div>
 
         <div class="todays-focus__footer">
-          <button type="button" class="link-btn" @click="onAddSticky">+ Add Sticky</button>
+          <MomentumStickyComposer label="+ Add Sticky" />
           <button type="button" class="btn btn-secondary btn-sm" @click="onViewMomentum('view_all')">
             View All My Work ↗
           </button>
@@ -146,6 +146,7 @@
 </template>
 
 <script setup>
+import MomentumStickyComposer from '../momentum/MomentumStickyComposer.vue';
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useMomentumDigestFocus } from '../../composables/useMomentumDigestFocus';
@@ -159,7 +160,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
-const emit = defineEmits(['view-momentum', 'add-sticky', 'open-item', 'update:collapsed']);
+const emit = defineEmits(['view-momentum', 'open-item', 'update:collapsed']);
 
 const authStore = useAuthStore();
 const collapsed = ref(sessionStorage.getItem(COLLAPSED_KEY) !== '0');
@@ -287,11 +288,6 @@ function onOpenItem(item) {
 function onViewMomentum(from) {
   trackFocusClick('view_all_my_work', { from });
   emit('view-momentum');
-}
-
-function onAddSticky() {
-  trackFocusClick('add_sticky');
-  emit('add-sticky');
 }
 
 watch(collapsed, (val) => {

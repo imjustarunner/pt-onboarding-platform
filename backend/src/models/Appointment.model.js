@@ -1,3 +1,4 @@
+import { appointmentAttendanceView } from '../utils/appointmentPresentation.js';
 import {assertAppointmentOutcomePreserved} from '../utils/appointmentOutcomeGuard.js';
 import {assertLearningScheduleEditable} from '../utils/learningScheduleGuard.js';
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
@@ -208,10 +209,14 @@ class Appointment {
                JOIN clients c ON c.id=p.client_id AND c.agency_id=ap.agency_id
                WHERE p.appointment_id=ap.id ORDER BY p.client_id LIMIT 1) AS client_name,
               ap.office_location_id, ap.room_id, ap.service_location_id,
-              sl.school_organization_id, COALESCE(s.name, sl.name) AS service_location_name
+              sl.school_organization_id, COALESCE(s.name, sl.name) AS service_location_name,
+              ls.status AS learning_status,ls.actual_started_at AS learning_started_at,ls.actual_ended_at AS learning_ended_at
        FROM appointments ap
        LEFT JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id
        LEFT JOIN agencies s ON s.id=sl.school_organization_id
+       LEFT JOIN tutoring_appointment_sessions tb ON tb.appointment_id=ap.id
+       LEFT JOIN learning_class_sessions ls ON ls.id=tb.session_id AND ls.provider_user_id=ap.provider_user_id
+         AND EXISTS (SELECT 1 FROM learning_program_classes lc WHERE lc.id=ls.learning_class_id AND lc.organization_id=ap.agency_id)
        WHERE ap.${linkColumn} IN (${placeholders})`,
       ids
     );
@@ -222,7 +227,9 @@ class Appointment {
         map.set(pid, {
           id: Number(r.id),
           agencyId: Number(r.appointment_agency_id || 0) || null,
-          status: String(r.status || 'scheduled').toLowerCase(),
+          status: appointmentAttendanceView({
+            status:r.status,endAt:r.end_at
+          },{learningSession:{status:r.learning_status,actual_started_at:r.learning_started_at,actual_ended_at:r.learning_ended_at}}).status,
           notes: r.notes != null ? String(r.notes) : null,
           clinicalSessionId:Number(r.clinical_session_id || 0) || null,
           serviceCode:r.service_code ? String(r.service_code) : null,

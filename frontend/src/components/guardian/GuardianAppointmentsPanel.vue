@@ -20,17 +20,24 @@
     </details>
     <p v-if="notice" role="status">{{ notice }}</p>
     <GuardianServiceExitFeedback v-if="exitFeedbackId&&!preview" :key="`${clientId}:${exitFeedbackId}`" :client-id="clientId" :operation-id="exitFeedbackId" @close="exitFeedbackId='';exitFeedbackDismissed=true" />
-    <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
-    <p v-else-if="!appointments.length">{{ ft("No appointments are scheduled yet. Contact your team to arrange the next visit.") }} <button type="button" @click="$emit('help')">{{ ft("Contact your team") }}</button></p>
+    <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
+    <p v-else-if="!error&&!appointments.length">{{ ft("No appointments are scheduled yet. Contact your team to arrange the next visit.") }} <button type="button" @click="$emit('help')">{{ ft("Contact your team") }}</button></p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : ['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(a.modality) ? ft('Online') : a.modality }} · {{ ft(a.displayStatus||a.status.replaceAll('_',' ')) }}</p>
-      <router-link v-if="a.joinUrl && !/^https?:/.test(a.joinUrl)" :to="a.joinUrl" class="join-appointment">{{ ft("Join online appointment →") }}</router-link>
-      <a v-if="a.joinUrl && /^https?:/.test(a.joinUrl)" :href="a.joinUrl" target="_blank" rel="noopener noreferrer">{{ft("Join online appointment →")}}</a>
+      <router-link v-if="canJoin(a) && !/^https?:/.test(a.joinUrl)" :to="a.joinUrl" class="join-appointment">{{ ft("Join online appointment →") }}</router-link>
+      <a v-if="canJoin(a) && /^https?:/.test(a.joinUrl)" :href="a.joinUrl" target="_blank" rel="noopener noreferrer">{{ft("Join online appointment →")}}</a>
       <SecureSessionCommentButton v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :client-id="clientId" :learning="['tutoring','learning'].includes(a.businessType)" />
       <SecureSessionCommentTip v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :start-at="a.startAt" :user-id="authStore.user?.id" :self="authStore.user?.role === 'client'" />
-      <p v-if="a.serviceLabel">{{a.serviceLabel}}</p><router-link v-if="a.hubUrl&&!a.joinUrl" :to="a.hubUrl">View session details</router-link>
+      <p v-if="a.serviceLabel">{{a.serviceLabel}}</p><router-link v-if="a.hubUrl&&!canJoin(a)" :to="a.hubUrl">View session details</router-link>
+      <details v-if="a.tutoringSummary">
+        <summary>View shared session summary</summary>
+        <h4>Worked on</h4><p>{{ a.tutoringSummary.summary.workedOn }}</p>
+        <h4>How it went</h4><p>{{ a.tutoringSummary.summary.howItWent }}</p>
+        <h4>Practice at home</h4><p>{{ a.tutoringSummary.summary.homePractice }}</p>
+        <small>Shared by {{ a.tutoringSummary.authorName }} · {{ when(a.tutoringSummary.signedAt,a.timeZone) }}</small>
+      </details>
       <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
-      <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
+      <p v-else-if="a.serviceSetting">Service location: {{ learning(a)&&a.modality!=='IN_PERSON' ? ft('Online') : a.serviceSetting.locationLabel }}</p>
       <p v-if="a.serviceSetting?.isSchool">{{ ft("No confirmation is needed. If your child will be absent, let the team know below and report the absence to school as usual.") }}</p>
       <p v-if="a.canceledBy">Canceled by {{ ['tutoring','learning'].includes(a.businessType) && a.canceledBy === 'client' ? 'you or your family' : a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
       <section v-if="a.replacementOffer" class="replacement-offer" :aria-label="ft('Private replacement offer')">
@@ -130,11 +137,19 @@ async function respondToOffer(a, action) {
 }
 const draft=a=>drafts[a.id] ||= {type:'cancel',reason:'',scope:'single',confirmed:false};
 const appointmentDate=value=>new Date(typeof value==='string'&&!/(Z|[+-]\d\d:\d\d)$/.test(value)?value.replace(' ','T')+'Z':value);
+const learning=a=>['learning','tutoring'].includes(a.businessType);
+const canJoin=a=>{
+ if(!a.joinUrl)return false;
+ if(!learning(a))return true;
+ const now=Date.now(),start=+appointmentDate(a.startAt),end=+appointmentDate(a.endAt);
+ return !!start&&!!end&&now>=start-1800000&&now<=end+1800000&&['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status);
+};
 const canRequest=a=>!props.preview&&!a.serviceEnded&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
 const cancellationSuggestion=computed(()=>props.preview?null:appointments.value.find(a=>!a.serviceEnded&&a.canEndServices!==false&&a.cancellationHint?.showEndServices)||null);
 const when=(value,timeZone)=>appointmentDate(value).toLocaleString(familyLocale.value,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
 const endTime=(value,timeZone)=>appointmentDate(value).toLocaleTimeString(familyLocale.value,{timeZone:timeZone||'America/Denver',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
-async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
+async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true,timeout:15000});if(own===sequence) {
+  loading.value=false;
   appointments.value=data.appointments||[];
   const query=new URLSearchParams(window.location.search),requestedExit=query.get('serviceExit');
   if(!exitFeedbackDismissed.value&&!exitFeedbackId.value&&Number(query.get('clientId'))===props.clientId&&/^[0-9a-f-]{36}$/i.test(requestedExit||''))exitFeedbackId.value=requestedExit;

@@ -1,3 +1,4 @@
+import { resolveAppointmentPresentation } from './appointmentPresentation.service.js';
 import Appointment from '../models/Appointment.model.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { ensureAppointmentClinicalLink } from './appointmentClinicalLink.service.js';
@@ -8,6 +9,10 @@ export async function assertAppointmentCanMove(appointment) {
   if (!appointment) return;
   if (!['scheduled', 'confirmed'].includes(String(appointment.status))) {
     throw Object.assign(new Error('Only scheduled or confirmed appointments can be moved; preserve completed and canceled sessions'), { status: 409 });
+  }
+  const {attendanceStatus}=await resolveAppointmentPresentation(appointment);
+  if(['ended','completed','in_progress'].includes(attendanceStatus)){
+    throw Object.assign(new Error('The tutoring session has recorded attendance. Its booked time and location are read-only.'),{status:409,code:'APPOINTMENT_SCHEDULE_LOCKED'});
   }
   if (!appointment.clinicalSessionId) return;
   const [notes] = await clinicalPool.execute(

@@ -61,3 +61,27 @@ it('discards a stale save response after a service switch and allows the new dra
 });
 
 it('does not prefill private plan results into the family summary',async()=>{api.mockResolvedValueOnce({data:{note:{status:'saved',summary:'Private checklist results',homework:'Private staff instructions',metadata_json:{documentationMode:'learning_plan_checklist'}}}});const wrapper=mount(Editor,{props:{appointmentId:375}});try{await flushPromises();expect(wrapper.findAll('textarea').map(t=>t.element.value)).toEqual(['','','']);expect(wrapper.text()).not.toContain('Private checklist results');expect(wrapper.text()).not.toContain('Private staff instructions');}finally{wrapper.unmount();}});
+
+it('serializes overlapping blur saves and keeps the latest fields together', async () => {
+  let completeFirstSave;
+  api.mockResolvedValueOnce(loaded('Original work'))
+    .mockImplementationOnce(() => new Promise(resolve => { completeFirstSave = resolve; }))
+    .mockResolvedValueOnce({ data: { note: { status: 'saved' } } });
+  const wrapper = mount(Editor, { props: { appointmentId: 416 } });
+  try {
+    await flushPromises();
+    const [workedOn, howItWent] = wrapper.findAll('textarea');
+    await workedOn.setValue('Read the story');
+    await workedOn.trigger('blur');
+    await howItWent.setValue('Named the main idea');
+    await howItWent.trigger('blur');
+    expect(api.mock.calls).toHaveLength(2);
+    completeFirstSave({ data: { note: { status: 'saved' } } });
+    await flushPromises();
+    expect(api.mock.lastCall[0].data).toMatchObject({
+      workedOn: 'Read the story', howItWent: 'Named the main idea', homePractice: 'Draw a model'
+    });
+    expect(workedOn.element.value).toBe('Read the story');
+    expect(howItWent.element.value).toBe('Named the main idea');
+  } finally { wrapper.unmount(); }
+});
