@@ -272,7 +272,7 @@ async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
       setStatus: composerMode.value === 'internal' ? undefined : 'waiting_on_them'
     };
     if (schedulePreset.value) payload.schedulePreset = schedulePreset.value;
-    const { data } = await api.post(`/communications/conversations/${conversationId}/reply`, payload);
+    const { data } = await api.post(`/communications/conversations/${conversationId}/reply`, isSms.value ? { ...payload, supportInbox: true } : payload);
     if (conv.value?.id !== conversationId) { emit('refresh'); return; }
     body.value = '';
     attachments.value = [];

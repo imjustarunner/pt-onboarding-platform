@@ -1,4 +1,4 @@
-import { sharedCareNumberId, getSharedCareNumber } from './sharedCareNumber.service.js';
+import { sharedCareNumberId, getSharedCareNumber, configuredReminderNumberId } from './sharedCareNumber.service.js';
 import { isCommunicationStaffActive } from '../utils/communicationReceptionPolicy.js';
 import VacationScheduleSyncService from './vacationScheduleSync.service.js';
 import pool from '../config/database.js';
@@ -144,6 +144,13 @@ export async function resolveReminderNumber({ providerUserId, clientId = null })
   const agencyId = clientId
     ? (await Client.findById(clientId, { includeSensitive: false }))?.agency_id
     : (await findAgencyIdForUser(uid));
+  const reminderId = await configuredReminderNumberId(agencyId);
+  if (reminderId) {
+    const number = await PhoneNumber.findById(reminderId);
+    return Number(number?.agency_id) === Number(agencyId) && number?.is_active && number.status === 'active'
+      ? { number, assignment: null, ownerType: 'agency' }
+      : { number: null, assignment: null, ownerType: null };
+  }
   const agency = agencyId ? await Agency.findById(agencyId) : null;
   const flags = parseFeatureFlags(agency?.feature_flags);
   const senderMode = String(flags.smsReminderSenderMode || 'agency_default');
@@ -217,6 +224,21 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   );
   const number = await PhoneNumber.findByPhoneNumber(toNumber);
   const purpose = normalizeNumberPurpose(number?.number_purpose || 'clinical_care');
+  const reminderLine = number?.id && Number(number.id) === await configuredReminderNumberId(number.agency_id);
+  if (reminderLine) {
+    const agencyId = Number(number.agency_id);
+    const profile = await resolveProfilePhoneMatch(fromNumber, { agencyId });
+    const client = profile.clients?.length === 1 ? profile.clients[0] : null;
+    const supportIds = await findSupportStaffIdsForAgency(agencyId);
+    const ownerId = supportIds[0] || await findAnyAdminForAgency(agencyId);
+    return {
+      number, agencyId, client, clientId: client?.id || null, matchedUserId: profile.userId || null,
+      ownerUser: ownerId ? await User.findById(ownerId) : null,
+      ownerType: 'agency', eligibleUserIds: supportIds.length ? supportIds : ownerId ? [ownerId] : [],
+      careOwnerUserId: null, careState: 'observing', supportAccess: 'respond',
+      numberPurpose: purpose, reminderLine: true, skipClinicalInbox: false
+    };
+  }
   const shared = number?.id && Number(await sharedCareNumberId(number.agency_id))===Number(number.id);
   let ownerUser = null;
   let assignment = null;

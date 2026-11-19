@@ -5,7 +5,7 @@ vi.mock('../../models/UserPreferences.model.js', () => ({ default: { findByUserI
 vi.mock('../../models/UserCallSettings.model.js', () => ({ default: { getByUserId: vi.fn() } }));
 vi.mock('../../models/PhoneNumber.model.js', () => ({ default: { findById: vi.fn(), listByAgency: vi.fn() } }));
 vi.mock('../../models/PhoneNumberAssignment.model.js', () => ({ default: { listEligibleUserIdsForNumber: vi.fn() } }));
-vi.mock('../sharedCareNumber.service.js', () => ({ sharedCareNumberId: vi.fn() }));
+vi.mock('../sharedCareNumber.service.js', () => ({ sharedCareNumberId: vi.fn(), configuredReminderNumberId: vi.fn(async () => null) }));
 vi.mock('../communicationRouting.service.js', () => ({ resolveClientCaregivers: vi.fn() }));
 vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn(), recordSmsPermission: vi.fn() }));
 vi.mock('../providerRelayPreference.service.js', () => ({ providerRelayOptedOut: vi.fn().mockResolvedValue(false), setProviderRelayPreference: vi.fn() }));

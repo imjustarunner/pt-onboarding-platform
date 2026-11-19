@@ -129,6 +129,7 @@ export const getAgencySmsSettings = async (req, res, next) => {
       smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
       smsSharedCareNumberId: flags.smsSharedCareNumberId || null,
+      smsReminderNumberId: flags.smsReminderNumberId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
       companyEventsSenderNumberId: flags.companyEventsSenderNumberId
         ? Number(flags.companyEventsSenderNumberId)
@@ -161,6 +162,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       smsReminderSenderMode,
       smsDefaultUserId,
       smsSharedCareNumberId,
+      smsReminderNumberId,
       companyEventsEnabled,
       companyEventsSenderNumberId,
       voiceSupportFallbackPhone,
@@ -180,17 +182,20 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     flags.smsComplianceMode = 'opt_in_required';
     if (smsReminderSenderMode) flags.smsReminderSenderMode = String(smsReminderSenderMode);
     if (smsDefaultUserId !== undefined) flags.smsDefaultUserId = smsDefaultUserId ? Number(smsDefaultUserId) : null;
-    if (smsSharedCareNumberId !== undefined) {
-      const id=smsSharedCareNumberId ? Number(smsSharedCareNumberId) : null;
-      if (smsSharedCareNumberId && (!Number.isSafeInteger(id) || id < 1)) return res.status(400).json({error:{message:'Invalid shared care number'}});
-      if (id) {
-        const number=await PhoneNumber.findById(id);
-        if (!Number.isSafeInteger(id) || !number || Number(number.agency_id)!==agencyId
-          || number.number_purpose!=='clinical_care' || !number.is_active || number.status!=='active') {
-          return res.status(400).json({error:{message:'Choose an active care number belonging to this agency.'}});
-        }
+    const providerNumberId = smsSharedCareNumberId === undefined
+      ? Number(flags.smsSharedCareNumberId) || null : smsSharedCareNumberId == null ? null : Number(smsSharedCareNumberId);
+    const reminderNumberId = smsReminderNumberId === undefined
+      ? Number(flags.smsReminderNumberId) || null : smsReminderNumberId == null ? null : Number(smsReminderNumberId);
+    const linePairChanged = providerNumberId !== (Number(flags.smsSharedCareNumberId) || null)
+      || reminderNumberId !== (Number(flags.smsReminderNumberId) || null);
+    if (linePairChanged) {
+      if (providerNumberId != null || reminderNumberId != null) {
+        const { validateClinicalSmsLinePair } = await import('../services/clinicalSmsLine.service.js');
+        await validateClinicalSmsLinePair(agencyId, providerNumberId, reminderNumberId);
       }
-      flags.smsSharedCareNumberId=id;
+      flags.smsSharedCareNumberId = providerNumberId;
+      flags.smsReminderNumberId = reminderNumberId;
+      flags.smsReminderSenderMode = 'agency_default';
     }
     if (companyEventsEnabled !== undefined) flags.companyEventsEnabled = !!companyEventsEnabled;
     if (companyEventsSenderNumberId !== undefined) {
@@ -244,6 +249,13 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     }
 
     await pool.execute('UPDATE agencies SET feature_flags = ? WHERE id = ?', [JSON.stringify(flags), agencyId]);
+    if (linePairChanged) {
+      const { logAuditEvent } = await import('../services/auditEvent.service.js');
+      await logAuditEvent(req, {
+        actionType: 'clinical_sms_lines_updated', agencyId,
+        metadata: { providerNumberId, reminderNumberId }
+      }).catch(() => {});
+    }
     res.json({
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
@@ -251,6 +263,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
       smsSharedCareNumberId: flags.smsSharedCareNumberId || null,
+      smsReminderNumberId: flags.smsReminderNumberId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
       companyEventsSenderNumberId: flags.companyEventsSenderNumberId
         ? Number(flags.companyEventsSenderNumberId)

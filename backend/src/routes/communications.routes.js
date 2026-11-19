@@ -101,6 +101,23 @@ router.delete('/contacts/:id', deleteMyCommunicationContact);
 router.get('/conversations', getUnifiedConversations);
 router.post('/conversations', postUnifiedCompose);
 router.use('/conversations/:id', conversationAccessMiddleware);
+router.get('/conversations/:id/sms-reply-eligibility', async (req, res, next) => {
+  try {
+    const conv = req.communicationConversation;
+    if (conv.channel !== 'sms') return res.status(404).json({ error: { message: 'SMS conversation not found' } });
+    const { sendClinicalSms, parseSmsConversationTarget } = await import('../services/clinicalSmsSend.service.js');
+    const { clientId, contactId, threadKey } = parseSmsConversationTarget(conv);
+    if (!threadKey) return res.json({ eligible: false, message: 'Start a new text to choose a confirmed recipient.' });
+    res.set('Cache-Control', 'private, no-store');
+    const result = await sendClinicalSms({
+      userId: req.user.id, clientId, contactId, threadKey, body: 'Text reply eligibility check', preview: true
+    });
+    res.json({ eligible: true, numberId: result.numberId });
+  } catch (error) {
+    if (error.status >= 400 && error.status < 500) return res.json({ eligible: false, message: error.message });
+    next(error);
+  }
+});
 router.post('/conversations/:id/messages/:messageId/reaction', async (req,res,next) => {
   try { res.json(await reactToHubMessage({agencyId:req.communicationConversation.agency_id,userId:req.user.id,conversationId:req.params.id,messageId:req.params.messageId,active:req.body.active !== false,notifyEmail:false})); } catch(e){next(e);}
 });

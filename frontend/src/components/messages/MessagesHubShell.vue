@@ -286,6 +286,8 @@
               :class="{
                 active: selectedConversation?.id === c.id,
                 'email-list-row': c.channel === 'email',
+                'sms-list-row': c.channel === 'sms',
+                'selectable-list-row': canSelectMessage(c),
                 unread: c.is_unread
               }"
               tabindex="0" role="button" @keydown.enter.self="pickConversation(c)" @keydown.space.self.prevent="pickConversation(c)"
@@ -317,12 +319,16 @@
                     {{ c.is_review_notice ? 'To review' : c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
                   </span>
                   <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
-                  <span v-if="c.last_message_at" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
+                  <span v-if="c.last_message_at && c.channel !== 'sms'" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
                 </div>
                 <p v-if="c.channel === 'email'" class="msg-hub-snippet"><strong>{{ c.subject || '(No subject)' }}</strong></p>
                 <p v-if="c.deliveryLabel" role="status">{{ c.deliveryLabel }}</p>
                 <button v-if="!c.draftId && draftByConversation[c.conversationId || c.id]" type="button" class="msg-hub-btn secondary sm" @click.stop="openEmailComposer(router,{draftId:draftByConversation[c.conversationId || c.id]})" @keydown.enter.stop>Draft · Continue writing</button>
-                <ConversaMailbox :conversation="c" />
+                <template v-if="c.channel === 'sms'">
+                  <p v-if="c.sms?.relationship && c.sms.clientName" class="msg-hub-sms-meta">{{ c.sms.relationship }} for {{ c.sms.clientName }}</p>
+                  <p class="msg-hub-sms-meta">{{ smsLineLabel(c.sms) || 'Text conversation' }}<template v-if="c.last_message_at"> · {{ formatTime(c.last_message_at) }}</template></p>
+                </template>
+                <ConversaMailbox v-else :conversation="c" />
                 <div v-if="c.support_ticket_id" class="msg-hub-ticket-label">
                   <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" />
                   <span>Ticket #{{ c.support_ticket_id }}</span>
@@ -341,7 +347,7 @@
                 </p>
               </div>
               <button v-if="c.draftId && !c.deliveryLabel" type="button" class="msg-hub-btn secondary sm" @click.stop="discardListedDraft(c)">Discard</button>
-              <div v-else-if="!c.deliveryLabel && !isTicketedGroup(c) && (!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms')" class="msg-hub-row-actions" @click.stop>
+              <div v-else-if="!c.deliveryLabel && c.channel !== 'sms' && !isTicketedGroup(c) && (!c.hubKind || c.hubKind === 'email')" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -1289,8 +1295,34 @@
               :read-only="ticketedEmailPreview"
               @compose="composeEmail" @unread="markSelectedUnread" @older="loadEarlierEmail"
               :can-print="true" :can-file="true" @file="openThreadFiling" @print="printReaderThread" @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
-            <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
-              <form v-if="conversationPreview.conversation?.channel === 'sms'" @submit.prevent="replyReaderSms"><textarea v-model="readerSmsText" aria-label="Text message reply" required /><button type="submit" :disabled="sending">Send text</button></form>
+            <template v-else-if="conversationPreview.conversation?.channel === 'sms'">
+              <div class="msg-hub-timeline msg-hub-sms-timeline">
+                <article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"
+                  :class="{ 'msg-hub-sms-outbound': String(msg.direction).toLowerCase() === 'outbound' }">
+                  <p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p>
+                  <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
+                </article>
+              </div>
+              <form class="msg-hub-sms-reply" @submit.prevent="replyReaderSms">
+                <div class="msg-hub-sms-route">
+                  <span><strong>From</strong> {{ smsLineLabel(conversationPreview.conversation.sms) || 'Original sending line' }}</span>
+                  <span><strong>To</strong> {{ conversationThreadTitle(conversationPreview.conversation) }}<template v-if="conversationPreview.conversation.sms?.recipientEnding"> · ending in {{ conversationPreview.conversation.sms.recipientEnding }}</template></span>
+                </div>
+                <label v-if="readerSmsEligibility?.eligible" class="msg-hub-sms-reply-input">Reply
+                  <textarea v-model="readerSmsText" rows="3" maxlength="1600" placeholder="Write a text message…" :disabled="sending" required />
+                </label>
+                <p v-else role="status">{{ readerSmsEligibility?.message || 'Checking whether this recipient can receive texts…' }}</p>
+                <div class="msg-hub-sms-reply-actions">
+                  <button v-if="readerSmsEligibility?.eligible" type="submit" class="btn btn-primary" :disabled="sending || !readerSmsText.trim()">{{ sending ? 'Sending…' : 'Send text' }}</button>
+                  <button v-else-if="readerSmsEligibility" type="button" class="btn btn-secondary" @click="openNewConversation('sms')">New SMS</button>
+                </div>
+              </form>
+            </template>
+            <div v-else class="msg-hub-timeline">
+              <article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble">
+                <p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p>
+                <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
+              </article>
             </div>
           </template>
 
@@ -1521,6 +1553,8 @@
       </div>
     </div>
 
+    <HubSmsComposer v-if="showSmsComposer" :agency-id="agencyId" @close="showSmsComposer = false" @sent="onNewSmsSent" />
+
     <StartConversationModal
       v-if="showNew"
       :agency-id="agencyId"
@@ -1673,6 +1707,7 @@ import { canManageConversaTeam } from '../../constants/conversa';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isTenantOrganizationType } from '../../utils/organizationTypes';
 import StartConversationModal from './StartConversationModal.vue';
+import HubSmsComposer from './HubSmsComposer.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 import GroupEmailBadge from '../unifiedInbox/GroupEmailBadge.vue';
@@ -1685,9 +1720,8 @@ import { lockMessageScroll } from '../../utils/messageScrollLock';
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
 const newMessageLabel = computed(() => ({email:'New email',internal:'New direct message',secure:'New secure message',sms:'New SMS',calls:'Calls / Voicemails',group:'New group'})[inboxChannel.value] || 'New conversation');
-const channelNeedsActivation = computed(() => ['sms','calls'].includes(inboxChannel.value));
+const channelNeedsActivation = computed(() => inboxChannel.value === 'calls');
 const channelActivationMessage = computed(() => ({
-  sms: 'Provider texting is awaiting activation. You can read saved texts here. Contact your administrator to enable the agency’s provider texting line.',
   calls: 'Calling and voicemail capture are not connected yet. Saved conversation records remain available here.'
 })[inboxChannel.value] || '');
 const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'group',label:'Groups'},{id:'internal',label:'Direct message'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'calls',label:'Calls / Voicemails'},{id:'channel',label:'Channels'}];
@@ -1782,8 +1816,30 @@ async function claimPreviewTicket() {
     error.value = messagingError(e, 'Could not claim this ticket.');
   } finally { claimingGroupTicket.value = false; }
 }
-const readerSmsText=ref('');
-async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
+const readerSmsText = ref('');
+const readerSmsEligibility = ref(null);
+function smsLineLabel(sms) {
+  return [sms?.organizationName, sms?.fromNumber].filter(Boolean).join(' · ');
+}
+async function replyReaderSms() {
+  const id = conversationPreview.value?.conversation?.id;
+  const text = readerSmsText.value.trim();
+  if (!id || !text || sending.value || !readerSmsEligibility.value?.eligible) return;
+  sending.value = true;
+  try {
+    await api.post(`/communications/conversations/${id}/reply`, {
+      text, mode: 'reply', numberId: readerSmsEligibility.value.numberId
+    }, { skipGlobalLoading: true });
+    if (conversationPreview.value?.conversation?.id === id) readerSmsText.value = '';
+    await refreshMail();
+  } catch (e) { error.value = messagingError(e, 'Could not send text.'); }
+  finally { sending.value = false; }
+}
+function onNewSmsSent() {
+  showSmsComposer.value = false;
+  inboxChannel.value = 'sms';
+  selectNav('inbox', 'sent');
+}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
 let inboxRequest=0,emailReadRequest=0,mailPollTimer=null,hoverTimer=null,hidePreviewTimer=null;
 let inboxController=null,emailReadController=null;
@@ -2024,6 +2080,25 @@ const sendConfirmOpen = ref(false);
 const sendConfirmPending = ref(null);
 const selectedConversation = ref(null);
 const conversationPreview = ref(null);
+watch(() => {
+  const conversation = conversationPreview.value?.conversation;
+  return conversation?.channel === 'sms' ? conversation.id : null;
+}, async (id, previous, onCleanup) => {
+  readerSmsText.value = '';
+  readerSmsEligibility.value = null;
+  if (!id) return;
+  const controller = new AbortController();
+  onCleanup(() => controller.abort());
+  try {
+    const { data } = await api.get(`/communications/conversations/${id}/sms-reply-eligibility`, {
+      signal: controller.signal, skipGlobalLoading: true
+    });
+    if (!controller.signal.aborted) readerSmsEligibility.value = data;
+  } catch {
+    if (!controller.signal.aborted) readerSmsEligibility.value = { eligible: false, message: 'Text eligibility could not be checked. Reopen the conversation to try again.' };
+  }
+});
+
 const inboxCounts = ref({ unread: 0, snoozed: 0, unknown: 0, queued: 0 });
 const showResolveUnknown = ref(false);
 const snoozeMenuFor = ref(null);
@@ -2069,6 +2144,7 @@ const reactingId = ref(null);
 const staffSuggest = ref([]);
 let staffSuggestTimer = null;
 const showNew = ref(false);
+const showSmsComposer = ref(false);
 const newTab = ref('caseload');
 const peopleQuery = ref('');
 const peopleResults = ref([]);
@@ -2291,6 +2367,7 @@ function conversationOwnerName(c) {
 }
 
 function conversationThreadTitle(c) {
+  if (c?.channel === 'sms') return c.sms?.recipientName || c.primary_participant_name || 'Text conversation';
   if (c?.channel === 'email' && (c.latestMessageDirection || c.last_message_direction) === 'outbound') {
     return String(c.primary_participant_name || c.primary_participant_email || '').trim() || 'Sent email';
   }
@@ -4690,7 +4767,8 @@ async function startConversationWithPerson(person) {
 }
 
 async function openNewConversation(channel = inboxChannel.value) {
-  if (['sms','calls'].includes(channel)) return;
+  if (channel === 'calls') return;
+  if (channel === 'sms') { showSmsComposer.value = true; return; }
   newConversationChannel.value = channel;
   showNew.value = true;
 }
@@ -5781,6 +5859,13 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   border-top: 1px solid #f1f5f9;
   align-items: center;
 }
+.msg-hub-row.selectable-list-row { grid-template-columns: 18px 36px minmax(0, 1fr) auto; gap: 8px; }
+.msg-hub-row.sms-list-row { align-items: start; grid-template-columns: 36px minmax(0, 1fr); }
+.msg-hub-row.sms-list-row.selectable-list-row { grid-template-columns: 18px 36px minmax(0, 1fr); }
+.msg-hub-row.sms-list-row .msg-hub-select-message { margin-top: 7px; }
+.msg-hub-row.sms-list-row .msg-hub-row-top { flex-wrap: wrap; }
+.msg-hub-row.sms-list-row .msg-hub-row-top strong { flex: 1 1 100%; max-width: 100%; }
+.msg-hub-sms-meta { margin: 3px 0; color: var(--mh-muted); font-size: 11px; overflow-wrap: anywhere; }
 .msg-hub-row--compact {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -7640,6 +7725,16 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 [data-theme='dark'] .chats-view {
   color: #e2e8f0;
 }
+
+.msg-hub-sms-timeline .msg-hub-bubble { max-width: min(36rem, 88%); align-self: flex-start; }
+.msg-hub-sms-timeline .msg-hub-sms-outbound { align-self: flex-end; background: color-mix(in srgb, var(--mh-primary) 8%, var(--mh-surface, #fff)); }
+.msg-hub-sms-timeline time { font-size: 11px; color: var(--mh-muted); }
+.msg-hub-sms-reply { display: grid; flex-shrink: 0; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--mh-line); background: var(--mh-surface, #fff); }
+.msg-hub-sms-route { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--mh-muted); }
+.msg-hub-sms-reply p { margin: 0; font-size: 13px; color: var(--mh-muted); }
+.msg-hub-sms-reply-input { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.msg-hub-sms-reply textarea { font: inherit; font-weight: 400; width: 100%; box-sizing: border-box; border: 1px solid var(--mh-line); border-radius: 8px; padding: 8px 10px; background: var(--mh-surface, #fff); color: inherit; resize: vertical; }
+.msg-hub-sms-reply-actions { display: flex; justify-content: flex-end; }
 </style>
 
 <style>

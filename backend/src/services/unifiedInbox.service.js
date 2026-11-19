@@ -1,3 +1,4 @@
+import { describeSmsConversations } from './smsConversationPresentation.service.js';
 import {groupEmailIdentity} from './groupEmailIdentity.js';
 import { plainEmailHtml } from '../utils/emailReplyContent.js';
 import { communicationPrintDocument } from './communicationPrint.service.js';
@@ -220,7 +221,8 @@ export async function listConversations(opts) {
   if (syncTickets && agencyId) requestInboxReconciliation(agencyId, channel);
   const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const rows = await CommunicationConversation.list({ ...opts, ...scope });
-  return rows.map((row) => withGroupEmailMetadata(row, userId, scope.managedGroups));
+  const visible = rows.map(row => withGroupEmailMetadata(row, userId, scope.managedGroups));
+  return describeSmsConversations(visible);
 }
 
 export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null, includeResponseTime = true, ...filters } = {}) {
@@ -253,6 +255,7 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   ]);
   const messages=hydrated || storedMessages;
   conv = withGroupEmailMetadata(conv, userId, managedGroups);
+  if (conv.channel === 'sms') [conv] = await describeSmsConversations([conv]);
   if (markRead && userId) {
     if (conv.support_ticket_id) await markSupportTicketRead({ ticketId: conv.support_ticket_id, userId });
     else await CommunicationConversation.markRead(conversationId, userId);
@@ -1135,7 +1138,8 @@ async function replySmsConversation(conversationId, conv, payload, { userId } = 
     contactId,
     body: text,
     numberId: payload.numberId,
-    threadKey
+    threadKey,
+    supportInbox: payload.supportInbox === true
   });
 
   const preview = previewText(text);

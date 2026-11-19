@@ -46,6 +46,26 @@ describe('scoped message workspace', () => {
       params: expect.objectContaining({ filter: 'sent', channel: 'sms' })
     }));
   });
+  it('labels a guardian SMS with the guardian and organization line and sends only an eligible reply', async () => {
+    state.selected = null;
+    state.inboxChannel = 'sms';
+    const sms = { recipientName: 'Morgan Guardian', relationship: 'Guardian', clientName: 'Casey Child',
+      fromNumber: '+13035550123', organizationName: 'Sample Agency', recipientEnding: '3210' };
+    const row = { id: 19, channel: 'sms', subject: 'SMS', primary_participant_name: 'Casey Child', sms };
+    state.conversations = [row];
+    state.selectedConversation = row;
+    api.get.mockImplementation(async url => ({ data: url.endsWith('/sms-reply-eligibility') ? { eligible: true, numberId: 42 } : {} }));
+    state.conversationPreview = { conversation: row, messages: [] };
+    await flushPromises();
+    expect(wrapper.get('.sms-list-row').text()).toContain('Morgan Guardian');
+    expect(wrapper.get('.sms-list-row').text()).toContain('Guardian for Casey Child');
+    expect(wrapper.get('.msg-hub-sms-route').text()).toContain('Sample Agency · +13035550123');
+    expect(wrapper.get('.msg-hub-sms-route').text()).toContain('Morgan Guardian');
+    state.readerSmsText = 'Hello';
+    await state.replyReaderSms();
+    expect(api.post).toHaveBeenCalledWith('/communications/conversations/19/reply',
+      { text: 'Hello', mode: 'reply', numberId: 42 }, expect.anything());
+  });
   it('shows only review folders for provider assignments and enrollment notices', async () => {
     state.selected = null;
     state.inboxChannel = 'group';
@@ -324,8 +344,11 @@ describe('Messages hub thread interactions', () => {
     await nextTick();
     const button = wrapper.find('.msg-hub-head-actions .btn-primary');
     expect(button.text()).toContain(label);
-    expect(button.element.disabled).toBe(['sms','calls'].includes(channel));
-    if (!['sms','calls'].includes(channel)) {
+    expect(button.element.disabled).toBe(channel === 'calls');
+    if (channel === 'sms') {
+      await button.trigger('click');
+      expect(wrapper.findComponent({ name: 'HubSmsComposer' }).exists()).toBe(true);
+    } else if (channel !== 'calls') {
       await button.trigger('click');
       expect(state.newConversationChannel).toBe(channel);
       expect(state.showNew).toBe(true);
@@ -636,7 +659,7 @@ describe('reading layout and unread navigation', () => {
     expect(wrapper.find('[data-channel="email"] .msg-hub-channel-count').exists()).toBe(false);
     expect(wrapper.find('[data-channel="all"] .msg-hub-channel-count').text()).toBe('11');
   });
-  it.each(['sms', 'calls'])('loads stored %s conversations even while new sends await activation', async channel => {
+  it.each(['sms', 'calls'])('loads stored %s conversations with the appropriate new-message action', async channel => {
     state.selected = null; state.inboxChannel = channel; state.navId = 'unread';
     const storedChannel = channel === 'calls' ? 'voicemail' : 'sms';
     api.get.mockImplementation(async url => ({ data: url === '/messages/hub/unread'
@@ -648,7 +671,7 @@ describe('reading layout and unread navigation', () => {
     expect(state.filteredConversations).toHaveLength(1);
     expect(wrapper.text()).toContain('Saved conversation');
     expect(wrapper.text()).not.toContain('Coming soon');
-    expect(wrapper.find('.msg-hub-head-actions .btn-primary').element.disabled).toBe(true);
+    expect(wrapper.find('.msg-hub-head-actions .btn-primary').element.disabled).toBe(channel === 'calls');
   });
   it('offers a route to unread messages in other channels instead of saying caught up', async () => {
     state.selected = null; state.navId = 'unread'; state.inboxChannel = 'email'; state.conversations = [];

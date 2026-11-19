@@ -69,9 +69,10 @@ async function upsertShell({
   return { created: false, conv: await CommunicationConversation.findById(conv.id) };
 }
 
-export async function syncSmsThreads({ agencyId, limit = 100, sentByUserId = null }) {
+export async function syncSmsThreads({ agencyId, limit = 100, sentByUserId = null, threadKey = null }) {
   const maxThreads = Math.min(250, Math.max(1, Math.floor(Number(limit) || 100)));
   const params = [agencyId];
+  if (threadKey) params.push(threadKey);
   if (sentByUserId) params.push(sentByUserId);
   // Sent can recover older or recently sent texts whose thread has not been
   // projected yet. Limit the work to the current sender and missing threads.
@@ -85,7 +86,7 @@ export async function syncSmsThreads({ agencyId, limit = 100, sentByUserId = nul
        COALESCE(c.full_name, c.initials, ac.full_name, 'SMS') AS party_name
      FROM message_logs ml
      JOIN (SELECT MAX(source.id) AS id FROM message_logs source WHERE source.agency_id = ?
-       AND source.sms_thread_key IS NOT NULL ${senderFilter} GROUP BY source.sms_thread_key) latest ON latest.id = ml.id
+       AND source.sms_thread_key IS NOT NULL ${threadKey ? 'AND source.sms_thread_key = ?' : ''} ${senderFilter} GROUP BY source.sms_thread_key) latest ON latest.id = ml.id
      LEFT JOIN clients c ON c.id = ml.client_id
      LEFT JOIN agency_contacts ac ON ac.id = ml.agency_contact_id
      ORDER BY ml.created_at DESC, ml.id DESC LIMIT ${maxThreads}`, params

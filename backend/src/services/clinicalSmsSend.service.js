@@ -1,29 +1,17 @@
 import { resolveRelayFamily, resolveGuardianTextRecipient } from './providerSmsRelayIdentity.service.js';
 import { assertClinicalSmsRecipient, staffSmsIdentity } from './clinicalSmsAccess.service.js';
-import { parseSmsThreadKey, normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
+import { parseSmsThreadKey, normalizeSmsPhone, smsThreadKey } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
-import Agency from '../models/Agency.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
-import SmsOptInState from '../models/SmsOptInState.model.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import AgencyContact from '../models/AgencyContact.model.js';
 import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import VonageService from './vonage.service.js';
-import { resolveOutboundNumber } from './communicationRouting.service.js';
-
-function parseFeatureFlags(raw) {
-  if (!raw) return {};
-  if (typeof raw === 'object') return raw || {};
-  try {
-    return JSON.parse(raw) || {};
-  } catch {
-    return {};
-  }
-}
+import { resolveClinicalSmsLine } from './clinicalSmsLine.service.js';
 
 function parseIntOrNull(v) {
   const n = parseInt(v, 10);
@@ -59,7 +47,7 @@ export async function sendClinicalSms({
   body,
   numberId = null,
   mediaUrls = null,
-  guardianUserId = null, auditUserId = null, threadKey = null, relayRecipient = null, preview = false
+  guardianUserId = null, auditUserId = null, threadKey = null, relayRecipient = null, preview = false, startsParentContactConversation = false, supportInbox = false
 } = {}) {
   const uid = parseIntOrNull(userId);
   const cid = parseIntOrNull(clientId);
@@ -79,13 +67,26 @@ export async function sendClinicalSms({
   let contact = null;
   let targetPhone = null;
   let targetAgencyId = null;
+  let recipient = null;
+  const phoneThread = threadKey ? parseSmsThreadKey(threadKey) : null;
+  if (threadKey && (!phoneThread || phoneThread.clientId !== cid || phoneThread.contactId !== aid)) {
+    throw Object.assign(new Error('SMS conversation does not match recipient'), { status: 400 });
+  }
 
   if (cid) {
     client = await Client.findById(cid, { includeSensitive: true });
     if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
     await assertClientAgencyAccess(uid, client);
-    const guardian = guardianUserId == null ? null : await resolveGuardianTextRecipient(client, guardianUserId);
-    targetPhone = guardian?.phone || client.contact_phone;
+    if (guardianUserId != null) recipient = await resolveGuardianTextRecipient(client, guardianUserId);
+    else if (phoneThread) {
+      recipient = await resolveRelayFamily(client, phoneThread.toNumber);
+      if (!recipient) throw Object.assign(new Error('This family number is no longer verified for the client. Start a new text to choose a confirmed recipient.'), { status: 409 });
+    }
+    if (!recipient && client.contact_phone) {
+      recipient = await resolveRelayFamily(client, client.contact_phone);
+      if (!recipient) throw Object.assign(new Error('Choose a verified client or guardian number before texting.'), { status: 409 });
+    }
+    targetPhone = recipient?.phone || client.contact_phone;
     targetAgencyId = client.agency_id;
   } else if (aid) {
     contact = await AgencyContact.findById(aid);
@@ -102,6 +103,7 @@ export async function sendClinicalSms({
     if (!family || family.guardianUserId !== Number(relayRecipient.guardianUserId))
       throw Object.assign(new Error('The family recipient is no longer authorized'), { status: 403 });
     targetPhone = family.phone;
+    recipient = family;
   }
 
   await assertClinicalSmsRecipient({ user, client, contact });
@@ -120,19 +122,24 @@ export async function sendClinicalSms({
     }
   }
 
-  const phoneThread = threadKey ? parseSmsThreadKey(threadKey) : null;
-  if (threadKey && (!phoneThread || phoneThread.clientId !== cid || phoneThread.contactId !== aid)) throw Object.assign(new Error('SMS conversation does not match recipient'), { status: 400 });
   if (phoneThread) {
     if (normalizeSmsPhone(targetPhone) !== phoneThread.toNumber) throw Object.assign(new Error('This contact’s number has changed. Start a new conversation to use their current number.'), { status: 409 });
     const [numbers] = await pool.execute('SELECT id FROM twilio_numbers WHERE agency_id = ? AND phone_number = ? LIMIT 1', [targetAgencyId, phoneThread.fromNumber]);
     if (!numbers.length) throw Object.assign(new Error('The sending number for this conversation is unavailable'), { status: 409 });
+    if (numberId && Number(numberId) !== Number(numbers[0].id)) {
+      throw Object.assign(new Error('A reply must use the sending line for this conversation. Start a new text to change lines.'), { status: 409 });
+    }
     numberId = numbers[0].id;
   }
-  const resolved = await resolveOutboundNumber({
-    userId: uid,
-    clientId: cid,
-    requestedNumberId: numberId ? parseIntOrNull(numberId) : null
+  const resolved = await resolveClinicalSmsLine({
+    user, agencyId: targetAgencyId, clientId: cid, numberId, threadKey, supportInbox
   });
+  if (resolved?.error === 'split_lines_required') {
+    throw Object.assign(new Error('This organization needs a registered provider line and a separate reminders and Support line before personal texting is available.'), { status: 409 });
+  }
+  if (resolved?.error === 'reminder_line_support_only') {
+    throw Object.assign(new Error('The reminder line is available for Support replies only. Start a new text from the provider line.'), { status: 403 });
+  }
   if (resolved?.error === 'number_unavailable') {
     throw Object.assign(new Error('Selected number is unavailable'), { status: 404 });
   }
@@ -168,14 +175,20 @@ export async function sendClinicalSms({
   }
 
   const fromNumber = resolved.number.phone_number;
+  const { resolveRegisteredSmsSender } = await import('./smsCompliance.service.js');
+  const reminder = await resolveRegisteredSmsSender({ agencyId: targetAgencyId, purpose: 'reminders' });
+  if (!reminder || (reminder === fromNumber && !supportInbox)) {
+    throw Object.assign(new Error('This organization’s reminders and provider lines must be registered separately.'), { status: 409 });
+  }
   if (phoneThread && normalizeSmsPhone(fromNumber) !== phoneThread.fromNumber) throw Object.assign(new Error('The sending number for this conversation has changed'), { status: 409 });
   const resolvedNumberId = resolved?.number?.id || null;
   const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
   const assignedUserId = resolved?.assignment?.user_id || uid;
 
+  const requireConfirmedCare = !threadKey && !relayRecipient;
   if (preview) {
     const { prepareSmsDelivery } = await import('./smsCompliance.service.js');
-    const prepared = await prepareSmsDelivery({ purpose: 'care', agencyId: targetAgencyId, clientId: cid, recipientUserId: guardianUserId || relayRecipient?.guardianUserId,
+    const prepared = await prepareSmsDelivery({ purpose: 'care', requireConfirmedCare, agencyId: targetAgencyId, clientId: cid, recipientUserId: recipient?.guardianUserId ?? null,
       to: targetPhone, from: fromNumber, body: authored.body, senderFirstName: authored.senderFirstName });
     return { eligible: true, from: prepared.from, to: prepared.to, numberId: resolvedNumberId };
   }
@@ -187,7 +200,11 @@ export async function sendClinicalSms({
     context: { severity: 'info' }
   });
 
-  const outboundMetadata = { provider: 'vonage', gatekeeper: decision, numberId: resolvedNumberId };
+  const outboundMetadata = {
+    provider: 'vonage', gatekeeper: decision, numberId: resolvedNumberId,
+    guardianUserId: recipient?.guardianUserId || null,
+    startsParentContactConversation
+  };
   if (hasMedia) outboundMetadata.media_urls = mediaUrls;
 
   const outboundLog = await MessageLog.createOutbound({
@@ -207,13 +224,13 @@ export async function sendClinicalSms({
   });
 
   try {
-    const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId, clientId: cid || contact?.client_id || null, recipientUserId: guardianUserId || relayRecipient?.guardianUserId,
+    const msg = await VonageService.sendSms({ purpose: 'care', requireConfirmedCare, agencyId: targetAgencyId, clientId: cid || contact?.client_id || null, recipientUserId: recipient?.guardianUserId ?? null,
       to: MessageLog.normalizePhone(targetPhone) || targetPhone,
       from: MessageLog.normalizePhone(fromNumber) || fromNumber,
       body: authored.body, senderFirstName: authored.senderFirstName,
       mediaUrl: hasMedia ? mediaUrls : null
     });
-    const sentMetadata = { provider: 'vonage', status: msg.status, gatekeeper: decision };
+    const sentMetadata = { ...outboundMetadata, status: msg.status };
     if (hasMedia) sentMetadata.media_urls = mediaUrls;
     const updated = await MessageLog.markSent(outboundLog.id, msg.sid, sentMetadata);
 
@@ -248,7 +265,8 @@ export async function sendClinicalSms({
         numberPurpose: resolved?.number?.number_purpose || null,
         body: authored.body,
         messageLogId: updated?.id || outboundLog?.id || null,
-        clientId: cid || null
+        clientId: cid || null,
+        userId: recipient?.guardianUserId || null
       });
     } catch {
       /* best-effort */
@@ -256,6 +274,14 @@ export async function sendClinicalSms({
 
     if (cid) {
       await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
+    }
+
+    const key = updated?.sms_thread_key || smsThreadKey({
+      clientId: cid, contactId: aid, fromNumber, toNumber: targetPhone, direction: 'outbound'
+    });
+    if (key) {
+      const { syncSmsThreads } = await import('./channelInboxAdapter.service.js');
+      await syncSmsThreads({ agencyId: targetAgencyId, threadKey: key, limit: 1 }).catch(() => {});
     }
 
     return {
@@ -266,7 +292,8 @@ export async function sendClinicalSms({
     };
   } catch (sendErr) {
     await MessageLog.markFailed(outboundLog.id, sendErr.message);
-    const err = Object.assign(new Error('Failed to send SMS via Vonage'), { status: 502 });
+    if (sendErr.status && sendErr.status < 500) throw sendErr;
+    const err = Object.assign(new Error('The carrier did not accept the text'), { status: 502 });
     err.details = sendErr.message;
     throw err;
   }

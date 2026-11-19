@@ -29,3 +29,14 @@ export const sentSmsConversationSql = `(c.channel = 'sms' AND EXISTS (
     AND sent_sms.sms_thread_key = c.external_thread_id AND sent_sms.user_id = ?
     AND sent_sms.direction = 'OUTBOUND' AND sent_sms.delivery_status IN ('sent','submitted','accepted','delivered')
 ))`;
+
+
+// A separately configured reminder line belongs to the support inbox.
+export const supportReminderSmsConversationSql = `(c.channel='sms' AND EXISTS (
+  SELECT 1 FROM agencies reminder_agency
+  JOIN twilio_numbers reminder_line ON reminder_line.agency_id=reminder_agency.id
+    AND reminder_line.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(reminder_agency.feature_flags,'$.smsReminderNumberId')) AS UNSIGNED)
+  WHERE reminder_agency.id=c.agency_id
+    AND reminder_line.id<>COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(reminder_agency.feature_flags,'$.smsSharedCareNumberId')) AS UNSIGNED),0)
+    AND reminder_line.phone_number=SUBSTRING_INDEX(SUBSTRING_INDEX(c.external_thread_id,':',-2),':',1)
+))`;

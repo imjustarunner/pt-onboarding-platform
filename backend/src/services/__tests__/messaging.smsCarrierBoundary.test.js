@@ -78,7 +78,7 @@ describe('organization and campaign boundaries',()=>{
   });
   it('filters sender lookup by agency, carrier, brand, campaign and requested purposes',async()=>{
     await resolveRegisteredSmsSender({agencyId:450,purpose:'reminders'});
-    const [sql,args]=pool.execute.mock.calls[0];expect(sql).toContain("'$.provider'");expect(sql).toContain('r.campaign_id = ?');expect(sql).toContain("'$.brandId'");
+    const [sql,args]=pool.execute.mock.calls.find(([sql]) => sql.includes('sms_sender_registrations'));expect(sql).toContain("'$.provider'");expect(sql).toContain('r.campaign_id = ?');expect(sql).toContain("'$.brandId'");
     expect(args).toEqual([450,'reminders',null,null,null,null,'notifyre','itsco-client','itsco-client','itsco-brand','itsco-brand']);
     pool.execute.mockClear();await resolveRegisteredSmsSender({agencyId:2,purpose:'workforce'});
     expect(pool.execute.mock.calls[0][1]).toEqual([2,'workforce',null,null,null,null,'vonage',null,null,null,null]);

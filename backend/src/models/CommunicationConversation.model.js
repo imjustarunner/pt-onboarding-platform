@@ -1,4 +1,4 @@
-import { assignedSmsConversationSql, sentSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
+import { assignedSmsConversationSql, sentSmsConversationSql, supportReminderSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { groupEmailConversationSql, schoolGroupConversationSql, personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
@@ -175,9 +175,10 @@ class CommunicationConversation {
     /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
     scopeToUserId = null,
     groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], groupOnly = false, excludeGroup = false,
-    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true
+    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true, hideSupportReminderSms = false
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
+    if (hideSupportReminderSms) where.push(`NOT ${supportReminderSmsConversationSql}`);
     const params = [];
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
@@ -567,10 +568,11 @@ class CommunicationConversation {
     return rows.length;
   }
 
-  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], channel, inboxId, claimState, groupOnly, excludeGroup, includeGlobal = true } = {}) {
+  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], channel, inboxId, claimState, groupOnly, excludeGroup, includeGlobal = true, hideSupportReminderSms = false } = {}) {
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access, resolvedMailboxVisibilitySql(userId, 'i')];
+    if (hideSupportReminderSms) where.push(`NOT ${supportReminderSmsConversationSql}`);
     const params = [];
     if (agencyId != null) { where.push(includeGlobal ? '(c.agency_id=? OR c.agency_id IS NULL)' : 'c.agency_id=?'); params.push(agencyId); }
     if (channel && channel !== 'all') {

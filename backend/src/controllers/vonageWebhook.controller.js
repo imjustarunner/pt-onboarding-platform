@@ -291,12 +291,20 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const client = route.client || null;
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
+    if (route.reminderLine && !clientId) {
+      reception.reason = 'reminder_sender_needs_review';
+      return await holdForReview();
+    }
 
     const directProviderCare = ownerType === 'staff' && !!assignedUserId && !!clientId;
     const disableAwayNotices = directProviderCare && body.trim().toUpperCase() === 'NOOO';
     const reminderSender = directProviderCare && /^(Y|YES|N|NO|R|RESCHEDULE)$/i.test(body.trim())
       ? await resolveRegisteredSmsSender({ agencyId, purpose: 'reminders' }) : null;
-    const isReminderReply = !directProviderCare || (MessageLog.normalizePhone(reminderSender) || reminderSender) === toNorm;
+    const { configuredReminderNumberId } = await import('../services/sharedCareNumber.service.js');
+    const configuredReminderId = agencyId && await configuredReminderNumberId(agencyId);
+    const isReminderReply = configuredReminderId
+      ? Number(numberId) === configuredReminderId
+      : !directProviderCare || (MessageLog.normalizePhone(reminderSender) || reminderSender) === toNorm;
     const explicitAppointmentReply = /^(Y|YES|N|NO|R|RESCHEDULE)$/i.test(body.trim());
     if (route.allCaregiversAway && agencyId && clientId && !disableAwayNotices && !(explicitAppointmentReply && isReminderReply)) {
       await offerOutOfOfficeSupport({ route, from: fromNorm, to: toNorm, body, messageId, mediaUrls });
@@ -318,7 +326,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
           channel: 'sms'
         });
         if (apptReply && !apptReply.fallThroughToInbox && apptReply.ackMessage) {
-          await VonageService.sendSms({ purpose: 'care',
+          await VonageService.sendSms({ purpose: route.reminderLine ? 'reminders' : 'care', agencyId, clientId,
             to: fromNorm,
             from: toNorm,
             body: String(apptReply.ackMessage).slice(0, 480)
@@ -336,7 +344,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
           appointmentReplyContext = apptReply;
           if (apptReply.ackMessage) {
             try {
-              await VonageService.sendSms({ purpose: 'care',
+              await VonageService.sendSms({ purpose: route.reminderLine ? 'reminders' : 'care', agencyId, clientId,
                 to: fromNorm,
                 from: toNorm,
                 body: String(apptReply.ackMessage).slice(0, 480)
@@ -356,7 +364,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       return res.status(200).json({ ok: true, awaitingProviderReturn: true });
     }
 
-    if (!directProviderCare && body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
+    if (!directProviderCare && !route.reminderLine && body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
       const handled = await SmsAutoReplyRuleService.handleYesReply({
         fromNumber: fromNorm,
         toNumber: toNorm,
@@ -379,7 +387,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     // An ordinary inbound message is not recurring or marketing consent and must
     // never overwrite STOP. Recipient permissions are managed by the shared gate.
 
-    const metadata = { provider: req.smsProvider || 'vonage', numberId, directProviderCare,
+    const metadata = { provider: req.smsProvider || 'vonage', numberId, directProviderCare, reminderLine: !!route.reminderLine,
       ...(disableAwayNotices ? { outOfOfficeNoticesDisabled: true } : {}) };
     if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
     if (appointmentReplyContext?.needsSupport) {
@@ -420,7 +428,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     });
 
     if (!keyword && !appointmentReplyContext) {
-      await forwardClientSmsToProviders({route,from:fromNorm,to:toNorm,body,messageId,inboundLogId:inboundLog?.id,mediaUrls});
+      if (!route.reminderLine) await forwardClientSmsToProviders({route,from:fromNorm,to:toNorm,body,messageId,inboundLogId:inboundLog?.id,mediaUrls});
     }
 
     if (!disableAwayNotices && !keyword && !appointmentReplyContext?.ackMessage) {
