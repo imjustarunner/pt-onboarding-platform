@@ -830,7 +830,8 @@ it('polls quietly after freshness expires, without overlapping a slow current-we
 it('keeps cached staff alerts for the selected week when another week finishes late',async()=>{
  const state=await mount();await vi.advanceTimersByTimeAsync(500);state.mergeDiscoveredScheduleAgencies([2]);
  const base=m.get.getMockImplementation();let finish;
- m.get.mockImplementation((url,config)=>url==='/appointments/staff-alerts' ? (config.params.windowStart.startsWith('2026-10-12')?Promise.resolve({data:{alerts:[{appointmentId:1,text:'Current week'}]}}):new Promise(r=>{finish=r;})) : base(url,config));
+ const currentWindowStart = new Date(`${summary.weekStart}T00:00:00`).toISOString();
+ m.get.mockImplementation((url,config)=>url==='/appointments/staff-alerts' ? (config.params.windowStart === currentWindowStart?Promise.resolve({data:{alerts:[{appointmentId:1,text:'Current week'}]}}):new Promise(r=>{finish=r;})) : base(url,config));
  state.summary={...summary,scheduleAgencyIds:[2]};await state.loadScheduleStaffAlerts({type:'appointment-staff-alert-changed'});await flushPromises();
  state.summary={...summary,weekStart:'2026-10-19',scheduleAgencyIds:[2]};await flushPromises();expect(finish).toBeTypeOf('function');
  state.summary={...summary,scheduleAgencyIds:[2]};await flushPromises();expect(state.scheduleStaffAlerts[0].text).toBe('Current week');
