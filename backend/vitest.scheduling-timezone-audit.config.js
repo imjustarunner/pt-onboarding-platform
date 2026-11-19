@@ -18,6 +18,7 @@ export default {
     'src/services/__tests__/calendarPublicationSync.test.js',
     'src/controllers/__tests__/supervisionBooking.test.js',
     'src/controllers/__tests__/appointmentClinicalWriteAccess.test.js',
+    'src/controllers/__tests__/scheduling.teamCalendar.test.js',
     'src/controllers/__tests__/scheduling.companyEventsCalendar.test.js'
   ] }
 };

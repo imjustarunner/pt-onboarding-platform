@@ -956,7 +956,8 @@
                 v-else-if="authStore.user?.id && scheduleGridUserId && !(scheduleViewAsRequiresOrg && !currentAgencyId)"
                 :user-id="scheduleGridUserId"
                 :agency-id="scheduleGridAgencyProp"
-                :agency-ids="scheduleGridAgencyIdsForAdminPreview"
+                :key="`${scheduleGridMode}:${scheduleGridUserId}`"
+                :team-calendar="scheduleViewContextIsOther"
                 :mode="scheduleGridMode"
                 :week-start-ymd="activeScheduleWeekStartYmd || null"
                 :hide-office-and-calendar-integration="isClubContext"
@@ -3218,32 +3219,6 @@ const scheduleGridAgencyProp = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
-/**
- * When previewing another employee (View as or Employee schedules), merge org scope: brand org,
- * clinical parent, and the target user's agency_ids. ScheduleAvailabilityGrid merges multi-id loads.
- */
-const scheduleGridAgencyIdsForAdminPreview = computed(() => {
-  let uid = 0;
-  if (isViewingAnotherUserOnMySchedule.value) uid = Number(myScheduleViewAsUserId.value || 0);
-  else if (scheduleViewMode.value === 'employees') uid = Number(selectedEmployeeDirectoryId.value || 0);
-  else return null;
-  if (!uid) return null;
-  const ids = new Set();
-  const cur = Number(currentAgencyId.value || 0);
-  const ann = Number(announcementAgencyId.value || 0);
-  if (cur) ids.add(cur);
-  if (ann) ids.add(ann);
-  const raw = (employeeSchedulePickerUsersRaw.value || []).find((u) => Number(u?.id || 0) === uid);
-  const rawAgencies = String(raw?.agency_ids ?? raw?.agencyIds ?? '');
-  rawAgencies
-    .split(',')
-    .map((x) => Number(String(x).trim()))
-    .filter((n) => Number.isFinite(n) && n > 0)
-    .forEach((n) => ids.add(n));
-  const arr = Array.from(ids.values());
-  return arr.length ? arr : null;
-});
-
 /** Single agency id for schedule-summary when scoping to “current” org (includes clinical parent for schools). */
 const scheduleScopedAgencyId = computed(() => {
   const n = Number(announcementAgencyId.value || currentAgencyId.value || 0);
@@ -3313,7 +3288,7 @@ const scheduleViewContextLine = computed(() => {
       return `Combined overlay of every supervisee in the chip row (not only yours). You are still ${you}.`;
     }
     const name = scheduleSubjectDisplayName.value || 'this supervisee';
-    return `Showing ${name}'s calendar — the same weekly view they see. You are still ${you}.`;
+    return `Showing ${name}'s schedule across organizations. Details depend on your access.`;
   }
   if (scheduleViewMode.value === 'employees') {
     const name = scheduleSubjectDisplayName.value || 'this team member';
@@ -3321,7 +3296,7 @@ const scheduleViewContextLine = computed(() => {
   }
   if (isViewingAnotherUserOnMySchedule.value) {
     const name = scheduleSubjectDisplayName.value || 'this team member';
-    return `Showing ${name}'s calendar — the same weekly view they see. You are still ${you}.`;
+    return `Showing ${name}'s schedule across organizations. Details depend on your access.`;
   }
   return `Your calendar · ${you}`;
 });

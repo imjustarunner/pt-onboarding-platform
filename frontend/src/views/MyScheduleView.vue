@@ -61,14 +61,15 @@
         <OfficeAssignmentUsageReviews />
         <ProviderCopayAttendance v-if="!learningOnly" />
         <TeamAvailabilityCalendar v-if="teamUserId && !canManageTeamSchedule" :user-id="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" :name="teamUserName" :week-start-ymd="weekStartYmd || null" @update:weekStartYmd="onWeekStartUpdate" />
-        <ScheduleAvailabilityGrid v-else :key="scheduleRevision"
+        <ScheduleAvailabilityGrid v-else :key="`${scheduleRevision}:${teamUserId || 0}`"
           :user-id="Number(teamUserId || authStore.user.id)"
           :agency-id="Number(agencyStore.currentAgency?.id) || null"
+          :team-calendar="!!teamUserId"
           :mode="teamUserId ? 'admin' : 'self'"
           :compact-page-chrome="true"
           :hub-views="scheduleHubViews"
           :active-hub-view="'self'"
-          schedule-title="My Schedule"
+          :schedule-title="teamUserId && teamUserName ? `${teamUserName}’s schedule` : 'My schedule'"
           :week-start-ymd="weekStartYmd || null"
           :focus-event-id="Number(route.query.eventId || 0)"
           :focus-event-kind="String(route.query.eventKind || '')"

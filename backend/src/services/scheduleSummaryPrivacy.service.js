@@ -1,3 +1,6 @@
+import { utcMysqlToIso, wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
+import { addDaysYmd } from '../utils/scheduleRecurrence.js';
+
 /**
  * Schedule summary detail levels and create-for-others auth helpers.
  * busy = anonymous intervals only
@@ -520,4 +523,90 @@ export function toBusyOnlyScheduleSummary(payload = {}) {
     googleBusy: busyBlocks.filter((b) => b.source === 'external').map((b) => ({ start: b.startAt, end: b.endAt })),
     externalBusy: []
   };
+}
+
+const teamCalendarFields = ['scheduleEvents', 'officeEvents', 'supervisionSessions', 'schoolAssignments',
+  'officeRequests', 'schoolRequests', 'virtualWorkingHours'];
+const nonOccupyingStatuses = new Set(['cancelled', 'canceled', 'canceled_by_provider', 'canceled_by_client',
+  'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'no_show', 'rescheduled', 'voided', 'draft']);
+
+function occupiesTime(row) {
+  return !row.isCancelled && !row.canonicalOutcome
+    && !nonOccupyingStatuses.has(String(row.appointmentStatus || row.status || '').toLowerCase());
+}
+
+function anonymousTeamTimes(payload, timeZone) {
+  const seen = new Set();
+  const blocks = [];
+  function add(start, end, activityType = 'busy') {
+    const startAt = utcMysqlToIso(start), endAt = utcMysqlToIso(end);
+    if (!startAt || !endAt || startAt >= endAt) return;
+    const key = `${startAt}|${endAt}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    blocks.push({ startAt, endAt, activityType, title: { busy: 'Busy', session: 'Session', meeting: 'Meeting' }[activityType] });
+  }
+
+  for (const row of payload.scheduleEvents || []) {
+    if (!occupiesTime(row) || ['COMPANY_EVENT_OPEN', 'FALL_CHECKIN_PRESLOT'].includes(row.kind)) continue;
+    const type = row.appointmentId || row.clientId ? 'session' : ['TEAM_MEETING', 'HUDDLE'].includes(row.kind) ? 'meeting' : 'busy';
+    if (row.allDay && row.startDate) {
+      const zone = row.timeZone || timeZone;
+      add(wallMysqlToUtcMysql(`${row.startDate} 00:00:00`, zone),
+        wallMysqlToUtcMysql(`${row.endDate || addDaysYmd(row.startDate, 1)} 00:00:00`, zone), type);
+    } else {
+      add(row.startAt, row.endAt, type);
+    }
+  }
+  for (const row of payload.officeEvents || []) {
+    if (!occupiesTime(row)) continue;
+    if (row.appointmentStartAt && row.appointmentEndAt) {
+      add(row.appointmentStartAt, row.appointmentEndAt, 'session');
+    } else if (['BOOKED', 'BLOCKED'].includes(String(row.status || '').toUpperCase())
+      || ['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(row.slotState)) {
+      add(row.startAt, row.endAt, row.clientId || row.hasAppointment ? 'session' : 'busy');
+    }
+  }
+  for (const row of payload.supervisionSessions || []) {
+    if (occupiesTime(row) && (row.viewerSignedUp || (!row.isOpenJoinOffering && row.enrollmentMode !== 'signup_only')
+      || Number(row.supervisorUserId) === Number(payload.providerId))) add(row.startAt, row.endAt, 'meeting');
+  }
+  for (const row of payload.schoolAssignments || []) {
+    const weekStart = payload.weekStart;
+    if (!weekStart || !row.startTime || !row.endTime) continue;
+    const weekday = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(String(row.dayOfWeek).toLowerCase());
+    if (weekday < 0) continue;
+    const anchor = new Date(`${weekStart}T00:00:00Z`).getUTCDay();
+    const date = addDaysYmd(weekStart, (weekday - anchor + 7) % 7);
+    const zone = row.timeZone || timeZone;
+    add(wallMysqlToUtcMysql(`${date} ${row.startTime}`, zone), wallMysqlToUtcMysql(`${date} ${row.endTime}`, zone));
+  }
+  return blocks;
+}
+
+/** Apply team-calendar privacy after the authorized coworker lookup, before any full payload is returned. */
+export function projectTeamCalendar(payload, { detailLevel, allowedDetailAgencies, timeZone }) {
+  const allowed = allowedDetailAgencies === null ? null : new Set(allowedDetailAgencies);
+  const visible = row => allowed === null || (allowed.has(Number(row.agencyId))
+    && (!row.appointmentId || allowed.has(Number(row.appointmentAgencyId ?? row.agencyId))));
+  if (detailLevel === 'full' && allowed === null) return payload;
+  const scoped = { ...payload, scheduleAgencyIds: (payload.scheduleAgencyIds || []).filter(id => allowed === null || allowed.has(Number(id))) };
+  const hidden = { providerId: payload.providerId, weekStart: payload.weekStart };
+  for (const field of teamCalendarFields) {
+    const rows = payload[field] || [];
+    scoped[field] = rows.filter(visible);
+    hidden[field] = rows.filter(row => !visible(row));
+  }
+  const hiddenTimes = anonymousTeamTimes(hidden, timeZone).map(({ startAt, endAt }) => ({ startAt, endAt, activityType: 'busy', title: 'Busy' }));
+  if (detailLevel === 'full') {
+    scoped.crossOrganizationBusy = hiddenTimes.map(({ startAt, endAt }) => ({ startAt, endAt }));
+    return scoped;
+  }
+  const visibleTimes = anonymousTeamTimes(scoped, timeZone);
+  const busyBlocks = new Map();
+  for (const block of [...hiddenTimes, ...visibleTimes]) {
+    const { startAt, endAt } = block;
+    busyBlocks.set(`${startAt}|${endAt}`, detailLevel === 'busy' ? { startAt, endAt, activityType: 'busy', title: 'Busy' } : block);
+  }
+  return { ok: true, detailLevel: 'availability', weekStart: payload.weekStart, weekEnd: payload.weekEnd, busyBlocks: [...busyBlocks.values()] };
 }

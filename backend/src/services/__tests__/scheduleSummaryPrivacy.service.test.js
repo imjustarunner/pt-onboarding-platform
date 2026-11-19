@@ -5,7 +5,7 @@ import {
   resolveScheduleDetailLevel,
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary,
-  toPeerAvailabilitySummary, canViewPeerSchedule, canIncludeAllScheduleAgencies, publicScheduleReasonCode
+  toPeerAvailabilitySummary, projectTeamCalendar, canViewPeerSchedule, canIncludeAllScheduleAgencies, publicScheduleReasonCode
 } from '../scheduleSummaryPrivacy.service.js';
 
 describe('scheduleSummaryPrivacy', () => {
@@ -174,5 +174,50 @@ describe('scheduleSummaryPrivacy', () => {
     expect(JSON.stringify(typed)).not.toContain('Client Jane');
     expect(JSON.stringify(typed)).not.toContain('Alice');
     expect(JSON.stringify(typed)).not.toMatch(/"clientId"\s*:\s*55/);
+  });
+});
+
+describe('cross-organization team calendar', () => {
+  const sharedTime = { startAt: '2026-11-19T00:00:00.000Z', endAt: '2026-11-19T01:00:00.000Z' };
+  const outsideTime = { startAt: '2026-11-19T01:00:00.000Z', endAt: '2026-11-19T02:00:00.000Z' };
+  const hybridTime = { startAt: '2026-11-19T02:00:00.000Z', endAt: '2026-11-19T03:00:00.000Z' };
+  const privateInfo = { clientName: 'Outside client', appointmentNotes: 'Outside note', roomId: 45, joinUrl: 'outside-link' };
+
+  function calendar() {
+    return {
+      providerId: 8, weekStart: '2026-11-16', weekEnd: '2026-11-23', scheduleAgencyIds: [2, 99],
+      scheduleEvents: [
+        { ...sharedTime, id: 11, agencyId: 2, appointmentId: 101, clientName: 'Shared client' },
+        { ...outsideTime, ...privateInfo, id: 22, agencyId: 99, appointmentId: 102 },
+        { ...hybridTime, ...privateInfo, id: 33, agencyId: 2, appointmentAgencyId: 99, appointmentId: 103 },
+        { ...sharedTime, agencyId: 99, appointmentId: 104, appointmentStatus: 'canceled_by_provider' }
+      ],
+      officeEvents: [
+        { ...privateInfo, agencyId: 99, appointmentId: 102, slotState: 'ASSIGNED_BOOKED',
+          startAt: '2026-11-18T18:00:00.000Z', endAt: '2026-11-18T19:00:00.000Z',
+          appointmentStartAt: outsideTime.startAt, appointmentEndAt: outsideTime.endAt },
+        { ...sharedTime, agencyId: 99, slotState: 'ASSIGNED_AVAILABLE' }
+      ],
+      supervisionSessions: [{ ...sharedTime, agencyId: 99, enrollmentMode: 'signup_only', supervisorUserId: 5 }],
+      virtualWorkingHours: [{ ...privateInfo, agencyId: 99 }]
+    };
+  }
+  it('returns shared detail and only anonymous time for outside appointments and linked office copies', () => {
+    const source = calendar();
+    const result = projectTeamCalendar(source, { detailLevel: 'full', allowedDetailAgencies: [2], timeZone: 'America/Denver' });
+    expect(result.scheduleAgencyIds).toEqual([2]);
+    expect(result.scheduleEvents.map(row => row.id)).toEqual([11]);
+    expect(result.crossOrganizationBusy).toEqual([outsideTime, hybridTime]);
+    expect(JSON.stringify(result)).not.toMatch(/Outside|outside-link|roomId|appointmentAgencyId/);
+    expect(source.scheduleEvents).toHaveLength(4);
+  });
+  it('gives a provider time and fixed labels without appointment or organization identifiers', () => {
+    const result = projectTeamCalendar(calendar(), { detailLevel: 'availability', allowedDetailAgencies: [2], timeZone: 'America/Denver' });
+    expect(result.busyBlocks).toEqual([
+      { ...outsideTime, activityType: 'busy', title: 'Busy' },
+      { ...hybridTime, activityType: 'busy', title: 'Busy' },
+      { ...sharedTime, activityType: 'session', title: 'Session' }
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/client|appointment|agency|joinUrl|roomId/i);
   });
 });

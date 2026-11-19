@@ -836,3 +836,37 @@ it('keeps cached staff alerts for the selected week when another week finishes l
  state.summary={...summary,scheduleAgencyIds:[2]};await flushPromises();expect(state.scheduleStaffAlerts[0].text).toBe('Current week');
  finish({data:{alerts:[{appointmentId:2,text:'Other week'}]}});await flushPromises();expect(state.scheduleStaffAlerts[0].text).toBe('Current week');
 });
+
+it('loads one team calendar across organizations, with no Google request or editor for busy-only entries', async () => {
+  const state = await mount();
+  const base = m.get.getMockImplementation();
+  m.get.mockImplementation((url, config) => url === '/users/8/schedule-summary'
+    ? Promise.resolve({ data: { ...summary, providerId: 8, googleCalendarEnabled: true, googleSyncPending: true,
+      crossOrganizationBusy: [{ startAt: '2026-10-14T00:00:00Z', endAt: '2026-10-14T01:00:00Z' }] } })
+    : base(url, config));
+  await wrapper.setProps({ userId: 8, mode: 'admin', teamCalendar: true, agencyId: 2, agencyIds: [2, 3] });
+  await vi.advanceTimersByTimeAsync(100);
+  await flushPromises();
+  const reads = m.get.mock.calls.filter(([url]) => url === '/users/8/schedule-summary');
+  expect(reads).toHaveLength(1);
+  expect(reads[0][1].params).toMatchObject({ teamCalendar: 'true', agencyId: 2, skipGoogleSync: 'true', includeGoogleBusy: 'false', includeGoogleEvents: 'false' });
+  const block = state.buildCellBlocks('Tuesday', 18, 0).find(item => item.peerOnly);
+  expect(block).toMatchObject({ peerOnly: true, canEdit: false, canReschedule: false, eventId: null });
+  state.dispatchCellBlockAction(block, 'Tuesday', 18, 0);
+  expect(state.showRequestModal).toBe(false);
+});
+
+it('keeps an explicit Google opt-out after reopening My Schedule through a different organization route', async () => {
+  const state = await mount();
+  await vi.advanceTimersByTimeAsync(100);
+  state.googleBusyPreference = false;
+  state.googleEventsPreference = false;
+  await flushPromises();
+  expect(JSON.parse(localStorage.getItem('schedule.overlayPrefs.v2:7:multi'))).toMatchObject({ showGoogleBusy: false, showGoogleEvents: false });
+  wrapper.unmount();
+  const reopened = await mount();
+  await wrapper.setProps({ agencyId: 2 });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(reopened.googleBusyPreference).toBe(false);
+  expect(reopened.googleEventsPreference).toBe(false);
+});

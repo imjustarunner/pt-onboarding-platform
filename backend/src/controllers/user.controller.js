@@ -78,6 +78,7 @@ import {
   canIncludeAllScheduleAgencies,
   toPeerAvailabilitySummary,
   resolveScheduleDetailLevel,
+  projectTeamCalendar,
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary,
   publicScheduleReasonCode
@@ -4016,12 +4017,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
     if (!isSelf && !canViewPeerSchedule(provider.role)) return res.status(403).json({ error: { message: 'Staff schedules only.' } });
 
+    const teamCalendar = !isSelf && String(req.query.teamCalendar) === 'true';
+    const platformScheduleAccess = String(req.user?.role || '').toLowerCase() === 'super_admin';
+    let allowedDetailAgencies = platformScheduleAccess ? null : [];
     // Resolve agency context (used for access checks + scoping)
     const includeAllAgenciesRaw = String(req.query.includeAllAgencies || '').trim().toLowerCase();
-    const includeAllAgencies = canIncludeAllScheduleAgencies({ isSelf, actorRole: req.user?.role }) && (includeAllAgenciesRaw === 'true'
+    const includeAllAgencies = teamCalendar || (canIncludeAllScheduleAgencies({ isSelf, actorRole: req.user?.role }) && (includeAllAgenciesRaw === 'true'
       || includeAllAgenciesRaw === '1'
-      || String(req.query.agencyId || '').trim().toLowerCase() === 'all');
-    let agencyId = (!includeAllAgencies && req.query.agencyId) ? parseInt(req.query.agencyId, 10) : null;
+      || String(req.query.agencyId || '').trim().toLowerCase() === 'all'));
+    let agencyId = ((!includeAllAgencies || teamCalendar) && req.query.agencyId) ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) {
       try {
         // fallback to requester's first agency (super_admin may have none)
@@ -4034,14 +4038,15 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     let isSupervisorOfTarget = false;
     // Access control: super_admin can view any user; otherwise must share agency with provider or be supervisor of provider.
-    if (!isSelf && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+    if (!isSelf && !platformScheduleAccess) {
       const actorAgencies = await User.getAgencies(req.user.id);
       const targetAgencies = await getProviderAgencies();
       const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
       const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
       if (shared.length > 0) {
+        allowedDetailAgencies = shared;
         const requestedAgencyId = Number(req.query.agencyId);
-        if (requestedAgencyId > 0 && !shared.includes(requestedAgencyId)) return res.status(403).json({ error: { message: 'Organization access required.' } });
+        if (!teamCalendar && requestedAgencyId > 0 && !shared.includes(requestedAgencyId)) return res.status(403).json({ error: { message: 'Organization access required.' } });
         if (!agencyId || !shared.includes(Number(agencyId))) {
           agencyId = shared[0];
         }
@@ -4050,6 +4055,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const supervisorAgencyId = agencyId || (targetAgencies || [])[0]?.id;
         if (supervisorAgencyId && (await User.supervisorHasAccess(req.user.id, providerId, Number(supervisorAgencyId)))) {
           agencyId = Number(supervisorAgencyId);
+          allowedDetailAgencies = [agencyId];
           isSupervisorOfTarget = true;
         } else {
           return res.status(403).json({ error: { message: 'Access denied' } });
@@ -4062,7 +4068,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // super_admin skips the shared-agency branch above; requested agencyId may be a parent org while
     // provider_schedule_events and other rows use a child org id. If the provider has no membership
     // matching agencyId, scope to their first org so the summary is not empty.
-    if (!isSelf && String(req.user?.role || '').toLowerCase() === 'super_admin') {
+    if (!isSelf && platformScheduleAccess) {
       const targetAgencies = await getProviderAgencies();
       const targetIds = (targetAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
       if (targetIds.length) {
@@ -4087,14 +4093,23 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const { scheduleWeekWindow } = await import('../utils/scheduleWeekWindow.js');
     const { windowStart, windowEnd, timeMinIso, timeMaxIso } = scheduleWeekWindow(weekStart, displayTimeZone);
 
-    const googleCalendarEnabled = await usesGoogleSchedule(provider);
+    const detailLevel = resolveScheduleDetailLevel({
+      requestedLevel: req.query.detailLevel || req.query.detail_level,
+      isSelf, actorRole: req.user?.role, isSupervisorOfTarget
+    });
+    // A supervisor's access to one supervisee relationship does not grant
+    // clinical details across every shared organization.
+    if (teamCalendar && isSupervisorOfTarget && !canViewFullScheduleDetails(req.user?.role)) {
+      allowedDetailAgencies = [Number(agencyId)];
+    }
+    const googleCalendarEnabled = !teamCalendar && await usesGoogleSchedule(provider);
     const skipGoogleSync = ['true', '1'].includes(String(req.query.skipGoogleSync || '').toLowerCase());
     const includeGoogleEvents = !skipGoogleSync && googleCalendarEnabled && String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
     const includeGoogleBusy = !skipGoogleSync && googleCalendarEnabled && !includeGoogleEvents && String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
 
     // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
     // My Schedule personal grid can skip this — materialize only when office board needs it.
-    const skipOfficeMaterialize = ['1', 'true', 'yes'].includes(
+    const skipOfficeMaterialize = teamCalendar || ['1', 'true', 'yes'].includes(
       String(req.query.skipOfficeMaterialize || '').trim().toLowerCase()
     );
     if (!skipOfficeMaterialize) {
@@ -4186,6 +4201,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
               })()
             : []);
         officeRequests.push({
+          agencyId,
           id: r.id,
           notes: r.notes || '',
           createdAt: r.created_at,
@@ -4216,6 +4232,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           [r.id]
         );
         schoolRequests.push({
+          agencyId,
           id: r.id,
           notes: r.notes || '',
           createdAt: r.created_at,
@@ -4258,6 +4275,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
                  AND ss.client_id IS NOT NULL) AS slots_used,
              psa.school_organization_id,
              oa.agency_id,
+             a.timezone AS school_timezone,
              a.name AS school_name,
              a.logo_url,
              a.logo_path,
@@ -4284,6 +4302,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           schoolOrgId: r.school_organization_id,
           agencyId: Number(r.agency_id || 0) || null,
           schoolName: r.school_name,
+          timeZone: r.school_timezone || null,
           schoolLogoUrl: publicUploadsUrlFromStoredPath(r.icon_file_path || r.logo_path || r.logo_url),
           dayOfWeek: r.day_of_week,
           startTime: String(r.start_time || '').slice(0, 5),
@@ -4404,14 +4423,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
          LEFT JOIN office_booking_plans bp
            ON bp.standing_assignment_id = e.standing_assignment_id
           AND bp.is_active = TRUE
-         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         ${teamCalendar ? '' : 'JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?'}
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
            AND (e.status IS NULL OR UPPER(e.status) NOT IN ('CANCELLED','CANCELED')
              OR EXISTS(SELECT 1 FROM appointments retained WHERE retained.office_event_id=e.id AND retained.status<>'draft'))
            AND e.start_at < ?
            AND e.end_at > ?
          ORDER BY e.start_at ASC`,
-        [agencyId, providerId, agencyId, providerId, agencyId, providerId, providerId, windowEnd, windowStart]
+        [agencyId, providerId, agencyId, providerId, ...(teamCalendar ? [] : [agencyId]), providerId, providerId, windowEnd, windowStart]
       );
       officeEvents = (rows || []).map((r) => {
         const normalizedSlotState = String(r.status || '').trim().toUpperCase() === 'BOOKED'
@@ -4698,7 +4717,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           || (startWall ? String(startWall).slice(0, 10) : null);
         let joinToken = String(r.participant_join_token || r.join_token || '').trim();
         let hostJoinToken = String(r.host_join_token || '').trim();
-        if (!joinToken && Number(r.id || 0) > 0) {
+        const mayPrepareJoin = !teamCalendar || (detailLevel === 'full' && (allowedDetailAgencies === null || allowedDetailAgencies.includes(Number(r.agency_id))));
+        if (mayPrepareJoin && !joinToken && Number(r.id || 0) > 0) {
           joinToken = generateJoinToken();
           try {
             await pool.execute(
@@ -4709,7 +4729,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             joinToken = '';
           }
         }
-        if (!hostJoinToken && Number(r.id || 0) > 0) {
+        if (mayPrepareJoin && !hostJoinToken && Number(r.id || 0) > 0) {
           hostJoinToken = generateJoinToken();
           try {
             await pool.execute(
@@ -4813,15 +4833,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
     /** Re-read schedule events after inbound Google sync updates DB times. */
     let rematerializeScheduleEventsAfterGoogleSync = null;
     try {
-      try {
-        const Checkin = await import('../services/schoolReinitCheckin.service.js');
-        await Checkin.repairHostScheduleEventsInWindow({
-          providerId,
-          windowStart,
-          windowEnd,
-        });
-      } catch (repairErr) {
-        console.warn('[schedule-summary] check-in host calendar repair failed', repairErr?.message || repairErr);
+      if (!teamCalendar) {
+        try {
+          const Checkin = await import('../services/schoolReinitCheckin.service.js');
+          await Checkin.repairHostScheduleEventsInWindow({ providerId, windowStart, windowEnd });
+        } catch (repairErr) {
+          console.warn('[schedule-summary] check-in host calendar repair failed', repairErr?.message || repairErr);
+        }
       }
       const scheduleListArgs = {
         agencyId: includeAllAgencies ? null : agencyId,
@@ -5063,10 +5081,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // 4d) Skill Builders — materialized sessions this provider is booked on (per-session assignment)
     try {
-      const sbParams = [agencyId, providerId, windowEnd, windowStart];
-      const sbSqlBase = `SELECT s.id, s.starts_at, s.ends_at, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name
+      const sbParams = [...(teamCalendar ? [] : [agencyId]), providerId, windowEnd, windowStart];
+      const sbSqlBase = `SELECT s.id, s.starts_at, s.ends_at, sg.agency_id, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name
          FROM skill_builders_event_sessions s
-         INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+         INNER JOIN skills_groups sg ON sg.id = s.skills_group_id ${teamCalendar ? '' : 'AND sg.agency_id = ?'}
          INNER JOIN company_events ce ON ce.id = s.company_event_id
          INNER JOIN skill_builders_event_session_providers sbesp
            ON sbesp.session_id = s.id AND sbesp.provider_user_id = ?
@@ -5076,10 +5094,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
       let sbRows;
       try {
         const [rows] = await pool.execute(
-          `SELECT s.id, s.starts_at, s.ends_at, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name,
+          `SELECT s.id, s.starts_at, s.ends_at, sg.agency_id, sg.id AS skills_group_id, ce.title AS event_title, sg.name AS skills_group_name,
                   ce.employee_report_time, ce.employee_departure_time
            FROM skill_builders_event_sessions s
-           INNER JOIN skills_groups sg ON sg.id = s.skills_group_id AND sg.agency_id = ?
+           INNER JOIN skills_groups sg ON sg.id = s.skills_group_id ${teamCalendar ? '' : 'AND sg.agency_id = ?'}
            INNER JOIN company_events ce ON ce.id = s.company_event_id
            INNER JOIN skill_builders_event_session_providers sbesp
              ON sbesp.session_id = s.id AND sbesp.provider_user_id = ?
@@ -5169,7 +5187,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const skillsGroupId = Number(r.skills_group_id);
         scheduleEvents.push({
           id: sid,
-          agencyId: Number(agencyId),
+          agencyId: Number(r.agency_id || agencyId),
           kind: 'SKILL_BUILDERS_PROGRAM',
           title,
           isPrivate: false,
@@ -5201,7 +5219,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // 4e) Program / company event session bookings (facilitator staffing assignments)
     try {
-      const ceParams = [providerId, agencyId, windowEnd, windowStart, weekStart, weekEnd];
+      const ceParams = [providerId, ...(teamCalendar ? [] : [agencyId]), windowEnd, windowStart, weekStart, weekEnd];
       const [ceRows] = await pool.execute(
         `SELECT cesd.id AS session_date_id,
                 cesd.session_date,
@@ -5210,6 +5228,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
                 cesd.timezone,
                 cesd.location_label,
                 ce.id AS company_event_id,
+                ce.agency_id AS company_agency_id,
                 ce.title AS event_title,
                 ce.event_type,
                 ce.employee_report_time,
@@ -5221,7 +5240,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
          INNER JOIN company_events ce ON ce.id = cesp.company_event_id
          LEFT JOIN agencies sch ON sch.id = ce.organization_id
          WHERE cesp.provider_user_id = ?
-           AND cesp.agency_id = ?
+           ${teamCalendar ? '' : 'AND cesp.agency_id = ?'}
            AND ce.is_active = 1
            AND (
              (cesd.starts_at IS NOT NULL AND cesd.ends_at IS NOT NULL AND cesd.starts_at < ? AND cesd.ends_at > ?)
@@ -5440,7 +5459,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           }
           scheduleEvents.push({
             id: sessionDateId,
-            agencyId: Number(agencyId),
+            agencyId: Number(r.company_agency_id || agencyId),
             kind: 'COMPANY_EVENT_BOOKING',
             title,
             isPrivate: false,
@@ -5477,7 +5496,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             : null;
           scheduleEvents.push({
             id: sessionDateId,
-            agencyId: Number(agencyId),
+            agencyId: Number(r.company_agency_id || agencyId),
             kind: 'COMPANY_EVENT_BOOKING',
             title,
             isPrivate: false,
@@ -5836,6 +5855,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             ...canonicalAppointmentWindow(e,meta),
             appointmentId,
             ...(typeof meta==='object'?{
+              appointmentAgencyId:meta.agencyId,
               modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,
               serviceLocationId:meta.serviceLocationId,schoolOrganizationId:meta.schoolOrganizationId,
               schoolName:meta.schoolName,locationLabel:meta.locationLabel,
@@ -5989,7 +6009,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const invitedCompanyEvents = await acceptedCompanyEventCalendar({ userId: providerId, agencyId, from: windowStart, to: windowEnd, includeAllAgencies });
     scheduleEvents.push(...invitedCompanyEvents.map(event => companyEventScheduleVisibility(event, isSelf)));
 
-    const fullPayload = {
+    let fullPayload = {
       ok: true,
       detailLevel: 'full',
       providerId,
@@ -6019,12 +6039,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     };
 
-    const detailLevel = resolveScheduleDetailLevel({
-      requestedLevel: req.query.detailLevel || req.query.detail_level,
-      isSelf,
-      actorRole: req.user?.role,
-      isSupervisorOfTarget
-    });
+    if (teamCalendar) {
+      fullPayload = projectTeamCalendar(fullPayload, { detailLevel, allowedDetailAgencies, timeZone: displayTimeZone });
+      if (detailLevel !== 'full') return res.json(fullPayload);
+    }
     if (detailLevel === 'availability') return res.json(toPeerAvailabilitySummary(fullPayload));
     if (detailLevel === 'busy') {
       return res.json(toBusyOnlyScheduleSummary(fullPayload));
@@ -6040,7 +6058,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       const { listProviderSchoolDayClosures } = await import('../services/schoolDayClosures.service.js');
       fullPayload.schoolDayClosures = await listProviderSchoolDayClosures({
         providerId,
-        agencyIds: Array.from(scheduleAgencyIdSet),
+        agencyIds: fullPayload.scheduleAgencyIds,
         startDate: weekStart,
         endDate: weekEnd
       });
@@ -6048,7 +6066,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       console.warn('[schedule-summary] school day closures failed', closureErr?.message || closureErr);
     }
     const knownScheduleAgencies = new Map((await getProviderAgencies()).map(agency => [Number(agency.id), agency]));
-    for (const aid of scheduleAgencyIdSet) {
+    for (const aid of fullPayload.scheduleAgencyIds) {
       const knownAgency = knownScheduleAgencies.get(Number(aid));
       const timeZone = knownAgency?.timezone || (await Agency.findById(aid))?.timezone || 'America/Denver';
       fullPayload.schoolSoftSessions.push(...await schoolSoftScheduleCalendar.list({

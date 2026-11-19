@@ -67,7 +67,7 @@ it.each(['provider','admin','support'])('keeps a December 3 Denver 5 PM appointm
  expect(s.cellBlocks('Thursday',10,0).some(b=>b.appointmentId===821)).toBe(false);
  await s.openAppointmentEditInScheduleModal({item:corrected,dayName:'Thursday',hour:17});await flushPromises();
  expect(s.editorStartTime).toBe('17:00');expect(s.editorEndTime).toBe('18:00');
- expect(wrapper.findComponent(AppointmentScheduleCheck).get('[role="alert"]').text()).toContain('Stored calendar copy');
+ expect(wrapper.findComponent(AppointmentScheduleCheck).get('details').text()).toContain('Older calendar copy');
  expect(mocks.patch).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
 });
 

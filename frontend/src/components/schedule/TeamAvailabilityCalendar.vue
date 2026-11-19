@@ -3,7 +3,7 @@
   <section ref="root" class="team-calendar" :class="{ 'team-calendar--fullscreen': fullscreenFallback }" aria-label="Team member availability">
     <button v-if="fullscreenActive" type="button" class="team-fullscreen-exit" title="Exit full screen (Escape)" @click="toggleFullscreen">× Exit full screen</button>
     <header>
-      <div><h2>{{ name }}’s schedule</h2><p>View only · Meeting, session, or busy times. {{ timezone }}.</p></div>
+      <div><h2>{{ name }}’s schedule</h2><p>Availability across organizations. {{ timezone }}.</p></div>
       <nav aria-label="Team schedule dates">
         <button type="button" title="Show the week containing today" @click="setDate(new Date())">Today</button>
         <button type="button" title="Previous week" aria-label="Previous week" @click="move(-7)">‹</button>
@@ -58,7 +58,7 @@ async function load() {
   if (!props.userId || !props.agencyId || !week.value) { loading.value = false; return; }
   loading.value = true;
   try {
-    const { data } = await api.get(`/users/${props.userId}/schedule-summary`, { params: { agencyId: props.agencyId, weekStart: week.value, detailLevel: 'availability', skipOfficeMaterialize: 'true', includeGoogleBusy: 'true' }, skipGlobalLoading: true });
+    const { data } = await api.get(`/users/${props.userId}/schedule-summary`, { params: { agencyId: props.agencyId, weekStart: week.value, timeZone: timezone, teamCalendar: 'true', detailLevel: 'availability', skipOfficeMaterialize: 'true', skipGoogleSync: 'true' }, skipGlobalLoading: true });
     if (run === request) blocks.value = Array.isArray(data.busyBlocks) ? data.busyBlocks : [];
   } catch (e) { if (run === request) error.value = e?.response?.data?.error?.message || 'Unable to load this schedule.'; }
   finally { if (run === request) loading.value = false; }

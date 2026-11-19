@@ -34,6 +34,8 @@ it('does not invent a disagreement while either record is unavailable', () => {
 it('keeps the incorrect stored copy visible after the calendar uses the saved appointment time',()=>{
  const appointment={startAt:'2026-12-04T00:00:00Z',endAt:'2026-12-04T01:00:00Z'};
  const w=mount(Check,{props:{appointment,calendarEvent:{...appointment,calendarTimingMismatch:true,calendarStartAt:'2026-12-03T17:00:00Z',calendarEndAt:'2026-12-03T18:00:00Z'}}});
- expect(w.get('[role="alert"]').text()).toContain('Stored calendar copy');expect(w.text()).toContain('10:00 AM MST');
- expect(w.text()).toContain('The calendar displays the saved appointment time');w.unmount();
+ expect(w.find('[role="alert"]').exists()).toBe(false);
+ expect(w.get('details summary').text()).toBe('Calendar shows the saved appointment time');
+ expect(w.get('details').attributes('open')).toBeUndefined();
+ expect(w.text()).toContain('10:00 AM MST');w.unmount();
 });

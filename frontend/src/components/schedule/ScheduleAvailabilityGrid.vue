@@ -6104,6 +6104,7 @@ const props = defineProps({
   agencyIds: { type: Array, default: null },
   // Optional: map of agencyId -> label for tooltips (helps explain overlaps).
   agencyLabelById: { type: Object, default: null },
+  teamCalendar: { type: Boolean, default: false },
   mode: { type: String, default: 'self' }, // 'self' | 'admin'
   // Optional: parent-controlled weekStart (normalized to Sun or Mon per weekStartsOn).
   weekStartYmd: { type: String, default: null },
@@ -6498,7 +6499,8 @@ const onDayCancelled = async () => {
 const allDayBlocksForDay = (day) => {
   const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
   const blocks = (summary.value?.scheduleEvents || []).filter(ev => allDayItemOccursOn(ev, date)).map(ev => ({
-    key: `sevt-${ev.kind}-${ev.id || ev.title}`, kind: 'sevt', eventKind: ev.kind,
+    key: ev.teamAvailabilityOnly ? `team-busy:${ev.startAt}:${ev.endAt}` : `sevt-${ev.kind}-${ev.id || ev.title}`,
+    kind: 'sevt', eventKind: ev.kind, peerOnly: !!ev.teamAvailabilityOnly,
     eventId: Number(ev.id) || null, agencyId: ev.agencyId || ev._agencyId,
     allDay: true, isCancelled: isScheduleEventCancelled(ev),
     clientId: ev.clientId, clientName: ev.clientName, isClientSession: isClientSessionScheduleEvent(ev),
@@ -6535,7 +6537,7 @@ const acknowledgeSavedAppointments = data => {
   recentlySavedAppointments.value = Object.fromEntries(Object.entries(recentlySavedAppointments.value).filter(([, event]) => !rows.some(row =>
     (event.appointmentId && Number(row.appointmentId) === event.appointmentId) || (event.id && Number(row.id) === event.id && row.kind === event.kind))));
 };
-const googleCalendarEnabled = computed(() => Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
+const googleCalendarEnabled = computed(() => !props.teamCalendar && Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
 const familyScheduleDetails = ref({});
 const familyScheduleEnabled = computed(() => {
@@ -7044,11 +7046,7 @@ const overlayPrefsKey = computed(() => {
   if (props.mode !== 'self') return '';
   const uid = Number(authStore.user?.id || props.userId || 0);
   if (!uid) return '';
-  const agencyId = Number(props.agencyId || 0);
-  // In self multi-organization mode, props.agencyId is intentionally null.
-  // Persist under a stable user-scoped key so overlay selections do not reset.
-  const scope = agencyId > 0 ? String(agencyId) : 'multi';
-  return `schedule.overlayPrefs.v2:${uid}:${scope}`;
+  return `schedule.overlayPrefs.v2:${uid}:multi`;
 });
 
 const hideWeekendPrefsKey = computed(() => {
@@ -7077,7 +7075,9 @@ const coerceIdArray = (arr) =>
 const loadOverlayPrefs = () => {
   if (!overlayPrefsKey.value) return null;
   try {
-    const raw = window?.localStorage?.getItem?.(overlayPrefsKey.value);
+    const legacyScope = Number(props.agencyId || 0);
+    const raw = localStorage.getItem(overlayPrefsKey.value)
+      || (legacyScope > 0 && localStorage.getItem(overlayPrefsKey.value.replace(/:multi$/, `:${legacyScope}`)));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -7136,8 +7136,8 @@ const saveOverlayPrefs = () => {
   if (!overlayPrefsKey.value) return;
   try {
     const payload = {
-      showGoogleBusy: !!showGoogleBusy.value,
-      showGoogleEvents: !!showGoogleEvents.value,
+      showGoogleBusy: googleBusyPreference.value,
+      showGoogleEvents: googleEventsPreference.value,
       showExternalBusy: !!showExternalBusy.value,
       showOfficeOverlay: !!showOfficeOverlay.value,
       showMyRooms: !!showMyRooms.value,
@@ -7635,8 +7635,8 @@ const loadPeerBusySummaries = async () => {
 const hideAllCalendars = () => {
   // Preserve the last visible configuration so "Show calendars" can restore it.
   lastCalendarPrefs.value = {
-    showGoogleBusy: !!showGoogleBusy.value,
-    showGoogleEvents: !!showGoogleEvents.value,
+    showGoogleBusy: googleBusyPreference.value,
+    showGoogleEvents: googleEventsPreference.value,
     showExternalBusy: !!showExternalBusy.value,
     selectedExternalCalendarIds: (selectedExternalCalendarIds.value || []).slice()
   };
@@ -9073,7 +9073,7 @@ const mapAgencyOption = (row) => {
 };
 
 const agencyFilterOptions = computed(() => {
-  if (props.mode === 'self') {
+  if (props.mode === 'self' || props.teamCalendar) {
     return selfScheduleAgencyOptions.value
       .map((row) => mapAgencyOption(row))
       .filter(Boolean);
@@ -9216,7 +9216,7 @@ const scheduleOrgSelectOptions = computed(() => {
   for (const row of agencyFilterOptions.value || []) {
     if (row?.id) byId.set(Number(row.id), row);
   }
-  for (const row of bookingAgencyOptions.value || []) {
+  for (const row of (props.teamCalendar ? [] : bookingAgencyOptions.value) || []) {
     if (row?.id && !byId.has(Number(row.id))) byId.set(Number(row.id), row);
   }
   return Array.from(byId.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
@@ -9229,7 +9229,7 @@ const activeScheduleAgencyLegend = computed(() => (
 ));
 
 const effectiveAgencyIds = computed(() => {
-  if (props.mode === 'self' && agencyFilterOptions.value.length) {
+  if ((props.mode === 'self' || props.teamCalendar) && agencyFilterOptions.value.length) {
     const active = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
     if (active.length) return Array.from(new Set(active));
     return agencyFilterOptions.value.map((row) => Number(row.id));
@@ -9279,6 +9279,7 @@ const toggleScheduleAgencyFilter = (agencyId) => {
 const mergeDiscoveredScheduleAgencies = (agencyIds = []) => {
   const ids = Array.from(new Set((agencyIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
   if (!ids.length) return;
+  const wasAll = scheduleOrgScopeAll.value;
   const existing = new Set((selfScheduleAgencyOptions.value || []).map((row) => Number(row?.id || 0)));
   const additions = [];
   for (const id of ids) {
@@ -9311,7 +9312,7 @@ const mergeDiscoveredScheduleAgencies = (agencyIds = []) => {
   }
   // Keep All selected by default when new tenants appear on the calendar.
   // Only rewrite the array when the set actually changes (avoids peer-busy refetch storms).
-  if (scheduleOrgScopeAll.value || !activeScheduleAgencyIds.value.length) {
+  if (wasAll || !activeScheduleAgencyIds.value.length) {
     const nextIds = Array.from(existing.values());
     const prev = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
     const same = prev.length === nextIds.length
@@ -10054,7 +10055,7 @@ const tagPersonalSummary = data => {
 let scheduleReadGeneration = 0;
 const googleSummaryAttempts = new Map();
 function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, snapshot, force = false }) {
-  if (!snapshot?.googleCalendarEnabled || !snapshot.googleSyncPending || props.hideOfficeAndCalendarIntegration) return;
+  if (props.teamCalendar || !snapshot?.googleCalendarEnabled || !snapshot.googleSyncPending || props.hideOfficeAndCalendarIntegration) return;
   if (!force && Date.now() - (googleSummaryAttempts.get(cacheKey) || 0) < 90000) return;
   // The app calendar has already rendered. Google reconciliation must not hold its spinner.
   const revision = scheduleSummaryRevision(uid);
@@ -10083,7 +10084,7 @@ const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId || scheduleDisposed || (scheduleRetryPending.value && Date.now() < scheduleRetryDeadline)) return;
   if (!effectiveAgencyIds.value.length) {
     // Self / My Schedule uses includeAllAgencies — do not wait on org chips or the grid stays blank.
-    if (props.mode !== 'self') {
+    if (props.mode !== 'self' && !props.teamCalendar) {
       summary.value = null;
       error.value = 'Select an organization first.';
       return;
@@ -10096,8 +10097,8 @@ const load = async ({ forceRefresh = false } = {}) => {
   const requestedTimeZone = bookingTimezoneIana.value;
   const requestedWeekStart = requestedWeek;
   const ids = effectiveAgencyIds.value;
-  const useAllAgencies = props.mode === 'self';
-  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}`;
+  const useAllAgencies = props.mode === 'self' || props.teamCalendar;
+  const cacheKey = `${props.userId}|${props.teamCalendar ? `team:${Number(props.agencyId || 0)}` : useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}|tz:${requestedTimeZone}`;
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
   const revision = scheduleSummaryRevision(uid);
   const flightKey = `${cacheKey}|${revision}`;
@@ -10116,7 +10117,8 @@ const load = async ({ forceRefresh = false } = {}) => {
   const personalReadConfig = {
     params: {
       weekStart: requestedWeekStart, timeZone: requestedTimeZone, weekStartsOn: effectiveWeekStartsOn.value,
-      includeAllAgencies: 'true', skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
+      ...(props.teamCalendar ? { teamCalendar: 'true', agencyId: props.agencyId || undefined } : { includeAllAgencies: 'true' }),
+      skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
       skipGoogleSync: 'true', includeGoogleBusy: 'false', includeGoogleEvents: 'false',
       ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
         ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') } : {}))
@@ -10153,7 +10155,20 @@ const load = async ({ forceRefresh = false } = {}) => {
       if (generation !== scheduleReadGeneration || revision !== scheduleSummaryRevision(uid) || uid !== props.userId || requestedWeek !== weekStart.value) return;
       const data = resp.data || null;
       if (data) {
-        const tagged = tagPersonalSummary(data);
+        const teamTimes = props.teamCalendar && (data.crossOrganizationBusy || (data.detailLevel === 'availability' && data.busyBlocks));
+        const tagged = tagPersonalSummary(teamTimes ? { ...data, providerId: uid, scheduleEvents: [
+          ...(data.scheduleEvents || []),
+          ...teamTimes.map(({ startAt, endAt }) => {
+            const start = isoToZonedDatetimeLocal(startAt, requestedTimeZone, { includeSeconds: true });
+            const end = isoToZonedDatetimeLocal(endAt, requestedTimeZone, { includeSeconds: true });
+            const allDay = start.endsWith('T00:00:00') && end.endsWith('T00:00:00') && start < end;
+            return {
+              startAt, endAt, kind: 'SCHEDULE_HOLD', title: 'Busy', teamAvailabilityOnly: true,
+              ...(allDay ? { allDay, startDate: start.slice(0, 10), endDate: end.slice(0, 10) } : {}),
+              canEdit: false, canReschedule: false
+            };
+          })
+        ] } : data);
         mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
         setScheduleSummary(cacheKey, tagged);
         acknowledgeSavedAppointments(tagged);
@@ -10483,9 +10498,10 @@ watch(() => props.userId, () => { void loadAvailabilityHours(); }, { immediate: 
 // Admin/multi-user mode still reloads when the agency scope changes. Self mode uses one
 // includeAllAgencies payload and filters client-side (avoids N× slow schedule-summary calls).
 watch(effectiveAgencyIds, () => {
-  if (props.mode === 'self') return;
+  if (props.mode === 'self' || props.teamCalendar) return;
   deferredLoad();
 }, { deep: true });
+watch(() => props.teamCalendar ? props.agencyId : null, deferredLoad);
 watch([googleBusyPreference, googleEventsPreference, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
 
 // Org chip toggles filter the computed summary without another request.
@@ -10596,7 +10612,7 @@ watch(externalCalendarsAvailable, (next) => {
   }
 
   // Admin/audit view should show overlays by default (first load only).
-  if (!initializedOverlayDefaults.value && props.mode === 'admin') {
+  if (!initializedOverlayDefaults.value && props.mode === 'admin' && !props.teamCalendar) {
     if (selectedExternalCalendarIds.value.length === 0 && allowed.size > 0) {
       selectedExternalCalendarIds.value = Array.from(allowed.values());
     }
@@ -10611,7 +10627,7 @@ watch(externalCalendarsAvailable, (next) => {
 });
 
 // Persist overlay/view settings (provider UX only).
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, showOfficeOverlay, showMyRooms, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, showAllHours, viewMode], () => {
+watch([googleBusyPreference, googleEventsPreference, showExternalBusy, showOfficeOverlay, showMyRooms, hideExternalIcsTitles, selectedExternalCalendarIds, hideWeekend, showAllHours, viewMode], () => {
   if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
   saveOverlayPrefs();
 }, { deep: true });
@@ -12348,7 +12364,8 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       || (ev?.canReschedule !== false && canEditEv)
     );
     blocks.push({
-      key: `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
+      key: ev.teamAvailabilityOnly ? `team-busy:${ev.startAt}:${ev.endAt}` : `sevt-${String(ev?.id || ev?.googleEventId || ev?.title || 'event')}`,
+      peerOnly: !!ev.teamAvailabilityOnly,
       kind: 'sevt',
       eventKind: String(ev?.kind || '').trim().toUpperCase(),
       meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
@@ -26112,6 +26129,7 @@ const onAppointmentPointerUp = (e) => {
 };
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
+  if (block?.peerOnly) return;
   const kind = String(block?.kind || '');
   if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION')) {
     const event = (summary.value?.scheduleEvents || []).find(row => Number(row.id) === Number(block.eventId)
