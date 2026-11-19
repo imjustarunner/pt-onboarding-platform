@@ -69,14 +69,58 @@ export async function chartCommunicationThreads(clientId, userId, {singleClientO
   const linked=await listClientEmailThreads(clientId,userId);
   for(const thread of linked)threads.push(await clientEmailThread(clientId,thread.id,userId));
   threads.push(...await clientSecureThreads(clientId,userId));
-  const [automated]=await pool.execute(`SELECT uc.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id WHERE uc.client_id=? AND ${appCommunicationVisibilitySql('uc')} ORDER BY COALESCE(uc.sent_at,uc.generated_at),uc.id`,[clientId]);
-  const messageIds=new Set(threads.flatMap(t=>t.messages.map(m=>m.internet_message_id)).filter(Boolean));
-  for(const m of automated) if(!m.external_message_id || !messageIds.has(m.external_message_id)) threads.push({subject:m.subject || 'Notification',messages:[{...m,body_text:String(m.body || '').replace(/<[^>]*>/g,' '),recipientAddress:m.recipient_address,sentAt:m.sent_at || m.generated_at,deliveryStatus:m.delivery_status}]});
-  const [sms]=await pool.execute('SELECT ml.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM message_logs ml LEFT JOIN users u ON u.id=ml.user_id WHERE ml.client_id=? ORDER BY ml.created_at,ml.id',[clientId]);
-  if(sms.length)threads.push({subject:'Text messages',messages:sms.map(m=>({...m,from:m.from_number,to:m.to_number,body_text:m.body,send_status:m.delivery_status}))});
+  const messageIds = new Set(threads.flatMap(t => t.messages.map(m => m.internet_message_id)).filter(Boolean));
+  for (const source of ['email', 'ml', 'nsl']) {
+    const messages = await chartMessages(clientId, source);
+    for (const message of messages) {
+      if (source === 'email' && message.external_message_id && messageIds.has(message.external_message_id)) continue;
+      threads.push({subject:message.subject, messages:[message]});
+    }
+  }
   if (!singleClientOnly) return threads;
   const [multiEmail] = await pool.execute("SELECT DISTINCT conversation_id FROM communication_links WHERE entity_type='client' AND entity_id<>? AND conversation_id IN (SELECT conversation_id FROM communication_links WHERE entity_type='client' AND entity_id=?)", [clientId,clientId]);
   const [multiSecure] = await pool.execute("SELECT DISTINCT thread_id FROM guardian_client_threads WHERE client_id<>? AND thread_id IN (SELECT thread_id FROM guardian_client_threads WHERE client_id=?)", [clientId,clientId]);
   const shared = new Set([...multiEmail.map(row=>String(row.conversation_id)), ...multiSecure.map(row=>'secure-'+row.thread_id)]);
   return threads.filter(thread => !shared.has(String(thread.id)));
+}
+
+// The map keys are the three origins in the chart communications timeline.
+// Scope every lookup to the client, including when exporting a single item.
+const messageQueries = {
+  email: {
+    id:'uc.id', order:'COALESCE(uc.sent_at,uc.generated_at)',
+    sql:`SELECT uc.id,uc.subject,uc.body,uc.external_message_id,uc.recipient_address AS recipientAddress,
+      COALESCE(uc.sent_at,uc.generated_at) AS sentAt,uc.delivery_status AS deliveryStatus,
+      u.first_name AS author_first_name,u.last_name AS author_last_name
+      FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id
+      WHERE uc.client_id=? AND ${appCommunicationVisibilitySql('uc')}`
+  },
+  ml: {
+    id:'ml.id', order:'ml.created_at',
+    sql:`SELECT ml.id,ml.direction,ml.body AS body_text,ml.from_number AS fromNumber,ml.to_number AS recipientAddress,
+      ml.created_at AS sentAt,ml.delivery_status AS deliveryStatus
+      FROM message_logs ml WHERE ml.client_id=?`
+  },
+  nsl: {
+    id:'nsl.id', order:'nsl.created_at',
+    sql:`SELECT nsl.id,n.title AS subject,nsl.body AS body_text,nsl.from_number AS fromNumber,nsl.to_number AS recipientAddress,
+      nsl.created_at AS sentAt,nsl.status AS deliveryStatus
+      FROM notification_sms_logs nsl JOIN notifications n ON n.id=nsl.notification_id
+      WHERE n.related_entity_type='client' AND n.related_entity_id=?
+        AND EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id=n.related_entity_id AND cg.guardian_user_id=nsl.user_id)`
+  }
+};
+async function chartMessages(clientId, source, id = null) {
+  const query = messageQueries[source];
+  const sql = query.sql + (id ? ' AND ' + query.id + '=?' : '') + ' ORDER BY ' + query.order + ',' + query.id;
+  const [rows] = await pool.execute(sql, id ? [clientId, id] : [clientId]);
+  return rows.map(row => ({...row, subject:row.subject || (source === 'email' ? 'Email notification' : 'Text message'),
+    from:row.fromNumber, body_text:row.body_text ?? String(row.body || '').replace(/<[^>]*>/g,' ')}));
+}
+export async function chartCommunicationMessage(clientId, key) {
+  const match = /^(email|ml|nsl)-([1-9][0-9]*)$/.exec(String(key));
+  if (!match || !Number.isSafeInteger(Number(match[2]))) throw Object.assign(new Error('Invalid chart message.'), {status:400});
+  const [message] = await chartMessages(clientId, match[1], Number(match[2]));
+  if (!message) throw Object.assign(new Error('Message not found on this chart.'), {status:404});
+  return {subject:message.subject, messages:[message]};
 }

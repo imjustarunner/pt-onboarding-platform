@@ -100,7 +100,7 @@
       <section v-if="selectedRow?.historyKind" class="cc-enc-detail-panel">
         <h3>{{ selectedRow.title }}</h3><p>{{ selectedRow.historyKind }} · {{ formatEncounterDate(selectedRow.service_date) }}</p>
         <button type="button" class="btn btn-secondary" @click="selectedRow.action==='document' ? emit('open-document',selectedRow.sourceId) : emit('navigate',selectedRow.tab)">Open {{ selectedRow.historyKind.toLowerCase() }}</button>
-        <button v-if="['assessment','conversation'].includes(selectedRow.action)" type="button" class="btn btn-secondary" @click="downloadEntry(selectedRow)">Download this record</button>
+        <button v-if="['assessment','conversation','message'].includes(selectedRow.action)" type="button" class="btn btn-secondary" @click="downloadEntry(selectedRow)">Download this record</button>
         <ClinicalRecordDownloads v-if="selectedRow.action==='plan'" :agency-id="agencyId" :client-id="clientId" :plan-id="selectedRow.sourceId" />
       </section>
       <section v-else-if="selectedRow" class="cc-enc-detail-panel">
@@ -313,7 +313,7 @@ async function downloadEntry(row) {
   try {
     const result = row.action === 'assessment'
       ? await api.post('/assessment-deliverables/' + row.sourceId + '/export',{format:'pdf'},config)
-      : await api.get('/clients/' + props.clientId + '/communications/export',{...config,params:{conversationId:row.sourceId}});
+      : await api.get('/clients/' + props.clientId + '/communications/export',{...config,params:row.action === 'message' ? {messageKey:row.sourceId} : {conversationId:row.sourceId}});
     const url = URL.createObjectURL(result.data), anchor = document.createElement('a');
     anchor.href = url; anchor.download = row.action + '-' + row.sourceId + (row.action === 'assessment' ? '.pdf' : '.html');
     anchor.click(); setTimeout(() => URL.revokeObjectURL(url),1000);

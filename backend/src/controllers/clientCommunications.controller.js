@@ -1,6 +1,6 @@
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { resolveRelayFamily } from '../services/providerSmsRelayIdentity.service.js';
-import {ensureClientAccess,isBackofficeRole,chartCommunicationThreads} from '../services/chartCommunicationExport.service.js';
+import {ensureClientAccess,isBackofficeRole,chartCommunicationThreads,chartCommunicationMessage} from '../services/chartCommunicationExport.service.js';
 import {clientEmailThread,listClientCommunicationThreads,clientCommunicationThread} from '../services/clientConversationRecord.service.js';
 import {communicationPrintDocument} from '../services/communicationPrint.service.js';
 /**
@@ -117,7 +117,7 @@ async function fetchSmsForClient(clientId) {
               nsl.status, nsl.error_message, nsl.created_at, nsl.twilio_sid,
               n.title AS notification_title, n.message AS notification_message, n.type AS notification_type,
               u.first_name AS recipient_first_name, u.last_name AS recipient_last_name, u.role AS recipient_role,
-              cg.relationship_title AS guardian_relationship,
+              cg.relationship_title AS guardian_relationship, cg.guardian_user_id AS linked_guardian_id,
               a.name AS agency_name
          FROM notification_sms_logs nsl
          JOIN notifications n ON nsl.notification_id = n.id
@@ -136,6 +136,7 @@ async function fetchSmsForClient(clientId) {
         id: `nsl-${r.id}`,
         channel: 'sms',
         source: 'notification',
+        linkedChartRecipient: !!r.linked_guardian_id,
         direction: 'outbound',
         subject: r.notification_title || null,
         body: r.body || r.notification_message || '',
@@ -359,7 +360,8 @@ export const exportClientCommunications = async (req,res,next) => {
     const access=await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
     if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
     let threads=[];
-    if(req.query.conversationId)threads=[await clientCommunicationThread(clientId,String(req.query.conversationId),req.user.id)];
+    if (req.query.messageKey !== undefined) threads = [await chartCommunicationMessage(clientId, req.query.messageKey)];
+    else if(req.query.conversationId)threads=[await clientCommunicationThread(clientId,String(req.query.conversationId),req.user.id)];
     else{
       threads=await chartCommunicationThreads(clientId,req.user.id);
     }

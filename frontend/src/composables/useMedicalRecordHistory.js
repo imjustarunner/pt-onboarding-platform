@@ -23,7 +23,9 @@ export function useMedicalRecordHistory(clientId, agencyId) {
         ...(data.deliverables || []).map(d => entry('Assessment report', d.id, d.updatedAt || d.createdAt, d.title, 'assessments','assessment'))]],
       ['Communications','/clients/' + id + '/communications', data => [
         ...(data.conversations || []).map(c => entry('Conversation', c.id, c.last_message_at, c.subject || 'Care conversation', 'communications','conversation')),
-        ...(data.items || []).map(m => entry(m.channel === 'sms' ? 'Text' : 'Email', m.id, m.sentAt, m.subject || (m.channel === 'sms' ? 'Text message' : 'Email notification'), 'communications'))]]
+        ...(data.items || []).filter(m => Number(m.clientId) === Number(id) && (m.source !== 'notification' || m.linkedChartRecipient))
+          .map(m => entry(m.channel === 'sms' ? 'Text' : 'Email', m.channel === 'sms' ? m.id : 'email-' + m.id, m.sentAt,
+            m.subject || (m.channel === 'sms' ? 'Text message' : 'Email notification'), 'communications','message'))]]
     ];
     await Promise.all(sources.map(async ([label, path, map]) => {
       try {
