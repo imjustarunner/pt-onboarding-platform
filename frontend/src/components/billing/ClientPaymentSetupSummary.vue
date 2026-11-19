@@ -12,11 +12,11 @@
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import QRCode from 'qrcode';
 import FundThredBrand from '../fundthred/FundThredBrand.vue';
-const props=defineProps({setup:{type:Object,default:null}});
+const props=defineProps({compact:Boolean,setup:{type:Object,default:null}});
 const qrImage=ref(''),qrError=ref('');let generation=0;
 const responsibleNames=computed(()=>(props.setup?.responsibleParties||[]).map(p=>p.name).filter(Boolean).join(', '));
 const safeUrl=computed(()=>{if(!props.setup?.paymentUrl)return '';try{const url=new URL(props.setup.paymentUrl,window.location.origin);return url.protocol==='https:'?url.href:'';}catch{return '';}});
-const showPaymentSetup=computed(()=>props.setup?.medicaid===false&&props.setup?.cardOnFile!==true&&props.setup?.paymentMethodNeeded===true&&props.setup?.secureCollectionAvailable===true&&!!safeUrl.value);
+const showPaymentSetup=computed(()=>!props.compact&&props.setup?.medicaid===false&&props.setup?.cardOnFile!==true&&props.setup?.paymentMethodNeeded===true&&props.setup?.secureCollectionAvailable===true&&!!safeUrl.value);
 watch([safeUrl,showPaymentSetup],async([url,show])=>{const current=++generation;qrImage.value='';qrError.value='';if(!show)return;try{const image=await QRCode.toDataURL(url,{width:440,margin:4,errorCorrectionLevel:'H',color:{dark:'#123b49',light:'#ffffff'}});if(current===generation)qrImage.value=image;}catch{if(current===generation)qrError.value='Use the secure payment setup link below.';}},{immediate:true});
 onBeforeUnmount(()=>generation++);
 </script>

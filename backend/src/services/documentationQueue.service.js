@@ -311,6 +311,7 @@ async function listSessionsFromClinicalDb({
   ];
 
   const filterSql = [
+    ' AND cs.scheduled_start_at <= UTC_TIMESTAMP()',
     cid ? ' AND cs.client_id = ?' : '',
     sid ? ' AND cs.id = ?' : '',
     from ? ' AND DATE(cs.scheduled_start_at) >= ?' : '',
@@ -392,6 +393,7 @@ async function listSessionsFromMainDb({
     INNER JOIN clients c ON c.id = oe.client_id
     WHERE c.agency_id IN (${agencyPh})
       AND oe.client_id IS NOT NULL
+      AND oe.start_at <= UTC_TIMESTAMP()
       AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
   `;
   if (actualSessionsOnly) eventSql += ' AND oe.clinical_session_id IS NOT NULL AND oe.clinical_session_id > 0';
@@ -437,7 +439,7 @@ async function listSessionsFromMainDb({
            NULL AS scheduled_end_at,
            NULL AS encounter_status
     FROM billing_encounters be
-    WHERE be.agency_id IN (${agencyPh})
+    WHERE be.agency_id IN (${agencyPh}) AND be.service_date <= UTC_DATE()
   `;
   if (actualSessionsOnly) billingSql += ' AND be.clinical_session_id IS NOT NULL AND be.clinical_session_id > 0';
   if (cid) {

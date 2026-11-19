@@ -4,36 +4,36 @@
     <template v-else>
     <SchoolAbsenceRecords :client-id="clientId" />
     <nav v-if="clientId" class="medical-document-tabs" aria-label="Medical documents"><button v-for="tab in documentTabs" :key="tab.key" :aria-pressed="documentTab===tab.key" @click="selectDocumentTab(tab.key)">{{ tab.label }}</button></nav>
-    <EnrollmentPortalDocuments v-if="clientId&&documentTab==='portal'" ref="portalDocumentsRef" :key="`portal:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
     <SafetyPlansPanel v-if="clientId&&documentTab==='clinical'" ref="clinicalDocumentsRef" :key="`safety:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
     <section v-if="clientId&&documentTab==='paper'" class="paper-enrollment-upload"><h3>Full paper enrollment</h3><p>Upload the completed packet and any supporting pages to this client’s medical file. Staff review each authorization and optional communication choice before updating the record. Uploading a packet does not enable messaging campaigns or record consent automatically.</p><PhiDocumentsPanel :client-id="clientId" section="files" embedded default-document-type="full_paper_enrollment" /></section>
     <div class="cc-enc-toolbar">
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
         <p>
-          Chronological clinical record from calendar sessions (including planned / recurring),
-          signed notes, and imported billing. Future booked sessions appear as Planned. Billing
-          attaches when imported. Start a note from any session even before a claim exists.
+          Browse sessions, notes, treatment plans, assessments, documents, and chart communications by date.
         </p>
       </div>
       <div class="cc-enc-toolbar__actions">
+        <ClinicalRecordDownloads :agency-id="agencyId" :client-id="clientId" :note-id="selectedRow?.clinical_note_id" :draft-id="selectedRow?.intake_draft_id" />
         <button
           type="button"
           class="btn btn-secondary btn-sm"
           :disabled="!sortedEncounters.length"
           @click="printRecord"
         >
-          Print / download
+          Print encounter list
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || history.loading.value" @click="load(); history.load()">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
       </div>
     </div>
 
+    <p v-if="history.loading.value" role="status">Loading record history…</p>
+    <p v-if="history.unavailable.value.length" role="status">Unavailable in this view · {{ history.unavailable.value.join(', ') }}</p>
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading sessions…</p>
-    <p v-else-if="!sortedEncounters.length" class="cc-enc-empty">
+    <p v-else-if="!chronologicalRows.length && !history.loading.value" class="cc-enc-empty">
       No sessions or signed documentation on file for this client yet. Past and future booked
       appointments, recurring planned sessions, and signed notes appear here — billing attaches when imported.
     </p>
@@ -68,7 +68,8 @@
             :class="{ 'cc-enc-list-item--active': encounterKey(row) === selectedId }"
             @click="selectEncounter(row)"
           >
-            <div class="cc-enc-list-item__row">
+            <template v-if="row.historyKind"><div class="cc-enc-list-item__row"><strong>{{ formatEncounterDate(row.service_date) }}</strong><span>{{ row.historyKind }}</span></div><div>{{ row.title }}</div></template>
+            <template v-else><div class="cc-enc-list-item__row">
               <span class="cc-enc-list-item__date">{{ formatEncounterDate(row.service_date) }}</span>
               <span class="cc-enc-note-pill" :class="noteStatusClass(row)">
                 {{ noteStatusLabel(row) }}
@@ -88,6 +89,7 @@
             <div v-else-if="canViewMissingClaimFlag && row.billing_attached === false && !row.non_billable && row.display_state !== 'planned'" class="cc-enc-list-item__meta muted tiny">
               No claim / billing info attached
             </div>
+          </template>
           </button>
           <p v-if="!filteredEncounters.length" class="muted tiny" style="padding: 8px 4px;">
             No sessions match this filter.
@@ -95,7 +97,13 @@
         </div>
       </aside>
 
-      <section v-if="selectedRow" class="cc-enc-detail-panel">
+      <section v-if="selectedRow?.historyKind" class="cc-enc-detail-panel">
+        <h3>{{ selectedRow.title }}</h3><p>{{ selectedRow.historyKind }} · {{ formatEncounterDate(selectedRow.service_date) }}</p>
+        <button type="button" class="btn btn-secondary" @click="selectedRow.action==='document' ? emit('open-document',selectedRow.sourceId) : emit('navigate',selectedRow.tab)">Open {{ selectedRow.historyKind.toLowerCase() }}</button>
+        <button v-if="['assessment','conversation'].includes(selectedRow.action)" type="button" class="btn btn-secondary" @click="downloadEntry(selectedRow)">Download this record</button>
+        <ClinicalRecordDownloads v-if="selectedRow.action==='plan'" :agency-id="agencyId" :client-id="clientId" :plan-id="selectedRow.sourceId" />
+      </section>
+      <section v-else-if="selectedRow" class="cc-enc-detail-panel">
         <div class="cc-enc-detail-head">
           <div>
             <h4>
@@ -110,7 +118,7 @@
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="openingId === encounterKey(selectedRow)"
+            :disabled="selectedRow.display_state === 'planned' || openingId === encounterKey(selectedRow)"
             @click="openNote(selectedRow)"
           >
             {{ openingId === encounterKey(selectedRow) ? 'Opening…' : noteActionLabel(selectedRow) }}
@@ -192,7 +200,7 @@
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="openingId === encounterKey(selectedRow)"
+                :disabled="selectedRow.display_state === 'planned' || openingId === encounterKey(selectedRow)"
                 @click="openNote(selectedRow)"
               >
                 {{ openingId === encounterKey(selectedRow) ? 'Opening…' : noteActionLabel(selectedRow) }}
@@ -243,9 +251,11 @@
 import ClientIntakeNotePanel from './clientChart/ClientIntakeNotePanel.vue';
 import SchoolAbsenceRecords from '../schedule/SchoolAbsenceRecords.vue';
 import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
-import EnrollmentPortalDocuments from '../enrollment/EnrollmentPortalDocuments.vue';
+import ClinicalRecordDownloads from '../clinical/ClinicalRecordDownloads.vue';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 import { computed, ref, watch } from 'vue';
+import { useMedicalRecordHistory } from '../../composables/useMedicalRecordHistory.js';
+import { confirmRecordDownload } from '../../utils/recordDownloadNotice';
 import api from '../../services/api';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientEncounterNote } from '../../composables/useClientEncounterNote.js';
@@ -271,16 +281,15 @@ const props = defineProps({
   canViewMissingClaimFlag: { type: Boolean, default: false }
 });
 
-const documentTab=ref('portal');
-const portalDocumentsRef=ref(null),clinicalDocumentsRef=ref(null);
+const documentTab=ref('record');
+const clinicalDocumentsRef=ref(null);
 function selectDocumentTab(tab){
   if(tab===documentTab.value)return;
-  if(documentTab.value==='portal'&&portalDocumentsRef.value?.prepareToLeave?.()===false)return;
   if(documentTab.value==='clinical'&&clinicalDocumentsRef.value?.confirmDiscard?.()===false)return;
   documentTab.value=tab;
 }
-const documentTabs=[{key:'portal',label:'AuricWell · Portal documents'},{key:'clinical',label:'Clinical forms'},{key:'paper',label:'Full paper enrollment'}];
-const emit = defineEmits(['encounter-change']);
+const documentTabs=[{key:'record',label:'Record history'},{key:'clinical',label:'Clinical forms'},{key:'paper',label:'Full paper enrollment'}];
+const emit = defineEmits(['encounter-change','navigate','open-document']);
 
 const agencyRef = computed(() => props.agencyId);
 const clientRef = computed(() => props.clientId);
@@ -293,6 +302,22 @@ const {
 } = useClientEncounters(agencyRef, clientRef, { medicalOnly: true });
 
 const { openingId, openClinicalNote } = useClientEncounterNote();
+const history = useMedicalRecordHistory(clientRef, agencyRef);
+const chronologicalRows = computed(() => [...sortedEncounters.value, ...history.entries.value]
+  .sort((a,b) => (Date.parse(b.scheduled_start_at || b.service_date) || 0) - (Date.parse(a.scheduled_start_at || a.service_date) || 0)));
+async function downloadEntry(row) {
+  if (!confirmRecordDownload()) return;
+  const config = {responseType:'blob',headers:{'X-Agency-Id':String(props.agencyId)}};
+  try {
+    const result = row.action === 'assessment'
+      ? await api.post('/assessment-deliverables/' + row.sourceId + '/export',{format:'pdf'},config)
+      : await api.get('/clients/' + props.clientId + '/communications/export',{...config,params:{conversationId:row.sourceId}});
+    const url = URL.createObjectURL(result.data), anchor = document.createElement('a');
+    anchor.href = url; anchor.download = row.action + '-' + row.sourceId + (row.action === 'assessment' ? '.pdf' : '.html');
+    anchor.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+  } catch { error.value = 'This record could not be downloaded. Please retry.'; }
+}
+
 
 const listFilter = ref('all');
 const searchQuery = ref('');
@@ -378,7 +403,7 @@ const detailTabs = [
 ];
 
 const filteredEncounters = computed(() => {
-  let rows = sortedEncounters.value;
+  let rows = chronologicalRows.value;
   if (listFilter.value === 'planned') {
     rows = rows.filter((row) => String(row?.display_state || row?.note_status || '') === 'planned');
   } else if (listFilter.value === 'notes_needed') {
@@ -389,12 +414,12 @@ const filteredEncounters = computed(() => {
     rows = rows.filter((row) => row?.billing_attached === false && !row.non_billable);
   }
   const q = searchQuery.value;
-  if (q) rows = rows.filter((row) => matchesEncounterSearch(row, q));
+  if (q) rows = rows.filter(row => row.historyKind ? (row.title + ' ' + row.historyKind + ' ' + (row.service_date || '')).toLowerCase().includes(q.toLowerCase()) : matchesEncounterSearch(row, q));
   return rows;
 });
 
 const selectedRow = computed(() =>
-  sortedEncounters.value.find((row) => encounterKey(row) === selectedId.value) || null
+  chronologicalRows.value.find((row) => encounterKey(row) === selectedId.value) || null
 );
 
 function encounterKey(row) {
@@ -412,6 +437,7 @@ function selectEncounter(rowOrKey) {
 }
 
 function openNote(row) {
+  if (row.display_state === 'planned') return;
   if(row.intake_draft_id){openedIntake.value=row;return;}
   openClinicalNote({
     agencyId: props.agencyId,

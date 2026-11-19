@@ -20,7 +20,7 @@ beforeEach(()=>{
 it('rechecks the exact directory ID, creates the agency catalog route, and links only this client’s selected policy',async()=>{
  const next=vi.fn();await linkClientPayer(req(),res(),next);expect(next).not.toHaveBeenCalled();
  expect(m.savePayer).toHaveBeenCalledWith({agencyId:2,payer:{payerid:'00050',payer_name:'Verified directory payer','1500_claims':'yes',eligibility:'yes'},actorUserId:10},db);
- expect(m.write).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:12,primary:expect.objectContaining({payerId:'00050',sourcePayerId:'00050'}),acceptAssignment:true,confirmedBy:10,verifiedForClaims:false,queueEligibility:false}),db);
+ expect(m.write).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:12,primary:expect.objectContaining({payerId:'00050',sourcePayerId:'00050'}),acceptAssignment:true,confirmedBy:10,verifiedForClaims:false,queueEligibility:true}),db);
  expect(m.saveRecord).toHaveBeenCalledWith({agencyId:2,clientId:12},'payerLinks',0,{primary:expect.objectContaining({payerId:'00050',policyFingerprint:expect.any(String)})},10);
 });
 it('rejects an alias or changed directory result instead of silently linking another ID',async()=>{

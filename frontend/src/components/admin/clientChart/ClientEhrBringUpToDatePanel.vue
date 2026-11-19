@@ -108,6 +108,7 @@
 </template>
 
 <script setup>
+import { automaticEligibilityNotice } from '../../../utils/automaticEligibilityNotice.js';
 import { CLIENT_RECORD_SECTIONS } from '../../../utils/clientRecordSections.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { getActivePinia } from 'pinia';
@@ -559,7 +560,8 @@ async function importSupplementary(key) {
   if (key === 'contacts') { contactImportRevision++; importedContacts.value = Array.isArray(result.data?.result) ? result.data.result : []; guardianContactNames.value = []; }
   if (['insurance', 'payer'].includes(key)) { payerReady.value = false; payerRefreshKey.value++; }
   const messages = { comments: 'Patient comments saved to Administrative note', insurance: 'Insurance imported for billing review', payer: 'Payer information imported', billingComments: 'Billing comments imported', contacts: 'Additional contacts imported' };
-  log(true, messages[key]);
+  const eligibility = key === 'insurance' && result.data?.result;
+  log(true, (eligibility && (eligibility.eligibilityQueueWarning || automaticEligibilityNotice(eligibility.automaticEligibility))) || messages[key]);
   return result;
 }
 let importingAllCoverage = false;

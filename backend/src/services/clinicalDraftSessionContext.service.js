@@ -17,6 +17,9 @@ function assertScope(session, input) {
     || Number(session.provider_user_id) !== Number(input.providerUserId)) {
     throw fail('The selected session does not belong to this client, provider and organization. Open the correct appointment from the schedule.', 403);
   }
+  if (parseUtcDate(session.scheduled_start_at)?.getTime() > Date.now()) {
+    throw fail('This session has not started. Return after its scheduled start to document it.');
+  }
   assertNoPendingClinicalServiceChange(session);
   if (input.officeEventId && Number(session.office_event_id) !== Number(input.officeEventId)) {
     throw fail('The selected appointment and clinical session do not match. Reopen the appointment from the schedule.');

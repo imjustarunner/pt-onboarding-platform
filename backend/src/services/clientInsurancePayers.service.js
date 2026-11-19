@@ -15,7 +15,7 @@ export async function clientInsurancePayers(agencyId, db) {
     if(['COCHA','SKCO0'].includes(row.claimmd_payer_id))names.push('Colorado Medicaid','Health First Colorado');
     const isMedicaid = names.some(insurerName => policyIsMedicaid({insurerName})) || ['COCHA', 'SKCO0'].includes(row.claimmd_payer_id);
     const colorado = isMedicaid && (row.claimmd_payer_id === 'COCHA' || names.some(name => /colorado|\bccha\b/i.test(name)));
-    return {id: Number(row.id), name: row.payer_name || row.directory_name, names, payerId: row.claimmd_payer_id,
+    return {id: Number(row.id), sourcePayerId: row.source_payer_id || null, name: row.payer_name || row.directory_name, names, payerId: row.claimmd_payer_id,
       eligibilityPayerId: colorado ? 'SKCO0' : row.claimmd_payer_id, isMedicaid};
   });
 }
@@ -24,5 +24,5 @@ export function resolveConfiguredPolicy(policy, payers) {
   if (!policy?.payerCatalogId) return policy;
   const payer = payers.find(row => String(row.id) === String(policy.payerCatalogId));
   if (!payer) throw Object.assign(new Error('The selected carrier is no longer configured for this agency. Reload and select its current payer.'), {status:409});
-  return {...policy, insurerName:payer.name, payerId:payer.payerId, eligibilityPayerId:payer.eligibilityPayerId, isMedicaid:payer.isMedicaid === true};
+  return {...policy, insurerName:payer.name, payerId:payer.payerId, eligibilityPayerId:payer.eligibilityPayerId, isMedicaid:policy.isMedicaid === true || payer.isMedicaid === true};
 }

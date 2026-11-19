@@ -1,4 +1,4 @@
-vi.mock('../../services/coverageVerificationSummary.service.js',()=>({readCoverageVerificationSummary:vi.fn(async()=>({current:false,verifiedAt:null}))}));
+vi.mock('../../services/coverageVerificationSummary.service.js',()=>({latestPayerResponses:vi.fn(async()=>({})),readCoverageVerificationSummary:vi.fn(async()=>({current:false,verifiedAt:null}))}));
 import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ access:vi.fn(), read:vi.fn(), save:vi.fn(), importSection:vi.fn(), insurance:vi.fn(), audit:vi.fn(),start:vi.fn(),finish:vi.fn() }));
 vi.mock('../../services/clientChartImportProgress.service.js',()=>({beginClientChartImport:m.start,completeClientChartImport:m.finish}));

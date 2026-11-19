@@ -55,17 +55,19 @@ export function createClinicalRecordExporter(dependencies = {}) {
     const service = (await import('./documentSigning.service.js')).default;
     return service.convertHTMLToPDF(String(html).replace(/<details(?![^>]*\bopen\b)/gi, '<details open'), { disableFallback: true, networkIsolation: true, documentType: 'clinical_record_supporting_document' });
   });
+  const supplement = dependencies.supplement || (args => import('./clinicalRecordSupplement.service.js').then(service => service.collectRecordSupplement(args)));
   const audit = dependencies.audit || logAuditEvent;
   const recordDemographics = dependencies.recordDemographics || recordClientDemographics;
   const recordGuardians = dependencies.recordGuardians || recordClientGuardians;
 
-  return async function exportClinicalRecord(req, { noteId = null, draftId = null, clientId = null, agencyId, includeDrafts = false, from = '', to = '' } = {}) {
+  return async function exportClinicalRecord(req, { noteId = null, draftId = null, planId = null, clientId = null, agencyId, includeDrafts = false, from = '', to = '' } = {}) {
     agencyId = positive(agencyId);
     if (!agencyId || (!positive(noteId) && !positive(draftId) && !positive(clientId))) throw fail(400, 'Choose a client or note and its clinical workspace.');
-    const singleDocument = !!positive(noteId) || !!positive(draftId);
+    if (planId != null && !positive(planId)) throw fail(400,'Choose a valid treatment plan.');
+    const singleDocument = !!positive(noteId) || !!positive(draftId) || !!planId;
     for (const date of [from, to]) if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(+new Date(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date)) throw fail(400, 'Use valid export dates.');
     if (from && to && from > to) throw fail(400, 'The export end date must follow its start date.');
-    let sourceNotes;
+    let sourceNotes = planId ? [] : null;
     if (draftId) {
       const draft = await draftModel.findByIdForUser({ draftId: positive(draftId), userId: req.user.id });
       if (!draft || Number(draft.agency_id) !== agencyId || !positive(draft.client_id)) throw fail(404, 'Your client-linked draft is not available in this workspace.');
@@ -133,12 +135,13 @@ export function createClinicalRecordExporter(dependencies = {}) {
       for (const actorId of [note.created_by_user_id, note.provider_signed_by_user_id, note.supervisor_cosigned_by_user_id, ...addenda.map(entry => entry.created_by_user_id), ...revisions.flatMap(revision => (revision.signatures || []).map(signature => signature.actorUserId))]) await nameFor(actorId);
       notes.push({ note, session: context.session || session || {}, addenda, revisions });
     }
-    if (!singleDocument) {
-      [diagnoses] = await db.execute('SELECT icd10_code,description,is_primary,is_active,created_at,updated_at FROM clinical_diagnoses WHERE agency_id=? AND client_id=? ORDER BY created_at,id', [agencyId, clientId]);
-      const [rows] = await db.execute("SELECT id FROM clinical_treatment_plans WHERE agency_id=? AND client_id=? AND status<>'deleted' ORDER BY COALESCE(effective_date,DATE(created_at)),id", [agencyId, clientId]);
+    if (!singleDocument || planId) {
+      if (!planId) [diagnoses] = await db.execute('SELECT icd10_code,description,is_primary,is_active,created_at,updated_at FROM clinical_diagnoses WHERE agency_id=? AND client_id=? ORDER BY created_at,id', [agencyId, clientId]);
+      const [rows] = planId ? [[{id:positive(planId)}]] : await db.execute("SELECT id FROM clinical_treatment_plans WHERE agency_id=? AND client_id=? AND status<>'deleted' ORDER BY COALESCE(effective_date,DATE(created_at)),id", [agencyId, clientId]);
       for (const row of rows) {
         const plan = await planModel.findById(row.id);
-        if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== Number(clientId) || restricted(plan)) continue;
+        if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== Number(clientId) || plan.status === 'deleted' || restricted(plan)) continue;
+        if (planId && plan.status === 'draft') includeDrafts=true;
         if (!includeDrafts && plan.status === 'draft') continue;
         if (!includeDrafts && plan.status === 'void' && !plan.provider_signed_at) continue;
         const date = serviceDate(plan.effective_date || plan.created_at, agency.timezone);
@@ -198,6 +201,12 @@ export function createClinicalRecordExporter(dependencies = {}) {
       } catch (error) { if (error.status === 413) throw error; throw fail(503, 'A supporting document could not be read. No incomplete record was exported.'); }
     }
     if (!singleDocument) {
+      const {pages,manifest:additionalManifest} = await supplement({user:req.user,agencyId,client,inRange:value=>{
+        const date = serviceDate(value,agency.timezone);
+        return (!from || date >= from) && (!to || (date && date <= to));
+      }});
+      manifest.push(...additionalManifest);
+      for (const page of pages) includeAttachment({buffer:await renderArtifact(page.html),mimeType:'application/pdf',name:page.name});
       const bundle = await chartArtifacts({ clientId, client });
       const signed = await intakeDocuments(clientId);
       for (const artifact of bundle.artifacts || []) {
@@ -220,10 +229,11 @@ export function createClinicalRecordExporter(dependencies = {}) {
         } else manifest.push({ name: artifact.title || 'Chart supporting document', disposition: 'Not included', reason: 'The chart source is unavailable or requires its separate authorized download.' });
       }
     }
-    const recordTitle = singleDocument ? notes[0]?.note.title || 'Clinical note' : 'Full medical record';
+    if (planId && !plans.length) throw fail(404,'This treatment plan is unavailable in the selected chart.');
+    const recordTitle = planId ? 'Treatment plan' : singleDocument ? notes[0]?.note.title || 'Clinical note' : 'Full medical record';
     const bytes = await render({ agency, client, notes, plans, diagnoses, names, manifest, attachments, recordTitle, includeDrafts, singleDocument });
-    await audit(req, { required: true, actionType: singleDocument ? 'clinical_note_pdf_exported' : 'clinical_medical_record_pdf_exported', agencyId, clientId: Number(clientId), metadata: { clientId: Number(clientId), actorRole: req.user.role, noticeVersion: req.headers?.['x-record-download-notice'] || null, deliveryStage: 'prepared_for_download', noteId: positive(noteId), draftId: positive(draftId), noteCount: notes.length, planCount: plans.length, attachmentCount: attachments.length, includeDrafts, from: from || null, to: to || null } });
-    return { bytes, filename: draftId ? `workspace-draft-${draftId}.pdf` : noteId ? `clinical-note-${noteId}.pdf` : `medical-record-${clientId}.pdf` };
+    await audit(req, { required: true, actionType: planId ? 'clinical_plan_pdf_exported' : singleDocument ? 'clinical_note_pdf_exported' : 'clinical_medical_record_pdf_exported', agencyId, clientId: Number(clientId), metadata: { clientId: Number(clientId), planId:positive(planId), actorRole: req.user.role, noticeVersion: req.headers?.['x-record-download-notice'] || null, deliveryStage: 'prepared_for_download', noteId: positive(noteId), draftId: positive(draftId), noteCount: notes.length, planCount: plans.length, attachmentCount: attachments.length, includeDrafts, from: from || null, to: to || null } });
+    return { bytes, filename: planId ? `treatment-plan-${positive(planId)}.pdf` : draftId ? `workspace-draft-${draftId}.pdf` : noteId ? `clinical-note-${noteId}.pdf` : `medical-record-${clientId}.pdf` };
   };
 }
 export default createClinicalRecordExporter();

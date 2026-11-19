@@ -103,7 +103,7 @@ export const AUDIT_ACTION_REGISTRY = {
   removed: { label: 'Document removed', category: 'Documents' },
 
   // Client Access
-  view_client: { label: 'Client record viewed', category: 'Client Access' },
+  view_client: { label: 'Client chart details loaded', category: 'Client Access' },
   portal_sign_in: { label: 'Signed in to the portal', category: 'Client Access' },
   portal_home_opened: { label: 'Opened the portal home', category: 'Client Access' },
   portal_documents_opened: { label: 'Opened enrollment documents', category: 'Client Access' },
@@ -273,6 +273,10 @@ export const AUDIT_CATEGORIES = [
 export function toPlainEnglish(actionType) {
   if (!actionType || typeof actionType !== 'string') return '';
   const key = String(actionType).trim();
+  if (key.startsWith('client_updated_')) {
+    const field = key.slice('client_updated_'.length).replace(/_id$/, '').replace(/_/g, ' ');
+    return 'Updated ' + field;
+  }
   const entry = AUDIT_ACTION_REGISTRY[key];
   if (entry) return entry.label;
   return key

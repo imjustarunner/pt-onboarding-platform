@@ -65,6 +65,7 @@
   </section>
 </template>
 <script setup>
+import {automaticEligibilityNotice} from '../../utils/automaticEligibilityNotice.js';
 import {ref,watch,computed,onBeforeUnmount,onMounted} from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
@@ -134,7 +135,7 @@ async function load(){
   selectedSources.value=Object.fromEntries(['primary','secondary'].map(slot=>[slot,v.coverageSources?.[slot]?`${v.coverageSources[slot].profileId}:${v.coverageSources[slot].slot}`:'']));
   installSavedDraft(v);const savedPatient=JSON.stringify(draft.value.patient);useDemographics();let paperAdded=false;
   if(isPaper.value){const prepared=preparePacketDraft(v,paperCoverage.value,payers.value,draft.value.patient);draft.value.primary=prepared.primary;draft.value.secondary=prepared.secondary || {};hasSecondary.value=!!prepared.secondary;paperOrderPrepared.value=prepared.reordered;if(prepared.reordered){draft.value.profileId=null;draft.value.coverageSources={};selectedSources.value={primary:'',secondary:''};}paperAdded=draftDirty.value;}
-  else for(const slot of ['primary','secondary']){const policy=draft.value[slot],payer=matchConfiguredPayer(policy,payers.value);if(payer&&(!policy.payerId||!policy.eligibilityPayerId)){draft.value[slot]=withConfiguredPayer(policy,payer);paperAdded=true;}}
+  else for(const slot of ['primary','secondary']){const policy=draft.value[slot],payer=matchConfiguredPayer(policy,payers.value);if(payer&&(!policy.payerId||!policy.eligibilityPayerId||!policy.payerCatalogId||payer.isMedicaid&&!policy.isMedicaid)){draft.value[slot]=withConfiguredPayer(policy,payer);paperAdded=true;}}
   verified.value=!paperAdded&&v.verifiedForClaims===true&&savedPatient===JSON.stringify(draft.value.patient);issues.value=data.missingClaimFields || [];opened.value=true;pollCount=0;
   if(['pending','processing'].includes(eligibilityStatus.value?.jobStatus))scheduleVerificationRefresh();
  }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be loaded';}
@@ -147,18 +148,7 @@ async function refreshVerification(poll=false){
  }catch(e){if(n===seq&&!poll)error.value='Saved verification status could not refresh. Your edits are still here.';}
 }
 async function downloadEvidence(profileId,slot){const n=seq;error.value='';try{const res=await api.get(`/clients/${props.clientId}/insurance-card`,{params:{profileId,slot},responseType:'blob'});if(n!==seq)return;const url=URL.createObjectURL(res.data);const anchor=document.createElement('a');anchor.href=url;anchor.download=`insurance-${slot}.${res.data.type==='application/pdf'?'pdf':res.data.type==='image/png'?'png':'jpg'}`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){if(n===seq)error.value='This card image could not be downloaded; it may not be on file.';}}
-function automaticEligibilityNotice(value){
- if(!value)return '';
- if(value.status==='awaiting_paper_review')return paperFinalizedAt.value?'Draft saved. No payer request was sent. Billing can check the corrected details.':'Draft saved. No payer request was sent. Eligibility begins when the completed packet is submitted.';
- if(value.status==='already_checked')return 'Insurance saved. These confirmed details already have a completed check; review the saved result below.';
- if(value.status==='review_required')return 'Insurance saved. An earlier attempt for these details needs billing review. No automatic repeat request was sent.';
- const missing=(value.missing||[]).map(item=>`${item.slot === 'secondary' ? 'Secondary' : 'Primary'}: ${item.message}`).join(' ');
- if(value.status==='queued')return `Insurance saved. Automatic eligibility is queued and normally runs within five minutes.${missing ? ` ${missing}` : ''}`;
- if(value.status==='already_queued')return 'Insurance saved. These details already have an automatic eligibility request. Review verification history for its result.';
- if(value.status==='waiting_for_information')return `Insurance saved. Automatic eligibility is waiting for required information. ${missing}`;
- if(value.status==='disabled')return 'Insurance saved. Automatic eligibility needs company billing setup; an urgent billing follow-up has been requested.';
- return '';
-}
+
 async function save(options={}){
  if(busy.value||!draft.value)return false;error.value='';notice.value='';
  const checkCoverage=isPaper.value && !props.paperEntry && canSeeBilling.value && !!paperFinalizedAt.value && options.checkCoverage===true;
@@ -168,7 +158,7 @@ async function save(options={}){
   const res=await api.put(insurancePath.value,{agencyId:props.agencyId,primary:draft.value.primary,secondary:hasSecondary.value?draft.value.secondary:null,patient:draft.value.patient,profileId:draft.value.profileId,coverageSources:draft.value.coverageSources,...(isPaper.value?{paperDocumentId:Number(paperSourceDocumentId.value)||null,paperReviewConfirmed:false,checkCoverage}:{}),...(canSeeBilling.value?{verifiedForClaims:isPaper.value?false:verified.value,acceptAssignment:draft.value.acceptAssignment}:{})});if(n!==seq)return false;
   issues.value=res.data.missingClaimFields || [];if(res.data.insurance)installSavedDraft(res.data.insurance);else savedSnapshot.value=draftSnapshot();
   paperOrderPrepared.value=false;verified.value=res.data.insurance?.verifiedForClaims ?? submittedVerification;paperFinalizedAt.value=res.data.insurance?.paperFinalizedAt || null;if(isPaper.value && res.data.insurance && !res.data.insurance.paperReview)eligibilityStatus.value=null;
-  notice.value=res.data.eligibilityQueueWarning || automaticEligibilityNotice(res.data.automaticEligibility) || (isPaper.value?'Draft saved. No new payer request was sent.':!canSeeBilling.value?'Insurance information saved for billing review.':issues.value.length?`Insurance saved. ${issues.value.length} missing claim fields still need review before submission.`:'Insurance saved. Claim submission still requires its readiness review and approval.');
+  notice.value=res.data.eligibilityQueueWarning || automaticEligibilityNotice(res.data.automaticEligibility, paperFinalizedAt.value) || (isPaper.value?'Draft saved. No new payer request was sent.':!canSeeBilling.value?'Insurance information saved for billing review.':issues.value.length?`Insurance saved. ${issues.value.length} missing claim fields still need review before submission.`:'Insurance saved. Claim submission still requires its readiness review and approval.');
   emit('saved',res.data);if(checkCoverage){pollCount=0;await refreshVerification();if(['queued','already_queued'].includes(res.data.automaticEligibility?.status))scheduleVerificationRefresh();}
   return options.paperEntry===true?{saved:true,followUpRequired:missing.length>0}:true;
  }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be saved';return false;}finally{if(n===seq)busy.value=false;}

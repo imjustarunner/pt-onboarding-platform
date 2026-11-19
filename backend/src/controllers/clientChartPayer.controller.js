@@ -1,5 +1,5 @@
+import { payerLinkFingerprint } from '../utils/chartPayerLink.js';
 import pool from '../config/database.js';
-import { createHash } from 'node:crypto';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
 import { readChartRecord, saveChartRecord } from '../services/clientChartImport.service.js';
 import { readClientInsurance, writeClientInsurance, claimInsuranceIssues } from '../services/clientInsurance.service.js';
@@ -19,7 +19,7 @@ function positionOf(req) {
   return position;
 }
 function publicPayer(payer) { return { payerId: String(payer.payerid), name: payer.payer_name, claims: payer['1500_claims'] || 'unknown', eligibility: payer.eligibility || 'unknown' }; }
-const fingerprint = policy => createHash('sha256').update(JSON.stringify(Object.keys(policy).sort().map(key => [key, policy[key]]))).digest('hex');
+
 
 export async function getClientPayerReadiness(req, res, next) {
   try {
@@ -30,7 +30,7 @@ export async function getClientPayerReadiness(req, res, next) {
       const hasInsurance = !!policy && ['insurerName','memberId','payerId','sourcePayerId'].some(key => policy[key]);
       const matches = policy?.payerId ? catalog.filter(row => row.directory_status === 'id_match' && String(row.claimmd_payer_id) === policy.payerId) : [];
       const verification = evidence.value?.[position];
-      const verified = hasInsurance && !!verification && verification.payerId === policy.payerId && verification.policyFingerprint === fingerprint(policy);
+      const verified = hasInsurance && !!verification && verification.payerId === policy.payerId && verification.policyFingerprint === payerLinkFingerprint(policy);
       let capabilities = {};
       try { capabilities = typeof matches[0]?.directory_snapshot_json === 'string' ? JSON.parse(matches[0].directory_snapshot_json) : matches[0]?.directory_snapshot_json || {}; } catch { /* Display unknown support until refreshed. */ }
       return { position, hasInsurance, subscriberIsClient:policy?.relationshipToSubscriber==='self',insurerName: policy?.insurerName || '', sourcePayerId: policy?.sourcePayerId || source.value?.[position]?.sourcePayerId || '',
@@ -104,11 +104,11 @@ export async function linkClientPayer(req, res, next) {
       await transaction.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE', [scope.clientId, scope.agencyId]);
       const current = await readClientInsurance(scope.clientId, scope.agencyId, transaction);
       if (!current?.[position] || JSON.stringify(current[position]) !== JSON.stringify(insurance[position])) throw Object.assign(new Error('The insurance changed during payer verification. Review it and retry.'), { status: 409 });
-      saved = await writeClientInsurance({ ...current, ...scope, [position]: { ...current[position], payerId }, confirmedBy: req.user.id, verifiedForClaims: false, queueEligibility: false }, transaction);
+      saved = await writeClientInsurance({ ...current, ...scope, [position]: { ...current[position], payerId }, confirmedBy: req.user.id, verifiedForClaims: false, queueEligibility: true }, transaction);
       await transaction.commit();
     } catch (error) { await transaction.rollback(); throw error; } finally { transaction.release(); }
-    await saveChartRecord(scope, 'payerLinks', 0, { [position]: { payerId, policyFingerprint: fingerprint(saved[position]), checkedAt: new Date().toISOString() } }, req.user.id);
+    await saveChartRecord(scope, 'payerLinks', 0, { [position]: { payerId, policyFingerprint: payerLinkFingerprint(saved[position]), checkedAt: new Date().toISOString() } }, req.user.id);
     await logAuditEvent(req, { actionType: 'client_chart_payer_linked', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId, metadata: { position, payerId } });
-    res.set('Cache-Control','no-store').json({ payer: publicPayer(payer), linked: true });
+    res.set('Cache-Control','no-store').json({ payer: publicPayer(payer), linked: true, automaticEligibility: saved.automaticEligibility, eligibilityQueueWarning: saved.eligibilityQueueWarning });
   } catch (error) { next(error); }
 }

@@ -223,7 +223,7 @@
             :session-count-label="sessionCountLabel"
             :last-session-label="lastSessionLabel"
             :alerts="overviewAlertItems"
-            :guardian-name="overviewGuardianName"
+            :guardian-name="overviewGuardianName" :linked-guardians="guardians" :guardian-loading="guardiansLoading" :guardian-error="guardiansError"
             :contact-role="intakeContactLabel"
             :guardian-meta="overviewGuardianMeta"
             :organization-name="client.organization_name || schoolGlanceLabel"
@@ -774,7 +774,7 @@
                 <h3>Documents &amp; Insurance</h3>
               </header>
               <div class="ov-card-body">
-                <ClientCareCoverageSummary v-if="roleNorm !== 'school_staff'" :client-id="client.id" />
+                <ClientCareCoverageSummary compact v-if="roleNorm !== 'school_staff'" :client-id="client.id" />
                 <button v-if="canViewClientBillingImport || canSupportClientAccount" type="button" class="btn btn-secondary" @click="setChartNav('account','billing-settings')">Open billing &amp; insurance settings</button>
                 <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Ongoing paperwork</div>
@@ -1431,12 +1431,12 @@
             :client="client"
             :initial-encounter-id="medicalRecordEncounterId"
             :can-view-missing-claim-flag="canViewMissingClaimFlag"
-            @encounter-change="onMedicalRecordEncounterChange"
+            @navigate="goChartSub" @open-document="openChartDocument" @encounter-change="onMedicalRecordEncounterChange"
           />
         </div>
 
         <!-- Demographics Tab -->
-        <div v-if="showPanel('demographics')" class="detail-section">
+        <div v-if="showPanel('demographics')" class="detail-section chart-demographics">
           <GuardianDemographicReview v-if="canEditAccount" :client-id="Number(client.id)" />
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
@@ -2960,7 +2960,7 @@ import {
   normalizeGradeForSave,
   normalizeGradeToStandard
 } from '../../utils/clientGrade.js';
-import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
+import { assignedDayDisplay } from '../../utils/schoolClientStatusDisplay.js';
 import { isContinuationServicesSeason, isReturningSchoolClient } from '../../utils/clientOnboardingSummary.js';
 import { schoolRoiSimpleStatus } from '../../utils/clientManagementVisuals.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
@@ -4151,7 +4151,8 @@ const showLearningChartSurfaces = computed(() =>
 const showSchoolSpecificOverviewFields = computed(() => showSchoolGlance.value);
 const displayStatusLabel = computed(() => {
   if (isClientArchived.value) return 'Archived';
-  return displaySchoolClientStatusLabel(props.client);
+  return props.client.client_status_label || String(props.client.client_status_key || props.client.status || '—')
+    .toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
 });
 const showSchoolGlance = computed(() => isSchoolClientType.value || isSchoolPortalContext.value || String(props.client?.organization_type || '').toLowerCase() === 'school' || affiliations.value.some(row => String(row.organization_type || '').toLowerCase() === 'school'));
 const schoolGlanceLabel = computed(() => {
@@ -8036,6 +8037,12 @@ watch(
   text-decoration: underline;
 }
 
+.cdp-care-section {
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid var(--border, #d8e3ed);
+  border-radius: 12px;
+  background: var(--bg-card, #fff);
+}
 .cdp-care-section,
 .cdp-contacts-section {
   margin-bottom: 20px;
@@ -8812,6 +8819,10 @@ watch(
   letter-spacing: 0.06em;
 }
 
+.chart-demographics .ov-card { min-width: 0; }
+.chart-demographics .ov-row { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(0, 2fr); align-items: baseline; gap: 8px 16px; }
+.chart-demographics .ov-row-value { overflow-wrap: anywhere; }
+@media (max-width: 680px) { .chart-demographics .ov-row { grid-template-columns: 1fr; } }
 .ov-card-body {
   padding: 6px 16px 12px;
 }

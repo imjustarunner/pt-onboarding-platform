@@ -2,7 +2,7 @@
   <section class="na-doc-queue" aria-label="Sessions needing documentation">
     <div class="na-doc-queue-head">
       <div>
-        <h3>Choose a session to document</h3>
+        <h3>Sessions ready to document</h3>
         <p class="muted">{{ sessionOnly ? 'Select an actual session from the client’s to-do list to open its note.' : 'Undocumented appointments and encounters, oldest first. Or continue unlinked.' }}</p>
       </div>
       <button type="button" class="na-link-btn" :disabled="loading" @click="load">
@@ -36,7 +36,7 @@
       {{ sessionOnly ? 'Refresh after the session is available in the schedule.' : 'You can still continue unlinked or pick a client below.' }}
     </p>
     <p v-else-if="loading && !items.length" class="muted">Loading documentation queue…</p>
-    <p v-else-if="!items.length" class="muted">No undocumented sessions found for this filter.</p>
+    <p v-else-if="!items.length" class="muted">No sessions are ready to document for this filter.</p>
     <p v-if="sessionOnly && !loading && !items.length" class="muted">If a booked session is missing, open it from your schedule to finish setup.</p>
 
     <ul v-else class="na-doc-queue-list">

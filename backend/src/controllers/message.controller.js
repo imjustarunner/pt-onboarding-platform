@@ -333,9 +333,9 @@ export const sendMessage = async (req, res, next) => {
     if (userId && parseIntOrNull(userId) && parseIntOrNull(userId) !== req.user.id) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (req.body?.smsThreadKey) {
+    if (req.body?.smsThreadKey || req.body.guardianUserId != null) {
       const { sendClinicalSms } = await import('../services/clinicalSmsSend.service.js');
-      const result = await sendClinicalSms({ userId: req.user.id, clientId, contactId, body, mediaUrls, numberId: req.body.numberId, threadKey: req.body.smsThreadKey });
+      const result = await sendClinicalSms({ userId: req.user.id, clientId, contactId, body, mediaUrls, numberId: req.body.numberId, threadKey: req.body.smsThreadKey, guardianUserId: req.body.guardianUserId });
       return res.json(result.messageLog);
     }
     const hasMedia = Array.isArray(mediaUrls) && mediaUrls.length > 0;

@@ -1,3 +1,5 @@
+import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
+import { loadClientConsent, getClientPreferences } from '../services/sessionNotification.service.js';
 import { assertContactOwner, canEditAffiliatedContact } from '../services/clientContactPolicy.service.js';
 import Client from '../models/Client.model.js';
 import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
@@ -71,9 +73,25 @@ export async function listClientAffiliatedContacts(req, res, next) {
   try {
     const clientId = parseId(req.params.id || req.params.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
-    await assertCanManageClientContacts(req, clientId);
+    const client = await assertCanManageClientContacts(req, clientId);
     const rows = await ClientContactAffiliation.listForClient(clientId);
-    res.json({ items: rows.map((r) => ({...ClientContactAffiliation.toApi(r),canEdit:canEditAffiliatedContact(r,req.user)})) });
+    const staff = !['client','guardian','client_guardian'].includes(req.user.role);
+    const guardians = staff && rows.length ? await ClientGuardian.listForClient(clientId) : [];
+    const items = await Promise.all(rows.map(async row => {
+      const item = {...ClientContactAffiliation.toApi(row), canEdit:canEditAffiliatedContact(row,req.user)};
+      const email = String(row.contact_email || '').trim().toLowerCase();
+      const phone = normalizeSmsPhone(row.contact_phone);
+      const matches = guardians.filter(g => Number(g.access_enabled) === 1 && !ClientGuardian.isNoView(g.permissions_json)
+        && !g.permissions_json?.pendingGuardianVerification && email && String(g.email || '').trim().toLowerCase() === email && phone && normalizeSmsPhone(g.phone) === phone);
+      if (matches.length === 1) {
+        const id = matches[0].guardian_user_id;
+        const consent = await loadClientConsent(clientId, client.agency_id, id);
+        const prefs = await getClientPreferences(client.agency_id, clientId, id, consent);
+        item.guardianReminders = { email:!!(consent.email && prefs.channels.email), sms:!!(consent.sms && prefs.channels.sms), requestedSms:!!prefs.channels.sms };
+      }
+      return item;
+    }));
+    res.set('Cache-Control','no-store').json({items});
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

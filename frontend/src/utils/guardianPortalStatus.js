@@ -10,8 +10,10 @@ export function guardianPortalStatus(guardian = {}) {
     detail: enabled ? 'Linked account. Records remain restricted until their own enrollment is completed.' : 'Linked account; access disabled. Their own enrollment is not complete.'
   };
   if (!enabled) return { label: 'Access disabled', detail: 'This relationship does not currently allow portal access.' };
-  if (permissions.noView === true || permissions.noViewOtherGuardian === true || permissions.pendingGuardianVerification === true) return {
-    label: 'Linked · records restricted', detail: 'Account availability does not grant access to private records or another guardian’s answers.'
+  if (permissions.billingOnly === true) return { label: 'Billing access', detail: permissions.billingDetailLevel === 'payer_plus' ? 'Can review billing details and make payments.' : 'Can review amounts due and make payments.' };
+  if (permissions.pendingGuardianVerification === true) return { label: 'Guardian verification pending', detail: 'Verify the guardian’s identity and authority in Portal access to complete this step.' };
+  if (permissions.noView === true || permissions.noViewOtherGuardian === true) return {
+    label: 'Linked · records restricted', detail: 'Portal sign-in is enabled. A saved privacy restriction limits record access. Review the relationship permissions and consent in the client’s Guardians tab.'
   };
   return { label: enrollment === 'accepted' ? 'Own enrollment completed' : 'Access available', detail: enrollment === 'accepted' ? 'This guardian completed their own enrollment. Access still follows the saved permissions.' : 'Access follows the saved permissions. Enrollment completion has not been inferred from this switch.' };
 }

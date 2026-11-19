@@ -17,3 +17,13 @@ it('keeps a failed status selection editable and shows the server error inline',
 it('requires an explicit reason when choosing Terminated',async()=>{
  m.get.mockResolvedValue({data:[{id:12,label:'Terminated',status_key:'terminated'}]});const w=mount(Editor,{props:{client},global:{stubs:{Teleport:true}}});await flushPromises();await w.get('select').setValue('12');expect(w.get('button[type=submit]').element.disabled).toBe(true);await w.get('textarea').setValue('Synthetic closure reason');await w.get('form').trigger('submit');await flushPromises();expect(m.put.mock.calls[0][1]).toEqual({client_status_id:12,termination_reason:'Synthetic closure reason'});w.unmount();
 });
+
+it('keeps the selection visible if a successful response still reports the old status', async () => {
+ m.put.mockResolvedValue({data:client});
+ const wrapper=mount(Editor,{props:{client},global:{stubs:{Teleport:true}}});
+ await flushPromises(); await wrapper.get('select').setValue('11');
+ await wrapper.get('form').trigger('submit'); await flushPromises();
+ expect(wrapper.emitted('saved')).toBeUndefined();
+ expect(wrapper.get('[role=alert]').text()).toContain('previous status');
+ wrapper.unmount();
+});

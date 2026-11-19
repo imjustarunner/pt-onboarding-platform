@@ -9,7 +9,7 @@ const global={stubs:{EnrollmentPortalDocuments:{props:{clientId:Number,agencyId:
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{accounts}});});
 it('starts with an overview and sharing actions, then supports either parent or both',async()=>{
  const w=mount(Overview,{props,global});await flushPromises();expect(w.findAll('.preview')).toHaveLength(0);expect(w.text()).toContain('Linked portal accounts');expect(w.text()).toContain('Parent One');
- await w.findAll('button').find(b=>b.text()==='Share documents').trigger('click');expect(w.emitted('share-documents')).toBeUndefined();expect(w.find('.inline-document-assignment').exists()).toBe(true);expect(w.getComponent({ref:'assignmentWorkspace'}).props('assignmentOnly')).toBe(true);
+ await w.findAll('button').find(b=>b.text()==='Share documents').trigger('click');expect(w.emitted('share-documents')).toBeUndefined();expect(w.find('.inline-document-assignment').exists()).toBe(true);expect(w.getComponent({ref:'assignmentWorkspace'}).props('assignmentOnly')).toBe(false);
  await w.findAll('button').find(b=>b.text()==='View as Parent Two').trigger('click');expect(w.findAll('.preview')).toHaveLength(1);expect(w.get('.preview').text()).toBe('Parent Two');
  await w.findAll('button').find(b=>b.text()==='Show all linked portal views').trigger('click');expect(w.findAll('.preview')).toHaveLength(2);w.unmount();
 });

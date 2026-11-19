@@ -1,4 +1,4 @@
-import { resolveRelayFamily } from './providerSmsRelayIdentity.service.js';
+import { resolveRelayFamily, resolveGuardianTextRecipient } from './providerSmsRelayIdentity.service.js';
 import { assertClinicalSmsRecipient, staffSmsIdentity } from './clinicalSmsAccess.service.js';
 import { parseSmsThreadKey, normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
@@ -59,7 +59,7 @@ export async function sendClinicalSms({
   body,
   numberId = null,
   mediaUrls = null,
-  auditUserId = null, threadKey = null, relayRecipient = null, preview = false
+  guardianUserId = null, auditUserId = null, threadKey = null, relayRecipient = null, preview = false
 } = {}) {
   const uid = parseIntOrNull(userId);
   const cid = parseIntOrNull(clientId);
@@ -67,6 +67,7 @@ export async function sendClinicalSms({
   const hasMedia = Array.isArray(mediaUrls) && mediaUrls.length > 0;
   const text = String(body || '').trim();
 
+  if (guardianUserId != null && (!cid || aid || !Number.isSafeInteger(Number(guardianUserId)) || Number(guardianUserId) < 1)) throw Object.assign(new Error('Select a linked guardian for this client.'), {status:400});
   if ((!cid && !aid) || (!text && !hasMedia)) {
     throw Object.assign(new Error('(clientId or contactId) and (body or mediaUrls) are required'), { status: 400 });
   }
@@ -83,7 +84,8 @@ export async function sendClinicalSms({
     client = await Client.findById(cid, { includeSensitive: true });
     if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
     await assertClientAgencyAccess(uid, client);
-    targetPhone = client.contact_phone;
+    const guardian = guardianUserId == null ? null : await resolveGuardianTextRecipient(client, guardianUserId);
+    targetPhone = guardian?.phone || client.contact_phone;
     targetAgencyId = client.agency_id;
   } else if (aid) {
     contact = await AgencyContact.findById(aid);
@@ -173,7 +175,7 @@ export async function sendClinicalSms({
 
   if (preview) {
     const { prepareSmsDelivery } = await import('./smsCompliance.service.js');
-    const prepared = await prepareSmsDelivery({ purpose: 'care', agencyId: targetAgencyId, clientId: cid,
+    const prepared = await prepareSmsDelivery({ purpose: 'care', agencyId: targetAgencyId, clientId: cid, recipientUserId: guardianUserId || relayRecipient?.guardianUserId,
       to: targetPhone, from: fromNumber, body: authored.body, senderFirstName: authored.senderFirstName });
     return { eligible: true, from: prepared.from, to: prepared.to, numberId: resolvedNumberId };
   }
@@ -205,7 +207,7 @@ export async function sendClinicalSms({
   });
 
   try {
-    const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId, clientId: cid || contact?.client_id || null,
+    const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId, clientId: cid || contact?.client_id || null, recipientUserId: guardianUserId || relayRecipient?.guardianUserId,
       to: MessageLog.normalizePhone(targetPhone) || targetPhone,
       from: MessageLog.normalizePhone(fromNumber) || fromNumber,
       body: authored.body, senderFirstName: authored.senderFirstName,

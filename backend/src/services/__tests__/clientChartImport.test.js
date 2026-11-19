@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn(),client:vi.fn(),prepareGuardian:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),readInsurance:vi.fn(),writeInsurance:vi.fn(),contacts:vi.fn(),upsert:vi.fn(),client:vi.fn(),prepareGuardian:vi.fn(),links:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:m.readInsurance,writeClientInsurance:m.writeInsurance}));
 vi.mock('../clientContactAffiliation.service.js',()=>({upsertClientAffiliatedContact:m.upsert}));
 vi.mock('../../models/ClientContactAffiliation.model.js',()=>({default:{listForClient:m.contacts}}));
+vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:m.links}}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
 vi.mock('../guardianAccountPreparation.service.js',()=>({prepareGuardianAccount:m.prepareGuardian}));
 import {encryptDemographicsPayload} from '../demographicsImport.service.js';
@@ -89,4 +90,35 @@ it('uses a unique parent email before a shared household phone and does not swap
  await importSupplementaryChartSection(scope,'contacts','svgEdit\nFirst Parent\nMobile Phone303-555-0101Emailfather@example.test\nRelationshipFather\nsvgEdit\nSecond Parent\nMobile Phone303-555-0101Emailmother@example.test\nRelationshipMother',10,{preparePrimaryGuardian:true});
  expect(m.prepareGuardian).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({profile:expect.objectContaining({fullName:'Second Parent',relationship:'Mother',email:'mother@example.test'})}));
  expect(m.upsert.mock.calls.map(([c])=>[c.fullName,c.relationshipType])).toEqual([['First Parent','Father'],['Second Parent','Mother']]);
+});
+
+it('inherits legacy patient reminders only for matching channels on the already-linked guardian',async()=>{
+ const sourceContact={email:'parent@example.test',contactPhone:'720-555-0102',appointmentReminderType:'Text (SMS) and Email'};
+ m.client.mockResolvedValue({id:12,agency_id:2,demographics_phi_enc:encryptDemographicsPayload({sourceContact})});
+ m.links.mockResolvedValue([{guardian_user_id:95,email:sourceContact.email,phone:sourceContact.contactPhone,relationship_type:'guardian'}]);
+ const paste='svgEdit\nExample Parent\nMobile Phone(720) 555-0102Emailparent@example.test\nRelationshipMother\nAppt RemindersNo Reminders';
+ const [contact]=await importSupplementaryChartSection(scope,'contacts',paste,10,{syncGuardianReminders:true});
+ expect(contact.appointmentReminders).toContain('Text (SMS) and Email');
+ expect(m.prepareGuardian).not.toHaveBeenCalled();
+ const operation=m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO client_session_notification_preferences'));
+ expect(operation[1].slice(0,3)).toEqual([2,12,95]);
+ expect(JSON.parse(operation[1][3])).toMatchObject({email:true,sms:true});
+ expect(operation[0]).toContain('ON DUPLICATE KEY UPDATE guardian_user_id=VALUES(guardian_user_id)');
+ m.links.mockResolvedValue([{guardian_user_id:95,email:sourceContact.email,phone:'720-555-0199',relationship_type:'guardian'}]);
+ const [changed]=await importSupplementaryChartSection(scope,'contacts',paste,10,{syncGuardianReminders:true});
+ expect(changed.appointmentReminders).toBe('Email');
+});
+
+it('automatically links only a unique matching agency route and queues eligibility', async()=>{
+ const sample={id:31,payer_name:'Example Medicaid',claimmd_payer_id:'C001',source_payer_id:'SRC01',directory_status:'id_match'};
+ const original=m.execute.getMockImplementation();
+ let rows=[sample];
+ m.execute.mockImplementation(async(sql,params)=>sql.includes('FROM medical_payer_setup_requests r')?[rows]:original(sql,params));
+ const paste='Example Medicaid (SRC01): Primary\nMember ID\nABC';
+ await importSupplementaryChartSection(scope,'insurance',paste,10);
+ expect(m.writeInsurance).toHaveBeenLastCalledWith(expect.objectContaining({primary:expect.objectContaining({payerId:'C001',sourcePayerId:'SRC01'}),queueEligibility:true,verifiedForClaims:false}),db);
+ expect((await readChartRecord(scope,'payerLinks',0,db)).value.primary.payerId).toBe('C001');
+ rows=[sample,{...sample,id:32,claimmd_payer_id:'C002'}];
+ await importSupplementaryChartSection(scope,'insurance',paste,10);
+ expect(m.writeInsurance).toHaveBeenLastCalledWith(expect.objectContaining({queueEligibility:false}),db);
 });

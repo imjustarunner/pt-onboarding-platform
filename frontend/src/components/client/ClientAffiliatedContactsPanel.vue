@@ -84,15 +84,15 @@
           </p>
           <p class="cca-prefs">
             Email reminders:
-            <strong :class="item.emailRemindersEnabled ? 'on' : 'off'">
-              {{ item.emailRemindersEnabled ? 'ON' : 'OFF' }}
+            <strong :class="(item.guardianReminders?.email ?? item.emailRemindersEnabled) ? 'on' : 'off'">
+              {{ (item.guardianReminders?.email ?? item.emailRemindersEnabled) ? 'ON' : 'OFF' }}
             </strong>
             · Text reminders:
-            <strong :class="item.smsRemindersEnabled ? 'on' : 'off'">
+            <strong :class="(item.guardianReminders?.sms ?? item.smsRemindersEnabled) ? 'on' : 'off'">
               {{ smsLabel(item) }}
             </strong>
           </p>
-          <p v-if="item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" class="cca-choice">
+          <p v-if="!item.guardianReminders?.sms && item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" class="cca-choice">
             {{ item.smsConsentStatus === 'stopped' ? 'This contact selected STOP. Invitations cannot be resent. They must restart texting themselves.' : 'Tell this person you added them and ask them to reply START to the invitation. They do not need a portal account.' }}
             <span v-if="item.smsInvitationStatus === 'blocked'"> Text invitation is blocked until the messaging service and recipient are ready.</span>
             <span v-if="['sending', 'uncertain'].includes(item.smsInvitationStatus)"> Delivery needs review. Refresh before sending again.</span>
@@ -112,7 +112,7 @@
           >
             Edit reminders
           </button>
-          <button v-if="item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" type="button" class="btn btn-ghost btn-sm"
+          <button v-if="!item.guardianReminders?.sms && item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" type="button" class="btn btn-ghost btn-sm"
             :disabled="saving || item.smsConsentStatus === 'stopped' || ['sending', 'uncertain'].includes(item.smsInvitationStatus)" @click="invite(item)">
             {{ item.smsInvitationSentAt ? 'Resend opt-in invitation' : 'Send opt-in invitation' }}
           </button>
@@ -237,6 +237,7 @@ const clientInitialsLabel = computed(() => props.clientInitials || 'this client'
 
 
 function smsLabel(item) {
+  if (item.guardianReminders) return item.guardianReminders.sms ? 'ON · guardian account' : item.guardianReminders.requestedSms ? 'Requested · consent pending' : 'OFF · guardian account';
   if (item.smsConsentStatus === 'stopped') return 'STOPPED';
   if (!item.smsRemindersEnabled) return 'OFF';
   return item.smsOptIn && item.smsConsentStatus === 'opted_in' ? 'ON — opted in' : 'PENDING — not opted in';

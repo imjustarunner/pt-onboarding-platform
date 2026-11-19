@@ -22,7 +22,10 @@ async function load(){const own=++generation;loading.value=true;error.value='';t
 function close(){if(!saving.value)emit('close');}
 async function save(){if(!canSave.value)return;const own=generation;saving.value=true;error.value='';try{
  const {data}=await api.put(`/clients/${props.client.id}`,{client_status_id:Number(selected.value),...(terminating.value?{termination_reason:reason.value.trim()}:{})},config());
- if(own===generation)emit('saved',data.client||data);
+ if(own!==generation)return;
+ const saved=data.client||data;
+ if(Number(saved.client_status_id)!==Number(selected.value)){error.value='The chart still has its previous status. Your selection has been kept.';return;}
+ emit('saved',saved);
  }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'The client status could not be saved. Your selection is still here.';}finally{if(own===generation)saving.value=false;}}
 useModalFocus(dialog,close);onMounted(load);onBeforeUnmount(()=>generation++);
 </script>

@@ -1,5 +1,19 @@
+import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import pool from '../config/database.js';
 import {coverageInsuranceFingerprint} from '../utils/paperInsuranceReviewGate.js';
+export async function latestPayerResponses({agencyId, clientId}, insurance, db=pool) {
+  if (!insurance?.primary && !insurance?.secondary) return {};
+  const [rows] = await db.execute(`SELECT c.policy_slot,c.status,c.completed_at,c.service_date,c.evidence_encrypted
+    FROM client_coverage_checks c JOIN (SELECT MAX(id) AS id FROM client_coverage_checks
+    WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? GROUP BY policy_slot) latest ON latest.id=c.id`,
+  [agencyId, clientId, coverageInsuranceFingerprint(insurance)]);
+  return Object.fromEntries(rows.map(check => {
+    const evidence = check.evidence_encrypted ? decryptFamilyBilling(check.evidence_encrypted, `coverage:${agencyId}:${clientId}`) : null;
+    const verified = check.status === 'returned' && evidence?.summary?.status === 'active_reported' && evidence.summary.identityMatches === true;
+    return [check.policy_slot, {verified, checkedAt:check.completed_at, serviceDate:check.service_date, status:evidence?.summary?.status || check.status}];
+  }));
+}
+
 /** Nonfinancial chart metadata; source-paste eligibility is never payer verification. */
 export async function readCoverageVerificationSummary({agencyId,clientId},insurance,db=pool,now=new Date()) {
  if(!insurance?.primary&&!insurance?.secondary)return null;

@@ -198,6 +198,7 @@ export const updateClientGuardian = async (req, res, next) => {
     if (req.body.accessMode !== undefined) {
       if (!String(req.body.accessReason || '').trim()) return res.status(400).json({ error: { message: 'Record the reason for this portal access change.' } });
       if (existing.relationship_type === 'self' && ['payment_only', 'payer_plus'].includes(req.body.accessMode)) return res.status(400).json({ error: { message: 'Payment-only access applies to a responsible payer. Keep the client’s own account separate.' } });
+      if (req.body.accessMode === 'care' && existing.permissions_json?.pendingGuardianVerification && req.body.relationshipVerified !== true) return res.status(409).json({error:{message:'Verify the guardian’s identity and authority before enabling care access.'}});
       permissionsJson = permissionsForAccessMode(existing.permissions_json, req.body.accessMode);
       accessEnabled = req.body.accessMode !== 'none';
     }
@@ -208,7 +209,7 @@ export const updateClientGuardian = async (req, res, next) => {
     if(!access.ok)return res.status(access.status || 403).json({error:{message:access.message || 'Client access denied.'}});
     if (req.body.contact) await updateLinkedGuardianContact({ clientId, guardianUserId, user: req.user, contact: req.body.contact });
 
-    if (accessEnabled === false) {
+    if (req.body.relationshipVerified === true && req.body.accessMode === 'care') {
       permissionsJson = { ...safeJson(permissionsJson ?? existing.permissions_json, {}), pendingGuardianVerification: false };
     }
 
@@ -223,7 +224,7 @@ export const updateClientGuardian = async (req, res, next) => {
     });
 
     await logAuditEvent(req, { actionType: 'client_portal_access_updated', agencyId: req.agencyId || null,
-      metadata: { clientId, guardianUserId, accessMode: req.body.accessMode || null, accessEnabled: accessEnabled ?? Number(existing.access_enabled) === 1, reason: String(req.body.accessReason || '').slice(0, 1000) } });
+      metadata: { clientId, guardianUserId, accessMode: req.body.accessMode || null, relationshipVerified: req.body.relationshipVerified === true && req.body.accessMode === 'care', accessEnabled: accessEnabled ?? Number(existing.access_enabled) === 1, reason: String(req.body.accessReason || '').slice(0, 1000) } });
     res.json({ ok: true });
   } catch (e) {
     next(e);

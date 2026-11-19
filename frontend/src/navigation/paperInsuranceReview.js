@@ -79,4 +79,4 @@ export function matchConfiguredPayer(policy, payers = []) {
   return matches.length === 1 ? matches[0] : null;
 }
 export const withConfiguredPayer = (policy, payer) => ({ ...policy, payerCatalogId: String(payer.id), insurerName: payer.name,
-  payerId: payer.payerId, eligibilityPayerId: payer.eligibilityPayerId, isMedicaid: payer.isMedicaid === true });
+  payerId: payer.payerId, eligibilityPayerId: payer.eligibilityPayerId, isMedicaid: policy.isMedicaid === true || payer.isMedicaid === true });

@@ -1,5 +1,7 @@
-import {canAccessHubClient} from '../services/hubPeopleAccess.service.js';
-import {listClientEmailThreads,clientEmailThread,clientSecureThreads,listClientCommunicationThreads,clientCommunicationThread} from '../services/clientConversationRecord.service.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
+import { resolveRelayFamily } from '../services/providerSmsRelayIdentity.service.js';
+import {ensureClientAccess,isBackofficeRole,chartCommunicationThreads} from '../services/chartCommunicationExport.service.js';
+import {clientEmailThread,listClientCommunicationThreads,clientCommunicationThread} from '../services/clientConversationRecord.service.js';
 import {communicationPrintDocument} from '../services/communicationPrint.service.js';
 /**
  * Aggregated communications view for a single client.
@@ -15,68 +17,7 @@ import {communicationPrintDocument} from '../services/communicationPrint.service
 import pool from '../config/database.js';
 import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
 
-import Client from '../models/Client.model.js';
-import User from '../models/User.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
-
-const isBackofficeRole = (role) => {
-  const r = String(role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff';
-};
-
-/**
- * Mirrors `client.controller.js#ensureAgencyAccessToClient`. Duplicated locally
- * to keep this controller self-contained without exporting an internal helper
- * across module boundaries.
- */
-async function ensureClientAccess({ userId, role, clientId }) {
-  const roleNorm = String(role || '').toLowerCase();
-  if (roleNorm === 'school_staff') {
-    return { ok: false, status: 403, message: 'School staff do not have access to family texts, emails, or secure messages', client: null };
-  }
-  if (roleNorm === 'client_guardian' || roleNorm === 'client') {
-    return { ok: false, status: 403, message: 'Family texts, emails, and secure messages stay in the family portal', client: null };
-  }
-  const client = await Client.findById(clientId, { includeSensitive: true });
-  if (!client) return { ok: false, status: 404, message: 'Client not found', client: null };
-  if (!isBackofficeRole(role)) {
-    const ok=await canAccessHubClient({userId,clientId,agencyId:client.agency_id});
-    return {ok,client,status:ok?200:403,message:ok?null:'You do not have access to this client'};
-  }
-  if (String(role || '').toLowerCase() === 'super_admin') return { ok: true, client };
-
-  const orgs = await User.getAgencies(userId);
-  const userAgencyIds = (orgs || []).map((o) => parseInt(o.id, 10)).filter(Boolean);
-
-  let hasAgencyAccess = false;
-  try {
-    if (userAgencyIds.length) {
-      const placeholders = userAgencyIds.map(() => '?').join(',');
-      const [rows] = await pool.execute(
-        `SELECT 1
-           FROM client_agency_assignments
-          WHERE client_id = ?
-            AND is_active = TRUE
-            AND agency_id IN (${placeholders})
-          LIMIT 1`,
-        [clientId, ...userAgencyIds]
-      );
-      hasAgencyAccess = (rows || []).length > 0;
-    }
-  } catch (e) {
-    const msg = String(e?.message || '');
-    if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
-    hasAgencyAccess = userAgencyIds.includes(parseInt(client.agency_id, 10));
-  }
-  if (!hasAgencyAccess) {
-    const legacy = parseInt(client?.agency_id, 10);
-    if (Number.isFinite(legacy) && legacy > 0) {
-      hasAgencyAccess = userAgencyIds.includes(legacy);
-    }
-  }
-  if (!hasAgencyAccess) return { ok: false, status: 403, message: 'You do not have access to this client', client };
-  return { ok: true, client };
-}
 
 /**
  * Shape an email row (raw `user_communications` join) into the format the UI expects.
@@ -226,23 +167,15 @@ async function fetchSmsForClient(clientId) {
 /** Resolve linked guardians (lightweight summary used as response metadata). */
 async function fetchClientGuardiansSummary(clientId) {
   try {
-    const [rows] = await pool.execute(
-      `SELECT cg.guardian_user_id AS id,
-              cg.relationship_title,
-              u.first_name, u.last_name, u.email, u.personal_phone, u.work_phone, u.phone_number
-         FROM client_guardians cg
-         JOIN users u ON u.id = cg.guardian_user_id
-        WHERE cg.client_id = ?
-        ORDER BY cg.id ASC`,
-      [clientId]
-    );
-    return (rows || []).map((r) => ({
-      id: r.id,
+    const links = await ClientGuardian.listForClient(clientId);
+    return Promise.all(links.map(async r => ({
+      id: r.guardian_user_id,
+      canText: (await resolveRelayFamily({id:clientId}, r.phone, links))?.guardianUserId === Number(r.guardian_user_id),
       name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || null,
       email: r.email || null,
-      phone: r.personal_phone || r.work_phone || r.phone_number || null,
+      phone: r.phone || null,
       relationshipTitle: r.relationship_title || 'Guardian'
-    }));
+    })));
   } catch {
     return [];
   }
@@ -297,6 +230,7 @@ export const listClientCommunications = async (req, res, next) => {
     res.json({
       client: {
         id: access.client.id,
+        hasContactPhone: !!access.client.contact_phone,
         initials: access.client.initials || null,
         full_name: callerCanSeeFullName ? (access.client.full_name || null) : null
       },
@@ -427,14 +361,7 @@ export const exportClientCommunications = async (req,res,next) => {
     let threads=[];
     if(req.query.conversationId)threads=[await clientCommunicationThread(clientId,String(req.query.conversationId),req.user.id)];
     else{
-      const linked=await listClientEmailThreads(clientId,req.user.id);
-      for(const thread of linked)threads.push(await clientEmailThread(clientId,thread.id,req.user.id));
-      threads.push(...await clientSecureThreads(clientId,req.user.id));
-      const [automated]=await pool.execute(`SELECT uc.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id WHERE uc.client_id=? AND ${appCommunicationVisibilitySql('uc')} ORDER BY COALESCE(uc.sent_at,uc.generated_at),uc.id`,[clientId]);
-      const messageIds=new Set(threads.flatMap(t=>t.messages.map(m=>m.internet_message_id)).filter(Boolean));
-      for(const m of automated) if(!m.external_message_id || !messageIds.has(m.external_message_id)) threads.push({subject:m.subject || 'Notification',messages:[{...m,body_text:String(m.body || '').replace(/<[^>]*>/g,' '),recipientAddress:m.recipient_address,sentAt:m.sent_at || m.generated_at,deliveryStatus:m.delivery_status}]});
-      const [sms]=await pool.execute('SELECT ml.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM message_logs ml LEFT JOIN users u ON u.id=ml.user_id WHERE ml.client_id=? ORDER BY ml.created_at,ml.id',[clientId]);
-      if(sms.length)threads.push({subject:'Text messages',messages:sms.map(m=>({...m,from:m.from_number,to:m.to_number,body_text:m.body,send_status:m.delivery_status}))});
+      threads=await chartCommunicationThreads(clientId,req.user.id);
     }
     res.set('Cache-Control','private, no-store');
     res.set('Content-Type','text/html; charset=utf-8');

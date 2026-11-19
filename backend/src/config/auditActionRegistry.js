@@ -94,7 +94,7 @@ const AUDIT_ACTION_REGISTRY = {
   view: { label: 'Document viewed', category: 'Documents' },
   exported_to_ehr: { label: 'Document exported to EHR', category: 'Documents' },
   removed: { label: 'Document removed', category: 'Documents' },
-  view_client: { label: 'Client record viewed', category: 'Client Access' },
+  view_client: { label: 'Client chart details loaded', category: 'Client Access' },
   portal_sign_in: { label: 'Signed in to the portal', category: 'Client Access' },
   portal_home_opened: { label: 'Opened the portal home', category: 'Client Access' },
   portal_documents_opened: { label: 'Opened enrollment documents', category: 'Client Access' },

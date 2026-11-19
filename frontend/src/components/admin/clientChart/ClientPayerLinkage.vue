@@ -3,6 +3,7 @@
     <h4>Payer linkage and verification</h4>
     <p class="muted">Choose an agency payer first, or search the live clearinghouse directory. The insurance company’s name can differ from its billing payer.</p>
     <p v-if="error" class="payer-error" role="alert">{{ error }}</p>
+    <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Checking payer links…</p>
     <p v-else-if="!policies.some(policy => policy.hasInsurance)" class="muted">Import insurance to check this client’s payer links.</p>
     <article v-for="policy in policies.filter(policy => policy.hasInsurance)" :key="policy.position">
@@ -31,10 +32,12 @@
   </section>
 </template>
 <script setup>
+import { automaticEligibilityNotice } from '../../../utils/automaticEligibilityNotice.js';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../../services/api';
 const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},refreshKey:{default:0}});
 const emit=defineEmits(['ready-change','busy']);
+const notice=ref('');
 const policies=ref([]),loading=ref(false),error=ref(''),linking=ref(false),coverageVerified=ref(false);
 const searches=reactive({primary:'',secondary:''}),candidates=reactive({}),selected=reactive({}),warnings=reactive({}),searching=reactive({});
 const groups=[{key:'agency',label:'Agency payers'},{key:'directory',label:'Live clearinghouse directory'}];
@@ -43,7 +46,7 @@ const busy=computed(()=>loading.value||Object.values(searching).some(Boolean)||l
 watch(busy,value=>emit('busy',value),{flush:'sync'});
 function config(){return{skipGlobalLoading:true,headers:{'X-Agency-Id':String(props.agencyId)}};}
 async function load(){
- const version=++generation;loading.value=true;error.value='';policies.value=[];coverageVerified.value=false;emit('ready-change',false);
+ const version=++generation;loading.value=true;error.value='';notice.value='';policies.value=[];coverageVerified.value=false;emit('ready-change',false);
  for(const key of ['primary','secondary']){clearTimeout(timers[key]);versions[key]=(versions[key]||0)+1;candidates[key]=null;selected[key]='';searches[key]='';searching[key]=false;warnings[key]='';}
  try{
   const response=await api.get(`/clients/${props.clientId}/chart-import/payer-readiness`,config());if(version!==generation)return;
@@ -51,7 +54,7 @@ async function load(){
   emit('ready-change',policies.value.some(p=>p.hasInsurance)&&policies.value.filter(p=>p.hasInsurance).every(p=>p.linked));
  }catch(err){if(version===generation)error.value=err.response?.data?.error?.message||'Payer linkage could not be checked.';}
  finally{if(version===generation)loading.value=false;}
- if(version===generation) await Promise.all(policies.value.filter(p=>p.hasInsurance).map(p=>search(p.position)));
+ if(version===generation) await Promise.all(policies.value.filter(p=>p.hasInsurance&&!p.linked).map(p=>search(p.position)));
 }
 function scheduleSearch(position){clearTimeout(timers[position]);versions[position]=(versions[position]||0)+1;searching[position]=false;selected[position]='';timers[position]=setTimeout(()=>search(position),350);}
 async function search(position){
@@ -60,12 +63,16 @@ async function search(position){
  searching[position]=true;error.value='';selected[position]='';
  try{
   const response=await api.post(`/clients/${props.clientId}/chart-import/payer-search`,{position,search:searches[position]},config());
-  if(context===generation&&version===versions[position]){candidates[position]=(response.data.payers||[]).map(p=>({...p,source:p.source||'directory'}));warnings[position]=response.data.directoryWarning||'';}
+  if(context===generation&&version===versions[position]){candidates[position]=(response.data.payers||[]).map(p=>({...p,source:p.source||'directory'}));warnings[position]=response.data.directoryWarning||'';
+   const policy=policies.value.find(row=>row.position===position);
+   const exact=candidates[position].filter(row=>row.source==='agency' && row.verified && row.payerId===policy?.sourcePayerId && row.name?.toLowerCase()===policy.insurerName?.toLowerCase());
+   if(!searches[position] && exact.length===1)selected[position]=exact[0].payerId;}
  }catch(err){if(context===generation&&version===versions[position])error.value=err.response?.data?.error?.message||'Payer search failed.';}
  finally{if(context===generation&&version===versions[position])searching[position]=false;}
 }
 async function link(position){const version=generation;linking.value=true;error.value='';try{
- await api.post(`/clients/${props.clientId}/chart-import/payer-link`,{position,payerId:selected[position],confirmed:true},config());if(version===generation)await load();
+ const {data}=await api.post(`/clients/${props.clientId}/chart-import/payer-link`,{position,payerId:selected[position],confirmed:true},config());
+ if(version===generation){const next=generation+1;await load();if(next===generation)notice.value=data?.eligibilityQueueWarning || automaticEligibilityNotice(data?.automaticEligibility);}
  }catch(err){if(version===generation)error.value=err.response?.data?.error?.message||'Payer could not be linked.';}finally{linking.value=false;}}
 watch(()=>[props.clientId,props.agencyId,props.refreshKey],load,{immediate:true});
 onBeforeUnmount(()=>{generation++;Object.values(timers).forEach(clearTimeout);emit('busy',false);});

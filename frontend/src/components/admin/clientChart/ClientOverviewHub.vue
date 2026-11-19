@@ -28,7 +28,7 @@
 
       <slot name="clinical-summary" />
 
-      <ClientSupplementaryRecords v-if="canViewPrivateChart && client?.agency_id" :client-id="clientId" :agency-id="client.agency_id" :refresh-key="client" />
+      <ClientSupplementaryRecords v-if="canViewPrivateChart && client?.agency_id" :client-id="clientId" :agency-id="client.agency_id" :refresh-key="client" :linked-guardians="linkedGuardians" />
 
       <FamilyWelcomeWorkflowCard :agency-id="client?.agency_id" :client-id="clientId" />
 
@@ -109,7 +109,7 @@
         <div class="cdp-contacts-grid">
           <article class="cdp-contact-card">
             <div class="cdp-contact-card__role">{{ contactRole }}</div>
-            <div class="cdp-contact-card__name">{{ guardianName || 'No contact on file' }}</div>
+            <div class="cdp-contact-card__name">{{ guardianName || (guardianLoading ? 'Loading guardian…' : guardianError ? 'Guardian information unavailable' : 'No contact on file') }}</div>
             <div class="cdp-glance-meta">{{ guardianMeta || '—' }}</div>
           </article>
           <article class="cdp-contact-card">
@@ -195,6 +195,9 @@ const props = defineProps({
   lastSessionLabel: { type: String, default: '—' },
   alerts: { type: Array, default: () => [] },
   guardianName: { type: String, default: '' },
+  guardianLoading: Boolean,
+  guardianError: String,
+  linkedGuardians: { type: Array, default: () => [] },
   contactRole: { type: String, default: 'Guardian' },
   guardianMeta: { type: String, default: '' },
   organizationName: { type: String, default: '' }

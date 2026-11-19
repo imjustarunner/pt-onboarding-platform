@@ -142,3 +142,9 @@ describe('clientChartHubs Record Center', () => {
 it('supports the temporary import tab to the left of Overview with its own navigation target',()=>{
  expect(resolveChartTab('bring-up-to-date')).toEqual({hub:'bring-up-to-date',sub:null});expect(chartNavTarget('bring-up-to-date')).toEqual({activeTab:'bring-up-to-date',hubSub:''});expect(panelVisible('overview','bring-up-to-date','')).toBe(false);
 });
+
+it('opens the provider calendar from both Schedule links', () => {
+  const target = chartNavTarget('schedule', '');
+  expect(resolveChartTab(target.activeTab).hub).toBe('schedule');
+  expect(resolveChartTab('schedule').hub).toBe('schedule');
+});

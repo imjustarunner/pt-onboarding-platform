@@ -64,3 +64,8 @@ it('keeps independent drafts possible when no canonical appointment exists and n
   expect(database.execute).toHaveBeenCalledTimes(1);
   expect(database.execute.mock.calls.every(([sql]) => sql.trim().startsWith('SELECT'))).toBe(true);
 });
+
+it('blocks an authorized future appointment even when its session ID is supplied directly',async()=>{
+ sessions.findById.mockResolvedValue({...canonical,scheduled_start_at:'2099-10-19 15:00:00'});
+ await expect(resolve({clinicalSessionId:140,dateOfService:'2099-10-19'})).rejects.toMatchObject({status:409,message:expect.stringContaining('has not started')});
+});

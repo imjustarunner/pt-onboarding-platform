@@ -200,6 +200,7 @@ export function chartNavTarget(hubId, subId = '') {
     if (sub === 'skill-builders') return { activeTab: 'skill-builders', hubSub: 'skill-builders' };
     return { activeTab: 'overview', hubSub: sub === 'home' ? 'home' : '' };
   }
+  if (hub === 'schedule') return { activeTab: 'schedule', hubSub: '' };
   if (hub === 'portal') return {activeTab:'portal',hubSub:''};
   if (hub === 'account') {
     if (sub === 'billing-settings') return { activeTab: 'billing-settings', hubSub: 'billing-settings' };

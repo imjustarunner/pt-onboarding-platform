@@ -1,3 +1,4 @@
+import { latestPayerResponses, readCoverageVerificationSummary } from './coverageVerificationSummary.service.js';
 import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { assertCollectible } from './familyLedger/policy.js';
@@ -16,7 +17,8 @@ export async function clientCareBillingSummary(agencyId,clientId,db=pool,{includ
  const insurance=await readClientInsurance(clientId,agencyId,db);
  const policies=['primary','secondary'].filter(slot=>insurance?.[slot]?.insurerName).map(slot=>({position:slot,insurerName:insurance[slot].insurerName}));
  const {summary:paymentSetup}=await clientPaymentSetup(agencyId,clientId,db);
- if(!includeAmounts)return {policies,paymentSetup};
+ const [verification, payerResponses]=policies.length ? await Promise.all([readCoverageVerificationSummary({agencyId,clientId},insurance,db), latestPayerResponses({agencyId,clientId},insurance,db)]) : [null,{}];
+ if(!includeAmounts)return {policies,paymentSetup,verification,payerResponses};
  const rows=[];let after=0;
  while(true){
   const [page]=await db.execute(`SELECT r.*,COALESCE((SELECT SUM(a.paid_cents) FROM family_receivable_allocations a WHERE a.receivable_id=r.id),0) AS paid_cents,
@@ -29,5 +31,5 @@ export async function clientCareBillingSummary(agencyId,clientId,db=pool,{includ
  // Review, held, disputed and in-flight payments never count as payable.
  const balance=summarizeCareBalances(rows);
  if(includeAmounts)balance.payableCents=rows.reduce((total,row)=>total+(row.collectible&&!row.pending?Math.max(0,Number(row.amount_cents)-Number(row.paid_cents)):0),0);
- return {policies,balance,paymentSetup,scope:'Current app ledger; billing handles collection and reconciliation'};
+ return {policies,balance,paymentSetup,verification,payerResponses,scope:'Current app ledger; billing handles collection and reconciliation'};
 }

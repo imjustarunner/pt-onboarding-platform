@@ -1,6 +1,6 @@
 import { getCobWorkspace, getCobPayers, createCob, reconcileCob } from '../controllers/stediCob.controller.js';
 import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
-import { downloadClinicalNotePdf, downloadClinicalRecordPdf } from '../controllers/clinicalRecordExport.controller.js';
+import { downloadClinicalNotePdf, downloadClinicalRecordPdf, downloadClinicalPlanPdf } from '../controllers/clinicalRecordExport.controller.js';
 import { getFeeSchedule, postFeeSchedule, postFeeScheduleDefaults, postFeeSchedulePayerSync } from '../controllers/feeSchedule.controller.js';
 import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
 import { listClinicalNoteVersions, getClinicalNoteVersion, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../controllers/clinicalNoteVersions.controller.js';
@@ -486,6 +486,7 @@ router.patch(
   updateEncounter
 );
 
+router.get('/clients/:clientId/plans/:planId/pdf', excludeSupportClinicalContent, requireClinicalChart, downloadClinicalPlanPdf);
 router.get('/clients/:clientId/record-pdf', excludeSupportClinicalContent, requireClinicalChart, downloadClinicalRecordPdf);
 router.get('/notes/:noteId/pdf', excludeSupportClinicalContent, requireClinicalChart, downloadClinicalNotePdf);
 router.get('/notes/review-work', excludeSupportClinicalContent, listMyNoteReviewWork);

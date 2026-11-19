@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn() } }));
 import ClientGuardian from '../../models/ClientGuardian.model.js';
-import { familyReplyCode, parseProviderReply, resolveRelayFamily } from '../providerSmsRelayIdentity.service.js';
+import { familyReplyCode, parseProviderReply, resolveGuardianTextRecipient, resolveRelayFamily } from '../providerSmsRelayIdentity.service.js';
 const phone = '+16189107000';
 const client = { id: 2271, initials: 'RowQaO', contact_phone: phone };
 const guardian = { guardian_user_id: 1449, phone, access_enabled: 1, is_active: 1, relationship_type: 'parent', permissions_json: {} };
@@ -30,4 +30,13 @@ it('permits an adult self contact and rejects archived clients', async () => {
   expect(await resolveRelayFamily(client, phone)).toEqual({ phone, guardianUserId: 0, guardian: false });
   expect(await resolveRelayFamily({ ...client, is_archived: 1 }, phone)).toBeNull();
   expect(await resolveRelayFamily(client, '+12025550100')).toBeNull();
+});
+
+it('addresses a verified guardian independently of the child phone and refuses shared or restricted numbers',async()=>{
+ const child={...client, contact_phone:null};
+ await expect(resolveGuardianTextRecipient(child,guardian.guardian_user_id)).resolves.toMatchObject({phone,guardianUserId:guardian.guardian_user_id});
+ for (const links of [[guardian,{...guardian,guardian_user_id:888}], [{...guardian,permissions_json:{billingOnly:true}}], [{...guardian,permissions_json:{pendingGuardianVerification:true}}]]) {
+   ClientGuardian.listForClient.mockResolvedValue(links);
+   await expect(resolveGuardianTextRecipient(child,guardian.guardian_user_id)).rejects.toMatchObject({status:409});
+ }
 });

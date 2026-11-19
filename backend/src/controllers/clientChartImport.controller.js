@@ -1,4 +1,4 @@
-import { readCoverageVerificationSummary } from '../services/coverageVerificationSummary.service.js';
+import { readCoverageVerificationSummary, latestPayerResponses } from '../services/coverageVerificationSummary.service.js';
 import { requireClientChartImportAccess } from '../services/clientChartImportAccess.service.js';
 import { chartSections, readChartRecord, saveChartRecord, importSupplementaryChartSection } from '../services/clientChartImport.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -95,7 +95,7 @@ export async function importChartSection(req, res, next) {
     if (!Array.isArray(guardianContactNames) || guardianContactNames.length > 100 || guardianContactNames.some(name => typeof name !== 'string' || name.length > 255)) throw Object.assign(new Error('Select valid contacts for portal preparation'), { status: 400 });
     if (section === 'contacts' && (req.body?.preparePrimaryGuardian === true || guardianContactNames.length) && !['super_admin','admin','support'].includes(req.user?.role)) throw Object.assign(new Error('Account support access is required to prepare portal accounts'), { status: 403 });
     const result = await importSupplementaryChartSection(scope, section, text, Number(req.user.id), { position,
-      ...(section === 'contacts' ? { preparePrimaryGuardian: req.body?.preparePrimaryGuardian === true, guardianContactNames } : {}) });
+      ...(section === 'contacts' ? { preparePrimaryGuardian: req.body?.preparePrimaryGuardian === true, guardianContactNames, syncGuardianReminders:canManageAccount(req) } : {}) });
     await logAuditEvent(req, { actionType: 'client_chart_section_imported', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId, metadata: { section } });
     res.set('Cache-Control', 'no-store').json({ result });
   } catch (error) { next(error); }
@@ -106,9 +106,9 @@ export async function getChartSupplementaryRecords(req, res, next) {
     const scope = await scopeOf(req);
     const accountAccess = canManageAccount(req);
     const [contacts, comments, insurance, payer, billingComments] = await Promise.all([readChartRecord(scope, 'contacts'), readChartRecord(scope, 'comments'), readClientInsurance(scope.clientId, scope.agencyId), accountAccess ? readChartRecord(scope, 'payer') : null, accountAccess ? readChartRecord(scope, 'billingComments') : null]);
-    const verification=await readCoverageVerificationSummary(scope,insurance);
+    const [verification, payerResponses] = await Promise.all([readCoverageVerificationSummary(scope,insurance), latestPayerResponses(scope,insurance)]);
     const policyForViewer = policy => !policy ? null : accountAccess ? policy : { insurerName: policy.insurerName || '', isMedicaid: policy.isMedicaid === true, programType: policy.programType || '' };
     await logAuditEvent(req, { actionType: 'client_chart_supplementary_viewed', agencyId: scope.agencyId, targetType: 'client', targetId: scope.clientId });
-    res.set('Cache-Control', 'no-store').json({ verification, contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: policyForViewer(insurance.primary), secondary: policyForViewer(insurance.secondary) } : null, payer: payer?.value || null, billingComments: billingComments?.value?.message || '', accountAccess });
+    res.set('Cache-Control', 'no-store').json({ verification, payerResponses, contacts: Object.values(contacts.value || {}), administrativeNote: comments.value?.message || '', insurance: insurance ? { primary: policyForViewer(insurance.primary), secondary: policyForViewer(insurance.secondary) } : null, payer: payer?.value || null, billingComments: billingComments?.value?.message || '', accountAccess });
   } catch (error) { next(error); }
 }

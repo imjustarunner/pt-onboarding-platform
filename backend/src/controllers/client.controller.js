@@ -3121,6 +3121,7 @@ export const updateClient = async (req, res, next) => {
         [currentClient.agency_id]
       );
       const newStatusRow = (statusRows || []).find((r) => parseInt(r?.id, 10) === requestedStatusId) || null;
+      if (!newStatusRow) return res.status(400).json({error:{message:'Choose a status configured for this client’s agency.'}});
       const newKey = String(newStatusRow?.status_key || '').toLowerCase();
       const newLabel = String(newStatusRow?.label || '').toLowerCase();
       const currentStatusId = parseInt(currentClient.client_status_id || 0, 10);
@@ -3156,7 +3157,7 @@ export const updateClient = async (req, res, next) => {
               disposition: dispRows?.[0] || null
             });
             if (!stillNeedsFallReassignment) {
-              delete req.body.client_status_id;
+              return res.status(409).json({error:{message:'This school assignment has already cleared the fall confirmation step. Its status was kept.'}});
             }
           }
         } catch {
@@ -3550,7 +3551,11 @@ export const updateClient = async (req, res, next) => {
       // ignore
     }
 
-    logClientAccess(req, id, 'client_updated').catch(() => {});
+    const auditFields = ['client_status_id','status','full_name','initials','date_of_birth','gender','preferred_language','primary_parent_language','address_street','address_apt','address_city','address_state','address_zip','contact_phone','email','race','grade','agency_id','organization_id','client_type','source','submission_date','referral_date','insurance_type_id','paperwork_status_id','provider_id'];
+    const updatedFields = auditFields.filter(field => Object.hasOwn(req.body, field)
+      && String(currentClient[field] ?? '') !== String(updatedClient[field] ?? ''));
+    await Promise.all((updatedFields.length ? updatedFields.map(field => 'client_updated_' + field) : ['client_updated'])
+      .map(action => logClientAccess(req, id, action)));
     res.json(updatedClient);
   } catch (error) {
     console.error('Update client error:', error);

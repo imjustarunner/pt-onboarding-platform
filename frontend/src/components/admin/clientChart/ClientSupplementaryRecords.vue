@@ -9,7 +9,8 @@
         <p v-if="!records.insurance" class="muted">No imported insurance on file.</p>
         <article v-for="policy in policies" :key="policy.position" class="supplement-card">
           <h4>{{ policy.value.insurerName || 'Insurance' }} · {{ policy.position }}</h4>
-          <p v-if="records.verification?.verifiedAt" role="status"><strong>{{ records.verification.current ? 'VERIFIED' : 'Previously verified — review needed' }}</strong> · {{ new Date(records.verification.verifiedAt).toLocaleDateString() }}<span v-if="records.verification.serviceDate"> · For service date {{ records.verification.serviceDate }}</span></p><p v-else class="muted">Not verified</p>
+          <p v-if="records.payerResponses?.[policy.position.toLowerCase()]?.verified" role="status"><strong>VERIFIED by payer</strong> · {{ new Date(records.payerResponses[policy.position.toLowerCase()].checkedAt).toLocaleDateString() }} · Service date {{ String(records.payerResponses[policy.position.toLowerCase()].serviceDate).slice(0,10) }}</p>
+          <p v-else-if="records.verification?.verifiedAt" role="status"><strong>{{ records.verification.current ? 'VERIFIED' : 'Previously verified — review needed' }}</strong> · {{ new Date(records.verification.verifiedAt).toLocaleDateString() }}<span v-if="records.verification.serviceDate"> · For service date {{ records.verification.serviceDate }}</span></p><p v-else class="muted">Not verified</p>
           <dl><template v-for="field in insuranceFields.filter(field => policy.value[field.key])" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ policy.value[field.key] }}</dd></template></dl>
         </article>
       </section>
@@ -18,7 +19,7 @@
         <p v-if="!records.contacts.length" class="muted">No imported additional contacts on file.</p>
         <div class="supplement-contacts">
           <article v-for="contact in records.contacts" :key="contact.affiliationId" class="supplement-card">
-            <h4>{{ contact.fullName }}</h4>
+            <h4><RouterLink v-if="guardianId(contact)" :to="guardianAccountPath(guardianId(contact), $route.params.organizationSlug)">{{ contact.fullName }}</RouterLink><template v-else>{{ contact.fullName }}</template></h4>
             <dl><template v-for="field in contactFields.filter(field => contact[field.key])" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ contact[field.key] }}</dd></template></dl>
           </article>
         </div>
@@ -46,9 +47,18 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../../services/api';
 import ClientMedicalHistory from './ClientMedicalHistory.vue';
-const props = defineProps({ clientId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, refreshKey: { default: null } });
+import { guardianAccountPath } from '../../../utils/guardianDirectory.js';
+const props = defineProps({ linkedGuardians: {type: Array, default: () => []}, clientId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, refreshKey: { default: null } });
 const records = ref(null), allowed = ref(true), loading = ref(false), error = ref(''), editing = ref(false), noteDraft = ref(''), saving = ref(false);
 let generation = 0;
+function guardianId(contact) {
+  const linkedId = Number(contact.portalAccount?.userId);
+  const email = String(contact.email || '').trim().toLowerCase();
+  const matches = props.linkedGuardians.filter(row => linkedId
+    ? Number(row.guardian_user_id) === linkedId
+    : email && String(row.email || '').trim().toLowerCase() === email);
+  return matches.length === 1 ? matches[0].guardian_user_id : null;
+}
 const fields = entries => entries.map(([key, label]) => ({ key, label }));
 const contactFields = fields([
   ['firstName','First name'], ['middleName','Middle name'], ['lastName','Last name'], ['suffix','Suffix'], ['title','Title'], ['company','Company'], ['contactType','Contact type'], ['relationshipType','Relationship'],

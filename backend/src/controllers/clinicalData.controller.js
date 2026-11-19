@@ -1,3 +1,4 @@
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { isQuickCopyDraft } from '../utils/therapyNotesQuickGenerator.js';
@@ -357,6 +358,7 @@ export const createSessionNote = async (req, res, next) => {
       || Number(currentSession.provider_user_id || 0) !== Number(session.provider_user_id || 0)) {
       throw Object.assign(new Error('The appointment client, provider or workspace changed. Reopen the actual session before attaching this note.'), { status: 409 });
     }
+    if (parseUtcDate(currentSession.scheduled_start_at)?.getTime() > Date.now()) throw Object.assign(new Error('This session has not started. Return after its scheduled start to document it.'), {status:409});
     assertNoPendingClinicalServiceChange(currentSession);
     const selectedService = String(metadata.serviceCode || session.service_code || '').trim().toUpperCase();
     if (selectedService && String(currentSession.service_code || '').trim().toUpperCase() !== selectedService) {

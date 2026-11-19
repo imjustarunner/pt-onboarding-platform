@@ -42,6 +42,7 @@
       :client-id="clientId"
       :organization-id="organizationId"
       :agency-id="agencyId"
+      :guardians="guardians" :has-client-phone="hasClientPhone"
       :sms-items="agencyRecord ? auditItems : []"
       @sent="loadSmsAudit"
     />
@@ -403,6 +404,7 @@ async function openClientThread(thread){try{const {data}=await api.get(`/clients
 async function printRecord(conversationId=null){try{await openCommunicationPrint(()=>api.get(`/clients/${props.clientId}/communications/export`,{params:{conversationId:conversationId || undefined},responseType:'text'}),`client-${props.clientId}-communications.html`);}catch(e){error.value=e.response?.data?.error?.message || 'Could not prepare the communication record';}}
 const items = ref([]);
 const guardians = ref([]);
+const hasClientPhone = ref(false);
 const counts = ref({ total: 0, email: 0, sms: 0, opened: 0, failed: 0 });
 const loading = ref(false);
 const error = ref('');
@@ -479,6 +481,7 @@ const loadCommunications = async () => {
   error.value = '';
   items.value = [];
   guardians.value = [];
+  hasClientPhone.value = false;
   conversations.value = [];
   counts.value = { total:0,email:0,sms:0,opened:0,failed:0 };
   viewingThread.value = null;
@@ -489,6 +492,7 @@ const loadCommunications = async () => {
     const data = resp.data || {};
     conversations.value = data.conversations || [];
     items.value = Array.isArray(data.items) ? data.items : [];
+    hasClientPhone.value = data.client?.hasContactPhone === true;
     guardians.value = Array.isArray(data.guardians) ? data.guardians : [];
     counts.value = data.counts || { total: 0, email: 0, sms: 0, opened: 0, failed: 0 };
   } catch (err) {

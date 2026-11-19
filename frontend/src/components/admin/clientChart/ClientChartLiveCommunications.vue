@@ -22,11 +22,12 @@
         </ul>
       </article>
       <form v-if="canText" class="composer" @submit.prevent="sendText">
+        <label>Recipient<select v-model="recipientId"><option value="" :disabled="!hasClientPhone">{{ hasClientPhone ? 'Client’s own phone' : 'Choose a guardian with care access' }}</option><option v-for="guardian in eligibleGuardians" :key="guardian.id" :value="String(guardian.id)">{{ guardian.name }} · {{ guardian.relationshipTitle }} · {{ guardian.phone }}</option></select></label>
         <label>
-          Text this client
+          Message
           <textarea v-model="textDraft" rows="3" placeholder="Write the text. Your name is added, and it sends from your number." />
         </label>
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="textSending || !textDraft.trim()">
+        <button type="submit" class="btn btn-primary btn-sm" :disabled="textSending || !textDraft.trim() || (!recipientId && !hasClientPhone)">
           {{ textSending ? 'Sending…' : 'Send text' }}
         </button>
         <p v-if="textError" class="error">{{ textError }}</p>
@@ -98,6 +99,8 @@ const props = defineProps({
   clientId: { type: [Number, String], required: true },
   organizationId: { type: [Number, String], default: 0 },
   agencyId: { type: [Number, String], default: 0 },
+  hasClientPhone: {type:Boolean,default:false},
+  guardians: {type:Array, default:() => []},
   smsItems: { type: Array, default: () => [] }
 });
 const emit = defineEmits(['sent']);
@@ -115,6 +118,11 @@ const lane = ref(schoolViewer.value ? 'comments' : 'texts');
 const organizationId = computed(() => Number(props.organizationId || 0));
 
 const textDraft = ref('');
+const recipientId = ref('');
+const eligibleGuardians = computed(() => props.guardians.filter(row => row.canText));
+watch([eligibleGuardians, () => props.hasClientPhone], ([guardians, hasPhone]) => {
+  if (!guardians.some(row => String(row.id) === recipientId.value)) recipientId.value = !hasPhone && guardians.length === 1 ? String(guardians[0].id) : '';
+}, { immediate:true });
 const textSending = ref(false);
 const textError = ref('');
 const comments = ref([]);
@@ -172,7 +180,7 @@ async function sendText() {
   textSending.value = true;
   textError.value = '';
   try {
-    await api.post('/messages/send', { clientId: Number(props.clientId), body: textDraft.value.trim() }, { skipGlobalLoading: true });
+    await api.post('/messages/send', { clientId: Number(props.clientId), ...(recipientId.value ? {guardianUserId:Number(recipientId.value)} : {}), body: textDraft.value.trim() }, { skipGlobalLoading: true });
     textDraft.value = '';
     emit('sent');
   } catch (error) {
@@ -244,6 +252,7 @@ function openTicket(ticket) {
 }
 
 watch(() => [props.clientId, organizationId.value], () => {
+  recipientId.value = ''; textDraft.value = '';
   loadComments();
   loadTickets();
 }, { immediate: true });

@@ -15,19 +15,29 @@ export function familyReplyCode(client, guardianId) {
   const initials = String(client.initials || 'CLIENT').replace(/[^a-z0-9]/gi, '').slice(0, 24).toUpperCase() || 'CLIENT';
   return `${initials}-${Number(client.id)}-${Number(guardianId) || 0}`;
 }
+export async function resolveGuardianTextRecipient(client, guardianId) {
+  const links = await ClientGuardian.listForClient(client.id);
+  const link = links.find(row => Number(row.guardian_user_id) === Number(guardianId));
+  const family = link && await resolveRelayFamily(client, link.phone, links);
+  if (!family || family.guardianUserId !== Number(guardianId)) {
+    throw Object.assign(new Error('This guardian needs a unique phone number and verified access for care messages.'), {status:409});
+  }
+  return family;
+}
+
 // Resolve the exact sender, never a primary guardian or last-used contact.
-export async function resolveRelayFamily(client, phone) {
+export async function resolveRelayFamily(client, phone, knownLinks = null) {
   const normalized = normalizeSmsPhone(phone);
   if (!normalized || !client || client.compliance_archived_at || [true, 1, '1'].includes(client.is_archived)) return null;
-  const links = await ClientGuardian.listForClient(client.id);
+  const links = knownLinks || await ClientGuardian.listForClient(client.id);
   const matching = links.filter(link => normalizeSmsPhone(link.phone) === normalized);
   if (matching.length) {
-    if (matching.length !== 1 || ![true, 1].includes(matching[0].access_enabled)
-      || ![true, 1].includes(matching[0].is_active)) return null;
+    if (matching.length !== 1 || Number(matching[0].access_enabled) !== 1
+      || Number(matching[0].is_active) !== 1) return null;
     const guardian = matching[0];
     if (['TERMINATED', 'ARCHIVED', 'INACTIVE_EMPLOYEE'].includes(String(guardian.status || '').toUpperCase())) return null;
     const permissions = guardian.permissions_json || {};
-    if (permissions.noView || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted
+    if (permissions.billingOnly || permissions.pendingGuardianVerification || permissions.pendingOtherGuardianEnrollment || permissions.noView || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted
       || permissions.canViewAppointments === false || permissions.canMessage === false) return null;
     return { phone: normalized, guardianUserId: Number(guardian.guardian_user_id),
       guardian: guardian.relationship_type !== 'self' };
