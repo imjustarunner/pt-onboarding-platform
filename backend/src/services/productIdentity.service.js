@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import pool from '../config/database.js';
+import { assertEmploymentNoticeAccess } from './employmentNotice.service.js';
 import { assertHireStaffAccess } from './hireStaffAccess.service.js';
 
 // Product authentication is separate from the shared clinical person ID. Do
@@ -31,5 +32,6 @@ export async function assertFullSuitePrincipal(claims, db = pool) {
 export async function signFullSuiteToken(claims, secret, options) {
   await assertFullSuitePrincipal(claims);
   await assertHireStaffAccess(claims);
+  await assertEmploymentNoticeAccess(claims);
   return jwt.sign(claims, secret, options);
 }

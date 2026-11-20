@@ -49,6 +49,8 @@ import privacyReviewRoutes from './routes/privacyReview.routes.js';
 import accountSecurityRoutes from './routes/accountSecurity.routes.js';
 import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
 import authRoutes from './routes/auth.routes.js';
+import employmentNoticeRoutes from './routes/employmentNotice.routes.js';
+import { issueSignInNoticeKey, NOTICE_REQUIRED } from './services/employmentNotice.service.js';
 import { verifyClubManagerEmail } from './controllers/auth.controller.js';
 import { listClubs } from './controllers/summitStats.controller.js';
 import userRoutes from './routes/user.routes.js';
@@ -458,6 +460,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Audit metadata before public clinical entry points; never record request bodies.
 app.use(securityEvidenceMiddleware);
+app.use('/api/employment-notice', employmentNoticeRoutes);
 app.use(assistantGlobalBoundary);
 // Preserve the existing preview boundary on every public clinical entry point.
 app.use('/api', auricwellPreviewBoundary);
@@ -1223,6 +1226,15 @@ app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
+  if (err.code === NOTICE_REQUIRED && !res.headersSent) {
+    res.set('Cache-Control', 'no-store');
+    return issueSignInNoticeKey(err.recipient)
+      .then(key => res.status(403).json({ error: { code: NOTICE_REQUIRED, message: err.message, key } }))
+      .catch(error => res.status(error.status || 503).json({ error: {
+        message: error.status === 401 ? 'Please sign in again.' : 'The notice is temporarily unavailable. Please try again.',
+        ...(error.status === 401 ? { code: 'SESSION_EXPIRED' } : {})
+      } }));
+  }
   if (/^\/api\/auricwell-records(?:\/|$)/.test(req.path) && !res.headersSent) return recordsError(err, req, res);
   // Expected / soft denials (e.g. hiring polled with a stale agencyId) — respond without log spam.
   if (!err?.quiet) {

@@ -426,6 +426,7 @@ const routes = [
   { path: '/:organizationSlug/provider-update-instructions/:pushId/:sectionKey', name: 'OrganizationProviderUpdateInstructions', component: () => import('../views/provider/ProviderUpdateInstructionsView.vue'), meta: { requiresAuth: true, organizationSlug: true } },
   { path: '/provider-update-instructions/:pushId/:sectionKey', name: 'ProviderUpdateInstructions', component: () => import('../views/provider/ProviderUpdateInstructionsView.vue'), meta: { requiresAuth: true } },
   { path: '/provider-update-security-verified', name: 'ProviderUpdateSecurityVerified', component: () => import('../views/public/ProviderUpdateSecurityVerifiedView.vue'), meta: { requiresAuth: true, accountSecurity: true } },
+  { path: '/employment-notice', name: 'EmploymentNotice', component: () => import('../views/EmploymentNoticeView.vue'), meta: { hideNav: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
   ...familyBillingRoutes,
@@ -5257,6 +5258,7 @@ function isFreshLoginWindow(now = Date.now()) {
 router.beforeEach(async (to, from, next) => {
   if (to.query.item === 'auricwell-transition' && to.path.endsWith('/admin/settings')) { next({ path: '/practice-transition', replace: true }); return; }
   // A guest payment capability does not use the visitor's application identity.
+  if (to.name === 'EmploymentNotice') { next(); return; }
   if (to.meta.guestPaymentSurface === true) { next(); return; }
   if(/^\/mobile(?:\/|$)/.test(to.path)){window.location.replace(to.fullPath);next(false);return;}
   // /logout (flat or under an org slug) is an action, not a page. Sign out through the
@@ -6655,6 +6657,7 @@ router.beforeEach(async (to, from, next) => {
 });
 
 router.afterEach((to) => {
+  if (to.name === 'EmploymentNotice') return;
   updateItscoDocumentMeta(document, window.location.hostname, to.fullPath);
   const authStore = useAuthStore();
   if (!authStore.isAuthenticated) return;

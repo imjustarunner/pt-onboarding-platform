@@ -40,6 +40,7 @@ router.afterEach((_to, _from, failure) => { if (!failure) pendingChunkReloadPath
 router.onError((error, to) => { chunkRecovery.recover(error, to?.fullPath || pendingChunkReloadPath); });
 
 async function bootstrap() {
+  const isEmploymentNotice = window.location.pathname === '/employment-notice';
   const priorShell = localStorage.getItem('appShellVersion');
   if (priorShell !== APP_SHELL_VERSION) {
     localStorage.setItem('appShellVersion', APP_SHELL_VERSION);
@@ -63,6 +64,13 @@ async function bootstrap() {
 
   app.use(pinia);
   const authStore = useAuthStore(pinia);
+  if (isEmploymentNotice) {
+    app.use(router);
+    app.use(i18n);
+    document.title = 'Important Employment Notice';
+    app.mount('#app');
+    return;
+  }
   if (mobileMainHandoff) {
     try {
       await completeMobileMainHandoff({

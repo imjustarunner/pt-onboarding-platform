@@ -326,6 +326,13 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
     } catch { /* Normal response handling remains fail-closed. */ }
+    const employmentNoticeKey = error.response?.data?.error?.key;
+    if (error.response?.data?.error?.code === 'EMPLOYMENT_NOTICE_REQUIRED'
+      && /^[A-Za-z0-9_-]{43}$/.test(employmentNoticeKey)
+      && window.location.pathname !== '/employment-notice') {
+      window.location.replace(`/employment-notice#${employmentNoticeKey}`);
+      return Promise.reject(error);
+    }
     if (!applicantInterviewMode.value && error.response?.data?.error?.code === 'ACTIVITY_REVIEW_REQUIRED') {
       window.dispatchEvent(new CustomEvent('activity-protection-required'));
     }

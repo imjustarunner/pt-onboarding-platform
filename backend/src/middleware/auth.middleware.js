@@ -1,3 +1,4 @@
+import { assertEmploymentNoticeAccess } from '../services/employmentNotice.service.js';
 import { assertFullSuitePrincipal } from '../services/productIdentity.service.js';
 import { enforceDependentPortalScope } from '../services/dependentPortalPolicy.service.js';
 import { assertPasskeySession } from '../services/passkeys.service.js';
@@ -289,6 +290,8 @@ export const authenticate = async (req, res, next) => {
       });
     }
     
+    await assertEmploymentNoticeAccess(decoded, { existingSession: true });
+
     // Handle approved employee tokens — agency context already embedded in JWT claims.
     if (decoded.type === 'approved_employee') {
       req.user = {
@@ -440,6 +443,7 @@ export const authenticateOptional = async (req, res, next) => {
               session: req.sessionSecurity.state, policy: req.sessionSecurity.policy
             });
           }
+          await assertEmploymentNoticeAccess(decoded, { existingSession: true });
           req.authClaims = decoded;
           await recordAccountSession(decoded, req);
           return finishAuthentication(req, res, next);

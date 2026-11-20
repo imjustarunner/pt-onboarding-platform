@@ -1,6 +1,7 @@
 <template>
-  <PlotlineSessionBoundary v-if="plotlinePrivateSession" />
-  <router-view v-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
+  <PlotlineSessionBoundary v-if="plotlinePrivateSession && route.name !== 'EmploymentNotice'" />
+  <router-view v-if="route.name === 'EmploymentNotice'" />
+  <router-view v-else-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
   <AssistantAppShell v-else-if="assistantSurface"><router-view /></AssistantAppShell>
   <PublicWebsiteShell v-else-if="route.meta?.publicMarketingHub"><router-view /></PublicWebsiteShell>
   <router-view v-else-if="route.meta?.plotlineEntry" />

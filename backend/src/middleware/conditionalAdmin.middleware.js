@@ -1,3 +1,4 @@
+import { assertEmploymentNoticeAccess, NOTICE_REQUIRED } from '../services/employmentNotice.service.js';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.model.js';
 import config from '../config/config.js';
@@ -32,6 +33,7 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
       return res.status(security.state.phase === 'expired' ? 401 : 423).json({ error: { code: security.state.phase === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_LOCKED', message: 'Unlock your session or sign in again.' }, session: security.state, policy: security.policy });
     }
     
+    await assertEmploymentNoticeAccess(decoded, { existingSession: true });
     if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
@@ -41,7 +43,7 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
     req.sessionSecurity = security;
     return enforceAccountSecurity(req, res, next);
   } catch (error) {
-    if (error.code === 'EVIDENCE_UNAVAILABLE') return next(error);
+    if (['EVIDENCE_UNAVAILABLE', NOTICE_REQUIRED].includes(error.code)) return next(error);
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: { message: 'Token expired' } });
     }

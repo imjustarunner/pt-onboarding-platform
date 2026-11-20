@@ -8,6 +8,7 @@ import bcrypt from 'bcrypt';
 import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
 import { isHirePortalOnly, requiresHireActivation, HIRE_ACTIVATION_MESSAGE } from '../utils/hirePortalToken.js';
 import jwt from 'jsonwebtoken';
+import { issueSignInNoticeKey, NOTICE_REQUIRED } from '../services/employmentNotice.service.js';
 import { signFullSuiteToken } from '../services/productIdentity.service.js';
 import { assertCurrentAccountEnabled } from '../services/accountAccess.service.js';
 import {assertAppHireStaffAccess} from '../services/hireAppAccount.service.js';
@@ -1957,13 +1958,22 @@ export const googleOAuthCallback = async (req, res, next) => {
       }
     }
 
-    // Issue session cookie + log activity
+    // Issue session cookie + log activity.
     const sessionId = crypto.randomUUID();
-    const token = await signFullSuiteToken(
-      { id: user.id, email: user.email, role: user.role, sessionId, authMethod: 'google' },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
+    let token;
+    try {
+      token = await signFullSuiteToken(
+        { id: user.id, email: user.email, role: user.role, sessionId, authMethod: 'google' },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn }
+      );
+    } catch (error) {
+      if (error.code !== NOTICE_REQUIRED) throw error;
+      const destination = new URL('/employment-notice', frontendBase || config.frontendUrl);
+      destination.hash = await issueSignInNoticeKey(error.recipient);
+      res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+      return res.redirect(302, destination.href);
+    }
     await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
     res.cookie('authToken', token, config.authCookie.set());
 
