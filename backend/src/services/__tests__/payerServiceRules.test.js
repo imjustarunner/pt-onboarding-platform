@@ -16,6 +16,20 @@ describe('client coverage drives code availability on a shared payer route',()=>
   expect(filterCodesForClientPayer({...options,policy:{...options.policy,terminationDate:'2026-10-31'}})).toMatchObject({serviceCodes:[],pendingClassificationCodes:[]});
   expect(filterCodesForClientPayer({...options,policy:{...options.policy,planType:'Health First Colorado'}})).toMatchObject({serviceCodes:['90837'],program:'medicaid'});
  });
+ it.each(['CHP+', 'CHP Plus', 'Child Health Plan Plus (CHP+)', 'CHP+ (Child Health Plan Plus)', 'Colorado Access – CHP+'])('groups %s with Medicaid for agency service selection',name=>{
+  const policy=Object.freeze({payerId:'regional-route',insurerName:name,planType:'HMO'});
+  const options={agencyId:377,codes:['H0004'],rules:rules(),policy,credentialTier:'bachelors',dateOfService:'2026-11-16'};
+  expect(filterCodesForClientPayer(options)).toMatchObject({serviceCodes:['H0004'],program:'medicaid'});
+  expect(filterCodesForClientPayer({...options,agencyId:999}).program).toBeNull();
+  expect(evaluateBillingPayerRules({...options,serviceCodes:['H0004']}).ready).toBe(false);
+ });
+ it('recognizes the Colorado Access route for service selection and preserves explicit coverage and unrelated CHP routes',()=>{
+  const options={agencyId:2,codes:['H0004'],rules:rules(),credentialTier:'bachelors',dateOfService:'2026-11-16'};
+  const policy={payerId:'84129',insurerName:'Colorado Access'};
+  expect(filterCodesForClientPayer({...options,policy}).program).toBe('medicaid');
+  expect(filterCodesForClientPayer({...options,policy:{...policy,programType:'commercial'}}).serviceCodes).toEqual([]);
+  expect(filterCodesForClientPayer({...options,policy:{payerId:'CHP01',insurerName:'Complementary Healthcare Plan (CHP)'}}).program).toBeNull();
+ });
  it('opens Medicaid services for a Medicaid-qualified provider with Commercial primary and Medicaid secondary',()=>{
   const options={codes:['H0004','T1017'],rules:rules(),policy:{payerId:'UNITED',programType:'commercial'},secondaryPolicy:{payerId:'COCHA',programType:'medicaid'},credentialTier:'bachelors',dateOfService:'2026-11-16'};
   expect(filterCodesForClientPayer(options)).toMatchObject({serviceCodes:['H0004','T1017'],coordinationCodes:['H0004','T1017'],message:expect.stringContaining('Medicaid secondary')});

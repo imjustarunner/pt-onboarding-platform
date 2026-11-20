@@ -16,20 +16,30 @@ it('opens the directory Message action in the scoped mobile conversation route',
  const wrapper=mount(QuickView,{props:{mobileSession:{sessionToken:'scoped',userId:1,agencyId:10,expiresAt:'2099-01-01',profile:{workspace:{name:'Test'},appLock:{method:'none'}}}},global:{plugins:[router],stubs:{MobileMessages:true,QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
  await wrapper.get('.mobile-people .message-button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/chat/direct',{otherUserId:2,agencyId:20},expect.any(Object));expect(router.currentRoute.value.query).toEqual({view:'home',suite:'direct',threadId:'45'});wrapper.unmount();
 });
-it('opens canonical session comments through the new calendar while keeping the session card note action',async()=>{
+it.each([true,false,undefined])('opens the calendar session card with recording enabled = %s',async recording=>{
  const item={id:'clinical-45',appointmentId:60,clientId:34,agencyId:10,clinicalSessionId:45,hasClient:true,clientMaskedName:'Fic* Cli*',startAt:'2026-11-11T18:00:00Z',endAt:'2026-11-11T19:00:00Z'};
- api.get.mockImplementation(async url=>({data:url.endsWith('/calendar/day')?{items:[item]}:url.endsWith('/secure-session-comments/today')?{appointments:[],showSplash:false}:url.includes('/secure-session-comments/appointments/60')?{appointment:{id:60,clientId:34,agencyId:10,startAt:item.startAt,timeZone:'America/Denver'},comments:[{id:5,version:1,body:'Fictional calendar comment',author:{id:2,name:'Fictional guardian'},createdAt:item.startAt,readAt:item.startAt}],recipients:[],canWrite:false}:url.endsWith('/messages/preferences')?{preferences:{pinnedNavigation:['calendar','home','tasks'],usage:{}}}:url.endsWith('/clinical/context')?{agencyId:10,client:{id:34,maskedName:'Fic* Cli*'},session:{id:45},preferences:{defaultMode:'narriva',features:{}},serviceCodes:[],alerts:[]}:{}}));api.post.mockResolvedValue({data:{ok:true}});
+ api.get.mockImplementation(async url=>({data:url.endsWith('/calendar/day')?{items:[item]}:url.endsWith('/secure-session-comments/today')?{appointments:[],showSplash:false}:url.includes('/secure-session-comments/appointments/60')?{appointment:{id:60,clientId:34,agencyId:10,startAt:item.startAt,timeZone:'America/Denver'},comments:[{id:5,version:1,body:'Fictional calendar comment',author:{id:2,name:'Fictional guardian'},createdAt:item.startAt,readAt:item.startAt}],recipients:[],canWrite:false}:url.endsWith('/messages/preferences')?{preferences:{pinnedNavigation:['calendar','home','tasks'],usage:{}}}:url.endsWith('/clinical/context')?{agencyId:10,client:{id:34,maskedName:'Fic* Cli*'},session:{id:45},preferences:{defaultMode:'narriva',features:{recording}},serviceCodes:[],alerts:[]}:{}}));api.post.mockResolvedValue({data:{ok:true}});
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span/>'}}]});await router.push('/mobile/workspace?view=calendar');
  const w=mount(QuickView,{attachTo:document.body,props:{mobileSession:{sessionToken:'fixture-scoped',userId:1,agencyId:10,expiresAt:'2099-01-01',profile:{workspace:{name:'Synthetic'},appLock:{method:'none'}}}},global:{plugins:[router],stubs:{MobileMessages:true,QuickViewMusicDock:true,QuickViewPresence:true}}});
  try{await flushPromises();await w.get('.mobile-calendar input[type="date"]').setValue('2026-11-11');await flushPromises();await w.get('[aria-label="Session comments for Fic* Cli*"]').trigger('click');await flushPromises();
   expect(router.currentRoute.value.query.view).toBe('calendar');const button=w.get('[aria-label="Event details"] .aw-comment-button');expect(button.classes()).not.toContain('aw-comment-button--icon');await button.trigger('click');await flushPromises();expect(document.body.textContent).toContain('Fictional calendar comment');
   await w.setProps({privacyHidden:true});await flushPromises();expect(document.body.textContent).not.toContain('Fictional calendar comment');expect(w.find('.mobile-calendar').exists()).toBe(true);await w.setProps({privacyHidden:false});await flushPromises();await w.get('.event-open').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toMatchObject({view:'session',clientId:'34',clinicalSessionId:'45'});
   const actions=w.get('.mobile-clinical-session').findAll('button');
-  await actions.find(button=>button.text().includes('Record session audio')).trigger('click');
-  await flushPromises();
-  expect(router.currentRoute.value.query.view).toBe('session');
-  expect(api.get.mock.calls.some(([path])=>path.endsWith('/clinical/recording/session/context'))).toBe(true);
-  await w.get('[aria-label="Close session recording"]').trigger('click');
+  if(recording){
+    await actions.find(button=>button.text().includes('Record session audio')).trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.view).toBe('session');
+    expect(api.get.mock.calls.some(([path])=>path.endsWith('/clinical/recording/session/context'))).toBe(true);
+    await w.get('[aria-label="Close session recording"]').trigger('click');
+  }else{
+    const recorder=w.get('.mcs-action.audio');
+    expect(recorder.element.disabled).toBe(true);
+    expect(recorder.text()).toContain('Coming soon');
+    expect(recorder.find('.mcs-arrow').exists()).toBe(false);
+    const before=api.get.mock.calls.length;
+    await recorder.trigger('click');await flushPromises();
+    expect(api.get.mock.calls.slice(before).some(([path])=>path.includes('/recording/'))).toBe(false);
+  }
   await w.get('.mcs-action.note').trigger('click');
   await flushPromises();
   expect(router.currentRoute.value.query).toMatchObject({view:'clinical',clientId:'34',clinicalSessionId:'45'});
