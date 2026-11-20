@@ -53,9 +53,6 @@
 </template>
 <script setup>
 import { ref, nextTick, onBeforeUnmount } from 'vue';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-GlobalWorkerOptions.workerSrc = workerUrl;
 const props = defineProps({ materials: Array, readMaterial: Function }),
   emit = defineEmits(['selected']);
 const source = ref(''),
@@ -97,6 +94,12 @@ async function open(blob, name, materialId = null) {
   try {
     if (!blob || blob.size > 8 * 1024 * 1024) throw new Error('Choose a PDF or image under 8 MB.');
     if (blob.type === 'application/pdf') {
+      const [{ getDocument, GlobalWorkerOptions }, { default: workerUrl }] = await Promise.all([
+        import('pdfjs-dist'),
+        import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+      ]);
+      if (gen !== generation) return;
+      GlobalWorkerOptions.workerSrc = workerUrl;
       const result = await getDocument({
         data: new Uint8Array(await blob.arrayBuffer()),
         isEvalSupported: false
