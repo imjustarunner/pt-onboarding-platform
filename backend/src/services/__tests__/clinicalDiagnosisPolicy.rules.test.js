@@ -20,3 +20,11 @@ it('rejects invented and nonbillable ICD categories while accepting valid non-F 
 it('recognizes unspecified codes from CMS even when the entered label omits unspecified',()=>{expect(diagnosisAlerts([diagnosis('F90.9',{description:'ADHD',created_at:'2026-07-01'})],{asOfDate:'2026-11-03'}).some(a=>a.code==='diagnosis_unspecified_90_days')).toBe(true);expect(diagnosisAlerts([diagnosis('F90.2',{description:'ADHD combined',created_at:'2026-07-01'})],{asOfDate:'2026-11-03'}).some(a=>a.code==='diagnosis_unspecified_90_days')).toBe(false);});
 
 it('allows listed SDOH diagnoses for under21 assessment exceptions without claiming H0031 is a blue treatment code',()=>{expect(primaryDiagnosisAllowed('Z63.4',{age:17,serviceCode:'H0031'})).toBe(true);expect(primaryDiagnosisAllowed('Z63.4',{age:21,serviceCode:'H0031'})).toBe(false);});
+
+it('keeps diagnosis evidence and secondary rationale at diagnosis and billing review while signing progress',()=>{
+ const options={diagnoses:[{code:'F90.2',justification:'Established primary rationale.'},{code:'Z55.3'}],credentialTier:'licensed',age:14,serviceCode:'90837'};
+ expect(evaluateDiagnosisRules({...options,progressSignature:true}).ready).toBe(true);
+ expect(evaluateDiagnosisRules(options).blockers.join(' ')).toContain('supporting medical records');
+ expect(evaluateDiagnosisRules(options).blockers.join(' ')).toContain('separate clinical justification');
+ expect(evaluateDiagnosisRules({...options,progressSignature:true,diagnoses:[{code:'F90.2'}]}).ready).toBe(false);
+});

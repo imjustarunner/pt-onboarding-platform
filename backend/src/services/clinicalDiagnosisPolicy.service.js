@@ -22,7 +22,12 @@ export async function loadClientDiagnosesWithReviews({agencyId,clientId},db=clin
   });
 }
 export async function listClientDiagnosisAlerts({agencyId,clientId,asOfDate}={}) {
-  return diagnosisAlerts(await loadClientDiagnosesWithReviews({agencyId,clientId}),{asOfDate});
+  const diagnoses=await loadClientDiagnosesWithReviews({agencyId,clientId});
+  const missing=diagnoses.filter(d=>d.concern_kind!=='learning_concern' && !String(d.justification || '').trim()).map(d=>({
+    code:'diagnosis_justification_required',message:`${d.icd10_code}: add the clinical justification to this diagnosis.`,
+    diagnosisId:d.id,icd10Code:d.icd10_code,requiresReview:true,blocking:true,source:'diagnosis'
+  }));
+  return [...diagnosisAlerts(diagnoses,{asOfDate}),...missing];
 }
 async function providerContext({agencyId,providerUserId,clientId}) {
   const [[client]]=await pool.execute('SELECT id,agency_id,date_of_birth FROM clients WHERE id=? LIMIT 1',[clientId]);
@@ -40,7 +45,7 @@ async function providerContext({agencyId,providerUserId,clientId}) {
   const credentialTier=credentialTierFor(provider);
   return {client,provider,credentialTier,supervisorId,nonFAllowed,policy,supervised:!!supervisorId};
 }
-export async function evaluateClientDiagnosisPolicy({agencyId,clientId,providerUserId,serviceCode,dateOfService,diagnosisCodes,diagnoses=null,note=null}={}) {
+export async function evaluateClientDiagnosisPolicy({agencyId,clientId,providerUserId,serviceCode,dateOfService,diagnosisCodes,diagnoses=null,note=null,progressSignature=false}={}) {
   const metadata=object(note?.metadata_json || note?.metadataJson),context=note?.clinical_version_encounter_context || {};
   const service=String(serviceCode || context.serviceCode || metadata.serviceCode || '').toUpperCase();
   const date=String(dateOfService || context.dateOfService || metadata.dateOfService || new Date().toISOString().slice(0,10)).slice(0,10);
@@ -68,7 +73,9 @@ export async function evaluateClientDiagnosisPolicy({agencyId,clientId,providerU
   });
   if(!selected.length)return {ready:false,blockers:['A primary diagnosis with its own clinical justification is required.'],warnings:[],alerts:[]};
   const ctx=await providerContext({agencyId,clientId,providerUserId:providerUserId || note?.provider_signed_by_user_id || note?.created_by_user_id});
-  return evaluateDiagnosisRules({diagnoses:selected,credentialTier:ctx.credentialTier,supervised:ctx.supervised,nonFAllowed:ctx.nonFAllowed,age:ageOnDate(ctx.client.date_of_birth,date),serviceCode:service,sdohServiceEligible:Array.isArray(ctx.policy.verifiedSdohServiceCodes) ? ctx.policy.verifiedSdohServiceCodes.includes(service) : undefined,asOfDate:date});
+  // Diagnosis-establishing services keep their full independent evidence review.
+  const routineProgress=progressSignature && !['90791','90792','H0031','H0002'].includes(service);
+  return evaluateDiagnosisRules({progressSignature:routineProgress,diagnoses:selected,credentialTier:ctx.credentialTier,supervised:ctx.supervised,nonFAllowed:ctx.nonFAllowed,age:ageOnDate(ctx.client.date_of_birth,date),serviceCode:service,sdohServiceEligible:Array.isArray(ctx.policy.verifiedSdohServiceCodes) ? ctx.policy.verifiedSdohServiceCodes.includes(service) : undefined,asOfDate:date});
 }
 export async function assertClientDiagnosisPolicy(args) {
   const result=await evaluateClientDiagnosisPolicy(args);

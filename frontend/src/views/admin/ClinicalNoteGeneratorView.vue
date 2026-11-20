@@ -1554,6 +1554,7 @@
 </template>
 
 <script setup>
+import {progressContextSections} from '../../utils/narrivaProgressContext.js';
 import { therapyNotesQuickGeneratorEnabled, therapyNotesQuickGeneratorPath } from '../../config/therapyNotesQuickGenerator.js';
 import ClinicalNoteSupervisorReview from '../../components/clinical/ClinicalNoteSupervisorReview.vue';
 import ClientAlertDialog from '../../components/clients/ClientAlertDialog.vue';
@@ -4851,7 +4852,10 @@ const compactCodeDeciderRationale = (raw, chosenCode) => {
 };
 
 const sectionEntries = computed(() => {
-  const sections = extractSections(outputObj.value);
+  const stored = extractSections(outputObj.value);
+  const confirmed = outputObj.value?.meta?.narrivaPreflight?.clinicalContext;
+  const sections = confirmed && !signedNoteViewerId.value && Object.keys(stored).length
+    ? {...progressContextSections(confirmed),...stored} : stored;
   const toolId = String(outputObj.value?.meta?.toolId || '').trim().toLowerCase();
   const chosenCode = String(sections?.Code || '').trim();
   const entries = Object.entries(sections);

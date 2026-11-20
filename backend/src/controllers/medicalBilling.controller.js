@@ -2011,7 +2011,7 @@ export const signClinicalNote = async (req, res, next) => {
     };
     const documentationPolicy = await resolveNoteDocumentationPolicy(note,pool,signingDb);
     const nonBillable = isNonBillableDocument(note);
-    if (!nonBillable) await assertClientDiagnosisPolicy({ agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || lockedSession?.provider_user_id, serviceCode: lockedSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(lockedSession?.metadata_json).serviceDate, note });
+    if (!nonBillable) await assertClientDiagnosisPolicy({ progressSignature:isProgressClinicalNote(note,meta), agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || lockedSession?.provider_user_id, serviceCode: lockedSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(lockedSession?.metadata_json).serviceDate, note });
     const mandatoryTypes = nonBillable ? await requiredDocumentReviewTypes(note.agency_id, note.client_id, note.created_at) : [];
     const wantsReview = hasClinicalAmendments(note) || !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type || meta.noteType)) || documentationPolicy.nonBillableReview === 'all'
       || (documentationPolicy.nonBillableReview === 'selected' && documentationPolicy.noteTypes.includes(normalizeNoteType(note.note_type || meta.noteType)));
@@ -2240,7 +2240,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     assertNoUnresolvedChanges(meta);
     if (!nonBillable) {
       assertServiceDetailsComplete(note, reviewSession || {});
-      await assertClientDiagnosisPolicy({ agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || reviewSession?.provider_user_id, serviceCode: reviewSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(reviewSession?.metadata_json).serviceDate, note });
+      await assertClientDiagnosisPolicy({ progressSignature:isProgressClinicalNote(note,meta), agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || reviewSession?.provider_user_id, serviceCode: reviewSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(reviewSession?.metadata_json).serviceDate, note });
     }
     const cosignedAtIso = new Date().toISOString();
     const approvalPurpose = nonBillable ? 'clinical documentation' : 'clinical documentation and documented services for billing review';

@@ -117,7 +117,10 @@ it('checks the saved narrative before generation, reviews output separately, and
  await w.get('[aria-label="Session Narrative"]').setValue(text);await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/reviews'))).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);
  await w.get('.mn-generate').trigger('click');await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/generate'))).toBe(false);expect(w.get('.mn-generate').text()).toContain('Generate note');expect(w.find('.mn-sign').exists()).toBe(false);await w.get('.mn-generate').trigger('click');await vi.waitFor(()=>expect(w.find('.mn-sign').exists()).toBe(true));expect(w.get('.mn-note').text()).toContain('Generated note');expect(api.post.mock.calls.find(([u])=>u.endsWith('/generate'))[1].preflightReviewId).toBe(41);expect(api.post.mock.calls.filter(([u])=>u.endsWith('/reviews')).map(([,body])=>body.phase)).toEqual(['pre_generation','output']);
  expect(w.get('.mn-note').find('textarea').exists()).toBe(false);
- expect(w.get('.mn-note .mn-draft-section p').text()).toBe('Generated supported clinical note.');
+ expect(w.get('.mn-note').text()).toContain('Generated supported clinical note.');
+ expect(w.get('.mn-note').text()).toContain('Presenting Problem');
+ expect(w.get('.mn-note').text()).toContain('F41.9');
+ expect(w.get('.mn-note').text()).toContain('Diagnostic Justification');
  w.findComponent({name:'NoteAidStructuredChartPanel'}).vm.$emit('mse-all-normal');await flushPromises();
  expect(w.get('#mobile-assessment-todos h2').text()).toBe('Assessments complete');
  const sign=w.get('.mn-sign');
@@ -149,6 +152,8 @@ it('opens a previously generated note with its saved scores and signs it after t
  await w.get('.mn-sign button').trigger('click');await flushPromises();
  await vi.waitFor(()=>expect(w.text()).toContain('Provider signature saved'));
  const [,chart]=api.post.mock.calls.find(([url])=>url.endsWith('/sessions/82/notes'));
+ expect(JSON.parse(chart.notePayload).sections).toMatchObject({'Presenting Problem':'Anxiety affects daily function.',Diagnosis:'F41.9','Diagnostic Justification':'F41.9: Documented impairment.'});
+ expect(w.text()).not.toContain('workspace’s existing requirements');
  expect(JSON.parse(chart.notePayload).sections['Treatment objective ratings']).toContain('Use a grounding skill — 6/10');
  expect(api.post.mock.calls.filter(([url])=>url.endsWith('/notes/99/sign'))).toHaveLength(1);
  w.unmount();vi.unstubAllGlobals();
@@ -202,6 +207,30 @@ it('shows unavailable submission evidence without a fabricated zero-percent scor
  const data=fixture();data.note={id:99,readOnly:true,outputJson:{sections:{Narrative:'Signed note.'},meta:{}}};data.review={canCosign:true,narriva:{...review(),status:'unavailable',quickSignEligible:false,scoring:{score:0,threshold:70},message:'Private guidance unavailable.'}};api.get.mockResolvedValue({data});const {w}=await mountWriter();expect(w.text()).toContain('Score unavailable');expect(w.text()).toContain('Private guidance unavailable');expect(w.text()).not.toContain('0%');expect(w.find('.mn-quick-sign').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
 
+it('retries a failed signature on the same reviewed chart note without attaching or checking again',async()=>{
+ let attempts=0;
+ api.post.mockImplementation(async(url,body)=>{
+   if(url.endsWith('/drafts'))return {data:{draft:{id:61}}};
+   if(url.endsWith('/narriva/reviews'))return {data:{review:review(body?.phase)}};
+   if(url.endsWith('/sessions/82/notes'))return {data:{note:{id:99,signingToken:'reviewed-token'}}};
+   if(url.endsWith('/notes/99/sign')){
+     if(++attempts===1)throw Error('Signature could not be saved.');
+     return {data:{ok:true,noteId:99,signedAt:'2026-11-11T19:00:00Z'}};
+   }
+   return {data:{}};
+ });
+ const {w}=await mountWriter();
+ await w.get('[aria-label="Narrative note section"]').setValue('The clinician documented the intervention and response.');
+ await w.findAll('button').find(b=>b.text()==='Check Note').trigger('click');await flushPromises();
+ for(const box of w.findAll('.mn-sign input'))await box.setValue(true);
+ await w.get('.mn-sign button').trigger('click');await flushPromises();
+ expect(w.get('.mn-sign').text()).toContain('Signature could not be saved.');
+ await w.get('.mn-sign button').trigger('click');await flushPromises();
+ expect(w.text()).toContain('Provider signature saved');
+ expect(api.post.mock.calls.filter(([url])=>url.endsWith('/sessions/82/notes'))).toHaveLength(1);
+ expect(api.post.mock.calls.filter(([url,body])=>url.endsWith('/narriva/reviews') && body.noteId===99)).toHaveLength(1);
+ w.unmount();
+});
 it('returns an author signature receipt only after the chart confirms it and cancels auto-return after leaving',async()=>{
  api.post.mockImplementation(async url=>({data:url.endsWith('/drafts')?{draft:{id:61}}:url.endsWith('/narriva/reviews')?{review:review()}:url.endsWith('/sessions/82/notes')?{note:{id:99,signingToken:'reviewed-token'}}:url.endsWith('/notes/99/sign')?{ok:true,noteId:99,signedAt:'2026-11-11T19:00:00Z'}:{}}));
  const {w}=await mountWriter();await w.get('[aria-label="Narrative note section"]').setValue('The clinician documented the actual intervention and response.');await w.findAll('button').find(b=>b.text()==='Check Note').trigger('click');await flushPromises();for(const checkbox of w.findAll('.mn-sign input'))await checkbox.setValue(true);await w.findAll('button').find(b=>b.text()==='Sign & save to chart').trigger('click');await flushPromises();const writer=w.findComponent(MobileClinicalWorkspace);expect(writer.emitted('signed')[0][0]).toMatchObject({kind:'author',agencyId:7,noteId:99,draftId:61});expect(w.text()).toContain('Provider signature saved');w.unmount();expect(writer.emitted('finished')).toBeUndefined();

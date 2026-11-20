@@ -1,4 +1,5 @@
 vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:0,configuration:{}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:0})}));
+import {buildAllNormalMse} from '../../../../frontend/src/utils/noteAidMseCatalog.js';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),load:vi.fn(),agency:vi.fn(),model:vi.fn(),policy:vi.fn(),audit:vi.fn(),knowledge:vi.fn(),requireAgency:vi.fn(),guidance:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
@@ -37,6 +38,7 @@ beforeEach(()=>{
   if(sql.includes('MAX(risk_assessment_required)'))return [[{required:riskRequired?1:0}]];
   if(sql.startsWith('INSERT INTO narriva_reviews')){const id=rows.size+1;rows.set(id,{id,agency_id:args[0],actor_user_id:args[1],draft_id:args[2],clinical_note_id:args[3],clinical_session_id:args[4],source_hash:args[5],rules_version:args[6],status:args[7],result_encrypted:args[8],created_at:new Date()});return [{insertId:id}];}
   if(sql.startsWith('UPDATE narriva_reviews')){const row=rows.get(args[4]);Object.assign(row,{status:args[0],result_encrypted:args[1],risk_assessment_required:Math.max(row.risk_assessment_required||0,args[2]),completed_at:args[3]});return [{affectedRows:1}];}
+  if(sql.startsWith('SELECT result_encrypted FROM narriva_reviews'))return [[...rows.values()].filter(row=>row.agency_id===args[0] && row.actor_user_id===args[1] && row.clinical_session_id===args[2] && row.draft_id===args[3] && !row.clinical_note_id && row.id<args[4] && row.completed_at).reverse().slice(0,4)];
   if(sql.includes('ORDER BY id DESC LIMIT 50'))return [[...rows.values()].filter(row=>Number(row.agency_id)===Number(args[0]) && Number(row.actor_user_id)===Number(args[1]) && Number(row.draft_id)===Number(args[2]) && Number(row.clinical_session_id)===Number(args[3])).sort((a,b)=>b.id-a.id)];
   if(sql.startsWith('SELECT * FROM narriva_reviews'))return [[rows.get(Number(args[0]))].filter(Boolean)];
   return [[]];
@@ -286,4 +288,27 @@ it('does not turn a forged draft supervisor flag into a persisted risk bypass',a
  const persisted=JSON.parse(rows.get(result.id).result_encrypted.slice(7));
  expect(persisted.checks[0].findings.some(finding=>finding.bypassed)).toBe(false);
  expect(rows.get(result.id).risk_assessment_required).toBe(1);
+});
+
+it('checks unchanged model evidence once across an MSE update and chart attachment, then rechecks edited prose',async()=>{
+ source.source.provider_signed_at=null;
+ async function check(target){
+  const created=await createNarrivaReview(req(clinician,target));
+  for(let i=0;i<3;i++)await drain();
+  return readNarrivaReview(clinician,created.id,2);
+ }
+ m.load.mockImplementation(async(_user,input)=>({...source,phase:'output',draftId:input.draftId||null,noteId:input.noteId||null,
+  inputText:input.noteId?'':source.inputText,modelSessionNarrative:source.inputText,
+  meta:{...source.meta,draftId:42},sourceHash:narrivaSourceHash([source.narrative,source.meta,input.draftId||null,input.noteId||null])}));
+ const draft={draftId:42,noteId:null};
+ expect((await check(draft)).status).toBe('passed');
+ source.meta.structuredChart={mentalStatusExam:buildAllNormalMse()};
+ expect((await check(draft)).status).toBe('passed');
+ const attached=await check();
+ expect(attached.status).toBe('passed');
+ expect(attached.outputEvidence).toBeUndefined();
+ expect(m.model).toHaveBeenCalledTimes(1);
+ source.narrative+=' The client described a new concern.';
+ await check();
+ expect(m.model).toHaveBeenCalledTimes(2);
 });

@@ -45,7 +45,7 @@ function confirmedClinicalContext(meta,chartDiagnoses=[]) {
  const authored=[chart.diagnoses,chart.intakeDiagnoses,meta.diagnoses].find(value=>Array.isArray(value) && value.some(diagnosisCode)) || [];
  const diagnoses=(authored.length?authored:chartDiagnoses).filter(diagnosisCode).map(item=>{
   const code=diagnosisCode(item),match=chartDiagnoses.find(row=>diagnosisCode(row).toUpperCase()===code.toUpperCase());
-  return {code,description:typeof item==='string'?'':item.description || item.diagnosis || '',justification:typeof item==='string'?match?.justification || '':item.justification || match?.justification || ''};
+  return {code,description:(typeof item==='string'?'':item.description || item.diagnosis) || match?.description || '',justification:typeof item==='string'?match?.justification || '':item.justification || match?.justification || ''};
  });
  const diagnosticJustification=chart.diagnosticJustification || meta.diagnosticJustification || diagnoses.filter(item=>textPresent(item.justification)).map(item=>`${item.code}: ${item.justification}`).join('\n');
  return {presentingProblem:context.presentingProblem || meta.presentingProblem || chart.presentingProblem || '',diagnosticJustification,diagnoses,
@@ -156,10 +156,22 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
   assessmentManifest=evidence.verifiedManifest;
  }
  const inputText=draftId?decryptNarrivaDraft(source.input_text):'';
+ let modelSessionNarrative=inputText;
+ // An unsigned chart copy may use the author's original encounter narrative
+ // for the same evidence comparison as its draft. Never read another author's draft.
+ if(noteId && !source.provider_signed_at && Number(source.created_by_user_id)===Number(user.id) && positiveId(meta.draftId) && source.clinical_session_id){
+  const original=await ClinicalNoteDraft.findByIdForUser({draftId:positiveId(meta.draftId),userId:user.id});
+  if(original && Number(original.agency_id)===agencyId && Number(original.client_id)===Number(client.id)
+    && Number(original.clinical_session_id)===Number(source.clinical_session_id)){
+   const captured=decryptNarrivaDraft(original.input_text);
+   if(meta.narrivaPreflight?.inputHash===narrivaSourceHash(captured))modelSessionNarrative=captured;
+  }
+ }
  const narrative=phase==='pre_generation' && draftId?inputText:(output._narrative || narrivaNarrative(output));
  const local=narrivaLocalContext({source,meta,session,provider,serviceRule,documentationServiceRule});
  let chartDiagnosisEvidence=[];
- if(!local.clinical.hasDiagnosis || !local.clinical.hasJustification) {
+ const missingDiagnosisRationale=phase==='pre_generation' && confirmedClinicalContext(meta).diagnoses.some(row=>!textPresent(row.justification));
+ if(!local.clinical.hasDiagnosis || !local.clinical.hasJustification || missingDiagnosisRationale) {
   // Authorization and exact encounter ownership have already succeeded above.
   // H-code/BA aids may reference established diagnoses without authoring them.
   // This read never creates, updates or broadens the provider's diagnosis rights.
@@ -193,6 +205,6 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
  delete hashMeta.narrivaContext.riskAssessmentRequired;
  const sourceHash=narrivaSourceHash({...(phase==='pre_generation'?{phase,planReview}:{}),narrative,inputText,meta:hashMeta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
   session,assessmentManifest,chartDiagnosisEvidence,confirmedClinicalContext:clinicalContext,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});
- return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),phase,planReview,source,meta,session,provider,client,narrative,sourceHash,inputText,confirmedClinicalContext:clinicalContext,...local,
+ return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),phase,planReview,source,meta,session,provider,client,narrative,sourceHash,inputText,modelSessionNarrative,confirmedClinicalContext:clinicalContext,...local,
   identifiers:[client.first_name,client.last_name,client.full_name,client.initials,client.email,client.contact_email,client.phone_number,client.contact_phone,...guardians.flatMap(g=>[g.first_name,g.last_name,g.email,g.phone])].filter(Boolean)};
 }

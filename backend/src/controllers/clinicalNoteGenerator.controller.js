@@ -1,3 +1,4 @@
+import { progressContextSections } from '../../../frontend/src/utils/narrivaProgressContext.js';
 import { formatObjectiveRatings } from '../../../frontend/src/utils/narrivaObjectiveReview.js';
 import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
@@ -1727,6 +1728,7 @@ export const generateClinicalNote = async (req, res, next) => {
       ? (intakeTool ? applyIntakeIdentifyingAge(parsedSections, encounterAge) : parsedSections)
       : { Output: String(text || '').trim() };
 
+    if (narrivaPreflight?.clinicalContext) Object.assign(sections,progressContextSections(narrivaPreflight.clinicalContext));
     if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
     if (objectives?.length) sections['Treatment objective ratings'] = formatObjectiveRatings(objectives);
 

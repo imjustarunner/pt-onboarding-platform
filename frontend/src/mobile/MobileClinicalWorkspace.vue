@@ -21,6 +21,7 @@ import { aidAllowsInteractiveComplexity, aidSkipsMentalStatusExam, aidDiagnosisM
 import { createEmptyCsNoteBuildState, serializeCsNoteBuildForGenerate, CS_DEFAULT_INTERVENTIONS } from '../utils/csNoteBuild.js';
 import { useNarrivaReview } from '../composables/useNarrivaReview.js';
 import { synchronizeServiceTimes } from '../utils/clinicalServiceTimes.js';
+import {progressContextSections} from '../utils/narrivaProgressContext.js';
 import {participantChoice,encounterMethod,currentGenerationReceipt} from './noteWorkflow.js';
 import { mobileClinicalClient } from './clinicalTransport.js';
 import { backInMobile } from './mobileNavigation.js';
@@ -52,6 +53,7 @@ const encounter=reactive({dateOfService:'',startTimeLocal:'',endTimeLocal:'',dur
 const locationChoices=computed(()=>context.value?.locationChoices || []);
 const riskIncluded=ref(false),riskCompleted=ref(false),riskText=ref(''),riskRequiredLatched=ref(false),accurate=ref(false),necessary=ref(false),dirty=ref(false);
 const {review,busy:reviewBusy,error:reviewError,runReview,observeReview,resolveFinding,invalidate}=useNarrivaReview({agencyId,apiClient:{get:(...args)=>api.value.get(...args),post:(...args)=>api.value.post(...args),patch:(...args)=>api.value.patch(...args)}});
+let pendingAuthorSignature=null;
 let generation=0,hydrating=false,saveTimer=null,savePromise=null,revision=0,disposed=false,completionTimer=null;
 const readOnly=computed(()=>context.value?.note?.readOnly===true);
 const manualBlocked=computed(()=>mode.value==='manual' && context.value?.preferences?.features?.manualAllowed===false);
@@ -77,7 +79,16 @@ function completedSignature(data,kind,openNext=false){
  const receipt={...data,agencyId:agencyId.value,draftId:draftId.value,kind,openNext};savedSignature.value=receipt;emit('signed',receipt);
  clearTimeout(completionTimer);completionTimer=setTimeout(()=>{if(!disposed)emit('finished',receipt);},1800);
 }
-const sections=computed(()=>output.value?.sections || {});
+const sections=computed(()=>{
+  const stored=output.value?.sections || {};
+  if(readOnly.value || mode.value!=='narriva' || !output.value.meta?.generationReceipt)return stored;
+  const confirmed=output.value.meta?.narrivaPreflight?.clinicalContext || {};
+  const contextSections=progressContextSections({...confirmed,
+    presentingProblem:confirmed.presentingProblem || presentingProblem.value,
+    diagnoses:confirmed.diagnoses?.length?confirmed.diagnoses:clinicalDiagnoses.value,
+    diagnosticJustification:confirmed.diagnosticJustification || diagnosticJustification.value});
+  return {...contextSections,...stored};
+});
 const hasContent=computed(()=>Object.values(sections.value).some(text=>String(text || '').trim()));
 const reviewAnchor = ref(null), objectivePanel = ref(null), preparingReview = ref(false);
 const receiptMatches=ref(false);
@@ -128,8 +139,8 @@ const selectionKey=()=>JSON.stringify(selection.value);
 
 function currentRatings(){return Object.entries(ratings).filter(([,value])=>value!=='' && value!=null).map(([objectiveId,value])=>({objectiveId:Number(objectiveId),scaleValue:Object.hasOwn(objectiveDispositions,value)?null:Number(value),disposition:Object.hasOwn(objectiveDispositions,value)?value:'rated',raterKind:'clinician'}));}
 function metadata(){return {...(output.value.meta || {}),writerMode:mode.value,includeInteractiveComplexity:selectedComplexity.value,underlyingServiceCode:underlyingCode.value || null,smartNotes:smart.value,sessionContext:{...encounter,sourceTimezone:context.value?.session?.sourceTimezone},narrivaContext:{...(output.value.meta?.narrivaContext || {}),writerMode:mode.value,underlyingServiceCode:underlyingCode.value || null,assessmentEvidence:assessmentEvidence.value,consentConfirmed:encounter.consentConfirmed,modality:encounter.modality,participantsDetail:encounter.participantsDetail,clientLocationDescription:encounter.clientLocationDescription,presentingProblem:presentingProblem.value,presentingProblemOverride:sessionPresentingProblemOverride.value,interactiveComplexitySelected:selectedComplexity.value,riskAssessmentIncluded:riskIncluded.value,riskAssessmentRequired:requiredRisk.value,riskAssessmentCompleted:riskCompleted.value},structuredChart:{...(output.value.meta?.structuredChart || {}),diagnoses:output.value.meta?.structuredChart?.diagnoses ?? context.value?.clinicalContext?.diagnoses ?? context.value?.treatmentPlan?.diagnoses ?? [],diagnosticJustification:output.value.meta?.structuredChart?.diagnosticJustification ?? context.value?.clinicalContext?.diagnosticJustification ?? context.value?.treatmentPlan?.diagnosticJustification ?? '',riskAssessment:mode.value==='narriva' ? (assessmentChart.value.riskAssessment || emptyRiskAssessment()) : {...(output.value.meta?.structuredChart?.riskAssessment || {}),patientDeniesAll:false,items:Object.fromEntries(riskDomains.map(key=>[key,{status:riskChoices[key]?'selected':'',option:riskChoices[key]}])),notes:riskText.value}},objectiveRatings:[...(output.value.meta?.objectiveRatings || []).filter(row=>row.raterKind && row.raterKind!=='clinician'),...currentRatings()]};}
-function draftPayload(){return {agencyId:agencyId.value,clientId:context.value?.client?.id,clinicalSessionId:context.value?.session?.id || null,officeEventId:context.value?.session?.officeEventId || null,dateOfService:encounter.dateOfService,serviceCode:encounter.serviceCode,writerMode:mode.value,inputText:mode.value!=='manual'?generationInput():narrative.value || Object.entries(sections.value).map(([title,text])=>`${title}: ${text}`).join('\n'),outputJson:{...output.value,sections:{...sections.value},meta:metadata()}};}
-function markDirty(){if(hydrating || disposed || readOnly.value)return;dirty.value=true;revision++;accurate.value=false;necessary.value=false;preflightSource.value='';invalidate({preserve:review.value?.phase==='pre_generation'});if(recoveryActorUserId && !canRetainClinicalRecovery(recoveryIdentity(),recoverySnapshot()))recoveryWarning.value='This draft cannot be kept for app-lock recovery because the memory buffer is full or the text is too large. Save it before leaving or locking the app.';else recoveryWarning.value='';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{void save();},600);}
+function draftPayload(){return {agencyId:agencyId.value,clientId:context.value?.client?.id,clinicalSessionId:context.value?.session?.id || null,officeEventId:context.value?.session?.officeEventId || null,dateOfService:encounter.dateOfService,serviceCode:encounter.serviceCode,writerMode:mode.value,inputText:mode.value!=='manual'?generationInput():narrative.value || Object.entries(sections.value).map(([title,text])=>`${title}: ${text}`).join('\n'),outputJson:{...output.value,sections:{...sections.value,...(hasRatingSummary.value?{[ratingSectionTitle]:savedRatingsText.value}:{})},meta:metadata()}};}
+function markDirty(){if(hydrating || disposed || readOnly.value)return;pendingAuthorSignature=null;dirty.value=true;revision++;accurate.value=false;necessary.value=false;preflightSource.value='';invalidate({preserve:review.value?.phase==='pre_generation'});if(recoveryActorUserId && !canRetainClinicalRecovery(recoveryIdentity(),recoverySnapshot()))recoveryWarning.value='This draft cannot be kept for app-lock recovery because the memory buffer is full or the text is too large. Save it before leaving or locking the app.';else recoveryWarning.value='';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{void save();},600);}
 async function save(explicit=false){
   if(recoveryNeedsSave.value && explicit!==true){stashRecovery();return false;}
   if(serviceVerificationError.value){error.value=serviceVerificationError.value;stashRecovery();return false;}
@@ -145,7 +156,7 @@ async function save(explicit=false){
   return savePromise;
 }
 async function load(){
-  const current=++generation;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;reviewStarted.value=false;reviewPhase.value='output';preflightSource.value='';receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
+  const current=++generation;pendingAuthorSignature=null;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;reviewStarted.value=false;reviewPhase.value='output';preflightSource.value='';receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
   try{const {data}=await api.value.get('/context',{params:selection.value});if(current!==generation)return;context.value=data;const saved=data.draft?.outputJson || data.note?.outputJson || {sections:{Narrative:''},meta:{}};output.value=typeof saved==='string'?JSON.parse(saved):saved;output.value.sections ||= {Narrative:''};output.value.meta ||= {};
     sessionPresentingProblemOverride.value=typeof output.value.meta.narrivaContext?.presentingProblemOverride==='string'?output.value.meta.narrivaContext.presentingProblemOverride:null;
     draftId.value=data.draft?.id || null;defaultMode.value=data.preferences?.defaultMode || 'manual';mode.value=output.value.meta.writerMode || output.value.meta.narrivaContext?.writerMode || (data.draft || data.note?(output.value.meta.manualSections?'manual':'narriva'):defaultMode.value);if(!data.draft && !data.note && mode.value==='manual' && data.preferences?.features?.manualAllowed===false)mode.value='narriva';
@@ -249,7 +260,12 @@ async function sign(){
   if(!showProviderSign.value || reviewBusy.value || signing.value || !accurate.value || !necessary.value || readOnly.value || !hasContent.value || !context.value?.session?.id)return;
   signing.value=true;error.value='';const current=generation;
   try{
-    if(!reviewComplete.value){
+    if(!pendingAuthorSignature && !reviewComplete.value){
+      if(review.value?.phase==='output' && review.value.status==='action_required'){
+        error.value='Resolve the highlighted findings before signing.';
+        reviewAnchor.value?.scrollIntoView?.({block:'start'});
+        return;
+      }
       await checks({phase:'output'});
       if(current!==generation)return;
       if(!reviewComplete.value){
@@ -259,7 +275,67 @@ async function sign(){
       }
     }
     if(!accurate.value || !necessary.value || assessmentPending.value || !await save(true))return;
-    await saveRatings();const payload=draftPayload();const {data}=await api.value.post(`/sessions/${context.value.session.id}/notes`,{title:`Clinical note ${encounter.dateOfService}`,notePayload:JSON.stringify({sections:{...sections.value,...(hasRatingSummary.value?{[ratingSectionTitle]:savedRatingsText.value}:{})}}),noteType:'PROGRESS_NOTE',serviceCode:encounter.serviceCode,primaryDiagnosisId:context.value.treatmentPlan?.diagnoses?.[0]?.id || null,diagnosticJustification:metadata().structuredChart.diagnosticJustification || null,metadata:{...payload.outputJson.meta,dateOfService:encounter.dateOfService,serviceCode:encounter.serviceCode,draftId:Number(draftId.value),generatedBy:'clinical_note_generator',manualSections:mode.value==='manual',aiGenerated:mode.value!=='manual',attestation:{accurateAndComplete:true,medicallyNecessary:true,aiContentReviewed:mode.value!=='manual'}}});if(current!==generation)return;const note=data.note || data;if(!note.id)throw new Error('Saved note was not confirmed');const result=await runReview({noteId:Number(note.id)});if(result?.riskAssessmentRequired && (!riskCompleted.value || !riskDomainComplete.value)){error.value='The note is saved. Complete the required risk assessment before signing.';riskIncluded.value=true;return;}let signingToken=note.signingToken;if(!signingToken){const saved=await api.value.get(`/notes/${note.id}`);signingToken=saved.data.note?.signingToken || saved.data.signingToken;}const signed=await api.value.post(`/notes/${note.id}/sign`,{agencyId:agencyId.value,signingToken,accurateAndComplete:true,medicalNecessityAttested:true,contentReviewConfirmed:true});if(!signed.data.signedAt)throw new Error('Signature was not confirmed');notice.value='Note signed and saved to the chart.';dirty.value=false;discardClinicalRecovery(recoveryIdentity());context.value={...context.value,note:{...note,readOnly:true}};completedSignature({...signed.data,noteId:Number(note.id)},'author');}catch(e){if(current===generation)error.value=e.response?.data?.error?.message || e.message || 'The note was preserved, but signing was not completed.';}finally{if(current===generation)signing.value=false;}
+    await saveRatings();
+    if(current!==generation || !accurate.value || !necessary.value)return;
+    const signatureRevision=revision;
+    const {outputJson}=draftPayload();
+    let note=pendingAuthorSignature?.note;
+    if(!note){
+      const {data}=await api.value.post(`/sessions/${context.value.session.id}/notes`,{
+        title:`Clinical note ${encounter.dateOfService}`,noteType:'PROGRESS_NOTE',serviceCode:encounter.serviceCode,
+        notePayload:JSON.stringify({sections:outputJson.sections}),
+        primaryDiagnosisId:context.value.treatmentPlan?.diagnoses?.[0]?.id || null,
+        diagnosticJustification:outputJson.meta.structuredChart.diagnosticJustification || null,
+        metadata:{...outputJson.meta,dateOfService:encounter.dateOfService,serviceCode:encounter.serviceCode,
+          draftId:Number(draftId.value),generatedBy:'clinical_note_generator',manualSections:mode.value==='manual',
+          aiGenerated:mode.value!=='manual',attestation:{accurateAndComplete:true,medicallyNecessary:true,aiContentReviewed:mode.value!=='manual'}}
+      });
+      if(current!==generation)return;
+      note=data.note || data;
+      if(!note.id)throw new Error('Saved note was not confirmed');
+      if(signatureRevision!==revision)return;
+      pendingAuthorSignature={note,reviewId:null};
+    }
+    const sameReview=pendingAuthorSignature.reviewId && review.value?.id===pendingAuthorSignature.reviewId;
+    const result=sameReview && ['passed','bypassed','action_required'].includes(review.value.status)
+      ? review.value : await runReview({noteId:Number(note.id)});
+    if(pendingAuthorSignature?.note.id===note.id && result?.id)pendingAuthorSignature.reviewId=result.id;
+    if(current!==generation)return;
+    if(result?.riskAssessmentRequired && (!riskCompleted.value || !riskDomainComplete.value)){
+      riskIncluded.value=true;
+      error.value='The note is saved. Complete the required risk assessment before signing.';
+      return;
+    }
+    if(!result || !['passed','bypassed'].includes(result.status)){
+      error.value=reviewError.value || 'The chart note is saved. Review the findings before signing.';
+      reviewAnchor.value?.scrollIntoView?.({block:'start'});
+      return;
+    }
+    let signingToken=note.signingToken;
+    if(!signingToken){
+      const saved=await api.value.get(`/notes/${note.id}`);
+      signingToken=saved.data.note?.signingToken || saved.data.signingToken;
+    }
+    if(current!==generation)return;
+    if(signatureRevision!==revision || !accurate.value || !necessary.value){
+      error.value='The note changed while saving. Review the updated note before signing.';
+      return;
+    }
+    const signed=await api.value.post(`/notes/${note.id}/sign`,{
+      agencyId:agencyId.value,signingToken,accurateAndComplete:true,medicalNecessityAttested:true,contentReviewConfirmed:true
+    });
+    if(current!==generation)return;
+    if(!signed.data.signedAt)throw new Error('Signature was not confirmed');
+    notice.value='Note signed and saved to the chart.';
+    dirty.value=false;
+    pendingAuthorSignature=null;
+    discardClinicalRecovery(recoveryIdentity());
+    context.value={...context.value,note:{...note,readOnly:true}};
+    output.value.sections=outputJson.sections;
+    completedSignature({...signed.data,noteId:Number(note.id)},'author');
+  }catch(e){
+    if(current===generation)error.value=e.response?.data?.error?.message || e.message || 'The note was preserved, but signing was not completed.';
+  }finally{if(current===generation)signing.value=false;}
 }
 async function cosign(quick=false,openNext=false){
   if(signing.value || !canCosign.value || !cosignAttested.value || quick && (review.value?.status!=='passed' || review.value?.quickSignEligible!==true))return;
@@ -324,7 +400,7 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
         <section v-if="hasRatingSummary" class="mn-session-scores"><h3>{{ ratingSectionTitle }}</h3><p>{{savedRatingsText}}</p></section>
         <template v-if="readOnly"><section v-for="(text,title) in sections" :key="title" class="mn-signed-section"><h3>{{title}}</h3><p>{{clinicalNarrativeDisplay(text,displayTimeZone)}}</p><details v-if="clinicalNarrativeDisplay(text,displayTimeZone)!==String(text || '')" class="mn-original-text"><summary>Original signed text</summary><p>{{text}}</p></details></section></template><template v-else-if="mode==='narriva'">
         <section v-for="(text,title) in displayedSections" :key="title" class="mn-draft-section">
-          <header><h3>{{title}}</h3><button type="button" :disabled="manualBlocked || !generatedCurrent" :aria-label="(editingNoteSection===title?'Done editing ':'Edit ')+title" @click="editingNoteSection=editingNoteSection===title?'':title">{{editingNoteSection===title?'Done':'Edit'}}</button></header>
+          <header><h3>{{title}}</h3><button v-if="!['Presenting Problem','Diagnosis','Diagnoses on file','Diagnostic Justification'].includes(title)" type="button" :disabled="manualBlocked || !generatedCurrent" :aria-label="(editingNoteSection===title?'Done editing ':'Edit ')+title" @click="editingNoteSection=editingNoteSection===title?'':title">{{editingNoteSection===title?'Done':'Edit'}}</button></header>
           <textarea v-if="editingNoteSection===title" v-model="output.sections[title]" :aria-label="`${title} note section`" rows="6" />
           <p v-else>{{text}}</p>
         </section>
@@ -336,10 +412,10 @@ onBeforeUnmount(()=>{stashRecovery();disposed=true;generation++;clearTimeout(sav
           @mse-all-normal="updateAssessment('mentalStatusExam',buildAllNormalMse())" @mse-all-not-assessed="updateAssessment('mentalStatusExam',buildAllNotAssessedMse())" />
         <label v-if="riskIncluded || requiredRisk" class="mn-check"><input v-model="riskCompleted" :disabled="!riskDomainComplete" type="checkbox" /> I completed and reviewed this risk assessment.</label>
       </section>
-      <section v-if="showProviderSign && !canCosign" class="mn-card mn-sign"><h2>Review &amp; sign</h2><p v-if="assessmentPending">Complete the assessment above to sign.</p><p v-if="signing || reviewBusy" role="status">{{signing && !reviewBusy?'Saving your signature…':'Checking the current note…'}}</p><p v-if="error" role="alert">{{error}}</p><label class="mn-check"><input v-model="accurate" type="checkbox" />I reviewed this note and confirm it is accurate and complete.</label><label class="mn-check"><input v-model="necessary" type="checkbox" />I attest that this service was medically necessary.</label><p v-if="!context.session?.id">An authorized encounter must be linked before chart signing.</p><button type="button" :disabled="signing || saving || reviewBusy || manualBlocked || serviceChanged || !!serviceVerificationError || !accurate || !necessary || !hasContent || !context.session?.id || context.note?.canSignClinicalNote === false || blockingAlerts.length>0 || assessmentPending" @click="sign">{{ signing ? (reviewBusy?'Checking note…':'Saving signature…') : 'Sign & save to chart' }}</button><p>The supervisor co-signature follows your workspace’s existing requirements.</p></section>
+      <section v-if="showProviderSign && !canCosign" class="mn-card mn-sign"><h2>Review &amp; sign</h2><p v-if="assessmentPending">Complete the assessment above to sign.</p><p v-if="signing || reviewBusy" role="status">{{signing?'Finishing your signature request…':'Reviewing the generated note…'}}</p><p v-if="error" role="alert">{{error}}</p><label class="mn-check"><input v-model="accurate" type="checkbox" />I reviewed this note and confirm it is accurate and complete.</label><label class="mn-check"><input v-model="necessary" type="checkbox" />I attest that this service was medically necessary.</label><p v-if="!context.session?.id">An authorized encounter must be linked before chart signing.</p><button type="button" :disabled="signing || saving || reviewBusy || manualBlocked || serviceChanged || !!serviceVerificationError || !accurate || !necessary || !hasContent || !context.session?.id || context.note?.canSignClinicalNote === false || blockingAlerts.length>0 || assessmentPending" @click="sign">{{ signing ? 'Signing & saving…' : 'Sign & save to chart' }}</button></section>
       <MobileNoteSignatures v-if="readOnly" :signatures="displayedSignatures" :time-zone="displayTimeZone" />
       <div ref="reviewAnchor" class="mn-review-anchor">
-        <NarrivaReviewProgress v-if="preparingReview || reviewBusy" />
+        <NarrivaReviewProgress v-if="!signing && (preparingReview || reviewBusy)" />
       </div>
       <NarrivaCompliancePanel :pre-generation="reviewPhase==='pre_generation'" v-if="!preparingReview && !reviewBusy && (prepared || reviewPhase==='pre_generation') && reviewStarted && (review || reviewBusy || reviewError || requiredRisk || riskIncluded)" :read-only="readOnly" :review="review" :risk-assessment-required="requiredRisk" :busy="reviewBusy" :error="reviewError" @retry="checks" @resolve="resolveFinding" @action="focusFinding"><template v-if="mode==='narriva' && reviewPhase==='pre_generation'" #finding="{checkId,finding}"><NarrivaInlineFinding v-if="!finding.bypassed" :check-id="checkId" :finding="finding" :context="inlineContext" :location-choices="locationChoices" :diagnosis-search="searchClinicalDiagnosis" :disabled="reviewBusy || readOnly" @apply="applyInlineUpdate" /></template><template v-if="preflightReady" #generate><button type="button" :disabled="generating || saving || blockingAlerts.length>0" @click="generate">{{ generating ? 'Generating your note…' : 'Generate note' }}</button><p v-if="error" role="alert">{{ error }}</p></template><template #risk><label v-if="mode!=='narriva' && !requiredRisk && !readOnly" class="mn-check"><input v-model="riskIncluded" type="checkbox" /> Include a risk assessment</label><p v-if="requiredRisk && reviewPhase!=='pre_generation'">Required for this note</p><p v-if="reviewPhase==='pre_generation' && riskIncluded" class="mn-notice">Risk assessment will be a to-do in the generated note. Complete it before signing.</p><section v-if="mode!=='narriva' && reviewPhase!=='pre_generation' && (requiredRisk || riskIncluded)" id="mobile-risk-assessment"><label v-for="domain in riskDomains" :key="domain">{{ domain }}<select v-model="riskChoices[domain]" :disabled="readOnly"><option value="">Choose assessed finding</option><option>Denied</option><option>Present</option><option>Unable to assess</option></select></label><label>Risk assessment and safety interventions<textarea v-model="riskText" :disabled="readOnly" rows="5" placeholder="Document the assessment actually performed, findings, and any safety interventions." /></label><label class="mn-check"><input v-model="riskCompleted" :disabled="readOnly" type="checkbox" />I completed and reviewed this documented risk assessment.</label></section></template></NarrivaCompliancePanel>
       <NarrivaAssessmentEvidence v-if="!readOnly && (showAssessmentEvidence || assessmentEvidence.length)" id="mobile-assessment-evidence" v-model="assessmentEvidence" :agency-id="context.agencyId" :client-id="context.client?.id" :clinical-session-id="context.session?.id" :draft-id="draftId" :note-id="context.note?.id" :api-client="api" base-url="/assessments" />

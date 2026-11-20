@@ -45,7 +45,7 @@ export function diagnosisAlerts(diagnoses, { asOfDate = new Date().toISOString()
   }
   return alerts;
 }
-export function evaluateDiagnosisRules({ diagnoses = [], credentialTier, supervised = false, nonFAllowed = false, age, serviceCode, sdohServiceEligible, asOfDate } = {}) {
+export function evaluateDiagnosisRules({ diagnoses = [], credentialTier, supervised = false, nonFAllowed = false, age, serviceCode, sdohServiceEligible, asOfDate, progressSignature = false } = {}) {
   const blockers=[], warnings=[], ordered=diagnoses.filter(d=>d.concern_kind !== 'learning_concern');
   const primaryIndex=Math.max(0,ordered.findIndex(d=>d.is_primary===1 || d.isPrimary===true));
   if(asOfDate && !diagnosisCatalogForDate(asOfDate)) blockers.push('The ICD-10-CM catalog for this date of service must be verified before billing.');
@@ -54,13 +54,13 @@ export function evaluateDiagnosisRules({ diagnoses = [], credentialTier, supervi
     const code=normalizeDiagnosisCode(d.icd10_code || d.icd10Code || d.code);
     if(!validDiagnosisCode(code, asOfDate)) blockers.push(`${code || 'Diagnosis'}: enter a valid ICD-10-CM code.`);
     if(['bachelors','qbha'].includes(credentialTier) && code.startsWith('F')) blockers.push(`${code}: bachelor's-level and QBHA providers cannot document or bill F diagnoses.`);
-    if(!String(d.justification || '').trim() && !(screening && code==='R69')) blockers.push(`${code}: a separate clinical justification is required.`);
+    if(!String(d.justification || '').trim() && !(screening && code==='R69') && (!progressSignature || index===primaryIndex)) blockers.push(`${code}: a separate clinical justification is required.`);
     if(index===primaryIndex) {
       if(!primaryDiagnosisAllowed(code,{age,serviceCode,sdohServiceEligible,asOfDate})) blockers.push(`${code}: this primary diagnosis is outside the approved coverage ranges or age/service conditions.`);
       if(supervised && !code.startsWith('F') && !nonFAllowed && !(screening && code==='R69')) blockers.push(`${code}: the responsible supervisor must authorize non-F primary diagnoses for this supervisee.`);
     }
   }
   const alerts=diagnosisAlerts(ordered.map((d,i)=>({...d,is_primary:i===primaryIndex?1:0})),{asOfDate});
-  for(const alert of alerts) (alert.blocking?blockers:warnings).push(alert.message);
+  for(const alert of alerts) (alert.blocking && !(progressSignature && alert.code==='diagnosis_supporting_evidence_required')?blockers:warnings).push(alert.message);
   return {ready:blockers.length===0,blockers:[...new Set(blockers)],warnings:[...new Set(warnings)],alerts};
 }
