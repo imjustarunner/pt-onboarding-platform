@@ -103,7 +103,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
         ADD COLUMN active_guard_end_at DATETIME GENERATED ALWAYS AS (CASE WHEN status<>'CANCELLED' THEN end_at ELSE NULL END) VIRTUAL,
         ADD UNIQUE KEY uniq_office_events_active_room_slot (active_guard_room_id,active_guard_start_at,active_guard_end_at)`,
       `ALTER TABLE appointments ADD COLUMN clinical_session_id INT, ADD COLUMN cancellation_reason VARCHAR(500), ADD COLUMN canceled_at DATETIME, ADD COLUMN canceled_by_user_id INT`,
-      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT`,
+      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,

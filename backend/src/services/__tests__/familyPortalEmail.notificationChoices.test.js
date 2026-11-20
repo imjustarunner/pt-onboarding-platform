@@ -2,6 +2,11 @@ import {beforeEach,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({intake:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../intakeCommunicationChoices.service.js',()=>({latestIntakeCommunicationChoices:m.intake}));
+// This fixture has preferences but no verified carrier consent.
+vi.mock('../smsCompliance.service.js',async importOriginal=>({
+  ...await importOriginal(),
+  recordedReminderConsent:vi.fn(async()=>null)
+}));
 import {familyContactHash,familyNotificationInvitationContext,saveFamilyNotificationChoices,familyNotificationDeliveryGate,createFamilyNotificationInvitation,latestFamilyEmailSchedulingChoice} from '../familyNotificationChoices.service.js';
 import {FAMILY_NOTIFICATION_CATEGORIES,FAMILY_ACCOUNT_UPDATE_CATEGORIES,FAMILY_CHOICE_VERSION,normalizeFamilyChoices,normalizeAccountUpdateChoices} from '../../utils/familyNotificationChoices.js';
 const token='a'.repeat(64),email='guardian@example.test';
