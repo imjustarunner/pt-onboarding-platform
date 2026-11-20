@@ -12,7 +12,23 @@ beforeEach(()=>{vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2
 afterEach(()=>{w?.unmount();vi.useRealTimers();});
 async function start(){w=mount(Calendar,{props:{apiBase:'/api/quick-view',sessionToken:'synthetic',agencyId:2,userId:7,timeZone:'America/Denver'},global:{stubs:{Teleport:true}}});await flushPromises();}
 async function booking(){await w.get('.calendar-actions .primary').trigger('click');await flushPromises();await w.get('[data-schedule-action="individual_session"]').trigger('click');await flushPromises();const dialog=w.get('[role="dialog"]'),selects=dialog.findAll('select');await selects[1].setValue('9');await selects[2].setValue(['12']);await selects[3].setValue('4');await dialog.get('input[type="date"]').setValue('2026-11-11');return dialog;}
-it('defaults to a 24-hour Day view and reuses recent data when returning',async()=>{await start();expect(w.get('.modes button').attributes('aria-pressed')).toBe('true');expect(w.findAll('.hour')).toHaveLength(24);expect(w.get('.day-scroll').element.scrollTop).toBe(504);await w.setProps({visible:false});await w.setProps({visible:true});await flushPromises();expect(api.get).toHaveBeenCalledTimes(1);});
+it('keeps the cached day visible while refreshing the schedule on return',async()=>{
+ const event={id:'a',title:'Booked session',startAt:appointment.startAt,endAt:appointment.endAt};
+ api.get.mockResolvedValueOnce({data:{items:[event]}});
+ await start();
+ expect(w.get('.modes button').attributes('aria-pressed')).toBe('true');
+ expect(w.findAll('.hour')).toHaveLength(24);
+ expect(w.get('.day-scroll').element.scrollTop).toBe(504);
+ await w.setProps({visible:false});
+ let finish;
+ api.get.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ await w.setProps({visible:true});
+ expect(w.text()).toContain('Booked session');
+ finish({data:{items:[{...event,title:'Updated session'}]}});
+ await flushPromises();
+ expect(w.text()).toContain('Updated session');
+ expect(w.text()).not.toContain('Booked session');
+});
 it('opens authorized scheduling choices and submits the selected local time to the canonical adapter',async()=>{await start();const dialog=await booking();await dialog.get('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/schedule/appointments',expect.objectContaining({agencyId:2,tenantServiceId:9,serviceLocationId:4,startAt:'2026-11-11 07:00:00',endAt:'2026-11-11 08:00:00',timeZone:'America/Denver',participants:[{role:'client',clientId:12,receivesReminders:true}]}),expect.any(Object));expect(w.find('[role="dialog"]').exists()).toBe(false);});
 it('keeps entries after a service warning and requires explicit acknowledgement before retrying',async()=>{await start();api.post.mockRejectedValueOnce({response:{status:409,data:{error:{code:'SAME_DAY_SERVICE_WARNING',message:'A same day service exists.'}}}});const dialog=await booking();await dialog.get('form').trigger('submit');await flushPromises();expect(w.get('[role="dialog"]').text()).toContain('A same day service exists.');expect(dialog.get('input[type="date"]').element.value).toBe('2026-11-11');expect(api.post).toHaveBeenCalledTimes(1);await dialog.get('form').trigger('submit');await flushPromises();expect(api.post.mock.calls[1][1].acknowledgeSameDayServices).toBe(true);});
 it('dragging time opens review without creating or moving an appointment immediately',async()=>{await start();w.get('.day-grid').element.getBoundingClientRect=()=>({top:0});const grip=w.get('.range-grip');for(const [type,clientY] of [['pointerdown',540],['pointermove',612],['pointerup',612]]){const event=new Event(type,{bubbles:true});Object.defineProperties(event,{pointerId:{value:1},clientY:{value:clientY},button:{value:0}});grip.element.dispatchEvent(event);}await flushPromises();expect(w.get('[role="dialog"] input[type="time"]').element.value).toBe('07:30');expect(w.get('.schedule-action-chooser').exists()).toBe(true);expect(api.post).not.toHaveBeenCalled();expect(api.patch).not.toHaveBeenCalled();});
