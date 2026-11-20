@@ -181,6 +181,29 @@ describe('Narriva pre-generation review', () => {
     expect(m.model.mock.calls[0][0].prompt).toContain('pre-generation check');
     await expect(assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText})).resolves.toMatchObject({reviewId:review.id,keptAsIs:false});
   });
+  it('checks a private draft grounded in current ratings and never returns that draft to the reviewer',async()=>{
+    const workingDraft='Private provisional wording for a synthetic session.';
+    source.planReview={eligible:true,missing:[],objectives:[{goal:'Increase independence',objective:'Use the practiced strategy',rating:4,target:8}]};
+    m.model.mockResolvedValueOnce({text:workingDraft,finishReason:'STOP'});
+    const review=await preflight();
+    expect(review.status).toBe('passed');
+    expect(m.model).toHaveBeenCalledTimes(2);
+    const [writing,checking]=m.model.mock.calls.map(([request])=>request.prompt);
+    expect(writing).toContain(source.inputText);
+    expect(writing).toContain('Use the practiced strategy');
+    expect(writing).toContain('"rating":4');
+    expect(checking).toContain(workingDraft);
+    expect(checking).toContain('Unsupported assertions in the draft do not count');
+    expect(JSON.stringify(review)).not.toContain(workingDraft);
+    const verified=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
+    expect(verified.workingDraft).toBe(workingDraft);
+  });
+  it('returns the objective prompt before starting a writing or compliance job',async()=>{
+    source.planReview={eligible:true,missing:[52],objectives:[]};
+    await expect(preflight()).rejects.toMatchObject({status:422,code:'NARRIVA_OBJECTIVE_RATINGS_REQUIRED'});
+    expect(m.model).not.toHaveBeenCalled();
+    expect(rows.size).toBe(0);
+  });
   it('rejects generation after the narrative changes, or when a review belongs to another draft',async()=>{
     const review=await preflight();
     const req={user:clinician,body:{preflightReviewId:review.id}};

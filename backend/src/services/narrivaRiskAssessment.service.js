@@ -1,3 +1,4 @@
+import {isMentalStatusExamComplete} from '../../../frontend/src/utils/noteAidMseCatalog.js';
 import pool from '../config/database.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { maybeDecryptNotePayload, maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
@@ -174,6 +175,11 @@ async function verifiedNoteRiskBypass(note,{database=pool}={}) {
 }
 export async function assertNarrivaRiskBeforeSignature(note,dependencies={}) {
  const database=dependencies.database || pool,meta=object(note.metadata_json);
+ const clinicalCode=String(meta.underlyingServiceCode || meta.narrivaContext?.underlyingServiceCode || note.service_code || meta.serviceCode || '').toUpperCase();
+ if (!note.provider_signed_at && meta.narrivaContext?.writerMode==='narriva' && /^9\d{4}$/.test(clinicalCode)
+     && !isMentalStatusExamComplete(meta.structuredChart?.mentalStatusExam)) {
+  throw Object.assign(new Error('Complete the mental status exam before signing this note.'),{status:409,code:'NARRIVA_MSE_REQUIRED'});
+ }
  const [[risk]]=await database.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (draft_id IS NOT NULL AND draft_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[note.agency_id,note.id,id(meta.draftId),id(note.clinical_session_id)]);
  const explicitlyIncluded=meta.narrivaContext?.riskAssessmentIncluded===true;
  if(Number(risk?.required)!==1 && !explicitlyIncluded && meta.narrivaContext?.riskAssessmentRequired!==true)return;

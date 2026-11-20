@@ -22,6 +22,31 @@ describe('scoped mobile clinical writer',()=>{
     await w.findAll('button').find(b=>b.text()==='Save draft').trigger('click');await flushPromises();
     const call=api.post.mock.calls.find(([url])=>url.endsWith('/clinical/drafts'));expect(call[1]).toMatchObject({agencyId:7,clientId:31,clinicalSessionId:82,writerMode:'manual'});expect(call[2].headers).toEqual({'X-Quick-View-Session':'scoped'});expect(call[1].outputJson.meta.narrivaContext.consentConfirmed).toBe(false);w.unmount();
   });
+  it('collects risk beside the narrative and requires an explicit observation for every objective before the private draft',async()=>{
+    const data=fixture();
+    data.preferences.defaultMode='narriva';
+    data.treatmentPlan.goals=[{id:1,title:'Goal',objectives:[{id:5,title:'First objective',previousScore:4},{id:6,title:'Second objective'}]}];
+    api.get.mockResolvedValue({data});
+    const {w}=await mountWriter();
+    const narrative=w.get('#mobile-session-narrative');
+    await narrative.get('textarea').setValue('Synthetic session observations.');
+    await narrative.findAll('label').find(label=>label.text().includes('Include a risk assessment')).get('input').setValue(true);
+    const submit=w.findAll('button').find(button=>button.text().includes('Submit for compliance check'));
+    await submit.trigger('click');await flushPromises();
+    expect(w.get('#mobile-treatment-objectives').element.open).toBe(true);
+    expect(w.text()).toContain('Please rate each treatment objective');
+    expect(api.post.mock.calls.some(([url])=>url.endsWith('/narriva/reviews'))).toBe(false);
+    const groups=w.findAll('.mn-rating-buttons');
+    await groups[0].findAll('button').find(b=>b.text()==='6').trigger('click');
+    await groups[1].findAll('button').find(b=>b.text()==='Not addressed').trigger('click');
+    await submit.trigger('click');await flushPromises();
+    const saved=api.post.mock.calls.find(([url])=>url.endsWith('/drafts'))[1].outputJson.meta;
+    expect(saved.narrivaContext.riskAssessmentIncluded).toBe(true);
+    expect(saved.objectiveRatings).toMatchObject([{objectiveId:5,scaleValue:6},{objectiveId:6,disposition:'not_addressed',scaleValue:null}]);
+    expect(w.find('.mn-note').exists()).toBe(false);
+    expect(w.findAll('label').filter(label=>label.text().includes('Include a risk assessment'))).toHaveLength(1);
+    w.unmount();
+  });
   it('opens the selected service handbook using the scoped mobile client without changing the encounter',async()=>{
     const data=fixture();data.serviceCodes[0].serviceInfo={code:'90834',title:'Psychotherapy',status:'available',serviceDescription:'Exact supplied psychotherapy description.',documentation:'Record interventions and response.',source:{title:'Supplied handbook',edition:'October 2026',pages:[91]}};api.get.mockResolvedValue({data});const {w}=await mountWriter();expect(w.find('[role="region"]').exists()).toBe(false);await w.get('button[aria-label="Service information for 90834"]').trigger('click');await flushPromises();expect(w.get('[role="region"]').text()).toContain('Exact supplied psychotherapy description.');expect(w.get('[role="region"]').text()).toContain('Page 91');expect(api.post).not.toHaveBeenCalled();w.unmount();
   });

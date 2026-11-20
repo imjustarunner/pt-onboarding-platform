@@ -1,3 +1,8 @@
+import {loadEncounterTreatmentPlanEligibility} from '../services/treatmentPlanEncounterEligibility.service.js';
+import {isProgressNoteToolId} from '../config/clinicalNotePlanOutput.js';
+import {resolveClinicalToolId} from '../config/clinicalNoteToolRouting.js';
+import {resolveProBonoDocumentationService} from '../utils/clinicalFundingPolicy.js';
+import {loadNarrivaSettings} from '../services/narrivaPlatformSettings.service.js';
 import {verifyNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
 import pool from '../config/database.js';
 import {runWithAgencyAccess} from '../utils/agencyAccessContext.js';
@@ -153,8 +158,14 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   const durationMinutes=instant(start)&&instant(end)?Math.max(0,Math.round((instant(end)-instant(start))/60000)):Number(work?.durationMinutes||meta.durationMinutes||0);
   const care=await readStaffCareEligibility(userId,agencyId),catalog=await resolveAgencySchedulingCatalog({agencyId,credentialTier:care.credentialTier,allServiceCodes:[],eligibleServiceCodes:[]});
   const [[preference]]=await pool.execute('SELECT default_mode FROM narriva_writer_preferences WHERE user_id=? AND agency_id=?',[userId,agencyId]);
-  let treatmentPlan=null;const plans=await ClinicalTreatmentPlan.listByClient({agencyId,clientId});const current=plans.find(plan=>String(plan.status).toLowerCase()==='active'&&(!plan.effective_date||dateOnly(plan.effective_date)<=dateOfService));
-  if(current){const plan=await ClinicalTreatmentPlan.findById(current.id);if(Number(plan.agency_id)!==agencyId||Number(plan.client_id)!==clientId)throw narrivaError(409,'Treatment plan context changed.');const goals=[];for(const goal of plan.goals||[]){const objectives=[];for(const objective of goal.objectives||[]){const rating=await ClinicalTreatmentObjectiveRating.findLatestForDedupe({objectiveId:objective.id,dateOfService})||await ClinicalTreatmentObjectiveRating.findPreviousSession({objectiveId:objective.id,dateOfService});objectives.push({id:objective.id,title:objective.objective_text,scaleTarget:objective.scale_target,previousScore:rating?.scale_value??null});}goals.push({id:goal.id,title:goal.goal_text,objectives});}treatmentPlan={id:plan.id,goals,presentingProblem:plan.presentingProblem||'',diagnosticJustification:plan.diagnostic_justification||'',diagnoses:(plan.planDiagnoses||[]).map(dx=>({id:dx.diagnosis_id,code:dx.icd10_code,description:dx.description,justification:dx.justification}))};}
+  const eligibility=await loadEncounterTreatmentPlanEligibility({agencyId,clientId,dateOfService:meta.sessionContext?.dateOfService || dateOfService,includePlan:true,planModel:ClinicalTreatmentPlan});
+  const plan=eligibility.eligible ? eligibility.plan : null;
+  const serviceCode=draft?.service_code || session?.service_code || work?.serviceCode || '';
+  const documentationCode=resolveProBonoDocumentationService({serviceCode,metadata:meta}).serviceCode;
+  const requiresObjectiveRatings=!!plan && (isProgressNoteToolId(meta.toolId) || isProgressNoteToolId(resolveClinicalToolId({serviceCode:documentationCode,programId:session?.program_id},(await loadNarrivaSettings()).configuration)));
+  let treatmentPlan=null;
+  if(plan){if(Number(plan.agency_id)!==agencyId||Number(plan.client_id)!==clientId)throw narrivaError(409,'Treatment plan context changed.');const previousScores=await ClinicalTreatmentObjectiveRating.previousClinicianScores({agencyId,clientId,dateOfService:eligibility.dateOfService,objectiveIds:(plan.goals || []).flatMap(goal=>(goal.objectives || []).map(objective=>objective.id))});
+   const goals=[];for(const goal of plan.goals||[]){if(goal.superseded_at || goal.status==='superseded')continue;const objectives=[];for(const objective of goal.objectives||[]){if(objective.superseded_at || objective.status==='superseded')continue;objectives.push({id:objective.id,title:objective.objective_text,scaleTarget:objective.scale_target,previousScore:previousScores[objective.id]??null});}goals.push({id:goal.id,title:goal.goal_text,objectives});}treatmentPlan={id:plan.id,goals,presentingProblem:plan.presentingProblem||'',diagnosticJustification:plan.diagnostic_justification||'',diagnoses:(plan.planDiagnoses||[]).map(dx=>({id:dx.diagnosis_id,code:dx.icd10_code,description:dx.description,justification:dx.justification}))};}
   let diagnoses=treatmentPlan?.diagnoses || [];
   if(!diagnoses.length) {
    const [rows]=await clinicalPool.execute('SELECT id,icd10_code,description,justification FROM clinical_diagnoses WHERE agency_id=? AND client_id=? AND is_active=1 ORDER BY is_primary DESC,id DESC LIMIT 100',[agencyId,clientId]);
@@ -194,7 +205,7 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   res.json({agencyId,riskAssessmentRequired,reviewUnavailable,review:signedContext?.review || (draftReview ? {narriva:draftReview} : null),client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
-   credentialTier:care.credentialTier,treatmentPlan,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
+   credentialTier:care.credentialTier,treatmentPlan,requiresObjectiveRatings,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
  }catch(error){next(error);}
 };
 

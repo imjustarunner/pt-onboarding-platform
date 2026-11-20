@@ -171,3 +171,14 @@ describe('verified supervisor decision inheritance',()=>{
   await attach();note.note_payload+=' Different safety evidence.';expect(await verifiedBoundNarrivaDecisions(note)).toEqual([]);
  });
 });
+
+it('requires the clinician MSE before a Narriva 90837 signature and permits an H-code without an MSE',async()=>{
+ required=false;
+ note.service_code='90837';
+ note.metadata_json={narrivaContext:{writerMode:'narriva'}};
+ await expect(assertNarrivaRiskBeforeSignature(note)).rejects.toMatchObject({code:'NARRIVA_MSE_REQUIRED'});
+ note.metadata_json.structuredChart={mentalStatusExam:{allNormal:true}};
+ await expect(assertNarrivaRiskBeforeSignature(note)).resolves.toBeUndefined();
+ note.service_code='H0004';delete note.metadata_json.structuredChart;
+ await expect(assertNarrivaRiskBeforeSignature(note)).resolves.toBeUndefined();
+});

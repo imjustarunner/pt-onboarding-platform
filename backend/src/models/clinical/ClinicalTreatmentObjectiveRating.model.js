@@ -200,6 +200,23 @@ class ClinicalTreatmentObjectiveRating {
     return map;
   }
 
+  static async previousClinicianScores({agencyId, clientId, objectiveIds, dateOfService}, database = clinicalPool) {
+    const ids = [...new Set(objectiveIds.map(safeInt).filter(Boolean))];
+    if (!ids.length || !dateOfService) return {};
+    const [rows] = await database.execute(
+      `SELECT objective_id, scale_value FROM (
+         SELECT objective_id, scale_value, ROW_NUMBER() OVER
+           (PARTITION BY objective_id ORDER BY date_of_service DESC, rated_at DESC, id DESC) AS position_in_history
+         FROM clinical_treatment_objective_ratings
+         WHERE agency_id=? AND client_id=? AND objective_id IN (${ids.map(() => '?').join(',')})
+           AND date_of_service < ? AND COALESCE(rater_kind,'clinician')='clinician'
+           AND disposition='rated' AND scale_value BETWEEN 1 AND 10
+       ) observations WHERE position_in_history=1`,
+      [agencyId, clientId, ...ids, dateOfService]
+    );
+    return Object.fromEntries(rows.map(row => [row.objective_id, Number(row.scale_value)]));
+  }
+
   /** Compare only with an earlier service date from the same rater category. */
   static async findPreviousSession({ objectiveId, raterKind = 'clinician', raterLabel = null, dateOfService }) {
     if (!safeInt(objectiveId) || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateOfService || ''))) return null;

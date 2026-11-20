@@ -14,6 +14,7 @@ vi.mock('../supervisedBillingPolicy.service.js',()=>({resolveNoteDocumentationPo
 vi.mock('../serviceCodeUnits.service.js',()=>({resolveSessionBilling:()=>({claimable:true,units:1})}));
 vi.mock('../staffCareEligibility.service.js',()=>({readStaffCareEligibility:m.care}));
 vi.mock('../agencySchedulingCatalog.service.js',()=>({resolveAgencySchedulingCatalog:async()=>({eligibleServiceCodes:[{code:'H0004'}]})}));
+vi.mock('../treatmentPlanEncounterEligibility.service.js',()=>({loadEncounterTreatmentPlanEligibility:async()=>({eligible:true,planId:1,plan:{id:1,goals:[]}})}));
 vi.mock('../narrivaAssessmentEvidence.service.js',()=>({loadNarrivaAssessmentEvidence:vi.fn()}));
 import { loadNarrivaSource } from '../narrivaSource.service.js';
 let meta,rows,draft;

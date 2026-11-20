@@ -2,7 +2,7 @@ import {loadNarrivaSource} from '../services/narrivaSource.service.js';
 import pool from '../config/database.js';
 import {narrivaTestOptions,runNarrivaTestReview} from '../services/narrivaTestReview.service.js';
 import { requireNarrivaAgency,positiveId,narrivaError } from '../services/narrivaAccess.service.js';
-import { createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,latestNarrivaStatus,narrivaFeatures,narrivaWriterCapabilities } from '../services/narrivaReview.service.js';
+import { createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,latestNarrivaStatus,latestDraftReview,narrivaFeatures,narrivaWriterCapabilities } from '../services/narrivaReview.service.js';
 const handle=fn=>async(req,res,next)=>{res.set('Cache-Control','no-store');try{await fn(req,res);}catch(e){next(e);}};
 export const getNarrivaTestOptions=handle(async(req,res)=>res.json(await narrivaTestOptions(req.user,positiveId(req.query.agencyId))));
 export const postNarrivaTestReview=handle(async(req,res)=>{
@@ -32,4 +32,10 @@ export const patchNarrivaPreferences=handle(async(req,res)=>{
 export const postNarrivaReview=handle(async(req,res)=>res.status(202).json({review:await createNarrivaReview(req)}));
 export const getNarrivaReview=handle(async(req,res)=>res.json({review:await readNarrivaReview(req.user,req.params.reviewId,positiveId(req.query.agencyId))}));
 export const patchNarrivaFinding=handle(async(req,res)=>res.json({review:await resolveNarrivaFinding(req)}));
+export const getNarrivaDraftStatus=handle(async(req,res)=>{
+ const agencyId=positiveId(req.query.agencyId),draftId=positiveId(req.params.draftId),sessionId=positiveId(req.query.clinicalSessionId);
+ if(!agencyId || !draftId || !sessionId)throw narrivaError(400,'Choose a saved session draft.');
+ await requireNarrivaAgency(req.user,agencyId);
+ res.json({review:await latestDraftReview(req.user,agencyId,draftId,sessionId)});
+});
 export const getNarrivaNoteStatus=handle(async(req,res)=>{const agencyId=positiveId(req.query.agencyId),noteId=positiveId(req.params.noteId);const source=await loadNarrivaSource(req.user,{agencyId,noteId});res.json({review:await latestNarrivaStatus(req.user,agencyId,noteId,{actorUserId:Number(source.source.created_by_user_id)})});});

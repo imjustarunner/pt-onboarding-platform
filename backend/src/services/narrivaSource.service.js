@@ -1,3 +1,9 @@
+import ClinicalTreatmentObjectiveRating from '../models/clinical/ClinicalTreatmentObjectiveRating.model.js';
+import { loadEncounterTreatmentPlanEligibility } from './treatmentPlanEncounterEligibility.service.js';
+import { planObjectiveReview } from '../../../frontend/src/utils/narrivaObjectiveReview.js';
+import { resolveClinicalToolId } from '../config/clinicalNoteToolRouting.js';
+import { isProgressNoteToolId } from '../config/clinicalNotePlanOutput.js';
+import { loadNarrivaSettings } from './narrivaPlatformSettings.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
@@ -170,10 +176,22 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
  const allowedCodes=new Set(catalog.eligibleServiceCodes.map(row=>row.code));
  local.service.allowed=local.service.allowed && care.canProvideCare && allowedCodes.has(local.service.proBono?documentationCode:serviceCode);
  if(local.service.crisisSuggestion && !allowedCodes.has(local.service.crisisSuggestion))local.service.crisisSuggestion=null;
+ let planReview = null;
+ if (phase === 'pre_generation') {
+  const {configuration} = await loadNarrivaSettings();
+  const tool = resolveClinicalToolId({serviceCode:documentationCode, programId:source.program_id},configuration);
+  if (isProgressNoteToolId(tool) || isProgressNoteToolId(meta.toolId)) {
+   const eligible = await loadEncounterTreatmentPlanEligibility({agencyId,clientId:client.id,dateOfService:source.date_of_service || meta.dateOfService,includePlan:true});
+   const previousScores=await ClinicalTreatmentObjectiveRating.previousClinicianScores({agencyId,clientId:client.id,dateOfService:eligible.dateOfService,
+    objectiveIds:(eligible.plan?.goals || []).flatMap(goal=>(goal.objectives || []).map(o=>o.id))},clinicalDb);
+   planReview = {planId:eligible.planId, eligible:eligible.eligible, message:eligible.message,
+    ...planObjectiveReview(eligible.plan?.goals,meta.objectiveRatings,previousScores)};
+  }
+ }
  const hashMeta={...meta,narrivaContext:{...meta.narrivaContext}};
  delete hashMeta.narrivaContext.riskAssessmentRequired;
- const sourceHash=narrivaSourceHash({...(phase==='pre_generation'?{phase}:{}),narrative,inputText,meta:hashMeta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
+ const sourceHash=narrivaSourceHash({...(phase==='pre_generation'?{phase,planReview}:{}),narrative,inputText,meta:hashMeta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
   session,assessmentManifest,chartDiagnosisEvidence,confirmedClinicalContext:clinicalContext,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});
- return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),phase,source,meta,session,provider,client,narrative,sourceHash,inputText,confirmedClinicalContext:clinicalContext,...local,
+ return {agencyId,draftId:positiveId(draftId),noteId:positiveId(noteId),phase,planReview,source,meta,session,provider,client,narrative,sourceHash,inputText,confirmedClinicalContext:clinicalContext,...local,
   identifiers:[client.first_name,client.last_name,client.full_name,client.initials,client.email,client.contact_email,client.phone_number,client.contact_phone,...guardians.flatMap(g=>[g.first_name,g.last_name,g.email,g.phone])].filter(Boolean)};
 }

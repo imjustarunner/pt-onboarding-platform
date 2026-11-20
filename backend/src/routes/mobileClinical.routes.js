@@ -1,4 +1,6 @@
 import express from 'express';
+import {getClinicalMseHistory} from '../controllers/clinicalMseHistory.controller.js';
+import {excludeSupportClinicalContent} from '../middleware/supportContentAccess.middleware.js';
 import {apiLimiter} from '../middleware/rateLimiter.middleware.js';
 import {requireClinicalChart,requireClinicalNoteSigning} from '../middleware/medicalBilling.middleware.js';
 import {requireMobileClinicalSession,scopedMobileClinicalHandler as scoped,getMobileClinicalContext,getMobileClientSummary,resolveMobileClientContact,sendMobileClientContact,getMobileNotesToSign,bootstrapMobileClinicalSession} from '../controllers/mobileClinical.controller.js';
@@ -18,6 +20,7 @@ const router=express.Router();
 router.use(requireMobileClinicalSession,apiLimiter);
 router.get('/context',requireClinicalChart,getMobileClinicalContext);
 router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatalog));
+router.get('/clients/:clientId/mse-history',excludeSupportClinicalContent,requireClinicalChart,scoped(getClinicalMseHistory,{clientParam:'clientId',requireClient:true}));
 router.get('/clients/:clientId/summary',requireClinicalChart,getMobileClientSummary);
 router.post('/clients/:clientId/contact',requireClinicalChart,resolveMobileClientContact);
 router.post('/clients/:clientId/contact/send',requireClinicalChart,sendMobileClientContact);

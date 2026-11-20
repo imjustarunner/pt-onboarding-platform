@@ -16,6 +16,7 @@ router.patch('/preferences',handlers.patchNarrivaPreferences);
 router.post('/reviews',handlers.postNarrivaReview);
 router.get('/reviews/:reviewId',handlers.getNarrivaReview);
 router.patch('/reviews/:reviewId/findings',handlers.patchNarrivaFinding);
+router.get('/drafts/:draftId/status',handlers.getNarrivaDraftStatus);
 router.get('/notes/:noteId/status',handlers.getNarrivaNoteStatus);
 router.get('/notes/:noteId/review-insights',getNoteReviewInsights);
 router.get('/sessions/:sessionId/service',getClinicalSessionServiceCode);

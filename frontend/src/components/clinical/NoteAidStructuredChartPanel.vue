@@ -2,7 +2,7 @@
   <section class="na-chart" aria-label="Mental status and risk assessment">
     <header class="na-chart__head">
       <div>
-        <strong>Mental Status &amp; Risk Assessment</strong>
+        <strong>{{ assessmentTodo ? 'Assessments to complete before signing' : 'Mental Status & Risk Assessment' }}</strong>
         <p class="na-chart__sub">
           Click a domain (or hover) to open options, then hover an option for its description.
         </p>
@@ -226,7 +226,7 @@
       </div>
     </div>
 
-    <div class="na-chart__block">
+    <div v-if="showMedications" class="na-chart__block">
       <div class="na-chart__row">
         <h3>Medications</h3>
         <label class="chk">
@@ -287,6 +287,8 @@ import {
 } from '../../utils/noteAidMseCatalog.js';
 
 const props = defineProps({
+  assessmentTodo: Boolean,
+  showMedications: { type: Boolean, default: true },
   diagnoses: { type: Array, default: () => [] },
   diagnosticJustification: { type: String, default: '' },
   mse: { type: Object, default: () => ({ domains: {} }) },

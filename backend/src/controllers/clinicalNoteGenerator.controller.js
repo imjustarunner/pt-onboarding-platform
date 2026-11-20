@@ -1679,10 +1679,14 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
 
-    const narrivaPreflight = req.body?.writerMode === 'narriva' && isProgressNoteToolId(toolId) && generationSessionContext.clinicalSessionId
+    const checkedDraft = req.body?.writerMode === 'narriva' && isProgressNoteToolId(toolId) && generationSessionContext.clinicalSessionId
       ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText })
       : null;
-    if (narrivaPreflight?.consentStatement) prompt += `\n\nClinician-confirmed consent and setting (include in the note):\n${narrivaPreflight.consentStatement}`;
+    const {workingDraft, objectives, ...verifiedReview} = checkedDraft || {};
+    const narrivaPreflight = checkedDraft ? verifiedReview : null;
+    if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
+    if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
+    if (narrivaPreflight?.consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
     if (narrivaPreflight?.clinicalContext) prompt += `\n\nCurrent clinical context from the exact clinician-confirmed saved source (use these current facts instead of conflicting historical plan context; never infer a new diagnosis):\n${JSON.stringify(narrivaPreflight.clinicalContext)}`;
     const { text, modelName, latencyMs, finishReason } = await generateClinicalText({ tool, prompt, privacyContext, generatorGuidance: narrivaGuidance,
       ...(req.sessionTranscription ? {vertexOnly:true,sensitive:true} : {}) });
@@ -1707,9 +1711,25 @@ export const generateClinicalNote = async (req, res, next) => {
       ? (intakeTool ? applyIntakeIdentifyingAge(parsedSections, encounterAge) : parsedSections)
       : { Output: String(text || '').trim() };
 
+    if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
+    if (objectives?.length) {
+      const scores = new Map();
+      for (const observation of objectives) {
+        const goal = observation.goal || 'Treatment goal';
+        if (!scores.has(goal)) scores.set(goal, []);
+        scores.get(goal).push(`${observation.objective} — ${observation.rating != null ? observation.rating + '/10' : observation.disposition}`);
+      }
+      sections['Treatment objective ratings'] = [...scores].map(([goal, lines]) => [goal, ...lines].join('\n')).join('\n\n');
+    }
+
     const outputObj = {
       sections,
       meta: {
+        ...(checkedDraft ? {
+          writerMode:'narriva',objectiveRatings:savedGenerationMeta.objectiveRatings || [],
+          structuredChart:savedGenerationMeta.structuredChart || {},
+          narrivaContext:{...savedGenerationMeta.narrivaContext,writerMode:'narriva'}
+        } : {}),
         toolId,
         narrivaPreflight,
         underlyingServiceCode:isProBonoServiceCode(serviceCode)?documentationServiceCode:null,
@@ -1721,7 +1741,7 @@ export const generateClinicalNote = async (req, res, next) => {
         treatmentPlanEligibility,
         intakeSources: intakeTool ? intakeSources : undefined,
         encounterAge: intakeTool ? encounterAge : null,
-        sessionContext: { durationMinutes: Number(req.body?.durationMinutes) || null },
+        sessionContext: { ...(checkedDraft ? savedGenerationMeta.sessionContext : {}), durationMinutes: Number(req.body?.durationMinutes) || savedGenerationMeta.sessionContext?.durationMinutes || null },
         billingPrimaryUnits: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).primaryUnits,
         billingAddons: resolveNoteAidBillingCodes({primaryCode:serviceCode,durationMinutes:req.body?.durationMinutes,includeInteractiveComplexity:!!applyInteractiveComplexity,sessionStartAt:validatedGenerationSession?.scheduled_start_at,timeZone:validatedGenerationSession?.source_timezone,metadata:documentationMeta}).addons,
         model: modelName,
@@ -1745,7 +1765,8 @@ export const generateClinicalNote = async (req, res, next) => {
     // Primary mobile writing must finish generation before it can enter signing.
     // Desktop and legacy/manual drafts keep their existing signature workflow.
     const mobileWriterMode=req.quickView?.mobileDeviceSessionId ? String(req.body?.writerMode || '') : '';
-    if(['narriva','smart_notes'].includes(mobileWriterMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:String(req.body?.inputText || ''),serviceCode,writerMode:mobileWriterMode});
+    const receiptMode=checkedDraft?'narriva':mobileWriterMode;
+    if(['narriva','smart_notes'].includes(receiptMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:String(req.body?.inputText || ''),serviceCode,writerMode:receiptMode});
     const outputJson = JSON.stringify(outputObj);
     const storedInputText =
       (transcriptSource === 'audio' || usedAudioTranscript) ? null : (mobileWriterMode || req.body?.writerMode === 'narriva' ? String(req.body?.inputText || '').trim() : terminationRequested ? providerInputText : inputText);

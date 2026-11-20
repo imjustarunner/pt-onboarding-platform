@@ -143,6 +143,7 @@ import {
 
 const props = defineProps({
   goals: { type: Array, default: () => [] },
+  sessionRatings: { type: Array, default: () => [] },
   previousRatings: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false },
   dateOfService: { type: String, default: '' },
@@ -240,6 +241,11 @@ function collapsedLine(obj, goal) {
 
 /** @type {Record<string, object>} keyed objectiveId:raterKind */
 const byObjective = reactive({});
+watch(() => props.sessionRatings, rows => {
+  const entries = new Map(rows.map(row => [entryKey(row.objectiveId, row.raterKind || 'clinician'), row]));
+  for (const key of Object.keys(byObjective)) if (!entries.has(key)) delete byObjective[key];
+  for (const [key, row] of entries) byObjective[key] = { ...row };
+}, { immediate: true });
 function objectiveAchieved(objective) {
   const observed = byObjective[entryKey(objective.id, 'clinician')];
   return objectiveTargetReached({ status: objective.status, value: observed?.disposition === 'rated' ? observed.scaleValue : null,

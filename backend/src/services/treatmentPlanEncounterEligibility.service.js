@@ -2,10 +2,13 @@ import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.mode
 import { loadRenewalPolicy } from './treatmentPlanRenewal.service.js';
 import { evaluateTreatmentPlanForEncounter } from '../../../frontend/src/utils/treatmentPlanEncounterEligibility.js';
 
-export async function loadEncounterTreatmentPlanEligibility({ agencyId, clientId, dateOfService, planModel = ClinicalTreatmentPlan, policyLoader = loadRenewalPolicy } = {}) {
-  const [rows, policy] = await Promise.all([planModel.listByClient({ agencyId, clientId }), policyLoader(agencyId)]);
+export async function loadEncounterTreatmentPlanEligibility({ agencyId, clientId, dateOfService, includePlan = false, planModel = ClinicalTreatmentPlan, policyLoader = loadRenewalPolicy } = {}) {
+  const rows = await planModel.listByClient({ agencyId, clientId });
+  const policy = rows?.length ? await policyLoader(agencyId) : {};
   const plans = await Promise.all((rows || []).filter(row => !['draft', 'discarded', 'void', 'deleted', 'inactive'].includes(String(row.status || '').toLowerCase())).map(row => planModel.findById(row.id)));
-  return evaluateTreatmentPlanForEncounter({ plans: plans.filter(plan => plan && Number(plan.agency_id) === Number(agencyId) && Number(plan.client_id) === Number(clientId)), dateOfService, policy });
+  const scoped = plans.filter(plan => plan && Number(plan.agency_id) === Number(agencyId) && Number(plan.client_id) === Number(clientId));
+  const eligibility = evaluateTreatmentPlanForEncounter({ plans: scoped, dateOfService, policy });
+  return includePlan ? { ...eligibility, plan: scoped.find(plan => plan.id === eligibility.planId) || null } : eligibility;
 }
 
 export async function assertEncounterTreatmentPlanEligibility(input) {

@@ -35,6 +35,7 @@ vi.mock('../narrivaReview.service.js',()=>({assertNarrivaPreGeneration:vi.fn(asy
 // The controller, shared guidance packer, exact service reference, authoring tool,
 // credential checks, prompt builder, section parser and encryption remain real.
 // Only external AI and the authorized database/storage boundaries are synthetic.
+import {assertNarrivaPreGeneration} from '../narrivaReview.service.js';
 import { generateClinicalNote } from '../../controllers/clinicalNoteGenerator.controller.js';
 import { getClinicalServiceReference } from '../clinicalServiceReference.service.js';
 import { maybeDecryptNotePayload } from '../clinicalNoteCrypto.service.js';
@@ -47,7 +48,7 @@ const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
 const invoke=async body=>{const req=request(body),res=response(),next=vi.fn();await generateClinicalNote(req,res,next);return {req,res,next};};
 let saved,care;
 beforeEach(()=>{
- vi.clearAllMocks();m.payerEligibility.mockImplementation(async({codes})=>({serviceCodes:codes || []}));vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
+ vi.clearAllMocks();m.payerEligibility.mockImplementation(async({codes})=>({serviceCodes:codes || []}));vi.stubEnv('JWT_SECRET','synthetic-receipt-test-only');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
  saved={id:55,user_id:7,agency_id:2,client_id:10,clinical_session_id:20,service_code:'H0004',input_text:'Original saved Session Narrative.',output_json:JSON.stringify({sections:{Subjective:'Original saved note.'},meta:{serviceCode:'H0004'}})};
  care={credential:'BA',credentialTier:'bachelors',agencyRole:'provider',canProvideCare:true};
  m.care.mockImplementation(async()=>care);m.agencies.mockResolvedValue([{id:2}]);
@@ -79,6 +80,19 @@ describe('actual clinical generator shared service guidance boundary',()=>{
   expect(m.model).not.toHaveBeenCalled();expect(m.context).not.toHaveBeenCalled();
   expect(m.createDraft).not.toHaveBeenCalled();expect(m.updateDraft).not.toHaveBeenCalled();expect(saved).toEqual(before);
   expect(m.execute.mock.calls.some(([sql])=>/INSERT INTO narriva_reviews/i.test(sql))).toBe(false);
+ });
+ it('renders the confirmed consent and exact session scores even if the writer omits both',async()=>{
+  const workingDraft='PRIVATE_WORKING_DRAFT_SYNTHETIC';
+  const consentStatement='Client consented to services and participation in the in-person session in a private setting.';
+  vi.mocked(assertNarrivaPreGeneration).mockResolvedValueOnce({reviewId:81,workingDraft,consentStatement,objectives:[
+   {goal:'Coping',objective:'Practice breathing',rating:6},{goal:'Coping',objective:'Practice grounding',disposition:'Not addressed'}]});
+  const {res,next}=await invoke();
+  expect(next).not.toHaveBeenCalled();
+  const result=res.json.mock.calls[0][0].outputJson;
+  expect(m.model.mock.calls[0][0].prompt).toContain(workingDraft);
+  expect(result.sections['Consent for services']).toBe(consentStatement);
+  expect(result.sections['Treatment objective ratings']).toBe('Coping\nPractice breathing — 6/10\nPractice grounding — Not addressed');
+  expect(JSON.stringify(result)).not.toContain(workingDraft);
  });
  it('delivers the approved exact service definition and owner guide/examples to the actual writer prompt',async()=>{
   const {res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();expect(m.model).toHaveBeenCalledOnce();
