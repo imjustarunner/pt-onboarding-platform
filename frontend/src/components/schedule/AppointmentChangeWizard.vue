@@ -58,7 +58,7 @@
             <p>{{ change.seriesOperation.value.completed }} of {{ change.seriesOperation.value.count }} appointments completed.</p>
             <progress v-if="['queued','processing'].includes(change.seriesOperation.value.status)" :value="change.seriesOperation.value.completed" :max="change.seriesOperation.value.count" aria-label="Recurring appointment cancellations"></progress>
             <p>{{ change.seriesOperation.value.officeReservationDisposition === 'keep' ? 'Your office reservations are being kept for reuse.' : 'The corresponding office time is being released for other bookings.' }} Other client series and other office bookings stay unchanged.</p>
-            <p>Each canceled visit keeps its own signed, nonbillable note and history. {{ isLearning ? 'No tutoring fee is created by signing alone.' : 'No insurance claim is created.' }} You can return to the calendar while this finishes.</p>
+            <p>{{ isLearning ? 'Each canceled visit keeps its own signed attendance record. Any fee follows the reviewed policy.' : 'Each canceled visit keeps its own signed, nonbillable note and history. No insurance claim is created.' }} You can return to the calendar while this finishes.</p>
             <p v-if="change.seriesOperation.value.error" role="alert">{{ change.seriesOperation.value.error }}</p>
             <div v-if="change.seriesOperation.value.status === 'failed'" class="acw-chips"><button type="button" class="acw-btn" :disabled="change.saving.value" @click="change.retrySeriesOperation()">Resume the saved request</button><button type="button" class="acw-btn" @click="change.reviewRemainingSeries()">Review remaining visits</button></div>
           </section>
@@ -312,7 +312,7 @@
 
               </div>
 
-              <SchoolSupportCancellationBenefit v-if="change.facts.cancellationScope!=='future'"
+              <SchoolSupportCancellationBenefit v-if="!isLearning && change.facts.cancellationScope!=='future'"
                 v-model="change.facts.useSchoolSupportHour"
                 v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
@@ -406,8 +406,8 @@
             <aside class="acw-side">
               <h4 class="acw-h4">How consequences work</h4>
               <ul class="acw-bullets">
-                <li><strong>Medicaid:</strong> Missed-appointment fee is not applicable. Strike policy applies when enabled.</li>
-                <li><strong>Eligible non-Medicaid:</strong> Assess or waive fee per policy.</li>
+                <li v-if="!isLearning"><strong>Medicaid:</strong> Missed-appointment fee is not applicable. Strike policy applies when enabled.</li>
+                <li>{{ isLearning ? 'Assess or waive a fee according to the tutoring policy.' : 'Eligible non-Medicaid: Assess or waive fee per policy.' }}</li>
                 <li><strong>Plan / Package:</strong> Free miss first, then an available bonus credit, then a paid credit.</li>
               </ul>
             </aside>
@@ -416,7 +416,7 @@
           <!-- Step 4 -->
           <section v-else class="acw-panel acw-panel--split">
             <div>
-              <SchoolSupportCancellationBenefit v-if="change.facts.cancellationScope!=='future'"
+              <SchoolSupportCancellationBenefit v-if="!isLearning && change.facts.cancellationScope!=='future'"
                 v-model="change.facts.useSchoolSupportHour"
                 v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
@@ -424,7 +424,7 @@
               />
               <div class="acw-note-head">
                 <h3 class="acw-h">System-generated note</h3>
-                <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? 'Signed · Nonbillable' : 'Ready for review' }}</span>
+                <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? (isLearning ? 'Signed' : 'Signed · Nonbillable') : 'Ready for review' }}</span>
               </div>
               <p class="muted">{{ isLearning ? 'This note records the tutoring attendance decision. Any fee follows the reviewed missed-session policy.' : 'This note is attached to the session and is nonbillable. Signing does not create an insurance claim.' }}</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>

@@ -17,7 +17,7 @@
     <small>Shared by {{ state.familySummary.authorName }} · {{ formatTime(state.familySummary.signedAt) }}</small>
    </section>
    <div class="hub-layout" :class="{'hub-layout--host':state.host}">
-    <details v-if="state.host" class="hub-context" :open="wideHub"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{entry.activePlan?.title || 'Learning plan awaiting review'}}</p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
+    <details v-if="state.host" class="hub-context" :open="wideHub"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{entry.activePlan?.title || 'Learning plan awaiting review'}}<span v-if="entry.activePlan && !hasApprovedPlan"> · Draft for tutor review</span></p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
     <div class="hub-work">
    <template v-if="!closed">
     <button v-if="canDeclareNoShow" type="button" @click="openNoShow">Mark no-show</button>
@@ -47,6 +47,7 @@ import AppointmentNoShowStatus from '../../components/schedule/AppointmentNoShow
 import {ref,computed,onMounted,onBeforeUnmount,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import {useAgencyStore} from '../../store/agency';
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 import TherapySessionWorkspace from '../../components/meetings/TherapySessionWorkspace.vue';
 import api from '../../services/api';
 const route=useRoute(),agencies=useAgencyStore();
@@ -85,11 +86,12 @@ const windowMessage=computed(()=>Date.now()>Date.parse(state.value?.closesAt)
  : `This tutoring room opens ${formatTime(state.value?.opensAt)}, 30 minutes before the appointment.`);
 const scheduleLabel=computed(()=>formatTime(state.value?.startAt));
 const path=suffix=>`/tutoring-sessions/${appointmentId}${suffix||''}`;
-const params=()=>Object.fromEntries(['agencyId','clientId','serviceId'].filter(k=>route.query[k]).map(k=>[k,route.query[k]]));
+const scopedParams=computed(()=>Object.fromEntries(['agencyId','clientId','serviceId'].filter(k=>route.query[k]).map(k=>[k,route.query[k]])));
+const params=()=>scopedParams.value;
 const contextKey=()=>`${appointmentId}:${JSON.stringify(params())}`;
 const request=async(suffix,method='get',body,options={})=>{const key=contextKey();const r=await api({...options,url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true});if(stopped||key!==contextKey())throw Object.assign(new Error('Session context changed.'),{stale:true});return r.data;};
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
-async function refresh(){if(stopped||!appointmentId)return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{state.value=await request('');error.value='';if(closed.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
+async function refresh(){if(stopped||!appointmentId||!canPollWorkspace())return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{state.value=await request('');error.value='';if(closed.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
  if(state.value.host&&!learningContext.value){try{learningContext.value=await request('/learning-context');contextError.value='';}catch{contextError.value='Learning context could not be loaded. Retry from this appointment.';}}
  }catch(e){if(e.stale||key!==contextKey())return;if([401,403,404,410].includes(e.response?.status)){state.value=null;learningContext.value=null;video.value=null;connected.value=false;wantsJoin.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;if(refreshQueued){refreshQueued=false;void refresh();}}}
 async function action(fn){if(busy.value)return;const key=contextKey();busy.value=true;error.value='';try{await fn();}catch(e){if(!e.stale&&key===contextKey())error.value=e.response?.data?.error?.message||e.message;}finally{if(key===contextKey())busy.value=false;}}
@@ -102,6 +104,7 @@ async function finish(){await action(async()=>{const data=await request('/end','
 async function copyJoinLink(){try{await navigator.clipboard.writeText(new URL(`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/tutoring-session/appointment/${appointmentId}`,window.location.origin).href);}catch{error.value='The join link could not be copied. Open this appointment from the family portal.';}}
 onMounted(async()=>{try{if(!appointmentId&&route.params.sessionId){const {data}=await api.get(`/learning-class-sessions/sessions/${Number(route.params.sessionId)}`);appointmentId=Number(data.appointmentId);}if(!appointmentId)throw new Error('Open this session from its booked appointment. Ask Support to review any older unlinked visit.');await refresh();if(state.value?.host&&inPerson.value&&!closed.value&&!state.value.sessionId){await request('/prepare','post');await refresh();}timer=setInterval(refresh,5000);}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{loading.value=false;}});
 watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId,route.query.agencyId],()=>{appointmentId=Number(route.params.appointmentId);state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
+useSessionPolling(refresh);
 onBeforeUnmount(()=>{stopped=true;clearInterval(timer);});
 </script>
 <style scoped>

@@ -98,7 +98,10 @@ export async function processDueAppointmentNoShows({agencyId=null,appointmentId=
       await db.execute("UPDATE appointment_no_show_reviews SET state='finalized',result_json=? WHERE id=?",[maybeEncryptNotePayload(JSON.stringify(result)),row.id]);
       await event(db,row,'no_show_finalized',null,{requestedByUserId:row.declared_by_user_id,notificationDueAt:parseUtcDate(row.notify_at).toISOString(),originalSignaturePreserved:true});
       return {appointmentId:row.appointment_id,finalized:true};
-    }).catch(error=>({appointmentId:item.appointment_id,reviewRequired:true,error: String(error.message).slice(0,250)})));
+    }).catch(error=>{
+      console.warn('[no-show] Attendance finalization needs review.', { appointmentId: Number(item.appointment_id), code: error.code || 'NO_SHOW_FINALIZATION_FAILED' });
+      return {appointmentId:item.appointment_id,reviewRequired:true,error: String(error.message).slice(0,250)};
+    }));
   }
   return results;
 }

@@ -249,7 +249,7 @@
                           class="upcoming-session-row"
                         >
                           <div class="upcoming-session-info">
-                            <strong>{{ session.title || 'Tutoring Session' }}</strong>
+                            <strong>{{ session.subject_label ? `${session.subject_label} tutoring` : (session.title || 'Tutoring session') }}</strong>
                             <span v-if="session.provider_name" class="muted small"> · {{ session.provider_name }}</span>
                           </div>
                           <div class="upcoming-session-meta muted small">
@@ -258,6 +258,7 @@
                             <span v-else> {{ ft("· Virtual") }}</span>
                           </div>
                           <button
+                            v-if="session.session_url && session.delivery_context !== 'in_person'"
                             type="button"
                             class="btn btn-primary btn-sm upcoming-launch-btn"
                             @click="router.push(session.session_url)"
@@ -1778,10 +1779,12 @@ const loadSelectedChildLearningProgress = async () => {
     upcomingTutoringSessions.value = [];
   }
 
+  let signedSummaries = [];
   try {
     const feed = await fetchGuardianLearningFeed(clientId,scope);
     if(request!==learningProgressRequest)return;
     const subjects = Array.isArray(feed?.subjects) ? feed.subjects : [];
+    signedSummaries = Array.isArray(feed?.signedSessionSummaries) ? feed.signedSessionSummaries : [];
     const reports = [];
     const practice = [];
     const updates = [];
@@ -1830,13 +1833,15 @@ const loadSelectedChildLearningProgress = async () => {
     losParentUpdates.value = [];
   }
 
+  const publishedBySession = new Map(signedSummaries.map(summary => [Number(summary.sessionId), summary]));
   tutoringSummaries.value = tutoringSessions.value.map((s) => {
+    const published = publishedBySession.get(Number(s.id));
     const ai = s.ai_summary_json || {};
     return {
       sessionId: s.id,
-      title: s.title || 'Virtual Tutoring Session',
+      title: (published?.subjectLabel || s.subject_label) ? `${published?.subjectLabel || s.subject_label} tutoring` : (s.title || 'Tutoring session'),
       date: s.ends_at || s.starts_at,
-      summary: ai.summary || (ai.keyConceptsCovered?.length ? `Topics covered: ${ai.keyConceptsCovered.join(', ')}.` : 'Your tutor has not shared a session summary yet.'),
+      summary: published ? [published.summary.workedOn, published.summary.howItWent, published.summary.homePractice].filter(Boolean).join(' · ') : ai.summary || (ai.keyConceptsCovered?.length ? `Topics covered: ${ai.keyConceptsCovered.join(', ')}.` : 'Your tutor has not shared a session summary yet.'),
       strengths: Array.isArray(ai.strengths) ? ai.strengths : [],
       needsWork: Array.isArray(ai.needsWork) ? ai.needsWork : [],
       progress: Number.isFinite(Number(ai.overallProgress)) ? Number(ai.overallProgress) : null,
@@ -1845,9 +1850,7 @@ const loadSelectedChildLearningProgress = async () => {
       homeworkUrl: s.primary_assignment_id
         ? `/api/learning-assignments/${s.primary_assignment_id}/download?branded=true`
         : null,
-      sessionUrl: String(s.delivery_context || '').toLowerCase() === 'in_person'
-        ? `/in-person-tutoring-session/${s.id}`
-        : `/tutoring-session/${s.id}`
+      sessionUrl: s.session_url
     };
   });
 };

@@ -8,9 +8,9 @@
    <label>Practice at home<textarea v-model="homePractice" @blur="saveOnBlur" :readonly="signed" rows="3" maxlength="20000" /></label>
    <fieldset v-if="goals.length&&!signed"><legend>Goals addressed</legend><label v-for="goal in goals" :key="goal.id"><input v-model="goalIds" type="checkbox" :value="Number(goal.id)"> {{goal.title}}</label><p>Recording a goal here does not change its mastery rating.</p></fieldset>
    <p v-if="signed" role="status">Signed and shared. This summary is read-only.</p>
-   <template v-else><button :disabled="busy" @click="save(false)">Save session notes</button><label class="attest"><input v-model="confirmed" type="checkbox"> I reviewed this family summary and confirm my own signature. Signing also locks the saved session record.</label><button :disabled="busy||!confirmed||!ended" @click="save(true)">Sign and share</button><p v-if="!ended">End the attended session before signing. Your draft can be saved now.</p></template>
+   <template v-else><button type="button" :disabled="busy" @click="save(false)">Save session notes</button><label class="attest"><input v-model="confirmed" type="checkbox"> I reviewed this family summary and confirm my own signature. Signing also locks the saved session record.</label><button type="button" :disabled="busy||!confirmed||!ended" @click="save(true)">Sign and share</button><p v-if="!ended">End the attended session before signing. Your draft can be saved now.</p></template>
   </template>
-  <p role="status">{{notice}}</p><p v-if="error" role="alert">{{error}} <button v-if="!loading" :disabled="busy" @click="load">Reload saved note</button></p>
+  <p role="status">{{notice}}</p><p v-if="error" role="alert">{{error}} <button v-if="!loading" type="button" :disabled="busy" @click="load">Reload saved note</button></p>
  </section>
 </template>
 <script setup>
@@ -30,7 +30,8 @@ async function load(){const own=++generation;savedDraft='';queuedDraft=false;wor
  try{const {data}=await api({url:`/tutoring-sessions/${props.appointmentId}/note`,method:'get',params:props.params,skipGlobalLoading:true});if(own!==generation)return;const note=data.note||{};const fields=data.publication?.summary||data.familyDraft||(note.metadata_json?.documentationMode==='learning_plan_checklist'?{}:{workedOn:note.summary,howItWent:note.how_it_went_json?.text,homePractice:note.homework});workedOn.value=fields.workedOn||'';howItWent.value=fields.howItWent||'';homePractice.value=fields.homePractice||'';goalIds.value=note.metadata_json?.familySummaryGoalIds||note.metadata_json?.goalIds||[];signed.value=note.status==='signed';savedDraft=JSON.stringify(draft());}catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Saved notes could not be loaded. Retry before writing.';}finally{if(own===generation)loading.value=false;}}
 async function save(share){if(busy.value||signed.value||loading.value||error.value)return;const own=generation,snapshot=draft();busy.value=true;notice.value='';
  try{const {data}=await api({url:`/tutoring-sessions/${props.appointmentId}/note`,method:'put',params:props.params,data:{familySummary:true,...snapshot,signAndShare:share,signatureConfirmed:confirmed.value},skipGlobalLoading:true});if(own!==generation)return;signed.value=data.note?.status==='signed';savedDraft=JSON.stringify(snapshot);notice.value=share?'Summary signed and shared with authorized family members.':'Session notes saved.';if(share)emit('shared');}catch(e){if(own===generation)notice.value=e.response?.data?.error?.message||'The note was not saved. Your text is kept; retry saving.';}finally{if(own===generation){busy.value=false;if(queuedDraft){queuedDraft=false;saveOnBlur();}}}}
-watch(()=>[props.appointmentId,JSON.stringify(props.params)],load,{immediate:true});
+// A Hub status refresh can pass a fresh object for the same appointment scope.
+watch([()=>props.appointmentId,()=>JSON.stringify(props.params)],load,{immediate:true});
 onBeforeUnmount(()=>generation++);
 </script>
 <style scoped>

@@ -1,7 +1,7 @@
 <template>
   <main class="childcare-page">
-    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><MomentumStickyComposer label="Add a sticky" /><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><MomentumStickyComposer label="Add a sticky" show-saved /><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
+    <p v-if="error && !selected && !editing" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading childcare shifts…</p>
     <p v-else-if="!context?.enabled || (!context.canWork && !context.canManage && !context.canApprove)" role="status">Childcare is not assigned to your account in this workspace. Ask your scheduler to review your service assignments.</p>
@@ -22,6 +22,7 @@
         <p v-else>You are scheduling your own childcare shift. An authorized scheduler can add eligible co-caregivers; only staff actually working share the child-count pay band.</p>
         <label>Private operational note (optional)<textarea v-model="draft.note" maxlength="4000" placeholder="Supplies, arrival instructions, or other operational details" /></label>
         <p>Child names are not needed. Planned children are kept separately from actual attendance.</p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div class="actions"><button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save shift' }}</button><button type="button" :disabled="busy" @click="editing = false">Cancel</button></div>
       </form>
       <section v-if="context.canApprove" class="card work-review-queue"><h2>Childcare work awaiting review</h2><p v-if="!reviewQueue.length">No submitted work, attendance or time corrections are awaiting your review.</p><button v-for="shift in reviewQueue" :key="shift.id" type="button" class="shift-choice" @click="openShift(shift.id)"><strong>{{shift.title || 'Childcare shift'}}</strong><span>{{when(shift)}}</span><span>{{reviewSummary(shift)}}</span></button></section>
@@ -29,6 +30,7 @@
         <div><h2>Shifts</h2><p v-if="!shifts.length">No childcare shifts are scheduled.</p><button v-for="shift in shifts" :key="shift.id" type="button" class="card shift-choice" :aria-pressed="selected?.id === shift.id" @click="openShift(shift.id)"><strong>{{ shift.title || 'Childcare shift' }}</strong><span>{{ when(shift) }}</span><span>{{ shift.plannedChildren }} children planned · {{ shift.status }}</span></button></div>
         <article v-if="selected" class="card shift-detail">
           <h2>{{ selected.title || 'Childcare shift' }}</h2><p>{{ when(selected) }}</p><p v-if="selected.locationName">{{ selected.locationName }}</p>
+          <p v-if="error && !editing" class="error" role="alert">{{ error }}</p>
           <p><strong>{{ selected.plannedChildren }} children planned</strong><span v-if="selected.actualChildren != null"> · Latest recorded count: {{ selected.actualChildren }}</span></p>
           <p v-if="selected.note" class="operational-note">{{ selected.note }}</p>
           <ul class="caregivers"><li v-for="person in selected.providers || []" :key="person.userId">{{ person.firstName }} {{ person.lastName }} · {{ person.clockedIn ? 'Clocked in' : person.clockedOut ? 'Clocked out' : 'Not clocked in' }}</li></ul>
@@ -143,7 +145,11 @@ async function openShift(id, expectedGeneration = generation) {
   try {
     const data = unwrap(await http.value.get(`/childcare/shifts/${id}`, { params: { agencyId: agencyId.value } }));
     if (expectedGeneration !== generation || selectionToken !== selectionGeneration) return;
-    selected.value = data.shift || data; finalizeShift.value=route.query.focus==='finalize'; confirmWork.value=false;correctionKey=null;correctionPending=null; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
+    selected.value = data.shift || data; finalizeShift.value=route.query.focus==='finalize'; confirmWork.value=false;correctionKey=null;correctionPending=null;
+    const recordedCount = selected.value.actualChildren;
+    countChoice.value = recordedCount == null ? '' : recordedCount === selected.value.plannedChildren ? 'planned' : 'actual';
+    actualCount.value = recordedCount ?? '';
+    reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
     correctionIntervals.value=(ownWorkReview.value?.intervals?.length?ownWorkReview.value.intervals:selected.value.myParticipation?.intervals||[]).map(row=>({startLocal:isoToZonedDatetimeLocal(row.startedAt,selected.value.timezone,{includeSeconds:true}),endLocal:isoToZonedDatetimeLocal(row.endedAt,selected.value.timezone,{includeSeconds:true})}));if(!correctionIntervals.value.length)correctionIntervals.value=[{startLocal:'',endLocal:''}];
     if (!props.http && Number(route.query.shiftId) !== Number(id)) router.replace({ query: { ...route.query, shiftId: String(id) } });
     if (isAssigned.value) {
@@ -153,9 +159,11 @@ async function openShift(id, expectedGeneration = generation) {
   } catch (e) { if (expectedGeneration === generation && selectionToken === selectionGeneration) error.value = message(e); }
 }
 function newShift() {
+  error.value = '';
   editId.value = null; draft.value = { title: 'Childcare shift', timezone: agencyStore.currentAgency?.timezone || 'America/Denver', startLocal: '', endLocal: '', plannedChildren: '', providerUserIds: context.value.canManage ? [] : [myId.value], note: '', locationName: '', officeLocationId: null, roomId: null, minimumHourlyRate: '', wageFloorJurisdiction: '' }; editing.value = true;
 }
 function editShift() {
+  error.value = '';
   const shift = selected.value; editId.value = shift.id;
   draft.value = { title: shift.title, timezone: shift.timezone, startLocal: isoToZonedDatetimeLocal(shift.startsAt, shift.timezone), endLocal: isoToZonedDatetimeLocal(shift.endsAt, shift.timezone), plannedChildren: shift.plannedChildren, providerUserIds: (shift.providers || []).map(p => p.userId), note: shift.note || '', locationName: shift.locationName || '', officeLocationId: shift.officeLocationId || null, roomId: shift.roomId || null, minimumHourlyRate: shift.minimumHourlyRate ?? '', wageFloorJurisdiction: shift.wageFloorJurisdiction || '' }; editing.value = true;
 }
@@ -168,7 +176,7 @@ async function saveShift() {
     if (String(draft.value.plannedChildren).trim() === '' || !Number.isSafeInteger(Number(draft.value.plannedChildren)) || Number(draft.value.plannedChildren) < 0) throw new Error('Enter the planned number of children.');
     busy.value = true; error.value = '';
     const body = { agencyId: aid, title: draft.value.title, startsAt, endsAt, timezone: draft.value.timezone, plannedChildren: Number(draft.value.plannedChildren), providerUserIds: context.value.canManage ? draft.value.providerUserIds : [myId.value], note: draft.value.note, locationName: draft.value.locationName, officeLocationId: draft.value.officeLocationId, roomId: draft.value.roomId, ...(context.value.canManagePay ? { minimumHourlyRate: draft.value.minimumHourlyRate === '' ? null : Number(draft.value.minimumHourlyRate), wageFloorJurisdiction: draft.value.wageFloorJurisdiction } : {}) };
-    const result = unwrap(await (editId.value ? http.value.patch(`/childcare/shifts/${editId.value}`, body) : http.value.post('/childcare/shifts', body)));
+    const result = unwrap(await (editId.value ? http.value.patch(`/childcare/shifts/${editId.value}`, body, { skipGlobalLoading: true }) : http.value.post('/childcare/shifts', body, { skipGlobalLoading: true })));
     if (aid !== agencyId.value) return;
     editing.value = false; notice.value = 'Childcare shift saved.';
     const id = result.shift?.id || result.id; await load(); if (id) await openShift(id);
@@ -180,7 +188,7 @@ async function perform(action, body, success) {
   const aid = agencyId.value, id = selected.value.id;
   busy.value = true; error.value = ''; notice.value = '';
   try {
-    await http.value.post(`/childcare/shifts/${id}/${action}`, { agencyId: aid, ...body });
+    await http.value.post(`/childcare/shifts/${id}/${action}`, { agencyId: aid, ...body }, { skipGlobalLoading: true });
     actionKey = null; pendingPunch = null;
     if (aid !== agencyId.value) return;
     notice.value = success;

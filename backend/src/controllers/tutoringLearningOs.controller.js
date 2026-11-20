@@ -1,3 +1,4 @@
+import { listPublishedTutoringSummaries } from '../services/tutoringNotePublication.service.js';
 import {guardianTutoringOfficeStatus,startGuardianOfficeVisit,guardianTutoringOfficeEntry} from '../services/guardianTutoringOffice.service.js';
 import pool from '../config/database.js';
 import {assertLearningSessionAccess} from '../utils/learningClassAccess.js';
@@ -888,8 +889,11 @@ export async function updateAssessmentBlueprint(req, res, next) {
 export async function getGuardianFeed(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getGuardianLearningSnapshot(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null,serviceId:service?.id||null});
-    res.json(data);
+    const providerId = service ? Number(service.provider_user_id) || 0 : null;
+    const serviceId = service?.id || null;
+    const data = await los.getGuardianLearningSnapshot(clientId,{agencyId,providerId,serviceId});
+    const signedSessionSummaries = serviceId ? await listPublishedTutoringSummaries(clientId,{agencyId,providerId,serviceId}) : [];
+    res.json({ ...data, signedSessionSummaries });
   } catch (e) {
     next(e);
   }

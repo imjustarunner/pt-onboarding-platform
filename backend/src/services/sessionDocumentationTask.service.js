@@ -135,9 +135,9 @@ export async function runSessionDocumentationTaskTick() {
         clientDob: ev.client_dob || null
       };
 
-      const title = code
-        ? `Notes: ${clientLabel} (${code})`
-        : `Notes: ${clientLabel}`;
+      const title = code === 'TUTORING'
+        ? `Tutoring notes: ${clientLabel}`
+        : code ? `Notes: ${clientLabel} (${code})` : `Notes: ${clientLabel}`;
 
       const task = await Task.create({
         taskType: 'session_note',

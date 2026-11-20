@@ -1252,6 +1252,13 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   let noShowReviews;
   try {noShowReviews=await (await import('./appointmentNoShowReview.service.js')).processDueAppointmentNoShows({limit:20,agencyId});}
   catch(error){noShowReviews={failed:1,coverage:'incomplete',code:'NO_SHOW_SOURCE_UNAVAILABLE'};console.warn('[no-show] Attendance outcome processing needs review.',error.code||'NO_SHOW_SOURCE_UNAVAILABLE');}
+  let scheduleUpdates;
+  try {
+    scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20, agencyId });
+  } catch (error) {
+    scheduleUpdates = { failed: 1, coverage: 'incomplete' };
+    console.warn('[schedule-notice] Due updates need review.', error.code || 'SCHEDULE_NOTICE_SOURCE_UNAVAILABLE');
+  }
   // Also drain change buffer
   const bufferResult = await processDueChangeNotifications({ limit: 20, agencyId });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');
@@ -1259,7 +1266,6 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   let replacementBookings;
   try { replacementBookings = await (await import('./appointmentReplacementOffer.service.js')).replacementOffers.processBookings({limit:20, agencyId}); }
   catch (e) { replacementBookings = {failed:1}; console.warn('[replacement-offers] Automatic booking retry needs attention:',e.message); }
-  const scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20, agencyId });
   let plannedOutCancellations;
   try { plannedOutCancellations = await (await import('./plannedOutCancellation.service.js')).processPlannedOutCancellations({ agencyId,limit:10 }); }
   catch (e) { plannedOutCancellations = { failed:1 }; console.warn('[planned-out] Cancellation processing needs attention:',e.message); }

@@ -323,6 +323,8 @@ export async function recordChildcareAction({shiftId,userId,action,actualChildre
       const today=utcDateToZonedYmd(now,shift.timezone),firstDay=utcDateToZonedYmd(new Date(childcareStoredIso(shift.starts_at)),shift.timezone),lastDay=utcDateToZonedYmd(new Date(childcareStoredIso(shift.ends_at)),shift.timezone);
       if(today<firstDay||today>lastDay)fail(409,'Clock in on the shift’s local scheduled day when work begins.');
       if(last?.punch_type==='clock_in')return {alreadyProcessed:true,shift:await mapShift(shift,userId,db)};
+      const scheduledStart=Date.parse(childcareStoredIso(shift.starts_at));
+      if(now.getTime()<scheduledStart-30*60000)fail(409,'Clock-in opens 30 minutes before the scheduled childcare shift. If you worked earlier, request an actual time correction when you finalize the shift.','CHILDCARE_CLOCK_IN_EARLY');
       const [other]=await db.execute(`SELECT p.id FROM skill_builders_event_kiosk_punches p WHERE p.user_id=? AND p.company_event_id<>? AND p.punch_type='clock_in' AND NOT EXISTS(SELECT 1 FROM skill_builders_event_kiosk_punches o WHERE o.user_id=p.user_id AND o.company_event_id=p.company_event_id AND o.punch_type='clock_out' AND (o.punched_at>p.punched_at OR (o.punched_at=p.punched_at AND o.id>p.id))) LIMIT 1`,[userId,shift.company_event_id]);
       if(other.length)fail(409,'Clock out of the other event before starting childcare.');
       let validCount=false;

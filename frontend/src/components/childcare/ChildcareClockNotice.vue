@@ -25,12 +25,13 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { parseUtcInstant } from '../../utils/timezones';
 import { childcareCountPayload } from '../../utils/childcarePresentation';
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 const auth=useAuthStore(),router=useRouter();
 const clocks=ref([]),prompt=ref(null),dialog=ref(null),busy=ref(false),error=ref(''),choice=ref(''),actual=ref('');
 const lookupError=ref('');
 const onTutoringPage=computed(()=>/\/(?:tutoring-session|in-person-tutoring)(?:\/|$)/.test(router.currentRoute?.value?.path||''));
 const onChildcarePage=computed(()=>/\/childcare(?:\/|$)/.test(router.currentRoute?.value?.path||''));
-let generation=0,timer,previousFocus,punchKey=null;
+let generation=0,timer,previousFocus,punchKey=null,checkExistingClock=true;
 const when=shift=>parseUtcInstant(shift.clockedInAt)?.toLocaleString('en-US',{timeZone:shift.timezone||'America/Denver',timeZoneName:'short'})||'the recorded start';
 const message=e=>e.response?.data?.error?.message||'Your clock status could not be updated. Review the shift before retrying.';
 const acknowledgedClocks=new Set();
@@ -38,6 +39,7 @@ const marker=shift=>`${auth.user?.id}:${shift.id}:${shift.clockedInAt}`;
 function acknowledged(shift){return acknowledgedClocks.has(marker(shift));}
 function dismiss(){if(prompt.value)acknowledgedClocks.add(marker(prompt.value));prompt.value=null;previousFocus?.focus?.();}
 async function refresh(){
+ if(!canPollWorkspace())return;
  const token=++generation,uid=auth.user?.id;
  if(!auth.isAuthenticated||!uid){clocks.value=[];prompt.value=null;lookupError.value='';return;}
  try {
@@ -45,7 +47,8 @@ async function refresh(){
   if(token!==generation||uid!==auth.user?.id)return;
   clocks.value=data.shifts||[];lookupError.value='';
   if(prompt.value&&!clocks.value.some(row=>row.id===prompt.value.id))dismiss();
-  if(!prompt.value){const next=clocks.value.find(row=>!acknowledged(row));if(next){previousFocus=document.activeElement;prompt.value=next;choice.value='';actual.value='';punchKey=null;await nextTick();dialog.value?.focus();}}
+  if(checkExistingClock&&!onChildcarePage.value&&!onTutoringPage.value&&!prompt.value){const next=clocks.value.find(row=>!acknowledged(row));if(next){previousFocus=document.activeElement;prompt.value=next;choice.value='';actual.value='';punchKey=null;await nextTick();dialog.value?.focus();}}
+  checkExistingClock=false;
  }catch(e){if(token===generation){
   if([401,403].includes(e.response?.status)){clocks.value=[];prompt.value=null;lookupError.value='';}
   else lookupError.value=clocks.value.length?'Unable to refresh your clock status. Your last confirmed active shift is shown; open Childcare to review your time.':'Childcare clock status is unavailable. Open Childcare to check your recorded time.';
@@ -66,7 +69,8 @@ async function clockOut(){
 }
 function trapFocus(event){const nodes=[...(dialog.value?.querySelectorAll('button:not(:disabled),input,[tabindex="0"]')||[])];if(!nodes.length)return;const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.value)){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
 const visibleRefresh=()=>{if(document.visibilityState==='visible')refresh();};
-watch(()=>[auth.user?.id,auth.isAuthenticated],()=>{generation++;acknowledgedClocks.clear();clocks.value=[];prompt.value=null;error.value='';lookupError.value='';refresh();},{immediate:true,flush:'sync'});
+watch(()=>[auth.user?.id,auth.isAuthenticated],()=>{generation++;checkExistingClock=true;acknowledgedClocks.clear();clocks.value=[];prompt.value=null;error.value='';lookupError.value='';refresh();},{immediate:true,flush:'sync'});
+useSessionPolling(refresh);
 onMounted(()=>{window.addEventListener('childcare-clock-changed',refresh);document.addEventListener('visibilitychange',visibleRefresh);timer=window.setInterval(visibleRefresh,60000);});
 onBeforeUnmount(()=>{generation++;window.clearInterval(timer);window.removeEventListener('childcare-clock-changed',refresh);document.removeEventListener('visibilitychange',visibleRefresh);});
 </script>

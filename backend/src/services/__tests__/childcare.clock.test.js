@@ -115,3 +115,17 @@ describe('childcare real punch to reviewable payroll claim',()=>{
   expect(fixture.state.attendance).toHaveLength(1);
  });
 });
+
+
+it('rejects clock-in earlier than 30 minutes without recording attendance or a punch', async () => {
+  const { state, db } = memoryShift();
+  pool.getConnection.mockResolvedValue(db);
+  const action = { shiftId: 8, userId: 7, action: 'clock-in', confirmPlannedCount: true };
+  await expect(recordChildcareAction({ ...action, now: new Date('2026-11-19T22:21:00Z') }))
+    .rejects.toMatchObject({ status: 409, code: 'CHILDCARE_CLOCK_IN_EARLY' });
+  expect(state.punches).toEqual([]);
+  expect(state.attendance).toEqual([]);
+  await recordChildcareAction({ ...action, now: new Date('2026-11-19T22:30:00Z') });
+  expect(state.punches).toHaveLength(1);
+  expect(state.attendance).toHaveLength(1);
+});

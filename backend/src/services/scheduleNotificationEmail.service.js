@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 import { renderPortalEmail } from './portalEmailBranding.service.js';
 import { resolveWaitlistMailboxes } from './providerWaitlistEmail.service.js';
 import { sendNotificationEmail, sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
@@ -47,7 +48,17 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
     // global/confidential contact choices in the shared delivery gates.
     message.templateType ||= 'session_change';
     if (items.some(item => item.payload?.facts?.reasonCategory)) {
-      const mailboxes = await scheduleMailboxes(agencyId);
+      let mailboxes;
+      try {
+        mailboxes = await scheduleMailboxes(agencyId);
+      } catch (error) {
+        // The synthetic NLU tenant can use the same verified, QA-redirected
+        // notifications identity as its booking confirmation.
+        const tutoringNoShow = learning && items.every(item =>
+          item.payload?.eventType === 'no_show' && item.payload?.facts?.noShowReviewFinalized === true);
+        if (error.code !== 'SCHEDULE_MAILBOX_NOT_CONFIGURED' || !tutoringNoShow || !nluTutoringQaMailDomain(context.tenant)) throw error;
+        return sendClientPortalEmail({ ...message, agencyId, context });
+      }
       const brand = { ...context.brand, replyTo: mailboxes.support, displayName: `${context.tenant.name} Notifications` };
       return sendEmailFromIdentity({ ...message, agencyId, senderIdentityId: mailboxes.senderIdentityId,
         replyToOverride: mailboxes.support, fromDisplayNameOverride: brand.displayName, portalEmailBrand: brand,
