@@ -154,3 +154,25 @@ it('displays the provider and supervisor signatures with local times while keepi
  const {w}=await mountWriter();const signatures=w.get('[aria-label="Electronic signatures"]');expect(signatures.text()).toContain('Synthetic Provider, LSW');expect(signatures.text()).toContain('Nov 5, 2026, 6:23 PM MST');expect(signatures.text()).toContain('Synthetic Supervisor, LPC');expect(signatures.text()).toContain('Nov 11, 2026, 3:33 PM MST');
  const shown=w.get('.mn-signed-section>p').text();expect(shown).toContain('6:13 PM–6:23 PM');expect(shown).not.toContain('T01:23:48');expect(w.get('.mn-original-text p').text()).toBe(original);expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+
+it('updates the end time from a duration edit and preserves the service date',async()=>{
+  const {w}=await mountWriter();
+  const header=w.get('#mobile-encounter-details');
+  const [start,end]=header.findAll('input[type=time]');
+  await start.setValue('17:00');
+  await header.get('input[type=number]').setValue('55');
+  expect(end.element.value).toBe('17:55');
+  expect(header.get('input[type=date]').element.value).toBe('2026-11-06');
+  w.unmount();
+});
+it('restores the server-checked narrative on return and requires review again after an edit',async()=>{
+  const data=fixture();
+  data.draft={id:61,inputText:'Fictional session narrative',outputJson:{sections:{},meta:{writerMode:'narriva'}}};
+  data.review={narriva:review('pre_generation')};
+  api.get.mockResolvedValue({data});
+  const {w}=await mountWriter();
+  expect(w.get('.mn-generate').text()).toContain('Generate note');
+  await w.get('[aria-label="Session Narrative"]').setValue('Changed synthetic facts');
+  expect(w.get('.mn-generate').text()).toContain('Submit for compliance check');
+  w.unmount();
+});

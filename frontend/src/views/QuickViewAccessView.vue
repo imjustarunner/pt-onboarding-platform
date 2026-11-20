@@ -1028,7 +1028,7 @@ function handleMobileLink(event){if(!isMobile.value || event.defaultPrevented ||
 function openMobilePreferences(){showMobileSettings.value=true;}
 async function openMobileClient({clientId,agencyId}){await mobileNavigate({view:'client',clientId:String(clientId),agencyId:String(agencyId)});}
 function openMobileCalendarItem(item){
-  if(item.hasClient && (item.clinicalSessionId || item.officeEventId))return prepareWorkDraft({...item,id:null});
+  if(item.hasClient && (item.clinicalSessionId || item.officeEventId))return prepareWorkDraft({...item,id:null},'session');
   if(item.client_id || item.clientId)return openMobileClient({clientId:item.client_id || item.clientId,agencyId:item.agency_id || item.agencyId || sessionAgencyId.value});
   openCalEvent(item);
 }
@@ -1052,10 +1052,10 @@ async function finishMobileSignature(receipt){
  if(receipt.openNext){const next=await mobileMyWork.value?.nextCosign();if(route.fullPath!==originalRoute)return;if(next)return prepareWorkDraft(next);}
  await mobileNavigate({...mobileWorkFilters(),view:'mywork'},{replace:true});
 }
-async function prepareWorkDraft(item){
+async function prepareWorkDraft(item,view='clinical'){
   // Pending amendments use the full version-review workflow, never the original note signer.
   if(item.clinicalRevisionId)return;
-  const query={...mobileWorkFilters(),view:'clinical'};
+  const query={...mobileWorkFilters(),view};
   for(const [key,value] of Object.entries({workId:item.id || item.serverId,clientId:item.clientId || item.client_id,clinicalSessionId:item.clinicalSessionId || item.clinical_session_id,officeEventId:item.officeEventId || item.office_event_id,draftId:item.draftId || item.draft_id,noteId:item.clinicalNoteId || item.clinical_note_id}))if(value)query[key]=String(value);
   if(item.quickSignRequested)query.quickSign='1';
   if(String(item.id || '').startsWith('cosign_'))delete query.workId;
@@ -2073,7 +2073,7 @@ function openProjectFromTask() {
 }
 
 function openCalEvent(item) {
-  if(isMobile.value && item.hasClient && (item.clinicalSessionId || item.officeEventId)){prepareWorkDraft({...item,id:null});return;}
+  if(isMobile.value && item.hasClient && (item.clinicalSessionId || item.officeEventId)){prepareWorkDraft({...item,id:null},'session');return;}
   calEvent.value = item;
 }
 

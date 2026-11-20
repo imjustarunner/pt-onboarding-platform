@@ -15,7 +15,7 @@ import {loadNarrivaSource,decryptNarrivaDraft} from '../services/narrivaSource.s
 import {ageAtServiceDate} from '../services/noteAidAge.service.js';
 import {readStaffCareEligibility} from '../services/staffCareEligibility.service.js';
 import {resolveAgencySchedulingCatalog} from '../services/agencySchedulingCatalog.service.js';
-import {narrivaWriterCapabilities} from '../services/narrivaReview.service.js';
+import {latestDraftReview,narrivaWriterCapabilities} from '../services/narrivaReview.service.js';
 import {clinicalAccess} from '../services/guardianClinicalAccess.service.js';
 import {clientSecureAudience,ensureClientSecureConversation} from '../services/clientSecureConversation.service.js';
 import {resolveRelayFamily} from '../services/providerSmsRelayIdentity.service.js';
@@ -186,7 +186,12 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   const preferredMode=preference?.default_mode||'manual';
   const defaultMode=preferredMode==='manual'&&capabilities.manualAllowed===false?'narriva':preferredMode;
   const signedContext=noteSource?await noteReviewContext(req,noteSource):null;
-  res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
+  let draftReview=null, reviewUnavailable=false;
+  if(!signedContext && draft?.id && sessionId){
+   try { draftReview=await latestDraftReview(req.user,agencyId,draft.id,sessionId); }
+   catch { reviewUnavailable=true; }
+  }
+  res.json({agencyId,riskAssessmentRequired,reviewUnavailable,review:signedContext?.review || (draftReview ? {narriva:draftReview} : null),client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
    credentialTier:care.credentialTier,treatmentPlan,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});

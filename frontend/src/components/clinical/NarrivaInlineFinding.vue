@@ -12,13 +12,13 @@
     </template>
     <template v-else-if="kind === 'encounter'">
       <div class="narriva-inline-finding__grid">
-        <label>Date of service<input v-model="date" type="date" /></label>
-        <label>Start<input v-model="start" type="time" /></label>
-        <label>End<input v-model="end" type="time" /></label>
-        <label>Duration (minutes)<input v-model.number="duration" type="number" min="1" max="600" /></label>
+        <label v-if="!finding.id?.endsWith(':times')">Date of service<input v-model="date" type="date" /></label>
+        <label>Start<input :value="start" @input="editTime('startTime', $event.target.value)" type="time" /></label>
+        <label>End<input :value="end" @input="editTime('endTime', $event.target.value)" type="time" /></label>
+        <label>Duration (minutes)<input :value="duration" @input="editTime('durationMinutes', $event.target.value)" type="number" min="1" max="600" /></label>
       </div>
-      <ClinicalLocationPicker v-model="location" :choices="locationChoices" :disabled="disabled" />
-      <button type="submit" :disabled="disabled || !date || !location.locationLabel || String(location.placeOfService) === '02' && !String(location.clientLocationDescription || '').trim()">Update session header</button>
+      <ClinicalLocationPicker v-if="!finding.id?.endsWith(':times')" v-model="location" :choices="locationChoices" :disabled="disabled" />
+      <button type="submit" :disabled="disabled || !date || (!finding.id?.endsWith(':times') && !location.locationLabel) || String(location.placeOfService) === '02' && !String(location.clientLocationDescription || '').trim()">Update session header</button>
     </template>
     <template v-else-if="kind === 'risk'">
       <p>Add a risk-assessment to-do to the generated note. Complete it before submitting the note.</p>
@@ -53,6 +53,7 @@
   </form>
 </template>
 <script setup>
+import { synchronizeServiceTimes } from '../../utils/clinicalServiceTimes.js';
 import { computed, ref, watch } from 'vue';
 import ClinicalLocationPicker from './ClinicalLocationPicker.vue';
 import ClinicalDiagnosisSearch from './ClinicalDiagnosisSearch.vue';
@@ -89,6 +90,10 @@ function selectDiagnosis(value) {
   selectedDiagnosis.value = value; diagnosisQuery.value = value.code;
   const existing = (props.context.diagnoses || []).find(item => String(item.icd10_code || item.code || item.icd10Code).toUpperCase() === String(value.code).toUpperCase());
   diagnosisJustification.value = existing?.justification || '';
+}
+function editTime(field, value) {
+  const next = synchronizeServiceTimes({ startTime:start.value, endTime:end.value, durationMinutes:duration.value, [field]:value },field);
+  start.value=next.startTime; end.value=next.endTime; duration.value=next.durationMinutes;
 }
 function apply() {
   if (props.disabled || kind.value === 'presenting' && !presentingProblem.value.trim() || kind.value === 'diagnosis' && (!diagnosisEditable.value || !diagnosisAllowed(selectedDiagnosis.value) || !diagnosisJustification.value.trim())) return;
