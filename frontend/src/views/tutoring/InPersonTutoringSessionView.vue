@@ -10,8 +10,8 @@
             <span v-else>{{ brandInitials }}</span>
           </div>
           <div class="ipts-brand-copy">
-            <p class="ipts-eyebrow">In-Person Tutoring</p>
-            <h1>{{ payload.session?.title || 'Live tutoring session' }}</h1>
+            <h1>Session Hub</h1>
+            <p class="ipts-session-label">In-person tutoring<span v-if="payload.session.title"> · {{ payload.session.title }}</span></p>
             <div class="ipts-meta-row">
               <span class="ipts-pill ipts-pill-student">{{ payload.student?.name || 'Student pending' }}</span>
               <span class="ipts-pill">{{ payload.plan.subjectArea || 'Subject not set' }}</span>
@@ -1212,10 +1212,9 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
-.ipts-eyebrow {
-  margin: 0 0 6px;
-  letter-spacing: 0.18em;
-  font-size: 0.74rem;
+.ipts-session-label {
+  margin: 0.25rem 0 0;
+  font-size: 0.95rem;
   color: var(--ipts-text-soft);
 }
 

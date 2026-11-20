@@ -17,10 +17,10 @@ async function openLearningWorkspace() {
   try {
     const {data:result}=await api.post(`/appointments/${id}/learning-workspace`,{}, {skipGlobalLoading:true});
     if (props.appointmentId!==id) return;
-    if (!/^\/(?:in-person-tutoring-session\/|tutoring-session\/(?:appointment\/)?)\d+$/.test(result.destination||'')) throw new Error('The learning session could not be opened.');
+    if (!/^\/(?:in-person-tutoring-session\/|tutoring-session\/(?:appointment\/)?)\d+$/.test(result.destination||'')) throw new Error('The Session Hub could not be opened.');
     const prefix=route?.params?.organizationSlug?`/${route.params.organizationSlug}`:'';
     window.location.assign(prefix+result.destination);
-  } catch(e) { const message=e.response?.data?.error?.message||e.message||'';error.value=/unknown column|sqlstate|field list|ER_[A-Z_]+/i.test(message)?'The learning session could not be opened. Your appointment is unchanged. Try again, or contact support if this continues.':message||'Could not open the learning session.'; }
+  } catch(e) { const message=e.response?.data?.error?.message||e.message||'';error.value=/unknown column|sqlstate|field list|ER_[A-Z_]+/i.test(message)?'The Session Hub could not be opened. Your appointment is unchanged. Try again, or contact support if this continues.':message||'Could not open the learning session.'; }
   finally { openingLearning.value=false; }
 }
 async function load() {
@@ -48,7 +48,7 @@ watch(() => props.appointmentId, load, { immediate: true });
     <p v-if="error" role="alert" tabindex="-1">{{ error }} <button type="button" :disabled="saving||openingLearning" @click="load">Reload appointment tools</button></p>
     <p v-if="loading" role="status">Loading appointment tools…</p>
     <template v-if="data">
-      <p v-if="data.canOpenLearningWorkspace"><button type="button" :disabled="openingLearning" @click="openLearningWorkspace">{{ openingLearning ? 'Opening…' : 'Open learning session' }}</button></p>
+      <p v-if="data.canOpenLearningWorkspace"><button type="button" :disabled="openingLearning" @click="openLearningWorkspace">{{ openingLearning ? 'Opening…' : 'Open Session Hub' }}</button></p>
       <div class="staff-alert" :class="{ 'staff-alert--active': !!data.alert.text }">
         <div class="staff-alert__heading"><strong>Schedule clip</strong><button v-if="data.canEdit && !editing" type="button" @click="editing = true; draft = data.alert.text; showOnSchedule = !!data.alert.showOnSchedule">{{ data.alert.text ? 'Edit clip' : 'Add clip' }}</button></div>
         <p class="hint">Visible to providers, support, and admin on this appointment. Choose where the clip appears before saving. The note author must acknowledge a current clip before starting or continuing this session note. Never sent to clients.</p>

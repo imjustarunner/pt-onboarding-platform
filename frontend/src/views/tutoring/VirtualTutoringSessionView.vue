@@ -1,6 +1,6 @@
 <template>
  <main class="tutoring-room" :class="{focused}">
-  <header><img v-if="logo" :src="logo" :alt="brand" /><div><p class="brand-name">{{brand}}</p><h1>{{state?.host ? "Teaching workspace" : "Tutoring Session Hub"}}</h1><p><span v-if="state?.studentName">{{state.studentName}} · </span>{{state?.title || 'Tutoring session'}} · {{inPerson?'In person':'Virtual'}}</p><p v-if="state">Appointment #{{ state.appointmentId }} · {{ scheduleLabel }} · {{ statusLabel }}</p></div><button v-if="video" class="focus-toggle" type="button" :aria-pressed="focused" @click="focused=!focused">{{focused?"Show session panels":"Focus on lesson"}}</button><router-link :to="backPath">Back to {{ state?.host ? 'my schedule' : 'my portal' }}</router-link></header>
+  <header><img v-if="logo" :src="logo" :alt="brand" /><div><p class="brand-name">{{brand}}</p><h1>Session Hub</h1><p><span v-if="state?.studentName">{{state.studentName}} · </span>{{state?.title || 'Tutoring session'}} · {{inPerson?'In person':'Virtual'}}</p><p v-if="state">Appointment #{{ state.appointmentId }} · {{ scheduleLabel }} · {{ statusLabel }}</p></div><button v-if="video" class="focus-toggle" type="button" :aria-pressed="focused" @click="focused=!focused">{{focused?"Show session panels":"Focus on lesson"}}</button><router-link :to="backPath">Back to {{ state?.host ? 'my schedule' : 'my portal' }}</router-link></header>
   <p v-if="loading" role="status">Checking your booked session…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="refresh">Try again</button></p>
   <template v-if="state">
@@ -20,7 +20,7 @@
     <details v-if="state.host" class="hub-context" :open="false"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{entry.activePlan?.title || 'Learning plan awaiting review'}}<span v-if="entry.activePlan && !hasApprovedPlan"> · Draft for tutor review</span></p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
     <div class="hub-work">
    <div v-if="!inPerson&&!video&&!closed" class="lesson-lobby">
-    <div><span class="lobby-label">{{state.host?'Tutor workspace':'Shared learning space'}}</span>
+    <div><span class="lobby-label">Virtual tutoring</span>
      <h2>{{state.title || 'Individual tutoring'}}</h2>
      <p>{{state.host?'Start the room here, then admit your student from the waiting list.':'Join this appointment to meet your tutor. Your shared lesson will appear here after admission.'}}</p>
     </div>

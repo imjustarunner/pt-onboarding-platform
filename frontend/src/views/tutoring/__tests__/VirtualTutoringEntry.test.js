@@ -13,6 +13,19 @@ beforeEach(()=>{vi.clearAllMocks();m.failNote=false;m.route.params={appointmentI
 });
 afterEach(()=>{wrapper?.unmount();});
 async function render(){wrapper=mount(Entry,{global:{stubs:{RouterLink:{template:'<a><slot/></a>'},TherapySessionWorkspace:Workspace}}});await flushPromises();return wrapper;}
+it.each([
+  [true, 'VIRTUAL', 'Virtual'],
+  [false, 'VIRTUAL', 'Virtual'],
+  [true, 'IN_PERSON', 'In person'],
+  [false, 'IN_PERSON', 'In person']
+])('keeps the Session Hub title for host=%s in %s', async (host, modality, label) => {
+  Object.assign(m.state, { host, modality });
+  const hub = await render();
+  expect(hub.get('header h1').text()).toBe('Session Hub');
+  expect(hub.get('header').text()).toContain(`Reading tutoring · ${label}`);
+  expect(hub.find('button.primary').exists()).toBe(modality === 'VIRTUAL');
+  expect(hub.text().includes('Start in-person session')).toBe(host && modality === 'IN_PERSON');
+});
 it('opens the exact appointment as host and never navigates to a permanent office',async()=>{const w=await render();expect(w.text()).toContain('Appointment #359');await w.findAll('button').find(b=>b.text()==='Open this tutoring room').trigger('click');await flushPromises();expect(w.findComponent(Workspace).props('isHost')).toBe(true);expect(m.request.mock.calls.find(([c])=>c.url.endsWith('/join'))[0].url).toBe('/tutoring-sessions/359/join');expect(w.text()).not.toMatch(/Unscheduled|HIPAA|beta|Clinical session/);});
 it('keeps family entry in this appointment and hides host notes and admission controls',async()=>{m.state={...m.state,host:false,visit:{id:9,status:'waiting'}};const w=await render();await w.findAll('button').find(b=>b.text()==='Join this tutoring session').trigger('click');await flushPromises();expect(w.text()).toContain('appointment’s waiting room');expect(w.find('textarea').exists()).toBe(false);expect(w.text()).not.toContain('Open this tutoring room');expect(w.findComponent(Workspace).exists()).toBe(false);});
 it('issues no join action while early and displays Denver time',async()=>{m.state={...m.state,available:false};const w=await render();expect(w.text()).toContain('10:30 AM MST');const button=w.findAll('button').find(b=>b.text()==='Open this tutoring room');expect(button.attributes('disabled')).toBeDefined();expect(m.request.mock.calls.some(([c])=>c.method==='post')).toBe(false);});

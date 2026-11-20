@@ -15,6 +15,15 @@ let wrapper;
 beforeEach(()=>{m.route=reactive({params:{sessionId:'10',organizationSlug:'nlu-qa-demo'},query:{}});m.fetch.mockReset();});
 afterEach(()=>wrapper?.unmount());
 const data=(id,name)=>({...createEmptyInPersonPayload(),session:{id,status:'scheduled'},student:{clientId:id,name},canModerate:true});
+it('opens a classroom session with its Session Hub heading and its own lesson title', async () => {
+ const lesson = data(10, 'Parker QA');
+ lesson.session.title = 'Fraction models';
+ m.fetch.mockResolvedValueOnce(lesson);
+ wrapper = shallowMount(View);
+ await flushPromises();
+ expect(wrapper.get('header h1').text()).toBe('Session Hub');
+ expect(wrapper.get('header').text()).toContain('In-person tutoring · Fraction models');
+});
 it('shows a neutral loading state and never grants demo permissions before authorization',async()=>{
  m.fetch.mockReturnValue(new Promise(()=>{}));wrapper=shallowMount(View);await flushPromises();
  expect(wrapper.text()).toContain('Loading this student');expect(wrapper.text()).not.toMatch(/Mia|Lopez/);expect(wrapper.find('.ipts-shell').exists()).toBe(false);expect(wrapper.find('.ipts-stage-card').exists()).toBe(false);
