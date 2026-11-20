@@ -1,3 +1,4 @@
+import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { logAuditEvent } from './auditEvent.service.js';
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
@@ -40,8 +41,16 @@ export async function tutoringSessionPdf(req, sessionId, dependencies = {}) {
     body: { summary: entry.summary, nextSteps: entry.nextSteps, strengthsObserved: entry.strengthsObserved,
       challengesObserved: entry.challengesObserved, homework: entry.homework, parentUpdateDraft: entry.parentUpdateDraft }
   }));
+  const lesson = note.metadata_json?.lessonActivity;
+  const ratingLabel = {secure:'Solved independently', developing:'Solved with support', needs_review:'Needs more practice', not_observed:'Not assessed'};
+  const items = lesson?.snapshot ? JSON.parse(maybeDecryptNotePayload(lesson.snapshot)) : [];
+  const activities = items.map(item => [
+    item.title, item.skill, item.grade && `Grade ${item.grade}`,
+    item.strokes > 0 && `${item.strokes} ink strokes`, ratingLabel[item.rating],
+    ...(item.submissions || []).map((submission,index) => `Response ${index+1}: ${submission.answers.join(' / ')}`)
+  ].filter(Boolean).join(' · ')).join('\n');
   const record = { ...note, title: 'Tutoring Session Record', created_by_user_id: note.created_by_user_id,
-    note_payload: { sections: { 'Session summary': note.summary || 'No summary recorded.', ...(note.metadata_json?.planChecklist ? {} : Object.fromEntries([['Strengths observed',note.strengths_observed],['Challenges observed',note.challenges_observed],['Next steps',note.next_steps],['Homework',note.homework]].filter(([,value])=>value))) } },
+    note_payload: { sections: { 'Session summary': note.summary || 'No summary recorded.', ...(activities ? {'Reviewed session activities': activities} : {}), ...(note.metadata_json?.planChecklist ? {} : Object.fromEntries([['Strengths observed',note.strengths_observed],['Challenges observed',note.challenges_observed],['Next steps',note.next_steps],['Homework',note.homework]].filter(([,value])=>value))) } },
     metadata_json: { dateOfService, serviceCode: 'Tutoring',
       sessionContext: { startTimeLocal: localTime(start), endTimeLocal: localTime(end), durationMinutes: actualDuration, participantsDetail: note.metadata_json?.planChecklist?.participantDetails || null, participants: { student: client.full_name, assignedTutor: tutorName },
         locationLabel: sessionType === 'virtual' ? 'Virtual tutoring' : sessionType === 'in_person' ? 'In person' : null },

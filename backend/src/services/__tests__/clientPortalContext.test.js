@@ -70,7 +70,7 @@ it('sends the QA clinical family to AuricWell like every other EHR enrollment',(
 
 it('keeps NLU synthetic tutoring setup, recovery, parent and session links on the NLU host',()=>{
  const portal={id:453,slug:'nlu-qa-demo',clinical_portal:false,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}};
- for(const path of ['guardian','login','reset-password/opaque','tutoring-session/appointment/12']) {
+ for(const path of ['guardian','login','reset-password/opaque','tutoring-session/appointment/12','tutoring/appointment/12?clientId=8&agencyId=453&serviceId=9']) {
   expect(clientPortalAppUrl(portal,path)).toBe(`https://app.nextleveluplcc.com/nlu-qa-demo/${path}`);
   expect(clientPortalAppUrl(portal,path)).not.toContain('auricwell');
  }

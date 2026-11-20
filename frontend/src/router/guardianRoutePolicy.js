@@ -18,6 +18,7 @@ export function isGuardianOfficeJoinRoute(route) {
 export function isGuardianWorkspaceRoute(route) {
   const path = String(route?.path || '');
   return isGuardianReceiptRoute(route) || isGuardianOfficeJoinRoute(route)
+    || ['VirtualTutoringAppointment','OrganizationVirtualTutoringAppointment'].includes(route?.name)
     || path === '/my-portal' || path === '/guardian'
     || path.endsWith('/guardian') || path.includes('/guardian/')
     || path.endsWith('/client-dashboard') || path.includes('/client-dashboard')

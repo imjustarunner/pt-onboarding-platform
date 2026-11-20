@@ -29,14 +29,14 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
   await state.db.query('CREATE TABLE users (id INT PRIMARY KEY,role VARCHAR(30))');await state.db.query("INSERT INTO users VALUES (5,'provider')");
   await state.db.query('CREATE TABLE provider_my_rooms (id INT PRIMARY KEY,user_id INT,agency_id INT,slug VARCHAR(100),join_token VARCHAR(64),display_name VARCHAR(100),is_active BOOLEAN DEFAULT TRUE,UNIQUE KEY uq_provider_my_rooms_user(user_id))');
   await state.db.query('CREATE TABLE counseling_sessions (id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,provider_user_id INT,client_user_id INT,appointment_id INT,title VARCHAR(100),guest_invite_token VARCHAR(64),public_id VARCHAR(36),created_at DATETIME DEFAULT CURRENT_TIMESTAMP,status VARCHAR(20),vonage_session_id VARCHAR(512),vonage_application_id VARCHAR(100),started_at DATETIME,ended_at DATETIME)');
-  for(const name of ['1456_security_evidence.sql','1522_private_virtual_offices.sql','1530_tenant_office_session_workspace.sql','1531_clinical_encounter_security.sql','1560_unified_virtual_office.sql','1685_private_office_messages.sql']){
+  for(const name of ['1456_security_evidence.sql','1522_private_virtual_offices.sql','1530_tenant_office_session_workspace.sql','1531_clinical_encounter_security.sql','1560_unified_virtual_office.sql','1680_tutoring_office_encounters.sql','1684_tutoring_appointment_sessions.sql','1685_private_office_messages.sql','1855_shared_teaching_board.sql']){
    const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');
    for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);
   }
   await state.db.query("INSERT INTO provider_my_rooms(id,user_id,agency_id,slug,display_name) VALUES (1,5,2,'permanent-office','Provider')");
   await state.db.query('CREATE TABLE appointments (id INT PRIMARY KEY,agency_id INT,provider_user_id INT,title VARCHAR(100),start_at DATETIME,end_at DATETIME,modality VARCHAR(24),business_type VARCHAR(24),status VARCHAR(24),office_event_id INT)');
   await state.db.query('CREATE TABLE learning_program_classes (id INT PRIMARY KEY,organization_id INT)');
-  await state.db.query('CREATE TABLE learning_class_sessions (id INT PRIMARY KEY,learning_class_id INT,provider_user_id INT,delivery_context VARCHAR(24),title VARCHAR(100),description TEXT,status VARCHAR(24),starts_at DATETIME,ends_at DATETIME)');
+  await state.db.query('CREATE TABLE learning_class_sessions (id INT PRIMARY KEY,learning_class_id INT,provider_user_id INT,delivery_context VARCHAR(24),title VARCHAR(100),description TEXT,status VARCHAR(24),starts_at DATETIME,ends_at DATETIME,session_subtype VARCHAR(30),mode VARCHAR(30))');
   await state.db.query('CREATE TABLE clients (id INT PRIMARY KEY,agency_id INT,full_name VARCHAR(100),initials VARCHAR(10),date_of_birth DATE)');
   await state.db.query('CREATE TABLE appointment_participants (appointment_id INT,client_id INT)');
   await state.db.query('CREATE TABLE client_agency_assignments (client_id INT,agency_id INT,is_active BOOLEAN)');
@@ -69,6 +69,45 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
   expect((await readWorkspace(bc)).artifacts).toEqual([]);
   await expect(readWorkspace({...bc,agencyId:999})).rejects.toMatchObject({status:404});
   const [[stored]]=await state.db.execute('SELECT payload_envelope FROM therapy_session_artifacts');expect(stored.payload_envelope).not.toContain('Synthetic private A content');
+ });
+ it('protects tutor ink and the current page across guest edits, reconnects, and retries',async()=>{
+  const hostVideo=await officeHostVideo(room);await connect(hostVideo,'host');
+  const visit=await joinOffice(room,{displayName:'Synthetic learner'});
+  await admitOfficeGuest(room,visit.id);
+  const guest=await officeWorkspaceContext(room,{id:visit.id,credential:visit.credential});
+  const host=await officeWorkspaceContext(room);
+  const write=(ctx,type,payload,requestId)=>appendWorkspace(ctx,{type,payload,requestId});
+  const {artifact:board}=await write(host,'share',{mode:'whiteboard'});
+  const stroke={shareId:board.id,color:'#123456',points:[[10,20],[20,40]],width:4};
+  await expect(write(guest,'drawing',stroke)).rejects.toMatchObject({status:403});
+  const hostStroke=(await write(host,'drawing',stroke)).artifact;
+  await write(host,'board_lock',{shareId:board.id,locked:false});
+  const key='103cfab2-2411-480e-83b5-23826a204f9f';
+  const [a,b]=await Promise.all([write(guest,'drawing',stroke,key),write(guest,'drawing',stroke,key)]);
+  expect(a.artifact.id).toBe(b.artifact.id);
+  const mine={shareId:board.id,targetId:a.artifact.id};
+  await write(guest,'board_visibility',{...mine,visible:false});
+  await write(guest,'board_visibility',{...mine,visible:true});
+  await expect(write(guest,'board_visibility',{shareId:board.id,targetId:hostStroke.id,visible:false})).rejects.toMatchObject({status:403});
+  await write(host,'board_visibility',{...mine,visible:false});
+  await expect(write(guest,'board_visibility',{...mine,visible:false})).rejects.toMatchObject({status:409});
+  await expect(write(guest,'board_visibility',{...mine,visible:true})).rejects.toMatchObject({status:403});
+  await expect(write(guest,'board_clear',{shareId:board.id})).rejects.toMatchObject({status:403});
+  await expect(write(guest,'share',{mode:'video'})).rejects.toMatchObject({status:403});
+  const {artifact:q}=await write(host,'board_prompt',{shareId:board.id,prompt:'Which number is greater?',format:'choice',options:['3','4'],x:6,y:5,width:50});
+  await write(host,'board_move',{shareId:board.id,targetId:q.id,x:9,y:10,width:60});
+  await expect(write(guest,'board_answer',{shareId:board.id,targetId:q.id,answer:'7'})).rejects.toMatchObject({status:400});
+  await write(guest,'board_answer',{shareId:board.id,targetId:q.id,answer:'4'});
+  await write(host,'board_lock',{shareId:board.id,locked:true});
+  const rejoined=await officeWorkspaceContext(room,{id:visit.id,credential:visit.credential});
+  expect((await readWorkspace(rejoined)).artifacts.filter(e=>e.type==='drawing')).toHaveLength(2);
+  await expect(write(rejoined,'drawing',stroke)).rejects.toMatchObject({status:403});
+  await write(host,'board_clear',{shareId:board.id});
+  await expect(write(host,'board_visibility',{shareId:board.id,targetId:q.id,visible:true})).rejects.toMatchObject({status:409});
+  await write(host,'share',{mode:'whiteboard'});
+  await expect(write(host,'drawing',stroke)).rejects.toMatchObject({status:409});
+  await write(host,'share',{mode:'whiteboard',boardId:board.id});
+  await write(host,'drawing',stroke);
  });
  it('serializes competing admission requests and requires explicit couples intent',async()=>{
   const host=await officeHostVideo(room);await connect(host,'provider');
@@ -135,7 +174,8 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
   const session={id:7,agency_id:2};const visit=await joinCounselingVisit(client,session);await admitCounselingVisit(session,visit.id,provider);
   const token=await counselingClinicalToken(client,7,'client');await connect(token,'counseling-client');
   const ctx={kind:'counseling',sessionId:7,agencyId:2,role:'client',actor:'client-10',visitId:visit.id};
-  await appendWorkspace(ctx,{type:'share',payload:{mode:'whiteboard',title:'Client drawing'}});
+  await expect(appendWorkspace(ctx,{type:'share',payload:{mode:'whiteboard'}})).rejects.toMatchObject({status:403});
+  await appendWorkspace({...ctx,role:'provider',actor:'user-5'},{type:'share',payload:{mode:'whiteboard',title:'Shared page'}});
   expect(await endClinicalCounseling(provider,7)).toMatchObject({state:'ending'});
   await expect(counselingClinicalToken(client,7,'client')).rejects.toMatchObject({status:410});
   await expect(appendWorkspace(ctx,{type:'chat',payload:{text:'late'}})).rejects.toMatchObject({status:410});
@@ -202,10 +242,10 @@ describe.skipIf(!socket)('isolated clinical encounter database',()=>{
  it('lists only the owning provider and agency, keeps tutoring in its full view, and validates the day',async()=>{
   await booking();await booking(21,11,3,5);await booking(22,12,2,6);
   await state.db.execute("INSERT INTO learning_program_classes VALUES (1,2)");
-  await state.db.execute("INSERT INTO learning_class_sessions VALUES (1,1,5,'virtual','Math practice','Full tutoring tools','scheduled',UTC_TIMESTAMP(),NULL)");
+  await state.db.execute("INSERT INTO learning_class_sessions VALUES (1,1,5,'virtual','Math practice','Full tutoring tools','scheduled',UTC_TIMESTAMP(),NULL,'tutoring','individual')");
   const day={from:new Date(Date.now()-3600000).toISOString(),to:new Date(Date.now()+7200000).toISOString()};
   const {items}=await officeSchedule(room,day);expect(items.map(i=>i.appointmentId).filter(Boolean)).toEqual([20]);
-  expect(items.find(i=>i.kind==='tutoring')).toMatchObject({type:'meeting',url:'/tutoring-session/1',canOpen:true});
+  expect(items.find(i=>i.kind==='tutoring')).toMatchObject({type:'tutoring',url:'/tutoring-session/1',canOpen:true});
   await expect(officeSchedule(room,{from:day.from,to:new Date(Date.now()+72*3600000).toISOString()})).rejects.toMatchObject({status:400});
  });
  it('keeps missing clinical records pending and never updates another provider record',async()=>{
