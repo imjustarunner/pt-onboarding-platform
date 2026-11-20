@@ -207,7 +207,8 @@ it('shows unavailable submission evidence without a fabricated zero-percent scor
  const data=fixture();data.note={id:99,readOnly:true,outputJson:{sections:{Narrative:'Signed note.'},meta:{}}};data.review={canCosign:true,narriva:{...review(),status:'unavailable',quickSignEligible:false,scoring:{score:0,threshold:70},message:'Private guidance unavailable.'}};api.get.mockResolvedValue({data});const {w}=await mountWriter();expect(w.text()).toContain('Score unavailable');expect(w.text()).toContain('Private guidance unavailable');expect(w.text()).not.toContain('0%');expect(w.find('.mn-quick-sign').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
 
-it('retries a failed signature on the same reviewed chart note without attaching or checking again',async()=>{
+it.each([['90834','PROGRESS_NOTE'],['90791','INTAKE'],['H0031','INTAKE']])('retries %s on the same reviewed %s without attaching or checking again',async(code,noteType)=>{
+ const initial=fixture();initial.session.serviceCode=code;initial.serviceCodes=[{code,label:code,serviceInfo:{code,status:'verified',title:code}}];api.get.mockResolvedValue({data:initial});
  let attempts=0;
  api.post.mockImplementation(async(url,body)=>{
    if(url.endsWith('/drafts'))return {data:{draft:{id:61}}};
@@ -227,7 +228,8 @@ it('retries a failed signature on the same reviewed chart note without attaching
  expect(w.get('.mn-sign').text()).toContain('Signature could not be saved.');
  await w.get('.mn-sign button').trigger('click');await flushPromises();
  expect(w.text()).toContain('Provider signature saved');
- expect(api.post.mock.calls.filter(([url])=>url.endsWith('/sessions/82/notes'))).toHaveLength(1);
+ const attachments=api.post.mock.calls.filter(([url])=>url.endsWith('/sessions/82/notes'));
+ expect(attachments).toHaveLength(1);expect(attachments[0][1].noteType).toBe(noteType);
  expect(api.post.mock.calls.filter(([url,body])=>url.endsWith('/narriva/reviews') && body.noteId===99)).toHaveLength(1);
  w.unmount();
 });

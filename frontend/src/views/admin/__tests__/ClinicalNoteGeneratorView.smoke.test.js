@@ -1256,6 +1256,50 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it.each([['h0031_intake',true],['90791_intake_plan',true],['h2011_note',true],['h0004_note',true],['treatment_summary',false],['termination',false]])('starts the correct review for the scheduled %s writer',async(aid,expected)=>{
+    const {wrapper,state}=await workspace(aid);
+    try {
+      state.selectedClientId=22;state.selectedClient={id:22,agency_id:7};
+      await flushPromises();
+      state.sessionClinicalSessionId=9;state.sessionAppointmentId=109;state.noteWriterMode='narriva';
+      await nextTick();
+      expect(state.narrivaPreGenerationRequired).toBe(expected);
+    } finally {wrapper.unmount();}
+  });
+
+  it('retries the desktop signature on the reviewed encounter without generating or checking another chart copy',async()=>{
+    const {wrapper,state}=await workspace('h0004_note');
+    try {
+      state.selectedClientId=22;state.selectedClient={id:22,agency_id:7};
+      await flushPromises();
+      state.sessionClinicalSessionId=9; state.sessionAppointmentId=109;state.draftId=42;
+      state.dateOfService='2026-11-03';state.noteWriterMode='narriva';
+      state.chartTreatmentPlans=[{id:91,agency_id:7,client_id:22,status:'active',effective_date:'2026-10-20',goals:[]}];
+      state.latestTreatmentPlan=state.chartTreatmentPlans[0];
+      state.outputObj={sections:{Narrative:'Synthetic encounter.'},meta:{generationReceipt:'test'}};
+      state.narrivaConsentConfirmed=true;
+      await flushPromises();
+      state.attestAccurateAndComplete=true;state.attestMedicallyNecessary=true;state.attestAiContentReviewed=true;
+      state.narrivaReview={id:30,phase:'output',status:'passed'};
+      let attempts=0;
+      vi.mocked(api.post).mockImplementation(async url=>{
+        if(url.endsWith('/notes'))return {data:{note:{id:77,signingToken:'synthetic'}}};
+        if(url.endsWith('/reviews'))return {data:{review:{id:31,phase:'output',status:'passed'}}};
+        if(url.endsWith('/sign')){
+          if(++attempts===1)throw Error('Temporary signature failure.');
+          return {data:{signedAt:'2026-11-03T17:12:34Z'}};
+        }
+        return {data:{}};
+      });
+      await state.approveNoteOutput({afterSign:'close'});
+      expect(state.approvalError).toContain('Temporary signature failure');
+      await state.approveNoteOutput({afterSign:'close'});
+      expect(state.approvalError).toBe('');
+      expect(attempts).toBe(2);
+      for (const suffix of ['/sessions/9/notes','/reviews']) expect(vi.mocked(api.post).mock.calls.filter(([url])=>url.endsWith(suffix))).toHaveLength(1);
+    } finally {wrapper.unmount();}
+  });
+
   it('uses the saved snapshot token and server signature time for a treatment summary', async () => {
     const { wrapper, state } = await workspace('treatment_summary');
     try {

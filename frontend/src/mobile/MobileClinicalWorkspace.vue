@@ -17,7 +17,7 @@ import { activateClinicalRecovery,canRetainClinicalRecovery,stashClinicalRecover
 import ServiceInformation from '../components/notes/ServiceInformation.vue';
 import { isProBonoFundingCode, underlyingClinicalServiceOptions } from '../utils/clinicalServiceReference.js';
 import { NARRIVA_BRAND } from '../config/narrivaBrand.js';
-import { aidAllowsInteractiveComplexity, aidSkipsMentalStatusExam, aidDiagnosisMode, findNoteAidByToolOrCode } from '../config/noteAidWorkspace.js';
+import { aidKind, aidAllowsInteractiveComplexity, aidSkipsMentalStatusExam, aidDiagnosisMode, findNoteAidByToolOrCode } from '../config/noteAidWorkspace.js';
 import { createEmptyCsNoteBuildState, serializeCsNoteBuildForGenerate, CS_DEFAULT_INTERVENTIONS } from '../utils/csNoteBuild.js';
 import { useNarrivaReview } from '../composables/useNarrivaReview.js';
 import { synchronizeServiceTimes } from '../utils/clinicalServiceTimes.js';
@@ -46,6 +46,7 @@ function updateAssessment(field,value){
   if(field==='riskAssessment')riskCompleted.value=false;
 }
 const riskDomainComplete=computed(()=>mode.value==='narriva' ? isRiskAssessmentComplete(assessmentChart.value.riskAssessment) : riskDomains.every(key=>!!riskChoices[key]));
+const encounterAid=computed(()=>findNoteAidByToolOrCode({toolId:output.value?.meta?.toolId,serviceCode:underlyingCode.value || encounter.serviceCode})?.aid);
 const mseRequired=computed(()=>mode.value==='narriva' && !aidSkipsMentalStatusExam(findNoteAidByToolOrCode({serviceCode:underlyingCode.value || encounter.serviceCode})?.aid,underlyingCode.value || encounter.serviceCode));
 const assessmentPending=computed(()=>mseRequired.value && !isMentalStatusExamComplete(assessmentChart.value.mentalStatusExam) || (riskIncluded.value || requiredRisk.value) && (!riskCompleted.value || !riskDomainComplete.value));
 const mseHistory=ref([]);
@@ -54,6 +55,7 @@ const locationChoices=computed(()=>context.value?.locationChoices || []);
 const riskIncluded=ref(false),riskCompleted=ref(false),riskText=ref(''),riskRequiredLatched=ref(false),accurate=ref(false),necessary=ref(false),dirty=ref(false);
 const {review,busy:reviewBusy,error:reviewError,runReview,observeReview,resolveFinding,invalidate}=useNarrivaReview({agencyId,apiClient:{get:(...args)=>api.value.get(...args),post:(...args)=>api.value.post(...args),patch:(...args)=>api.value.patch(...args)}});
 let pendingAuthorSignature=null;
+let savedRatingBatch=null;
 let generation=0,hydrating=false,saveTimer=null,savePromise=null,revision=0,disposed=false,completionTimer=null;
 const readOnly=computed(()=>context.value?.note?.readOnly===true);
 const manualBlocked=computed(()=>mode.value==='manual' && context.value?.preferences?.features?.manualAllowed===false);
@@ -156,7 +158,7 @@ async function save(explicit=false){
   return savePromise;
 }
 async function load(){
-  const current=++generation;pendingAuthorSignature=null;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;reviewStarted.value=false;reviewPhase.value='output';preflightSource.value='';receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
+  const current=++generation;pendingAuthorSignature=null;savedRatingBatch=null;editingNoteSection.value='';clearTimeout(completionTimer);savedSignature.value=null;hydrating=true;loading.value=true;error.value='';notice.value='';context.value=null;sessionPresentingProblemOverride.value=null;reviewStarted.value=false;reviewPhase.value='output';preflightSource.value='';receiptMatches.value=false;invalidate();clearTimeout(saveTimer);dirty.value=false;
   try{const {data}=await api.value.get('/context',{params:selection.value});if(current!==generation)return;context.value=data;const saved=data.draft?.outputJson || data.note?.outputJson || {sections:{Narrative:''},meta:{}};output.value=typeof saved==='string'?JSON.parse(saved):saved;output.value.sections ||= {Narrative:''};output.value.meta ||= {};
     sessionPresentingProblemOverride.value=typeof output.value.meta.narrivaContext?.presentingProblemOverride==='string'?output.value.meta.narrivaContext.presentingProblemOverride:null;
     draftId.value=data.draft?.id || null;defaultMode.value=data.preferences?.defaultMode || 'manual';mode.value=output.value.meta.writerMode || output.value.meta.narrivaContext?.writerMode || (data.draft || data.note?(output.value.meta.manualSections?'manual':'narriva'):defaultMode.value);if(!data.draft && !data.note && mode.value==='manual' && data.preferences?.features?.manualAllowed===false)mode.value='narriva';
@@ -237,12 +239,17 @@ function applyInlineUpdate(patch){
 async function saveRatings(){
   const rows=currentRatings(), client=api.value, batchSize=4;
   const scope={agencyId:agencyId.value,clientId:context.value.client.id,clinicalSessionId:context.value.session?.id,draftId:Number(draftId.value)||null,dateOfService:encounter.dateOfService};
+  const batch=JSON.stringify([scope,ratingDecisionKey(rows)]);
+  if(batch===savedRatingBatch)return;
+  savedRatingBatch=null;
+  const owner=generation;
   for(let offset=0;offset<rows.length;offset+=batchSize){
     const writes=await Promise.allSettled(rows.slice(offset,offset+batchSize).map(({objectiveId,scaleValue,disposition,raterKind})=>
       client.post(`/objectives/${objectiveId}/ratings`,{...scope,scaleValue,disposition,raterKind})));
     const failed=writes.find(result=>result.status==='rejected');
     if(failed)throw failed.reason;
   }
+  if(owner===generation)savedRatingBatch=batch;
 }
 async function generate(){
   if(generating.value || readOnly.value || blockingAlerts.value.length)return;
@@ -282,7 +289,7 @@ async function sign(){
     let note=pendingAuthorSignature?.note;
     if(!note){
       const {data}=await api.value.post(`/sessions/${context.value.session.id}/notes`,{
-        title:`Clinical note ${encounter.dateOfService}`,noteType:'PROGRESS_NOTE',serviceCode:encounter.serviceCode,
+        title:`Clinical note ${encounter.dateOfService}`,noteType:aidKind(encounterAid.value)==='intake'?'INTAKE':'PROGRESS_NOTE',serviceCode:encounter.serviceCode,
         notePayload:JSON.stringify({sections:outputJson.sections}),
         primaryDiagnosisId:context.value.treatmentPlan?.diagnoses?.[0]?.id || null,
         diagnosticJustification:outputJson.meta.structuredChart.diagnosticJustification || null,

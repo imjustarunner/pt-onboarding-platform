@@ -1684,7 +1684,7 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
 
-    const checkedDraft = req.body?.writerMode === 'narriva' && isProgressNoteToolId(toolId) && generationSessionContext.clinicalSessionId
+    const checkedDraft = req.body?.writerMode === 'narriva' && generationSessionContext.clinicalSessionId && (isProgressNoteToolId(toolId) || req.body?.preflightReviewId)
       ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance })
       : null;
     const {workingDraft, reviewedWriter, objectives, ...verifiedReview} = checkedDraft || {};
@@ -1697,7 +1697,7 @@ export const generateClinicalNote = async (req, res, next) => {
     // custom programs or clinical material outside the review still need a rewrite.
     const reviewedRatings=Array.isArray(savedGenerationMeta.objectiveRatings)
       ? savedGenerationMeta.objectiveRatings.filter(row=>row && (!row.raterKind || row.raterKind==='clinician')) : [];
-    const reuseReviewedDraft=!!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
+    const reuseReviewedDraft=isProgressNoteToolId(toolId) && !!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
       && reviewedWriter.guidanceHash===narrivaGuidance.guidanceHash && !revisionInstruction && !usedAudioTranscript
       && !customAidRow && !programId && !programLabel && !applyInteractiveComplexity && !effectiveAutoSelect
       && !intakeTool && !terminationRequested && serviceCode!=='90839' && !questionnaireInstruments.length
@@ -1728,7 +1728,12 @@ export const generateClinicalNote = async (req, res, next) => {
       ? (intakeTool ? applyIntakeIdentifyingAge(parsedSections, encounterAge) : parsedSections)
       : { Output: String(text || '').trim() };
 
-    if (narrivaPreflight?.clinicalContext) Object.assign(sections,progressContextSections(narrivaPreflight.clinicalContext));
+    if (narrivaPreflight?.clinicalContext) {
+      for (const [title,value] of Object.entries(progressContextSections(narrivaPreflight.clinicalContext))) {
+        // An intake can establish a new formulation from enrollment and assessments.
+        if (!intakeTool || !sections[title]?.trim()) sections[title]=value;
+      }
+    }
     if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
     if (objectives?.length) sections['Treatment objective ratings'] = formatObjectiveRatings(objectives);
 

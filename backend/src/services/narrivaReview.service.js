@@ -18,7 +18,7 @@ import { NARRIVA_RULES_VERSION,NARRIVA_QUALITY_CRITERIA,emptyNarrivaChecks,deriv
 import {requireNarrivaIdentifierCorrection} from './narrivaInputPrivacy.service.js';
 import {clinicalNoteModelOptions} from '../config/clinicalNoteModel.js';
 import {narrivaSourceHash} from './narrivaReviewPolicy.service.js';
-import {narrivaDraftEvidenceHash,narrivaNoteEvidenceHash,verifiedBoundNarrivaDecisions} from './narrivaRiskAssessment.service.js';
+import {narrivaDraftEvidenceHash,narrivaNoteEvidenceHash,verifiedBoundNarrivaReview,verifiedBoundNarrivaDecisions} from './narrivaRiskAssessment.service.js';
 export {assertNarrivaRiskBeforeSignature} from './narrivaRiskAssessment.service.js';
 
 const activeJobs=new Set();
@@ -83,6 +83,51 @@ async function inspectOutputOnce(key,generate){
  const pending=generate();
  pendingOutputRequests.set(key,pending);
  try{return await pending;}finally{pendingOutputRequests.delete(key);}
+}
+// Compare the clinical evidence the reviewer actually saw. Draft and chart rows
+// have distinct IDs, timestamps and JSON key order even when their contents agree.
+function authorOutputHash(source) {
+ const {note,sessionNarrative,...modelEvidence}=narrivaModelPayload(source);
+ const context=source.meta.sessionContext || {};
+ const chart=source.meta.structuredChart || {};
+ const date=source.source.date_of_service || source.meta.dateOfService || context.dateOfService;
+ const inputHash=source.noteId && !sessionNarrative ? source.meta.narrivaPreflight?.inputHash : narrivaSourceHash(sessionNarrative);
+ return narrivaSourceHash({
+  sections:source.sectionContent || note,inputHash,modelEvidence,tool:source.meta.toolId,
+  mse:chart.mentalStatusExam || null,risk:chart.riskAssessment || null,medications:chart.medications || null,
+  encounter:source.encounter,service:source.service,clinical:source.clinical,
+  date:(date instanceof Date?date.toISOString():String(date || '')).slice(0,10),
+  start:context.startTimeLocal,end:context.endTimeLocal,diagnoses:source.confirmedClinicalContext,
+  assessments:source.assessmentManifest || [],ratings:source.meta.objectiveRatings || [],
+  identifiers:[...(source.identifiers || [])].sort(),credential:source.provider?.credential,
+  role:source.provider?.role,rules:NARRIVA_RULES_VERSION
+ });
+}
+
+async function reviewedChartCopy(user,source) {
+ const note=source.source;
+ if(!source.noteId || note.provider_signed_at || Number(note.created_by_user_id)!==Number(user.id)
+    || Number(note.addendum_count)>0 || Number(note.clinical_version_id)>0 || note.clinical_version_pending_id || source.meta.narrivaPreflight?.phase!=='output')return null;
+ const bound=await verifiedBoundNarrivaReview(note);
+ if(bound?.phase!=='output')return null;
+ const prior=await readStoredReview(bound.reviewId);
+ if(prior.phase!=='output' || prior.noteId || prior.actorUserId!==Number(user.id)
+   || prior.clientId!==Number(source.client.id) || prior.agencyId!==source.agencyId
+   || prior.clinicalSessionId!==Number(note.clinical_session_id) || prior.draftId!==Number(source.meta.draftId)
+   || !['passed','bypassed'].includes(prior.status) || prior.rulesVersion!==NARRIVA_RULES_VERSION
+   || prior.checks?.length!==5 || !prior.checks.every(check=>['passed','bypassed'].includes(check.status)))return null;
+ let originalHash=prior.authorOutputHash;
+ if(!originalHash){
+  // Older saved output reviews can be carried forward only while the original
+  // authorized draft still matches the source hash checked at the time.
+  const draft=await loadNarrivaSource(user,{agencyId:source.agencyId,draftId:prior.draftId,phase:'output'});
+  if(draft.sourceHash!==prior.sourceHash)return null;
+  originalHash=authorOutputHash(draft);
+ }
+ if(originalHash!==authorOutputHash(source))return null;
+ const guidance=await loadNarrivaGuidance(source);
+ if(guidance.guidanceHash!==prior.guidanceHash || guidance.serviceReferenceHash!==prior.serviceReferenceHash)return null;
+ return prior;
 }
 async function previousOutputEvidence(source,review,requestHash) {
  const draftId=positiveId(source.draftId || source.meta?.draftId);
@@ -179,6 +224,7 @@ async function executeReview(id,user,input,req,source) {
   review.checks[0].status='running';await persist(review);
   const {workingDraft,reviewedWriter,facts,qualityEvidence,guidanceHash,serviceReferenceHash,model,requestHash}=await inspectNarrivaFacts(source,{review});
   if(requestHash)review.outputEvidence={requestHash,facts};
+  if(review.draftId && review.phase==='output')review.authorOutputHash=authorOutputHash(source);
   if(workingDraft)review.workingDraft=workingDraft;
   if(reviewedWriter)review.reviewedWriter=reviewedWriter;
   review.guidanceHash=guidanceHash;review.serviceReferenceHash=serviceReferenceHash;review.model=model;
@@ -281,8 +327,23 @@ export async function createNarrivaReview(req) {
  }
  if(!features.compliance)throw narrivaError(403,'Narriva Compliance is disabled for this workspace.');
  const review={agencyId:source.agencyId,actorUserId:req.user.id,clientId:positiveId(source.client.id),clinicalSessionId:positiveId(source.source.clinical_session_id),draftId:input.draftId,noteId:input.noteId,phase:input.phase,inputHash:narrivaSourceHash(source.inputText),noteEvidenceHash:source.noteId?narrivaNoteEvidenceHash(source.source):null,draftEvidenceHash:source.draftId && source.phase==='output'?narrivaDraftEvidenceHash(source.source):null,sourceHash:source.sourceHash,rulesVersion:NARRIVA_RULES_VERSION,status:'running',checks:emptyNarrivaChecks(),scoring:pendingNarrivaScoring(),riskAssessmentIncluded:source.clinical.riskAssessmentIncluded===true,riskAssessmentRequired:false,quickSignEligible:false};
- const [row]=await pool.execute('INSERT INTO narriva_reviews(agency_id,actor_user_id,draft_id,clinical_note_id,clinical_session_id,source_hash,rules_version,status,result_encrypted) VALUES(?,?,?,?,?,?,?,?,?)',[source.agencyId,req.user.id,input.draftId,input.noteId,source.source.clinical_session_id || null,source.sourceHash,NARRIVA_RULES_VERSION,'running',maybeEncryptNotePayload(JSON.stringify(review))]);
+ const prior=await reviewedChartCopy(req.user,source);
+ if(prior){
+  Object.assign(review,{checks:prior.checks,qualityEvidence:prior.qualityEvidence,qualityContext:prior.qualityContext,
+   qualityBypass:prior.qualityBypass,priorDecisions:prior.priorDecisions || [],longitudinal:prior.longitudinal,
+   model:prior.model,guidanceHash:prior.guidanceHash,serviceReferenceHash:prior.serviceReferenceHash,
+   riskAssessmentRequired:prior.riskAssessmentRequired,status:prior.status,completedAt:new Date().toISOString(),originatingOutputReviewId:prior.id});
+  review.scoring=reviewedScoring(review,source);
+  review.status=reviewedStatus(review);
+  review.scoring=reviewedScoring(review,source);
+ }
+ const [row]=await pool.execute('INSERT INTO narriva_reviews(agency_id,actor_user_id,draft_id,clinical_note_id,clinical_session_id,source_hash,rules_version,status,result_encrypted,risk_assessment_required,completed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[source.agencyId,req.user.id,input.draftId,input.noteId,source.source.clinical_session_id || null,source.sourceHash,NARRIVA_RULES_VERSION,review.status,maybeEncryptNotePayload(JSON.stringify(review)),review.riskAssessmentRequired?1:0,prior?new Date():null]);
  review.id=Number(row.insertId);
+ if(prior){
+  await logNoteAidChartEvent(req,{agencyId:source.agencyId,clientId:source.client.id,action:'narriva_review_completed',metadata:{
+    reviewId:review.id,originatingOutputReviewId:prior.id,status:review.status,sourceHash:review.sourceHash,rulesVersion:NARRIVA_RULES_VERSION}});
+  return review;
+ }
  setImmediate(()=>{void executeReview(review.id,req.user,input,req,source);});return review;
 }
 export async function readNarrivaReview(user,id,agencyId,{clinicalDb,poll=false}={}) {

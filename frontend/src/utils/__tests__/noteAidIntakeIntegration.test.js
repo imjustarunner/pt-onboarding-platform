@@ -69,3 +69,9 @@ describe('generated intake integration', () => {
 });
 
 it('keeps separately generated justifications attached to each code in order',()=>{const diagnoses=intakeDiagnoses({Diagnosis:'F41.1 Generalized anxiety disorder\nZ63.4 Family context','Diagnostic Justification':'F41.1: Source-supported anxiety symptoms with functional impact.\n\nZ63.4: Documented family circumstance affecting care.'});expect(diagnoses.map(d=>d.justification)).toEqual(['Source-supported anxiety symptoms with functional impact.','Documented family circumstance affecting care.']);const sections=intakeSectionsForRecord({}, {diagnoses});expect(sections['Diagnostic Justification']).toBe('F41.1: Source-supported anxiety symptoms with functional impact.\n\nZ63.4: Documented family circumstance affecting care.');});
+
+it('carries existing chart codes and the clinical formulation into the reviewed intake',()=>{
+  const sections=intakeSectionsForRecord({}, {diagnoses:[{code:'F41.1',description:'Anxiety',justification:'Documented worry.'},{icd10_code:'Z63.4',description:'Family context'}],diagnosticJustification:'The evaluation documented functional impairment.'});
+  expect(sections.Diagnosis).toBe('F41.1 Anxiety\nZ63.4 Family context');
+  expect(sections['Diagnostic Justification']).toBe('F41.1: Documented worry.\n\nThe evaluation documented functional impairment.');
+});

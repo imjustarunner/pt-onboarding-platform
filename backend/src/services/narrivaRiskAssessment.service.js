@@ -124,20 +124,23 @@ async function boundReviewEvidence(note,metadata,claim,{database,drafts}) {
  const kept=decisions(review);
  return {reviewId:id(row.id),sourceHash:row.source_hash,inputHash:review.inputHash,decisions:kept,riskBypassed:riskBypassed(review,note.created_by_user_id)};
 }
-/** Supervisor flags are display data. Only this verified binding grants inheritance. */
-export async function verifiedBoundNarrivaDecisions(note,{database=pool,drafts=ClinicalNoteDraft}={}) {
+export async function verifiedBoundNarrivaReview(note,{database=pool,drafts=ClinicalNoteDraft}={}) {
  const metadata=object(note.metadata_json);
- if(object(metadata.narrivaPreflightBinding)._enc!==true)return [];
+ if(object(metadata.narrivaPreflightBinding)._enc!==true)return null;
  try {
   const claim=object(maybeDecryptNotePayload(metadata.narrivaPreflightBinding));
   if(claim.v!==1 || !['agencyId','clientId','clinicalSessionId','authorUserId','draftId'].every(key=>id(claim[key]))
    || id(claim.agencyId)!==id(note.agency_id) || id(claim.clientId)!==id(note.client_id)
    || id(claim.clinicalSessionId)!==id(note.clinical_session_id) || id(claim.authorUserId)!==id(note.created_by_user_id)
-   || id(claim.draftId)!==id(metadata.draftId) || claim.evidenceHash!==evidenceHash(note.note_payload,metadata))return [];
+   || id(claim.draftId)!==id(metadata.draftId) || claim.evidenceHash!==evidenceHash(note.note_payload,metadata))return null;
   const verified=await boundReviewEvidence(note,metadata,claim,{database,drafts});
-  if(!verified || verified.reviewId!==claim.reviewId || verified.sourceHash!==claim.sourceHash || verified.inputHash!==claim.inputHash)return [];
-  return verified.decisions.filter(decision=>id(decision.bypassedBy)===id(note.created_by_user_id) && typeof decision.reason==='string' && decision.reason.trim());
- }catch{return [];}
+  if(!verified || verified.reviewId!==claim.reviewId || verified.sourceHash!==claim.sourceHash || verified.inputHash!==claim.inputHash)return null;
+  return verified;
+ }catch{return null;}
+}
+export async function verifiedBoundNarrivaDecisions(note,dependencies) {
+ const verified=await verifiedBoundNarrivaReview(note,dependencies);
+ return (verified?.decisions || []).filter(decision=>id(decision.bypassedBy)===id(note.created_by_user_id) && typeof decision.reason==='string' && decision.reason.trim());
 }
 async function verifiedRiskBypass(note,metadata,{database=pool,drafts=ClinicalNoteDraft}={}) {
  // An encrypted envelope is required here; legacy plaintext is never an attestation.

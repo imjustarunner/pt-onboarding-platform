@@ -1,10 +1,11 @@
 vi.mock('../narrivaPlatformSettings.service.js',()=>({loadNarrivaSettings:async()=>({version:0,configuration:{}}),applyNarrivaWritingGuidance:async({prompt})=>({prompt,settingsVersion:0})}));
 import {buildAllNormalMse} from '../../../../frontend/src/utils/noteAidMseCatalog.js';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),load:vi.fn(),agency:vi.fn(),model:vi.fn(),policy:vi.fn(),audit:vi.fn(),knowledge:vi.fn(),requireAgency:vi.fn(),guidance:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),bound:vi.fn(),load:vi.fn(),agency:vi.fn(),model:vi.fn(),policy:vi.fn(),audit:vi.fn(),knowledge:vi.fn(),requireAgency:vi.fn(),guidance:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:s=>'sealed:'+s,maybeDecryptNotePayload:s=>s?.startsWith('sealed:')?s.slice(7):s}));
+vi.mock('../narrivaRiskAssessment.service.js',async original=>({...await original(),verifiedBoundNarrivaReview:m.bound}));
 vi.mock('../narrivaSource.service.js',()=>({loadNarrivaSource:m.load}));
 vi.mock('../sessionAiPrivacy.service.js',()=>({callPrivateSessionText:m.model,createSessionPrivacyContext:input=>({testPrivacyInput:input})}));
 vi.mock('../clinicalKnowledgeBase.service.js',()=>({getKnowledgeBaseContext:m.knowledge,noteAidKnowledgeBaseOptions:v=>v}));
@@ -23,7 +24,7 @@ const req=(user=supervisor,extra={})=>({user,body:{agencyId:2,noteId:25,...extra
 const drain=()=>new Promise(resolve=>setImmediate(resolve));
 async function completedReview(extra={}){const review=await createNarrivaReview(req(supervisor,extra));for(let i=0;i<3;i++)await drain();return readNarrivaReview(supervisor,review.id,2);}
 beforeEach(()=>{
- vi.clearAllMocks();rows=new Map();features={};riskRequired=false;referenceVersion=1;requiredReferenceComplete=true;supportCoverageComplete=true;
+ vi.clearAllMocks();m.bound.mockResolvedValue(null);rows=new Map();features={};riskRequired=false;referenceVersion=1;requiredReferenceComplete=true;supportCoverageComplete=true;
  source={agencyId:2,noteId:25,draftId:null,source:{id:25,agency_id:2,client_id:10,clinical_session_id:20,created_by_user_id:7,provider_signed_by_user_id:7,provider_signed_at:'2026-11-06T10:00:00Z',supervisor_cosigned_at:null,clinical_version_pending_id:null},
   meta:{toolId:'clinical_psychotherapy_note'},narrative:'Client reported anxiety impairing school attendance. Provider modeled paced breathing and practiced two rounds with Client. The breathing intervention addressed panic during school transitions. Client reported less tension after the breathing practice. Client completed the second round without prompts after three prompts initially. This practiced the existing coping goal of using one skill during school transitions. Client will practice this breathing skill before the next school transition.',inputText:'Factual Session Narrative.',
   client:{id:10,full_name:'Private Client',first_name:'Private',last_name:'Client',initials:'PC',email:'private@example.com'},provider:{first_name:'Private',last_name:'Provider'},identifiers:['Private Client','private@example.com'],
@@ -311,4 +312,69 @@ it('checks unchanged model evidence once across an MSE update and chart attachme
  source.narrative+=' The client described a new concern.';
  await check();
  expect(m.model).toHaveBeenCalledTimes(2);
+});
+
+
+describe('author signing of a previously reviewed chart copy',()=>{
+ async function reviewedDraft(toolId,code) {
+  source.meta.toolId=toolId;
+  source.service.code=code;
+  source.source.provider_signed_at=null;
+  const sections={Observations:source.narrative,Plan:'Continue the documented activity.'};
+  let binding;
+  m.load.mockImplementation(async (_user,input)=>{
+   const chart=!!input.noteId;
+   return {...source,phase:'output',draftId:chart?null:42,noteId:chart?25:null,
+    sectionContent:chart?Object.fromEntries(Object.entries(sections).reverse()):sections,
+    modelSessionNarrative:source.inputText,sourceHash:narrivaSourceHash({chart,sections,meta:source.meta}),
+    meta:{...source.meta,...(chart?{draftId:42,narrivaPreflight:binding}:{})}};
+  });
+  const review=await createNarrivaReview(req(clinician,{draftId:42,noteId:null}));
+  for(let i=0;i<3;i++)await drain();
+  const completed=await readNarrivaReview(clinician,review.id,2);
+  expect(completed.status).toBe('passed');
+  binding={phase:'output',reviewId:review.id,inputHash:completed.inputHash};
+  m.bound.mockResolvedValue(binding);
+  return review.id;
+ }
+
+ it.each([
+  ['clinical_psychotherapy_note','90837'],['clinical_family_note','90847'],
+  ['clinical_h2011_note','H2011'],['clinical_h2014_group','H2014'],
+  ['clinical_h0004_note','H0004'],['clinical_tpt_note','TPT'],
+  ['clinical_90791_intake_plan','90791'],['clinical_h0031_intake','H0031'],
+  ['clinical_h0032_plan_development','H0032'],['custom_test','CUSTOM']
+ ])('immediately returns the note-scoped result for unchanged %s (%s)',async(toolId,code)=>{
+  const originalId=await reviewedDraft(toolId,code);
+  const modelCalls=m.model.mock.calls.length;
+  const chart=await createNarrivaReview(req(clinician));
+  expect(chart).toMatchObject({noteId:25,originatingOutputReviewId:originalId,status:'passed',quickSignEligible:false});
+  expect(chart.id).not.toBe(originalId);
+  expect(chart.checks).toHaveLength(5);
+  expect(m.model).toHaveBeenCalledTimes(modelCalls);
+  expect((await readNarrivaReview(clinician,chart.id,2)).status).toBe('passed');
+  expect(m.audit).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({metadata:expect.objectContaining({originatingOutputReviewId:originalId,reviewId:chart.id})}));
+ });
+ it.each([true,false])('compares the original saved source for an older review, unchanged=%s',async unchanged=>{
+  const id=await reviewedDraft('clinical_h0004_note','H0004');
+  const row=rows.get(id);
+  const stored=JSON.parse(row.result_encrypted.slice('sealed:'.length));delete stored.authorOutputHash;
+  row.result_encrypted='sealed:'+JSON.stringify(stored);
+  if(!unchanged)source.meta.objectiveRatings=[{objectiveId:3,scaleValue:2}];
+  expect((await createNarrivaReview(req(clinician))).status).toBe(unchanged?'passed':'running');
+  for(let i=0;i<3;i++)await drain();
+ });
+ it.each(['missing binding','changed score','changed MSE','changed duration','new risk','changed guidance','signed document','another reviewer'])('runs a fresh review for %s',async change=>{
+  await reviewedDraft('clinical_psychotherapy_note','90837');
+  if(change==='missing binding')m.bound.mockResolvedValue(null);
+  if(change==='changed score')source.meta.objectiveRatings=[{objectiveId:19,scaleValue:3}];
+  if(change==='changed MSE')source.meta.structuredChart={mentalStatusExam:{judgment:'Fair'}};
+  if(change==='changed duration')source.encounter.durationMinutes=55;
+  if(change==='new risk')source.clinical.riskRequiredFromPriorReview=true;
+  if(change==='changed guidance')referenceVersion++;
+  if(change==='signed document')source.source.provider_signed_at='2026-11-10';
+  const result=await createNarrivaReview(req(change==='another reviewer'?supervisor:clinician));
+  expect(result.status).toBe('running');
+  for(let i=0;i<3;i++)await drain();
+ });
 });

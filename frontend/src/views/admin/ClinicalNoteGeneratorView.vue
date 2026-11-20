@@ -2028,7 +2028,7 @@ const showObjectiveRatings = computed(() => {
   if (!effectiveClientId.value || !activeTreatmentGoals.value.length) return false;
   const kind = aidKind(selectedAid.value);
   // Progress notes require ratings; also show before an aid is chosen so clinicians can rate first.
-  return !selectedAid.value || kind === 'progress';
+  return !selectedAid.value || kind === 'progress' || kind === 'crisis';
 });
 const retentionOfficeEventId = computed(() => Number(bookingContext.value?.officeEventId || 0) || null);
 const launchIntent = computed(() => String(route.query?.launchIntent || route.query?.launch_intent || '').trim().toLowerCase());
@@ -2959,7 +2959,7 @@ const showProgressPlanFields = computed(() => {
 
 const canConfirmAndSign = computed(() => {
   if (needsActualProgressSession.value) return false;
-  if (applyingIntakeDiagnoses.value) return false;
+  if (applyingIntakeDiagnoses.value || narrivaReviewBusy.value || preparingNarrivaCheck.value) return false;
   if (narrivaComplianceRequired.value && !isClientChartAid.value && !isReviewOnlyAid.value && !narrivaConsentConfirmed.value) return false;
   if ((narrivaRiskIncluded.value || narrivaRiskRequired.value) && (!narrivaRiskCompleted.value || !isRiskAssessmentComplete(chartRiskAssessment.value))) return false;
   if (interactiveComplexityPromptOpen.value || addingInteractiveComplexity.value) return false;
@@ -3210,8 +3210,9 @@ const narrivaGeneratorMappings = ref({}), narrivaMappingsLoaded = ref(false), na
 let narrivaMappingRequest = 0;
 const mappedNarrivaTool = computed(() => resolveNarrivaToolForService({ serviceCode: actualServiceCode.value, underlyingServiceCode: narrivaUnderlyingCode.value, programId: selectedProgramId.value }, narrivaGeneratorMappings.value));
 let narrivaEditVersion=0;
+let pendingChartSignature=null;
 const narrivaReviewPhase = ref('pre_generation');
-const narrivaPreGenerationRequired = computed(() => noteWriterMode.value === 'narriva' && isProgressAid.value && narrivaComplianceRequired.value && !!sessionClinicalSessionId.value);
+const narrivaPreGenerationRequired = computed(() => noteWriterMode.value === 'narriva' && !isClientChartAid.value && !isReviewOnlyAid.value && aidKind(selectedAid.value) !== 'plan' && narrivaComplianceRequired.value && !!sessionClinicalSessionId.value);
 const preparingNarrivaCheck = ref(false);
 const narrivaCheckDisabled = computed(() => preparingNarrivaCheck.value || generating.value || narrivaReviewBusy.value || appointmentAlertBlocked.value || needsActualProgressSession.value || progressPlanBlocksWriting.value || !String(inputText.value || '').trim());
 const narrivaPreflightReady = computed(() => narrivaReview.value?.phase === 'pre_generation' && ['passed', 'bypassed'].includes(narrivaReview.value?.status));
@@ -5496,7 +5497,7 @@ function draftSavePayload() {
         interactiveComplexityPending: interactiveComplexityPromptOpen.value,
         interactiveComplexityReason: interactiveComplexityReason.value
       },
-      sections: Object.fromEntries(mergedSectionEntries.value || [])
+      sections: isIntakeOutput.value ? currentRecordSections() : Object.fromEntries(mergedSectionEntries.value || [])
     };
   } else if (sessionLocationLabel.value || sessionDurationMinutes.value != null) {
     payload.outputJson = {
@@ -6653,7 +6654,7 @@ watch(
   }
 );
 
-const buildApprovedPayloadText = () => {
+function currentRecordSections() {
   let sections = Object.fromEntries(mergedSectionEntries.value || []);
   if (isIntakeOutput.value) sections = intakeSectionsForRecord(sections, {
     mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value, skipMse: skipMentalStatusExam.value, riskAssessment: chartRiskAssessment.value,
@@ -6664,7 +6665,12 @@ const buildApprovedPayloadText = () => {
     sections['Reason for Termination'] = [labels[terminationReason.value], terminationDetails.value].filter(Boolean).join('. ');
     if (!String(sections.Recommendations || '').trim() || /^Write this section[.…]*$/i.test(String(sections.Recommendations).trim())) sections.Recommendations = terminationRecommendation.value.trim();
   }
-  if (!sections || Object.keys(sections).length === 0) return '';
+  return sections;
+}
+
+const buildApprovedPayloadText = () => {
+  const sections=currentRecordSections();
+  if (!Object.keys(sections).length) return '';
   return JSON.stringify(
     {
       sections,
@@ -6758,6 +6764,18 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     approvingNote.value = true;
     approvalError.value = '';
     approvalMessage.value = '';
+    await applyIntakeDiagnosesToChart();
+    const checkedEncounter=narrivaPreGenerationRequired.value && !!outputObj.value?.meta?.generationReceipt;
+    if (checkedEncounter) {
+      if (narrivaReviewBusy.value || preparingNarrivaCheck.value) throw new Error('The current note review is still in progress.');
+      if (narrivaReview.value?.phase !== 'output' || !['passed','bypassed','action_required'].includes(narrivaReview.value.status)) {
+        await runNarrivaChecks({ phase:'output' });
+      }
+      if (narrivaReview.value?.phase !== 'output' || !['passed','bypassed'].includes(narrivaReview.value.status)) {
+        throw new Error(narrivaReviewError.value || 'Review the outstanding findings before signing.');
+      }
+    }
+    const signingVersion=narrivaEditVersion;
     // Persist frequency change onto the active treatment plan before signing.
     const freqNow = String(notePrescribedFrequency.value || '').trim();
     const freqBase = String(planFrequencyBaseline.value || '').trim();
@@ -6791,7 +6809,6 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       }
     }
     const sessionId = await ensureClinicalSessionForApproval();
-    await applyIntakeDiagnosesToChart();
     const approvedPayload = buildApprovedPayloadText();
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
     const serviceCodeForMetadata = isClientChartAid.value ? null : (actualServiceCode.value || null);
@@ -6829,7 +6846,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         : null
     };
     const manualSections = !!skipAiAid.value || !!outputObj.value?.meta?.manualSections;
-    const createRes = await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
+    const attachment = {
       title,
       notePayload: approvedPayload,
       noteType,
@@ -6855,7 +6872,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         underlyingServiceCode:narrivaUnderlyingCode.value || null,
         narrivaContext:narrivaContext(),
         presentingProblem:chartPresentingProblem.value || '',
-        sessionContext:{sourceTimezone:sessionSourceTimezone.value || null,locationLabel:sessionLocationLabel.value || null,durationMinutes:sessionDurationMinutes.value,startTimeLocal:sessionStartTimeLocal.value || null,endTimeLocal:sessionEndTimeLocal.value || null,participants:sessionParticipants.value,participantsDetail:sessionParticipantsDetail.value || null,serviceCode:serviceCodeForMetadata},
+        sessionContext:{...sessionLocationMetadata(),sourceTimezone:sessionSourceTimezone.value || null,locationLabel:sessionLocationLabel.value || null,durationMinutes:sessionDurationMinutes.value,startTimeLocal:sessionStartTimeLocal.value || null,endTimeLocal:sessionEndTimeLocal.value || null,participants:sessionParticipants.value,participantsDetail:sessionParticipantsDetail.value || null,serviceCode:serviceCodeForMetadata},
         objectiveRatings:sessionObjectiveRatings.value,
         model: manualSections ? null : (outputObj.value?.meta?.model || null),
         toolId: outputObj.value?.meta?.toolId || selectedAid.value?.toolId || null,
@@ -6905,10 +6922,19 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
           attestedAt: new Date().toISOString()
         }
       }
-    });
-
-    const noteId = Number(createRes?.data?.note?.id || 0);
-    const reviewStatus = createRes?.data?.note?.content_review_status || null;
+    };
+    // A transient signing failure must retry the same attached chart record.
+    // Exclude only the new click timestamps from this in-memory comparison.
+    const attachmentKey = checkedEncounter ? JSON.stringify([authStore.user?.id,sessionId,signingVersion,{
+      ...attachment,metadata:{...attachment.metadata,approvedAt:undefined,
+        attestation:{...attachment.metadata.attestation,attestedAt:undefined}}
+    }]) : null;
+    const retry = attachmentKey && pendingChartSignature?.key === attachmentKey ? pendingChartSignature : null;
+    const createdNote = retry?.note || (await api.post(`/clinical-data/sessions/${sessionId}/notes`, attachment)).data?.note;
+    const noteId = Number(createdNote?.id || 0);
+    if (!noteId) throw new Error('The chart did not confirm the saved note. Your draft is preserved.');
+    if (attachmentKey && !retry) pendingChartSignature={key:attachmentKey,note:createdNote,reviewId:null};
+    const reviewStatus = createdNote?.content_review_status || null;
     let reviewPassed = String(reviewStatus || '').toLowerCase() === 'passed';
     if (!reviewPassed && !manualSections && isReviewOnlyAid.value) reviewPassed = true;
     // Review-only without autosign: chart shows Review (no provider signature required).
@@ -6928,7 +6954,13 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     let providerSignatureAt = null;
     const openTerminationAfterSign = ['now', 'after_progress'].includes(terminationNextStep.value);
     if (shouldAutosign) {
-      const noteReview = await startNarrivaReview({noteId});
+      const noteReview = retry?.reviewId && retry.reviewId === narrivaReview.value?.id
+        ? narrivaReview.value : await startNarrivaReview({noteId});
+      if(checkedEncounter
+          && (!['passed','bypassed'].includes(noteReview?.status) || signingVersion!==narrivaEditVersion)){
+        throw new Error(narrivaReviewError.value || 'Review the current note and its outstanding findings before signing.');
+      }
+      if (checkedEncounter && pendingChartSignature?.key===attachmentKey && noteReview?.id) pendingChartSignature.reviewId=noteReview.id;
       if (noteReview?.riskAssessmentRequired && (!narrivaRiskCompleted.value || !isRiskAssessmentComplete(chartRiskAssessment.value))) {
         narrivaRiskIncluded.value = true;
         throw new Error('The note is saved. Complete the required risk assessment and review the note again before signing.');
@@ -6938,7 +6970,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
           `/medical-billing/notes/${noteId}/sign`,
           {
             agencyId: Number(noteAidAgencyId.value || currentAgencyId.value || 0),
-            signingToken: createRes?.data?.note?.signingToken,
+            signingToken: createdNote?.signingToken,
             accurateAndComplete: true,
             medicalNecessityAttested: !isReviewOnlyAid.value && !isTreatmentSummaryAid.value,
             contentReviewConfirmed: isReviewOnlyAid.value || isTreatmentSummaryAid.value
@@ -6947,6 +6979,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         );
         if (!signRes?.data?.signedAt) throw new Error('The server did not confirm the provider signature. Reload the saved note before continuing.');
         providerSignatureAt = signRes.data.signedAt;
+        pendingChartSignature=null;
         terminationTodo = signRes?.data?.terminationTodo || null;
         if (terminationTodo) {
           workQueueItems.value = [...workQueueItems.value.filter((row) => row.id !== terminationTodo.id), normalizeWorkQueueItemStatus(terminationTodo)];
@@ -10231,7 +10264,7 @@ watch([actualServiceCode, selectedProgramId, narrivaUnderlyingCode], syncMappedN
 watch(() => narrivaReview.value?.riskAssessmentRequired, required => { narrivaRiskRequired.value = required === true; });
 watch([sessionObjectiveRatings, sessionPresentingProblemOverride, chartDiagnoses, chartDiagnosticJustification, inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaRiskIncluded, narrivaClientLocationDescription, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) { narrivaEditVersion++; invalidateNarrivaReview({ preserve: narrivaReview.value?.phase === 'pre_generation' }); } }, { deep:true });
 watch([sessionObjectiveRatings,sessionPresentingProblemOverride,chartDiagnoses,narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaClientLocationDescription,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
-watch([draftId,effectiveClientId], () => { invalidateNarrivaReview(); });
+watch([draftId,effectiveClientId,noteAidAgencyId,() => authStore.user?.id], () => { narrivaEditVersion++; pendingChartSignature=null; invalidateNarrivaReview(); });
 
 watch(sectionOverrides, () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); }, {deep:true});
 watch([chartMentalStatus, chartRiskAssessment, chartMedications, chartDiagnosticJustification], () => {

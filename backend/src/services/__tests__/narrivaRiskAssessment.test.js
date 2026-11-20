@@ -2,7 +2,7 @@ import {beforeEach,describe,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),draft:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../../models/ClinicalNoteDraft.model.js',()=>({default:{findByIdForUser:mocks.draft}}));
-import {completeNarrivaRiskAssessment,protectNarrivaPreflightMetadata,assertNarrivaRiskBeforeSignature,narrivaDraftEvidenceHash,narrivaNoteEvidenceHash,verifiedBoundNarrivaDecisions} from '../narrivaRiskAssessment.service.js';
+import {completeNarrivaRiskAssessment,protectNarrivaPreflightMetadata,assertNarrivaRiskBeforeSignature,narrivaDraftEvidenceHash,narrivaNoteEvidenceHash,verifiedBoundNarrivaDecisions,verifiedBoundNarrivaReview} from '../narrivaRiskAssessment.service.js';
 import {maybeEncryptNotePayload,maybeDecryptNotePayload} from '../clinicalNoteCrypto.service.js';
 import {narrivaSourceHash,NARRIVA_RULES_VERSION} from '../narrivaReviewPolicy.service.js';
 let draft,session,note,review,row,rows,later,required;
@@ -91,6 +91,7 @@ describe('server-owned risk Keep as is',()=>{
   review.phase='output';save();review.draftEvidenceHash=narrivaDraftEvidenceHash(draft);row.result_encrypted=maybeEncryptNotePayload(JSON.stringify(review));
   note.metadata_json=await protectNarrivaPreflightMetadata({metadata:{draftId:draft.id},draft,session,authorUserId:5101,notePayload:note.note_payload});
   expect(note.metadata_json.narrivaPreflight.phase).toBe('output');
+  expect(await verifiedBoundNarrivaReview(note)).toMatchObject({phase:'output',reviewId:row.id});
   await expect(assertNarrivaRiskBeforeSignature(note)).resolves.toBeUndefined();
  });
  it('preserves earlier Keep-as-is flags when the generated output has no matching finding',async()=>{
