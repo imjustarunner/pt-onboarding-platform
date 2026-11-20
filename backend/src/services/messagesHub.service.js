@@ -2135,10 +2135,14 @@ export async function loadChatTimeline({ agencyId, actorUserId, otherUserId, lim
 async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, limit = 40, beforeId = null }) {
   if (!clientId && !contactId) return [];
   try {
+    const conversationId = `(SELECT c.id FROM communication_conversations c
+      WHERE c.agency_id=message_logs.agency_id AND c.channel='sms'
+        AND c.external_thread_id=message_logs.sms_thread_key
+      ORDER BY c.id LIMIT 1) AS conversation_id`;
     let sql;
     let params;
     if (clientId) {
-      sql = `SELECT id, body, direction, created_at, sms_thread_key, from_number, to_number
+      sql = `SELECT id, body, direction, created_at, sms_thread_key, from_number, to_number, ${conversationId}
              FROM message_logs
              WHERE client_id = ?
                AND agency_id = ?
@@ -2148,7 +2152,7 @@ async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, lim
              LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`;
       params = [clientId, agencyId, actorUserId, actorUserId, actorUserId];
     } else {
-      sql = `SELECT id, body, direction, created_at, sms_thread_key, from_number, to_number
+      sql = `SELECT id, body, direction, created_at, sms_thread_key, from_number, to_number, ${conversationId}
              FROM message_logs
              WHERE agency_contact_id = ?
                AND agency_id = ?
@@ -2165,7 +2169,7 @@ async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, lim
       bodyPreview: String(r.body || ''),
       createdAt: r.created_at,
       direction: String(r.direction || '').toLowerCase().includes('in') ? 'inbound' : 'outbound',
-      meta: { messageLogId: r.id, smsThreadKey: r.sms_thread_key, fromNumber: r.from_number, toNumber: r.to_number, clientId, contactId }
+      meta: { messageLogId: r.id, conversationId: r.conversation_id, smsThreadKey: r.sms_thread_key, fromNumber: r.from_number, toNumber: r.to_number, clientId, contactId }
     }));
   } catch {
     return [];

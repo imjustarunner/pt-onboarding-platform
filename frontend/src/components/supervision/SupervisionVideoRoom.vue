@@ -37,6 +37,7 @@
       :start-video-off="startVideoOff"
       :play-join-tone="playJoinTone"
       :lobby-mode="lobbyMode"
+      :interview-room="interviewRoom"
       @update:tile-focus="$emit('update:tileFocus', $event)"
       @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
       @activity-notice-click="$emit('activity-notice-click', $event)"
@@ -79,6 +80,7 @@ import { reportSupervisionConnection } from '../../utils/supervisionConnectionDi
 const videoRoomRef = ref(null);
 
 const props = defineProps({
+  interviewRoom: { type: Boolean, default: false },
   trainingPolicy: { type: Object, default: null },
   token: { type: String, default: '' },
   /** Vonage session id (preferred). Legacy alias: roomSid */

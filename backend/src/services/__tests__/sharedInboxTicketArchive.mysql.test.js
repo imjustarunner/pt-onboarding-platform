@@ -34,7 +34,7 @@ describe.skipIf(!recoveryMysqlEnabled)('shared inbox archive transaction', () =>
         kind VARCHAR(32), from_email VARCHAR(254), owner_user_id INT);
       CREATE TABLE communication_conversations (id INT PRIMARY KEY, agency_id INT, support_ticket_id INT,
         inbox_id INT, channel VARCHAR(32), status VARCHAR(32), archived_at DATETIME NULL);
-      CREATE TABLE support_ticket_messages (id INT PRIMARY KEY, ticket_id INT);
+      CREATE TABLE support_ticket_messages (id INT PRIMARY KEY, ticket_id INT, is_deleted TINYINT DEFAULT 0);
       INSERT INTO support_tickets VALUES (53, 2, 'answered', 1, NULL, 'email', NULL);
       INSERT INTO communication_inboxes VALUES (12, 2, 'support', 'support', 'support@example.test', NULL);
       INSERT INTO communication_conversations VALUES (28, 2, 53, 12, 'email', 'waiting_on_them', NULL);
@@ -53,6 +53,17 @@ describe.skipIf(!recoveryMysqlEnabled)('shared inbox archive transaction', () =>
     await expect(change({ undoId: archive.undoId })).resolves.toMatchObject({ undone: true });
     expect(await status()).toEqual({ ticket_status: 'answered', conversation_status: 'waiting_on_them', archived_at: null, close_on_read: 1 });
     await expect(change({ undoId: archive.undoId })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('archives an already-closed ticket and checks the last visible message before doing so', async () => {
+    await sql(`UPDATE support_tickets SET status='closed', close_on_read=0;
+      INSERT INTO support_ticket_messages VALUES (10, 53, 0), (11, 53, 1);`);
+    await expect(change({ expectedLastMessageId: 0 })).rejects.toMatchObject({ status: 409 });
+    expect(await status()).toMatchObject({ ticket_status: 'closed', archived_at: null });
+    const { undoId } = await change({ expectedLastMessageId: 10 });
+    expect(await status()).toMatchObject({ ticket_status: 'closed', archived_at: expect.any(Date) });
+    await change({ undoId });
+    expect(await status()).toMatchObject({ ticket_status: 'closed', archived_at: null });
   });
 
   it('scopes undo to the actor and prevents undo from overwriting a new reply', async () => {

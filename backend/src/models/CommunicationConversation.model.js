@@ -190,7 +190,12 @@ class CommunicationConversation {
       where.push(claimedTicketEmailSql);
       filter = 'unread';
     }
-    const categoryPredicate = reviewCategory ? `${policy.category}='${reviewCategory}'` : policy.correspondence;
+    let categoryPredicate = reviewCategory ? `${policy.category}='${reviewCategory}'` : policy.correspondence;
+    if (reviewCategory === 'enrollment_packets' && !reviewBefore) {
+      // Ordinary school correspondence with this subject remains in the inbox.
+      categoryPredicate = `(${categoryPredicate} OR (${policy.correspondence} AND ${schoolGroupConversationSql}
+        AND LOWER(TRIM(c.subject))='registration packet'))`;
+    }
     where.push(categoryPredicate);
     if (reviewCategory && reviewBefore) { where.push('COALESCE(c.last_message_at,c.created_at) <= ?'); params.push(reviewBefore); }
     where.push(groupSql.access);
@@ -671,6 +676,19 @@ class CommunicationConversation {
     summary.reviewByCategory = Object.fromEntries(INBOX_REVIEW_CATEGORIES.map(category => [category, 0]));
     for (const row of noticeRows) if (INBOX_REVIEW_CATEGORIES.includes(row.category)) summary.reviewByCategory[row.category] = Number(row.n || 0);
     return summary;
+  }
+
+  static async markSmsReadThrough(conversationId, userId, messageLogId) {
+    await pool.execute(
+      `INSERT INTO communication_conversation_reads (conversation_id, user_id, last_read_at, forced_unread)
+       SELECT c.id, ?, ml.created_at, 0
+       FROM communication_conversations c
+       JOIN message_logs ml ON ml.agency_id=c.agency_id AND ml.sms_thread_key=c.external_thread_id
+       WHERE c.id=? AND c.channel='sms' AND ml.id=? AND ml.direction='INBOUND'
+       ON DUPLICATE KEY UPDATE last_read_at=GREATEST(COALESCE(last_read_at,'1000-01-01'),VALUES(last_read_at)),
+         forced_unread=0`,
+      [userId, conversationId, messageLogId]
+    );
   }
 
   static async markRead(conversationId, userId) {

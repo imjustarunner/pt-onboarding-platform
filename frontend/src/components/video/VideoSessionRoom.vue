@@ -555,8 +555,12 @@
 
 <script setup>
 import {createVideoConnectAttempt} from './videoConnectAttempt';
+import { openInterviewMicrophone } from './interviewMicrophone';
 let connectAttempt = null;
 const pendingConnectPublishers = new Set();
+const pendingInterviewMicrophones = new Set();
+let interviewMicrophone = null;
+const INTERVIEW_MIC_REJOIN_HINT = 'Allow microphone access in your browser, then leave and rejoin the interview.';
 
 import { createMeetingWaitPolicy, participantIdentity } from './meetingWaitPolicy';
 import { startLiveMeetingPresence } from '../../utils/liveMeetingPresence';
@@ -675,7 +679,8 @@ const props = defineProps({
   /** Connection id / identity used for raise-hand map keys when known */
   localConnectionKey: { type: String, default: '' },
   /** Waiting-room layout: tall preview + stacked controls + mic meter */
-  lobbyMode: { type: Boolean, default: false }
+  lobbyMode: { type: Boolean, default: false },
+  interviewRoom: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
@@ -2429,7 +2434,7 @@ function resolveProjectId() {
 function isMicAccessError(err) {
   const name = String(err?.name || '');
   const msg = String(err?.message || '');
-  return name.includes('MEDIA_ACCESS')
+  return name.includes('MEDIA_ACCESS') || ['NotAllowedError','NotFoundError','NotReadableError','OverconstrainedError','SecurityError'].includes(name)
     || /microphone|getUserMedia|NotAllowed|NotReadable|Could not start audio|failed to get access to your microphone/i.test(msg);
 }
 
@@ -2797,8 +2802,6 @@ async function connect() {
     await nextTick();
     const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
     if (publisherMountEl) publisherMountEl.innerHTML = '';
-    // Let Vonage/browser own the main-room capture track so native WebRTC echo
-    // cancellation and device Mic Mode stay in the normal capture pipeline.
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
 
     const buildPublisherOpts = (withAudio, captureAudio) => {
@@ -2824,64 +2827,84 @@ async function connect() {
       return opts;
     };
 
-    const createPublisher = async (withAudio, { captureAudio = !props.lobbyMode } = {}) => {
+    const createPublisher = async (withAudio, captureAudio, track) => {
+      const options = buildPublisherOpts(withAudio, captureAudio);
+      if (props.interviewRoom) options.audioSource = track || null;
+      const pub = await attempt.wait(() => new Promise((resolve, reject) => {
+        let nextPublisher;
+        nextPublisher = OT.initPublisher(
+          publisherMountEl,
+          options,
+          (err) => { queueMicrotask(() => {
+            if (!current()) return;
+            if (err) {
+              console.error('[VideoSessionRoom] publisher error', err);
+              pendingConnectPublishers.delete(nextPublisher);
+              try { nextPublisher.destroy(); } catch { /* ignore */ }
+              reject(err);
+              return;
+            }
+            forceMediaFill(publisherMountEl);
+            silenceLocalPublisherMedia(publisherMountEl);
+            resolve(nextPublisher);
+          }); }
+        );
+        pendingConnectPublishers.add(nextPublisher);
+      }), 'Starting camera and microphone');
+      if (!current()) return null;
+      pub?.on?.('videoElementCreated', (event) => {
+        silenceLocalPublisherMedia(event?.element || event?.videoElement || null);
+        silenceLocalPublisherMedia(publisherMountEl);
+      });
       try {
-        const pub = await attempt.wait(() => new Promise((resolve, reject) => {
-          let nextPublisher;
-          nextPublisher = OT.initPublisher(
-            publisherMountEl,
-            buildPublisherOpts(withAudio, captureAudio),
-            (err) => { queueMicrotask(() => {
-              if (!current()) { try { nextPublisher?.destroy(); } catch {} return; }
-              if (err) {
-                console.error('[VideoSessionRoom] publisher error', err);
-                try { nextPublisher.destroy(); } catch { /* ignore */ }
-                reject(err);
-                return;
-              }
-              forceMediaFill(publisherMountEl);
-              silenceLocalPublisherMedia(publisherMountEl);
-              resolve(nextPublisher);
-            }); }
-          );
-          pendingConnectPublishers.add(nextPublisher);
-        }), 'Starting camera and microphone');
-        pub?.on?.('videoElementCreated', (event) => {
-          silenceLocalPublisherMedia(event?.element || event?.videoElement || null);
-          silenceLocalPublisherMedia(publisherMountEl);
-        });
-        try {
-          silenceLocalPublisherMedia(mediaElement(pub));
-          silenceLocalPublisherMedia(publisherMountEl);
-        } catch { /* ignore */ }
-        publisherAudioStream = null;
-        publisherAudioTrack = captureAudio ? (pub?.getAudioSource?.() || null) : null;
+        silenceLocalPublisherMedia(mediaElement(pub));
+        silenceLocalPublisherMedia(publisherMountEl);
+      } catch { /* ignore */ }
+      publisherAudioStream = null;
+      publisherAudioTrack = captureAudio ? (pub?.getAudioSource?.() || null) : null;
+      return pub;
+    };
+
+    const publishLocal = async (withAudio, { captureAudio = !props.lobbyMode } = {}) => {
+      let capture;
+      try {
+        let track = null;
+        if (props.interviewRoom && captureAudio) {
+          track = await attempt.wait(() => {
+            capture = beginInterviewMicrophone();
+            return capture.track;
+          }, 'Starting microphone');
+        }
+        if (!current()) return null;
+        const pub = await createPublisher(withAudio, captureAudio, track);
+        if (!current()) return null;
+        await attempt.wait(() => new Promise((resolve, reject) => {
+          connectingSession.publish(pub, (err) => {
+            if (!current()) return;
+            if (err) {
+              pendingConnectPublishers.delete(pub);
+              try { pub.destroy(); } catch { /* ignore */ }
+              releasePublisherAudioSource();
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        }), 'Joining with camera and microphone');
+        if (!current()) return;
+        if (capture) useInterviewMicrophone(capture);
         return pub;
       } catch (error) {
+        if (capture) discardInterviewMicrophone(capture);
         throw error;
       }
     };
 
-    const publishLocal = async (withAudio, options = {}) => {
-      const pub = await createPublisher(withAudio, options);
-      await attempt.wait(() => new Promise((resolve, reject) => {
-        connectingSession.publish(pub, (err) => {
-          if (!current()) return;
-          if (err) {
-            try { pub.destroy(); } catch { /* ignore */ }
-            releasePublisherAudioSource();
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      }), 'Joining with camera and microphone');
-      pendingConnectPublishers.delete(pub);
-      return pub;
-    };
-
     try {
-      publisher = await publishLocal(publishAudio.value, { captureAudio: !props.lobbyMode });
+      const joinedPublisher = await publishLocal(publishAudio.value, { captureAudio: !props.lobbyMode });
+      if (!current()) return;
+      publisher = joinedPublisher;
+      pendingConnectPublishers.delete(publisher);
       // A muted main-room publisher still owns one native mic track, so unmute
       // is a simple track enable and never needs a camera/publisher restart.
       needsAudioSourceAttach.value = !props.lobbyMode && !publisher?.getAudioSource?.();
@@ -2891,7 +2914,10 @@ async function connect() {
       if (!props.lobbyMode && isPublishTimeoutError(publishErr)) {
         console.warn('[VideoSessionRoom] publish timed out; retrying without extra audio processing', publishErr?.message || publishErr);
         if (publisherMountEl) publisherMountEl.innerHTML = '';
-        publisher = await publishLocal(publishAudio.value, { captureAudio: !props.lobbyMode });
+        const retriedPublisher = await publishLocal(publishAudio.value, { captureAudio: !props.lobbyMode });
+        if (!current()) return;
+        publisher = retriedPublisher;
+        pendingConnectPublishers.delete(publisher);
         needsAudioSourceAttach.value = !publisher?.getAudioSource?.();
         showMicHint('Joined after a slow media start. Tap the mic if you are still muted.');
       } else if (!props.lobbyMode && isMicAccessError(publishErr)) {
@@ -2901,8 +2927,13 @@ async function connect() {
         publishAudio.value = false;
         automuteNoticeVisible.value = false;
         needsAudioSourceAttach.value = true;
-        publisher = await publishLocal(false, { captureAudio: false });
-        audioProblem.value = 'Joined without a microphone. Check browser permission and your selected input, then unmute.';
+        const mutedPublisher = await publishLocal(false, { captureAudio: false });
+        if (!current()) return;
+        publisher = mutedPublisher;
+        pendingConnectPublishers.delete(publisher);
+        audioProblem.value = props.interviewRoom
+          ? `Joined without a microphone. ${INTERVIEW_MIC_REJOIN_HINT}`
+          : 'Joined without a microphone. Check browser permission and your selected input, then unmute.';
       } else {
         throw publishErr;
       }
@@ -2940,6 +2971,7 @@ async function connect() {
       refreshAudioEnhancementStatus(publisher);
     }
     await syncLocalVideoPresentation();
+    if (!current()) return;
     // Catch streams that were already in the session before our listener ran.
     // Never subscribe to our own published stream (that caused “two of me”).
     try {
@@ -3146,6 +3178,9 @@ async function toggleScreenShare() {
 function disconnect(emitEvent = true) {
   connectAttempt?.cancel();
   connectAttempt = null;
+  for (const capture of pendingInterviewMicrophones) discardInterviewMicrophone(capture);
+  interviewMicrophone?.stop();
+  interviewMicrophone = null;
   for (const pub of pendingConnectPublishers) { try { pub?.destroy(); } catch {} }
   pendingConnectPublishers.clear();
   for (const finish of screenShareEndWaiters.values()) finish(false);
@@ -3347,13 +3382,49 @@ async function refreshMicrophones() {
       .filter(device => device.deviceId !== 'default');
   } catch { /* Reconnect to system default remains available. */ }
 }
+function beginInterviewMicrophone(deviceId) {
+  const capture = openInterviewMicrophone({
+    deviceId,
+    autoGainControl:automaticMicLevel.value,
+    noiseReduction:!basicMicrophoneAudio.value
+  });
+  pendingInterviewMicrophones.add(capture);
+  return capture;
+}
+function discardInterviewMicrophone(capture) {
+  pendingInterviewMicrophones.delete(capture);
+  capture.stop();
+}
+function useInterviewMicrophone(capture) {
+  pendingInterviewMicrophones.delete(capture);
+  interviewMicrophone?.stop();
+  interviewMicrophone = capture;
+}
 async function addPublisherAudioWithoutRestartingCamera(deviceId = selectedMicrophoneId.value) {
   if (!publisher) throw new Error('Video session is not ready.');
   voiceIsolationStatus.value = 'processing';
   const activePublisher = publisher;
+  const attempt = connectAttempt;
+  if (props.interviewRoom && (!attempt || attempt.canceled)) throw new Error('The video session has ended.');
+  // Vonage cannot set an audio source on a publisher created without one.
+  if (props.interviewRoom && !activePublisher.getAudioSource?.()) throw new Error(INTERVIEW_MIC_REJOIN_HINT);
+  let capture;
   stopMonitoringMicrophone();
   try {
-    await attachPublisherAudioDevice(activePublisher, deviceId || 'default');
+    if (props.interviewRoom) {
+      const track = await attempt.wait(() => {
+        capture = beginInterviewMicrophone(deviceId);
+        return capture.track;
+      }, 'Starting microphone');
+      await attempt.wait(() => attachPublisherAudioDevice(activePublisher, track), 'Switching microphone');
+      if (publisher !== activePublisher || attempt.canceled) throw new Error('The video session has ended.');
+      useInterviewMicrophone(capture);
+    } else {
+      await attachPublisherAudioDevice(activePublisher, deviceId || 'default');
+    }
+  } catch (error) {
+    if (capture) discardInterviewMicrophone(capture);
+    throw error;
   } finally { monitorMicrophone(); }
   if (publisher !== activePublisher) throw new Error('The video session has ended.');
   publisherAudioStream = null;
@@ -3472,6 +3543,10 @@ async function toggleMic() {
   const next = !publishAudio.value;
   if (next && micLockedByHost.value) {
     showMicHint('Your microphone has been locked by the host.');
+    return;
+  }
+  if (next && props.interviewRoom && publisher && !publisher.getAudioSource?.()) {
+    showMicHint(INTERVIEW_MIC_REJOIN_HINT);
     return;
   }
   if (next && forceMutedByHost.value) {

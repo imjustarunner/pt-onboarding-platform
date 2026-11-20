@@ -267,7 +267,11 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   }
   if (markRead && userId) {
     if (conv.support_ticket_id) await markSupportTicketRead({ ticketId: conv.support_ticket_id, userId });
-    else await CommunicationConversation.markRead(conversationId, userId);
+    else if (conv.channel === 'sms' && hydrated && !/^sms:(client|contact):\d+$/.test(conv.external_thread_id || '')) {
+      const lastInbound = messages.findLast(message => message.direction === 'inbound' && !message.is_internal_note);
+      const messageLogId = String(lastInbound?.id || '').match(/^sms-log-(\d+)$/)?.[1];
+      if (messageLogId) await CommunicationConversation.markSmsReadThrough(conversationId, userId, Number(messageLogId));
+    } else await CommunicationConversation.markRead(conversationId, userId);
   }
   return { conversation: conv, messages, context, ticketThreadRevision, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };
 }
@@ -324,7 +328,15 @@ export async function updateConversation(conversationId, patch, { userId } = {})
   }
   // Snooze leaves Unread: mark read now; wakeExpiredSnoozes restores unread later.
   if ((patch.markRead || applyingSnooze) && userId) {
-    await CommunicationConversation.markRead(conversationId, userId);
+    if (patch.smsMessageLogId != null && !applyingSnooze) {
+      const messageLogId = Number(patch.smsMessageLogId);
+      if (existing?.channel !== 'sms' || !Number.isSafeInteger(messageLogId) || messageLogId < 1) {
+        throw supportEmailError('Choose a message in this text conversation.', 400);
+      }
+      await CommunicationConversation.markSmsReadThrough(conversationId, userId, messageLogId);
+    } else {
+      await CommunicationConversation.markRead(conversationId, userId);
+    }
   }
   return CommunicationConversation.update(conversationId, updates);
 }

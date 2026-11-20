@@ -22,6 +22,10 @@ export async function closeTicketWithoutReply({ ticket, user, expectedLastMessag
         (ticket_id,author_user_id,author_role,body,body_ciphertext,body_iv,body_auth_tag,encryption_key_id,is_internal)
         VALUES (?,?,?,?,?,?,?,?,1)`, [ticket.id, user.id, user.role, encrypted.plain, encrypted.ciphertext, encrypted.iv, encrypted.authTag, encrypted.keyId]);
     }
+    if (ticket.source_channel === 'email' && user.role !== 'school_staff') {
+      await db.execute(`UPDATE communication_conversations SET status='resolved', archived_at=UTC_TIMESTAMP()
+        WHERE support_ticket_id=? AND agency_id=? AND channel='email' AND archived_at IS NULL`, [ticket.id, ticket.agency_id]);
+    }
     await db.commit();
   } catch (error) { await db.rollback(); throw error; }
   finally { db.release(); }

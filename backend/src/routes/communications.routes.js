@@ -143,7 +143,7 @@ router.post('/conversations/:id/close-and-archive', async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid undo receipt.' } });
     }
     res.set('Cache-Control', 'private, no-store');
-    res.json(await changeSharedInboxTicketArchive({ conversationId: Number(req.params.id), user: req.user, undoId }));
+    res.json(await changeSharedInboxTicketArchive({ conversationId: Number(req.params.id), user: req.user, undoId, expectedLastMessageId: req.body?.expectedLastMessageId }));
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
     next(error);
