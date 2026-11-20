@@ -29,7 +29,7 @@
         <div class="video-stage">
           <SupervisionVideoRoom ref="videoRoomRef" :token="credentials.token" :vonage-session-id="credentials.sessionId"
             :application-id="credentials.applicationId" :local-display-name="credentials.displayName"
-            local-role-label="Applicant" :lobby-mode="inLobby" :start-muted="false"
+            local-role-label="Applicant" :lobby-mode="inLobby" :start-muted="false" interview-room
             :is-host="false" :is-host-or-cohost="false" :can-grant-screen-share="false"
             :can-share-screen="false" :equal-tiles-when-remote="true" :preserve-video-aspect="false"
             :show-layout-controls="false" :allow-tile-focus="false" tile-focus="equal" layout="standard"

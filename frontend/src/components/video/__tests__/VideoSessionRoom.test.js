@@ -964,3 +964,92 @@ it('lets an explicit retry connect while ignoring success from the abandoned att
   videoSdk.connectCallback(null);await flushPromises();expect(wrapper.emitted('connected')).toHaveLength(1);retired._handlers.sessionDisconnected({reason:'late old room event'});expect(wrapper.emitted('disconnected')).toBeUndefined();expect(wrapper.videoDOM.find('.vsr__connecting').exists()).toBe(false);
  }finally{wrapper.unmount();vi.useRealTimers();}
 });
+
+describe('interview microphone permission lifecycle', () => {
+  let wrapper;
+  let frame;
+  let getUserMedia;
+  let track;
+  let stream;
+
+  beforeEach(() => {
+    track = { readyState:'live', stop:vi.fn() };
+    stream = { getAudioTracks:() => [track], getTracks:() => [track] };
+    getUserMedia = vi.fn();
+    const append = document.body.appendChild.bind(document.body);
+    vi.spyOn(document.body, 'appendChild').mockImplementation(element => {
+      const result = append(element);
+      if (element.tagName === 'IFRAME') {
+        frame = element;
+        Object.defineProperty(frame.contentWindow.navigator, 'mediaDevices', { value:{ getUserMedia } });
+      }
+      return result;
+    });
+    videoSdk.initPublisher.mockReset();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = null;
+    frame?.remove();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  async function startInterview() {
+    wrapper = mount(VideoSessionRoom, { props:{
+      applicationId:'11111111-1111-4111-8111-111111111111',
+      sessionId:'synthetic-interview', token:'eyJ.test.token', interviewRoom:true, playJoinTone:false
+    } });
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    videoSdk.connectCallback(null);
+    await flushPromises();
+  }
+
+  it.each(['Leave', 'Timeout', 'Unmount'])('discards the permission document on %s and stops any late microphone track', async action => {
+    vi.useFakeTimers();
+    let allow;
+    getUserMedia.mockImplementation(() => new Promise(resolve => { allow = resolve; }));
+    await startInterview();
+    const session = videoSdk.session;
+    expect(frame.isConnected).toBe(true);
+    expect(getUserMedia).toHaveBeenCalledWith({audio:expect.objectContaining({echoCancellation:true}),video:false});
+    expect(videoSdk.initPublisher).not.toHaveBeenCalled();
+    if (action === 'Leave') wrapper.vm.disconnect(false);
+    else if (action === 'Timeout') await vi.advanceTimersByTimeAsync(30001);
+    else { wrapper.unmount(); wrapper = null; }
+    await flushPromises();
+    expect(frame.isConnected).toBe(false);
+    expect(session.disconnect).toHaveBeenCalledOnce();
+    allow(stream);
+    await flushPromises();
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(videoSdk.initPublisher).not.toHaveBeenCalled();
+    expect(session.publish).not.toHaveBeenCalled();
+    expect(wrapper?.emitted('connected')).toBeUndefined();
+  });
+
+  it.each([true, false])('joins with the resolved track or with explicit no-microphone fallback (%s)', async allowed => {
+    if (allowed) getUserMedia.mockResolvedValue(stream);
+    else getUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    const pub = { destroy:vi.fn(), on:vi.fn(), getAudioSource:() => allowed ? track : null };
+    videoSdk.initPublisher.mockImplementation((_el, _opts, done) => {
+      videoSdk.session.publish.mockImplementation((_publisher, published) => published(null));
+      done(null);
+      return pub;
+    });
+    await startInterview();
+    expect(videoSdk.initPublisher.mock.calls[0][1]).toMatchObject({audioSource:allowed ? track : null,publishAudio:allowed});
+    expect(wrapper.emitted('connected')).toHaveLength(1);
+    expect(frame.isConnected).toBe(allowed);
+    if (!allowed) {
+      await wrapper.vm.toggleMic();
+      expect(getUserMedia).toHaveBeenCalledOnce();
+      expect(wrapper.text()).toContain('leave and rejoin the interview');
+    }
+    wrapper.vm.disconnect(false);
+    expect(frame.isConnected).toBe(false);
+    if (allowed) expect(track.stop).toHaveBeenCalled();
+  });
+});

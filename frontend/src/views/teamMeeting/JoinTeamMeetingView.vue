@@ -257,6 +257,7 @@
           >
             <SupervisionVideoRoom
               v-if="!isTraining || trainingState"
+              :interview-room="isInterviewMeeting"
               :training-policy="trainingPolicy"
               ref="videoRoomRef"
               :token="token"
