@@ -3310,6 +3310,12 @@ async function runNarrivaChecks({ phase = narrivaReviewPhase.value } = {}) {
     if (autosaveBusy) { narrivaReviewError.value = 'Your draft is still saving. Try the checks again when it finishes.'; return; }
     await autosave();
     if (!draftId.value || !lastSavedAt.value || sourceClient !== effectiveClientId.value || sourceDraft && String(sourceDraft) !== String(draftId.value)) { narrivaReviewError.value = approvalError.value || 'Save the current draft before running Narriva checks.'; return; }
+    if (phase==='pre_generation' && showObjectiveRatings.value) {
+      const version=narrivaEditVersion, id=draftId.value;
+      try { await persistSessionObjectiveRatings({ beforeCheck:true }); }
+      catch { narrivaReviewError.value='Your draft is saved. Retry to record the objective ratings in the chart before checking the note.'; return; }
+      if (id!==draftId.value || version!==narrivaEditVersion) return;
+    }
     await startNarrivaReview({ draftId: Number(draftId.value), phase });
   } finally { preparingNarrivaCheck.value=false; }
 }
@@ -6542,7 +6548,7 @@ const generateNote = async () => {
     }
 
     await nextTick();
-    await persistSessionObjectiveRatings();
+    if (!preflightReviewId) await persistSessionObjectiveRatings();
     await autosave();
     const needsSignature = !!(effectiveClientId.value && canApproveToClinicalRecord.value);
     if (completingQueueItemId) {
@@ -9020,11 +9026,13 @@ const openClientChartIntake = () => {
   else router.push({ path: `/admin/clients/${cid}`, query });
 };
 
-const persistSessionObjectiveRatings = async () => {
+const persistSessionObjectiveRatings = async ({beforeCheck=false}={}) => {
   const cid = Number(effectiveClientId.value || 0);
   const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
   const ratings = Array.isArray(sessionObjectiveRatings.value) ? sessionObjectiveRatings.value : [];
-  if (!cid || !aid || !ratings.length) return;
+  if (!ratings.length) return;
+  if (!cid || !aid) { if(beforeCheck) throw new Error('Missing rating context'); return; }
+  const sourceDraftId=draftId.value, sourceDate=dateOfService.value;
   let anyImproved = false;
   for (const r of ratings) {
     try {
@@ -9039,23 +9047,23 @@ const persistSessionObjectiveRatings = async () => {
           previousScaleValue: r.previousScaleValue,
           raterKind: r.raterKind || 'clinician',
           raterLabel: r.raterLabel || null,
-          draftId: draftId.value || null,
-          dateOfService: dateOfService.value || null
+          draftId: sourceDraftId || null,
+          dateOfService: sourceDate || null
         },
         { skipGlobalLoading: true }
       );
       if (res?.data?.suggestUpdateTreatmentPlan || res?.data?.progressLabel === 'improved') {
         anyImproved = true;
       }
-    } catch {
-      // Non-blocking: chart gate or offline should not fail note generate.
+    } catch (error) {
+      if (beforeCheck) throw error;
     }
   }
-  if (anyImproved) {
+  if (anyImproved && effectiveClientId.value == cid && draftId.value === sourceDraftId) {
     suggestUpdateTreatmentPlan.value = true;
     renewalSuggestReason.value =
       'One or more objectives reached the goal scale. Update goals, objectives, diagnosis, and diagnostic justification.';
-    if (window.confirm('An objective reached its goal. Open the treatment plan updater with chart context?')) {
+    if (!beforeCheck && window.confirm('An objective reached its goal. Open the treatment plan updater with chart context?')) {
       await openTreatmentPlanUpdater({
         renewalReason: renewalSuggestReason.value,
         progressExcerpt: lastProgressNoteExcerpt.value
