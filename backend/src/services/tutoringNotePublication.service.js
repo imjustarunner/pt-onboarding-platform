@@ -46,3 +46,17 @@ export async function listPublishedTutoringSummaries(clientId,{agencyId,provider
 }
 
 export async function getPublishedTutoringNote(noteId,db=pool){const [[row]]=await db.execute('SELECT id,signed_at,snapshot_json FROM tutoring_note_publications WHERE note_id=?',[noteId]);if(!row)return null;const snapshot=JSON.parse(maybeDecryptNotePayload(row.snapshot_json));return {id:Number(row.id),signedAt:utcMysqlToIso(row.signed_at),...snapshot};}
+
+// Return only the public fields for this authorized appointment and its exact session.
+export async function getAppointmentFamilySummary(ctx, session, db=pool) {
+ const [rows]=await db.execute(
+  `SELECT p.signed_at,p.snapshot_json,CONCAT_WS(' ',u.first_name,u.last_name) AS author_name
+     FROM tutoring_note_publications p
+     JOIN users u ON u.id=p.author_user_id
+    WHERE p.appointment_id=? AND p.session_id=? AND p.agency_id=? AND p.client_id=? LIMIT 1`,
+  [ctx.appointment.id,session.id,ctx.appointment.agencyId,ctx.clientId]);
+ const row=rows?.[0];
+ if(!row)return null;
+ const data=JSON.parse(maybeDecryptNotePayload(row.snapshot_json));
+ return {summary:data.summary,authorName:row.author_name,signedAt:utcMysqlToIso(row.signed_at)};
+}

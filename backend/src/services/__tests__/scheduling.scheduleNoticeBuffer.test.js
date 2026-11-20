@@ -22,7 +22,7 @@ function harness() {
     if (sql.startsWith('SELECT') && sql.includes("event_type='created'")) return [notices.filter(n=>n.appointment_id===p[0] && n.client_id===p[1] && n.event_type==='created')];
     if (sql.startsWith('SELECT') && sql.includes('WHERE agency_id=')) return [notices.filter(n=>group(n,p))];
     if (sql.startsWith('SELECT') && sql.includes('WHERE appointment_id=')) return [notices.filter(n=>n.appointment_id===p[0] && (!sql.includes("status='pending'") || n.status==='pending'))];
-    if (sql.startsWith('UPDATE appointment_schedule_notices SET fire_at=')) {notices.filter(n=>group(n,p.slice(1))).forEach(n=>n.fire_at=p[0]);return [{}];}
+    if (sql.startsWith('UPDATE appointment_schedule_notices SET fire_at=')) {notices.filter(n=>sql.includes('WHERE id=')?n.id===p[1]&&n.status==='pending':group(n,p.slice(1))).forEach(n=>n.fire_at=p[0]);return [{}];}
     if (sql.startsWith("UPDATE appointment_schedule_notices SET status='pending',payload_json=")) {
       const n=notices.find(n=>n.id===p[4]);if(n?.status==='suppressed')Object.assign(n,{status:'pending',payload_json:p[0],channels_json:p[1],fire_at:p[2],created_by_user_id:p[3]});return [{affectedRows:1}];
     }
@@ -398,4 +398,20 @@ it('sends the finalized no-show provider copy separately, with no guardian addre
  h.service=createAppointmentScheduleNoticeService({...h.deps,providerRecipient:h.deps.providerRecipient});
  await h.service.queue(1,{eventType:'no_show',sendImmediately:true,facts:{reviewedAttendanceOutcome:true,noShowReviewFinalized:true,copyProvider:true,reasonCategory:'attendance_no_show'}});await h.service.process(1);
  expect(h.deps.sendEmail).toHaveBeenCalledTimes(2);const copy=h.deps.sendEmail.mock.calls.find(([args])=>args.to==='provider@example.test')[0];expect(copy.text).toContain('appointment #1');expect(copy.text).not.toContain('client@example.test');expect(copy.text).not.toContain('/receipt');
+});
+
+it('keeps a no-show due now separate from another appointment and sends even if a greeting lookup fails',async()=>{
+ const h=harness();
+ Object.assign(h.appointments.get(1),{status:'no_show',businessType:'tutoring',startAt:'2030-01-01T08:00:00Z',endAt:'2030-01-01T09:00:00Z'});
+ h.appointments.set(2,{...h.appointments.get(1),id:2,businessType:'counseling',status:'scheduled',startAt:'2030-01-02T12:00:00Z',endAt:'2030-01-02T13:00:00Z'});
+ h.deps.missedNoticeNames=vi.fn(async()=>{throw Object.assign(new Error('greeting unavailable'),{code:'LOOKUP_FAILED'});});
+ h.deps.providerRecipient=vi.fn(async()=>({key:'provider:5',role:'provider',userId:5,email:'provider@example.test',authorized:true}));
+ h.service=createAppointmentScheduleNoticeService(h.deps);
+ await h.service.queue(2,{eventType:'created'});
+ const reminderDate=h.notices[0].fire_at;
+ await h.service.queue(1,{eventType:'no_show',sendImmediately:true,channels:['email'],facts:{reviewedAttendanceOutcome:true,noShowReviewFinalized:true,copyProvider:true}});
+ await h.service.process(2);
+ expect(h.notices[0].fire_at).toBe(reminderDate);
+ expect(h.deps.sendEmail.mock.calls.map(([message])=>message.to)).toEqual(['client@example.test','provider@example.test']);
+ expect(h.deps.sendEmail.mock.calls.every(([message])=>message.entries[0].appointment.id===1)).toBe(true);
 });

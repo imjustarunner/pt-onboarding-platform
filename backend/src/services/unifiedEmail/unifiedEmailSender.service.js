@@ -371,6 +371,7 @@ export async function finalizeOutboundContent({
     agencyId: aid,
     userId,
     misdirectedReportUrl,
+    skipConfidentialityNotice: src==='auto' && portalEmailBrand?.learning===true && portalEmailBrand?.clinical===false && !schoolCommunication,
     skipOptOutLink: isCredentialSecurityNotice(identity, templateType) || isRequestedAccountEmail(templateType) || templateType==='school_session_notice'
       || await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:aid})
   });

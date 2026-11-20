@@ -1214,7 +1214,6 @@ onBeforeUnmount(() => {
 
 .ipts-eyebrow {
   margin: 0 0 6px;
-  text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.74rem;
   color: var(--ipts-text-soft);

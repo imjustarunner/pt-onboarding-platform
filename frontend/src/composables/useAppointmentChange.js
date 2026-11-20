@@ -151,7 +151,7 @@ export function useAppointmentChange({identity}={}) {
     step.value = 1;
   }
 
-  async function openWizard({ appointmentId: id, context: ctx = {} } = {}) {
+  async function openWizard({ appointmentId: id, initialEventType = '', context: ctx = {} } = {}) {
     appointmentId.value = Number(id || 0) || null;
     Object.assign(context, {
       businessType:ctx.businessType||'',
@@ -164,6 +164,7 @@ export function useAppointmentChange({identity}={}) {
       payerLabel: ctx.payerLabel || ''
     });
     resetFacts();
+    if (initialEventType === 'no_show') facts.eventType = initialEventType;
     open.value = true;
     loading.value = true;
     try {

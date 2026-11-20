@@ -1,5 +1,6 @@
 import {appointmentServiceLabel,appointmentAttendanceView} from '../utils/appointmentPresentation.js';
 import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
+import { listPublishedTutoringSummaries } from './tutoringNotePublication.service.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
@@ -170,6 +171,11 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR a.status IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
     AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, params);
   const rows = [...upcoming, ...history].filter(a=>guardianContextAllowsAppointment(client,a));
+  const permissions=typeof client.permissions_json==='string'?JSON.parse(client.permissions_json):client.permissions_json||{};
+  const summaries = permissions.canViewProgress!==false && rows.some(row=>['learning','tutoring'].includes(row.businessType))
+    ? await listPublishedTutoringSummaries(clientId,{agencyId:client.agency_id,providerId:client.service?Number(client.service.provider_user_id)||0:null,serviceId:client.service?.id||null})
+    : [];
+  const summaryByAppointment = new Map(summaries.map(summary=>[summary.appointmentId,summary]));
   const recurring=rows.filter(a=>cancellationSeries(a));
   let cancelled=[],endedServices=[];
   if(recurring.length){
@@ -193,6 +199,9 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   for (const row of rows) {
     Object.assign(row,appointmentAttendanceView(row,{learningSession:{status:row.learningStatus,actual_started_at:row.learningStartedAt,actual_ended_at:row.learningEndedAt}}));
     row.serviceLabel=appointmentServiceLabel(row);
+    if(summaryByAppointment.has(Number(row.id))&&['completed','ended'].includes(row.status)){
+      row.tutoringSummary=summaryByAppointment.get(Number(row.id));
+    }
     row.secureCommentsAvailable = commentAccess.scopes.includes('clinical_messages') && client.permissions_json?.canMessage !== false;
     row.hubUrl=['tutoring','learning'].includes(row.businessType)?`/tutoring-session/appointment/${row.id}?clientId=${Number(clientId)}&agencyId=${Number(client.agency_id)}${serviceId?'&serviceId='+Number(serviceId):''}`:null;
     row.joinUrl = await guardianAppointmentJoin(row,client,pool);

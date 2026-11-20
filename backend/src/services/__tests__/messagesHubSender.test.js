@@ -52,8 +52,8 @@ it('reports email-load failures instead of returning an empty unread inbox', asy
 
 it('queries both calls and voicemails before pagination and retains them in the Calls tab', async () => {
   mocks.list.mockResolvedValue([
-    { id: 5, channel: 'call', is_unread: true, subject: 'Missed call' },
-    { id: 6, channel: 'voicemail', is_unread: true, subject: 'Voicemail' }
+    { id: 5, channel: 'call', is_unread: true, subject: 'Missed call', last_message_at: '2026-11-19T18:00:00Z' },
+    { id: 6, channel: 'voicemail', is_unread: true, subject: 'Voicemail', last_message_at: '2026-11-19T17:00:00Z' }
   ]);
   const feed = await listHubConversationFeed({ agencyId: 2, userId: 1, channel: 'calls', mode: 'unread' });
   expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ channel: 'call', filter: 'unread', scopeToUserId: 1 }));

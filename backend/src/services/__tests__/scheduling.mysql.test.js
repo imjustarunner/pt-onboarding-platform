@@ -49,6 +49,10 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     }
     const mainDdl = [
       `CREATE TABLE provider_schedule_event_attendees (event_id INT, user_id INT)`,
+      `CREATE TABLE learning_program_classes (id INT PRIMARY KEY,organization_id INT)`,
+      `CREATE TABLE learning_class_sessions (id INT PRIMARY KEY,learning_class_id INT,provider_user_id INT,status VARCHAR(32),actual_started_at DATETIME,actual_ended_at DATETIME)`,
+      `CREATE TABLE tutoring_appointment_sessions (appointment_id INT PRIMARY KEY,session_id INT UNIQUE)`,
+
       `CREATE TABLE office_locations (id INT PRIMARY KEY,name VARCHAR(100),agency_id INT)`,
       `CREATE TABLE office_rooms (id INT PRIMARY KEY,location_id INT DEFAULT 2,room_number INT,label VARCHAR(100),name VARCHAR(100))`,
       `CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOLEAN)`,
@@ -99,7 +103,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
         ADD COLUMN active_guard_end_at DATETIME GENERATED ALWAYS AS (CASE WHEN status<>'CANCELLED' THEN end_at ELSE NULL END) VIRTUAL,
         ADD UNIQUE KEY uniq_office_events_active_room_slot (active_guard_room_id,active_guard_start_at,active_guard_end_at)`,
       `ALTER TABLE appointments ADD COLUMN clinical_session_id INT, ADD COLUMN cancellation_reason VARCHAR(500), ADD COLUMN canceled_at DATETIME, ADD COLUMN canceled_by_user_id INT`,
-      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT`,
+      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,

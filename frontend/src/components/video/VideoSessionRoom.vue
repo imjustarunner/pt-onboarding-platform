@@ -613,6 +613,7 @@ onBeforeUnmount(() => {
 });
 
 const props = defineProps({
+  deferAloneWarning: Boolean,
   trainingPolicy: { type: Object, default: null },
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
   apiKey: { type: String, default: '' },
@@ -861,7 +862,7 @@ function otherParticipantCount() {
   return new Set([...roomConnections.values()].map(participantIdentity).map(p => p.key).filter(key => key && key !== own)).size;
 }
 function updateAloneWait() {
-  aloneWait.value = waitPolicy.update({ connected: transportConnected.value, others: otherParticipantCount() });
+  aloneWait.value = waitPolicy.update({ connected: transportConnected.value, others: Math.max(otherParticipantCount(),props.deferAloneWarning?1:0) });
   if (aloneWait.value.phase === 'expired') leaveAloneRoom();
 }
 function extendAloneWait() { aloneWait.value = waitPolicy.extend(); }

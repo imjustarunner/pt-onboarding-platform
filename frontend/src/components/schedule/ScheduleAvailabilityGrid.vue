@@ -11302,11 +11302,13 @@ const shouldHideQuarterAgencyDot = (segmentClass, minute = 0) => {
   return false;
 };
 
-const isScheduleEventCancelled = (ev) => (
-  !!ev?.isCancelled
-  || String(ev?.status || '').trim().toUpperCase() === 'CANCELLED'
-  || /^(canceled|cancelled|late_canceled|late_cancelled)/i.test(String(ev?.appointmentStatus || ''))
-);
+const isScheduleEventCancelled = (ev) => {
+  const outcome = String(ev?.appointmentStatus || '').toLowerCase();
+  if (outcome === 'no_show' || outcome === 'no_show_pending') return false;
+  return !!ev?.isCancelled
+    || String(ev?.status || '').trim().toUpperCase() === 'CANCELLED'
+    || /^(canceled|cancelled|late_canceled|late_cancelled)/i.test(outcome);
+};
 
 const isScheduleEventMissed = (ev) => !!ev?.isMissed || ['MISSED','NO_SHOW','NO-SHOW'].includes(String(ev?.appointmentStatus || ev?.status || '').toUpperCase());
 const isScheduleEventVoided = ev => calendarSessionState(ev)==='Voided';
@@ -14481,7 +14483,7 @@ const editorBookedUntil = ref('');
 const outcomeDetailsId=ref(0);
 const editorStatus = ref('scheduled');
 const editorStatusBaseline = ref('scheduled');
-const editorOutcomeReadOnly=computed(()=>Number(editorAppointmentId.value||0)>0&&['completed','no_show','no_show_pending','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(editorStatus.value).toLowerCase()));
+const editorOutcomeReadOnly=computed(()=>Number(editorAppointmentId.value||0)>0&&['completed','ended','no_show','no_show_pending','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(editorStatus.value).toLowerCase()));
 const editorPublicStatusOptions=computed(()=>APPOINTMENT_EDITOR_STATUS_OPTIONS.filter(option=>!['draft','booked','assigned','temporary','no_show','no_show_pending'].includes(String(option.value||option.id||option).toLowerCase())));
 const editorAppointmentBaseline=ref(null);
 const editorHydratingAppointment=ref(false);
@@ -16302,8 +16304,8 @@ async function loadEditorReminders() {
           || Number(editorServiceLocationId.value || 0) !== previous.serviceLocationId
           || String(editorModality.value || '') !== previous.modality
         );
-        if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.status || 'scheduled');
-        editorStatusBaseline.value=String(appointment.status || 'scheduled');
+        if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.attendanceStatus || appointment.status || 'scheduled');
+        editorStatusBaseline.value=String(appointment.attendanceStatus || appointment.status || 'scheduled');
         editorAppointmentBaseline.value={id:apptId,hydrated:true,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),videoRoomMode:appointment.videoRoomMode || 'unique_session',externalMeetingUrl:appointment.externalMeetingUrl || '',includeGoogleDialIn:appointment.includeGoogleDialIn===true,notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
         if (!edited) {
           if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
@@ -17078,7 +17080,7 @@ const inferredSessionIsGroup = computed(() => {
   return virtualSessionSelectedClientIdSet.value.size > 1;
 });
 const bookingSessionSummaryHint = computed(() => {
-  const modality = String(bookingModality.value || '').toUpperCase() === 'IN_PERSON' ? 'In-person' : 'Telehealth';
+  const modality = String(bookingModality.value || '').toUpperCase() === 'IN_PERSON' ? 'In-person' : (editorIsLearning.value ? 'Online' : 'Telehealth');
   const kind = inferredSessionIsGroup.value ? 'group' : 'individual';
   return `${kind.charAt(0).toUpperCase()}${kind.slice(1)} ${modality.toLowerCase()} session — pick the service code and location.`;
 });

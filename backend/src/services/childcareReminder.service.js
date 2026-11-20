@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import {toUtcIso} from '../utils/zonedWallTime.util.js';
 import {childcareStoredIso} from './childcarePay.service.js';
 import {isNluChildcareAgency} from './compensationCategories.service.js';
+import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {sendCompanyEventSms} from './companyEventSms.service.js';
 
 async function sendEmailNotice({agencyId,userId,to,text,url}) {
@@ -38,7 +39,9 @@ export async function processChildcareReminders({db=pool,now=new Date(),sendSms=
     const reminderType=now>=end&&now<new Date(end.getTime()+24*3600000)?'clock_out':now>=start&&now<end?'clock_in':null;
     if(!reminderType)continue;
     if(reminderType==='clock_out'?row.last_punch!=='clock_in':Number(row.clock_in_count)>0)continue;
-    const url=new URL(`/${encodeURIComponent(row.slug)}/childcare`,baseUrl);url.searchParams.set('shiftId',String(row.shift_id));
+    const url=new URL(buildPublicAppUrl({id:row.agency_id,slug:row.slug},'childcare',{platformBaseUrl:baseUrl}));
+    url.searchParams.set('shiftId',String(row.shift_id));
+    url.searchParams.set('focus',reminderType==='clock_out'?'clock-out':'clock-in');
     const when=new Date(childcareStoredIso(row.starts_at)).toLocaleString('en-US',{timeZone:row.timezone||'America/Denver',timeZoneName:'short'});
     const text=`Childcare shift ${when}. ${row.planned_children} children were scheduled. ${reminderType==='clock_out'?'Clock out when work ends.':'Clock in when work begins.'} Were the scheduled ${row.planned_children} children present? Confirm or correct the actual count in the app. Record count/staffing changes when they happen. ${url}`;
     for(const channel of ['email','sms']) {

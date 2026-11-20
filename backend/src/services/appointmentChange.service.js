@@ -818,7 +818,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     waiverRequested: facts.waiver?.action === 'recommend',
     waiverOptions,
     insuranceClaim,
-    narrative: `Scheduled ${bundle.title || 'session'}: ${formatApptWhen(bundle.startAt, bundle.sourceTimezone)}${providerName ? ` with ${providerName}` : ''}. ${narrative} No service was rendered. This note is nonbillable.`,
+    narrative: `Scheduled ${bundle.title || 'session'}: ${formatApptWhen(bundle.startAt, bundle.sourceTimezone)}${providerName ? ` with ${providerName}` : ''}. ${narrative} ${['learning','tutoring'].includes(bundle.businessType) ? 'No tutoring took place.' : 'No service was rendered. This note is nonbillable.'}`,
     actorRole,
     canWaive
   };
@@ -974,7 +974,7 @@ async function applyAppointmentChange(
     billingArtifacts, officeReservation,
     insuranceClaim: preview.insuranceClaim || DEFAULT_INSURANCE_CLAIM_POLICY,
     preview,
-    narrative: `Scheduled ${preview.appointment.title || 'session'}: ${preview.appointment.displayWhen}${preview.appointment.providerName ? ` with ${preview.appointment.providerName}` : ''}. ${narrative} No service was rendered. This note is nonbillable.`,
+    narrative: `Scheduled ${preview.appointment.title || 'session'}: ${preview.appointment.displayWhen}${preview.appointment.providerName ? ` with ${preview.appointment.providerName}` : ''}. ${narrative} ${['learning','tutoring'].includes(appointment.businessType) ? 'No tutoring took place.' : 'No service was rendered. This note is nonbillable.'}`,
     noteId: null
   };
 }

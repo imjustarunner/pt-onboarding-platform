@@ -888,7 +888,7 @@ export async function updateAssessmentBlueprint(req, res, next) {
 export async function getGuardianFeed(req, res, next) {
   try {
     const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getGuardianLearningSnapshot(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null});
+    const data = await los.getGuardianLearningSnapshot(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null,serviceId:service?.id||null});
     res.json(data);
   } catch (e) {
     next(e);

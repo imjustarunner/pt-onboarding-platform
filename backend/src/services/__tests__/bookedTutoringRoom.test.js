@@ -77,3 +77,28 @@ it('keeps plan-checklist context private to the assigned tutor',async()=>{const 
 it('withholds a mismatched legacy note from learning-context responses',async()=>{TutoringSessionNote.findBySession.mockResolvedValue({id:22,client_id:9999,agency_id:453});const ctx=await room.bookedTutoringAccess(tutor,359);await expect(room.bookedTutoringLearningContext(ctx)).rejects.toMatchObject({status:409});});
 
 it('saves the family draft without replacing Narriva checklist prose, evidence or progress metadata',async()=>{const original={id:22,client_id:2547,agency_id:453,status:'saved',summary:'Private plan-only narrative',metadata_json:{documentationMode:'learning_plan_checklist',checklistRevision:2,planChecklist:{privateResult:'Retain'}}};TutoringSessionNote.findBySession.mockResolvedValue(original);TutoringSessionNote.update.mockImplementation(async(id,body)=>({...original,metadata_json:body.metadata}));const ctx=await room.bookedTutoringAccess(tutor,359);const result=await room.bookedTutoringNote(ctx,{familySummary:true,workedOn:'Family practice',howItWent:'Used one model',homePractice:'Draw two parts',goalIds:[]});expect(TutoringSessionNote.update).toHaveBeenCalledWith(22,{metadata:expect.objectContaining({documentationMode:'learning_plan_checklist',checklistRevision:2,planChecklist:{privateResult:'Retain'}})},1496,db);expect(result.note.summary).toBe('Private plan-only narrative');expect(result.familyDraft.workedOn).toBe('Family practice');expect(TutoringSessionNote.create).not.toHaveBeenCalled();});
+
+it('keeps a scheduled learning room closed when its canonical appointment is a no-show', async () => {
+ Appointment.findById.mockResolvedValue({...a,status:'no_show'});
+ const ctx=await room.bookedTutoringAccess(tutor,359);
+ expect(await room.tutoringRoomStatus(ctx)).toMatchObject({
+  status:'no_show',displayStatus:'No-show',closed:true,available:false,visits:[]
+ });
+ expect(media.clinicalAttendance).not.toHaveBeenCalled();
+});
+
+it('shows the authorized family the exact ended appointment publication without exposing the tutor draft', async () => {
+ session.actual_started_at='2026-11-17 18:00:00';
+ session.actual_ended_at='2026-11-17 18:30:00';
+ const summary={workedOn:'Reading',howItWent:'Main idea',homePractice:'Reread'};
+ const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation((sql,params)=>sql.includes('FROM tutoring_note_publications p')
+  ? Promise.resolve([[{snapshot_json:JSON.stringify({summary,goalIds:[54]}),author_name:'QA tutor',signed_at:'2026-11-17 18:40:00'}]])
+  : original(sql,params));
+ const ctx=await room.bookedTutoringAccess(parent,359);
+ const state=await room.tutoringRoomStatus(ctx);
+ expect(state).toMatchObject({status:'completed',closed:true,familySummary:{summary,authorName:'QA tutor'}});
+ expect(state.familySummary).not.toHaveProperty('goalIds');
+ expect(TutoringSessionNote.findBySession).not.toHaveBeenCalled();
+ expect(db.execute.mock.calls.find(([sql])=>sql.includes('FROM tutoring_note_publications p'))[1]).toEqual([359,600,453,2547]);
+});

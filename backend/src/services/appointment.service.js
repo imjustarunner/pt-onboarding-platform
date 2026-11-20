@@ -153,7 +153,9 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
     }
   }
   const noShowReview=appt.status==='no_show_pending'?await (await import('./appointmentNoShowReview.service.js')).getAppointmentNoShowReview(appt.id):null;
-  return { ...appt, noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
+  const { resolveAppointmentPresentation } = await import('./appointmentPresentation.service.js');
+  const outcome = await resolveAppointmentPresentation(appt);
+  return { ...appt, ...outcome, noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment(input) {
@@ -487,6 +489,13 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   const {assertAppointmentOutcomePreserved,assertNoShowUsesSignedWorkflow}=await import('../utils/appointmentOutcomeGuard.js');
   assertNoShowUsesSignedWorkflow(existing,patch.status,{trustedFinalization:allowPendingNoShow});
   assertAppointmentOutcomePreserved(existing,patch);
+  if(patch.status!=null&&patch.status!==existing.status&&patch.status!=='completed'){
+    const {resolveAppointmentPresentation}=await import('./appointmentPresentation.service.js');
+    const {attendanceStatus}=await resolveAppointmentPresentation(existing);
+    if(['ended','completed'].includes(attendanceStatus)){
+      throw Object.assign(new Error('This tutoring session has ended. Its attendance result is read-only.'),{status:409});
+    }
+  }
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
     await requireClientSessionBooking(existing.agencyId, patch.providerUserId, undefined, { actorUserId });
   }

@@ -35,7 +35,7 @@ const defaults = {
   individualReview: async (...args) => (await import('./appointmentCancellationEmail.service.js')).prepareIndividualCancellationReview(...args),
   individualRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.operationalEmailPermitted(...args),
   familyRecipients: async (...args) => (await import('./appointmentFamilyRecipients.service.js')).appointmentFamilyRecipients(...args),
-  missedNoticeNames:async({clientId,providerId,recipientId})=>{const [[names]]=await pool.execute('SELECT c.first_name AS studentFirstName,p.first_name AS tutorFirstName,g.first_name AS parentFirstName FROM clients c JOIN users p ON p.id=? LEFT JOIN users g ON g.id=? WHERE c.id=?',[providerId,recipientId||null,clientId]);return names||{};},
+  missedNoticeNames:async({clientId,providerId,recipientId})=>{const [[names]]=await pool.execute("SELECT SUBSTRING_INDEX(TRIM(c.full_name), ' ', 1) AS studentFirstName,p.first_name AS tutorFirstName,g.first_name AS parentFirstName FROM clients c JOIN users p ON p.id=? LEFT JOIN users g ON g.id=? WHERE c.id=?",[providerId,recipientId||null,clientId]);return names||{};},
   providerRecipient:async args=>(await import('./appointmentProviderNoticeRecipient.service.js')).appointmentProviderNoticeRecipient(args),
   consent: async (...args) => (await import('./sessionNotification.service.js')).loadClientConsent(...args),
   preferences: async (...args) => (await import('./sessionNotification.service.js')).getClientPreferences(...args),
@@ -77,6 +77,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       return await fn();
     } finally { try { if (acquired) await conn.execute('SELECT RELEASE_LOCK(?)', [`schedule_notice:${key}`]); } finally { conn.release(); } }
   }
+  const isolatedNotice = payload => Boolean(payload.facts?.reviewedCancellation || payload.facts?.guardianCancellationOperationId
+    || payload.individualCancellationReview || payload.facts?.noShowReviewFinalized || payload.immediateTutoringBooking || payload.eventType === 'rescheduled');
   const key = row => `${row.agency_id}:${row.provider_id}:${row.client_id}`;
   async function audit(row, status, message, extra = {}) {
     await d.log({ appointmentId: row.appointment_id, agencyId: row.agency_id, channel: extra.channel || 'in_app', kind: 'other',
@@ -143,7 +145,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const [previous] = await db.execute("SELECT * FROM appointment_schedule_notices WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending' ORDER BY id", [a.agencyId, providerId, clientId]);
         const prior = previous.filter(r => Number(r.appointment_id) === Number(a.id)).at(-1);
         const priorPayload = prior ? decode(prior.payload_json) : null;
-        const payload = { eventType, ...(eventType==='rescheduled'&&before?.startAt?{changeRevision:JSON.stringify([before.startAt,before.endAt,a.startAt,a.endAt])}:{}), facts: { ...(priorPayload?.initialBooking && priorPayload.facts?.recurringBooking ? { recurringBooking: priorPayload.facts.recurringBooking } : {}), ...facts }, originalStartAt: priorPayload?.originalStartAt || before?.startAt || a.startAt,
+        const immediateTutoringBooking = eventType==='created' && !facts.recurringBooking && ['tutoring','learning'].includes(a.businessType);
+        const payload = { eventType, immediateTutoringBooking, ...(eventType==='rescheduled'&&before?.startAt?{changeRevision:JSON.stringify([before.startAt,before.endAt,a.startAt,a.endAt])}:{}), facts: { ...(priorPayload?.initialBooking && priorPayload.facts?.recurringBooking ? { recurringBooking: priorPayload.facts.recurringBooking } : {}), ...facts }, originalStartAt: priorPayload?.originalStartAt || before?.startAt || a.startAt,
           initialBooking: eventType === 'created' || priorPayload?.initialBooking === true,
           ...(individualCancellationReview?{individualCancellationReview}:{}) };
         if (!clientSuppressed && ['private_slots','portal_booking'].includes(facts.followUpAction)) {
@@ -159,12 +162,14 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           await db.execute("UPDATE appointment_schedule_notices SET status='superseded' WHERE id=? AND status='pending'", [row.id]);
           await audit(row, 'superseded', 'A later schedule edit replaced this queued notification.');
         }
-        const firstQueuedAt = previous.length ? parseUtcDate(previous[0].created_at) : d.now();
+        const peers = previous.filter(row => !isolatedNotice(decode(row.payload_json)));
+        const isolated = isolatedNotice(payload);
+        const firstQueuedAt = !isolated && peers.length ? parseUtcDate(peers[0].created_at) : d.now();
         const familyCancellation = eventType === 'canceled' && ['guardian','client_guardian','client'].includes(facts.cancellationActorRole);
-        let due = (sendImmediately || familyCancellation) ? d.now() : scheduleNoticeDeadline({ now: d.now(), firstQueuedAt,
+        let due = (sendImmediately || familyCancellation || immediateTutoringBooking) ? d.now() : scheduleNoticeDeadline({ now: d.now(), firstQueuedAt,
           startAt: before?.startAt || a.startAt, bufferMinutes: tenant?.changeNotify?.bufferMinutes });
         // An imminent cancellation already queued for this client must not be delayed by a later booking.
-        for (const row of previous) {
+        for (const row of isolated ? [] : peers) {
           const p = decode(row.payload_json);
           due = new Date(Math.min(+due, +scheduleNoticeDeadline({ now: d.now(), firstQueuedAt, startAt: p.originalStartAt })));
         }
@@ -173,7 +178,11 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const [insert] = await db.execute(`INSERT INTO appointment_schedule_notices
           (appointment_id,agency_id,provider_id,client_id,event_type,status,payload_json,channels_json,fire_at,created_by_user_id)
           VALUES (?,?,?,?,?,?,?,?,?,?)`, [a.id,a.agencyId,providerId,clientId,eventType,state,d.encrypt(JSON.stringify(payload)),JSON.stringify(allowedChannels.filter(ch => !selectedContacts || selectedContacts.channels.includes(ch))),sqlDate(due),actorUserId]);
-        if (state === 'pending') await db.execute("UPDATE appointment_schedule_notices SET fire_at=? WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending'", [sqlDate(due),a.agencyId,providerId,clientId]);
+        if (state === 'pending' && !isolated) {
+          for (const peer of peers.filter(row => Number(row.appointment_id) !== Number(a.id))) {
+            await db.execute("UPDATE appointment_schedule_notices SET fire_at=? WHERE id=? AND status='pending'", [sqlDate(due),peer.id]);
+          }
+        }
         const row = { ...group, id: insert.insertId, appointment_id: a.id, event_type: eventType, created_by_user_id: actorUserId };
         const explanation = laterOccurrence && !clientSuppressed ? 'Recurring appointment saved. Its booking confirmation is included with the next upcoming session; no separate message was queued for this future occurrence.'
           : serviceStopped ? 'This service has ended. Email and text notifications are disabled.'
@@ -199,9 +208,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     return lock(key(seed), async () => {
       const [allPending] = await db.execute("SELECT * FROM appointment_schedule_notices WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending' ORDER BY id", [seed.agency_id,seed.provider_id,seed.client_id]);
       // Reviewed correspondence stays scoped to its exact session and recipients.
-      const isolated=payload=>payload.facts?.reviewedCancellation || payload.facts?.guardianCancellationOperationId || payload.individualCancellationReview || payload.facts?.noShowReviewFinalized || payload.eventType==='rescheduled';
-      const reviewed = isolated(decode(seed.payload_json));
-      const pending = allPending.filter(r => reviewed ? Number(r.id) === Number(seed.id) : !isolated(decode(r.payload_json)));
+      const reviewed = isolatedNotice(decode(seed.payload_json));
+      const pending = allPending.filter(r => reviewed ? Number(r.id) === Number(seed.id) : !isolatedNotice(decode(r.payload_json)));
       if (!pending.length || pending.some(r => +parseUtcDate(r.fire_at) > +d.now())) return;
       const entries = [];
       for (const row of pending) {
@@ -249,10 +257,6 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       const noticeType = batchAppointmentNoticeKind(entries);
       const channels = [...new Set(entries.flatMap(e => typeof e.row.channels_json === 'string' ? JSON.parse(e.row.channels_json) : e.row.channels_json || []))];
       const batchId = entries[0].row.id;
-      for (const e of entries) {
-        await db.execute("UPDATE appointment_schedule_notices SET status='sending',batch_id=? WHERE id=? AND status='pending'", [batchId,e.row.id]);
-        await audit(e.row,'sending','Final schedule update prepared for delivery. Verify delivery status before resending.');
-      }
       const selectedContacts = entries[0].payload.facts?.notificationRecipients?.find(c => Number(c.clientId) === Number(seed.client_id));
       const family = await d.familyRecipients(seed.client_id,seed.agency_id);
       const targets = selectedContacts ? (selectedContacts.recipients.length ? selectedContacts.recipients : [{ key: 'missing', email: '', phone: '', userId: null }]) : family.hasRelationships ? family.recipients : [null];
@@ -262,6 +266,10 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       const sentTargets = new Set();
       const copyProvider=entries.every(entry=>entry.payload.facts?.copyProvider===true&&entry.payload.facts?.noShowReviewFinalized===true);
       const providerTarget=copyProvider?await d.providerRecipient({providerId:seed.provider_id,agencyId:seed.agency_id}):null;
+      for (const e of entries) {
+        await db.execute("UPDATE appointment_schedule_notices SET status='sending',batch_id=? WHERE id=? AND status='pending'", [batchId,e.row.id]);
+        await audit(e.row,'sending','Final schedule update prepared for delivery. Verify delivery status before resending.');
+      }
       for (const channel of channels.length ? channels : ['in_app']) for (const target of [...(channel==='email' && individualReview ? individualTargets : targets),...(channel==='email'&&copyProvider?[providerTarget||{key:`provider:${seed.provider_id}`,role:'provider',userId:seed.provider_id,email:'',authorized:false}]:[])]) {
         const providerCopy=target?.role==='provider';
         let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null, receipt = null;
@@ -272,7 +280,10 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           const text=`Provider copy: appointment #${appointment.id} was recorded as a no-show. Its correction window has ended. Open the app to review the attendance record: ${url}`;
           recipientMessage={subject:`Provider copy · No-show for appointment #${appointment.id}`,text,html:`<p>${text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</p>`};
         }
-        if(entries.length===1&&entries[0].payload.eventType==='no_show'&&['tutoring','learning'].includes(entries[0].appointment.businessType)){const appointment=entries[0].appointment;const names=await d.missedNoticeNames({clientId:seed.client_id,providerId:seed.provider_id,recipientId:target?.userId});const url=providerCopy?`${new URL(portalUrl).origin}/tutoring-session/appointment/${appointment.id}`:portalUrl;recipientMessage=buildTutoringMissedNotice(appointment,url,{...names,providerCopy});}
+        if(entries.length===1&&entries[0].payload.eventType==='no_show'&&['tutoring','learning'].includes(entries[0].appointment.businessType)){const appointment=entries[0].appointment;const names=await d.missedNoticeNames({clientId:seed.client_id,providerId:seed.provider_id,recipientId:providerCopy?null:target?.userId}).catch(error=>{
+            console.warn('[schedule-notice] missed-session greeting unavailable',seed.id,error.code||'lookup_failed');
+            return {};
+          });const url=providerCopy?`${new URL(portalUrl).origin}/tutoring-session/appointment/${appointment.id}`:portalUrl;recipientMessage=buildTutoringMissedNotice(appointment,url,{...names,providerCopy});}
         const signedLetter = entries[0]?.payload?.facts?.reviewedMessage?.[target?.role === 'client' ? 'client' : target?.role === 'guardian' ? 'guardian' : ''];
         if (signedLetter?.text) recipientMessage = { ...recipientMessage, subject: signedLetter.subject || recipientMessage.subject, text: signedLetter.text,
           html: `<p>${String(signedLetter.text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])).replaceAll('\n', '<br>')}</p>` };
