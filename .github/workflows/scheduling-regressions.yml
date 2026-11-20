@@ -413,6 +413,7 @@ jobs:
           MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
         ports:
           - 3306:3306
+          - 33326:3306
         options: >-
           --health-cmd="mysqladmin ping --silent"
           --health-interval=10s --health-timeout=5s --health-retries=12
@@ -433,6 +434,22 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Administrator school assignments and legacy school visibility
+        env:
+          RECOVERY_TEST_MYSQL_HOST: 127.0.0.1
+          RECOVERY_TEST_MYSQL_PORT: '33326'
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.admin-school-assignments.config.js --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/admin-school-assignments.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const report=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/admin-school-assignments.json','utf8'));
+          assert.equal(report.numPendingTests,0);
+          assert.equal(report.numFailedTests,0);
+          const sql=report.testResults.find(row=>row.name.endsWith('/adminSchoolAssignments.mysql.test.js'));
+          assert(sql?.assertionResults.length>=8,'Actual administrator school SQL cases must execute.');
+          assert(sql.assertionResults.every(row=>row.status==='passed'));
+          NODE
       - name: School staff reactivation and archive audit
         env:
           ACCOUNT_LIFECYCLE_MYSQL_TEST: '1'

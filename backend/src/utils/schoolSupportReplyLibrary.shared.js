@@ -23,7 +23,7 @@ const INTENT_KEYWORDS = Object.freeze({
   school_reinit_update: ['reinit', 're-init', 'returning', 'fall', 'roster', 'continuation', 'year update'],
   packet_received: ['packet', 'referral', 'pdf', 'attachment', 'enrollment', 'intake form'],
   school_portal_packet_upload: [
-    'therapy', 'services', 'support', 'upload', 'packet', 'referral', 'forgot password',
+    'therapy', 'services', 'support', 'upload', 'packet', 'referral', 'password recovery', 'forgot password',
     'app.itsco', 'portal', 'login', 'start this week', 'needs some support', 'kiddo'
   ],
   // Avoid lone "counselor" — that matches signature titles and mis-routes therapy asks.

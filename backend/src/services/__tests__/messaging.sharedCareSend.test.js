@@ -8,7 +8,11 @@ vi.mock('../../models/UserCallSettings.model.js', () => ({ default: { getByUserI
 vi.mock('../../models/SmsThreadEscalation.model.js', () => ({ default: { findActive: vi.fn(async () => null), resolveActive: vi.fn(async () => {}) } }));
 vi.mock('../notificationGatekeeper.service.js', () => ({ default: { decideChannels: vi.fn(async () => ({})) } }));
 vi.mock('../vonage.service.js', () => ({ default: { sendSms: vi.fn() } }));
-vi.mock('../communicationRouting.service.js', () => ({ resolveOutboundNumber: vi.fn(), resolveClientCaregivers: vi.fn() }));
+vi.mock('../communicationRouting.service.js', () => ({ resolveClientCaregivers: vi.fn() }));
+vi.mock('../sharedCareNumber.service.js', () => ({ getSharedCareNumber: vi.fn(), configuredReminderNumberId: vi.fn() }));
+vi.mock('../../models/PhoneNumber.model.js', () => ({ default: { findById: vi.fn() } }));
+vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn(async () => []) } }));
+vi.mock('../channelInboxAdapter.service.js', () => ({ syncSmsThreads: vi.fn(async () => {}) }));
 vi.mock('../smsProfileAudit.service.js', () => ({ recordSmsProfileAudit: vi.fn() }));
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
@@ -16,17 +20,29 @@ import Client from '../../models/Client.model.js';
 import Contact from '../../models/AgencyContact.model.js';
 import MessageLog from '../../models/MessageLog.model.js';
 import Vonage from '../vonage.service.js';
-import { resolveOutboundNumber, resolveClientCaregivers } from '../communicationRouting.service.js';
+import { resolveClientCaregivers } from '../communicationRouting.service.js';
+import { getSharedCareNumber, configuredReminderNumberId } from '../sharedCareNumber.service.js';
+import PhoneNumber from '../../models/PhoneNumber.model.js';
+import ClientGuardian from '../../models/ClientGuardian.model.js';
+import { prepareSmsDelivery } from '../smsCompliance.service.js';
 import { sendClinicalSms } from '../clinicalSmsSend.service.js';
 import { formatRegisteredSms } from '../../utils/smsCompliancePolicy.js';
-vi.mock('../smsCompliance.service.js',()=>({prepareSmsDelivery:vi.fn(async input=>({from:input.from,to:input.to}))}));
+vi.mock('../smsCompliance.service.js', () => ({
+ prepareSmsDelivery: vi.fn(async input => ({ from: input.from, to: input.to })),
+ resolveRegisteredSmsSender: vi.fn(async () => '+17195550300')
+}));
 beforeEach(() => {
  vi.clearAllMocks(); pool.execute.mockResolvedValue([[{ user_id: 10 }]]);
  User.findById.mockImplementation(async id => ({ id, first_name: id === 10 ? 'Michael' : 'Jamie', role: 'provider', is_active: 1 }));
  User.getAgencies.mockResolvedValue([{ id: 2 }]);
  Client.findById.mockResolvedValue({ id: 4, agency_id: 2, contact_phone: '+17195550100' });
  resolveClientCaregivers.mockResolvedValue({ ownerUserId: 10, caregiverIds: [10, 11] });
- resolveOutboundNumber.mockResolvedValue({ number: { id: 1, agency_id: 2, phone_number: '+17195550200' }, ownerType: 'agency' });
+ const providerLine = { id: 1, agency_id: 2, phone_number: '+17195550200', is_active: 1, status: 'active', number_purpose: 'clinical_care' };
+ const reminderLine = { ...providerLine, id: 2, phone_number: '+17195550300' };
+ getSharedCareNumber.mockResolvedValue(providerLine);
+ configuredReminderNumberId.mockResolvedValue(2);
+ PhoneNumber.findById.mockImplementation(async id => Number(id) === 2 ? reminderLine : providerLine);
+ ClientGuardian.listForClient.mockResolvedValue([]);
  MessageLog.createOutbound.mockResolvedValue({ id: 50 }); MessageLog.markSent.mockResolvedValue({ id: 50, delivery_status: 'sent' });
  Vonage.sendSms.mockResolvedValue({ sid: 'example', status: 'sent' }); Contact.findByPhone.mockResolvedValue(null);
 });
@@ -73,4 +89,33 @@ it('requires an identifiable sender', async () => {
  User.findById.mockResolvedValue({ id: 10, role: 'provider', first_name: '' });
  await expect(sendClinicalSms({ userId: 10, clientId: 4, body: 'Hi' })).rejects.toMatchObject({ status: 400 });
  expect(Vonage.sendSms).not.toHaveBeenCalled();
+});
+
+it('replies to the exact guardian phone from the original thread and checks their own consent', async () => {
+ ClientGuardian.listForClient.mockResolvedValue([{ guardian_user_id: 90, access_enabled: 1, is_active: 1, phone: '+17195550190', relationship_type: 'guardian' }]);
+ pool.execute.mockImplementation(async sql => sql.includes('twilio_numbers') ? [[{ id: 1 }]] : [[{ user_id: 10 }]]);
+ await sendClinicalSms({ userId: 10, clientId: 4, body: 'Reply', threadKey: 'sms:v2:client:4:+17195550200:+17195550190' });
+ expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({ to: '+17195550190', recipientUserId: 90, requireConfirmedCare: false }));
+ expect(MessageLog.createOutbound).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ guardianUserId: 90 }) }));
+});
+it('only allows new personal texts from the confirmed provider line of the client agency', async () => {
+ await sendClinicalSms({ userId: 10, clientId: 4, numberId: 1, body: 'Hi', preview: true });
+ expect(prepareSmsDelivery).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 2, requireConfirmedCare: true }));
+ PhoneNumber.findById.mockResolvedValue({ id: 9, agency_id: 3, phone_number: '+17195550900', is_active: 1, status: 'active' });
+ await expect(sendClinicalSms({ userId: 10, clientId: 4, numberId: 9, body: 'Hi' })).rejects.toMatchObject({ status: 403 });
+ expect(Vonage.sendSms).not.toHaveBeenCalled();
+});
+it('blocks the reminder line in personal Messages, even for a support user, and permits only the support inbox to reply', async () => {
+ User.findById.mockResolvedValue({ id: 10, role: 'support', first_name: 'Michael' });
+ pool.execute.mockImplementation(async sql => sql.includes('twilio_numbers') ? [[{ id: 2 }]] : [[{ user_id: 10 }]]);
+ const request = { userId: 10, clientId: 4, body: 'Hi', threadKey: 'sms:v2:client:4:+17195550300:+17195550100' };
+ await expect(sendClinicalSms(request)).rejects.toMatchObject({ status: 403 });
+ await sendClinicalSms({ ...request, supportInbox: true });
+ expect(Vonage.sendSms).toHaveBeenCalledOnce();
+ expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({ from: '+17195550300' }));
+});
+it('requires two separate registered lines before sending from the provider inbox', async () => {
+ configuredReminderNumberId.mockResolvedValue(null);
+ await expect(sendClinicalSms({ userId: 10, clientId: 4, body: 'Hi' })).rejects.toMatchObject({ status: 409 });
+ expect(MessageLog.createOutbound).not.toHaveBeenCalled();
 });

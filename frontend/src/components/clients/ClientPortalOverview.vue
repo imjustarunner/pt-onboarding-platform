@@ -1,14 +1,14 @@
 <template>
   <section class="client-portal-overview" aria-label="Client portal overview">
-    <header><div><h2>Portal · {{client.full_name||client.initials}}</h2><p>Access, shared records, and activity for this client’s portal accounts.</p></div><button v-if="canViewAs" type="button" :disabled="loading" @click="load">Refresh overview</button></header>
-    <nav v-if="showActions" class="portal-actions" aria-label="Client portal actions"><button v-if="canAssignDocuments" type="button" @click="openDocumentAssignments">Share documents</button><button type="button" @click="$emit('share-assessments')">Share assessments</button><button type="button" @click="$emit('manage-access')">Manage portal access</button></nav>
-    <section v-if="assigningDocuments" class="inline-assignments" aria-label="Assign portal documents and forms"><button type="button" @click="closeAssignments">Done assigning documents</button><ClientUpdateModal v-if="canViewAs && updateOpen" inline :open="true" :client-id="client.id" :client-name="client.full_name" :agency-id="client.agency_id||agency.id" @sent="updateOpen=false" @close="updateOpen=false" /><button v-else-if="canViewAs" type="button" @click="updateOpen=true">Assign forms &amp; assessments</button><section v-if="actor.role==='support'"><h3>Release of information</h3><template v-if="!releaseId">
-       <button :disabled="releaseBusy" @click="newRelease">Prepare a release for signature</button>
-       <ul v-if="releases.length"><li v-for="release in releases" :key="release.id">
-         <button @click="releaseId=release.id">{{ release.documentName || release.title }} · {{ date(release.updatedAt) }}</button>
-         {{ release.revoked?'Revoked':release.pendingSignatures?'Signature pending':release.signedCount?'Signed':'Draft' }}
-       </li></ul>
-      </template><button v-else @click="backToReleases">All releases</button><p role="alert" v-if="releaseError">{{ releaseError }}</p><SafetyPlansPanel v-if="releaseId" ref="assignmentWorkspace" record-only portal-signers-only :initial-record-id="releaseId" :agency-id="Number(client.agency_id)" :client-id="Number(client.id)" /></section><EnrollmentPortalDocuments v-if="actor.role!=='support'" ref="assignmentWorkspace" :client-id="Number(client.id)" :agency-id="Number(agency.id)" /></section>
+    <header v-show="!assigningDocuments"><div><h2>Portal · {{client.full_name||client.initials}}</h2><p>Access, shared records, and activity for this client’s portal accounts.</p></div><button v-if="canViewAs" type="button" :disabled="loading" @click="load">Refresh overview</button></header>
+    <nav v-if="showActions && !assigningDocuments" class="portal-actions" aria-label="Client portal actions"><button v-if="canAssignDocuments" type="button" @click="openDocumentAssignments">Documents &amp; assessments</button><button type="button" @click="$emit('share-assessments')">Share assessments</button><button type="button" @click="$emit('manage-access')">Manage portal access</button></nav>
+    <section v-if="assigningDocuments" class="inline-assignments" aria-label="Assign portal documents and forms">
+      <button type="button" @click="closeAssignments">Done assigning documents</button>
+      <ClientUpdateModal inline open ref="assignmentWorkspace" :key="client.id" :client-id="client.id"
+        :client-name="client.full_name||client.initials" :agency-id="client.agency_id||agency.id" :agency-name="agency.name"
+        :can-update="canViewAs" :clinical-mode="actor.role==='support'?'release':'full'" @close="closeAssignments" />
+    </section>
+    <div v-show="!assigningDocuments" class="account-overview">
     <ClientPersonalPortalInvite v-if="canViewAs && personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="load" />
     <ClientPortalAccessEditor v-if="canViewAs" :client-id="client.id" :agency-id="agency.id" :show-self-preparation="!personalLoginAvailable" @saved="load" />
     <p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Loading portal overview…</p>
@@ -20,15 +20,14 @@
       <section v-if="activity" class="portal-activity"><h3>{{activity.account.name}} · Recent activity</h3><p>Latest 100 sign-ins and portal opens, with the network address recorded for each. Message text and document contents are not stored here. Staff previews are attributed to the staff member.</p><ol><li v-for="event in activity.events" :key="`${event.source}-${event.id}`"><time>{{date(event.occurredAt)}}</time> · {{describe(event)}}<span v-if="event.ipAddress"> · {{event.ipAddress}}</span></li></ol><p v-if="!activity.events.length">No activity recorded for this practice.</p></section>
       <PortalAccountPreview v-for="account in viewedAccounts" :key="`${client.id}:${account.id}`" :account="account" :client="client" :agency="agency" @close="previewIds=previewIds.filter(id=>id!==account.id)" />
     </template><p v-else>Portal activity and View as are available to admin, support, and superadmin.</p>
+    </div>
   </section>
 </template>
 <script setup>
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import api from '../../services/api';
 import PortalAccountPreview from '../../auricwell/PortalAccountPreview.vue';
-import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
 import ClientUpdateModal from '../admin/ClientUpdateModal.vue';
-import EnrollmentPortalDocuments from '../enrollment/EnrollmentPortalDocuments.vue';
 import ClientPersonalPortalInvite from './ClientPersonalPortalInvite.vue';
 import ClientPortalAccessEditor from './ClientPortalAccessEditor.vue';
 import { toPlainEnglish } from '../../utils/auditActionRegistry';
@@ -48,29 +47,12 @@ const describe=event=>{const route=String(event.route||'');const writing=event.m
  return toPlainEnglish(event.action)||String(event.action||'Portal activity').replaceAll('_',' ');};
 const props=defineProps({personalLoginAvailable:{type:Boolean,default:false},showActions:{type:Boolean,default:true},client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
 defineEmits(['share-documents','share-assessments','manage-access']);
-const releases=ref([]),releaseId=ref(null),releaseBusy=ref(false),releaseError=ref('');
-async function loadReleases(){
- const run=generation;
- try{
-  const {data}=await api.get('/clinical-forms',{params:{clientId:props.client.id,documentKey:'release-of-information'}});
-  if(run===generation)releases.value=data.plans||[];
- }catch(e){if(run===generation)releaseError.value=e.response?.data?.error?.message||'Could not load saved releases.';}
-}
-function backToReleases(){if(prepareToLeave()){releaseId.value=null;loadReleases();}}
-async function newRelease(){
- if(releaseBusy.value)return;
- const run=generation;releaseBusy.value=true;releaseError.value='';
- try{const {data}=await api.post('/clinical-forms',{documentKey:'release-of-information',clientId:props.client.id,agencyId:props.client.agency_id,data:{personLabel:props.client.full_name||props.client.initials,planDate:new Date().toLocaleDateString('en-CA')}});if(run===generation)releaseId.value=data.id;}
- catch(e){if(run===generation)releaseError.value=e.response?.data?.error?.message||'Could not create the release.';}
- finally{if(run===generation)releaseBusy.value=false;}
-}
-const updateOpen=ref(true);
 const assigningDocuments=ref(false),assignmentWorkspace=ref(null);
 const canAssignDocuments=computed(()=>['admin','support','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(props.actor.role));
-function openDocumentAssignments(){if(canAssignDocuments.value){assigningDocuments.value=true;updateOpen.value=true;if(props.actor.role==='support')loadReleases();}}
+function openDocumentAssignments(){if(canAssignDocuments.value){assigningDocuments.value=true;}}
 function prepareToLeave(){return assignmentWorkspace.value?.prepareToLeave?.()!==false;}
 defineExpose({openDocumentAssignments,prepareToLeave});
-function closeAssignments(){if(prepareToLeave()){assigningDocuments.value=false;releaseId.value=null;}}
+function closeAssignments(){if(prepareToLeave()){assigningDocuments.value=false;}}
 const canViewAs=computed(()=>['admin','support','super_admin'].includes(props.actor.role));
 const invitationFailureLabel = kind => ({send_failed:'The invitation could not be sent. Support can review the failed delivery.',bounced:'The recipient’s server rejected the invitation.',undelivered:'The invitation was not delivered.'}[kind] || 'The recorded delivery failed; no detailed reason is available.');
 const setupLabel = status => ({ password_set:'Password setup complete', temporary_password:'Temporary password issued — permanent password setup still required', temporary_password_expired:'Temporary password expired — password setup required', setup_link_pending:'Password setup pending — current link available', setup_link_expired:'Password setup link expired — request a fresh link', setup_required:'Password setup required', unknown:'Password setup not verified' }[status] || 'Password setup not verified');
@@ -81,7 +63,7 @@ const available=computed(()=>accounts.value.filter(a=>a.available)),viewedAccoun
 const latestActivity=computed(()=>accounts.value.map(a=>a.lastActivity).filter(Boolean).sort().at(-1));
 const date=value=>value?new Date(value).toLocaleString('en-US',{timeZone:props.actor.timezone||'America/Denver'}):'None recorded';
 const endpoint=()=>`/portal-admin/clients/${props.client.id}/accounts`;
-async function load(){const run=++generation;releases.value=[];releaseId.value=null;releaseError.value='';releaseBusy.value=false;assigningDocuments.value=false;++activityGeneration;accounts.value=[];previewIds.value=[];activity.value=null;error.value='';loading.value=false;if(!canViewAs.value)return;loading.value=true;try{const{data}=await api.get(endpoint(),{params:{agencyId:props.agency.id}});if(run===generation)accounts.value=data.accounts;}catch(e){if(run===generation)error.value=e.response?.data?.error?.message||'Portal overview could not be loaded.';}finally{if(run===generation)loading.value=false;}}
+async function load(){const run=++generation;assigningDocuments.value=false;++activityGeneration;accounts.value=[];previewIds.value=[];activity.value=null;error.value='';loading.value=false;if(!canViewAs.value)return;loading.value=true;try{const{data}=await api.get(endpoint(),{params:{agencyId:props.agency.id}});if(run===generation)accounts.value=data.accounts;}catch(e){if(run===generation)error.value=e.response?.data?.error?.message||'Portal overview could not be loaded.';}finally{if(run===generation)loading.value=false;}}
 async function loadActivity(account){const run=++activityGeneration;activity.value=null;error.value='';try{const{data}=await api.get(`${endpoint()}/${account.id}/activity`,{params:{agencyId:props.agency.id}});if(run===activityGeneration)activity.value=data;}catch(e){if(run===activityGeneration)error.value=e.response?.data?.error?.message||'Activity could not be loaded.';}}
 watch(()=>[props.client.id,props.agency.id,props.actor.role],load,{immediate:true});onBeforeUnmount(()=>{++generation;++activityGeneration;});
 </script>

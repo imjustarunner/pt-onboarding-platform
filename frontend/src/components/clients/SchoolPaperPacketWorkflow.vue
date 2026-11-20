@@ -20,13 +20,15 @@
         <PaperPacketEnglishEntry :reading="packetReading" :stage="stage" v-model:answers="englishAnswers" v-model:reviewed="englishResponsesReviewed" :disabled="busy || !!state.processedAt" @use-details="useEnglishDetails" @use-parent="useEnglishParent" />
         <p class="muted">Steps open in order after Save and continue. Missing information stays pending for follow-up; moving between saved steps does not change the packet.</p>
         <template v-if="state.processedAt && stage === 6">
-          <h4>Paper packet processed</h4><p role="status">Paper packet review is complete. Provider assignments, billing follow-up, portal invitations and unsigned portal forms remain separate pending actions on the client profile.</p>
+          <h4>Paper packet processed</h4><p role="status">Paper packet review is complete. Welcome email status appears below for each confirmed portal account.</p>
           <button type="button" class="btn btn-primary" :disabled="busy" @click="finishSavedReview">Finish paper packet review</button>
           <p>The uploaded school ROI and packet consent remain the signature evidence.</p><p v-if="state.insuranceSubmission?.status !== 'not_required'">Insurance was submitted for automatic checks and billing follow-up. Billing handles missing details and coverage issues.</p>
           <ul><li v-for="(delivery, id) in state.invitations" :key="id">{{ guardianLabel(id) }}: <strong>{{ delivery.status }}</strong><span v-if="delivery.reason"> — {{ delivery.reason }}</span><span v-if="delivery.communicationId"> · Delivery record {{ delivery.communicationId }}</span><span v-if="delivery.attemptedAt"> · {{ new Date(delivery.attemptedAt).toLocaleString() }}</span><span v-if="delivery.status === 'redirected'"> · Sent to the configured test destination; guardian inbox receipt is not confirmed.</span></li></ul>
-          <button v-if="hasFailedInvitation" type="button" class="btn btn-primary" :disabled="busy" @click="finish">Retry failed invitations</button>
+          <button v-if="hasUnsentWelcome || hasFailedInvitation" type="button" class="btn btn-primary" :disabled="busy" @click="finish">
+            {{ hasUnsentWelcome ? 'Send pending welcome emails' : 'Retry welcome emails' }}
+          </button>
           <p>Provider assignment and service readiness continue in Client actions.</p>
-          <details class="paper-optional-invitation"><summary>Optional: portal invitation and forms</summary><ClientTransitionInvitation :client-id="clientId" :agency-id="context.client.agency_id" :refresh-key="state.processedAt" /></details>
+          <details class="paper-optional-invitation"><summary>Portal access and forms</summary><ClientTransitionInvitation :client-id="clientId" :agency-id="context.client.agency_id" :refresh-key="state.processedAt" /></details>
         </template>
         <div v-else>
           <h4>{{ stage + 1 }}. {{ labels[stage] }}</h4>
@@ -40,7 +42,7 @@
               <label v-for="field in addressFields" :key="field.key">{{ field.label }}<input v-if="field.key === 'address_street'" v-address-autocomplete="{ model: demographics, fields: { street: 'address_street', city: 'address_city', state: 'address_state', postalCode: 'address_zip' }, locale: 'en', scopeKey: clientId }" v-model="demographics[field.key]" autocomplete="street-address" maxlength="255" /><input v-else v-model="demographics[field.key]" maxlength="255" /></label></div>
             </template>
             <template v-else-if="stage === 1 || stage === 2">
-              <p>Use this person’s own contact information. Prepare a portal account only when needed; invitations are reviewed separately.</p>
+              <p>Use this person’s own contact information. A confirmed portal account receives a welcome email when the paper packet is processed.</p>
               <label v-if="stage === 2" class="paper-check"><input v-model="secondNotListed" type="checkbox" /> No second parent or guardian is listed on this packet</label>
               <label v-if="stage === 2 && !secondNotListed" class="paper-wide">Other parent’s access<select v-model="secondPortalAccount"><option :value="false">Contact only — no portal account</option><option :value="true">Prepare a separate guardian portal account</option></select></label>
               <ClientAffiliatedContactsPanel v-if="stage === 2 && !secondNotListed && !secondPortalAccount" :client-id="clientId" mode="staff" title="Other parent and additional contacts" embedded :allow-guardian-invites="false" />
@@ -98,9 +100,9 @@
               <label class="paper-check"><input v-model="staffRoiConfirmed" type="checkbox" required /> I confirmed each matched staff member’s relationship and ROI selection against the paper, and saved any corrections.</label>
               <label class="paper-check"><input v-model="signaturesConfirmed" type="checkbox" required /> I confirmed the existing school ROI signature and the one packet consent signature for all included packet items.</label>
               <p v-if="state.processedAt">The paper consent review was saved. The existing paper remains the signature evidence.</p>
-              <p>Marking this packet processed saves the paper review. Review account access, assigned forms and the transition email preview in Portal before sending an invitation.</p>
+              <p>Finishing this review saves the packet and sends a welcome email to each guardian with confirmed portal access.</p>
             </template>
-            <template v-else><p><strong>{{ context.client.full_name }}</strong> · {{ context.schoolName }}</p><p>Source: {{ selectedDocument?.original_name || 'Uploaded packet' }} · Version {{ state.consentReview?.versionLabel || context.packetRead?.versionLabel || 'Not identified' }}</p><ul><li v-for="id in [state.guardian1Id,state.guardian2Id].filter(Boolean)" :key="id">{{ guardianLabel(id) }} · {{ guardianContact(id) }} — own portal invitation</li></ul><p>Shared custody: {{ state.sharedCustody }}. Insurance: {{ insuranceTypes.find(type => Number(type.id) === Number(insuranceTypeId))?.label || 'Review required' }}.</p><template v-if="state.consentReview?.kind === 'human_source_review'"><p v-for="kind in ['roi','disclosure']" :key="kind">{{ kind === 'roi' ? 'ROI' : 'Disclosure' }}: {{ state.consentReview[kind].signerName }} · {{ state.consentReview[kind].signedDate }} · PDF page {{ state.consentReview[kind].page }}</p></template><ul v-if="state.consentReview?.staffSelections"><li v-for="staff in state.consentReview.staffSelections" :key="staff.schoolStaffUserId">{{ staff.name || `Staff #${staff.schoolStaffUserId}` }}: {{ staff.state }}</li></ul><p>Paper consents and release selections were reviewed. Mark this packet processed, then review and send the portal invitation from Portal.</p></template>
+            <template v-else><p><strong>{{ context.client.full_name }}</strong> · {{ context.schoolName }}</p><p>Source: {{ selectedDocument?.original_name || 'Uploaded packet' }} · Version {{ state.consentReview?.versionLabel || context.packetRead?.versionLabel || 'Not identified' }}</p><ul><li v-for="id in [state.guardian1Id,state.guardian2Id].filter(Boolean)" :key="id">{{ guardianLabel(id) }} · {{ guardianContact(id) }} — own portal invitation</li></ul><p>Shared custody: {{ state.sharedCustody }}. Insurance: {{ insuranceTypes.find(type => Number(type.id) === Number(insuranceTypeId))?.label || 'Review required' }}.</p><template v-if="state.consentReview?.kind === 'human_source_review'"><p v-for="kind in ['roi','disclosure']" :key="kind">{{ kind === 'roi' ? 'ROI' : 'Disclosure' }}: {{ state.consentReview[kind].signerName }} · {{ state.consentReview[kind].signedDate }} · PDF page {{ state.consentReview[kind].page }}</p></template><ul v-if="state.consentReview?.staffSelections"><li v-for="staff in state.consentReview.staffSelections" :key="staff.schoolStaffUserId">{{ staff.name || `Staff #${staff.schoolStaffUserId}` }}: {{ staff.state }}</li></ul><p>Paper consents and release selections were reviewed. Finish processing to send the welcome emails.</p></template>
           </fieldset>
           <div v-if="!state.processedAt" class="paper-actions"><button v-if="stage > 0" type="button" class="btn btn-secondary" :disabled="busy" @click="stage--">Back</button><button type="button" class="btn btn-primary" :disabled="busy || (stage === 6 && !packetMatched)" @click="next">{{ busy ? 'Saving…' : stage === 6 ? 'Finish paper packet review' : 'Save and continue' }}</button></div>
         </div>
@@ -181,6 +183,7 @@ const pendingEntryReasons=computed(()=>{
  return reasons;
 });
 const hasFailedInvitation=computed(()=>Object.values(state.value.invitations||{}).some(d=>['failed','blocked'].includes(d.status)));
+const hasUnsentWelcome=computed(()=>Object.values(state.value.invitations||{}).some(d=>d.status==='not_sent'));
 function guardianLabel(id){const g=context.value?.guardians.find(g=>Number(g.guardian_user_id)===Number(id));return g?[g.first_name,g.last_name].filter(Boolean).join(' '):'Not connected';}
 function packetContactLabel(index){const id=state.value[`guardian${index+1}Id`];if(id)return guardianLabel(id);const contact=context.value?.contacts?.find(contact=>Number(contact.id)===Number(state.value[`guardian${index+1}ContactId`]));return contact?.fullName||[guardianForms[index]?.firstName,guardianForms[index]?.lastName].filter(Boolean).join(' ')||'Not listed';}
 function guardianContact(id){const g=context.value?.guardians.find(g=>Number(g.guardian_user_id)===Number(id));return g?[g.email,g.phone_number,g.relationship_title].filter(Boolean).join(' · '):'Contact unavailable';}
@@ -303,7 +306,7 @@ async function next(){
 }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||e.message||'Unable to save this step.';}finally{if(generation===contextGeneration)busy.value=false;}}
 async function finish({closeAfter=false}={}){const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
  if(!state.value.processedAt&&!packetMatched.value)throw new Error('The paper consent evidence needs review before finishing.');
- const{data}=await api.post(`${url}/complete`,{signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value,sendInvitations:false});if(disposed||generation!==contextGeneration)return;state.value=data.state;stage.value=6;emit('processed',data.state);if(closeAfter)emit('close');
+ const{data}=await api.post(`${url}/complete`,{signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value});if(disposed||generation!==contextGeneration)return;state.value=data.state;stage.value=6;emit('processed',data.state);if(closeAfter)emit('close');
  }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||e.message||'Unable to complete processing.';}finally{if(generation===contextGeneration)busy.value=false;}}
 function finishSavedReview(){if(busy.value||!state.value.processedAt)return;emit('processed',state.value);emit('close');}
 

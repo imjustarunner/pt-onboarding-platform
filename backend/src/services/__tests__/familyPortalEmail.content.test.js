@@ -50,7 +50,25 @@ it('does not inherit a mixed tenant clinical email frame for an explicit learnin
  expect(renderPortalEmail({brand,text:'Review your learning progress.'})).not.toContain('AuricWell');
 });
 
-it('identifies the school and support-processed packet while keeping the recipient’s own secure portal link',()=>{
- const message=buildPaperPacketPortalEmail({firstName:'Synthetic',agencyName:'Example Agency',schoolName:'Example School <script>',clients:[{full_name:'Synthetic Student'}],url,existingAccount:true});
- expect(message.text).toContain('support team has processed your paper packet');expect(message.text).toContain('School: Example School');expect(message.text).toContain('You do not need a new account');expect(message.html).not.toContain('<script>');expect(message.html).toContain(url);
+it('gives an existing guardian the school welcome and sign-in instructions in both formats',()=>{
+ const message=buildPaperPacketPortalEmail({firstName:'Synthetic',agencyName:'Example Agency',schoolName:'Example School <script>',url,existingAccount:true});
+ for (const content of [message.text, message.html]) {
+   expect(content).toContain('Example School');
+   expect(content).toContain('reviewing your enrollment and will be in touch');
+   expect(content).toContain('SchoolCareBridge');
+   expect(content).toContain('Sign in to AuricWell');
+   expect(content).toContain('Password recovery');
+   expect(content).toContain(url);
+ }
+ expect(message.html).not.toContain('<script>');
+ expect(message.text).not.toContain('Create my password');
+});
+
+it('offers a first password to a new guardian in the packet language',()=>{
+ const message=buildPaperPacketPortalEmail({agencyName:'Example Agency',schoolName:'Example School',url,existingAccount:false,locale:'es'});
+ expect(message.html).toContain('lang="es"');
+ expect(message.text).toContain('Crear mi contraseña');
+ expect(message.text).toContain('Recuperación de contraseña');
+ expect(message.text).toContain('SchoolCareBridge');
+ expect(message.linkUrl).toBe(url);
 });

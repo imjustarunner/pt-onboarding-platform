@@ -1,3 +1,6 @@
+import { configuredReminderNumberId } from './sharedCareNumber.service.js';
+import { parseSmsThreadKey } from '../utils/smsThreadIdentity.js';
+import PhoneNumber from '../models/PhoneNumber.model.js';
 import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -32,6 +35,13 @@ export async function requireConversationAccess(user, conversationId) {
   const agencies = await User.getAgencies(uid);
   if (!(agencies || []).some((a) => Number(a.id) === Number(c.agency_id))) {
     throw Object.assign(new Error('Conversation not found'), { status: 404 });
+  }
+  if (c.channel === 'sms') {
+    const reminderId = await configuredReminderNumberId(c.agency_id);
+    if (reminderId && parseSmsThreadKey(c.external_thread_id)?.fromNumber === (await PhoneNumber.findById(reminderId))?.phone_number) {
+      if (['admin', 'support', 'clinical_practice_assistant'].includes(role)) return c;
+      throw Object.assign(new Error('Conversation not found'), { status: 404 });
+    }
   }
   if(['shared','support'].includes(c.inbox_kind) && !c.inbox_owner_user_id){
     const [[group]]=await pool.execute(`SELECT 1 FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=?

@@ -1,3 +1,4 @@
+import { describeSmsConversations } from './smsConversationPresentation.service.js';
 import {groupEmailIdentity} from './groupEmailIdentity.js';
 import { plainEmailHtml } from '../utils/emailReplyContent.js';
 import { communicationPrintDocument } from './communicationPrint.service.js';
@@ -220,7 +221,8 @@ export async function listConversations(opts) {
   if (syncTickets && agencyId) requestInboxReconciliation(agencyId, channel);
   const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const rows = await CommunicationConversation.list({ ...opts, ...scope });
-  return rows.map((row) => withGroupEmailMetadata(row, userId, scope.managedGroups));
+  const visible = rows.map(row => withGroupEmailMetadata(row, userId, scope.managedGroups));
+  return describeSmsConversations(visible);
 }
 
 export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null, includeResponseTime = true, ...filters } = {}) {
@@ -251,8 +253,18 @@ export async function getConversationDetail(conversationId, { userId, markRead =
     buildConversationContext(conv).catch(e=>{console.warn('[email-reader] context unavailable:',e?.code || 'context_failed');return null;}),
     pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[conv.agency_id])
   ]);
-  const messages=hydrated || storedMessages;
+  let messages=hydrated || storedMessages;
   conv = withGroupEmailMetadata(conv, userId, managedGroups);
+  if (conv.channel === 'sms') {
+    [conv] = await describeSmsConversations([conv]);
+    messages = messages.map(message => {
+      if (message.channel !== 'sms' || message.is_internal_note) return message;
+      const name = message.direction === 'inbound' ? conv.sms?.recipientName || 'Sender'
+        : message.is_auto_reply ? conv.sms?.organizationName || 'Automatic reply'
+          : Number(message.author_user_id) === Number(userId) ? 'You' : 'Care team';
+      return { ...message, from: { name } };
+    });
+  }
   if (markRead && userId) {
     if (conv.support_ticket_id) await markSupportTicketRead({ ticketId: conv.support_ticket_id, userId });
     else await CommunicationConversation.markRead(conversationId, userId);
@@ -1135,7 +1147,8 @@ async function replySmsConversation(conversationId, conv, payload, { userId } = 
     contactId,
     body: text,
     numberId: payload.numberId,
-    threadKey
+    threadKey,
+    supportInbox: payload.supportInbox === true
   });
 
   const preview = previewText(text);

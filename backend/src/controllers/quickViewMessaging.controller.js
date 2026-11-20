@@ -28,7 +28,10 @@ export const getQuickConversation = handle(async (req, res) => {
   if (beforeId) detail.messages = await Conversation.listMessages(req.params.id, { beforeId });
   const reactions = await listMessageReactions(detail.messages.map((m) => Number(m.id)).filter(Number.isSafeInteger), req.quickView.userId);
   detail.messages = detail.messages.map((m) => ({ ...m, reactions: reactions.get(Number(m.id)) || [] }));
-  res.json({ ok: true, conversation: detail.conversation, messages: detail.messages, nextBeforeId: detail.conversation.channel === 'email' && detail.messages.length === 200 ? Math.min(...detail.messages.map((m) => Number(m.id))) : null });
+  const conversation = detail.conversation.channel === 'sms'
+    ? { ...detail.conversation, subject: detail.conversation.sms?.recipientName || 'Text conversation' }
+    : detail.conversation;
+  res.json({ ok: true, conversation, messages: detail.messages, nextBeforeId: detail.conversation.channel === 'email' && detail.messages.length === 200 ? Math.min(...detail.messages.map((m) => Number(m.id))) : null });
 });
 
 export const postQuickReply = handle(async (req, res) => {

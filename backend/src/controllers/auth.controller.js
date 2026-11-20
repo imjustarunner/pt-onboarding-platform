@@ -651,7 +651,7 @@ export const login = async (req, res, next) => {
       if (roleNormSetup === 'school_staff') {
         return res.status(403).json({
           error: {
-            message: 'Please set your password first. Click Forgot Password, enter the email on your school staff account, and use the link we send you.',
+            message: 'Please set your password first. Choose Password recovery, enter the email on your school staff account, and use the link we send you.',
             requiresSetup: true,
             useForgotPassword: true
           }
@@ -700,7 +700,7 @@ export const login = async (req, res, next) => {
       if (roleNormNoPw === 'school_staff') {
         return res.status(401).json({
           error: {
-            message: 'Please set your password first. Click Forgot Password, enter the email on your school staff account, and use the link we send you.',
+            message: 'Please set your password first. Choose Password recovery, enter the email on your school staff account, and use the link we send you.',
             requiresSetup: true,
             useForgotPassword: true
           }
@@ -784,7 +784,7 @@ export const login = async (req, res, next) => {
       ) {
         return res.status(401).json({
           error: {
-            message: 'Your temporary password has expired. Click Forgot Password, enter your email, and set a new password.',
+            message: 'Your temporary password has expired. Choose Password recovery, enter your email, and set a new password.',
             temporaryPasswordExpired: true,
             useForgotPassword: true
           }

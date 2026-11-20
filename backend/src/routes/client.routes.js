@@ -152,7 +152,7 @@ import {
   createClientRenewal,
   sendClientRenewal
 } from '../controllers/clientRenewal.controller.js';
-import {remindAssignment,createAssignmentPackage,getClientUpdateCatalog,listClientUpdates,createClientUpdate,sendClientUpdate} from '../controllers/clientUpdate.controller.js';
+import {previewUpdateItem,remindAssignment,createAssignmentPackage,getClientUpdateCatalog,listClientUpdates,createClientUpdate,sendClientUpdate} from '../controllers/clientUpdate.controller.js';
 import {
   listClientAffiliatedContacts,
   createClientAffiliatedContact,
@@ -427,7 +427,8 @@ router.post('/:id/school-roi-signing-text', sendClientSchoolRoiSigningText);
 router.post('/:id/school-roi-signing-email', sendClientSchoolRoiSigningEmail);
 router.get('/:id/renewals', requireBackofficeAdmin, listClientRenewals);
 router.post('/:id/updates/items/:itemId/remind', requireBackofficeAdmin, remindAssignment);
-router.post('/:id/updates/packages', requireBackofficeAdmin, createAssignmentPackage);
+router.post('/:id/updates/packages', requireBackofficeAdmin, (req,res,next)=>req.body?.foundationKeys?.length ? requireClinicalStaffSecurity(req,res,next) : next(), createAssignmentPackage);
+router.get('/:id/updates/preview/:kind/:key', requireBackofficeAdmin, requireClinicalStaffSecurity, previewUpdateItem);
 router.get('/:id/updates/catalog', requireBackofficeAdmin, getClientUpdateCatalog);
 router.get('/:id/updates', requireBackofficeAdmin, listClientUpdates);
 router.post('/:id/updates', requireBackofficeAdmin, createClientUpdate);

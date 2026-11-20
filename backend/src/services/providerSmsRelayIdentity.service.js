@@ -35,6 +35,7 @@ export async function resolveRelayFamily(client, phone, knownLinks = null) {
     if (matching.length !== 1 || Number(matching[0].access_enabled) !== 1
       || Number(matching[0].is_active) !== 1) return null;
     const guardian = matching[0];
+    if (guardian.terminated_at || [true, 1, '1'].includes(guardian.is_archived)) return null;
     if (['TERMINATED', 'ARCHIVED', 'INACTIVE_EMPLOYEE'].includes(String(guardian.status || '').toUpperCase())) return null;
     const permissions = guardian.permissions_json || {};
     if (permissions.billingOnly || permissions.pendingGuardianVerification || permissions.pendingOtherGuardianEnrollment || permissions.noView || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted

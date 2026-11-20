@@ -1,3 +1,4 @@
+import { messageFeedBoundary, messageFeedPosition } from '../utils/messageFeedCursor.js';
 import { pruneUserCompanyEventConversations } from './companyEventConversation.service.js';
 import { familyMessageVisibilitySql, currentSecureThreadFilterSql } from './familySecureMessageAccess.service.js';
 import { resolveClientForSecureRecipients, refreshClientSecureAccess } from './clientSecureConversation.service.js';
@@ -7,7 +8,7 @@ import { messageSender } from '../utils/messageSender.js';
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
 import pool from '../config/database.js';
-import { chatInboxVisibilitySql } from './messageInboxPolicy.js';
+import { chatInboxVisibilitySql, CLAIMED_TICKET_NOTICE_CATEGORY } from './messageInboxPolicy.js';
 import { privateMailboxVisibilitySql } from './privateMailboxPolicy.js';
 import { hubClientScope, hubContactScope, scopeHubPeople, canAccessHubClient, canAccessHubContact, ownEmailCorrespondent } from './hubPeopleAccess.service.js';
 import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
@@ -4058,40 +4059,60 @@ export async function sendHubPortalInvitation({
 
   let delivery = null;
   if (!skipEmail) {
+    const { clientEmailContext, sendClientPortalEmail } = await import('./clientPortalEmail.service.js');
+    const { buildClientEnrollmentEmail, buildPaperPacketPortalEmail } = await import('./clientPortalEmailContent.js');
+    const emailContext = await clientEmailContext({ agencyId: inviteAgencyId, clientId: cid });
+    let built;
+    if (paperPacketProcessed) {
+      const { default: Agency } = await import('../models/Agency.model.js');
+      const school = client.organization_id ? await Agency.findById(client.organization_id) : null;
+      built = buildPaperPacketPortalEmail({
+        firstName: firstName || guardian.first_name,
+        agencyName: agency.name,
+        schoolName: school?.name,
+        existingAccount,
+        url: setupUrl,
+        locale: enrollmentLocale
+      });
+    } else {
+      const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id,cg.permissions_json,o.organization_type
+        FROM clients c JOIN client_guardians cg ON cg.client_id=c.id LEFT JOIN agencies o ON o.id=c.organization_id
+        WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND c.agency_id=?
+          AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[guardian.id,inviteAgencyId]);
+      const included = [];
+      for (const sibling of siblings) {
+        const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
+        if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
+        if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
+        if(existingLinkOnly&&Array.isArray(selectedClientIds)&&!selectedClientIds.map(Number).includes(Number(sibling.id)))continue;
+        const siblingContext = await resolveClientPortalContext(sibling);
+        if (siblingContext.learning === portalContext.learning) included.push(sibling);
+      }
+      if(migration){
+        const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
+        for(const profile of included.length?included:[client]){
+          const gate=await familyNotificationDeliveryGate({agencyId:inviteAgencyId,clientId:profile.id,to:email,templateType:'portal_migration_invite'});
+          if(!gate.allowed)return {ok:false,delivery:{blocked:true,reason:gate.reason},guardianUserId:guardian.id,clientId:cid};
+        }
+      }
 
-  const { clientEmailContext, sendClientPortalEmail } = await import('./clientPortalEmail.service.js');
-  const { buildClientEnrollmentEmail, buildPaperPacketPortalEmail } = await import('./clientPortalEmailContent.js');
-  const emailContext = await clientEmailContext({agencyId:inviteAgencyId,clientId:cid});
-  const [siblings] = await pool.execute(`SELECT c.id,c.full_name,c.initials,c.client_type,c.agency_id,c.organization_id,cg.permissions_json,o.organization_type
-    FROM clients c JOIN client_guardians cg ON cg.client_id=c.id LEFT JOIN agencies o ON o.id=c.organization_id
-    WHERE cg.guardian_user_id=? AND cg.access_enabled=1 AND c.agency_id=?
-      AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[guardian.id,inviteAgencyId]);
-  const included = [];
-  for (const sibling of siblings) {
-    const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
-    if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
-    if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
-    if(existingLinkOnly&&Array.isArray(selectedClientIds)&&!selectedClientIds.map(Number).includes(Number(sibling.id)))continue;
-    const siblingContext = await resolveClientPortalContext(sibling);
-    if (siblingContext.learning === portalContext.learning) included.push(sibling);
-  }
-  if(migration){
-    const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
-    for(const profile of included.length?included:[client]){
-      const gate=await familyNotificationDeliveryGate({agencyId:inviteAgencyId,clientId:profile.id,to:email,templateType:'portal_migration_invite'});
-      if(!gate.allowed)return {ok:false,delivery:{blocked:true,reason:gate.reason},guardianUserId:guardian.id,clientId:cid};
+      built = migration
+        ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
+          agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
+          portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school'),locale:enrollmentLocale,documents:migrationDocuments})
+        : buildClientEnrollmentEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
+          agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl});
     }
-  }
-  const built = migration
-    ? (await import('./portalMigrationContent.js')).buildPortalMigrationEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
-      agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
-      portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school'),locale:enrollmentLocale,documents:migrationDocuments})
-    : (paperPacketProcessed ? buildPaperPacketPortalEmail : buildClientEnrollmentEmail)({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
-      agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl,
-      schoolName:paperPacketProcessed && client.organization_id ? (await (await import('../models/Agency.model.js')).default.findById(client.organization_id))?.name : null});
-  delivery = await sendClientPortalEmail({agencyId:inviteAgencyId,clientId:cid,context:emailContext,
-    to:email,...built,source:'auto',templateType:migration?'portal_migration_invite':'hub_portal_invite',userId:guardian.id});
-
+    delivery = await sendClientPortalEmail({
+      agencyId: inviteAgencyId,
+      clientId: cid,
+      context: emailContext,
+      to: email,
+      ...built,
+      source: 'auto',
+      templateType: migration && !paperPacketProcessed ? 'portal_migration_invite' : 'hub_portal_invite',
+      userId: guardian.id
+    });
   }
 
   return {
@@ -4116,13 +4137,14 @@ export async function listHubConversationFeed({
   limit = 60,
   sort = 'newest',
   channel: channelFilter = 'all',
-  mode = 'inbox', inboxId = null, category = null, claimState = null, includeGlobal = true
+  mode = 'inbox', inboxId = null, category = null, claimState = null, includeGlobal = true, cursor = null
 } = {}) {
   const aid = Number(agencyId || 0) || null;
   const uid = Number(userId || 0);
   const lim = Math.min(Math.max(Number(limit) || 60, 1), 120);
   const sortNewest = String(sort || 'newest').toLowerCase() !== 'oldest';
-  const unreadOnly = String(mode || 'inbox').toLowerCase() === 'unread';
+  const claimedTicketNotices = category === CLAIMED_TICKET_NOTICE_CATEGORY;
+  const unreadOnly = claimedTicketNotices || String(mode || 'inbox').toLowerCase() === 'unread';
   const assignedOnly = String(mode || '').toLowerCase() === 'assigned';
   if (!uid) {
     return {
@@ -4145,15 +4167,16 @@ export async function listHubConversationFeed({
       agencyId: aid,
       filter: assignedOnly ? 'assigned' : unreadOnly ? 'unread' : 'all',
       channel: channelFilter === 'calls' ? 'call' : ['group','groups','email'].includes(channelFilter) ? 'email' : channelFilter === 'sms' ? 'sms' : null,
-      groupOnly: ['group','groups'].includes(channelFilter) && !category,
+      groupOnly: ['group','groups'].includes(channelFilter) && (!category || claimedTicketNotices),
       excludeGroup: channelFilter === 'email',
       syncTickets: false,
+      hideSupportReminderSms: true,
       userId: uid,
       scopeToUserId: uid,
       inboxId, category, sort, claimState, includeGlobal,
-      limit: lim,
+      limit: lim + 1,
       offset: 0,
-      isAdminViewer: false
+      isAdminViewer: false, feedCursor: cursor
     });
     const emailAddrs = [
       ...new Set(
@@ -4222,13 +4245,12 @@ export async function listHubConversationFeed({
         id: `email-${c.id}`,
         kind: resolvedChannel === 'sms' ? 'sms' : 'email',
         channel: resolvedChannel,
-        sortAt: unreadOnly
-          ? c.last_inbound_at || c.last_message_at || c.updated_at || c.created_at
-          : c.last_message_at || c.last_inbound_at || c.updated_at || c.created_at,
+        sortAt: c.last_message_at || c.updated_at || c.created_at,
         unreadCount: isUnread ? 1 : 0,
         is_unread: isUnread,
         conversationId: Number(c.id),
         agencyId: c.agency_id || aid,
+        sms: c.sms || null,
         inbox_id: c.inbox_id || null,
         message_category: c.message_category || 'correspondence', is_review_notice: !!c.is_review_notice,
         subject: c.subject || null,
@@ -4264,7 +4286,7 @@ export async function listHubConversationFeed({
   }
 
   // Chat threads (direct + channels / team / club)
-  try {
+  if (!['email', 'sms', 'calls'].includes(channelFilter)) try {
     const agencyClause = aid ? "AND (t.agency_id = ? OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))" : '';
     // unread(2) + other(1) + tp/r/td(3) + lm delete(1) + ou(1) [+ agency]
     // For inbox, last message is any sender; for unread, prefer unread inbound preview.
@@ -4272,6 +4294,16 @@ export async function listHubConversationFeed({
       ? [uid, uid, uid, uid, uid, uid, uid, uid, uid]
       : [uid, uid, uid, uid, uid, uid, uid, uid];
     if (aid) params.push(aid);
+    const activitySql = 'COALESCE(lm.created_at,t.updated_at)';
+    const boundary = messageFeedBoundary(cursor, 0, activitySql, 't.id', !sortNewest);
+    params.push(...boundary.params);
+    const chatFilter = {
+      secure: "AND t.message_channel='secure'",
+      internal: "AND t.message_channel='internal' AND t.thread_type IN ('direct','group','client_secure')",
+      channel: "AND t.thread_type='channel'",
+      group: "AND t.thread_type NOT IN ('direct','client_secure')",
+      groups: "AND t.thread_type NOT IN ('direct','client_secure')"
+    }[channelFilter] || '';
 
     const lastMessageSql = unreadOnly
       ? `LEFT JOIN chat_messages lm ON lm.id = (
@@ -4309,7 +4341,7 @@ export async function listHubConversationFeed({
               lm.body_iv,
               lm.body_auth_tag,
               lm.encryption_key_id,
-              lm.created_at AS last_message_at,
+              ${activitySql} AS last_message_at,
               lm.sender_user_id AS last_sender_id,
               (
                 SELECT COUNT(*)
@@ -4347,10 +4379,10 @@ export async function listHubConversationFeed({
        )
        WHERE td.deleted_at IS NULL
          AND ${inboxId || category || claimState ? '0=1' : chatInboxVisibilitySql(uid)}
-         ${agencyClause}
+         ${agencyClause} ${chatFilter} ${boundary.sql}
        ${havingClause}
        ORDER BY COALESCE(last_message_at, t.updated_at) ${sortNewest ? 'DESC' : 'ASC'},t.id ${sortNewest ? 'DESC' : 'ASC'}
-       LIMIT ${Number(lim)}`,
+       LIMIT ${lim + 1}`,
       params
     );
 
@@ -4491,13 +4523,17 @@ export async function listHubConversationFeed({
   collapsed.sort((a, b) => {
     const ta = new Date(a.sortAt || 0).getTime();
     const tb = new Date(b.sortAt || 0).getTime();
-    return sortNewest ? tb - ta : ta - tb;
+    const left = messageFeedPosition(a), right = messageFeedPosition(b);
+    const order = ta - tb || left.source - right.source || left.id - right.id;
+    return sortNewest ? -order : order;
   });
 
-  const sliced = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
-    || (['group','groups'].includes(channelFilter) ? (category ? item.is_review_notice : item.is_ticketed_group || ['group','channel'].includes(item.channel))
+  const matching = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
+    || (['group','groups'].includes(channelFilter) ? (claimedTicketNotices ? item.is_group_email : category ? item.is_review_notice : item.is_ticketed_group || ['group','channel'].includes(item.channel))
       : channelFilter === 'email' ? item.channel === 'email' && !item.is_ticketed_group
-      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect)))).slice(0, lim);
+      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect))));
+  const sliced = matching.slice(0, lim);
+  const nextCursor = matching.length > lim ? Buffer.from(JSON.stringify(messageFeedPosition(sliced.at(-1)))).toString('base64url') : null;
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
   const smsCount = sliced.filter((i) => i.channel === 'sms').length;
   const chatCount = sliced.filter((i) =>
@@ -4506,7 +4542,7 @@ export async function listHubConversationFeed({
   const unreadCount = sliced.filter((i) => i.is_unread).length;
 
   return {
-    items: sliced,
+    items: sliced, nextCursor,
     counts: {
       total: sliced.length,
       email: emailCount,

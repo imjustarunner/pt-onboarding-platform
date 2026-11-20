@@ -1,10 +1,10 @@
 name: Plotline self-service boundaries
 on:
   pull_request:
-    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','frontend/src/composables/usePlotlineCompanyScope.js','frontend/src/views/admin/Hiring*','frontend/src/views/admin/CareersView.vue','frontend/src/views/admin/InterviewHubView.vue','frontend/src/components/video/**','frontend/src/App.vue','frontend/src/utils/appReleaseMonitor.js','frontend/vitest.plotline-r5.config.js','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
+    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','frontend/src/composables/usePlotlineCompanyScope.js','frontend/src/views/admin/Hiring*','frontend/src/views/admin/CareersView.vue','frontend/src/views/admin/InterviewHubView.vue','frontend/src/components/video/**','frontend/src/App.vue','frontend/src/utils/appReleaseMonitor.js','frontend/vitest.plotline-r5.config.js','frontend/vitest.plotline-r6.config.js','backend/vitest.plotline-r6.config.js','frontend/src/utils/uploadsUrl.js','backend/src/utils/uploads.js','frontend/src/components/supervision/SupervisionVideoLobbyPanel.vue','frontend/src/views/teamMeeting/JoinTeamMeetingView.vue','backend/src/services/teamMeetingRoomCapabilities.service.js','backend/src/controllers/teamMeetings.controller.js','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
   push:
     branches: [main]
-    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','frontend/src/composables/usePlotlineCompanyScope.js','frontend/src/views/admin/Hiring*','frontend/src/views/admin/CareersView.vue','frontend/src/views/admin/InterviewHubView.vue','frontend/src/components/video/**','frontend/src/App.vue','frontend/src/utils/appReleaseMonitor.js','frontend/vitest.plotline-r5.config.js','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
+    paths: ['backend/src/**/plotline*','backend/src/middleware/auth.middleware.js','backend/src/middleware/agencyAccessProfiles.middleware.js','backend/src/services/jobApplicantUser.service.js','frontend/src/**/Plotline*','frontend/src/**/plotline*','frontend/src/composables/usePlotlineCompanyScope.js','frontend/src/views/admin/Hiring*','frontend/src/views/admin/CareersView.vue','frontend/src/views/admin/InterviewHubView.vue','frontend/src/components/video/**','frontend/src/App.vue','frontend/src/utils/appReleaseMonitor.js','frontend/vitest.plotline-r5.config.js','frontend/vitest.plotline-r6.config.js','backend/vitest.plotline-r6.config.js','frontend/src/utils/uploadsUrl.js','backend/src/utils/uploads.js','frontend/src/components/supervision/SupervisionVideoLobbyPanel.vue','frontend/src/views/teamMeeting/JoinTeamMeetingView.vue','backend/src/services/teamMeetingRoomCapabilities.service.js','backend/src/controllers/teamMeetings.controller.js','database/migrations/1847_plotline_self_service.sql','.github/workflows/plotline-self-service.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,3 +40,9 @@ jobs:
         run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-r4.config.js
       - name: Named company navigation, video recovery and release status
         run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-r5.config.js
+      - name: Interview room controls, public logos and permission isolation
+        run: frontend/node_modules/.bin/vitest run --config backend/vitest.plotline-r6.config.js
+        env:
+          SKIP_DB_CONNECT: '1'
+      - name: Round 6 room UI regressions
+        run: frontend/node_modules/.bin/vitest run --config frontend/vitest.plotline-r6.config.js

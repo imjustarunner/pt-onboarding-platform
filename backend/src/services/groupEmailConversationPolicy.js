@@ -1,3 +1,5 @@
+import { latestInboundSmsAtSql } from '../utils/assignedSmsAccessSql.js';
+
 const safeIds = (values) => [...new Set((values || []).map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
 
 /** SQL uses the inbox (i), conversation (c), and canonical ticket (t) aliases. */
@@ -31,6 +33,7 @@ export function personalConversationUnreadSql(userId) {
  const uid = Number(userId);
  if (!Number.isSafeInteger(uid) || uid < 1) return '0=1';
  return `(EXISTS (SELECT 1 FROM communication_conversation_reads r WHERE r.conversation_id=c.id AND r.user_id=${uid} AND r.forced_unread=1)
+  OR (c.channel='sms' AND COALESCE((SELECT r.last_read_at FROM communication_conversation_reads r WHERE r.conversation_id=c.id AND r.user_id=${uid}),'1970-01-01')<${latestInboundSmsAtSql})
   OR EXISTS (SELECT 1 FROM communication_messages m LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=${uid}
     WHERE m.conversation_id=c.id AND m.direction='inbound' AND COALESCE(m.is_internal_note,0)=0
       AND COALESCE(m.send_status,'received') <> 'cancelled' AND (r.last_read_at IS NULL OR r.last_read_at < COALESCE(m.sent_at,m.created_at))))`;

@@ -1,5 +1,10 @@
 vi.mock('../../../models/CommunicationConversation.model.js',()=>({default:{markRead:vi.fn(),markUnread:vi.fn()}}));
 vi.mock('../../../models/UserCommunicationContact.model.js',()=>({default:{upsertSafe:vi.fn(),findByEmail:vi.fn(),block:vi.fn()}}));
+vi.mock('../../../services/clinicalSmsDirectory.service.js',()=>({listClinicalSmsLines:vi.fn(),findConfirmedSmsRecipients:vi.fn()}));
+vi.mock('../../../controllers/message.controller.js',()=>({sendMessage:vi.fn()}));
+import User from '../../../models/User.model.js';
+import {listClinicalSmsLines,findConfirmedSmsRecipients} from '../../../services/clinicalSmsDirectory.service.js';
+import {sendMessage} from '../../../controllers/message.controller.js';
 import Conversation from '../../../models/CommunicationConversation.model.js';
 import Contact from '../../../models/UserCommunicationContact.model.js';
 import {beforeEach,expect,it,vi} from 'vitest';
@@ -19,7 +24,7 @@ vi.mock('../documentationQueue.service.js',()=>({getMobileDocumentationQueue:vi.
 vi.mock('../../../services/storage.service.js',()=>({default:{}}));
 import {listMobileAgencies} from '../agencyScope.service.js';
 import {qvListChatChannels} from '../../../controllers/quickViewSurfaces.controller.js';
-import {getMobileWorkspaceCounts,postMobileSpam,postMobileKnownSender,patchMobileMessageState,getMobileInbox,patchMobileArchive,getMobileChatContext,getMobileFile} from '../../../controllers/mobileConversa.controller.js';
+import {getMobileWorkspaceCounts,postMobileSpam,postMobileKnownSender,patchMobileMessageState,getMobileInbox,patchMobileArchive,getMobileChatContext,getMobileFile,getMobileSmsLines,getMobileSmsRecipients,postMobileSms} from '../../../controllers/mobileConversa.controller.js';
 const request=()=>({quickView:{userId:3,agencyId:2,mobileDeviceSessionId:7},params:{id:'10',kind:'chat',threadId:'10'},query:{},headers:{},body:{archived:true,userId:999}});
 const response=()=>({set:vi.fn().mockReturnThis(),status:vi.fn().mockReturnThis(),json:vi.fn()});
 beforeEach(()=>{vi.resetAllMocks();listMobileAgencies.mockResolvedValue({agencies:[]});qvListChatChannels.mockImplementation((req,res)=>res.json({channels:[]}));mocks.access.mockResolvedValue(true);mocks.emails.mockResolvedValue([]);mocks.emailCounts.mockResolvedValue([]);mocks.archives.mockResolvedValue(new Map());mocks.extraCounts.mockResolvedValue({threads:{total:0,unread:0,needs:0},mentions:{total:0,unread:0,needs:0},files:{total:0,unread:0,needs:0}});mocks.threads.mockImplementation((req,res)=>res.json([{thread_id:10,thread_type:'client_secure',message_channel:'secure',participants:[{id:5,first_name:'Private',last_name:'Person'}],last_message:{id:50,body:'SENSITIVE MESSAGE',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'},unread_count:1}]));});
@@ -53,10 +58,10 @@ it('passes the approved QA tenant to every inbox source and rejects other-tenant
  const res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].items.map(item=>item.id)).toEqual([450]);expect(mocks.emails).toHaveBeenCalledWith(3,expect.objectContaining({agencyId:450}));expect(mocks.emailCounts).toHaveBeenCalledWith(3,false,450);expect(mocks.extraCounts).toHaveBeenCalledWith(3,[450]);
 });
 
-it('counts only unread conversations in the combined badge, including the visible Unknown folder',async()=>{
+it('keeps the Unknown folder out of the combined inbox badge',async()=>{
  mocks.threads.mockImplementation((req,res)=>res.json([{thread_id:10,thread_type:'direct',participants:[{id:5,first_name:'Jordan'}],unread_count:12,last_message:{id:50,body:'Unread',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'}},{thread_id:11,thread_type:'direct',participants:[{id:5,first_name:'Jordan'}],unread_count:0,last_message:{id:51,body:'Read',sender_user_id:5,created_at:'2026-11-06T11:00:00Z'}}]));
  mocks.emailCounts.mockResolvedValue([{category:'email',unknown:false,total:100,unread:3,needs:4},{category:'email',unknown:true,total:20,unread:1,needs:2}]);
- const req=request();req.query={suite:'all',filter:'unread'};const res=response();await getMobileInbox(req,res,vi.fn());const body=res.json.mock.calls[0][0];expect(body.counts.all).toMatchObject({total:122,unread:5});expect(body.counts.email.unread).toBe(3);expect(body.counts.unknown.unread).toBe(1);expect(body.counts.direct.unread).toBe(1);expect(body.items.map(item=>item.id)).toEqual([10]);
+ const req=request();req.query={suite:'all',filter:'unread'};const res=response();await getMobileInbox(req,res,vi.fn());const body=res.json.mock.calls[0][0];expect(body.counts.all).toMatchObject({total:102,unread:4});expect(body.counts.email.unread).toBe(3);expect(body.counts.unknown.unread).toBe(1);expect(body.counts.direct.unread).toBe(1);expect(body.items.map(item=>item.id)).toEqual([10]);
 });
 
 it('includes an authored conversation in Sent even when its newest message is inbound',async()=>{
@@ -113,4 +118,40 @@ it('loads drafts in bounded parallel batches without waiting on inbox history or
 });
 it('clamps the draft lookup to the approved QA tenant',async()=>{
  listMobileAgencies.mockResolvedValue({agencies:[{id:450},{id:456}]});mocks.drafts.mockImplementation(async(_user,agencyId)=>[{id:'agency-'+agencyId,subject:'Synthetic agency draft'}]);const req=request();req.quickView.agencyId=450;req.quickView.qaAgencyIds=[450];req.query={suite:'drafts'};const res=response();await getMobileInbox(req,res,vi.fn());expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([450]);expect(res.json.mock.calls[0][0].items.map(item=>item.agencyId)).toEqual([450]);
+});
+
+it('uses the mobile session and organization to scope SMS lines, recipients and sends',async()=>{
+ User.findById.mockResolvedValue({id:3});
+ listMobileAgencies.mockResolvedValue({agencies:[{id:2}]});
+ const own={agencyId:2,numberId:9},outside={agencyId:4,numberId:10};
+ listClinicalSmsLines.mockResolvedValue([own,outside]);
+ findConfirmedSmsRecipients.mockResolvedValue([{clientId:4,guardianUserId:17}]);
+ const res=response(),next=vi.fn();
+ await getMobileSmsLines(request(),res,next);
+ expect(res.json).toHaveBeenCalledWith({lines:[own]});
+ const req=request();req.query={agencyId:4,numberId:9,q:'example'};
+ const rejected=response();
+ await getMobileSmsRecipients(req,rejected,next);
+ expect(rejected.status).toHaveBeenCalledWith(403);
+ expect(findConfirmedSmsRecipients).not.toHaveBeenCalled();
+ req.query.agencyId=2;
+ await getMobileSmsRecipients(req,res,next);
+ expect(findConfirmedSmsRecipients).toHaveBeenCalledWith({userId:3,agencyId:2,numberId:9,query:'example'});
+ req.body={numberId:10,clientId:4,guardianUserId:17,body:'Synthetic text',userId:999,contactId:1,smsThreadKey:'other',mediaUrls:['other']};
+ await postMobileSms(req,rejected,next);
+ expect(sendMessage).not.toHaveBeenCalled();
+ req.body.numberId=9;
+ await postMobileSms(req,res,next);
+ expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({user:{id:3},body:{numberId:9,clientId:4,guardianUserId:17,body:'Synthetic text',startNewConversation:true}}),res,next);
+});
+
+it('rejects real SMS endpoints for legacy Quick View and synthetic QA sessions',async()=>{
+ const legacy=request();delete legacy.quickView.mobileDeviceSessionId;
+ const qa=request();qa.quickView.agencyId=450;qa.quickView.qaAgencyIds=[450];
+ for(const req of [legacy,qa]){
+  for(const handler of [getMobileSmsLines,getMobileSmsRecipients,postMobileSms]){
+   const res=response();await handler(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);
+  }
+ }
+ expect(listClinicalSmsLines).not.toHaveBeenCalled();expect(sendMessage).not.toHaveBeenCalled();
 });

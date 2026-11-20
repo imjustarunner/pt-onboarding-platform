@@ -1,8 +1,9 @@
-import { assignedSmsConversationSql, sentSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
+import { messageFeedBoundary } from '../utils/messageFeedCursor.js';
+import { assignedSmsConversationSql, sentSmsConversationSql, supportReminderSmsConversationSql, latestInboundSmsAtSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import { groupEmailConversationSql, schoolGroupConversationSql, personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
-import { messageInboxPolicySql, INBOX_REVIEW_CATEGORIES } from '../services/messageInboxPolicy.js';
+import { messageInboxPolicySql, INBOX_REVIEW_CATEGORIES, CLAIMED_TICKET_NOTICE_CATEGORY, claimedTicketEmailSql } from '../services/messageInboxPolicy.js';
 import { mailboxAccessCteSql, resolvedMailboxVisibilitySql } from '../services/privateMailboxPolicy.js';
 
 async function hydrateTicketMessageBodies(messages) {
@@ -175,14 +176,20 @@ class CommunicationConversation {
     /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
     scopeToUserId = null,
     groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], groupOnly = false, excludeGroup = false,
-    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true
+    category = null, sort = 'newest', reviewBefore = null, schoolGroupsOnly = false, claimState = null, includeGlobal = true, hideSupportReminderSms = false, feedCursor = null
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
+    if (hideSupportReminderSms) where.push(`NOT ${supportReminderSmsConversationSql}`);
     const params = [];
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
     if (userId) where.push(resolvedMailboxVisibilitySql(userId, 'i'));
     const reviewCategory = INBOX_REVIEW_CATEGORIES.includes(category) ? category : null;
+    if (category === CLAIMED_TICKET_NOTICE_CATEGORY) {
+      // Apply the predicate before pagination and keep the existing unread policy in one place.
+      where.push(claimedTicketEmailSql);
+      filter = 'unread';
+    }
     const categoryPredicate = reviewCategory ? `${policy.category}='${reviewCategory}'` : policy.correspondence;
     where.push(categoryPredicate);
     if (reviewCategory && reviewBefore) { where.push('COALESCE(c.last_message_at,c.created_at) <= ?'); params.push(reviewBefore); }
@@ -401,6 +408,8 @@ class CommunicationConversation {
       params.push(now);
     }
 
+    const activitySql = 'COALESCE(c.last_message_at,c.updated_at,c.created_at)';
+    const feedBoundary = messageFeedBoundary(feedCursor, 1, activitySql, 'c.id', sort === 'oldest');
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const off = Math.max(Number(offset) || 0, 0);
 
@@ -457,7 +466,7 @@ class CommunicationConversation {
                 WHERE r.conversation_id = c.id AND r.user_id = ${Number(userId)}
                 LIMIT 1
               ) AS forced_unread,
-              (
+              CASE WHEN c.channel='sms' THEN ${latestInboundSmsAtSql} ELSE (
                 SELECT COALESCE(m.sent_at, m.created_at)
                 FROM communication_messages m
                 WHERE m.conversation_id = c.id
@@ -466,7 +475,7 @@ class CommunicationConversation {
                   AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
                 ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
                 LIMIT 1
-              ) AS last_inbound_at,
+              ) END AS last_inbound_at,
               (
                 SELECT LEFT(COALESCE(m.body_text, m.subject, ''), 240)
                 FROM communication_messages m
@@ -485,10 +494,10 @@ class CommunicationConversation {
        LEFT JOIN mailbox_access i ON i.id = c.inbox_id
        LEFT JOIN support_tickets t ON t.id = c.support_ticket_id
        LEFT JOIN users u ON u.id = (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)
-       WHERE ${where.join(' AND ')}
-       ORDER BY COALESCE(c.last_message_at, c.updated_at) ${sort === 'oldest' ? 'ASC' : 'DESC'}, c.id ${sort === 'oldest' ? 'ASC' : 'DESC'}
+       WHERE ${where.join(' AND ')} ${feedBoundary.sql}
+       ORDER BY ${activitySql} ${sort === 'oldest' ? 'ASC' : 'DESC'}, c.id ${sort === 'oldest' ? 'ASC' : 'DESC'}
        LIMIT ${lim} OFFSET ${off}`,
-      [...accessParams, ...params]
+      [...accessParams, ...params, ...feedBoundary.params]
     );
 
     return rows.map((r) => {
@@ -567,10 +576,11 @@ class CommunicationConversation {
     return rows.length;
   }
 
-  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], channel, inboxId, claimState, groupOnly, excludeGroup, includeGlobal = true } = {}) {
+  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [], schoolGroupInboxIds = [], channel, inboxId, claimState, groupOnly, excludeGroup, includeGlobal = true, hideSupportReminderSms = false } = {}) {
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam,0)=0', groupSql.access, resolvedMailboxVisibilitySql(userId, 'i')];
+    if (hideSupportReminderSms) where.push(`NOT ${supportReminderSmsConversationSql}`);
     const params = [];
     if (agencyId != null) { where.push(includeGlobal ? '(c.agency_id=? OR c.agency_id IS NULL)' : 'c.agency_id=?'); params.push(agencyId); }
     if (channel && channel !== 'all') {
@@ -607,7 +617,8 @@ class CommunicationConversation {
       SUM(is_unread AND assigned) AS unread_assigned,SUM(is_unread AND starred) AS unread_starred,
       SUM(is_unread AND needs_reply) AS unread_needs_reply,SUM(is_unread AND waiting) AS unread_waiting,
       SUM(is_unread AND follow_up) AS unread_follow_up,SUM(is_unread AND unknown_sender) AS unread_unknown,
-      SUM(is_unread AND open_ticket) AS unread_tickets
+      SUM(is_unread AND open_ticket) AS unread_tickets,
+      SUM(is_unread AND claimed_ticket AND NOT unknown_sender) AS claimed_ticket_notices
       FROM (SELECT c.inbox_id,CASE WHEN ${groupSql.isGroup} THEN 'group' ELSE c.channel END AS channel,c.status,COALESCE(c.starred,0) AS starred,
         (${groupSql.isGroup}) AS is_group,(${schoolGroupConversationSql}) AS is_school,
         (c.snoozed_until IS NOT NULL AND c.snoozed_until>NOW()) AS snoozed,
@@ -617,6 +628,7 @@ class CommunicationConversation {
         (c.status='waiting_on_them') AS waiting,
         ((c.status='follow_up' OR (c.due_at IS NOT NULL AND c.due_at<=NOW())) AND c.status<>'resolved' AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS follow_up,
         (t.id IS NOT NULL AND t.status NOT IN ('closed','resolved','done')) AS open_ticket,
+        ${claimedTicketEmailSql} AS claimed_ticket,
         ((${personalConversationUnreadSql(userId)}) AND NOT (${policy.schoolAutoRead}) AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())) AS is_unread
         FROM ${accessible} c
         LEFT JOIN mailbox_access i ON i.id=c.inbox_id
@@ -625,7 +637,7 @@ class CommunicationConversation {
         LIMIT 18446744073709551615) visible
       GROUP BY inbox_id,channel`,params);
     const summary = { needsAttention:0,waitingOnOthers:0,followUpsDue:0,assignedToYou:0,unknownSenders:0,snoozed:0,unread:0,
-      unreadByInbox:{},unreadByChannel:{},unknownByInbox:{},unknownByChannel:{},unreadViews:{all:0,unread:0,assigned:0,starred:0,snoozed:0,needs_reply:0,waiting:0,follow_up:0,unknown:0,tickets:0,group_email:0,school_groups:0},channels:{all:0} };
+      unreadByInbox:{},unreadByChannel:{},unknownByInbox:{},unknownByChannel:{},claimedTicketNoticesByInbox:{},claimedTicketNoticesByChannel:{},unreadViews:{all:0,unread:0,assigned:0,starred:0,snoozed:0,needs_reply:0,waiting:0,follow_up:0,unknown:0,tickets:0,group_email:0,school_groups:0},channels:{all:0} };
     for (const row of rows) {
       const n = key => Number(row[key] || 0), unread = n('unread_count');
       summary.unread += unread;
@@ -633,9 +645,12 @@ class CommunicationConversation {
       summary.channels[row.channel] = (summary.channels[row.channel] || 0) + n('total');
       summary.unreadByChannel[row.channel] = (summary.unreadByChannel[row.channel] || 0) + unread;
       summary.unknownByChannel[row.channel] = (summary.unknownByChannel[row.channel] || 0) + n('unknown_sender');
+      const claimed = n('claimed_ticket_notices');
+      summary.claimedTicketNoticesByChannel[row.channel] = (summary.claimedTicketNoticesByChannel[row.channel] || 0) + claimed;
       if (row.inbox_id != null) {
         summary.unreadByInbox[row.inbox_id] = (summary.unreadByInbox[row.inbox_id] || 0) + unread;
         summary.unknownByInbox[row.inbox_id] = (summary.unknownByInbox[row.inbox_id] || 0) + n('unknown_sender');
+        summary.claimedTicketNoticesByInbox[row.inbox_id] = (summary.claimedTicketNoticesByInbox[row.inbox_id] || 0) + claimed;
       }
       for (const [target,key] of Object.entries({needsAttention:'needs_reply',waitingOnOthers:'waiting',followUpsDue:'follow_up',assignedToYou:'assigned',unknownSenders:'unknown_sender',snoozed:'snoozed'})) summary[target] += n(key);
       for (const key of ['assigned','starred','needs_reply','waiting','follow_up','unknown','tickets']) summary.unreadViews[key] += n('unread_'+key);

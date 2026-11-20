@@ -52,6 +52,22 @@ router.get('/dashboard-summary', getMessagesDashboardSummary);
 // People-first Messaging Hub
 router.get('/hub/people', searchMessagesHubPeople);
 router.get('/hub/start-directory', getMessagesHubStartDirectory);
+router.get('/hub/sms-lines', async (req, res, next) => {
+  try {
+    const { listClinicalSmsLines } = await import('../services/clinicalSmsDirectory.service.js');
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ lines: await listClinicalSmsLines(req.user.id) });
+  } catch (error) { next(error); }
+});
+router.get('/hub/sms-recipients', async (req, res, next) => {
+  try {
+    const { findConfirmedSmsRecipients } = await import('../services/clinicalSmsDirectory.service.js');
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ recipients: await findConfirmedSmsRecipients({
+      userId: req.user.id, agencyId: Number(req.query.agencyId), numberId: Number(req.query.numberId), query: req.query.q
+    }) });
+  } catch (error) { next(error); }
+});
 router.get('/hub/contacts', getMessagesHubContacts);
 router.get('/hub/external-lookup', getMessagesHubExternalLookup);
 router.post('/hub/external-contact', postMessagesHubExternalContact);

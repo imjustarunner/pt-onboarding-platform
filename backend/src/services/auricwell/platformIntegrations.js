@@ -2,7 +2,7 @@ import { runtimeIntegrationSecrets, storedIntegrationSecrets, assertManagedSecre
 import { pool, seal, open, transaction } from './repository.js';
 import { fail } from './policy.js';
 import { integrationDefaults, requirePlatformSuperadmin, cleanPlatformSettings, publicPlatformSettings } from './integrationPolicy.js';
-import { notifyreRequest, notifyreNumbers } from './sessionTransports.js';
+import { notifyreRequest, notifyreNumbers, assertNotifyreVerificationSender } from './sessionTransports.js';
 
 const context = 'auricwell:platform:integrations';
 export async function platformIntegrations(db = pool, lock = false) {
@@ -119,8 +119,11 @@ export async function verifyNotifyreAccountNumber(ctx) {
   const current=await platformIntegrations(), v=current.settings.verificationSms, n=current.settings.notifyre;
   if(!v?.from || !v.campaignId || v.approval!=='approved' || !v.approvalReference || !v.carrierKeywordsConfirmed || !n.apiToken || !n.baaReference || !n.webhookSecret)
     throw fail(409,'Save the approved AuricWell verification campaign, number, carrier keyword confirmations and Notifyre connection first.');
-  const numbers=notifyreNumbers(await notifyreRequest(n.apiToken,'/sms/numbers'));
-  if(!numbers.includes(v.from)) throw fail(409,'The AuricWell verification number is not available in this Notifyre account.');
+  const [numbers, campaigns] = await Promise.all([
+    notifyreRequest(n.apiToken, '/sms/numbers'),
+    notifyreRequest(n.apiToken, '/numbers/campaigns')
+  ]);
+  assertNotifyreVerificationSender({ numbers, campaigns, from: v.from, campaignId: v.campaignId });
   await transaction(async db=>{
     const latest=await platformIntegrations(db,true);
     if(latest.revision!==current.revision) throw fail(409,'Settings changed. Reload before verifying.');

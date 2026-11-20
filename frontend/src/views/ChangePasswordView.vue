@@ -54,7 +54,7 @@
             <div class="form-group">
               <div class="label-row">
                 <label for="currentPassword">Current Password</label>
-                <router-link class="forgot-link" to="/forgot-password">Forgot password?</router-link>
+                <router-link class="forgot-link" to="/forgot-password">Password recovery</router-link>
               </div>
               <div class="input-wrap">
                 <input

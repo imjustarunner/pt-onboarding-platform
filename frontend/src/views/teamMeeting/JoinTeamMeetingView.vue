@@ -211,7 +211,7 @@
           Leave interview
         </button>
       </Teleport>
-      <MeetingDialInPanel v-if="!videoFullscreen && !showEmployeeLogin && resolvedEventId" meeting-type="team-meeting" :meeting-id="Number(resolvedEventId)" />
+      <MeetingDialInPanel v-if="!videoFullscreen && !showEmployeeLogin && resolvedEventId && canUseMeetingDialIn" meeting-type="team-meeting" :meeting-id="Number(resolvedEventId)" />
       <div
         class="join-session-layout"
         :class="{
@@ -235,6 +235,7 @@
             class="join-host-lobby"
             :session-id="resolvedEventId"
             :is-supervisor="isHost || isCoHostBySignal || !!trainingState?.proctor"
+            :calendar-guests-enabled="canReviewCalendarGuests"
             meeting-kind="team-meeting"
             theme="dark"
             :overlay="videoFullscreen"
@@ -747,6 +748,11 @@ const isHost = ref(false);
 const isInterviewer = ref(false);
 const canEndForEveryone = ref(false);
 const resolvedEventId = ref(0);
+const optionalRoomCapabilities=ref(null);
+const currentRoomCapabilities=computed(() => Number(optionalRoomCapabilities.value?.eventId)>0
+  && Number(optionalRoomCapabilities.value.eventId)===Number(resolvedEventId.value) ? optionalRoomCapabilities.value : null);
+const canUseMeetingDialIn=computed(() => currentRoomCapabilities.value?.dialIn===true);
+const canReviewCalendarGuests=computed(() => currentRoomCapabilities.value?.calendarGuests===true);
 const roomMode = ref('main');
 const waitingRoomEnabled = ref(true);
 const guestLinkEnabled = ref(false);
@@ -1301,6 +1307,7 @@ function applyGuestLinkStatus(data = {}) {
 }
 
 function applyTokenPayload(data) {
+  optionalRoomCapabilities.value={...data.capabilities,eventId:Number(data.eventId || 0)};
   applyClosurePayload(data);
   applyGuestLinkStatus(data);
   const tok = String(data.token || data.data?.token || '').trim();

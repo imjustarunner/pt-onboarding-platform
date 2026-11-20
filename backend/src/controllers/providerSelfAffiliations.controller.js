@@ -69,7 +69,10 @@ async function getProviderAffiliationContext(providerUserId) {
   // Only use organizations directly tied to this provider's memberships.
   // Do not expand via agency -> all affiliated schools/programs.
   const [directRows] = await pool.execute(
-    `SELECT a.id, a.name, a.slug, a.organization_type
+    `SELECT a.id, a.name, a.slug,
+       COALESCE(NULLIF(LOWER(TRIM(a.organization_type)), ''),
+         CASE WHEN EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id=a.id AND oa.is_active=TRUE)
+           THEN 'school' ELSE 'agency' END) AS organization_type
      FROM agencies a
      JOIN user_agencies ua ON ua.agency_id = a.id
      WHERE ua.user_id = ?`,
@@ -91,7 +94,7 @@ async function getProviderAffiliationContext(providerUserId) {
   let assignedList = [];
   try {
     const [assignedRows] = await pool.execute(
-      `SELECT DISTINCT a.id, a.name, a.slug, a.organization_type
+      `SELECT DISTINCT a.id, a.name, a.slug, COALESCE(NULLIF(LOWER(TRIM(a.organization_type)), ''), 'school') AS organization_type
        FROM provider_school_assignments psa
        JOIN agencies a ON a.id = psa.school_organization_id
        WHERE psa.provider_user_id = ? AND psa.is_active = TRUE`,

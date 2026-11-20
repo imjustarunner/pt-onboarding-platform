@@ -31,6 +31,12 @@ export function enrollmentRelationship(payload, priorLink = null) {
   // Keep explicit restrictions and existing relationship types on a repeat submission.
   if (priorLink) return priorLink.relationship_type || 'guardian';
   return payload?.intakeForSelf === true || payload?.intakeData?.intakeForSelf === true
-    || String(payload?.guardian?.relationship || '').trim().toLowerCase() === 'self'
+    || [payload?.guardian?.relationship, payload?.intakeData?.guardian?.relationship]
+      .some(relationship => String(relationship || '').trim().toLowerCase() === 'self')
     ? 'self' : 'guardian';
+}
+
+
+export function enrollmentAccountRole(payload) {
+  return enrollmentRelationship(payload) === 'self' ? 'client' : 'client_guardian';
 }

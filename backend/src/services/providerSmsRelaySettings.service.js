@@ -4,7 +4,7 @@ import UserPreferences from '../models/UserPreferences.model.js';
 import UserCallSettings from '../models/UserCallSettings.model.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
-import { sharedCareNumberId } from './sharedCareNumber.service.js';
+import { configuredReminderNumberId, sharedCareNumberId } from './sharedCareNumber.service.js';
 import { resolveClientCaregivers } from './communicationRouting.service.js';
 import { isCommunicationStaffActive } from '../utils/communicationReceptionPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
@@ -24,7 +24,9 @@ export async function hasRelayNumberAccess(userId, agencyId, numberId) {
   const number = await PhoneNumber.findById(numberId);
   if (!number || Number(number.agency_id) !== Number(agencyId) || !on(number.is_active)
     || number.status !== 'active' || number.number_purpose !== 'clinical_care') return false;
-  if (Number(await sharedCareNumberId(agencyId)) === Number(numberId)) return true;
+  const providerId = await sharedCareNumberId(agencyId);
+  if (await configuredReminderNumberId(agencyId)) return Number(providerId) === Number(numberId);
+  if (Number(providerId) === Number(numberId)) return true;
   const eligible = await PhoneNumberAssignment.listEligibleUserIdsForNumber(numberId);
   return eligible.map(Number).includes(Number(userId));
 }

@@ -46,6 +46,26 @@ describe('scoped message workspace', () => {
       params: expect.objectContaining({ filter: 'sent', channel: 'sms' })
     }));
   });
+  it('labels a guardian SMS with the guardian and organization line and sends only an eligible reply', async () => {
+    state.selected = null;
+    state.inboxChannel = 'sms';
+    const sms = { recipientName: 'Morgan Guardian', relationship: 'Guardian', clientName: 'Casey Child',
+      fromNumber: '+13035550123', organizationName: 'Sample Agency', recipientEnding: '3210' };
+    const row = { id: 19, channel: 'sms', subject: 'SMS', primary_participant_name: 'Casey Child', sms };
+    state.conversations = [row];
+    state.selectedConversation = row;
+    api.get.mockImplementation(async url => ({ data: url.endsWith('/sms-reply-eligibility') ? { eligible: true, numberId: 42 } : {} }));
+    state.conversationPreview = { conversation: row, messages: [] };
+    await flushPromises();
+    expect(wrapper.get('.sms-list-row').text()).toContain('Morgan Guardian');
+    expect(wrapper.get('.sms-list-row').text()).toContain('Guardian for Casey Child');
+    expect(wrapper.get('.msg-hub-sms-route').text()).toContain('Sample Agency · +13035550123');
+    expect(wrapper.get('.msg-hub-sms-route').text()).toContain('Morgan Guardian');
+    state.readerSmsText = 'Hello';
+    await state.replyReaderSms();
+    expect(api.post).toHaveBeenCalledWith('/communications/conversations/19/reply',
+      { text: 'Hello', mode: 'reply', numberId: 42 }, expect.anything());
+  });
   it('shows only review folders for provider assignments and enrollment notices', async () => {
     state.selected = null;
     state.inboxChannel = 'group';
@@ -56,6 +76,33 @@ describe('scoped message workspace', () => {
       expect(state.navId).toBe('unread');
       expect(wrapper.findAll('.msg-hub-rail-item').some(item => /Unknown Senders|Queued|Snoozed/.test(item.text()))).toBe(false);
     }
+  });
+  it('collapses group filters on scroll and keeps a manually reopened panel open', async () => {
+    state.selected = null;
+    state.inboxChannel = 'group';
+    state.navId = 'unread';
+    state.selectedReviewCategory = 'provider_assignments';
+    state.conversations = [{ id: 20, channel: 'email', message_category: 'provider_assignments', is_review_notice: true, is_unread: true }];
+    await nextTick();
+    const toggle = wrapper.get('.msg-hub-group-toolbar button');
+    const list = wrapper.get('.msg-hub-list');
+    const scroll = async top => {
+      list.element.scrollTop = top;
+      await list.trigger('scroll');
+    };
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    const reads = api.get.mock.calls.length;
+    await scroll(64);
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(wrapper.get('.msg-hub-group-toolbar').text()).toContain('Provider Assignments');
+    await toggle.trigger('click');
+    await scroll(80);
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    await scroll(0);
+    await scroll(64);
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(state.selectedReviewCategory).toBe('provider_assignments');
+    expect(api.get.mock.calls).toHaveLength(reads);
   });
   it('hides empty chats while retaining read conversations with messages', async () => {
     state.inboxChannel = 'group';
@@ -78,16 +125,48 @@ describe('scoped message workspace', () => {
     expect(document.querySelector('.list-fullscreen')).not.toBeNull();
     state.exitReaderFullscreen();
   });
-  it('groups Payroll across organizations and requests each mailbox with the ownership filter', async () => {
+  it('batches Payroll mailbox scopes and keeps the selected ownership filter', async () => {
     state.selected = null; state.inboxChannel = 'group'; state.navId = 'unknown'; state.claimState = 'claimed';
     state.departmentInboxes = [2, 3].map(aid => ({ id: aid + 10, agency_id: aid, group_key: 'payroll', is_ticketed_group: true, display_name: 'Payroll' }));
     state.selectedGroupInboxId = 'payroll';
-    api.get.mockImplementation(async (url, config) => ({ data: url === '/communications/conversations' ? { conversations: [{ id: config.params.agencyId + 20, inbox_id: config.params.groupInboxId, channel: 'email', is_ticketed_group: true }] } : {} }));
+    api.get.mockImplementation(async (url, config) => ({
+      data: url === '/communications/conversations' ? {
+        conversations: JSON.parse(config.params.agencyScopes).map(scope => ({
+          id: scope.agencyId + 20, agency_id: scope.agencyId, inbox_id: scope.groupInboxId, channel: 'email', is_ticketed_group: true
+        }))
+      } : {}
+    }));
     await state.loadConversations();
     expect(state.groupedDepartmentInboxes).toHaveLength(1);
     expect(state.filteredConversations).toHaveLength(2);
     const requests = api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
-    expect(requests.map(([, config]) => [config.params.agencyId, config.params.groupInboxId, config.params.claimState])).toEqual([[2, 12, 'claimed'], [3, 13, 'claimed']]);
+    expect(requests).toHaveLength(1);
+    const { params } = requests[0][1];
+    expect(params.claimState).toBe('claimed');
+    expect(JSON.parse(params.agencyScopes)).toEqual([
+      { agencyId: 2, groupInboxId: 12, offset: 0 }, { agencyId: 3, groupInboxId: 13, offset: 0 }
+    ]);
+  });
+  it('loads more than forty department scopes in one conversation request', async () => {
+    state.inboxChannel = 'group'; state.navId = 'unknown'; state.selectedGroupInboxId = 'payroll';
+    state.departmentInboxes = Array.from({ length: 45 }, (_, idx) => ({
+      id: idx + 20, agency_id: idx + 2, group_key: 'payroll', is_ticketed_group: true
+    }));
+    await state.loadConversations();
+    const requests = api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
+    expect(requests).toHaveLength(1);
+    expect(JSON.parse(requests[0][1].params.agencyScopes)).toHaveLength(45);
+  });
+  it('coalesces repeated background refresh notifications while keeping explicit refresh immediate', async () => {
+    state.navId = 'unknown';
+    for (let event = 0; event < 12; event++) {
+      state.refreshMailInBackground();
+      await flushPromises();
+    }
+    const reads = () => api.get.mock.calls.filter(([url]) => url === '/communications/conversations');
+    expect(reads()).toHaveLength(1);
+    await state.refreshMail();
+    expect(reads()).toHaveLength(2);
   });
   it('shows the Unknown Senders count for the selected Payroll mailboxes', () => {
     state.inboxChannel = 'group'; state.selectedGroupInboxId = 'payroll';
@@ -292,8 +371,11 @@ describe('Messages hub thread interactions', () => {
     await nextTick();
     const button = wrapper.find('.msg-hub-head-actions .btn-primary');
     expect(button.text()).toContain(label);
-    expect(button.element.disabled).toBe(['sms','calls'].includes(channel));
-    if (!['sms','calls'].includes(channel)) {
+    expect(button.element.disabled).toBe(channel === 'calls');
+    if (channel === 'sms') {
+      await button.trigger('click');
+      expect(wrapper.findComponent({ name: 'HubSmsComposer' }).exists()).toBe(true);
+    } else if (channel !== 'calls') {
       await button.trigger('click');
       expect(state.newConversationChannel).toBe(channel);
       expect(state.showNew).toBe(true);
@@ -519,6 +601,66 @@ describe('reading layout and unread navigation', () => {
     expect(state.selectedConversation.id).toBe(20); expect(state.readerFullscreen).toBe(true);
     await state.navigateReader(-1); expect(state.selectedConversation.id).toBe(10);
   });
+  it('opens a compact full-screen inbox, sorts loaded rows and appends the next scoped page', async () => {
+    state.selected = null;
+    state.inboxChannel = 'all';
+    state.navId = 'inbox';
+    const item = (id, displayName, is_unread) => ({ id: 'email-'+id, conversationId: id, kind: 'email', channel: 'email', displayName, subject: 'Subject '+id, preview: 'Preview', is_unread, sortAt: '2026-11-19T12:00:00Z' });
+    api.get.mockImplementation(async (url, config) => {
+      if (url !== '/messages/hub/inbox') return { data: {} };
+      if (config.params.cursor === 'next-page') return { data: { items: [item(5, 'Avery Example', false)] } };
+      return { data: { items: [item(7, 'Zoe Example', false), item(6, 'Jordan Example', true)], nextCursor: 'next-page' } };
+    });
+    await state.loadConversations();
+    await wrapper.findAll('button').find(button => button.text() === 'Full screen').trigger('click');
+    const fullscreen = document.querySelector('.msg-hub.list-fullscreen');
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(2);
+    const sort = fullscreen.querySelector('.msg-hub-sort select');
+    sort.value = 'sender';
+    sort.dispatchEvent(new Event('change'));
+    await nextTick();
+    expect(fullscreen.querySelector('.compact-inbox-row').textContent).toContain('Jordan Example');
+    [...fullscreen.querySelectorAll('button')].find(button => button.textContent === 'Show more messages').click();
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/inbox', expect.objectContaining({ params: expect.objectContaining({ agencyId: 2, cursor: 'next-page' }) }));
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
+    expect(fullscreen.querySelector('.compact-inbox-row').textContent).toContain('Avery Example');
+  });
+  it('keeps claimed unread tickets in All, highlights their notices, and filters full-screen Inbox on the server', async () => {
+    state.selected = null;
+    state.inboxChannel = 'all';
+    state.navId = 'inbox';
+    const item = (id, subject, is_unread, claimant) => ({ id: 'email-'+id, conversationId:id, kind:'email', channel:'email',
+      displayName:'Example sender', subject, is_unread, support_ticket_id:id, ticket_claimed_by_user_id:claimant });
+    const claimed = item(1, 'Claimed and unread', true, 5);
+    const unclaimed = item(2, 'Unclaimed and unread', true, null);
+    const read = item(3, 'Claimed and read', false, 5);
+    api.get.mockImplementation(async (url, config) => {
+      if (url === '/messages/hub/inbox') return { data:{items:[claimed, unclaimed, read]} };
+      if (url === '/messages/hub/unread') return { data: {items:config.params.category === 'claimed_ticket_notices' ? [claimed] : [claimed, unclaimed]} };
+      return { data:{} };
+    });
+    await state.loadConversations();
+    expect(wrapper.findAll('.msg-hub-row')).toHaveLength(3);
+    expect(wrapper.findAll('.claimed-ticket-notice')).toHaveLength(1);
+    expect(wrapper.get('.claimed-ticket-notice').text()).toContain('To review');
+    await wrapper.findAll('button').find(button => button.text() === 'Full screen').trigger('click');
+    const fullscreen = document.querySelector('.msg-hub.list-fullscreen');
+    const filters = fullscreen.querySelector('[aria-label="Full-screen inbox filters"]');
+    const select = async label => {
+      [...filters.querySelectorAll('button')].find(button => button.textContent.trim() === label).click();
+      await flushPromises();
+    };
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
+    await select('Claimed ticket notices');
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/unread', expect.objectContaining({ params: expect.objectContaining({ channel:'all', category:'claimed_ticket_notices' }) }));
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(1);
+    expect(fullscreen.querySelector('.compact-inbox-row.claimed-ticket-notice')).not.toBeNull();
+    await select('Unread');
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(2);
+    await select('Inbox');
+    expect(fullscreen.querySelectorAll('.compact-inbox-row')).toHaveLength(3);
+  });
   it('collapses folders, list, and details independently', async () => {
     expect(state.detailsCollapsed).toBe(true);
     for (const label of ['Hide folders', 'Hide message list', 'Show details']) {
@@ -604,7 +746,7 @@ describe('reading layout and unread navigation', () => {
     expect(wrapper.find('[data-channel="email"] .msg-hub-channel-count').exists()).toBe(false);
     expect(wrapper.find('[data-channel="all"] .msg-hub-channel-count').text()).toBe('11');
   });
-  it.each(['sms', 'calls'])('loads stored %s conversations even while new sends await activation', async channel => {
+  it.each(['sms', 'calls'])('loads stored %s conversations with the appropriate new-message action', async channel => {
     state.selected = null; state.inboxChannel = channel; state.navId = 'unread';
     const storedChannel = channel === 'calls' ? 'voicemail' : 'sms';
     api.get.mockImplementation(async url => ({ data: url === '/messages/hub/unread'
@@ -616,7 +758,7 @@ describe('reading layout and unread navigation', () => {
     expect(state.filteredConversations).toHaveLength(1);
     expect(wrapper.text()).toContain('Saved conversation');
     expect(wrapper.text()).not.toContain('Coming soon');
-    expect(wrapper.find('.msg-hub-head-actions .btn-primary').element.disabled).toBe(true);
+    expect(wrapper.find('.msg-hub-head-actions .btn-primary').element.disabled).toBe(channel === 'calls');
   });
   it('offers a route to unread messages in other channels instead of saying caught up', async () => {
     state.selected = null; state.navId = 'unread'; state.inboxChannel = 'email'; state.conversations = [];

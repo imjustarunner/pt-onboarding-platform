@@ -17,7 +17,7 @@
       Documentation may contain PHI. Access is logged. Only open files when you have a legitimate need.
     </div>
 
-    <details v-if="canOpenClinicalDocuments" class="cc-docs-extra" :open="portalDocumentsOpen" @toggle="syncPortalDocumentsToggle"><summary @click.prevent="togglePortalDocuments">AuricWell · Portal documents &amp; enrollment</summary><EnrollmentPortalDocuments v-if="portalDocumentsOpen" ref="portalDocumentsRef" :client-id="clientId" :agency-id="Number(client?.agency_id||0)||undefined" /></details>
+    <details v-if="canOpenClinicalDocuments" class="cc-docs-extra" :open="portalDocumentsOpen" @toggle="syncPortalDocumentsToggle"><summary @click.prevent="togglePortalDocuments">AuricWell · Portal documents &amp; enrollment</summary><ClientUpdateModal v-if="portalDocumentsOpen" inline open clinical-mode="full" :can-update="['admin','super_admin'].includes(authStore.user?.role)" :client-name="client?.full_name || client?.initials" ref="portalDocumentsRef" :client-id="clientId" :agency-id="Number(client?.agency_id||0)||undefined" /></details>
 
     <ClientDocumentsGallery
       :key="clientId"
@@ -74,7 +74,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { isPaperPacketClient } from '../../../utils/paperPacketClient.js';
 import PhiDocumentsPanel from '../PhiDocumentsPanel.vue';
-import EnrollmentPortalDocuments from '../../enrollment/EnrollmentPortalDocuments.vue';
+import ClientUpdateModal from '../ClientUpdateModal.vue';
 import {useAuthStore} from '../../../store/auth';
 import ClientDocumentsGallery from './ClientDocumentsGallery.vue';
 import '../../../styles/client-documents-tab.css';

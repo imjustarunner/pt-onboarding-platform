@@ -70,7 +70,34 @@ export async function listPlans(user,{agencyId,clientId,mine,documentKey}){
  else if(mine==='1'){await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND created_by_user_id=? AND client_id IS NULL ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id]);}
  else{await agencyAccess(user,positiveId(agencyId));[rows]=await pool.execute('SELECT * FROM clinical_form_records WHERE agency_id=? AND (created_by_user_id=? OR (client_id IS NULL AND ?=1)) ORDER BY updated_at DESC LIMIT 100',[Number(agencyId),user.id,['admin','super_admin'].includes(user.role)?1:0]);}
  const plans=[];
- for(const row of rows){try{await planAccess(user,row);}catch(e){if(e.status===403||e.status===404)continue;throw e;}const v=await versionById(pool,row);const data=decode(v.payload_encrypted);const [signers]=await pool.execute('SELECT * FROM clinical_form_signers WHERE plan_id=? AND version=? ORDER BY id',[row.id,data.reviewOfVersion||row.current_version]);const active=signers.filter(s=>!s.revoked_at);plans.push({id:row.id,clientId:row.client_id,version:row.current_version,documentName:data.data.documentName||'',name:data.data.personLabel,documentKey:data.template.key,title:data.template.title,sharedCount:active.filter(s=>s.portal_shared_at).length,signedCount:active.filter(s=>s.signed_at).length,pendingSignatures:active.filter(s=>!s.signed_at&&!decode(s.details_encrypted).copyOnly).length,source:data.template.source||null,appointment:data.appointment||null,reviewStatus:data.reviewStatus,screenStatus:data.data.screenStatus,revoked:!!data.revocation,updatedAt:row.updated_at});await event(pool,row,user,'listed');}
+ for (const row of rows) {
+   try {
+     await planAccess(user, row);
+   } catch (error) {
+     if ([403, 404].includes(error.status)) continue;
+     throw error;
+   }
+   const version = await versionById(pool, row);
+   const data = decode(version.payload_encrypted);
+   const [signers] = await pool.execute(
+     'SELECT * FROM clinical_form_signers WHERE plan_id=? AND version=? ORDER BY id',
+     [row.id, data.reviewOfVersion || row.current_version]
+   );
+   const active = signers.filter(s => !s.revoked_at).map(s => ({ ...s, details: decode(s.details_encrypted) }));
+   const portalAssignments = active.filter(s => s.portal_shared_at && s.recipient_user_id && s.signer_kind !== 'clinician').map(s => ({
+     signerId: s.id, recipient: s.details.name, kind: s.signer_kind, copyOnly: !!s.details.copyOnly,
+     signedAt: s.signed_at, version: s.version, sharedAt: s.portal_shared_at
+   }));
+   plans.push({
+     id: row.id, clientId: row.client_id, version: row.current_version, documentName: data.data.documentName || '',
+     name: data.data.personLabel, documentKey: data.template.key, title: data.template.title, portalAssignments,
+     sharedCount: active.filter(s => s.portal_shared_at).length, signedCount: active.filter(s => s.signed_at).length,
+     pendingSignatures: active.filter(s => !s.signed_at && !s.details.copyOnly).length,
+     source: data.template.source || null, appointment: data.appointment || null, reviewStatus: data.reviewStatus,
+     screenStatus: data.data.screenStatus, revoked: !!data.revocation, updatedAt: row.updated_at
+   });
+   await event(pool, row, user, 'listed');
+ }
  return {plans};
 }
 export async function remindSigner(user,id,signerId){

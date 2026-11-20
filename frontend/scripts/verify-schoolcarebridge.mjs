@@ -98,7 +98,7 @@ try {
   await page.locator('#password').fill('WrongPassword');
   await page.locator('.login-form button[type=submit]').click();
   await page.getByText('Invalid credentials', { exact: true }).waitFor();
-  await page.getByText('Forgot Password?', { exact: true }).click();
+  await page.getByText('Password recovery', { exact: true }).click();
   await page.locator('#forgotEmail').fill('staff@school.test');
   await page.locator('.modal form button[type=submit]').click();
   await page.getByText(/If this account is eligible/).waitFor();

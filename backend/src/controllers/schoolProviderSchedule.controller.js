@@ -29,7 +29,7 @@ const normalizeDay = (d) => {
   return allowedDays.includes(s) ? s : null;
 };
 
-const PROVIDER_LIKE_SQL = `(u.role IN ('provider', 'provider_plus', 'intern', 'intern_plus')
+const PROVIDER_LIKE_SQL = `(u.role IN ('provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin')
   OR u.has_provider_access = TRUE)`;
 const ACTIVE_USER_SQL = `(u.is_archived IS NULL OR u.is_archived = FALSE)
   AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')`;

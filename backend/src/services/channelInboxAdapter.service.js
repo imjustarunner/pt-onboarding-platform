@@ -69,9 +69,10 @@ async function upsertShell({
   return { created: false, conv: await CommunicationConversation.findById(conv.id) };
 }
 
-export async function syncSmsThreads({ agencyId, limit = 100, sentByUserId = null }) {
+export async function syncSmsThreads({ agencyId, limit = 100, sentByUserId = null, threadKey = null }) {
   const maxThreads = Math.min(250, Math.max(1, Math.floor(Number(limit) || 100)));
   const params = [agencyId];
+  if (threadKey) params.push(threadKey);
   if (sentByUserId) params.push(sentByUserId);
   // Sent can recover older or recently sent texts whose thread has not been
   // projected yet. Limit the work to the current sender and missing threads.
@@ -85,7 +86,7 @@ export async function syncSmsThreads({ agencyId, limit = 100, sentByUserId = nul
        COALESCE(c.full_name, c.initials, ac.full_name, 'SMS') AS party_name
      FROM message_logs ml
      JOIN (SELECT MAX(source.id) AS id FROM message_logs source WHERE source.agency_id = ?
-       AND source.sms_thread_key IS NOT NULL ${senderFilter} GROUP BY source.sms_thread_key) latest ON latest.id = ml.id
+       AND source.sms_thread_key IS NOT NULL ${threadKey ? 'AND source.sms_thread_key = ?' : ''} ${senderFilter} GROUP BY source.sms_thread_key) latest ON latest.id = ml.id
      LEFT JOIN clients c ON c.id = ml.client_id
      LEFT JOIN agency_contacts ac ON ac.id = ml.agency_contact_id
      ORDER BY ml.created_at DESC, ml.id DESC LIMIT ${maxThreads}`, params
@@ -234,11 +235,11 @@ async function hydrateSmsMessages(conversation) {
   let rows = [];
   const phoneThread = parseSmsThreadKey(ext);
   if (phoneThread) {
-    const [r] = await pool.execute(`SELECT id, direction, body, created_at, user_id FROM message_logs WHERE agency_id = ? AND sms_thread_key = ? ORDER BY id DESC LIMIT 200`, [conversation.agency_id, ext]);
+    const [r] = await pool.execute(`SELECT id, direction, body, created_at, user_id, metadata FROM message_logs WHERE agency_id = ? AND sms_thread_key = ? ORDER BY id DESC LIMIT 200`, [conversation.agency_id, ext]);
     rows = r || [];
   } else   if (clientMatch) {
     const [r] = await pool.execute(
-      `SELECT id, direction, body, created_at, user_id
+      `SELECT id, direction, body, created_at, user_id, metadata
        FROM message_logs
        WHERE client_id = ? AND agency_id = ?
        ORDER BY created_at DESC
@@ -248,7 +249,7 @@ async function hydrateSmsMessages(conversation) {
     rows = r || [];
   } else if (contactMatch) {
     const [r] = await pool.execute(
-      `SELECT id, direction, body, created_at, user_id
+      `SELECT id, direction, body, created_at, user_id, metadata
        FROM message_logs
        WHERE agency_contact_id = ? AND agency_id = ?
        ORDER BY created_at DESC
@@ -259,19 +260,27 @@ async function hydrateSmsMessages(conversation) {
   }
   const stored = await CommunicationConversation.listMessages(conversation.id);
   const internal = (stored || []).filter((m) => m.is_internal_note);
-  const projected = (rows || []).map((m) => ({
-    id: `sms-log-${m.id}`,
-    conversation_id: conversation.id,
-    channel: 'sms',
-    direction: String(m.direction || '').toUpperCase() === 'OUTBOUND' ? 'outbound' : 'inbound',
-    body_text: m.body,
-    body_html: null,
-    is_internal_note: false,
-    sent_at: m.created_at,
-    created_at: m.created_at,
-    from: { name: String(m.direction || '').toUpperCase() === 'OUTBOUND' ? 'You' : 'Contact' },
-    attachments: []
-  }));
+  const projected = (rows || []).map((m) => {
+    let metadata = m.metadata;
+    if (typeof metadata === 'string') {
+      try { metadata = JSON.parse(metadata); } catch { metadata = null; }
+    }
+    const outbound = String(m.direction || '').toUpperCase() === 'OUTBOUND';
+    return {
+      id: `sms-log-${m.id}`,
+      conversation_id: conversation.id,
+      channel: 'sms',
+      direction: outbound ? 'outbound' : 'inbound',
+      author_user_id: outbound ? m.user_id : null,
+      is_auto_reply: outbound && !!(metadata?.communicationNotice || metadata?.outOfOfficeNotice || metadata?.autoReply || metadata?.forwardOffer),
+      body_text: m.body,
+      body_html: null,
+      is_internal_note: false,
+      sent_at: m.created_at,
+      created_at: m.created_at,
+      attachments: []
+    };
+  });
   return [...projected, ...internal].sort(
     (a, b) => new Date(a.sent_at || a.created_at) - new Date(b.sent_at || b.created_at)
   );

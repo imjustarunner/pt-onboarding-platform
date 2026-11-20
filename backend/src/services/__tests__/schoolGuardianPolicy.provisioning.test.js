@@ -18,6 +18,13 @@ it.each([false,true])('prepares automatic school portal setup for a %s existing 
   m.find.mockResolvedValue(existing ? guardian : null);
   const result = await PublicIntakeClientService.provisionGuardianForIntakeClients({ link:{id:1,scope_type:'school',create_guardian:1},agencyId:2,clients:[{id:22},{id:23}],payload:{guardian:{email:guardian.email,firstName:'Pat',lastName:'Example'}} });
   expect(result.guardianUser.id).toBe(8); expect(m.link).toHaveBeenCalledTimes(2);
+  for (const [call] of m.link.mock.calls) expect(call).toMatchObject({
+    relationshipType:'guardian',accessEnabled:true,permissionsJson:{
+      enrollmentAccessConfirmed:true,canViewDocs:true,canSignDocs:true,canViewLinks:true,
+      canViewProgramMaterials:true,canViewProgress:true,canMessage:true,hideOtherGuardianAnswers:true
+    }
+  });
+  if (!existing) expect(m.create).toHaveBeenCalledWith(expect.objectContaining({role:'client_guardian'}));
   expect(m.token).toHaveBeenCalled(); expect(m.email).not.toHaveBeenCalled(); expect(result.newGuardianPasswordlessLoginUrl).toContain('setup-secret');
 });
 it('retains password setup for office intake',async()=>{
@@ -72,6 +79,18 @@ it('links self-enrollment to the parent’s existing login as Self', async () =>
  expect(m.link).toHaveBeenCalledWith(expect.objectContaining({clientId:25,guardianUserId:8,relationshipType:'self',relationshipTitle:'Self'}));
 });
 
+it('creates only the enrolling client’s account for self-enrollment', async () => {
+ const payload={intakeData:{guardian:{relationship:'Self'}},guardian:{email:guardian.email}};
+ m.create.mockResolvedValue({...guardian,role:'client'});
+ const result=await PublicIntakeClientService.provisionGuardianForIntakeClients({
+   link:{id:1,scope_type:'agency'},agencyId:2,clients:[{id:25}],payload
+ });
+ expect(result.guardianUser.role).toBe('client');
+ expect(m.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({role:'client'}));
+ expect(m.link).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+   clientId:25,guardianUserId:8,relationshipType:'self',accessEnabled:true
+ }));
+});
 it('rejects linking a guardian from outside the client agency',async()=>{
  m.agencies.mockResolvedValue([{id:99}]);const res={status:vi.fn().mockReturnThis(),json:vi.fn()},next=vi.fn();
  await upsertClientGuardian({params:{id:'22'},body:{email:guardian.email,firstName:'Pat',lastName:'Example'},user:{id:501,role:'support'}},res,next);

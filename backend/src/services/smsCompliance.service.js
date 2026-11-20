@@ -1,3 +1,4 @@
+import { configuredReminderNumberId } from './sharedCareNumber.service.js';
 import { verbalReminderProgramReady } from '../utils/staffVerbalReminderConsent.js';
 import { withStaffPollDisclosure } from './staffSmsDisclosure.service.js';
 import { sendApplicationHelpReply } from './smsHelpReply.service.js';
@@ -118,7 +119,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, companyEventReply = false, clientId, notificationCategory, providerRelayEnrollmentId, reminderFooter = null }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -136,6 +137,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   }
   if (!allowQaSmsDelivery({id:sender.agency_id,slug:sender.agency_slug,feature_flags:sender.agency_feature_flags},{to:recipient,purpose,clientId})) {
     throw smsPolicyError('sms_qa_recipient_blocked','QA texts are limited to the owner-approved testing phone.');
+  }
+  const configuredReminderId = Number(json(sender.agency_feature_flags)?.smsReminderNumberId);
+  if (purpose === 'reminders' && configuredReminderId > 0 && Number(sender.id) !== configuredReminderId) {
+    throw smsPolicyError('sms_reminder_line_mismatch', 'Use this organization’s configured appointment reminder line.');
   }
   const registration = sender.registration;
   if (validateSmsRegistration(registration).length) throw smsPolicyError('sms_campaign_not_ready', 'SMS campaign registration and number linking must be verified before sending');
@@ -222,8 +227,12 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
   const evidence = permissions[0].evidence_json ? json(permissions[0].evidence_json) : null;
+  if (purpose === 'care' && evidence?.source === 'inbound_conversation' &&
+      (requireConfirmedCare || Number(evidence.numberId) !== Number(sender.id))) {
+    throw smsPolicyError('sms_consent_required', 'The recipient must confirm provider texting before you can start a new text.');
+  }
   if (evidence?.source === 'inbound_start' && !providerRelayEnrollmentId
-      && !await clientSmsStartAllowed({ sender, phone: recipient, purpose, evidence, clientId })) {
+      && !await clientSmsStartAllowed({ sender, phone: recipient, purpose, evidence, clientId, recipientUserId })) {
     throw smsPolicyError('sms_start_not_active', 'START is saved, but a current client/guardian relationship and compatible recipient choices are required.');
   }
   if (purpose==='reminders' && evidence?.source==='staff_verbal') {
@@ -252,6 +261,11 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {
   if (!Number(agencyId) || !SMS_PURPOSES.includes(purpose)) return null;
+  if (purpose === 'reminders') {
+    const reminderId = await configuredReminderNumberId(agencyId);
+    if (reminderId && numberId != null && Number(numberId) !== reminderId) return null;
+    numberId = reminderId || numberId;
+  }
   if (numberId != null && (!Number.isSafeInteger(Number(numberId)) || Number(numberId) <= 0)) return null;
   if (requiredPurpose != null && !SMS_PURPOSES.includes(requiredPurpose)) return null;
   const clientTraffic = CLIENT_SMS_PURPOSES.includes(purpose);

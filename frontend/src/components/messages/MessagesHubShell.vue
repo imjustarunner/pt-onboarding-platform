@@ -59,18 +59,34 @@
       </template>
     </div>
     <div v-if="channelActivationMessage" class="msg-hub-channel-status" role="status">{{ channelActivationMessage }}</div>
-    <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
-      <span>{{ inboxChannel === 'group' ? 'Your department mail and message groups. Department email is managed through its linked ticket.' : 'Messages go to the members of the selected channel.' }}</span>
-      <button v-if="inboxChannel === 'channel'" type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
-      <button v-else type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
+    <div v-if="inboxChannel === 'channel'" class="msg-hub-group-help">
+      <span>Messages go to the members of the selected channel.</span>
+      <button type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
     </div>
-    <section v-if="inboxChannel === 'group'" class="msg-hub-memberships" aria-label="Your groups">
-      <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
-      <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
-      <span class="msg-hub-group-label">Email notices</span>
-      <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
-      <span v-if="visibleInternalGroups.length" class="msg-hub-group-label">Group conversations</span>
-      <button v-for="group in visibleInternalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} · Chat <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
+    <section v-if="inboxChannel === 'group'" ref="groupFilters" class="msg-hub-group-filters" aria-label="Your groups">
+      <div class="msg-hub-group-toolbar">
+        <button ref="groupFilterToggle" type="button" class="btn btn-secondary btn-sm" :aria-expanded="!groupFiltersCollapsed" :aria-controls="groupFiltersId" @click="toggleGroupFilters">
+          {{ groupFiltersCollapsed ? 'Show group filters' : 'Hide group filters' }}
+        </button>
+        <span v-if="groupFiltersCollapsed">{{ groupFilterSummary }}</span>
+      </div>
+      <div v-show="!groupFiltersCollapsed" :id="groupFiltersId" ref="groupFilterOptions">
+        <div class="msg-hub-group-help">
+          <span>Your department mail and message groups. Department email is managed through its linked ticket.</span>
+          <button type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
+        </div>
+        <div class="msg-hub-memberships">
+          <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory && navId !== claimedTicketNoticeCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
+          <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
+          <span class="msg-hub-group-label">Email notices</span>
+          <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
+          <button type="button" :aria-pressed="navId === claimedTicketNoticeCategory" @click="openGroupClaimedTicketNotices">
+            Claimed ticket notices <span class="msg-hub-review-count">{{ inboxCounts.claimedTicketNoticesByChannel?.group || 0 }} to review</span>
+          </button>
+          <span v-if="visibleInternalGroups.length" class="msg-hub-group-label">Group conversations</span>
+          <button v-for="group in visibleInternalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }} · Chat <span class="msg-hub-channel-count">{{ group.unreadCount || 0 }}</span></button>
+        </div>
+      </div>
     </section>
     <div v-if="inboxChannel === 'group' && selectedReviewCategory" class="msg-hub-group-help">
       <span>These email notices stay here for review and are excluded from unread mail and app notifications.</span>
@@ -89,7 +105,10 @@
         </div>
         <button ref="fullscreenButton" type="button" class="btn btn-secondary" @click="readerFullscreen = true">Full screen</button>
       </template>
-      <label v-if="inboxChannel === 'group' && !selectedReviewCategory" class="msg-hub-sort">Ownership
+      <div v-if="readerFullscreen && !hasOpenReader && fullscreenInboxFiltersVisible" class="msg-hub-fullscreen-filters" role="group" aria-label="Full-screen inbox filters">
+        <button v-for="item in availableFullscreenInboxFilters" :key="item.id" type="button" class="btn btn-secondary" :aria-pressed="navId === item.id" @click="selectNav('inbox',item.id,{keepFullscreen:true})">{{ item.label }}</button>
+      </div>
+      <label v-if="inboxChannel === 'group' && !selectedReviewCategory && navId !== claimedTicketNoticeCategory" class="msg-hub-sort">Ownership
         <select v-model="claimState" @change="changeMessageScope"><option value="">All</option><option value="claimed">Claimed</option><option value="unclaimed">Unclaimed</option></select>
       </label>
       <label v-if="isTicketQueue" class="msg-hub-sort"><input v-model="ticketUnreadOnly" type="checkbox" @change="loadConversations" /> Unread only</label>
@@ -102,7 +121,7 @@
       </div>
     </div>
 
-    <div class="msg-hub-body">
+    <div class="msg-hub-body" @scroll.capture.passive="onReadingPaneScroll">
       <div
         v-if="railOpen"
         class="msg-hub-rail-backdrop"
@@ -190,13 +209,18 @@
               {{ listColCollapsed ? '»' : '«' }}
             </button>
             <label
-              v-if="(navId === 'unread' || navId === 'inbox') && isConversationMode"
+              v-if="fullscreenInboxFilters.some(item => item.id === navId) && isConversationMode"
               class="msg-hub-sort"
             >
               <span class="sr-only">Sort list</span>
-              <select v-model="unreadSort" @change="loadConversations">
+              <select v-model="inboxSort" @change="changeInboxSort">
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
+                <optgroup label="Sort loaded messages">
+                  <option value="unread">Unread first</option>
+                  <option value="sender">Sender A–Z</option>
+                  <option value="subject">Subject A–Z</option>
+                </optgroup>
               </select>
             </label>
           </div>
@@ -286,6 +310,10 @@
               :class="{
                 active: selectedConversation?.id === c.id,
                 'email-list-row': c.channel === 'email',
+                'sms-list-row': c.channel === 'sms',
+                'selectable-list-row': canSelectMessage(c),
+                'compact-inbox-row': readerFullscreen && !hasOpenReader,
+                'claimed-ticket-notice': isClaimedTicketNotice(c),
                 unread: c.is_unread
               }"
               tabindex="0" role="button" @keydown.enter.self="pickConversation(c)" @keydown.space.self.prevent="pickConversation(c)"
@@ -293,6 +321,18 @@
               @click="pickConversation(c)"
             >
               <input v-if="canSelectMessage(c)" class="msg-hub-select-message" type="checkbox" :aria-label="`Select ${c.subject || conversationThreadTitle(c)}`" :checked="selectedMessageKeys.includes(readerKey(c))" :disabled="bulkUpdating" @click.stop @keydown.stop @change="toggleMessageSelection(c, $event.target.checked)" />
+              <div v-if="readerFullscreen && !hasOpenReader" class="msg-hub-compact-fields">
+                <strong class="msg-hub-compact-sender" :title="conversationThreadTitle(c)">{{ conversationThreadTitle(c) }}</strong>
+                <span class="msg-hub-compact-subject" :title="c.subject">{{ c.channel === 'sms' ? (c.sms?.relationship && c.sms?.clientName ? c.sms.relationship + ' for ' + c.sms.clientName : '') : c.subject }}</span>
+                <span class="msg-hub-compact-preview">{{ emailPreviewText(c.last_message_preview || '') }}</span>
+                <span class="msg-hub-compact-status">
+                  <ConversaBadge :type="c.channel || c.hubKind" :label="c.hubChannelLabel || undefined" />
+                  <span v-if="c.is_unread" :class="needsNoticeReview(c) ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">{{ needsNoticeReview(c) ? 'To review' : 'Unread' }}</span>
+                  <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
+                </span>
+                <time v-if="c.last_message_at">{{ formatTime(c.last_message_at) }}</time>
+              </div>
+              <template v-else>
               <div class="msg-hub-avatar-wrap">
                 <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" icon-only />
                 <div v-else class="msg-hub-avatar" aria-hidden="true">
@@ -307,22 +347,26 @@
                 >
                   <ConversaIcon :type="c.channel || c.hubKind" :size="12" />
                 </span>
-                <span v-if="c.is_unread" class="msg-hub-unread-dot" :class="{ 'msg-hub-review-dot': c.is_review_notice }" aria-hidden="true" />
+                <span v-if="c.is_unread" class="msg-hub-unread-dot" :class="{ 'msg-hub-review-dot': needsNoticeReview(c) }" aria-hidden="true" />
               </div>
               <div class="msg-hub-row-body">
                 <div class="msg-hub-row-top">
                   <strong>{{ conversationThreadTitle(c) }}</strong>
                   <ConversaBadge :type="c.channel || c.hubKind" :label="c.hubChannelLabel || undefined" />
-                  <span v-if="c.is_unread" :class="c.is_review_notice ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">
-                    {{ c.is_review_notice ? 'To review' : c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
+                  <span v-if="c.is_unread" :class="needsNoticeReview(c) ? 'msg-hub-review-count' : 'msg-hub-unread-pill'">
+                    {{ needsNoticeReview(c) ? 'To review' : c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
                   </span>
                   <span v-if="c.support_ticket_id" class="msg-hub-claim-pill">{{ c.ticket_claimed_by_user_id ? 'Claimed' : 'Unclaimed' }}</span>
-                  <span v-if="c.last_message_at" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
+                  <span v-if="c.last_message_at && c.channel !== 'sms'" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
                 </div>
                 <p v-if="c.channel === 'email'" class="msg-hub-snippet"><strong>{{ c.subject || '(No subject)' }}</strong></p>
                 <p v-if="c.deliveryLabel" role="status">{{ c.deliveryLabel }}</p>
                 <button v-if="!c.draftId && draftByConversation[c.conversationId || c.id]" type="button" class="msg-hub-btn secondary sm" @click.stop="openEmailComposer(router,{draftId:draftByConversation[c.conversationId || c.id]})" @keydown.enter.stop>Draft · Continue writing</button>
-                <ConversaMailbox :conversation="c" />
+                <template v-if="c.channel === 'sms'">
+                  <p v-if="c.sms?.relationship && c.sms.clientName" class="msg-hub-sms-meta">{{ c.sms.relationship }} for {{ c.sms.clientName }}</p>
+                  <p class="msg-hub-sms-meta">{{ smsLineLabel(c.sms) || 'Text conversation' }}<template v-if="c.last_message_at"> · {{ formatTime(c.last_message_at) }}</template></p>
+                </template>
+                <ConversaMailbox v-else :conversation="c" />
                 <div v-if="c.support_ticket_id" class="msg-hub-ticket-label">
                   <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" />
                   <span>Ticket #{{ c.support_ticket_id }}</span>
@@ -341,7 +385,7 @@
                 </p>
               </div>
               <button v-if="c.draftId && !c.deliveryLabel" type="button" class="msg-hub-btn secondary sm" @click.stop="discardListedDraft(c)">Discard</button>
-              <div v-else-if="!c.deliveryLabel && !isTicketedGroup(c) && (!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms')" class="msg-hub-row-actions" @click.stop>
+              <div v-else-if="!c.deliveryLabel && c.channel !== 'sms' && !isTicketedGroup(c) && (!c.hubKind || c.hubKind === 'email')" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -376,6 +420,7 @@
                   {{ c.starred ? '★' : '☆' }}
                 </button>
               </div>
+              </template>
             </li>
           </ul>
 
@@ -444,7 +489,7 @@
               + {{ newMessageLabel }}
             </button>
           </div>
-          <button v-if="hasMoreConversations && !['inbox','unread','my_tickets','tickets','assigned'].includes(navId) && !(emailSearchEnabled && listSearch.trim())" type="button" class="btn btn-secondary" :disabled="loadingList" @click="loadConversations({ append: true })">Show more messages</button>
+          <button v-if="hasMoreConversations && !['my_tickets','tickets','assigned'].includes(navId) && !(emailSearchEnabled && listSearch.trim())" type="button" class="btn btn-secondary" :disabled="loadingList || loadingMoreList" @click="loadConversations({ append: true })">{{ loadingMoreList ? 'Loading more…' : 'Show more messages' }}</button>
         </section>
 
         <section class="msg-hub-thread-col" aria-label="Conversation">
@@ -1289,8 +1334,34 @@
               :read-only="ticketedEmailPreview"
               @compose="composeEmail" @unread="markSelectedUnread" @older="loadEarlierEmail"
               :can-print="true" :can-file="true" @file="openThreadFiling" @print="printReaderThread" @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
-            <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
-              <form v-if="conversationPreview.conversation?.channel === 'sms'" @submit.prevent="replyReaderSms"><textarea v-model="readerSmsText" aria-label="Text message reply" required /><button type="submit" :disabled="sending">Send text</button></form>
+            <template v-else-if="conversationPreview.conversation?.channel === 'sms'">
+              <div class="msg-hub-timeline msg-hub-sms-timeline">
+                <article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"
+                  :class="{ 'msg-hub-sms-outbound': String(msg.direction).toLowerCase() === 'outbound' }">
+                  <p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p>
+                  <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
+                </article>
+              </div>
+              <form class="msg-hub-sms-reply" @submit.prevent="replyReaderSms">
+                <div class="msg-hub-sms-route">
+                  <span><strong>From</strong> {{ smsLineLabel(conversationPreview.conversation.sms) || 'Original sending line' }}</span>
+                  <span><strong>To</strong> {{ conversationThreadTitle(conversationPreview.conversation) }}<template v-if="conversationPreview.conversation.sms?.recipientEnding"> · ending in {{ conversationPreview.conversation.sms.recipientEnding }}</template></span>
+                </div>
+                <label v-if="readerSmsEligibility?.eligible" class="msg-hub-sms-reply-input">Reply
+                  <textarea v-model="readerSmsText" rows="3" maxlength="1600" placeholder="Write a text message…" :disabled="sending" required />
+                </label>
+                <p v-else role="status">{{ readerSmsEligibility?.message || 'Checking whether this recipient can receive texts…' }}</p>
+                <div class="msg-hub-sms-reply-actions">
+                  <button v-if="readerSmsEligibility?.eligible" type="submit" class="btn btn-primary" :disabled="sending || !readerSmsText.trim()">{{ sending ? 'Sending…' : 'Send text' }}</button>
+                  <button v-else-if="readerSmsEligibility" type="button" class="btn btn-secondary" @click="openNewConversation('sms')">New SMS</button>
+                </div>
+              </form>
+            </template>
+            <div v-else class="msg-hub-timeline">
+              <article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble">
+                <p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p>
+                <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
+              </article>
             </div>
           </template>
 
@@ -1521,6 +1592,8 @@
       </div>
     </div>
 
+    <HubSmsComposer v-if="showSmsComposer" :agency-id="agencyId" @close="showSmsComposer = false" @sent="onNewSmsSent" />
+
     <StartConversationModal
       v-if="showNew"
       :agency-id="agencyId"
@@ -1657,7 +1730,7 @@ import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
 import ConversaMailbox from '../conversa/ConversaMailbox.vue';
 import { downloadAttachment } from '../../utils/communicationAttachments';
 import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRecipients } from '../../utils/messageThreads';
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api, { messagingError } from '../../services/messagingApi';
 import { useSessionLockStore } from '../../store/sessionLock';
@@ -1673,6 +1746,7 @@ import { canManageConversaTeam } from '../../constants/conversa';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isTenantOrganizationType } from '../../utils/organizationTypes';
 import StartConversationModal from './StartConversationModal.vue';
+import HubSmsComposer from './HubSmsComposer.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 import GroupEmailBadge from '../unifiedInbox/GroupEmailBadge.vue';
@@ -1685,9 +1759,8 @@ import { lockMessageScroll } from '../../utils/messageScrollLock';
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
 const newMessageLabel = computed(() => ({email:'New email',internal:'New direct message',secure:'New secure message',sms:'New SMS',calls:'Calls / Voicemails',group:'New group'})[inboxChannel.value] || 'New conversation');
-const channelNeedsActivation = computed(() => ['sms','calls'].includes(inboxChannel.value));
+const channelNeedsActivation = computed(() => inboxChannel.value === 'calls');
 const channelActivationMessage = computed(() => ({
-  sms: 'Provider texting is awaiting activation. You can read saved texts here. Contact your administrator to enable the agency’s provider texting line.',
   calls: 'Calling and voicemail capture are not connected yet. Saved conversation records remain available here.'
 })[inboxChannel.value] || '');
 const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'group',label:'Groups'},{id:'internal',label:'Direct message'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'calls',label:'Calls / Voicemails'},{id:'channel',label:'Channels'}];
@@ -1698,16 +1771,83 @@ const groupedDepartmentInboxes = computed(() => groupMailboxes(departmentInboxes
 const visibleDepartmentInboxes = computed(() => groupedDepartmentInboxes.value.filter(box => String(selectedGroupInboxId.value) === String(box.id) || groupMailboxCount(box, 'unreadByInbox') > 0 || box.mailboxes.some(mailbox => ![false, 0, '0'].includes(mailbox.has_communications))));
 const visibleInternalGroups = computed(() => internalGroups.value.filter(group => group.hasMessages || Number(group.unreadCount) > 0));
 const selectedDepartment = computed(() => groupedDepartmentInboxes.value.find(box => String(box.id) === String(selectedGroupInboxId.value) || box.mailboxes.some(mailbox => String(mailbox.id) === String(selectedGroupInboxId.value))));
-const reviewNoticeCount = computed(() => Object.values(inboxCounts.value.reviewByCategory || {}).reduce((sum, n) => sum + Number(n || 0), 0));
+const reviewNoticeCount = computed(() => Object.values(inboxCounts.value.reviewByCategory || {}).reduce((sum, n) => sum + Number(n || 0), Number(inboxCounts.value.claimedTicketNoticesByChannel?.group || 0)));
 const isTicketQueue = computed(() => ['my_tickets', 'tickets'].includes(navId.value));
 function groupMailboxCount(box, field) { return box.mailboxes.reduce((sum, mailbox) => sum + Number(inboxCounts.value[field]?.[mailbox.id] || 0), 0); }
 function selectTicketQueue(id) { inboxChannel.value = 'all'; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; claimState.value = ''; selectNav('inbox', id); }
 function changeMessageScope() { closePerson(); scopedInboxCounts.value = null; selectedMessageKeys.value = []; void loadConversations(); }
 function scopeInboxId(aid) { return selectedDepartment.value?.mailboxes.find(box => Number(box.agency_id) === Number(aid))?.id || (selectedDepartment.value ? null : selectedGroupInboxId.value); }
 function scopeAgencyIds() { return selectedDepartment.value ? [...new Set(selectedDepartment.value.mailboxes.map(box => Number(box.agency_id || agencyId.value)))] : messageAgencyIds.value; }
+const claimedTicketNoticeCategory = 'claimed_ticket_notices';
+const claimedTicketNoticeLabel = 'Claimed ticket notices';
+const fullscreenInboxFilters = [
+  { id: 'inbox', label: 'Inbox' },
+  { id: 'unread', label: 'Unread' },
+  { id: claimedTicketNoticeCategory, label: claimedTicketNoticeLabel }
+];
+const isClaimedTicketNotice = row => !row.is_review_notice && row.channel === 'email' && !!row.is_unread
+  && !!row.support_ticket_id && !!row.ticket_claimed_by_user_id;
+const needsNoticeReview = row => row.is_review_notice || isClaimedTicketNotice(row);
+const claimedNoticeView = computed(() => navId.value === claimedTicketNoticeCategory);
+const unreadListView = computed(() => navId.value === 'unread' || claimedNoticeView.value);
+const availableFullscreenInboxFilters = computed(() => fullscreenInboxFilters.filter(item =>
+  item.id !== claimedTicketNoticeCategory || ['all','email','group'].includes(inboxChannel.value)));
+const fullscreenInboxFiltersVisible = computed(() => isConversationMode.value && !selectedReviewCategory.value
+  && availableFullscreenInboxFilters.value.some(item => item.id === navId.value));
+
+function openGroupClaimedTicketNotices() {
+  selectedGroupInboxId.value = null;
+  selectedReviewCategory.value = null;
+  selectNav('inbox', claimedTicketNoticeCategory);
+}
+
 const selectedReviewCategory = ref(null), reviewingNotices = ref(false), closingPreviewTicket = ref(false);
 const reviewCategories = [{ id: 'provider_assignments', label: 'Provider Assignments' }, { id: 'enrollment_packets', label: 'Submitted Enrollment Packets' }];
-function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (!inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
+const groupFiltersId = useId();
+const groupFilters = ref(null), groupFilterToggle = ref(null), groupFilterOptions = ref(null);
+const groupFiltersCollapsed = ref(false);
+const groupFilterSummary = computed(() =>
+  reviewCategories.find(category => category.id === selectedReviewCategory.value)?.label
+  || (claimedNoticeView.value ? claimedTicketNoticeLabel : selectedDepartment.value?.display_name || 'All groups')
+);
+let groupFiltersReopened = false;
+
+function toggleGroupFilters() {
+  groupFiltersReopened = groupFiltersCollapsed.value;
+  groupFiltersCollapsed.value = !groupFiltersCollapsed.value;
+}
+
+function updateGroupFiltersOnScroll(pastFilters) {
+  if (!pastFilters) {
+    groupFiltersReopened = false;
+  } else if (!groupFiltersReopened && !groupFiltersCollapsed.value) {
+    if (groupFilterOptions.value?.contains(document.activeElement)) groupFilterToggle.value?.focus({ preventScroll: true });
+    groupFiltersCollapsed.value = true;
+  }
+}
+
+function onReadingPaneScroll(event) {
+  if (!groupFilters.value || readerFullscreen.value || !event.target.matches?.('.msg-hub-list, .msg-hub-timeline, .msg-hub-thread-col')) return;
+  updateGroupFiltersOnScroll(event.target.scrollTop > 32);
+}
+
+function onGroupPageScroll(event) {
+  const section = groupFilters.value;
+  if (!section || readerFullscreen.value) return;
+  const scrollHost = event.target;
+  if (scrollHost === document || scrollHost === window) {
+    updateGroupFiltersOnScroll(section.getBoundingClientRect().bottom < 0);
+  } else if (scrollHost.contains?.(section)) {
+    updateGroupFiltersOnScroll(section.getBoundingClientRect().bottom < scrollHost.getBoundingClientRect().top);
+  }
+}
+
+watch(inboxChannel, () => {
+  groupFiltersCollapsed.value = false;
+  groupFiltersReopened = false;
+});
+
+function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (claimedNoticeView.value || !inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
 function selectReviewCategory(id) { selectedGroupInboxId.value = null; selectedReviewCategory.value = id; claimState.value = ''; navId.value = 'unread'; changeMessageScope(); }
 async function reviewAllNotices() {
   reviewingNotices.value = true;
@@ -1782,8 +1922,30 @@ async function claimPreviewTicket() {
     error.value = messagingError(e, 'Could not claim this ticket.');
   } finally { claimingGroupTicket.value = false; }
 }
-const readerSmsText=ref('');
-async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
+const readerSmsText = ref('');
+const readerSmsEligibility = ref(null);
+function smsLineLabel(sms) {
+  return [sms?.organizationName, sms?.fromNumber].filter(Boolean).join(' · ');
+}
+async function replyReaderSms() {
+  const id = conversationPreview.value?.conversation?.id;
+  const text = readerSmsText.value.trim();
+  if (!id || !text || sending.value || !readerSmsEligibility.value?.eligible) return;
+  sending.value = true;
+  try {
+    await api.post(`/communications/conversations/${id}/reply`, {
+      text, mode: 'reply', numberId: readerSmsEligibility.value.numberId
+    }, { skipGlobalLoading: true });
+    if (conversationPreview.value?.conversation?.id === id) readerSmsText.value = '';
+    await refreshMail();
+  } catch (e) { error.value = messagingError(e, 'Could not send text.'); }
+  finally { sending.value = false; }
+}
+function onNewSmsSent() {
+  showSmsComposer.value = false;
+  inboxChannel.value = 'sms';
+  selectNav('inbox', 'sent');
+}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
 let inboxRequest=0,emailReadRequest=0,mailPollTimer=null,hoverTimer=null,hidePreviewTimer=null;
 let inboxController=null,emailReadController=null;
@@ -1820,8 +1982,15 @@ async function refreshMail({ quiet = false } = {}) {
     if (!quiet) error.value = messagingError(e, 'Could not refresh messages. Please try again.');
   } finally { refreshing.value = false; }
 }
+// Focus, reconnect and composer events may arrive together. Share a minimum
+// interval for automatic refreshes. The explicit Refresh button stays immediate.
+let lastBackgroundRefreshAt = -Infinity;
 function refreshMailInBackground() {
-  if (!document.hidden) void refreshMail({ quiet: true });
+  if (document.hidden || refreshing.value || loadingList.value || sessionBlocked.value || !agencyId.value) return;
+  const now = Date.now();
+  if (now - lastBackgroundRefreshAt < 5000) return;
+  lastBackgroundRefreshAt = now;
+  void refreshMail({ quiet: true });
 }
 
 async function discardListedDraft(c){try{await api.delete(`/communications/drafts/${c.draftId}`,{skipGlobalLoading:true});await loadConversations({quiet:true});window.dispatchEvent(new CustomEvent('email-workspace-changed'));}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}}
@@ -1842,6 +2011,7 @@ function onWorkspaceChanged(event) {
 }
 function scheduleHidePreview(){clearTimeout(hoverTimer);hidePreviewTimer=setTimeout(()=>hoverEmail.value=null,200);}
 function previewEmail(c,event){
+ if(readerFullscreen.value && !hasOpenReader.value)return;
   clearTimeout(hidePreviewTimer);clearTimeout(hoverTimer);if(c.channel!=='email'||c.draftId)return;
   const rect=event.currentTarget.getBoundingClientRect();
   hoverTimer=setTimeout(async()=>{const item={id:c.id,subject:c.subject,body:emailPreviewText(c.last_message_preview),top:Math.min(rect.top,Math.max(8,window.innerHeight-350)),left:Math.max(8,Math.min(rect.right+8,window.innerWidth-440))};hoverEmail.value=item;
@@ -1893,6 +2063,13 @@ const conversations = ref([]);
 const listFilter = ref('unread');
 const listSearch = ref('');
 const unreadSort = ref('newest');
+const inboxSort = ref('newest'), loadingMoreList = ref(false), hubPagesExpanded = ref(false);
+let hubPageCursors = new Map();
+function changeInboxSort() {
+  if (!['newest', 'oldest'].includes(inboxSort.value) || unreadSort.value === inboxSort.value) return;
+  unreadSort.value = inboxSort.value;
+  void loadConversations();
+}
 const selected = ref(null);
 const listColCollapsed = ref(false);
 const detailsCollapsed = ref(true);
@@ -1907,7 +2084,7 @@ const readerKey = c => `${c?.hubKind || c?.channel || 'email'}:${c?.conversation
 const readingIndex = computed(() => readingSequence.value.findIndex(c => readerKey(c) === activeReaderKey.value));
 const selectedMessageKeys = ref([]), bulkUpdating = ref(false), hasMoreConversations = ref(false);
 const nextReader = computed(() => readingSequence.value.slice(readingIndex.value + 1).find(row => activeTicketId.value ? row.support_ticket_id && row.is_unread : !isTicketQueue.value || row.is_unread));
-const hasNextReader = computed(() => !!nextReader.value || (hasMoreConversations.value && (navId.value === 'unread' || isTicketQueue.value)));
+const hasNextReader = computed(() => !!nextReader.value || (hasMoreConversations.value && (unreadListView.value || isTicketQueue.value)));
 function canSelectMessage(row) { return !row.draftId && !row.deliveryLabel && row.type !== 'cancellation_contact'; }
 const selectableConversations = computed(() => filteredConversations.value.filter(canSelectMessage));
 const selectedMessageRows = computed(() => selectableConversations.value.filter(row => selectedMessageKeys.value.includes(readerKey(row))));
@@ -1963,7 +2140,7 @@ async function navigateReader(offset) {
   try {
     let target = offset > 0 ? nextReader.value : readingSequence.value[readingIndex.value - 1];
     if (!target && offset > 0 && hasMoreConversations.value) {
-      await loadConversations({ nextUnread: true });
+      await loadConversations({ nextUnread: true, append: !isTicketQueue.value });
       const known = new Set(readingSequence.value.map(readerKey));
       readingSequence.value.push(...filteredConversations.value.filter(row => !known.has(readerKey(row))));
       target = nextReader.value;
@@ -2017,6 +2194,25 @@ const sendConfirmOpen = ref(false);
 const sendConfirmPending = ref(null);
 const selectedConversation = ref(null);
 const conversationPreview = ref(null);
+watch(() => {
+  const conversation = conversationPreview.value?.conversation;
+  return conversation?.channel === 'sms' ? conversation.id : null;
+}, async (id, previous, onCleanup) => {
+  readerSmsText.value = '';
+  readerSmsEligibility.value = null;
+  if (!id) return;
+  const controller = new AbortController();
+  onCleanup(() => controller.abort());
+  try {
+    const { data } = await api.get(`/communications/conversations/${id}/sms-reply-eligibility`, {
+      signal: controller.signal, skipGlobalLoading: true
+    });
+    if (!controller.signal.aborted) readerSmsEligibility.value = data;
+  } catch {
+    if (!controller.signal.aborted) readerSmsEligibility.value = { eligible: false, message: 'Text eligibility could not be checked. Reopen the conversation to try again.' };
+  }
+});
+
 const inboxCounts = ref({ unread: 0, snoozed: 0, unknown: 0, queued: 0 });
 const showResolveUnknown = ref(false);
 const snoozeMenuFor = ref(null);
@@ -2062,6 +2258,7 @@ const reactingId = ref(null);
 const staffSuggest = ref([]);
 let staffSuggestTimer = null;
 const showNew = ref(false);
+const showSmsComposer = ref(false);
 const newTab = ref('caseload');
 const peopleQuery = ref('');
 const peopleResults = ref([]);
@@ -2108,13 +2305,19 @@ const queuedItems = ref([]);
 const loadingQueued = ref(false);
 
 const agencyId = computed(()=>route.query.secureClientId&&/^[1-9]\d*$/.test(String(route.query.agencyId||''))?Number(route.query.agencyId):agencyStore.currentAgency?.id||null);
-const messageAgencyIds = computed(() => [...new Set([agencyId.value, ...(agencyStore.userAgencies || []).filter(agency => ![false, 0, '0'].includes(agency.is_active)).map(agency => agency.agency_id || agency.id)].map(Number).filter(id => id > 0))]);
+const messageAgencyIds = computed(() => {
+  const memberships = (agencyStore.userAgencies || []).filter(agency =>
+    isTenantOrganizationType(agency) && ![false, 0, '0'].includes(agency.is_active));
+  const ids = [agencyId.value, ...memberships.map(agency => agency.agency_id || agency.id)];
+  return [...new Set(ids.map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
+});
 const { summary: emailWorkspace, draftByConversation } = useEmailWorkspace(agencyId);
 
 const baseInboxNavItems = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'assigned', label: 'Assigned to me' },
   { id: 'unread', label: 'Unread' },
+  { id: claimedTicketNoticeCategory, label: claimedTicketNoticeLabel },
   { id: 'unknown', label: 'Unknown Senders' },
   { id: 'mentions', label: 'Mentions' },
   { id: 'starred', label: 'Starred' },
@@ -2127,8 +2330,8 @@ const baseInboxNavItems = [
 const inboxNavItems = computed(() => {
   if (isTicketQueue.value) return [{ id: navId.value, label: navId.value === 'my_tickets' ? 'My tickets' : 'Tickets' }];
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return [{ id: 'unread', label: 'To review' }, { id: 'inbox', label: 'All notices' }];
-  const allowed = inboxChannel.value === 'group' ? ['inbox', 'unread', 'unknown', 'sent']
-    : inboxChannel.value === 'email' ? ['inbox', 'assigned', 'unread', 'unknown', 'starred', 'queued', 'snoozed', 'sent', 'drafts', 'needs_attention']
+  const allowed = inboxChannel.value === 'group' ? ['inbox', 'unread', claimedTicketNoticeCategory, 'unknown', 'sent']
+    : inboxChannel.value === 'email' ? ['inbox', 'assigned', 'unread', claimedTicketNoticeCategory, 'unknown', 'starred', 'queued', 'snoozed', 'sent', 'drafts', 'needs_attention']
     : inboxChannel.value === 'all' ? baseInboxNavItems.map(item => item.id)
     : inboxChannel.value === 'sms' ? ['inbox', 'unread', 'sent'] : ['inbox', 'unread'];
   return baseInboxNavItems.filter(item => allowed.includes(item.id));
@@ -2180,6 +2383,7 @@ const hubSubtitle = computed(() => {
 });
 
 const listColumnTitle = computed(() => {
+  if (claimedNoticeView.value) return claimedTicketNoticeLabel;
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return reviewCategories.find(item => item.id === selectedReviewCategory.value)?.label || 'To review';
   if (personFocus.value && isSubjectChannel.value) {
     return selected.value?.displayName || threadTitle.value || 'Conversations';
@@ -2206,7 +2410,7 @@ const listSearchPlaceholder = computed(() => {
 
 const isConversationMode = computed(() => {
   if (navSection.value !== 'inbox') return false;
-  return ['inbox', 'assigned', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention', 'tickets', 'my_tickets'].includes(navId.value);
+  return ['inbox', 'assigned', 'unread', claimedTicketNoticeCategory, 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention', 'tickets', 'my_tickets'].includes(navId.value);
 });
 
 const isQueuedMode = computed(() => navSection.value === 'inbox' && navId.value === 'queued');
@@ -2279,6 +2483,7 @@ function conversationOwnerName(c) {
 }
 
 function conversationThreadTitle(c) {
+  if (c?.channel === 'sms') return c.sms?.recipientName || c.primary_participant_name || 'Text conversation';
   if (c?.channel === 'email' && (c.latestMessageDirection || c.last_message_direction) === 'outbound') {
     return String(c.primary_participant_name || c.primary_participant_email || '').trim() || 'Sent email';
   }
@@ -2364,9 +2569,17 @@ const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
   if (!isTicketQueue.value && inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel)
-    : inboxChannel.value === 'group' ? selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
+    : inboxChannel.value === 'group' ? claimedNoticeView.value ? c.is_group_email || isTicketedGroup(c) : selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
     : inboxChannel.value === 'email' ? c.channel === 'email' && !isTicketedGroup(c) : c.channel === inboxChannel.value);
+  if (claimedNoticeView.value) list = list.filter(isClaimedTicketNotice);
   if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => selectedDepartment.value ? selectedDepartment.value.mailboxes.some(box => String(box.id) === String(c.inbox_id)) : String(c.inbox_id) === String(selectedGroupInboxId.value));
+  const field = inboxSort.value;
+  if (hubPagesExpanded.value) {
+    list.sort((a, b) => (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)) * (unreadSort.value === 'oldest' ? -1 : 1));
+  }
+  if (field === 'unread') list.sort((a, b) => Number(!!b.is_unread) - Number(!!a.is_unread));
+  if (field === 'sender') list.sort((a, b) => conversationThreadTitle(a).localeCompare(conversationThreadTitle(b)));
+  if (field === 'subject') list.sort((a, b) => String(a.subject || '').localeCompare(String(b.subject || '')));
   if (!q || emailSearchEnabled.value) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
@@ -2375,6 +2588,7 @@ const filteredConversations = computed(() => {
 });
 
 const emptyListCopy = computed(() => {
+  if (claimedNoticeView.value) return 'No claimed tickets need review.';
   if (isTicketQueue.value) return ticketUnreadOnly.value ? 'No unread tickets in this queue.' : 'No open tickets in this queue.';
   if (inboxChannel.value === 'group' && selectedReviewCategory.value) return 'No email notices in this category.';
   if (navSection.value === 'tools' && navId.value === 'calls') {
@@ -3975,10 +4189,11 @@ function restoreMailboxView() {
   inboxChannel.value=inboxChannels.some(item=>item.id===channel)?channel:'all';
   selectNav('inbox',inboxNavItems.value.some(item=>item.id===folder)?folder:'inbox');
 }
-function selectNav(section, id) {
+function selectNav(section, id, { keepFullscreen = false } = {}) {
+  if (id === claimedTicketNoticeCategory) claimState.value = '';
   selectedMessageKeys.value = [];
   scopedInboxCounts.value = null;
-  closePerson();
+  closePerson({ keepFullscreen });
   ++inboxRequest;
   inboxController?.abort();
   loadingList.value = false;
@@ -4062,25 +4277,62 @@ async function openTeamChat(tab = null) {
 }
 
 async function scopedGet(path, params, config = {}, responseKey = 'conversations') {
-  const { append = false, ...requestConfig } = config;
-  const results = await Promise.all(scopeAgencyIds().map(async (aid, index) => {
-    const { data } = await api.get(path, { ...requestConfig, params: { ...params, agencyId: aid, includeGlobal: index === 0 ? '1' : '0',
-      offset: append ? conversations.value.filter(row => Number(row.agency_id || agencyId.value) === Number(aid)).length : Number(params.offset || 0),
-      ...(inboxChannel.value === 'group' ? { [path.startsWith('/messages/hub/') || path.endsWith('attention-summary') ? 'inboxId' : 'groupInboxId']: scopeInboxId(aid), claimState: claimState.value || undefined } : {}) } });
-    return (data?.[responseKey] || []).map(row => ({ ...row, agency_id: row.agency_id || aid, agencyId: row.agencyId || aid }));
-  }));
+  const { append = false, paged = false, ...requestConfig } = config;
+  const nextCursors = new Map();
+  const scopes = scopeAgencyIds().map((aid, index) => ({
+    agencyId: aid,
+    includeGlobal: index === 0 ? '1' : '0',
+    offset: append
+      ? conversations.value.filter(row => Number(row.agency_id || agencyId.value) === aid).length
+      : Number(params.offset || 0),
+    groupInboxId: inboxChannel.value === 'group' ? scopeInboxId(aid) : undefined
+  })).filter(scope => !paged || !append || hubPageCursors.has(scope.agencyId));
+  const filters = { ...params };
+  if (inboxChannel.value === 'group') filters.claimState = claimState.value || undefined;
+
+  let results;
+  if (path === '/communications/conversations' && scopes.length > 1) {
+    const agencyScopes = scopes.map(({ agencyId, offset, groupInboxId }) => ({
+      agencyId, offset, groupInboxId: Number(groupInboxId) || undefined
+    }));
+    const { data } = await api.get(path, {
+      ...requestConfig,
+      params: { ...filters, ...scopes[0], agencyScopes: JSON.stringify(agencyScopes) }
+    });
+    results = [data?.[responseKey] || []];
+  } else {
+    results = await Promise.all(scopes.map(async ({ groupInboxId, ...scope }) => {
+      const inboxFilter = inboxChannel.value === 'group'
+        ? { [path.startsWith('/messages/hub/') ? 'inboxId' : 'groupInboxId']: groupInboxId }
+        : {};
+      const { data } = await api.get(path, {
+        ...requestConfig,
+        params: { ...filters, ...scope, ...inboxFilter, ...(paged && append ? { cursor: hubPageCursors.get(scope.agencyId) } : {}) }
+      });
+      if (paged && data?.nextCursor) nextCursors.set(scope.agencyId, data.nextCursor);
+      return (data?.[responseKey] || []).map(row => ({
+        ...row, agency_id: row.agency_id || scope.agencyId, agencyId: row.agencyId || scope.agencyId
+      }));
+    }));
+  }
   const rows = uniqueMessageRows(results.flat());
   rows.sort((a, b) => (new Date(b.sortAt || b.last_message_at || b.created_at || 0) - new Date(a.sortAt || a.last_message_at || a.created_at || 0)) * (unreadSort.value === 'oldest' ? -1 : 1));
-  return rows;
+  return paged ? { rows, nextCursors } : rows;
 }
 async function loadConversations({ quiet = false, append = false, nextUnread = false } = {}) {
-  if (quiet && loadingList.value) return;
-  hasMoreConversations.value = false;
+  if ((quiet || append) && (loadingList.value || loadingMoreList.value)) return;
+  if (quiet && hubPagesExpanded.value) return loadInboxCounts();
+  if (!append) {
+    hubPagesExpanded.value = false;
+    hasMoreConversations.value = false;
+  } else {
+    loadingMoreList.value = true;
+  }
   const request = ++inboxRequest;
   inboxController?.abort();
   const controller = new AbortController();
   inboxController = controller;
-  if (!quiet) { loadingList.value = true; error.value = ''; }
+  if (!quiet) { loadingList.value = !append; error.value = ''; }
   people.value = [];
   try {
     if (!agencyId.value) {
@@ -4123,7 +4375,7 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
     }
 
     if (emailSearchEnabled.value && listSearch.value.trim()) {
-      const rows = await scopedGet('/communications/conversations', {hubScope:1,channel:'email',filter:id==='inbox'?'all':id,q:listSearch.value.trim(),limit:80}, {signal:controller.signal, append});
+      const rows = await scopedGet('/communications/conversations', {hubScope:1,channel:'email',filter:claimedNoticeView.value?'unread':id==='inbox'?'all':id,category:claimedNoticeView.value?claimedTicketNoticeCategory:undefined,q:listSearch.value.trim(),limit:80}, {signal:controller.signal, append});
       if(request!==inboxRequest)return;
       conversations.value=append?[...conversations.value,...rows.filter(row=>!conversations.value.some(existing=>existing.id===row.id))]:rows;
       hasMoreEmailResults.value=rows.length===80;
@@ -4131,18 +4383,20 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
     }
     hasMoreEmailResults.value=false;
     // Unified Inbox / Unread: email + secure + internal + SMS + groups
-    if (id === 'unread' || id === 'inbox') {
-      const items = await scopedGet(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
+    if (unreadListView.value || id === 'inbox') {
+      const { rows: items, nextCursors } = await scopedGet(unreadListView.value ? '/messages/hub/unread' : '/messages/hub/inbox', {
           agencyId: agencyId.value,
           sort: unreadSort.value,
           channel: inboxChannel.value,
           inboxId: inboxChannel.value === 'group' ? selectedGroupInboxId.value : undefined,
-          category: inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined,
+          category: claimedNoticeView.value ? claimedTicketNoticeCategory : inboxChannel.value === 'group' ? selectedReviewCategory.value : undefined,
           limit: 80
-        }, { signal: controller.signal }, 'items');
+        }, { signal: controller.signal, append, paged: true }, 'items');
       if (request !== inboxRequest) return;
-      hasMoreConversations.value = items.length >= 80;
-      conversations.value = items.map((item) => ({
+      hubPageCursors = nextCursors;
+      hasMoreConversations.value = Boolean(nextCursors.size);
+      if (append) hubPagesExpanded.value = true;
+      const rows = items.map((item) => ({
         ...item,
         id: item.conversationId || item.id,
         hubKind: item.kind,
@@ -4167,7 +4421,8 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
         is_unknown_sender: !!item.isUnknownSender,
         photoUrl: item.photoUrl || null
       }));
-      await loadInboxCounts();
+      conversations.value = append ? uniqueMessageRows([...conversations.value, ...rows]) : rows;
+      if (!append) await loadInboxCounts();
       return;
     }
 
@@ -4197,7 +4452,7 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
       error.value = messagingError(e, 'Could not load conversations. Please try Refresh.');
     }
   } finally {
-    if (request === inboxRequest) loadingList.value = false;
+    if (request === inboxRequest) { loadingList.value = false; loadingMoreList.value = false; }
   }
 }
 
@@ -4230,6 +4485,7 @@ async function loadInboxCounts() {
       unread: Number(s.unread || 0),
       unreadByChannel: s.unreadByChannel || null,
       unreadByInbox: s.unreadByInbox || {}, reviewByCategory: s.reviewByCategory || {},
+      claimedTicketNoticesByInbox: s.claimedTicketNoticesByInbox || {}, claimedTicketNoticesByChannel: s.claimedTicketNoticesByChannel || {},
       snoozed: Number(s.snoozed || 0),
       unknown: Number(s.unknownSenders || 0), unknownByInbox: s.unknownByInbox || {}, unknownByChannel: s.unknownByChannel || {}
     };
@@ -4244,6 +4500,11 @@ async function loadInboxCounts() {
 function inboxBadgeCount(id) {
   if (id === 'drafts') return emailWorkspace.value?.draftCount || 0;
   if (id === 'needs_attention') return emailWorkspace.value?.attentionCount || 0;
+  if (id === claimedTicketNoticeCategory) {
+    if (inboxChannel.value === 'group' && selectedDepartment.value) return groupMailboxCount(selectedDepartment.value, 'claimedTicketNoticesByInbox');
+    const counts = inboxCounts.value.claimedTicketNoticesByChannel || {};
+    return inboxChannel.value === 'all' ? Object.values(counts).reduce((sum,n) => sum + Number(n || 0), 0) : Number(counts[inboxChannel.value] || 0);
+  }
   if (id === 'unread') {
     if (inboxChannel.value === 'group' && selectedReviewCategory.value) return Number(inboxCounts.value.reviewByCategory?.[selectedReviewCategory.value] || 0);
     if (scopedSummary.value && inboxChannel.value === 'group' && (selectedGroupInboxId.value != null || claimState.value)) return Number(scopedSummary.value.unread || 0);
@@ -4515,8 +4776,8 @@ async function loadPersonContext(personKey) {
   }
 }
 
-function closePerson() {
-  readerFullscreen.value = false;
+function closePerson({ keepFullscreen = false } = {}) {
+  if (!keepFullscreen) readerFullscreen.value = false;
   activeReaderKey.value = null;
   readingSequence.value = [];
   rememberEmailDraft();
@@ -4652,7 +4913,8 @@ async function startConversationWithPerson(person) {
 }
 
 async function openNewConversation(channel = inboxChannel.value) {
-  if (['sms','calls'].includes(channel)) return;
+  if (channel === 'calls') return;
+  if (channel === 'sms') { showSmsComposer.value = true; return; }
   newConversationChannel.value = channel;
   showNew.value = true;
 }
@@ -4693,7 +4955,7 @@ async function onOpenGroupFromModal(group) {
 }
 
 function dropOpenedFromUnread(match = {}) {
-  if (navId.value !== 'unread') return;
+  if (!unreadListView.value) return;
   const personKey = match.personKey || null;
   const threadId = match.threadId != null ? Number(match.threadId) : null;
   const conversationId = match.conversationId != null ? Number(match.conversationId) : null;
@@ -5528,10 +5790,13 @@ watch(sessionBlocked, (blocked, wasBlocked) => {
   }
 });
 
-watch(() => [route.query.folder,route.query.channel], () => {if(route.query.folder || route.query.channel)restoreMailboxView();});
+watch([() => route.query.folder, () => route.query.channel], () => {
+  if (route.query.folder || route.query.channel) restoreMailboxView();
+});
 watch(agencyId, () => { departmentInboxes.value = []; internalGroups.value = []; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; activeTicketId.value = null; void loadGroupMemberships(); });
 onMounted(() => {
   window.addEventListener('keydown', onReaderEscape);
+  window.addEventListener('scroll', onGroupPageScroll, { capture: true, passive: true });
   restoreMailboxView();
   mailPollTimer = setInterval(refreshMailInBackground, 15000);
   window.addEventListener('focus', refreshMailInBackground);
@@ -5553,6 +5818,7 @@ onMounted(() => {
 onUnmounted(() => {
   linkedSecureRequest++;
   window.removeEventListener('keydown', onReaderEscape);
+  window.removeEventListener('scroll', onGroupPageScroll, true);
   releaseReaderScroll?.();
   clearInterval(mailPollTimer);
   clearTimeout(hoverTimer); clearTimeout(hidePreviewTimer);
@@ -5604,6 +5870,8 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 <style scoped>
 .msg-hub-memberships, .msg-hub-ticket-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .msg-hub-memberships { padding: 4px 16px 12px; }
+.msg-hub-group-filters { flex-shrink: 0; }
+.msg-hub-group-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 16px; font-size: 13px; }
 .msg-hub-group-label { flex-basis: 100%; margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .msg-hub-memberships > button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--conversa-border); background: var(--conversa-surface); color: inherit; border-radius: 8px; cursor: pointer; }
 .msg-hub-memberships > button[aria-pressed=true] { outline: 2px solid var(--conversa-blue); outline-offset: 1px; }
@@ -5741,6 +6009,13 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   border-top: 1px solid #f1f5f9;
   align-items: center;
 }
+.msg-hub-row.selectable-list-row { grid-template-columns: 18px 36px minmax(0, 1fr) auto; gap: 8px; }
+.msg-hub-row.sms-list-row { align-items: start; grid-template-columns: 36px minmax(0, 1fr); }
+.msg-hub-row.sms-list-row.selectable-list-row { grid-template-columns: 18px 36px minmax(0, 1fr); }
+.msg-hub-row.sms-list-row .msg-hub-select-message { margin-top: 7px; }
+.msg-hub-row.sms-list-row .msg-hub-row-top { flex-wrap: wrap; }
+.msg-hub-row.sms-list-row .msg-hub-row-top strong { flex: 1 1 100%; max-width: 100%; }
+.msg-hub-sms-meta { margin: 3px 0; color: var(--mh-muted); font-size: 11px; overflow-wrap: anywhere; }
 .msg-hub-row--compact {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -5753,6 +6028,15 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .msg-hub-row.unread {
   background: color-mix(in srgb, var(--mh-primary) 10%, #fff);
   box-shadow: inset 3px 0 0 var(--mh-primary);
+}
+.msg-hub-row.unread.claimed-ticket-notice {
+  background: #edf8f0;
+  box-shadow: inset 3px 0 0 #2b8451;
+}
+.msg-hub-fullscreen-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.msg-hub-fullscreen-filters button[aria-pressed='true'] {
+  background: #e8f0fc;
+  border-color: #96b6e9;
 }
 .msg-hub-row.unread strong {
   font-weight: 800;
@@ -7600,6 +7884,16 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 [data-theme='dark'] .chats-view {
   color: #e2e8f0;
 }
+
+.msg-hub-sms-timeline .msg-hub-bubble { max-width: min(36rem, 88%); align-self: flex-start; }
+.msg-hub-sms-timeline .msg-hub-sms-outbound { align-self: flex-end; background: color-mix(in srgb, var(--mh-primary) 8%, var(--mh-surface, #fff)); }
+.msg-hub-sms-timeline time { font-size: 11px; color: var(--mh-muted); }
+.msg-hub-sms-reply { display: grid; flex-shrink: 0; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--mh-line); background: var(--mh-surface, #fff); }
+.msg-hub-sms-route { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--mh-muted); }
+.msg-hub-sms-reply p { margin: 0; font-size: 13px; color: var(--mh-muted); }
+.msg-hub-sms-reply-input { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.msg-hub-sms-reply textarea { font: inherit; font-weight: 400; width: 100%; box-sizing: border-box; border: 1px solid var(--mh-line); border-radius: 8px; padding: 8px 10px; background: var(--mh-surface, #fff); color: inherit; resize: vertical; }
+.msg-hub-sms-reply-actions { display: flex; justify-content: flex-end; }
 </style>
 
 <style>
@@ -7627,7 +7921,7 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   position: fixed; inset: 0; z-index: 2100; width: 100%; height: 100dvh;
   max-height: none; padding: 12px; box-sizing: border-box; background: var(--mh-surface);
 }
-.reader-fullscreen > .msg-hub-memberships,
+.reader-fullscreen > .msg-hub-group-filters,
 .reader-fullscreen > .msg-hub-head,
 .reader-fullscreen > .email-channel-filters,
 .reader-fullscreen > .msg-hub-group-help,
@@ -7639,6 +7933,29 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .msg-hub.reader-fullscreen .msg-hub-thread-col { display: flex; }
 .msg-hub.list-fullscreen .msg-hub-list-col { display: flex !important; }
 .msg-hub.list-fullscreen .msg-hub-thread-col { display: none !important; }
+.msg-hub.list-fullscreen .msg-hub-row.compact-inbox-row {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr); min-height: 40px;
+  align-items: center; gap: 8px; padding: 5px 12px;
+}
+.msg-hub.list-fullscreen .compact-inbox-row .msg-hub-select-message { margin: 0; }
+.msg-hub-compact-fields {
+  grid-column: 2; display: grid; grid-template-columns: minmax(100px, .9fr) minmax(120px, 1.2fr) minmax(115px, 1.3fr) max-content 9rem;
+  align-items: center; gap: 10px; min-width: 0; font-size: .83rem;
+}
+.msg-hub-compact-sender, .msg-hub-compact-subject, .msg-hub-compact-preview {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.msg-hub-compact-preview, .msg-hub-compact-fields time { color: var(--mh-muted); }
+.msg-hub-compact-fields time { text-align: right; font-size: .75rem; }
+.msg-hub-compact-status { display: flex; align-items: center; gap: 4px; }
+@media (max-width: 920px) {
+  .msg-hub-compact-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content 7rem; }
+  .msg-hub-compact-preview { display: none; }
+}
+@media (max-width: 540px) {
+  .msg-hub-compact-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .msg-hub-compact-fields time, .msg-hub-compact-status .msg-hub-claim-pill { display: none; }
+}
 .msg-hub-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--conversa-border); }
 .msg-hub-claim-pill { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--mh-muted); }
 .msg-hub-select-message { flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; }

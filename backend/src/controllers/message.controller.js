@@ -1,4 +1,3 @@
-import { assertClinicalSmsRecipient, staffSmsIdentity } from '../services/clinicalSmsAccess.service.js';
 import multer from 'multer';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -6,18 +5,12 @@ import Client from '../models/Client.model.js';
 import MessageLog from '../models/MessageLog.model.js';
 import StorageService from '../services/storage.service.js';
 import Agency from '../models/Agency.model.js';
-import UserCallSettings from '../models/UserCallSettings.model.js';
-import SmsOptInState from '../models/SmsOptInState.model.js';
 import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
-import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
-import VonageService from '../services/vonage.service.js';
 import { sendManualSupportAlert } from '../services/smsManualSupportAlert.service.js';
-import { resolveOutboundNumber } from '../services/communicationRouting.service.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import SmsAutoReplyRuleService from '../services/smsAutoReplyRule.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import AgencyContact from '../models/AgencyContact.model.js';
-import ContactCommunicationLog from '../models/ContactCommunicationLog.model.js';
 
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
@@ -328,214 +321,24 @@ export const getThread = async (req, res, next) => {
 };
 
 export const sendMessage = async (req, res, next) => {
+  const { userId, clientId, contactId, guardianUserId, body, mediaUrls, numberId, smsThreadKey, startNewConversation } = req.body || {};
+  if (userId != null && Number(userId) !== Number(req.user.id)) {
+    return res.status(403).json({ error: { message: 'Access denied' } });
+  }
   try {
-    const { userId, clientId, contactId, body, mediaUrls } = req.body;
-    if (userId && parseIntOrNull(userId) && parseIntOrNull(userId) !== req.user.id) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    if (req.body?.smsThreadKey || req.body.guardianUserId != null) {
-      const { sendClinicalSms } = await import('../services/clinicalSmsSend.service.js');
-      const result = await sendClinicalSms({ userId: req.user.id, clientId, contactId, body, mediaUrls, numberId: req.body.numberId, threadKey: req.body.smsThreadKey, guardianUserId: req.body.guardianUserId });
-      return res.json(result.messageLog);
-    }
-    const hasMedia = Array.isArray(mediaUrls) && mediaUrls.length > 0;
-    if ((!clientId && !contactId) || (!body && !hasMedia)) {
-      return res.status(400).json({ error: { message: '(clientId or contactId) and (body or mediaUrls) are required' } });
-    }
-
-    const uid = req.user.id;
-    const cid = parseIntOrNull(clientId);
-    const aid = parseIntOrNull(contactId);
-
-    const user = await User.findById(uid);
-    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
-
-    let targetPhone = null;
-    let targetAgencyId = null;
-    let client = null;
-    let contact = null;
-
-    if (cid) {
-      client = await Client.findById(cid, { includeSensitive: true });
-      if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-      await assertClientAgencyAccess(req.user.id, client);
-      targetPhone = client.contact_phone;
-      targetAgencyId = client.agency_id;
-    } else if (aid) {
-      contact = await AgencyContact.findById(aid);
-      if (!contact) return res.status(404).json({ error: { message: 'Contact not found' } });
-      targetPhone = contact.phone;
-      targetAgencyId = contact.agency_id;
-    }
-
-    await assertClinicalSmsRecipient({ user, client, contact });
-    const authored = staffSmsIdentity(user, body);
-
-    if (!targetPhone) {
-      return res.status(400).json({ error: { message: 'Recipient does not have a contact phone assigned' } });
-    }
-
-    const resolved = await resolveOutboundNumber({
-      userId: uid,
-      clientId: cid,
-      requestedNumberId: req.body?.numberId ? parseIntOrNull(req.body.numberId) : null
+    const { sendClinicalSms } = await import('../services/clinicalSmsSend.service.js');
+    const result = await sendClinicalSms({
+      userId: req.user.id, clientId, contactId, guardianUserId, body, mediaUrls, numberId,
+      threadKey: smsThreadKey, startsParentContactConversation: startNewConversation === true
     });
-    if (resolved?.error === 'number_unavailable') {
-      return res.status(404).json({ error: { message: 'Selected number is unavailable' } });
-    }
-    if (resolved?.error === 'number_not_assigned') {
-      return res.status(403).json({ error: { message: 'Selected number is not assigned to you' } });
-    }
-    if (resolved?.error === 'number_not_accessible') {
-      return res.status(403).json({ error: { message: 'Selected number is not accessible for this agency' } });
-    }
-    if (!resolved?.number) {
-      return res.status(400).json({
-        error: {
-          message:
-            'You need a texting number assigned to you to send messages. Contact your administrator to get a number assigned.'
-        }
-      });
-    }
-
-    const callSettings = await UserCallSettings.getByUserId(uid);
-    const smsOutboundEnabled = callSettings?.sms_outbound_enabled !== false && callSettings?.sms_outbound_enabled !== 0;
-    if (!smsOutboundEnabled) {
-      return res.status(403).json({
-        error: { message: 'Outbound texting is disabled in your communication settings.' }
-      });
-    }
-
-    let activeEscalation = null;
-    if (cid) {
-      try {
-        activeEscalation = await SmsThreadEscalation.findActive({ userId: uid, clientId: cid });
-      } catch {
-        activeEscalation = null;
-      }
-    }
-    if (activeEscalation && activeEscalation.thread_mode === 'read_only') {
-      return res.status(403).json({
-        error: {
-          message: 'This thread is currently escalated to support in read-only mode for the provider.'
-        }
-      });
-    }
-    const fromNumber = resolved.number.phone_number;
-    const numberId = resolved?.number?.id || null;
-    const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
-    const assignedUserId = resolved?.assignment?.user_id || uid;
-
-    // Compliance: opt-in/opt-out handling per agency feature flags.
-    const agency = targetAgencyId ? await Agency.findById(targetAgencyId) : null;
-    const flags = parseFeatureFlags(agency?.feature_flags);
-    // Phone- and campaign-scoped consent is enforced by VonageService for every send.
-
-    const decision = await NotificationGatekeeperService.decideChannels({
-      userId: uid,
-      context: { severity: 'info' }
-    });
-
-    const outboundMetadata = { provider: 'vonage', gatekeeper: decision, numberId,
-      startsParentContactConversation: req.body?.startNewConversation === true };
-    if (hasMedia) outboundMetadata.media_urls = mediaUrls;
-
-    const outboundLog = await MessageLog.createOutbound({
-      agencyId: targetAgencyId || null,
-      userId: uid,
-      assignedUserId,
-      numberId,
-      ownerType,
-      clientId: cid,
-      agencyContactId: aid,
-      body: authored.body,
-      fromNumber,
-      toNumber: targetPhone,
-      deliveryStatus: 'pending',
-      providerMessageSid: null,
-      metadata: outboundMetadata
-    });
-
-    try {
-      const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId,
-        to: MessageLog.normalizePhone(targetPhone) || targetPhone,
-        from: MessageLog.normalizePhone(fromNumber) || fromNumber,
-        body: authored.body, senderFirstName: authored.senderFirstName,
-        mediaUrl: hasMedia ? mediaUrls : null
-      });
-      const sentMetadata = { ...outboundMetadata, status: msg.status };
-      if (hasMedia) sentMetadata.media_urls = mediaUrls;
-      const updated = await MessageLog.markSent(outboundLog.id, msg.sid, sentMetadata);
-      
-      // Sync with ContactCommunicationLog if it's a contact or client matched to contact
-      try {
-        const matchedContact = contact || await AgencyContact.findByPhone(targetPhone, targetAgencyId);
-        if (matchedContact) {
-          const existing = await ContactCommunicationLog.findByExternalRefId(String(outboundLog.id));
-          if (!existing) {
-            await ContactCommunicationLog.create({
-              contactId: matchedContact.id,
-              channel: 'sms',
-              direction: 'outbound',
-              body: authored.body,
-              externalRefId: String(outboundLog.id),
-              metadata: { fromNumber, toNumber: targetPhone, messageLogId: outboundLog.id }
-            });
-          }
-        }
-      } catch {
-        // Best-effort; do not fail send
-      }
-      
-      await logAuditEvent(req, {
-        actionType: 'sms_sent',
-        agencyId: targetAgencyId || null,
-        metadata: {
-          clientId: cid,
-          contactId: aid,
-          messageLogId: updated?.id || outboundLog?.id || null,
-          numberId,
-          ownerType
-        }
-      });
-      try {
-        const { recordSmsProfileAudit } = await import('../services/smsProfileAudit.service.js');
-        await recordSmsProfileAudit({
-          agencyId: targetAgencyId || null,
-          direction: 'OUTBOUND',
-          fromNumber,
-          toNumber: targetPhone,
-          numberId,
-          numberPurpose: resolved?.number?.number_purpose || null,
-          body: authored.body,
-          messageLogId: updated?.id || outboundLog?.id || null,
-          clientId: cid || null
-        });
-      } catch (e) {
-        console.warn('[message] sms profile audit failed:', e?.message || e);
-      }
-      if (cid) {
-        await SmsThreadEscalation.resolveActive({ userId: uid, clientId: cid }).catch(() => {});
-      }
-      res.status(201).json(updated);
-    } catch (sendErr) {
-      await MessageLog.markFailed(outboundLog.id, sendErr.message);
-      await logAuditEvent(req, {
-        actionType: 'sms_send_failed',
-        agencyId: targetAgencyId || null,
-        metadata: {
-          clientId: cid,
-          contactId: aid,
-          messageLogId: outboundLog?.id || null,
-          numberId,
-          ownerType,
-          error: String(sendErr?.message || '').slice(0, 400)
-        }
-      });
-      return res.status(502).json({ error: { message: 'Failed to send SMS via Vonage', details: sendErr.message } });
-    }
-  } catch (e) {
-    next(e);
+    const log = result.messageLog;
+    await logAuditEvent(req, {
+      actionType: 'sms_sent', agencyId: log?.agency_id || null,
+      metadata: { clientId: result.clientId, contactId: result.contactId, messageLogId: log?.id || null, numberId: log?.number_id || null }
+    }).catch(() => {});
+    res.status(201).json(log);
+  } catch (error) {
+    next(error);
   }
 };
 
@@ -545,7 +348,7 @@ const smsMediaUpload = multer({
   fileFilter: (req, file, cb) => {
     const allowed = [
       'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
-      'application/pdf', 'application/msword', 
+      'application/pdf', 'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ];
     if (allowed.includes(file.mimetype)) cb(null, true);

@@ -81,8 +81,8 @@ try {
       await page.screenshot({ path: `${output}/${name}-${scheme}.png`, fullPage: true });
     }
   }
-  await page.getByRole('link', { name: 'Forgot password?', exact: true }).click();
-  await page.getByRole('heading', { name: 'Reset your password', exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Password recovery', exact: true }).click();
+  await page.getByRole('heading', { name: 'Password recovery', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('.hq-header button').click();

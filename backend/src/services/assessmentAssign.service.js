@@ -37,6 +37,30 @@ function buildShareUrls({ path, accessToken, organizationSlug = '' }) {
   return { brandedPath, shortPath };
 }
 
+const templateReaders = {
+  life_balance: lifeBalanceWheelService.getDefaultTemplate,
+  values_alignment: valuesAlignmentService.getDefaultTemplate,
+  teen_wellbeing: teenWellBeingService.getDefaultTemplate,
+  personal_fulfillment: personalFulfillmentService.getDefaultTemplate,
+  digital_wellness: digitalWellnessService.getDefaultTemplate,
+  mens_life: mensLifeService.getDefaultTemplate,
+  parenting_confidence: parentingConfidenceService.getDefaultTemplate,
+  burden_purpose: burdenPurposeService.getDefaultTemplate,
+  family_functioning: familyFunctioningService.getDefaultTemplate,
+  savage_blueprint: savageBlueprintService.getDefaultTemplate,
+  reward_regulation: rewardRegulationService.getDefaultTemplate,
+  athlete_readiness: athleteReadinessService.getDefaultTemplate,
+  student_success: studentSuccessService.getDefaultTemplate,
+  college_readiness: collegeReadinessService.getDefaultTemplate,
+  marriage_alignment: marriageAlignmentService.getDefaultTemplate,
+  relationship_health: relationshipHealthService.getDefaultTemplate
+};
+
+export function readAssignmentTemplate(family, agencyId) {
+  if (!Object.hasOwn(templateReaders, family)) throw err(404, 'Assessment template not found');
+  return templateReaders[family]({ agencyId });
+}
+
 const SINGLE_CREATORS = {
   life_balance: ({ agencyId, clientId, coachUserId }) =>
     lifeBalanceWheelService.createAssessment({

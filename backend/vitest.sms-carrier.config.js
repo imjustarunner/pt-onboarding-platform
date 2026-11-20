@@ -47,7 +47,8 @@ export default {
       'src/services/__tests__/messaging.smsInventory.test.js',
       'src/routes/__tests__/enrollmentCompletion.notifyreWebhook.test.js',
       'src/utils/__tests__/enrollmentCompletion.policy.test.js',
-      'src/routes/__tests__/vonageMount.test.js'
+      'src/routes/__tests__/vonageMount.test.js',
+      'src/routes/__tests__/messageRouteStartup.test.js'
     ]
   }
 };

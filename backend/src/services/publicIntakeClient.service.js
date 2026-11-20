@@ -3,7 +3,7 @@ import { schoolRoiCalendarDates } from '../utils/schoolRoiCalendarDate.js';
 import { deferEnrollmentGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
-import { enrollmentRelationship } from '../utils/portalEnrollmentBinding.js';
+import { enrollmentAccountRole, enrollmentRelationship } from '../utils/portalEnrollmentBinding.js';
 import { validateQaIntakeGuardian, markQaIntakeGuardian } from './qaIntakeIdentity.service.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import Agency from '../models/Agency.model.js';
@@ -438,7 +438,7 @@ class PublicIntakeClientService {
         guardianUser = existingUser;
       if(!['client_guardian','client','guardian'].includes(String(guardianUser.role).toLowerCase()))throw new Error('Guardian email belongs to another account type. Staff identity review is required.');
         const roleNorm = String(guardianUser.role || '').toLowerCase();
-        if (roleNorm === 'client_guardian') {
+        if (['client_guardian', 'client'].includes(roleNorm)) {
           const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
           try {
             const agencyRecord = await Agency.findById(agencyId);
@@ -462,7 +462,7 @@ class PublicIntakeClientService {
           lastName,
           phoneNumber,
           personalEmail: email,
-          role: 'client_guardian',
+          role: enrollmentAccountRole(payload),
           status: 'PENDING_SETUP'
         });
         newGuardianCreated = true;
@@ -488,13 +488,14 @@ class PublicIntakeClientService {
 
       for (const client of createdClients) {
         const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
+        const relationshipType = enrollmentRelationship(payload, priorLink);
         const access = await completedGuardianAccess({ clientId: client.id, guardianUserId: guardianUser.id,
-          link: priorLink, permissions: priorLink ? {} : { intakeLink: link.id } });
+          link: priorLink, relationshipType, permissions: priorLink ? {} : { intakeLink: link.id } });
         await ClientGuardian.upsertLink({
           clientId: client.id,
           guardianUserId: guardianUser.id,
-          relationshipType: enrollmentRelationship(payload, priorLink),
-          relationshipTitle: priorLink?.relationship_title || (enrollmentRelationship(payload, priorLink) === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
+          relationshipType,
+          relationshipTitle: priorLink?.relationship_title || (relationshipType === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
           ...access,
           createdByUserId: null
         });
@@ -634,7 +635,7 @@ class PublicIntakeClientService {
       guardianUser = existingUser;
       if(!['client_guardian','client','guardian'].includes(String(guardianUser.role).toLowerCase()))throw new Error('Guardian email belongs to another account type. Staff identity review is required.');
       const roleNorm = String(guardianUser.role || '').toLowerCase();
-      if (roleNorm === 'client_guardian') {
+      if (['client_guardian', 'client'].includes(roleNorm)) {
         const tempHours = usesExtendedRegistrationTempPasswordWindow(link) ? 72 : 48;
         try {
           const agencyRecord = await Agency.findById(agencyId);
@@ -657,7 +658,7 @@ class PublicIntakeClientService {
         lastName,
         phoneNumber,
         personalEmail: email,
-        role: 'client_guardian',
+        role: enrollmentAccountRole(payload),
         status: 'PENDING_SETUP'
       });
       newGuardianCreated = true;
@@ -681,13 +682,14 @@ class PublicIntakeClientService {
 
     for (const client of createdClients) {
       const priorLink=await ClientGuardian.getLink({clientId:client.id,guardianUserId:guardianUser.id});
+      const relationshipType = enrollmentRelationship(payload, priorLink);
       const access = await completedGuardianAccess({ clientId: client.id, guardianUserId: guardianUser.id,
-        link: priorLink, permissions: priorLink ? {} : { intakeLink: link.id } });
-        await ClientGuardian.upsertLink({
+        link: priorLink, relationshipType, permissions: priorLink ? {} : { intakeLink: link.id } });
+      await ClientGuardian.upsertLink({
         clientId: client.id,
         guardianUserId: guardianUser.id,
-        relationshipType: enrollmentRelationship(payload, priorLink),
-        relationshipTitle: priorLink?.relationship_title || (enrollmentRelationship(payload, priorLink) === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
+        relationshipType,
+        relationshipTitle: priorLink?.relationship_title || (relationshipType === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
         ...access,
         createdByUserId: null
       });

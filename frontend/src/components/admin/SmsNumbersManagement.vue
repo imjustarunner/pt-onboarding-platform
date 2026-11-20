@@ -51,19 +51,22 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Shared provider/client care number</label>
+            <label>Provider texting line</label>
             <select v-model="settings.smsSharedCareNumberId" class="select">
               <option :value="null">No shared care line selected</option>
               <option v-for="n in numbers.filter(n => n.number_purpose === 'clinical_care' && n.is_active && n.status === 'active')" :key="n.id" :value="n.id">{{ n.phone_number }} {{ n.friendly_name || '' }}</option>
             </select>
-            <p class="muted">Providers use this shared care line to communicate with clients. Uses client assignments; unassigned or unfamiliar senders go to support. Add a different number with purpose Public main line for people contacting the organization.</p>
+            <p class="muted">Providers use this line to text confirmed clients and guardians in this organization.</p>
           </div>
           <div class="form-group">
-            <label>Reminder sender mode</label>
-            <select v-model="settings.smsReminderSenderMode" class="select">
-              <option value="agency_default">Agency number by default</option>
-              <option value="provider_optional">Provider number when provider preference is enabled</option>
+            <label>Appointment reminders and Support line</label>
+            <select v-model="settings.smsReminderNumberId" class="select">
+              <option :value="null">No reminder line selected</option>
+              <option v-for="n in numbers.filter(n => n.number_purpose === 'clinical_care' && n.is_active && n.status === 'active' && Number(n.id) !== Number(settings.smsSharedCareNumberId))" :key="n.id" :value="n.id">
+                {{ n.phone_number }} {{ n.friendly_name || '' }}
+              </option>
             </select>
+            <p class="muted">Use a second number on this organization’s approved client campaign. Replies to this line go to Support.</p>
           </div>
           <div class="form-group">
             <label>Default inbound user</label>
@@ -551,6 +554,7 @@ const settings = ref({
   smsReminderSenderMode: 'agency_default',
   smsDefaultUserId: null,
   smsSharedCareNumberId: null,
+  smsReminderNumberId: null,
   companyEventsEnabled: false,
   companyEventsSenderNumberId: null,
   smsSupportFallbackPhone: '',
@@ -645,6 +649,7 @@ const loadSettings = async () => {
       smsReminderSenderMode: res.data?.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: res.data?.smsDefaultUserId || null,
       smsSharedCareNumberId: res.data?.smsSharedCareNumberId || null,
+      smsReminderNumberId: res.data?.smsReminderNumberId || null,
       companyEventsEnabled: res.data?.companyEventsEnabled === true,
       companyEventsSenderNumberId: res.data?.companyEventsSenderNumberId || null,
       smsSupportFallbackPhone: res.data?.smsSupportFallbackPhone || '',

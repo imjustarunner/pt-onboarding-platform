@@ -42,7 +42,7 @@ function uniqueKeys(values) {
 /**
  * Staff-selected update items. Full enrollment is rejected; an empty selection is rejected.
  */
-export function normalizeUpdateSelection(body = {}) {
+export function normalizeUpdateSelection(body = {}, {allowEmpty = false} = {}) {
   if (body.fullPacket === true || body.option_full_packet === true || body.packetMode || body.packet_mode) {
     throw fail(400, 'A client update cannot include a full enrollment packet. Choose the specific documents and assessments this person still needs.');
   }
@@ -53,7 +53,7 @@ export function normalizeUpdateSelection(body = {}) {
   if (unknownSteps.length) {
     throw fail(400, 'Choose portal steps from the update list.');
   }
-  if (!documents.length && !assessments.length && !portalSteps.length) {
+  if (!allowEmpty && !documents.length && !assessments.length && !portalSteps.length) {
     throw fail(400, 'Select at least one document, assessment, or portal step.');
   }
   return { documents, assessments, portalSteps };

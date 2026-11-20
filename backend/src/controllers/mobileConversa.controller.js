@@ -13,7 +13,7 @@ import StorageService from '../services/storage.service.js';
 import fs from 'node:fs/promises';
 import {getMobileDocumentationQueue} from '../services/mobile/documentationQueue.service.js';
 import {getWorkspaceCounts} from '../services/mobile/workspaceCounts.service.js';
-import {mobileQaAgencyId,assertMobileQaThread,assertMobileQaConversation} from '../services/mobile/qaConversaScope.service.js';
+import {mobileQaAgencyId,mobileQaScopeError,assertMobileQaThread,assertMobileQaConversation} from '../services/mobile/qaConversaScope.service.js';
 
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const mobile=fn=>async(req,res,next)=>{
@@ -48,7 +48,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
     for(let offset=0;offset<allowed.length;offset+=4){const batch=await Promise.all(allowed.slice(offset,offset+4).map(async agency=>(await listEmailDrafts({id:userId,role:'provider',mobileDevice:true},agency.id)).map(draft=>({key:`draft:${draft.id}`,id:draft.id,kind:'draft',category:'drafts',agencyId:Number(agency.id),title:draft.subject || 'Untitled email',sender:draft.recipient || 'No recipient yet',preview:draft.preview,at:draft.updated_at,agencyName:agency.name}))));items.push(...batch.flat());}
     items.sort((a,b)=>new Date(b.at)-new Date(a.at));return res.json({items,counts:{drafts:countsFor(items)},nextCursor:null});
   }
-  const needsChatRows=['all','direct','groups','channels','secure','threads','mentions','files'].includes(suite),needsEmailRows=['all','email','sms','groups','unknown','spam'].includes(suite);
+  const needsChatRows=['all','direct','groups','channels','secure','threads','mentions','files'].includes(suite),needsEmailRows=['all','email','sms','groups','notices','unknown','spam'].includes(suite);
   const [rawThreads,[emails,emailCounts],archives]=await Promise.all([
     includeCounts || needsChatRows?invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}):[],
     !countsOnly && needsEmailRows?mobileConversaStore.emailInbox(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId,includeCounts}):includeCounts?mobileConversaStore.emailCounts(userId,includeArchived,qaAgencyId).then(counts=>[[],counts]):[[],[]],
@@ -59,9 +59,9 @@ export const getMobileInbox=mobile(async(req,res)=>{
   const counts=countsOnly || !includeCounts?{}:await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
   if(includeCounts){
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category || (category==='direct' && i.isGroupDirect)));
-  for(const category of ['email','sms','unknown','spam'])counts[category]={total:0,unread:0,needs:0,sent:0};
-  for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
-  counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
+  for(const category of ['email','sms','unknown','spam','notices'])counts[category]={total:0,unread:0,needs:0,sent:0};
+  for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && row.category!=='notices'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
+  counts.all=['direct','groups','channels','secure','email','sms'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
   }
   if(includeCounts) { const overlap=countsFor(chats.filter(i=>i.isGroupDirect)); for(const field of ['total','unread','needs','sent']) counts.all[field]-=overlap[field] || 0; }
   if(countsOnly)return res.json({counts});
@@ -77,7 +77,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
     availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
     if(includeCounts){counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;}
   }
-  let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?item.category!=='spam':suite==='unknown'?item.unknown:(item.category===suite || (suite==='direct' && item.isGroupDirect)) && !item.unknown).filter(i=>matches(i,filter));
+  let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?!item.unknown && !['spam','notices'].includes(item.category):suite==='unknown'?item.unknown:(item.category===suite || (suite==='direct' && item.isGroupDirect)) && !item.unknown).filter(i=>matches(i,filter));
   if(['threads','mentions','files'].includes(suite)){
     const body=await invoke(suite==='threads'?qvListThreadsInbox:suite==='mentions'?qvListMentions:qvListFiles,req,{agencyId:'all',beforeAt:cursor?.at,beforeId:cursor?Number(cursor.key.split(':')[1]):undefined,limit:'100'});
     const byThread=new Map(chats.map(i=>[i.id,i]));
@@ -171,6 +171,50 @@ async function clinicalContactRequest(request,agencyId,clientId){
  return Object.assign(Object.create(request),{user,quickView:{...request.quickView,agencyId:Number(agencyId)},mobileClinical:undefined,
   query:{agencyId:Number(agencyId)},body:{...request.body,agencyId:Number(agencyId)},params:{clientId:String(clientId)},headers:{...request.headers,'x-agency-id':String(agencyId)}});
 }
+async function listMobileSmsLines(req) {
+  if (mobileQaAgencyId(req)) throw mobileQaScopeError();
+  const { listMobileAgencies } = await import('../services/mobile/agencyScope.service.js');
+  const { listClinicalSmsLines } = await import('../services/clinicalSmsDirectory.service.js');
+  const userId = req.quickView.userId;
+  const user = await User.findById(userId, { raw: true });
+  if (!user) throw fail(403, 'This workspace is unavailable.');
+  const { agencies } = await listMobileAgencies(user);
+  const agencyIds = new Set(agencies.map(agency => Number(agency.id)));
+  return (await listClinicalSmsLines(userId)).filter(line => agencyIds.has(Number(line.agencyId)));
+}
+
+export const getMobileSmsLines = mobile(async (req, res) => {
+  res.json({ lines: await listMobileSmsLines(req) });
+});
+
+export const getMobileSmsRecipients = mobile(async (req, res) => {
+  const agencyId = Number(req.query.agencyId);
+  const numberId = Number(req.query.numberId);
+  const lines = await listMobileSmsLines(req);
+  if (!lines.some(line => Number(line.agencyId) === agencyId && Number(line.numberId) === numberId)) {
+    throw fail(403, 'Choose an available provider line for this organization.');
+  }
+  const { findConfirmedSmsRecipients } = await import('../services/clinicalSmsDirectory.service.js');
+  res.json({ recipients: await findConfirmedSmsRecipients({
+    userId: req.quickView.userId, agencyId, numberId, query: req.query.q
+  }) });
+});
+
+export const postMobileSms = mobile(async (req, res, next) => {
+  const { clientId, guardianUserId, body } = req.body || {};
+  const numberId = Number(req.body?.numberId);
+  const lines = await listMobileSmsLines(req);
+  if (!lines.some(line => Number(line.numberId) === numberId)) {
+    throw fail(403, 'Choose an available provider line for this organization.');
+  }
+  const { sendMessage } = await import('./message.controller.js');
+  const scoped = Object.assign(Object.create(req), {
+    user: { id: req.quickView.userId },
+    body: { clientId, guardianUserId, body, numberId, startNewConversation: true }
+  });
+  return sendMessage(scoped, res, next);
+});
+
 export const getMobileClientRecipients=mobile(async(req,res)=>{
  const channel=String(req.query.channel || 'secure');if(!['secure','sms'].includes(channel))throw fail(400,'Choose Secure messages or Texts.');
  const query=String(req.query.q || '').trim().slice(0,100),user=await User.findById(req.quickView.userId,{raw:true});

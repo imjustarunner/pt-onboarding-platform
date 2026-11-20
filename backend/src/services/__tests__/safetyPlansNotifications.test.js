@@ -2,8 +2,6 @@ import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../safetyPlans/access.js',()=>({recipientAccess:vi.fn()}));
-vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantFormsMailbox:vi.fn()}));
-vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
 vi.mock('../guardianAppointments.service.js',()=>({guardianReminderPreferences:vi.fn()}));
 vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:vi.fn()}}));
 vi.mock('../smsCompliance.service.js',()=>({resolveRegisteredSmsSender:vi.fn()}));
@@ -12,10 +10,12 @@ vi.mock('../portalShareNotice.service.js',()=>({shareEventStillOpen:vi.fn()}));
 vi.mock('../clientUpdate.service.js',()=>({currentClientUpdateRecipient:vi.fn()}));
 vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:vi.fn()}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:vi.fn(),sendClientPortalEmail:vi.fn()}));
+vi.mock('../familyPortalLocale.service.js',async importOriginal=>({...await importOriginal(),familyEnrollmentContext:vi.fn()}));
+import {familyEnrollmentContext} from '../familyPortalLocale.service.js';
+import {renderPortalEmail} from '../portalEmailBranding.service.js';
+import {familyNotificationCategory} from '../../utils/familyNotificationChoices.js';
 import main from '../../config/database.js';
 import {recipientAccess} from '../safetyPlans/access.js';
-import {ensureTenantFormsMailbox} from '../tenantMessageMailboxes.service.js';
-import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
 import {guardianReminderPreferences} from '../guardianAppointments.service.js';
 import ClientGuardian from '../../models/ClientGuardian.model.js';
 import {resolveRegisteredSmsSender} from '../smsCompliance.service.js';
@@ -43,8 +43,10 @@ beforeEach(()=>{
  })};
  recipientAccess.mockResolvedValue('Synthetic guardian');
  main.execute.mockImplementation(async(sql)=>sql.includes('FROM users')?[[{email:'example@example.test'}]]:[[{name:'Synthetic agency',slug:'synthetic'}]]);
- ensureTenantFormsMailbox.mockResolvedValue({forms:{id:11},domain:'example.test'});
- sendEmailFromIdentity.mockResolvedValue({id:'mail-1'});
+ clientEmailContext.mockResolvedValue({url:path=>`https://example.test/synthetic/${path}`});
+ familyEnrollmentContext.mockResolvedValue({locale:'en'});
+ familyNotificationDeliveryGate.mockResolvedValue({allowed:true});
+ sendClientPortalEmail.mockResolvedValue({id:'mail-1'});
  guardianReminderPreferences.mockResolvedValue({channels:{sms:true},providerPushedUpdatesEnabled:true});
  ClientGuardian.listForClient.mockResolvedValue([{guardian_user_id:20,phone:'+13035550123'}]);
  resolveRegisteredSmsSender.mockResolvedValue('+13035550124');
@@ -52,27 +54,27 @@ beforeEach(()=>{
 });
 afterEach(()=>vi.unstubAllEnvs());
 describe('grouped clinical portal notifications',()=>{
- it('sends co-branded email through the forms identity with support replies and consent-checked SMS',async()=>{
+ it('uses shared portal delivery and the tenant portal link with consent-checked SMS',async()=>{
   await createClinicalFormNotifier({db})();
-  expect(ensureTenantFormsMailbox).toHaveBeenCalledWith(2);
-  expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:11,replyToOverride:'support@example.test',fromDisplayNameOverride:'Synthetic agency · AuricWell',subject:'Documents and forms are ready in your portal'}));
+  expect(clientEmailContext).toHaveBeenCalledWith({agencyId:2,clientId:41});
+  expect(sendClientPortalEmail).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:41,userId:20,source:'auto',locale:'en',templateType:'clinical_portal_documents',linkUrl:'https://example.test/synthetic/guardian?panel=documents&clientId=41&lang=en',subject:'Documents and forms are waiting in your portal'}));
   expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,purpose:'reminders',to:'+13035550123',from:'+13035550124'}));
   expect(batches[0]).toMatchObject({email_state:'sent',sms_state:'sent'});expect(recipientAccess).toHaveBeenCalledTimes(2);
  });
  it('does not duplicate alerts across concurrent workers or later polls',async()=>{
-  const process=createClinicalFormNotifier({db});await Promise.all([process(),process()]);await process();expect(sendEmailFromIdentity).toHaveBeenCalledTimes(1);expect(Vonage.sendSms).toHaveBeenCalledTimes(1);
+  const process=createClinicalFormNotifier({db});await Promise.all([process(),process()]);await process();expect(sendClientPortalEmail).toHaveBeenCalledTimes(1);expect(Vonage.sendSms).toHaveBeenCalledTimes(1);
  });
  it.each([{channels:{sms:false}},{channels:{sms:true},providerPushedUpdatesEnabled:false}])('does not text when preferences disable updates: %j',async preferences=>{
-  guardianReminderPreferences.mockResolvedValue(preferences);await createClinicalFormNotifier({db})();expect(Vonage.sendSms).not.toHaveBeenCalled();expect(batches[0].sms_state).toBe('skipped');expect(sendEmailFromIdentity).toHaveBeenCalledTimes(1);
+  guardianReminderPreferences.mockResolvedValue(preferences);await createClinicalFormNotifier({db})();expect(Vonage.sendSms).not.toHaveBeenCalled();expect(batches[0].sms_state).toBe('skipped');expect(sendClientPortalEmail).toHaveBeenCalledTimes(1);
  });
  it('suppresses delivery after disclosure permission is withdrawn',async()=>{
-  recipientAccess.mockRejectedValue(Object.assign(Error('Revoked'),{status:403}));await createClinicalFormNotifier({db})();expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(Vonage.sendSms).not.toHaveBeenCalled();expect(batches[0]).toMatchObject({email_state:'skipped',sms_state:'skipped'});
+  recipientAccess.mockRejectedValue(Object.assign(Error('Revoked'),{status:403}));await createClinicalFormNotifier({db})();expect(sendClientPortalEmail).not.toHaveBeenCalled();expect(Vonage.sendSms).not.toHaveBeenCalled();expect(batches[0]).toMatchObject({email_state:'skipped',sms_state:'skipped'});
  });
  it('rechecks permission between channels',async()=>{
-  recipientAccess.mockResolvedValueOnce('Synthetic').mockRejectedValue(Object.assign(Error('Revoked'),{status:403}));await createClinicalFormNotifier({db})();expect(sendEmailFromIdentity).toHaveBeenCalledTimes(1);expect(Vonage.sendSms).not.toHaveBeenCalled();
+  recipientAccess.mockResolvedValueOnce('Synthetic').mockRejectedValue(Object.assign(Error('Revoked'),{status:403}));await createClinicalFormNotifier({db})();expect(sendClientPortalEmail).toHaveBeenCalledTimes(1);expect(Vonage.sendSms).not.toHaveBeenCalled();
  });
  it('does not resend ambiguous failures automatically',async()=>{
-  sendEmailFromIdentity.mockRejectedValue(Error('Transport timed out'));const process=createClinicalFormNotifier({db});await process();await process();expect(sendEmailFromIdentity).toHaveBeenCalledTimes(1);expect(batches[0].email_state).toBe('review');
+  sendClientPortalEmail.mockRejectedValue(Error('Transport timed out'));const process=createClinicalFormNotifier({db});await process();await process();expect(sendClientPortalEmail).toHaveBeenCalledTimes(1);expect(batches[0].email_state).toBe('review');
  });
  it('uses an atomic recipient cooldown without extending it with every addition',async()=>{
   await queueClinicalFormNotification(db,2,20);const [sql,params]=db.execute.mock.calls[0];expect(params).toEqual([2,20]);expect(sql).toContain('ON DUPLICATE KEY UPDATE');expect(sql).toContain('batch_key<UNIX_TIMESTAMP()-1800');expect(sql).toContain("email_state<>'sending'");expect(sql).toContain('INTERVAL 2 MINUTE');expect(sql).not.toContain('FLOOR');
@@ -90,7 +92,44 @@ it('selects an email-eligible child in a shared batch when another child decline
  familyNotificationDeliveryGate.mockImplementation(async input=>({allowed:Number(input.clientId)===42}));
  clientEmailContext.mockResolvedValue({url:path=>`https://example.test/synthetic/${path}`});sendClientPortalEmail.mockResolvedValue({id:'synthetic-share-email'});
  await createClinicalFormNotifier({db})();
- expect(sendClientPortalEmail).toHaveBeenCalledOnce();expect(sendClientPortalEmail).toHaveBeenCalledWith(expect.objectContaining({clientId:42,templateType:'client_portal_share',linkUrl:'https://example.test/synthetic/guardian?panel=documents&clientId=42'}));
+ expect(sendClientPortalEmail).toHaveBeenCalledOnce();expect(sendClientPortalEmail).toHaveBeenCalledWith(expect.objectContaining({clientId:42,templateType:'client_portal_share',linkUrl:'https://example.test/synthetic/guardian?panel=documents&clientId=42&lang=en'}));
  expect(familyNotificationDeliveryGate).toHaveBeenCalledWith(expect.objectContaining({clientId:41}));expect(familyNotificationDeliveryGate).toHaveBeenCalledWith(expect.objectContaining({clientId:42}));
  expect(Vonage.sendSms).not.toHaveBeenCalled();
+});
+
+it('localizes the notice and destination using the recipient language',async()=>{
+ familyEnrollmentContext.mockResolvedValue({locale:'es'});await createClinicalFormNotifier({db})();
+ expect(sendClientPortalEmail).toHaveBeenCalledWith(expect.objectContaining({locale:'es',subject:'Hay documentos y formularios esperando en su portal',linkLabel:'Abrir documentos y formularios',linkUrl:expect.stringContaining('lang=es')}));
+ expect(Vonage.sendSms.mock.calls[0][0].body).toContain('Hay documentos o formularios esperando');
+});
+it('honors document email opt-outs independently of text permissions',async()=>{
+ familyNotificationDeliveryGate.mockResolvedValue({allowed:false,reason:'documents_off'});await createClinicalFormNotifier({db})();
+ expect(sendClientPortalEmail).not.toHaveBeenCalled();expect(batches[0].email_state).toBe('skipped');expect(Vonage.sendSms).toHaveBeenCalledOnce();
+ expect(familyNotificationDeliveryGate).toHaveBeenCalledWith(expect.objectContaining({notificationCategory:'documents',channel:'email'}));
+});
+it('retries a disconnected database before transport without duplicating delivery',async()=>{
+ const context=vi.fn().mockRejectedValueOnce(Object.assign(Error('Disconnected'),{code:'PROTOCOL_CONNECTION_LOST'}))
+  .mockResolvedValue({recipient:{email:'example@example.test'},share:{client_id:41},agency:{name:'Synthetic'},portalUrl:'https://example.test/guardian'});
+ const email=vi.fn().mockResolvedValue({id:'accepted'}),sms=vi.fn().mockResolvedValue({skipped:true});
+ const process=createClinicalFormNotifier({db,context,email,sms});await process();
+ expect(batches[0].email_state).toBe('pending');expect(email).not.toHaveBeenCalled();
+ await process();await process();expect(batches[0].email_state).toBe('sent');expect(email).toHaveBeenCalledOnce();
+});
+it('does not replay a database failure raised inside delivery transport',async()=>{
+ sendClientPortalEmail.mockRejectedValue(Object.assign(Error('Uncertain'),{code:'PROTOCOL_CONNECTION_LOST'}));
+ const process=createClinicalFormNotifier({db});await process();await process();expect(sendClientPortalEmail).toHaveBeenCalledOnce();expect(batches[0].email_state).toBe('review');
+});
+it('retains queued email for review without claiming delivery or sending another message',async()=>{
+ sendClientPortalEmail.mockResolvedValue({id:'approval-1',queued:true});const process=createClinicalFormNotifier({db});await process();await process();
+ expect(sendClientPortalEmail).toHaveBeenCalledOnce();expect(batches[0].email_state).toBe('review');
+});
+it('renders the same agency and AuricWell frame as the shared QA-tested sender',()=>{
+ const notice=clinicalPortalNotice({agencyName:'Synthetic agency',portalUrl:'https://example.test/guardian',locale:'es'});
+ const html=renderPortalEmail({brand:{clinical:true,name:'Synthetic agency',agencyLogo:'https://example.test/logo.png',displayName:'AuricWell Portal',replyTo:'support@example.test',products:[]},...notice,linkUrl:'https://example.test/guardian'});
+ expect(html).toContain('data-portal-email="v2"');expect(html).toContain('auricwell.com/auricwell/logo.png');expect(html).toContain('Synthetic agency');expect(html).toContain('lang="es"');expect(html).toContain('Abrir documentos y formularios');expect(html).not.toContain('#175b48');
+});
+
+it('applies the documents preference category to both clinical and operational assignment notices',()=>{
+ expect(familyNotificationCategory('clinical_portal_documents')).toBe('documents');
+ expect(familyNotificationCategory('client_portal_share')).toBe('documents');
 });

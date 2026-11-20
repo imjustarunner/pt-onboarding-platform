@@ -21,6 +21,16 @@ beforeEach(()=>{vi.resetAllMocks();Client.findById.mockResolvedValue({id:4,agenc
 const request=role=>({params:{id:'4'},user:{id:8,role},body:{signaturesConfirmed:true,staffRoiConfirmed:true}});
 it.each(['school_staff','client_guardian','client','provider'])('rejects %s before reading packet details',async role=>{await getPaperProcessing(request(role),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(paperProcessingContext).not.toHaveBeenCalled();});
 it('rejects a support user from another agency without sending invitations',async()=>{User.getAgencies.mockResolvedValue([{id:9}]);await postPaperProcessing(request('support'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(completePaperProcessing).not.toHaveBeenCalled();});
+it('sends the welcome emails as part of authorized packet completion',async()=>{
+ const state={documentId:9,processedAt:'2026-11-19',invitations:{20:{status:'sent'}}};
+ completePaperProcessing.mockResolvedValue(state);
+ await postPaperProcessing(request('support'),res,next);
+ expect(completePaperProcessing).toHaveBeenCalledExactlyOnceWith({
+   clientId:4,actorId:8,signaturesConfirmed:true,staffRoiConfirmed:true,sendInvitations:true
+ });
+ expect(res.json).toHaveBeenCalledWith({state});
+ expect(next).not.toHaveBeenCalled();
+});
 it('allows agency support to read the resumable context without a write',async()=>{paperProcessingContext.mockResolvedValue({state:{}});await getPaperProcessing(request('support'),res,next);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(res.json).toHaveBeenCalledWith({state:{}});expect(completePaperProcessing).not.toHaveBeenCalled();});
 it('streams only the validated clean paper source through the authorized app origin',async()=>{
  const req=request('support');req.params.docId='9';paperProcessingSourceDocument.mockResolvedValue({id:9,school_organization_id:3,mime_type:'application/pdf'});paperPacketBytes.mockResolvedValue({buffer:Buffer.from('%PDF-fictional')});

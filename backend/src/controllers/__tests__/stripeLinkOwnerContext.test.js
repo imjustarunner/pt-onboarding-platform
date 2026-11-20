@@ -1,10 +1,11 @@
 import {readFileSync} from 'node:fs';import {expect,it,vi} from 'vitest';
+import {enrollmentAccountRole} from '../../utils/portalEnrollmentBinding.js';
 import {assertIntakeCardCollectionAllowed} from '../../utils/intakeCardCollectionPolicy.js';
 import {enrollmentCoverageFingerprint} from '../../../../frontend/src/navigation/enrollmentCoveragePolicy.js';
 const source=readFileSync(new URL('../publicIntake.controller.js',import.meta.url),'utf8');
 const earlyCode=source.slice(source.indexOf('const ensureEarlyGuardianForPayment ='),source.indexOf('\n/**\n * GET /:publicKey/packages',source.indexOf('const ensureEarlyGuardianForPayment =')));
 function early(){const users={10:{id:10,role:'client_guardian',email:'testing+first@itsco.health'},20:{id:20,role:'client_guardian',email:'testing+second@itsco.health'}};
- const deps={User:{findById:vi.fn(async id=>users[id]),findByEmail:vi.fn(async email=>Object.values(users).find(u=>u.email===email)),create:vi.fn()},IntakeSubmission:{updateById:vi.fn()},validateQaIntakeGuardian:vi.fn()};
+ const deps={User:{findById:vi.fn(async id=>users[id]),findByEmail:vi.fn(async email=>Object.values(users).find(u=>u.email===email)),create:vi.fn()},IntakeSubmission:{updateById:vi.fn()},validateQaIntakeGuardian:vi.fn(),enrollmentAccountRole};
  return {...deps,run:new Function(...Object.keys(deps),`${earlyCode};return ensureEarlyGuardianForPayment;`)(...Object.values(deps))};
 }
 it('binds email edits and reversions to each exact guardian without changing an existing account identity',async()=>{
@@ -15,6 +16,13 @@ it('binds email edits and reversions to each exact guardian without changing an 
 });
 it('preserves completed submissions instead of rebinding a historical owner',async()=>{
  const t=early();await expect(t.run({id:7,status:'submitted',guardian_user_id:10,intake_data:{guardian:{email:'testing+second@itsco.health'}}},{},450)).rejects.toHaveProperty('status',403);expect(t.IntakeSubmission.updateById).not.toHaveBeenCalled();expect(t.User.create).not.toHaveBeenCalled();
+});
+it('binds new self-enrollment payment to a client identity without creating a guardian',async()=>{
+ const t=early(),email='testing+self@itsco.health';
+ t.User.create.mockResolvedValue({id:30,role:'client',email});
+ await expect(t.run({id:7,status:'draft',intake_data:{intakeForSelf:true,guardian:{email}}},{},450)).resolves.toHaveProperty('guardianUserId',30);
+ expect(t.User.create).toHaveBeenCalledWith(expect.objectContaining({role:'client'}));
+ expect(t.IntakeSubmission.updateById).toHaveBeenCalledExactlyOnceWith(7,{guardian_user_id:30});
 });
 const contextCode=source.slice(source.indexOf('async function assertIntakeCardContext('),source.indexOf('\nexport const getStripeConfig',source.indexOf('async function assertIntakeCardContext(')));
 function context(){const deps={CoGuardianInvite:{resolveCoGuardianResumeBinding:vi.fn(async()=>({clients:[{id:55}]}))},IntakeSubmissionClient:{listBySubmissionId:vi.fn(async()=>[])},assertQaStripeTestMode:vi.fn(),readClientInsurance:vi.fn(async()=>({primary:{insurerName:'Commercial'}})),assertIntakeCardCollectionAllowed};return {...deps,run:new Function(...Object.keys(deps),`${contextCode};return assertIntakeCardContext;`)(...Object.values(deps))};}

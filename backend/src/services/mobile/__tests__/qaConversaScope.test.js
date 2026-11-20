@@ -35,7 +35,7 @@ it('checks direct recipients against approved identities and active membership, 
 it('bounds both email list and counts before pagination while retaining personal-mailbox checks',async()=>{
  db.execute.mockResolvedValue([[]]);const store=createMobileConversaStore(db);
  await store.emails(1433,{agencyId:450});await store.emailCounts(1433,false,450);
- for(const [sql,params] of db.execute.mock.calls){expect(sql).toContain('AND c.agency_id=?');expect(sql).toContain("mine.kind='personal'");expect(params.at(-1)).toBe(450);}
+ for(const [sql,params] of db.execute.mock.calls){expect(sql).toContain('AND c.agency_id=?');expect(sql).toContain("mine.kind='personal'");expect(params.slice(-2)).toEqual([450,1433]);}
  db.execute.mockClear();await store.emailCounts(1433);expect(db.execute.mock.calls[0][0]).not.toContain('AND c.agency_id=?');
 });
 it('allowlists reviewed operations and denies outbound email, uploads, join and unknown routes',()=>{

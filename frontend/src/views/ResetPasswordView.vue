@@ -15,7 +15,7 @@
         </div>
 
         <div v-else-if="error" class="error">
-          <h2>{{ authText("Reset Error") }}</h2>
+          <h2>{{ authText("Password recovery error") }}</h2>
           <p>{{ authText(error) }}</p>
           <router-link :to="loginTo" class="btn btn-primary">{{ authText("Go to Login") }}</router-link>
         </div>

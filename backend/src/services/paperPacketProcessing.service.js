@@ -249,10 +249,11 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       if(!activationBlocked.size)state.guardianAccessFinalizedAt=new Date().toISOString();
       await writeState(client,state,actorId,deps);
     }
-    // Sending follows an explicit invitation review in the Portal section.
+    // The completed packet and verified portal access must be saved before sending.
     if (sendInvitations !== true) return publicState(state);
     state.invitations = { ...(state.invitations || {}) };
-    for (const guardianId of [...new Set([state.guardian1Id,state.guardian2Id].filter(Boolean).map(Number))]) {
+    const recipientIds = state.verifiedGuardianIds || [state.guardian1Id, state.guardian2Id];
+    for (const guardianId of new Set(recipientIds.filter(Boolean).map(Number))) {
       if(activationBlocked.has(guardianId))continue;
       if (['sent','queued','pending','redirected','unconfirmed','unknown'].includes(state.invitations[guardianId]?.status)) continue;
       const link = await deps.guardians.getLink({clientId:client.id,guardianUserId:guardianId});
@@ -262,10 +263,18 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
         try {
           state.invitations[guardianId] = {status:'pending',reason:'Invitation delivery is in progress. Check communication history if it stays pending.',attemptedAt:new Date().toISOString()};
           await writeState(client, state, actorId, deps);
-          const result = await deps.send({agencyId:client.agency_id,actorUserId:actorId,clientId:client.id,guardianUserId:guardianId,existingLinkOnly:true,paperPacketProcessed:true,migration:true});
+          const result = await deps.send({
+            agencyId: client.agency_id,
+            actorUserId: actorId,
+            clientId: client.id,
+            guardianUserId: guardianId,
+            existingLinkOnly: true,
+            paperPacketProcessed: true,
+            locale: state.consentReview?.locale || null
+          });
           const d = result?.delivery;
           const status = d?.blocked || d?.skipped ? 'blocked' : d?.queued || d?.pendingApproval ? 'queued' : d?.redirected ? 'redirected' : d?.id ? 'sent' : 'unconfirmed';
-          state.invitations[guardianId] = {status,communicationId:d?.id || null,reason:d?.reason || null,attemptedAt:new Date().toISOString()};
+          state.invitations[guardianId] = {status,communicationId:d?.communicationId || d?.id || null,reason:d?.reason || null,attemptedAt:new Date().toISOString()};
         } catch {
           state.invitations[guardianId] = {status:'failed',reason:'Invitation could not be sent. Review delivery details and retry.',attemptedAt:new Date().toISOString()};
         }
