@@ -46,16 +46,19 @@
       </div>
     </header>
 
+    <div v-if="previewArchiveReceipt" class="msg-hub-group-help" role="status">
+      <span>Ticket closed and archived for everyone in the shared inbox.</span>
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="closingPreviewTicket" @click="undoPreviewTicketArchive">Undo</button>
+    </div>
     <QaRecipientEmailInbox />
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
       <button v-for="channel in inboxChannels" :key="channel.id" type="button" :data-channel="channel.id" :aria-pressed="!isTicketQueue && inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">
         <ConversaIcon :type="channel.id" :size="16" />{{ channel.label }}
         <span v-if="channelUnreadCount(channel.id)" class="msg-hub-channel-count" :aria-label="`${channelUnreadCount(channel.id)} unread conversations`">{{ channelUnreadCount(channel.id) }}</span>
-        <span v-if="channel.id === 'group' && reviewNoticeCount" class="msg-hub-review-count" :aria-label="`${reviewNoticeCount} email notices to review`">{{ reviewNoticeCount }} notices</span>
       </button>
       <template v-if="canUseTickets">
-        <button type="button" data-ticket-queue="mine" :aria-pressed="navId === 'my_tickets'" @click="selectTicketQueue('my_tickets')">My tickets</button>
-        <button type="button" data-ticket-queue="all" :aria-pressed="navId === 'tickets'" @click="selectTicketQueue('tickets')">Tickets</button>
+        <button type="button" data-ticket-queue="mine" :aria-pressed="navId === 'my_tickets'" @click="selectTicketQueue('my_tickets')">My tickets <span v-if="ticketUnreadCounts.mine" class="msg-hub-channel-count" :aria-label="`${ticketUnreadCounts.mine} unread assigned tickets`">{{ ticketUnreadCounts.mine }}</span></button>
+        <button type="button" data-ticket-queue="all" :aria-pressed="navId === 'tickets'" @click="selectTicketQueue('tickets')">Tickets <span v-if="ticketUnreadCounts.total" class="msg-hub-channel-count" :aria-label="`${ticketUnreadCounts.total} unread tickets`">{{ ticketUnreadCounts.total }}</span></button>
       </template>
     </div>
     <div v-if="channelActivationMessage" class="msg-hub-channel-status" role="status">{{ channelActivationMessage }}</div>
@@ -76,7 +79,7 @@
           <button type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
         </div>
         <div class="msg-hub-memberships">
-          <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory && navId !== claimedTicketNoticeCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span><span v-if="reviewNoticeCount" class="msg-hub-review-count">{{ reviewNoticeCount }} notices</span></button>
+          <button type="button" :aria-pressed="selectedGroupInboxId == null && !selectedReviewCategory && navId !== claimedTicketNoticeCategory" @click="selectGroupInbox(null)">All groups <span class="msg-hub-channel-count">{{ channelUnreadCount('group') }}</span></button>
           <button v-for="box in visibleDepartmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectGroupInbox(box.id)"><GroupEmailBadge :mailbox="box" /><span class="msg-hub-channel-count">{{ groupMailboxCount(box, 'unreadByInbox') }}</span></button>
           <span class="msg-hub-group-label">Email notices</span>
           <button v-for="category in reviewCategories" :key="category.id" type="button" :aria-pressed="selectedReviewCategory === category.id" @click="selectReviewCategory(category.id)">{{ category.label }} <span class="msg-hub-review-count">{{ inboxCounts.reviewByCategory?.[category.id] || 0 }} to review</span></button>
@@ -1308,7 +1311,7 @@
               <p>This email is read only. Open the ticket to manage it and reply from the group address.</p>
               <button v-if="conversationPreview.conversation.can_claim_ticket && !conversationPreview.conversation.ticket_claimed_by_user_id" type="button" class="btn btn-secondary" :disabled="claimingGroupTicket" @click="claimPreviewTicket">{{ claimingGroupTicket ? 'Claiming…' : 'Claim ticket' }}</button>
               <button v-if="conversationPreview.conversation.support_ticket_id" type="button" class="btn btn-primary" @click="openPreviewTicket">Open ticket #{{ conversationPreview.conversation.support_ticket_id }}</button>
-              <button v-if="conversationPreview.conversation.support_ticket_id && !['closed','resolved','done'].includes(conversationPreview.conversation.ticket_status)" type="button" class="btn btn-secondary" :disabled="closingPreviewTicket" @click="closePreviewTicketWithoutReply">{{ closingPreviewTicket ? 'Closing…' : 'No reply needed, close ticket' }}</button>
+              <button v-if="canArchivePreviewTicket" type="button" class="btn btn-secondary" :disabled="closingPreviewTicket" @click="closePreviewTicketWithoutReply">{{ closingPreviewTicket ? 'Closing…' : archivePreviewLabel }}</button>
             </div>
             <div v-if="isUnknownConversation" class="msg-hub-unknown-banner">
               <div>
@@ -1771,7 +1774,7 @@ const groupedDepartmentInboxes = computed(() => groupMailboxes(departmentInboxes
 const visibleDepartmentInboxes = computed(() => groupedDepartmentInboxes.value.filter(box => String(selectedGroupInboxId.value) === String(box.id) || groupMailboxCount(box, 'unreadByInbox') > 0 || box.mailboxes.some(mailbox => ![false, 0, '0'].includes(mailbox.has_communications))));
 const visibleInternalGroups = computed(() => internalGroups.value.filter(group => group.hasMessages || Number(group.unreadCount) > 0));
 const selectedDepartment = computed(() => groupedDepartmentInboxes.value.find(box => String(box.id) === String(selectedGroupInboxId.value) || box.mailboxes.some(mailbox => String(mailbox.id) === String(selectedGroupInboxId.value))));
-const reviewNoticeCount = computed(() => Object.values(inboxCounts.value.reviewByCategory || {}).reduce((sum, n) => sum + Number(n || 0), Number(inboxCounts.value.claimedTicketNoticesByChannel?.group || 0)));
+const ticketUnreadCounts = ref({ mine: 0, total: 0 });
 const isTicketQueue = computed(() => ['my_tickets', 'tickets'].includes(navId.value));
 function groupMailboxCount(box, field) { return box.mailboxes.reduce((sum, mailbox) => sum + Number(inboxCounts.value[field]?.[mailbox.id] || 0), 0); }
 function selectTicketQueue(id) { inboxChannel.value = 'all'; selectedGroupInboxId.value = null; selectedReviewCategory.value = null; claimState.value = ''; selectNav('inbox', id); }
@@ -1847,26 +1850,77 @@ watch(inboxChannel, () => {
   groupFiltersReopened = false;
 });
 
-function selectGroupInbox(id) { selectedReviewCategory.value = null; selectedGroupInboxId.value = id; if (claimedNoticeView.value || !inboxNavItems.value.some(item => item.id === navId.value)) navId.value = 'inbox'; changeMessageScope(); }
-function selectReviewCategory(id) { selectedGroupInboxId.value = null; selectedReviewCategory.value = id; claimState.value = ''; navId.value = 'unread'; changeMessageScope(); }
+function selectGroupInbox(id) {
+  listSearch.value = '';
+  inboxChannel.value = 'group';
+  selectedReviewCategory.value = null;
+  selectedGroupInboxId.value = id;
+  claimState.value = '';
+  selectNav('inbox', 'inbox');
+}
+function selectReviewCategory(id) {
+  listSearch.value = '';
+  inboxChannel.value = 'group';
+  selectedGroupInboxId.value = null;
+  selectedReviewCategory.value = id;
+  claimState.value = '';
+  selectNav('inbox', 'unread');
+}
 async function reviewAllNotices() {
   reviewingNotices.value = true;
   try { await Promise.all(scopeAgencyIds().map(aid => api.post('/communications/review-notices', { agencyId: aid, category: selectedReviewCategory.value }))); await Promise.all([loadConversations(), loadInboxCounts()]); }
   catch (e) { error.value = messagingError(e, 'Could not mark these notices reviewed.'); }
   finally { reviewingNotices.value = false; }
 }
+const previewArchiveReceipt = ref(null);
+let previewArchiveTimer;
+const canArchivePreviewTicket = computed(() => {
+  const conversation = conversationPreview.value?.conversation;
+  const shared = isTicketedGroup(conversation);
+  if (!conversation?.support_ticket_id || conversation.archived_at) return false;
+  if (shared) return canUseTickets.value && ['admin', 'super_admin', 'support'].includes(authStore.user?.role);
+  return !['closed', 'resolved', 'done'].includes(conversation.ticket_status);
+});
+const archivePreviewLabel = computed(() => ['closed', 'resolved', 'done'].includes(conversationPreview.value?.conversation?.ticket_status)
+  ? 'Archive for everyone'
+  : 'No reply needed · close and archive'
+);
+function clearPreviewArchiveReceipt() {
+  clearTimeout(previewArchiveTimer);
+  previewArchiveReceipt.value = null;
+}
 async function closePreviewTicketWithoutReply() {
   const conversation = conversationPreview.value?.conversation;
-  if (!conversation?.support_ticket_id || closingPreviewTicket.value) return;
+  if (!canArchivePreviewTicket.value || closingPreviewTicket.value) return;
+  closingPreviewTicket.value = true;
+  const expectedLastMessageId = conversationPreview.value.ticketThreadRevision;
+  const revision = expectedLastMessageId == null ? {} : { expectedLastMessageId };
+  try {
+    const { data } = isTicketedGroup(conversation)
+      ? await api.post(`/communications/conversations/${conversation.id}/close-and-archive`, revision, { skipGlobalLoading: true })
+      : await api.post(`/support-tickets/${conversation.support_ticket_id}/close`, { reason: 'no_reply_needed', ...revision }, { skipGlobalLoading: true });
+    if (data?.undoId) {
+      clearPreviewArchiveReceipt();
+      previewArchiveReceipt.value = data;
+      previewArchiveTimer = setTimeout(clearPreviewArchiveReceipt, data.undoSeconds * 1000);
+    }
+    if (conversationPreview.value?.conversation?.id === conversation.id) {
+      selectedConversation.value = null;
+      conversationPreview.value = null;
+    }
+    await Promise.all([loadConversations(), loadInboxCounts(), loadTicketUnreadCounts()]);
+  } catch (e) { error.value = messagingError(e, 'Could not close and archive this ticket.'); }
+  finally { closingPreviewTicket.value = false; }
+}
+async function undoPreviewTicketArchive() {
+  const receipt = previewArchiveReceipt.value;
+  if (!receipt || closingPreviewTicket.value) return;
   closingPreviewTicket.value = true;
   try {
-    await api.post(`/support-tickets/${conversation.support_ticket_id}/close`, { reason: 'no_reply_needed',
-      ...(conversationPreview.value.ticketThreadRevision != null ? { expectedLastMessageId: conversationPreview.value.ticketThreadRevision } : {}) });
-    if (conversationPreview.value?.conversation?.id === conversation.id) {
-      conversationPreview.value = { ...conversationPreview.value, conversation: { ...conversation, ticket_status: 'closed', can_claim_ticket: false, is_unread: false } };
-    }
-    await Promise.all([loadConversations(), loadInboxCounts()]);
-  } catch (e) { error.value = messagingError(e, 'Could not close this ticket.'); }
+    await api.post(`/communications/conversations/${receipt.conversationId}/close-and-archive`, { undoId: receipt.undoId }, { skipGlobalLoading: true });
+    clearPreviewArchiveReceipt();
+    await Promise.all([loadConversations(), loadInboxCounts(), loadTicketUnreadCounts()]);
+  } catch (e) { error.value = messagingError(e, 'Could not undo the archive.'); }
   finally { closingPreviewTicket.value = false; }
 }
 const activeTicketId = ref(null), activeTicketAgencyId = ref(null), claimingGroupTicket = ref(false);
@@ -1900,7 +1954,11 @@ function openPreviewTicket() {
 }
 function closeTicketModal() { activeTicketId.value = null; closePerson(); selectedConversation.value = null; conversationPreview.value = null; void refreshMail({ quiet: true }); }
 async function onTicketLoaded({ ticketId, readBefore }) {
-  try { await api.post(`/support-tickets/${ticketId}/read`, { readBefore }, { skipGlobalLoading: true }); markLocalMessageRead(readingSequence.value.find(row => Number(row.support_ticket_id) === Number(ticketId))); }
+  try {
+    await api.post(`/support-tickets/${ticketId}/read`, { readBefore }, { skipGlobalLoading: true });
+    markLocalMessageRead(readingSequence.value.find(row => Number(row.support_ticket_id) === Number(ticketId)));
+    void loadTicketUnreadCounts();
+  }
   catch (e) { error.value = messagingError(e, 'Could not mark the ticket read.'); }
 }
 async function claimPreviewTicket() {
@@ -1952,7 +2010,17 @@ let inboxController=null,emailReadController=null;
 const loadingEmail = ref(false);
 const openNewDrafts = ref([]);
 const personNewDrafts = computed(() => openNewDrafts.value.filter(d => selected.value?.email && [Number(selected.value.agencyId), Number(agencyId.value)].includes(Number(d.agencyId)) && String(d.to || '').split(/[,;]/).some(address => address.trim().toLowerCase() === selected.value.email.toLowerCase())));
-function selectInboxChannel(channel) { inboxChannel.value = channel; selectNav('inbox', inboxNavItems.value.some(item => item.id === navId.value) ? navId.value : 'inbox'); }
+function selectInboxChannel(channel) {
+  if (channel !== inboxChannel.value) {
+    listSearch.value = '';
+    selectedGroupInboxId.value = null;
+    selectedReviewCategory.value = null;
+    claimState.value = '';
+  }
+  inboxChannel.value = channel;
+  const folder = !isTicketQueue.value && inboxNavItems.value.some(item => item.id === navId.value) ? navId.value : 'inbox';
+  selectNav('inbox', folder);
+}
 function composeEmail(mode='new') {
   const preset=typeof mode==='object'?mode:null;
   if(preset)mode=preset.mode||'reply';
@@ -1966,6 +2034,7 @@ function composeEmail(mode='new') {
 async function refreshMail({ quiet = false } = {}) {
   if (refreshing.value || loadingList.value || sessionBlocked.value || !agencyId.value) return;
   refreshing.value = true;
+  void loadTicketUnreadCounts();
   try {
     if (isConversationMode.value) await loadConversations({ quiet });
     else await loadInboxCounts();
@@ -2041,7 +2110,7 @@ const props = defineProps({
   layout: { type: String, default: 'page' } // 'page' | 'drawer'
 });
 
-const emit = defineEmits(['open-team-chat', 'unread-change']);
+const emit = defineEmits(['open-team-chat', 'unread-change', 'personal-read-change']);
 
 const agencyStore = useAgencyStore();
 const communicationsCountsStore = useCommunicationsCountsStore();
@@ -2101,6 +2170,8 @@ async function updateMessageRead(row, unread = false) {
   else if (row.threadId) await api.post(`/chat/threads/${row.threadId}/${unread ? 'unread' : 'read'}`, {}, { skipGlobalLoading: true });
   else await api.patch(`/communications/conversations/${row.conversationId || row.id}`, unread ? { markUnread: true } : { markRead: true }, { skipGlobalLoading: true });
   if (!unread) markLocalMessageRead(row);
+  if (['sms', 'internal'].includes(row.channel)) emit('personal-read-change');
+  if (row.support_ticket_id) void loadTicketUnreadCounts();
 }
 async function bulkUpdateMessages(action) {
   if (bulkUpdating.value || !selectedMessageRows.value.length || (action === 'archive' && selectionContainsTickets.value)) return;
@@ -3139,6 +3210,22 @@ async function downloadHubAttachment(event, attachment) {
   catch (e) { sendError.value = e?.response?.data?.error?.message || 'Could not download attachment'; }
 }
 const selectedSmsThreadKey = ref(null);
+const visibleInboundSms = computed(() => {
+  if (!selected.value || sendMethod.value !== 'sms' || !selectedSmsThreadKey.value || sessionBlocked.value) return null;
+  return timeline.value.findLast(message => message.channel === 'sms' && message.direction === 'inbound'
+    && message.meta?.smsThreadKey === selectedSmsThreadKey.value && message.meta?.conversationId) || null;
+});
+watch(() => visibleInboundSms.value?.id, async (id) => {
+  if (!id) return;
+  const { conversationId, messageLogId } = visibleInboundSms.value.meta;
+  try {
+    await api.patch(`/communications/conversations/${conversationId}`, { markRead: true, smsMessageLogId: messageLogId }, { skipGlobalLoading: true });
+    emit('personal-read-change');
+    void loadInboxCounts();
+  } catch (e) {
+    if (id === visibleInboundSms.value?.id) error.value = messagingError(e, 'Could not mark this text conversation read.');
+  }
+}, { flush: 'post' });
 const smsConversationChoiceExplicit = ref(false);
 const smsThreads = computed(() => [...new Set((timeline.value || []).filter((m) => m.channel === 'sms').map((m) => m.meta?.smsThreadKey).filter(Boolean))]);
 watch(() => selected.value?.personKey, () => { selectedSmsThreadKey.value = null; smsConversationChoiceExplicit.value = false; });
@@ -4341,7 +4428,7 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
     }
     const id = navId.value;
     if (isTicketQueue.value) {
-      const results = await Promise.all(messageAgencyIds.value.filter(aid => canAccessTicketDesk(authStore.user, aid) || departmentInboxes.value.some(box => Number(box.agency_id) === aid)).map(async aid => {
+      const results = await Promise.all(ticketAgencyIds.value.map(async aid => {
         const { data } = await api.get('/support-tickets', { params: { agencyId: aid, mine: id === 'my_tickets' ? '1' : undefined, includeReadState: '1', unread: ticketUnreadOnly.value || nextUnread ? '1' : undefined, status: 'open', limit: 200 }, signal: controller.signal });
         return (Array.isArray(data) ? data : []).map(ticket => ({ ...ticket, id: `ticket-${ticket.id}`, hubKind: 'ticket', channel: 'email', support_ticket_id: ticket.id, ticket_status: ticket.status,
           ticket_claimed_by_user_id: ticket.claimed_by_user_id, primary_participant_name: ticket.created_by_first_name || ticket.source_email_from || `Ticket #${ticket.id}`, last_message_at: ticket.updated_at || ticket.created_at, is_unread: !!Number(ticket.is_unread), agency_id: ticket.agency_id || aid }));
@@ -4457,6 +4544,27 @@ async function loadConversations({ quiet = false, append = false, nextUnread = f
 }
 
 function currentCountScope() { return JSON.stringify([messageAgencyIds.value, inboxChannel.value, selectedGroupInboxId.value, selectedReviewCategory.value, claimState.value]); }
+const ticketAgencyIds = computed(() => messageAgencyIds.value.filter(aid =>
+  canAccessTicketDesk(authStore.user, aid) || departmentInboxes.value.some(box => Number(box.agency_id) === aid)
+));
+let ticketCountRequest = 0;
+async function loadTicketUnreadCounts() {
+  if (sessionBlocked.value) return;
+  const ids = ticketAgencyIds.value;
+  const request = ++ticketCountRequest;
+  const results = await Promise.allSettled(ids.map(aid => api.get('/support-tickets', {
+    params: { agencyId: aid, status: 'open', unread: '1', countOnly: '1' },
+    skipGlobalLoading: true
+  })));
+  if (request !== ticketCountRequest || sessionBlocked.value) return;
+  const counts = results.map(result => result.value?.data || {});
+  ticketUnreadCounts.value = {
+    mine: counts.reduce((sum, row) => sum + Number(row.mine || 0), 0),
+    total: counts.reduce((sum, row) => sum + Number(row.total || 0), 0)
+  };
+}
+watch(ticketAgencyIds, () => { void loadTicketUnreadCounts(); }, { immediate: true });
+
 async function loadInboxCounts() {
   if (authStore.user?.role === 'school_staff') return;
   const countScope = currentCountScope();
@@ -4741,6 +4849,8 @@ async function pickConversation(conv, { preserveSequence = false } = {}) {
 
     }
     dropOpenedFromUnread({ ...conv, conversationId: emailConvId });
+    if (detailConv?.channel === 'sms' && conv.is_unread) emit('personal-read-change');
+    if (detailConv?.support_ticket_id) void loadTicketUnreadCounts();
     await refreshUnreadAfterOpen();
   } catch (e) {
     if (request === emailReadRequest && e?.code !== 'ERR_CANCELED') {
@@ -4974,6 +5084,7 @@ async function markChatThreadOpened(threadId) {
   if (!id) return;
   try {
     await api.post(`/chat/threads/${id}/read`, {}, { skipGlobalLoading: true });
+    emit('personal-read-change');
   } catch {
     /* ignore */
   }
@@ -5829,6 +5940,8 @@ onUnmounted(() => {
   window.removeEventListener('message', onComposerMessage);
   window.removeEventListener('email-workspace-changed', onWorkspaceChanged);
   clearUndoBanner();
+  clearPreviewArchiveReceipt();
+  ++ticketCountRequest;
   clearTimeout(staffSuggestTimer);
   clearTimeout(peopleTimer);
   clearTimeout(listSearchTimer);

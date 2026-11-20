@@ -26,6 +26,9 @@ test('no-reply closure records the clicked actor and encrypted reason in the sam
     assert.deepEqual(insert.args.slice(0, 3), [7, 9, 'support']); assert.equal(insert.args[3], null);
     const row = decryptTicketMessageRow({ body: insert.args[3], body_ciphertext: insert.args[4], body_iv: insert.args[5], body_auth_tag: insert.args[6], encryption_key_id: insert.args[7] });
     assert.equal(row.body, 'Ticket closed: no reply needed. No email was sent.');
+    const archive = f.calls.find(call => call.sql?.startsWith('UPDATE communication_conversations'));
+    assert.match(archive.sql, /archived_at=UTC_TIMESTAMP/);
+    assert.deepEqual(archive.args, [7, 2]);
     assert.deepEqual(f.calls.slice(-2), ['commit', 'release']);
     assert.equal(f.calls.some(call => call.sql?.includes('support_ticket_email_messages')), false);
     const closed = fixture({ closed: true }); await closeTicketWithoutReply(input, closed.database);

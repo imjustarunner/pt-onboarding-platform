@@ -8,6 +8,7 @@ import { activeCommunicationFailureSql } from '../utils/communicationFailureQueu
 import User from '../models/User.model.js';
 import { countMultiAgencyCommunicationQualityIssues } from '../services/outboundEmailQuality.service.js';
 import { appendSupportTicketKindFilter } from '../utils/supportTicketKindFilter.js';
+import { personalConversationUnreadSql } from '../services/groupEmailConversationPolicy.js';
 
 const isCommsCenterRole = (role) => {
   const r = String(role || '').toLowerCase();
@@ -128,29 +129,22 @@ export const getMessagesDashboardSummary = async (req, res, next) => {
     }
 
     try {
-      const params = [userId];
-      let agencyClause = '';
-      if (agencyId) {
-        agencyClause = 'AND ml.agency_id = ?';
-        params.push(agencyId);
+      const smsAgencyIds = combineAllAgencies ? agencyIds : agencyIds.slice(0, 1);
+      if (smsAgencyIds.length) {
+        const [smsRows] = await pool.execute(
+          `SELECT COUNT(*) AS cnt
+           FROM communication_conversations c
+           WHERE c.agency_id IN (${smsAgencyIds.map(() => '?').join(',')})
+             AND c.channel='sms' AND c.archived_at IS NULL AND COALESCE(c.is_spam,0)=0
+             AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())
+             AND (c.owner_user_id=? OR EXISTS (SELECT 1 FROM message_logs ml
+               WHERE ml.agency_id=c.agency_id AND ml.sms_thread_key=c.external_thread_id
+                 AND ml.direction='INBOUND' AND ml.assigned_user_id=?))
+             AND ${personalConversationUnreadSql(userId)}`,
+          [...smsAgencyIds, userId, userId]
+        );
+        smsUnread = Number(smsRows?.[0]?.cnt || 0);
       }
-      const [smsRows] = await pool.query(
-        `SELECT COUNT(*) AS cnt
-         FROM message_logs ml
-         WHERE ml.direction = 'INBOUND'
-           AND ml.assigned_user_id = ?
-           ${agencyClause}
-           AND ml.created_at > COALESCE(
-             (SELECT MAX(r.created_at) FROM message_logs r
-              WHERE r.client_id = ml.client_id
-                AND r.direction = 'OUTBOUND'
-                AND r.assigned_user_id = ml.assigned_user_id),
-             '1970-01-01'
-           )`,
-        params
-      );
-      // Fallback: sum unread from a simpler heuristic — inbound in last 7d without outbound after
-      smsUnread = Number(smsRows?.[0]?.cnt || 0);
     } catch {
       smsUnread = 0;
     }

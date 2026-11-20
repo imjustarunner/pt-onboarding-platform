@@ -30,7 +30,7 @@
           @click.prevent.stop="setMode('messages')"
         >
           My messages
-          <em v-if="personalUnread > 0">{{ personalUnread > 99 ? '99+' : personalUnread }}</em>
+          <em v-if="personalUnread > 0" :aria-label="`${personalUnread} unread personal messages`">{{ personalUnread > 99 ? '99+' : personalUnread }}</em>
         </button>
         <button v-if="canManageTeam" type="button" role="tab" :aria-selected="activeMode === 'team'" class="cc-switch-btn" :class="{ on: activeMode === 'team' }" @click.prevent.stop="setMode('team')">Team texts &amp; polls</button>
         <button
@@ -94,7 +94,7 @@
       </section>
       <!-- ========== MESSAGES (same as My Dashboard) ========== -->
       <section v-show="activeMode === 'messages'" class="cc-mode cc-messages-host">
-        <MessagesHubShell v-if="visitedModes.has('messages')" />
+        <MessagesHubShell v-if="visitedModes.has('messages')" @personal-read-change="loadPersonalSummary" />
       </section>
 
       <section v-if="visitedModes.has('team') && canManageTeam" v-show="activeMode === 'team'" class="cc-mode">
@@ -483,21 +483,30 @@ function openEngagementRow(row) {
   setMode('automation', { channel, status, commId: String(row.id || '') });
 }
 
+let personalRequestId = 0;
+async function loadPersonalSummary() {
+  const request = ++personalRequestId;
+  const agencyId = agencyStore.currentAgency?.id;
+  const userId = authStore.user?.id;
+  const combineAll = authStore.user?.role === 'super_admin' || (agencyStore.userAgencies || []).length > 1;
+  const params = combineAll ? { allAgencies: 'true' } : agencyId ? { agencyId } : {};
+  try {
+    const { data } = await api.get('/messages/dashboard-summary', { params, skipGlobalLoading: true });
+    if (request !== personalRequestId || agencyId !== agencyStore.currentAgency?.id || userId !== authStore.user?.id) return;
+    personal.value = { cards: data?.cards || {}, priority: Array.isArray(data?.priority) ? data.priority : [] };
+  } catch {
+    // Keep the last confirmed count until the next refresh.
+  }
+}
 async function load() {
   loading.value = true;
   error.value = '';
   try {
     const agencyId = agencyStore.currentAgency?.id;
     const params = agencyId ? { agencyId } : {};
-    const role = String(authStore.user?.role || '').toLowerCase();
-    const membershipCount = (agencyStore.userAgencies || []).length;
-    const combineAll = role === 'super_admin' || membershipCount > 1;
-    const messageParams = {};
-    if (combineAll) messageParams.allAgencies = 'true';
-    else if (agencyId) messageParams.agencyId = agencyId;
-    const [centerRes, personalRes, escRes] = await Promise.all([
+    const [centerRes, , escRes] = await Promise.all([
       getStartupData('/communications/center-summary', { params, skipGlobalLoading: true }),
-      api.get('/messages/dashboard-summary', { params: messageParams, skipGlobalLoading: true }).catch(() => ({ data: {} })),
+      loadPersonalSummary(),
       agencyId
         ? api.get('/escalations/summary', { params: { agencyId }, skipGlobalLoading: true }).catch(() => ({ data: {} }))
         : Promise.resolve({ data: {} })
@@ -509,10 +518,6 @@ async function load() {
       messagesMode: centerRes.data?.messagesMode || {},
       engagement: centerRes.data?.engagement || { pending: [], recentlySent: [] },
       recentActivity: centerRes.data?.recentActivity || []
-    };
-    personal.value = {
-      cards: personalRes.data?.cards || {},
-      priority: Array.isArray(personalRes.data?.priority) ? personalRes.data.priority : []
     };
     escalationSummary.value = {
       counts: escRes.data?.counts || { open: 0 },

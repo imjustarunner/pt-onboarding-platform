@@ -172,3 +172,20 @@ it('closes and archives from the open thread, then restores it through Undo', as
   expect(wrapper.find('.uc-archive-receipt').exists()).toBe(false);
   expect(thread.props('detail').conversation.id).toBe(9);
 });
+
+it('loads registration packet notices from the top of Shared inbox and clears the filter on folder change', async () => {
+  await render();
+  const filter = wrapper.findAll('.uc-notice-filters button').find(button => button.text().includes('registration packets'));
+  await filter.trigger('click');
+  await flushPromises();
+  expect(filter.attributes('aria-pressed')).toBe('true');
+  expect(api.get).toHaveBeenLastCalledWith('/communications/conversations', expect.objectContaining({
+    params: expect.objectContaining({ channel: 'email', category: 'enrollment_packets', filter: 'all' })
+  }));
+  wrapper.findComponent({ name: 'UnifiedInboxSidebar' }).vm.$emit('update:selectedInboxId', 12);
+  await flushPromises();
+  expect(filter.attributes('aria-pressed')).toBe('false');
+  expect(api.get).toHaveBeenLastCalledWith('/communications/conversations', expect.objectContaining({
+    params: expect.objectContaining({ inboxId: 12, category: undefined })
+  }));
+});

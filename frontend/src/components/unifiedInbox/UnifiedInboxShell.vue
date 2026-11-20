@@ -59,6 +59,13 @@ const activeTicketId = ref(null);
 const selectedInboxId = ref(null); // null = All inboxes (matches agency-wide KPIs)
 const channel = ref('all');
 const listFilter = ref('all');
+const noticeCategory = ref('');
+const noticeFilters = computed(() => [
+  { id: '', label: 'All conversations' },
+  { id: 'provider_assignments', label: 'Provider assignments', count: attention.value.reviewByCategory?.provider_assignments },
+  { id: 'enrollment_packets', label: 'Enrollment & registration packets', count: attention.value.reviewByCategory?.enrollment_packets },
+  { id: 'claimed_ticket_notices', label: 'Claimed ticket notices', count: Object.values(attention.value.claimedTicketNoticesByChannel || {}).reduce((sum, n) => sum + Number(n || 0), 0) }
+]);
 const searchQ = ref('');
 const showSearchExtras = ref(false);
 const searchFrom = ref('');
@@ -78,7 +85,7 @@ let disposed = false;
 function saveSnapshot() {
   if (!authStore.user?.id || !resolvedAgencyId.value) return;
   writeUnifiedInboxCache(cacheKey(), { selectedInboxId: selectedInboxId.value, channel: channel.value,
-    listFilter: listFilter.value, searchQ: searchQ.value, searchFrom: searchFrom.value,
+    listFilter: listFilter.value, noticeCategory: noticeCategory.value, searchQ: searchQ.value, searchFrom: searchFrom.value,
     searchHasAttachment: searchHasAttachment.value, searchDateFrom: searchDateFrom.value, searchDateTo: searchDateTo.value,
     inboxes: inboxes.value, attention: attention.value, conversations: conversations.value,
     selectedId: selectedId.value, detail: detail.value, displayedListKey, lists: [...viewLists] });
@@ -87,6 +94,7 @@ function restoreSnapshot() {
   const saved = readUnifiedInboxCache(cacheKey());
   if (!saved) return;
   selectedInboxId.value = saved.selectedInboxId; channel.value = saved.channel; listFilter.value = saved.listFilter;
+  noticeCategory.value = saved.noticeCategory || '';
   searchQ.value = saved.searchQ; searchFrom.value = saved.searchFrom;
   searchHasAttachment.value = saved.searchHasAttachment; searchDateFrom.value = saved.searchDateFrom; searchDateTo.value = saved.searchDateTo;
   inboxes.value = saved.inboxes; attention.value = saved.attention; conversations.value = saved.conversations;
@@ -169,6 +177,7 @@ async function loadConversations() {
   const params = {
     agencyId: resolvedAgencyId.value, filter: listFilter.value,
     channel: channel.value === 'all' ? undefined : channel.value,
+    category: noticeCategory.value || undefined,
     q: searchQ.value || undefined, fromEmail: searchFrom.value || undefined,
     hasAttachment: searchHasAttachment.value === '' ? undefined : searchHasAttachment.value,
     dateFrom: searchDateFrom.value || undefined, dateTo: searchDateTo.value || undefined,
@@ -278,7 +287,7 @@ async function closeAndArchiveTicket(archive = null) {
   error.value = '';
   try {
     const { data } = await api.post(`/communications/conversations/${id}/close-and-archive`,
-      archive ? { undoId: archive.undoId } : {}, { skipGlobalLoading: true });
+      archive ? { undoId: archive.undoId } : { expectedLastMessageId: detail.value?.ticketThreadRevision }, { skipGlobalLoading: true });
     if (agency !== resolvedAgencyId.value || userId !== authStore.user?.id) return;
     if (archive) {
       clearArchiveReceipt(archive.undoId);
@@ -300,13 +309,26 @@ async function closeAndArchiveTicket(archive = null) {
 }
 
 function selectInbox(id) {
+  noticeCategory.value = '';
   selectedInboxId.value = id;
   listFilter.value = 'all';
   channel.value = 'all';
   selectedId.value = null; detail.value = null; detailRequestId += 1;
 }
 
+function selectNoticeCategory(category) {
+  selectInbox(null);
+  noticeCategory.value = category;
+  if (category) channel.value = 'email';
+}
+
+function selectSmartFilter(filter) {
+  if (noticeCategory.value) selectInbox(null);
+  listFilter.value = filter;
+}
+
 function openTickets() {
+  noticeCategory.value = '';
   selectedInboxId.value = null; channel.value = 'all'; listFilter.value = 'tickets';
   selectedId.value = null; detail.value = null; detailRequestId += 1;
 }
@@ -437,6 +459,7 @@ watch([resolvedAgencyId, () => authStore.user?.id], () => {
   selectedId.value = null;
   detail.value = null;
   selectedInboxId.value = null;
+  noticeCategory.value = '';
   activeTicketId.value = null;
   conversations.value = [];
   inboxes.value = [];
@@ -444,7 +467,7 @@ watch([resolvedAgencyId, () => authStore.user?.id], () => {
   refreshAll();
 });
 
-watch([selectedInboxId, channel, listFilter, searchFrom, searchHasAttachment, searchDateFrom, searchDateTo], () => {
+watch([selectedInboxId, channel, listFilter, noticeCategory, searchFrom, searchHasAttachment, searchDateFrom, searchDateTo], () => {
   loadConversations();
 });
 
@@ -535,6 +558,16 @@ defineExpose({ refreshAll });
       </div>
     </header>
 
+    <nav class="uc-notice-filters" aria-label="Email notices">
+      <button v-for="filter in noticeFilters" :key="filter.id" type="button"
+        class="uc-search-toggle"
+        :aria-pressed="noticeCategory === filter.id && (filter.id !== '' || (selectedInboxId == null && listFilter === 'all'))"
+        @click="selectNoticeCategory(filter.id)">
+        {{ filter.label }}
+        <span v-if="filter.count" :aria-label="`${filter.count} to review`">{{ filter.count }}</span>
+      </button>
+    </nav>
+
     <div v-if="showSearchExtras" class="uc-search-extras">
       <label>
         From
@@ -615,7 +648,7 @@ defineExpose({ refreshAll });
         @update:channel="channel = $event"
         @compose="showCompose = true"
         @open-tickets="openTickets"
-        @smart-filter="listFilter = $event"
+        @smart-filter="selectSmartFilter"
         @update:prefs="savePrefs"
       />
 
@@ -754,6 +787,20 @@ defineExpose({ refreshAll });
   background: var(--conversa-surface);
 }
 .uc-top-user { text-align: right; }
+.uc-notice-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.uc-notice-filters button[aria-pressed="true"] {
+  background: var(--conversa-accent, #0045b5);
+  border-color: transparent;
+  color: #fff;
+}
+.uc-notice-filters button span {
+  margin-inline-start: 0.4em;
+  font-weight: 700;
+}
 .uc-user-name { display: block; font-weight: 600; font-size: 0.9rem; }
 
 .uc-kpi-row {

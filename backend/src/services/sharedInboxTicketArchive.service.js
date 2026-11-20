@@ -6,7 +6,7 @@ import { resolveSupportTicketEmailThread } from './supportTicketEmail.service.js
 
 const UNDO_SECONDS = 20;
 
-export async function changeSharedInboxTicketArchive({ conversationId, user, undoId }, database = pool) {
+export async function changeSharedInboxTicketArchive({ conversationId, user, undoId, expectedLastMessageId }, database = pool) {
   const userId = Number(user?.id);
   if (!userId || !['admin', 'super_admin', 'support'].includes(user?.role)) {
     throw supportEmailError('Ticket close access is required.', 403);
@@ -30,6 +30,12 @@ export async function changeSharedInboxTicketArchive({ conversationId, user, und
       throw supportEmailError(`Open ticket #${canonical.canonicalTicketId} to manage this conversation.`, 409);
     }
     const [[latest]] = await db.execute('SELECT COALESCE(MAX(id), 0) AS id FROM support_ticket_messages WHERE ticket_id=?', [row.id]);
+    if (!undoId && expectedLastMessageId != null) {
+      const [[visibleLatest]] = await db.execute('SELECT COALESCE(MAX(id), 0) AS id FROM support_ticket_messages WHERE ticket_id=? AND COALESCE(is_deleted,0)=0', [row.id]);
+      if (String(visibleLatest.id) !== String(expectedLastMessageId)) {
+        throw supportEmailError('A new message arrived. Review it before closing this ticket.', 409, 'SUPPORT_EMAIL_STALE_THREAD');
+      }
+    }
     let receipt;
     if (undoId) {
       const [[archive]] = await db.execute(`SELECT a.* FROM shared_inbox_ticket_archives a

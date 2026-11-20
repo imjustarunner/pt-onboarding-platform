@@ -1316,6 +1316,17 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       where.push("LOWER(t.status) = 'closed'");
     }
 
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    if (req.query?.countOnly === '1') {
+      const [[counts]] = await pool.execute(`
+        SELECT COUNT(*) AS total, COUNT(CASE WHEN t.claimed_by_user_id = ? THEN 1 END) AS mine
+        FROM support_tickets t
+        LEFT JOIN users cb ON cb.id = t.created_by_user_id
+        LEFT JOIN agencies s ON s.id = t.school_organization_id
+        ${whereSql}`, [req.user.id, ...params]);
+      return res.json({ total: Number(counts?.total || 0), mine: Number(counts?.mine || 0) });
+    }
+
     const sql = `
       SELECT t.*,${includeReadState ? ` (${ticketUnreadSql(req.user.id)}) AS is_unread,` : ''}
              cb.first_name AS created_by_first_name,
@@ -1342,7 +1353,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       LEFT JOIN agencies a ON a.id = t.agency_id
       LEFT JOIN public_website_support_sites ws ON ws.slug = t.source_website_slug
       LEFT JOIN clients c ON c.id = t.client_id
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ${whereSql}
       ORDER BY
         CASE WHEN LOWER(t.status) = 'open' THEN 0 ELSE 1 END,
         ${await hasSupportTicketPriorityColumn() ? "CASE WHEN t.priority = 'high' THEN 0 WHEN t.priority = 'medium' THEN 1 ELSE 2 END," : ''}

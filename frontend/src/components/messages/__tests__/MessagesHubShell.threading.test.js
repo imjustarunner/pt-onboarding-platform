@@ -180,7 +180,10 @@ describe('scoped message workspace', () => {
     state.inboxCounts = { unreadByChannel: { group: 422 }, reviewByCategory: { provider_assignments: 37, enrollment_packets: 66 } };
     await nextTick();
     expect(wrapper.get('[data-channel="group"]').text()).toContain('422');
-    expect(wrapper.get('[data-channel="group"]').text()).toContain('103 notices');
+    expect(wrapper.get('[data-channel="group"]').text()).not.toContain('103 notices');
+    state.inboxChannel = 'group';
+    await nextTick();
+    expect(wrapper.get('[aria-label="Your groups"]').text()).toContain('66 to review');
   });
   it('selects multiple messages without opening them and marks them read', async () => {
     state.selected = null; state.navId = 'unknown';
@@ -218,6 +221,43 @@ describe('scoped message workspace', () => {
     await state.pickConversation(state.conversations[0]);
     expect(state.activeTicketId).toBe(101);
     expect(routing.push).not.toHaveBeenCalled();
+  });
+  it('switches from My tickets to Groups and opens notice filters from their matching list', async () => {
+    state.selected = null;
+    state.departmentInboxes = [{ id: 7, agency_id: 2, is_ticketed_group: true }];
+    api.get.mockImplementation(async (url, config) => ({ data: config?.params?.countOnly
+      ? { total: 8, mine: 2 } : {} }));
+    await flushPromises();
+    expect(wrapper.get('[data-ticket-queue="mine"]').text()).toContain('2');
+    await wrapper.get('[data-ticket-queue="mine"]').trigger('click');
+    await wrapper.get('[data-channel="group"]').trigger('click');
+    await flushPromises();
+    expect(state.navId).toBe('inbox');
+    expect(wrapper.get('[data-channel="group"]').attributes('aria-pressed')).toBe('true');
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/inbox', expect.objectContaining({
+      params: expect.objectContaining({ channel: 'group' })
+    }));
+    state.selectReviewCategory('enrollment_packets');
+    await flushPromises();
+    expect(state.navId).toBe('unread');
+    expect(state.selectedReviewCategory).toBe('enrollment_packets');
+    state.selectGroupInbox(null);
+    await flushPromises();
+    expect(state.navId).toBe('inbox');
+    expect(state.selectedReviewCategory).toBeNull();
+  });
+  it('marks only the open SMS thread through the last inbound message it displayed', async () => {
+    state.sendMethod = 'sms';
+    state.timeline = [
+      { id: 'sms-10', channel: 'sms', direction: 'inbound', meta: { smsThreadKey: 'a', conversationId: 4, messageLogId: 10 } },
+      { id: 'sms-11', channel: 'sms', direction: 'inbound', meta: { smsThreadKey: 'a', conversationId: 4, messageLogId: 11 } },
+      { id: 'sms-12', channel: 'sms', direction: 'inbound', meta: { smsThreadKey: 'b', conversationId: 5, messageLogId: 12 } }
+    ];
+    state.selectedSmsThreadKey = 'a';
+    await flushPromises();
+    expect(api.patch).toHaveBeenCalledExactlyOnceWith('/communications/conversations/4',
+      { markRead: true, smsMessageLogId: 11 }, expect.anything());
+    expect(wrapper.emitted('personal-read-change')).toHaveLength(1);
   });
   it('skips read tickets when Next moves through either ticket queue', async () => {
     state.selected = null; state.navId = 'my_tickets';
@@ -582,13 +622,34 @@ describe('reading layout and unread navigation', () => {
     await state.reviewAllNotices();
     expect(api.post).toHaveBeenCalledWith('/communications/review-notices', { agencyId: 2, category: 'enrollment_packets' }, expect.objectContaining({ skipGlobalLoading: true }));
   });
-  it('closes a linked ticket without replying and leaves the open reader on its closed state', async () => {
+  it('closes a linked ticket without replying and removes it from the reader', async () => {
     state.selected = null;
     state.conversationPreview = { conversation: { id: 20, agency_id: 2, channel: 'email', support_ticket_id: 793, ticket_status: 'open' }, messages: [] };
     await state.closePreviewTicketWithoutReply();
     expect(api.post).toHaveBeenCalledWith('/support-tickets/793/close', { reason: 'no_reply_needed' }, expect.objectContaining({ skipGlobalLoading: true }));
     expect(api.post.mock.calls.some(([url]) => /reply|send/.test(url))).toBe(false);
-    expect(state.conversationPreview.conversation.ticket_status).toBe('closed');
+    expect(state.conversationPreview).toBeNull();
+  });
+  it('archives a closed group ticket for everyone and offers Undo from My messages', async () => {
+    state.authStore.user.role = 'support';
+    state.departmentInboxes = [{ id: 7, agency_id: 2, is_ticketed_group: true }];
+    state.selected = null;
+    state.conversationPreview = { conversation: {
+      id: 20, agency_id: 2, channel: 'email', is_ticketed_group: true, support_ticket_id: 793, ticket_status: 'closed'
+    }, messages: [], ticketThreadRevision: 12 };
+    api.post.mockResolvedValueOnce({ data: { ticketId: 793, conversationId: 20, undoId: 'archive-793', undoSeconds: 20 } });
+    await nextTick();
+    const archive = wrapper.findAll('button').find(button => button.text() === 'Archive for everyone');
+    await archive.trigger('click');
+    await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/communications/conversations/20/close-and-archive',
+      { expectedLastMessageId: 12 }, expect.anything());
+    const undo = wrapper.findAll('button').find(button => button.text() === 'Undo');
+    await undo.trigger('click');
+    await flushPromises();
+    expect(api.post).toHaveBeenLastCalledWith('/communications/conversations/20/close-and-archive',
+      { undoId: 'archive-793' }, expect.anything());
+    expect(state.previewArchiveReceipt).toBeNull();
   });
   it.each([false, true])('keeps full-screen navigation history after updating read state (keep unread: %s)', async keepUnread => {
     state.selected = null; state.navId = 'unread'; state.inboxChannel = 'email';
