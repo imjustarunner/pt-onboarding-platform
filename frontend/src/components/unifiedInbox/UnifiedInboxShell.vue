@@ -1,5 +1,6 @@
 <script setup>
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
+import { Search } from '@lucide/vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -218,7 +219,7 @@ async function loadConversations() {
   return request.promise;
 }
 
-async function openConversation(id) {
+async function openConversation(id, { markRead = true } = {}) {
   const requestId = ++detailRequestId;
   if (!id) {
     selectedId.value = null;
@@ -231,13 +232,13 @@ async function openConversation(id) {
   detailLoading.value = !detail.value;
   try {
     const { data } = await api.get(`/communications/conversations/${id}`, {
-      params: { agencyId: resolvedAgencyId.value },
+      params: { agencyId: resolvedAgencyId.value, ...(markRead ? {} : { markRead: 0 }) },
       skipGlobalLoading: true
     });
     if (requestId !== detailRequestId) return;
     detail.value = data;
     const row = conversations.value.find((c) => c.id === id);
-    if (row) row.is_unread = false;
+    if (row && markRead) row.is_unread = false;
     void loadAttention().catch(() => {});
   } catch (e) {
     if (requestId !== detailRequestId) return;
@@ -334,17 +335,38 @@ function openTickets() {
 }
 
 async function patchConversation(patch) {
-  if (!selectedId.value) return;
-  const { data } = await api.patch(`/communications/conversations/${selectedId.value}`, patch, {
-    skipGlobalLoading: true
-  });
-  if (data?.conversation) {
-    detail.value = {
-      ...detail.value,
-      conversation: { ...detail.value?.conversation, ...data.conversation }
-    };
+  const id = selectedId.value;
+  const agencyId = resolvedAgencyId.value;
+  if (!id) return;
+  try {
+    const { data } = await api.patch(`/communications/conversations/${id}`, patch, {
+      skipGlobalLoading: true
+    });
+    if (agencyId !== resolvedAgencyId.value) return;
+    if (selectedId.value === id && data?.conversation) {
+      detail.value = {
+        ...detail.value,
+        conversation: { ...detail.value?.conversation, ...data.conversation }
+      };
+    }
+    if (patch.markUnread) {
+      const row = conversations.value.find(conversation => conversation.id === id);
+      if (row) row.is_unread = true;
+    }
+    await Promise.all([loadConversations(), loadAttention()]);
+  } catch (e) {
+    if (selectedId.value === id && agencyId === resolvedAgencyId.value) {
+      error.value = e?.response?.data?.error?.message || 'Could not update the conversation.';
+    }
   }
-  await Promise.all([loadConversations(), loadAttention()]);
+}
+
+async function refreshTicket() {
+  await Promise.all([
+    selectedId.value ? openConversation(selectedId.value, { markRead: false }) : null,
+    loadConversations(),
+    loadAttention()
+  ]);
 }
 
 function onDraftInput(text, conversationId) {
@@ -472,9 +494,13 @@ watch([selectedInboxId, channel, listFilter, noticeCategory, searchFrom, searchH
 });
 
 let searchDebounce = null;
+function searchConversations() {
+  clearTimeout(searchDebounce);
+  void loadConversations();
+}
 watch(searchQ, () => {
   clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(() => loadConversations(), 300);
+  searchDebounce = setTimeout(searchConversations, 300);
 });
 
 function openRouteConversation(value) {
@@ -545,9 +571,13 @@ defineExpose({ refreshAll });
           v-model="searchQ"
           class="uc-search"
           type="search"
-          placeholder="Search conversations, people, or subjects…"
+          placeholder="Search senders, subjects, or email content…"
           aria-label="Search conversations"
+          @keydown.enter.prevent="searchConversations"
         />
+        <button type="button" class="uc-search-toggle uc-search-submit" aria-label="Search inbox" title="Search inbox" @click="searchConversations">
+          <Search :size="16" aria-hidden="true" />
+        </button>
         <button type="button" class="uc-search-toggle" @click="showSearchExtras = !showSearchExtras">
           {{ showSearchExtras ? 'Hide filters' : 'Filters' }}
         </button>
@@ -668,10 +698,12 @@ defineExpose({ refreshAll });
         :agency-id="resolvedAgencyId"
         :organization-slug="route.params?.organizationSlug || ''"
         :claim-busy="claimBusy"
+        :viewer-id="authStore.user?.id"
         :can-close-ticket="['admin', 'super_admin', 'support'].includes(authStore.user?.role)"
         :ticket-archive-busy="ticketArchiveBusy"
         @close-and-archive="closeAndArchiveTicket()"
         @claim-ticket="claimTicket"
+        @ticket-updated="refreshTicket"
         @open-ticket="activeTicketId = $event"
         @reply="sendReply"
         @patch="patchConversation"
@@ -699,7 +731,7 @@ defineExpose({ refreshAll });
       @close="showCompose = false"
       @sent="onComposeSent"
     />
-    <TicketDetailModal v-if="activeTicketId" :ticket-id="activeTicketId" :agency-id="resolvedAgencyId" @close="activeTicketId = null; refreshSharedState()" @updated="refreshSharedState" />
+    <TicketDetailModal v-if="activeTicketId" :ticket-id="activeTicketId" :agency-id="resolvedAgencyId" @close="activeTicketId = null; refreshSharedState()" @updated="refreshTicket" />
   </div>
 </template>
 
@@ -745,6 +777,7 @@ defineExpose({ refreshAll });
   font-size: 0.95rem;
   background: var(--conversa-surface);
 }
+.uc-search-submit { display: inline-flex; align-items: center; }
 .uc-search-toggle {
   border: 1px solid var(--conversa-border);
   background: var(--conversa-surface);

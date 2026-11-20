@@ -20,17 +20,24 @@ export async function recordTicketAssignment({ticketId,agencyId,actorUserId=null
    VALUES ('support_ticket_assignment',?,?,?)`,[actorUserId,agencyId,JSON.stringify({ticketId,assigneeUserId,previousUserId,kind,reason})]);
 }
 export async function ticketAssignmentHistory(ticket,db=pool) {
- const [rows]=await db.execute(`SELECT l.id,l.created_at,l.metadata,u.first_name AS actor_first_name,u.last_name AS actor_last_name
-   FROM user_activity_log l LEFT JOIN users u ON u.id=l.user_id
-   WHERE l.agency_id=? AND l.action_type='support_ticket_assignment' AND JSON_UNQUOTE(JSON_EXTRACT(l.metadata,'$.ticketId'))=?
-   ORDER BY l.id DESC LIMIT 30`,[ticket.agency_id,String(ticket.id)]);
+ const [rows] = await db.execute(`SELECT l.id, l.created_at, l.metadata,
+     u.first_name AS actor_first_name, u.last_name AS actor_last_name,
+     CONCAT_WS(' ', prior_owner.first_name, prior_owner.last_name) AS previous_name,
+     CONCAT_WS(' ', assignee.first_name, assignee.last_name) AS assignee_name
+   FROM user_activity_log l
+   LEFT JOIN users u ON u.id = l.user_id
+   LEFT JOIN users prior_owner ON prior_owner.id = CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.previousUserId')), 'null') AS UNSIGNED)
+   LEFT JOIN users assignee ON assignee.id = CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.assigneeUserId')), 'null') AS UNSIGNED)
+   WHERE l.agency_id = ? AND l.action_type = 'support_ticket_assignment'
+     AND JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.ticketId')) = ?
+   ORDER BY l.id DESC LIMIT 30`, [ticket.agency_id, String(ticket.id)]);
  if(!rows.length){
   const [notices]=await db.execute(`SELECT id,user_id,message,created_at FROM notifications
    WHERE agency_id=? AND related_entity_type='support_ticket' AND related_entity_id=? AND title='Ticket assigned to you' ORDER BY id DESC LIMIT 30`,[ticket.agency_id,ticket.id]);
   return notices.map(n=>({id:`notice-${n.id}`,at:n.created_at,kind:'assigned',assigneeUserId:n.user_id,actorName:String(n.message||'').match(/ by (.+)\.$/)?.[1]||'Recorded assignment',reason:'Assignment notification'}));
  }
  return rows.map(row=>{let data;try{data=typeof row.metadata==='string'?JSON.parse(row.metadata):row.metadata;}catch{data={};}
-  return {id:row.id,at:row.created_at,actorName:[row.actor_first_name,row.actor_last_name].filter(Boolean).join(' ')||'Automatic routing',...data};});
+  return {id:row.id,at:row.created_at,actorName:[row.actor_first_name,row.actor_last_name].filter(Boolean).join(' ')||'Automatic routing',previousName:row.previous_name,assigneeName:row.assignee_name,...data};});
 }
 
 // Manual ownership and its actor record commit together.

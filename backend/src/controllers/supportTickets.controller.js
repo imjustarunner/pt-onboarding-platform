@@ -3533,6 +3533,22 @@ export const unclaimSupportTicket = async (req, res, next) => {
   }
 };
 
+async function assignmentEligibility(ticket, user, departmentKeys) {
+  if (String(ticket.topic || '').toLowerCase() === 'credentialing' && !(await canAccessCredentialing(user, ticket.agency_id))) {
+    return 'Assignee does not have credentialing access';
+  }
+  if (departmentKeys.length && !(await canWorkDepartmentTicket({ ticket, userId: user.id, departmentKeys }))) {
+    return 'Assignee does not have permission for this agency group';
+  }
+  const canAccessScope = await userCanAccessTicketOrgScope({
+    userId: user.id,
+    role: user.role,
+    schoolOrganizationId: ticket.school_organization_id,
+    agencyId: ticket.agency_id
+  });
+  return canAccessScope ? null : 'Assignee does not have access to this ticket scope';
+}
+
 export const listSupportTicketAssignees = async (req, res, next) => {
   try {
     const scopeOrgId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -3560,8 +3576,26 @@ export const listSupportTicketAssignees = async (req, res, next) => {
       }
     }
 
-    const rows = await listEligibleTicketAssignees(targetAgencyId);
+    if (req.query?.ticketId != null) {
+      const ticketId = Number(req.query.ticketId);
+      if (!Number.isSafeInteger(ticketId) || ticketId < 1) {
+        return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+      }
+      const [[ticket]] = await pool.execute('SELECT * FROM support_tickets WHERE id = ? AND agency_id = ?', [ticketId, targetAgencyId]);
+      if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+      const access = await ensureTicketScopeAccess(req, ticket);
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+      const rows = await listEligibleTicketAssignees(targetAgencyId);
+      const departmentKeys = await ticketDepartmentKeys(ticket);
+      const problems = await Promise.all(rows.map(user => assignmentEligibility(ticket, user, departmentKeys)));
+      return res.json({
+        users: rows.filter((_, index) => !problems[index]).map(({ id, first_name, last_name }) => ({ id, first_name, last_name })),
+        agencyId: Number(targetAgencyId)
+      });
+    }
+
+    const rows = await listEligibleTicketAssignees(targetAgencyId);
     res.json({
       users: (rows || []).map((u) => ({
         ...u,
@@ -3598,31 +3632,30 @@ export const assignSupportTicket = async (req, res, next) => {
     const assignee = (await listEligibleTicketAssignees(ticket.agency_id)).find(user => Number(user.id) === Number(assigneeId));
     if (!assignee) return res.status(400).json({error:{message:'Choose an active ticket team member in this agency. School staff and providers without ticket duties cannot be assigned.'}});
 
-    const assigneeDepartmentAccess = await canWorkDepartmentTicket({ ticket, userId: assignee.id });
-    if ((await ticketDepartmentKeys(ticket)).length && !assigneeDepartmentAccess) {
-      return res.status(400).json({ error: { message: 'Assignee does not have permission for this agency group' } });
-    }
-    if (!isTicketQueueCollaboratorRole(assignee.role) && !assigneeDepartmentAccess) {
-      return res.status(400).json({ error: { message: 'Assignee must have ticket responsibilities' } });
-    }
+    const problem = await assignmentEligibility(ticket, assignee, await ticketDepartmentKeys(ticket));
+    if (problem) return res.status(400).json({ error: { message: problem } });
 
-    const assigneeCanAccess = await userCanAccessTicketOrgScope({
-      userId: assignee.id,
-      role: assignee.role,
-      schoolOrganizationId: ticket.school_organization_id,
-      agencyId: ticket.agency_id
-    });
-    if (!assigneeCanAccess) {
-      return res.status(400).json({ error: { message: 'Assignee does not have access to this ticket scope' } });
+    const currentlyAssignedUserId = Number(ticket.claimed_by_user_id) || null;
+    const expected = req.body.expectedAssigneeUserId;
+    if (expected !== undefined && expected !== null && (!Number.isSafeInteger(expected) || expected < 1)) {
+      return res.status(400).json({ error: { message: 'Invalid expected owner' } });
     }
-
-    const currentlyAssignedUserId = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
+    if (expected !== undefined && expected !== currentlyAssignedUserId) {
+      return res.status(409).json({ error: { message: 'Ticket ownership changed. Refresh before assigning.' } });
+    }
     if (currentlyAssignedUserId === Number(assigneeId)) {
       const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
       return res.json(out?.[0] || null);
     }
 
-    await setTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId:req.user.id,assigneeUserId:assigneeId,previousUserId:currentlyAssignedUserId});
+    await setTicketAssignment({
+      ticketId,
+      agencyId: ticket.agency_id,
+      actorUserId: req.user.id,
+      assigneeUserId: assigneeId,
+      previousUserId: currentlyAssignedUserId,
+      kind: currentlyAssignedUserId ? 'reassigned' : 'assigned'
+    });
     await createSupportTicketAssignmentNotification({
       ticket,
       assigneeUser: assignee,

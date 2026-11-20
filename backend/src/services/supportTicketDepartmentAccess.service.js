@@ -19,8 +19,8 @@ export async function ticketDepartmentKeys(ticket, db = pool) {
   return specialized.has(topic) ? [topic] : [];
 }
 
-export async function canWorkDepartmentTicket({ ticket, userId, db = pool }) {
-  const keys = await ticketDepartmentKeys(ticket, db);
+export async function canWorkDepartmentTicket({ ticket, userId, db = pool, departmentKeys }) {
+  const keys = departmentKeys ?? await ticketDepartmentKeys(ticket, db);
   if (!keys.length) return false;
   const allowed = await listUserDepartmentalGroupKeys({ agencyId: ticket.agency_id, userId, db });
   return keys.some(key => allowed.includes(key));

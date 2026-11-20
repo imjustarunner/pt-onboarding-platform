@@ -10,6 +10,10 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { downloadAttachment, encodeEmailFiles } from '../../utils/communicationAttachments';
 import ConversationEmailBody from '../messages/ConversationEmailBody.vue';
+import ThreadEmailSearch from '../messages/ThreadEmailSearch.vue';
+import { emailConversationText } from '../../utils/emailConversationText';
+import { rankEmailMessages } from '../../utils/threadEmailSearch';
+import TicketAssignmentControl from '../tickets/TicketAssignmentControl.vue';
 import { emailReplyRecipients } from '../../utils/messageThreads';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
 import GroupEmailBadge from './GroupEmailBadge.vue';
@@ -23,10 +27,11 @@ const props = defineProps({
   organizationSlug: { type: String, default: '' },
   claimBusy: Boolean,
   canCloseTicket: Boolean,
+  viewerId: { type: [Number, String], default: null },
   ticketArchiveBusy: Boolean
 });
 
-const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh', 'claim-ticket', 'open-ticket', 'close-and-archive']);
+const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh', 'claim-ticket', 'open-ticket', 'close-and-archive', 'ticket-updated']);
 
 const attachments = ref([]);
 const composerMode = ref('reply'); // reply | reply_all | forward | internal
@@ -61,6 +66,29 @@ const olderMessages = ref([]);
 const olderCursor = ref(null);
 const loadingOlder = ref(false);
 const messages = computed(() => [...olderMessages.value, ...(props.detail?.messages || [])]);
+const newestFirst = computed(() => conv.value?.channel === 'email');
+const messageScroller = ref(null);
+const threadQuery = ref('');
+function messageTime(message) {
+  return Date.parse(message.sent_at || message.scheduled_send_at || message.created_at) || 0;
+}
+const displayedMessages = computed(() => newestFirst.value
+  ? [...messages.value].sort((a, b) => messageTime(b) - messageTime(a) || Number(b.id) - Number(a.id))
+  : messages.value);
+const emailSearchIndex = computed(() => displayedMessages.value.filter(message => !message.is_internal_note).map(message => ({
+  message,
+  header: [message.subject || conv.value?.subject, fromLabel(message), message.from?.email,
+    ...[...(message.to || []), ...(message.cc || [])].map(address => address.email || address),
+    ...(message.attachments || []).map(file => file.filename)].filter(Boolean).join(' '),
+  body: emailConversationText(message)
+})));
+const visibleMessages = computed(() => newestFirst.value && threadQuery.value.trim()
+  ? rankEmailMessages(emailSearchIndex.value, threadQuery.value)
+  : displayedMessages.value);
+watch(() => conv.value?.id, () => { threadQuery.value = ''; });
+watch([() => conv.value?.id, threadQuery], () => {
+  if (messageScroller.value) messageScroller.value.scrollTop = 0;
+}, { flush: 'post' });
 watch(() => props.detail?.conversation?.id, () => { olderMessages.value = []; olderCursor.value = null; attachments.value = []; });
 const canLoadOlder = computed(() => olderCursor.value !== false && !isTelephony.value && (olderMessages.value.length || (props.detail?.messages?.length || 0) >= 200));
 async function loadOlder() {
@@ -447,10 +475,11 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           </p>
         </div>
         <div class="uc-thread-actions">
+          <ThreadEmailSearch v-if="newestFirst" :key="conv.id" v-model:query="threadQuery" :match-count="visibleMessages.length" />
           <button v-if="!ticketManaged" type="button" class="uc-btn ghost" title="Star" @click="emit('patch', { starred: !conv.starred })">
             {{ conv.starred ? '★' : '☆' }}
           </button>
-          <button v-if="!ticketManaged" type="button" class="uc-btn ghost" @click="emit('patch', { markUnread: true })">Mark unread</button>
+          <button type="button" class="uc-btn ghost" @click="emit('patch', { markUnread: true })">Mark unread</button>
           <button v-if="!ticketManaged" type="button" class="uc-btn ghost" @click="emit('patch', { archive: true })">Archive</button>
           <template v-if="conv.is_unknown_sender || conv.sender_trust === 'unknown'">
             <button type="button" class="uc-btn ghost" :disabled="trustBusy" @click="markKnown">Mark known</button>
@@ -483,12 +512,23 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         </div>
       </header>
 
-      <div v-if="ticketManaged" class="uc-ticket-summary" role="status">
-        <strong v-if="conv.support_ticket_id">Ticket #{{ conv.support_ticket_id }}</strong>
+      <div v-if="ticketManaged" class="uc-ticket-summary">
+        <a v-if="conv.support_ticket_id" class="uc-btn primary" :href="ticketUrl" @click.prevent="emit('open-ticket', conv.support_ticket_id)">Open ticket #{{ conv.support_ticket_id }}</a>
         <span v-if="conv.ticket_replied">Replied · waiting for a response</span>
-        <span v-else-if="claimedBy">Claimed{{ conv.owner_first_name ? ` by ${conv.owner_first_name} ${conv.owner_last_name || ''}` : '' }} · managed in tickets</span>
+        <span v-else-if="claimedBy">Claimed{{ conv.owner_first_name ? ` by ${conv.owner_first_name} ${conv.owner_last_name || ''}` : '' }}</span>
         <span v-else>Available to claim · reading does not take ownership</span>
         <span v-if="conv.ticket_status">{{ conv.ticket_status.replace(/_/g, ' ') }}</span>
+        <button v-if="conv.can_claim_ticket && !claimedBy" type="button" class="uc-btn ghost" :disabled="claimBusy" @click="emit('claim-ticket')">{{ claimBusy ? 'Claiming…' : 'Claim ticket' }}</button>
+        <TicketAssignmentControl
+          v-if="canCloseTicket && conv.support_ticket_id && !conv.archived_at && conv.ticket_status !== 'closed'"
+          :ticket-id="conv.support_ticket_id"
+          :agency-id="conv.agency_id || agencyId"
+          :owner-id="claimedBy"
+          :owner-name="[conv.owner_first_name, conv.owner_last_name].filter(Boolean).join(' ')"
+          :viewer-id="viewerId"
+          @updated="emit('ticket-updated')"
+          @refresh="emit('ticket-updated')"
+        />
         <button
           v-if="canCloseTicket && (conv.is_ticketed_group || isTicketedGroup(conv)) && conv.support_ticket_id && !conv.archived_at"
           type="button"
@@ -526,10 +566,10 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         </button>
       </div>
 
-      <div class="uc-messages">
-        <button v-if="canLoadOlder" class="btn btn-secondary" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? 'Loading…' : 'Load older messages' }}</button>
+      <div ref="messageScroller" class="uc-messages">
+        <button v-if="canLoadOlder && !newestFirst" class="btn btn-secondary" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? 'Loading…' : 'Load older messages' }}</button>
         <article
-          v-for="msg in messages"
+          v-for="msg in visibleMessages"
           :key="msg.id"
           class="uc-msg"
           :class="{
@@ -557,15 +597,10 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
             <li v-for="a in msg.attachments" :key="a.id"><button class="btn btn-link" @click="downloadMessageAttachment(a)"><ConversaIcon type="attachment" :size="14" /> {{ a.filename }}</button></li>
           </ul>
         </article>
+        <button v-if="canLoadOlder && newestFirst" class="btn btn-secondary" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? 'Loading…' : 'Load older messages' }}</button>
       </div>
 
-      <footer v-if="ticketManaged" class="uc-composer uc-ticket-actions">
-        <p>You can follow this conversation without taking ownership. The assigned ticket owner replies from {{ conv.inbox_from_email || inbox?.from_email || 'the group address' }}.</p>
-        <button v-if="conv.can_claim_ticket && !claimedBy" type="button" class="uc-btn primary" :disabled="claimBusy" @click="emit('claim-ticket')">{{ claimBusy ? 'Claiming…' : 'Claim ticket' }}</button>
-        <a v-if="conv.support_ticket_id" class="uc-btn primary" :href="ticketUrl" @click.prevent="emit('open-ticket', conv.support_ticket_id)">Open ticket #{{ conv.support_ticket_id }}</a>
-        <p v-else>Ticket intake is pending. Refresh to check its status.</p>
-      </footer>
-      <footer v-else class="uc-composer">
+      <footer v-if="!ticketManaged" class="uc-composer">
         <p v-if="isCallLike" class="uc-channel-hint">
           Call/voicemail threads are read-only here. Add an internal note, or open Calls for recordings and dial-back.
         </p>
@@ -662,7 +697,6 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 <style scoped>
 .uc-ticket-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--conversa-wash); border-bottom: 1px solid var(--conversa-border); font-size: 0.82rem; }
 .uc-close-archive { margin-inline-start: auto; }
-.uc-ticket-actions p { font-size: 0.85rem; color: var(--conversa-muted); }
 .uc-thread {
   display: flex;
   flex-direction: column;

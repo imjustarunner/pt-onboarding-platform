@@ -357,12 +357,52 @@ it('shows website email senders, assignment provenance and truthful delivery rec
 });
 
 describe('compact support reply workspace', () => {
+  it('preserves a typed reply through takeover and displays the reason it could not send', async () => {
+    emailFixture();
+    const original = mocks.api.get.getMockImplementation();
+    let ownerId = 8;
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      mocks.api.get.mockImplementation(async (url, options) => {
+        if (url.endsWith('/101/messages')) return { data: {
+          ticket: { ...emailTicket, claimed_by_user_id: ownerId, claimed_by_first_name: ownerId === 8 ? 'Morgan' : 'Alex', ai_draft_response: 'Suggested from the thread' },
+          messages: [], senderOptions: emailOptions, lastMessageId: 41
+        } };
+        if (url.endsWith('/assignees')) return { data: { users: [{ id: 7, first_name: 'Alex' }] } };
+        return original(url, options);
+      });
+      mocks.api.post.mockImplementation(async url => {
+        if (url.endsWith('/assign')) {
+          ownerId = 7;
+          return { data: { id: 101, claimed_by_user_id: 7 } };
+        }
+        return { data: { emailReply: { status: 'sent' } } };
+      });
+      await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false }, { TicketAssignmentControl: false });
+      await wrapper.get('.composer-textarea').setValue('My reply');
+      expect(button('Send reply').element.disabled).toBe(true);
+      expect(wrapper.get('#ticket-send-block').text()).toContain('assigned to Morgan');
+      expect(wrapper.get('.reply-suggestion-text').text()).toBe('Suggested from the thread');
+      await button('Change owner').trigger('click');
+      await flushPromises();
+      await button('Take over').trigger('click');
+      await flushPromises();
+      expect(wrapper.get('.composer-textarea').element.value).toBe('My reply');
+      expect(button('Send reply').element.disabled).toBe(false);
+      await button('Send reply').trigger('click');
+      await flushPromises();
+      expect(mocks.api.post).toHaveBeenCalledWith('/support-tickets/101/messages', expect.objectContaining({ body: 'My reply' }));
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
   it('prepares a reply to a new inbound follow-up even when an earlier reply was sent',async()=>{
     emailFixture();const original=mocks.api.get.getMockImplementation();
     mocks.api.get.mockImplementation((url,options)=>url.endsWith('/101/messages')?Promise.resolve({data:{ticket:{...emailTicket,sent_at:'2026-11-12T12:00:00Z'},messages:[{id:41,body:'New question',email_delivery:{direction:'inbound'}}],senderOptions:emailOptions,lastMessageId:41}}):original(url,options));
     mocks.api.post.mockResolvedValue({data:{suggestedAnswer:'Reply to the new question',lastMessageId:41}});
     await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
-    expect(wrapper.get('.composer-textarea').element.value).toBe('Reply to the new question');
+    expect(wrapper.get('.reply-suggestion-text').text()).toBe('Reply to the new question');
   });
   it('prepares the next ticket while an earlier automatic draft is still pending',async()=>{
     emailFixture();const original=mocks.api.get.getMockImplementation();let finishFirst;
@@ -370,9 +410,9 @@ describe('compact support reply workspace', () => {
     mocks.api.post.mockImplementation(url=>url==='/support-tickets/101/generate-response'?new Promise(resolve=>{finishFirst=resolve;}):Promise.resolve({data:{suggestedAnswer:'Second ticket draft',lastMessageId:51}}));
     await render();await wrapper.find('.ticket-row').trigger('click');await flushPromises();
     await button('Next').trigger('click');await flushPromises();
-    expect(wrapper.get('.composer-textarea').element.value).toBe('Second ticket draft');
+    expect(wrapper.get('.reply-suggestion-text').text()).toBe('Second ticket draft');
     finishFirst({data:{suggestedAnswer:'Old first ticket draft',lastMessageId:41}});await flushPromises();
-    expect(wrapper.get('.composer-textarea').element.value).toBe('Second ticket draft');
+    expect(wrapper.get('.reply-suggestion-text').text()).toBe('Second ticket draft');
   });
   it('automatically prepares a missing email draft without claiming the ticket', async () => {
     emailFixture();
@@ -381,7 +421,10 @@ describe('compact support reply workspace', () => {
     mocks.api.post.mockResolvedValue({ data: { suggestedAnswer: 'Thanks for sending the packet.', draftSnapshotId: 50, lastMessageId: 41 } });
     await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false });
     expect(mocks.api.post.mock.calls.map(([url])=>url)).toEqual(['/support-tickets/101/generate-response']);
-    expect(wrapper.get('.reply-col .composer-textarea').element.value).toBe('Thanks for sending the packet.');
+    expect(wrapper.get('.reply-suggestion-text').text()).toBe('Thanks for sending the packet.');
+    expect(wrapper.get('.composer-textarea').element.value).toBe('');
+    await button('Use draft').trigger('click');
+    expect(wrapper.get('.composer-textarea').element.value).toBe('Thanks for sending the packet.');
     expect(wrapper.find('.conversation-col .composer').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('Community Standards');
     await button('Write my own').trigger('click');
@@ -394,6 +437,7 @@ describe('compact support reply workspace', () => {
     await wrapper.get('.composer-textarea').setValue('My own reply');
     finish({data:{suggestedAnswer:'Generated reply',lastMessageId:41}});await flushPromises();
     expect(wrapper.get('.composer-textarea').element.value).toBe('My own reply');
+    expect(wrapper.get('.reply-suggestion-text').text()).toBe('Generated reply');
     await button('Use draft').trigger('click');
     expect(wrapper.get('.composer-textarea').element.value).toBe('Generated reply');
   });

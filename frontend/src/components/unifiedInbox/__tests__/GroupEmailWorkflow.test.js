@@ -43,7 +43,7 @@ describe('Group Email ownership workflow', () => {
     wrapper = mount(Thread, { props: { detail: { conversation, messages: [], context: {} }, agencyId: 2, organizationSlug: 'agency-two' } });
     expect(wrapper.find('textarea').exists()).toBe(false);
     expect(wrapper.text()).toContain('reading does not take ownership');
-    expect(wrapper.findAll('button').some(button => ['Mark unread', 'Archive', 'Snooze'].includes(button.text()))).toBe(false);
+    expect(wrapper.findAll('button').some(button => ['Archive', 'Snooze'].includes(button.text()))).toBe(false);
     await wrapper.findAll('button').find(button => button.text() === 'Claim ticket').trigger('click');
     expect(wrapper.emitted('claim-ticket')).toHaveLength(1);
     expect(wrapper.get('a').attributes('href')).toBe('/agency-two/tickets?ticketId=7&agencyId=2');
@@ -52,6 +52,25 @@ describe('Group Email ownership workflow', () => {
     await wrapper.setProps({ detail: { conversation: { ...conversation, ticket_claimed_by_user_id: 5, ticket_replied: true }, messages: [], context: {} } });
     expect(wrapper.findAll('button').some(button => button.text() === 'Claim ticket')).toBe(false);
     expect(wrapper.text()).toContain('Replied');
+    await wrapper.findAll('button').find(button => button.text() === 'Mark unread').trigger('click');
+    expect(wrapper.emitted('patch')).toEqual([[{ markUnread: true }]]);
+  });
+
+  it('shows newest email first and ranks thread search by sender and body', async () => {
+    wrapper = mount(Thread, { props: { detail: {
+      conversation: { ...payroll, id: 41, agency_id: 2, channel: 'email', support_ticket_id: 7 },
+      messages: [
+        { id: 1, sent_at: '2026-11-20T20:00:00Z', from: { name: 'Taylor' }, body_text: 'Latest reply' },
+        { id: 2, sent_at: '2026-11-20T19:00:00Z', body_text: 'Older reply about receipts' }
+      ]
+    } } });
+    expect(wrapper.findAll('.uc-msg .conversation-email-text').map(message => message.text())).toEqual(['Latest reply', 'Older reply about receipts']);
+    await wrapper.get('[aria-label="Search this email thread"]').trigger('click');
+    const search = wrapper.get('input[type="search"]');
+    await search.setValue('reply reciepts');
+    expect(wrapper.findAll('.uc-msg .conversation-email-text').map(message => message.text())).toEqual(['Older reply about receipts']);
+    await search.setValue('Taylor');
+    expect(wrapper.findAll('.uc-msg .conversation-email-text').map(message => message.text())).toEqual(['Latest reply']);
   });
 });
 

@@ -250,6 +250,18 @@
               </div>
             </div>
             <div class="detail-actions">
+              <TicketAssignmentControl
+                ref="assignmentControl"
+                v-if="canAssignOthers && selected.agency_id && selected.status !== 'closed' && (!canonicalTicketId || Number(canonicalTicketId) === Number(selectedId))"
+                :key="selected.id"
+                :ticket-id="selected.id"
+                :agency-id="selected.agency_id"
+                :owner-id="selected.claimed_by_user_id"
+                :owner-name="assigneeName(selected)"
+                :viewer-id="myUserId"
+                @updated="refreshAssignedTicket"
+                @refresh="loadMessages(selected.id, { quiet: true })"
+              />
               <button
                 type="button"
                 class="btn btn-secondary btn-sm"
@@ -333,9 +345,15 @@
                   type="button"
                   class="tab"
                   :class="{ active: detailTab === 'details' }"
-                  @click="detailTab = 'details'"
+                  @click="threadQuery = ''; detailTab = 'details'"
                 >Details</button>
                 <button v-if="emailReceipts.length" type="button" class="tab" @click="emailHistoryOpen = true">Email history ({{ emailReceipts.length }})</button>
+                <ThreadEmailSearch
+                  v-if="newestFirst && detailTab === 'conversation'"
+                  :key="selectedId"
+                  v-model:query="threadQuery"
+                  :match-count="visibleMessages.length + Number(showOriginalInquiry)"
+                />
                 <span v-if="ticketAttachments.length" class="attach-chip">
                   {{ ticketAttachments.length }} attachment{{ ticketAttachments.length === 1 ? '' : 's' }}
                 </span>
@@ -354,19 +372,19 @@
                 This email thread continues in ticket #{{ canonicalTicketId }}. Closing notes remain here.
                 <button type="button" class="btn btn-secondary btn-xs" @click="openCanonicalThread">Open email conversation</button>
               </div>
-              <div class="conversation-scroll">
+              <div ref="conversationScroller" class="conversation-scroll">
               <!-- Conversation tab -->
               <template v-if="detailTab === 'conversation'">
                 <div v-if="messagesLoading" class="muted pad">Loading conversation…</div>
                 <div v-else-if="messagesError" class="error pad">{{ messagesError }}</div>
-                <div v-else class="thread" ref="threadEl">
-                  <div v-if="originalInquiry" class="bubble">
+                <div v-else class="thread">
+                  <div v-if="originalInquiry && !newestFirst" class="bubble">
                     <div class="bubble-meta"><strong>{{ selected.source_email_from || 'Original inquiry' }}</strong><span>{{ formatDateTime(selected.created_at) }}</span></div>
                     <ConversationEmailBody v-if="selected.source_channel === 'email'" :message="{ body_text: originalInquiry }" />
                     <div v-else class="bubble-body">{{ originalInquiry }}</div>
                   </div>
                   <div
-                    v-for="m in messages"
+                    v-for="m in visibleMessages"
                     :key="m.id"
                     class="bubble"
                     :class="{
@@ -389,8 +407,13 @@
                   </div>
 
                   <p v-if="attachmentOpenError" class="error" role="alert">{{ attachmentOpenError }}</p>
+                  <div v-if="showOriginalInquiry && newestFirst" class="bubble">
+                    <div class="bubble-meta"><strong>{{ selected.source_email_from || 'Original inquiry' }}</strong><span>{{ formatDateTime(selected.created_at) }}</span></div>
+                    <ConversationEmailBody v-if="selected.source_channel === 'email'" :message="{ body_text: originalInquiry }" />
+                    <div v-else class="bubble-body">{{ originalInquiry }}</div>
+                  </div>
                   <TicketAttachmentFiling
-                    v-if="ticketAttachments.length"
+                    v-if="ticketAttachments.length && !threadQuery.trim()"
                     :key="selected.id"
                     :ticket="selected"
                     :attachments="ticketAttachments"
@@ -505,29 +528,8 @@
                 <label>Assigned to</label>
                 <div>{{ assigneeName(selected) || 'Unassigned' }}</div>
                 <div class="ticket-assignment-history" aria-label="Assignment history">
-                  <p v-for="event in assignmentHistory" :key="event.id">{{ event.kind === 'routed' ? 'Automatically routed' : event.kind === 'claimed' ? 'Claimed' : event.kind === 'unassigned' ? 'Returned to queue' : 'Assigned' }} by {{ event.actorName }} · {{ formatDateTime(event.at) }}<span v-if="event.reason"> · {{ event.reason }}</span></p>
+                  <p v-for="event in assignmentHistory" :key="event.id">{{ assignmentEventLabel(event) }} by {{ event.actorName }} · {{ formatDateTime(event.at) }}<span v-if="event.reason"> · {{ event.reason }}</span></p>
                   <p v-if="selected.claimed_by_user_id && !assignmentHistory.length" class="muted">This earlier assignment has no recorded assigning person.</p>
-                </div>
-                <div v-if="canAssignOthers" class="assign-row">
-                  <select v-model="assignToId" :disabled="busy || assigning">
-                    <option value="">Reassign…</option>
-                    <option
-                      v-for="u in assigneesForSelectedTopic"
-                      :key="u.id"
-                      :value="String(u.id)"
-                      :title="assigneeOptionTitle(u)"
-                    >
-                      {{ formatAssignee(u) }}{{ responsibilitySuffix(u) }}
-                    </option>
-                  </select>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-xs"
-                    :disabled="busy || assigning || !assignToId"
-                    @click="assignTicket"
-                  >
-                    {{ assigning ? '…' : 'Assign' }}
-                  </button>
                 </div>
               </div>
               <div class="meta-block">
@@ -848,12 +850,22 @@
               </div>
 
               <div ref="composerEl" class="composer">
-                <div v-if="canAnswer && composerMode !== 'internal'" class="draft-choice">
-                  <span>{{ generatingDraft ? 'Preparing draft…' : 'Reply draft' }}</span>
-                  <button v-if="selected.ai_draft_response && draft !== selected.ai_draft_response" type="button" class="btn btn-secondary btn-xs" @click="useAiDraft">Use draft</button>
-                  <button v-if="selected.ai_draft_response" type="button" class="btn btn-secondary btn-xs" :disabled="reviewingDraft || !draft.trim()" @click="markDraftReview(draft.trim() === selected.ai_draft_response.trim() ? 'accepted' : 'edited')">{{ ['accepted','edited'].includes(selected.ai_draft_review_state) ? 'Draft accepted' : 'Accept draft' }}</button>
-                  <button type="button" class="btn btn-secondary btn-xs" @click="writeOwnReply">Write my own</button>
-                </div>
+                <section v-if="canAnswer && composerMode !== 'internal'" class="reply-suggestion" aria-label="Suggested reply">
+                  <h3>Suggested reply</h3>
+                  <p v-if="generatingDraft" role="status">Preparing a suggestion…</p>
+                  <template v-else-if="suggestedReply">
+                    <p v-if="suggestionIsStale" class="muted">This suggestion was prepared before the latest conversation activity.</p>
+                    <div class="reply-suggestion-text">{{ suggestedReply }}</div>
+                    <p v-if="draftWarnings.length" class="email-delivery-notice">Review before sending · {{ draftWarnings.join(' · ') }}</p>
+                  </template>
+                  <p v-else-if="draftPreparationNotice" class="muted" role="status">{{ draftPreparationNotice }}</p>
+                  <p v-else-if="!messagesLoading" class="muted">{{ selected.ai_draft_status === 'suppressed' ? 'No suggested reply for this message.' : 'No suggestion is available yet.' }}</p>
+                  <div v-if="canActOnSelected" class="draft-choice">
+                    <button v-if="suggestedReply && !generatingDraft" type="button" class="btn btn-secondary btn-xs" :disabled="suggestionIsStale || draft === suggestedReply" @click="useAiDraft">Use draft</button>
+                    <button v-if="suggestedReply && !generatingDraft && draftSnapshotId && draft.trim()" type="button" class="btn btn-secondary btn-xs" :disabled="reviewingDraft || draftIsStale" @click="markDraftReview(draft.trim() === suggestedReply ? 'accepted' : 'edited')">{{ ['accepted','edited'].includes(selected.ai_draft_review_state) ? 'Draft accepted' : 'Accept draft' }}</button>
+                    <button type="button" class="btn btn-secondary btn-xs" @click="writeOwnReply">Write my own</button>
+                  </div>
+                </section>
                 <div v-if="canInternal || canAnswer" class="composer-tabs">
                   <button
                     type="button"
@@ -906,7 +918,6 @@
                   <button type="button" class="btn btn-secondary btn-xs" @click="startFreshReply">I reviewed the conversation; keep my reply</button>
                 </div>
                 <p v-if="emailNotice" class="email-delivery-notice" role="status">{{ emailNotice }}</p>
-                <p v-if="draftWarnings.length && composerMode !== 'internal'" class="email-delivery-notice">Review before sending: {{ draftWarnings.join('; ') }}</p>
                 <textarea
                   v-model="draft"
                   class="composer-textarea"
@@ -959,19 +970,18 @@
                   placeholder="Library template title (optional)"
                 />
                 <TicketAttachmentComposer ref="replyAttachments" v-if="selected?.id && composerMode !== 'internal'" :key="selected.id" :ticket-id="selected.id" :disabled="sending || messagesLoading" :show-files="false" @busy="replyAttachmentBusy = $event" @uploaded="loadMessages(selected.id)" />
-                <div v-if="actionError" class="error">{{ actionError }}</div>
                 <div class="composer-actions">
                   <button
-                    v-if="canAnswer && composerMode !== 'internal'"
+                    v-if="canAnswer && canActOnSelected && composerMode !== 'internal'"
                     type="button"
                     class="btn btn-secondary"
                     :disabled="generatingDraft || busy || !selected?.id"
                     @click="generateDraft({ replace: true })"
                   >
-                    {{ generatingDraft ? 'Generating…' : (draft.trim() ? 'Regenerate' : 'AI draft') }}
+                    {{ generatingDraft ? 'Generating…' : (suggestedReply ? 'Regenerate' : 'AI draft') }}
                   </button>
                   <button
-                    v-if="canAnswer && composerMode !== 'internal'"
+                    v-if="canAnswer && canActOnSelected && composerMode !== 'internal'"
                     type="button"
                     class="btn btn-secondary"
                     :disabled="generatingDraft || busy || !selected?.id"
@@ -989,6 +999,16 @@
                     Reply library
                     <span v-if="pendingProposalCount" class="reply-lib-badge">{{ pendingProposalCount }}</span>
                   </button>
+                </div>
+                <div class="composer-send-bar">
+                  <p v-if="actionError" class="error" role="alert">{{ actionError }}</p>
+                  <p v-if="emailSendBlock" class="muted" id="ticket-send-block">{{ emailSendBlock }}</p>
+                  <button
+                    v-if="emailSendBlock && !canActOnSelected && assignmentControl"
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    @click="assignmentControl.showOptions()"
+                  >Change owner</button>
                   <button
                     v-if="composerMode === 'answer'"
                     type="button"
@@ -1002,7 +1022,8 @@
                     v-else
                     type="button"
                     class="btn btn-primary"
-                    :disabled="sending || replyAttachmentBusy || !draft.trim() || (isEmailTicket && composerMode !== 'internal' && (!selectedSender || !canActOnSelected || (canonicalTicketId && Number(canonicalTicketId) !== Number(selectedId))))"
+                    :disabled="sending || replyAttachmentBusy || !draft.trim() || messagesLoading || !!emailSendBlock"
+                    :aria-describedby="emailSendBlock ? 'ticket-send-block' : undefined"
                     @click="sendMessage"
                   >
                     {{ sending ? 'Sending…' : composerMode === 'internal' ? 'Add note' : 'Send reply' }}
@@ -1061,6 +1082,10 @@ import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { recordsRequestQueueUrl } from '../../utils/recordsRequestTicket.js';
 import TicketAttachmentFiling from './TicketAttachmentFiling.vue';
 import TicketEmailDialog from './TicketEmailDialog.vue';
+import TicketAssignmentControl from './TicketAssignmentControl.vue';
+import ThreadEmailSearch from '../messages/ThreadEmailSearch.vue';
+import { emailConversationText } from '../../utils/emailConversationText';
+import { rankEmailMessages } from '../../utils/threadEmailSearch';
 import { publicTicketOriginalInquiry, websiteTicket, ticketAgencyColor, ticketAgencyLogo } from '../../utils/publicTicketPresentation';
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1071,8 +1096,7 @@ import TenantContextSwitcher from '../TenantContextSwitcher.vue';
 import SchoolSupportReplyLibraryModal from './SchoolSupportReplyLibraryModal.vue';
 import {
   TICKET_TOPICS,
-  ticketTopicLabel,
-  responsibilityFlagsLabel
+  ticketTopicLabel
 } from '../../utils/ticketTopics';
 
 const ReferralUpload = defineAsyncComponent(() => import('../school/ReferralUpload.vue'));
@@ -1307,27 +1331,22 @@ const tenantAgencyId = computed({
 });
 const viewMode = ref('all'); // all | mine (agency queue)
 const isNarrow = ref(false);
-const threadEl = ref(null);
-const assignees = ref([]);
-const assignToId = ref('');
-const assigning = ref(false);
-/** Prefer responsibility-flagged people for specialized ticket topics (admins always listed). */
-const assigneesForSelectedTopic = computed(() => {
-  const list = assignees.value || [];
-  const topic = String(selected.value?.topic || 'general').toLowerCase();
-  if (!topic || topic === 'general') return list;
-  return list.filter((u) => {
-    const role = String(u?.role || '').toLowerCase();
-    if (role === 'admin' || role === 'super_admin') return true;
-    if (topic === 'billing') return !!(u.has_billing_access || u.hasBillingAccess);
-    if (topic === 'payroll') return !!(u.has_payroll_access || u.hasPayrollAccess);
-    if (topic === 'credentialing') {
-      return !!(u.can_manage_credentialing || u.has_credentialing_access || u.hasCredentialingAccess);
-    }
-    return true;
-  });
+const conversationScroller = ref(null);
+const threadQuery = ref('');
+const assignmentControl = ref(null);
+watch(selectedId, () => { threadQuery.value = ''; });
+watch(threadQuery, () => {
+  if (conversationScroller.value) conversationScroller.value.scrollTop = 0;
 });
+function ticketMessageTime(message) {
+  return Date.parse(message.email_delivery?.sent_at || message.created_at) || 0;
+}
+const newestFirst = computed(() => isEmailTicket.value && !isSchoolStaff.value);
+const displayedMessages = computed(() => newestFirst.value
+  ? [...messages.value].sort((a, b) => ticketMessageTime(b) - ticketMessageTime(a) || Number(b.id) - Number(a.id))
+  : messages.value);
 const generatingDraft = ref(false);
+const draftPreparationNotice = ref('');
 const autoDraftPreparedIds = ref(new Set());
 const reviewingDraft = ref(false);
 const markingSent = ref(false);
@@ -1625,27 +1644,35 @@ const canActOnSelected = computed(() => {
   return claimed === Number(myUserId.value || 0);
 });
 
+const emailSendBlock = computed(() => {
+  if (!isEmailTicket.value || composerMode.value === 'internal') return '';
+  if (canonicalTicketId.value && Number(canonicalTicketId.value) !== Number(selectedId.value)) {
+    return `Open ticket #${canonicalTicketId.value} to reply to this conversation.`;
+  }
+  if (!canActOnSelected.value) {
+    const owner = assigneeName(selected.value) || 'another team member';
+    return `This ticket is assigned to ${owner}. Take over the ticket to send your reply.`;
+  }
+  if (!selectedSender.value && !messagesLoading.value) {
+    return senderOptions.value.length
+      ? 'Choose a Reply from address to send your reply.'
+      : 'Your account has no available sender for this ticket.';
+  }
+  return '';
+});
+
 function ticketIsAwaitingAnswer(t = selected.value) {
   if (!t) return false;
   const status = String(t?.status || '').toLowerCase();
   if (['answered', 'closed'].includes(status)) return false;
-  const latestEmail = [...messages.value].reverse().find(message => message.email_delivery && !message.is_internal && !message.is_deleted);
+  const latestEmail = displayedMessages.value.find(message => message.email_delivery && !message.is_internal && !message.is_deleted
+    && !['scheduled', 'cancelled', 'failed', 'preparing'].includes(message.email_delivery.send_status));
   return latestEmail ? latestEmail.email_delivery.direction === 'inbound' : !t?.sent_at;
 }
 
-const prominentDraftText = computed(() => {
-  const fromTicket = String(selected.value?.ai_draft_response || '').trim();
-  if (fromTicket) return fromTicket;
-  if (composerMode.value === 'answer') return String(draft.value || '').trim();
-  return '';
-});
-
-const showAutoDraftBanner = computed(() =>
-  canAnswer.value
-  && isEmailTicket.value
-  && ticketIsAwaitingAnswer(selected.value)
-  && (generatingDraft.value || !!prominentDraftText.value)
-);
+const suggestedReply = computed(() => String(selected.value?.ai_draft_response || '').trim());
+const suggestionIsStale = computed(() => selected.value?.ai_draft_thread_revision != null
+  && String(selected.value.ai_draft_thread_revision) !== String(lastMessageId.value));
 
 const composerPlaceholder = computed(() => {
   if (composerMode.value === 'internal') return 'Internal note (agency only)…';
@@ -1694,16 +1721,13 @@ function formatAssignee(u) {
   return name || u?.email || `User #${u?.id}`;
 }
 
-function responsibilitySuffix(u) {
-  const flags = responsibilityFlagsLabel(u);
-  return flags ? ` · ${flags}` : '';
-}
-
-function assigneeOptionTitle(u) {
-  const flags = responsibilityFlagsLabel(u);
-  const name = formatAssignee(u);
-  if (!flags) return name;
-  return `${name} — responsibility: ${flags}`;
+function assignmentEventLabel(event) {
+  const previous = event.previousName || (event.previousUserId && `User #${event.previousUserId}`);
+  const assignee = event.assigneeName || (event.assigneeUserId && `User #${event.assigneeUserId}`);
+  if (event.kind === 'unassigned') return previous ? `Returned to queue from ${previous}` : 'Returned to queue';
+  if (previous && assignee) return `Reassigned from ${previous} to ${assignee}`;
+  const action = event.kind === 'routed' ? 'Automatically routed' : event.kind === 'claimed' ? 'Claimed' : 'Assigned';
+  return assignee ? `${action} to ${assignee}` : action;
 }
 
 function messageAuthor(m) {
@@ -1725,6 +1749,17 @@ function messageAuthor(m) {
 }
 
 const originalInquiry = computed(() => publicTicketOriginalInquiry(selected.value, messages.value));
+const emailSearchIndex = computed(() => displayedMessages.value.filter(message => !message.is_internal && !message.is_deleted).map(message => ({
+  message,
+  header: [message.email_delivery?.subject || selected.value.subject, messageAuthor(message),
+    message.email_delivery?.from_email, message.email_delivery?.from_name].filter(Boolean).join(' '),
+  body: emailConversationText({ body_text: message.body })
+})));
+const visibleMessages = computed(() => newestFirst.value && threadQuery.value.trim()
+  ? rankEmailMessages(emailSearchIndex.value, threadQuery.value)
+  : displayedMessages.value);
+const showOriginalInquiry = computed(() => !!originalInquiry.value && (!threadQuery.value.trim() ||
+  rankEmailMessages([{ message: originalInquiry.value, header: selected.value.subject, body: originalInquiry.value }], threadQuery.value).length > 0));
 function sourceLabel(t) {
   if (t?.source_channel) return String(t.source_channel);
   if (t?.created_by_source_key) return 'External';
@@ -1968,16 +2003,15 @@ async function loadMessages(ticketId, { quiet = false } = {}) {
       emailNotice.value = 'The conversation has new activity. Review the latest message before sending.';
     }
     lastMessageId.value = revision;
-    if (!draft.value.trim() || draft.value === r.data?.ticket?.ai_draft_response) {
-      draftSnapshotId.value = r.data?.draftSnapshotId || null;
-      draftThreadRevision.value = r.data?.draftThreadRevision ?? null;
-    }
     draftWarnings.value = r.data?.draftWarnings || [];
     if (!quiet) emit('loaded', { ticketId, readBefore: r.data?.readBefore });
     if (canAnswer.value) loadTicketActions(ticketId);
-    if (!draft.value.trim()) maybeAutoPrepareDraftOnOpen(selected.value);
+    void maybeAutoPrepareDraftOnOpen(selected.value);
     await nextTick();
-    if (current() && !quiet && threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
+    if (current() && !quiet && conversationScroller.value) {
+      const scroller = conversationScroller.value;
+      scroller.scrollTop = newestFirst.value ? 0 : scroller.scrollHeight;
+    }
   } catch (e) {
     if (!current()) return;
     messagesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load messages';
@@ -2081,7 +2115,7 @@ function selectTicket(t) {
   actionError.value = '';
   showRegenGuidance.value = false;
   regenGuidance.value = '';
-  assignToId.value = '';
+  draftPreparationNotice.value = '';
   showForward.value = false;
   forwardProviders.value = [];
   forwardSelectedIds.value = [];
@@ -2101,7 +2135,6 @@ function selectTicket(t) {
     router.replace({ query: q }).catch(() => {});
   }
   loadMessages(t.id);
-  if (canAssignOthers.value) loadAssignees(t);
   if (canAnswer.value) loadTicketActions(t.id);
   if (canAnswer.value && isEmailTicket.value) loadResponsePlan(t.id);
 
@@ -2114,19 +2147,13 @@ async function maybeAutoPrepareDraftOnOpen(t) {
   if (!ticketIsAwaitingAnswer(ticket)) return;
   const preparationKey = `${ticket.id}:${lastMessageId.value}`;
   if (autoDraftPreparedIds.value.has(preparationKey)) return;
-  if (!canActOnSelected.value) return;
-  if (String(draft.value || '').trim()) return;
+  if (!canActOnSelected.value || composerMode.value === 'internal') return;
+  if (suggestedReply.value && !suggestionIsStale.value) return;
+  if (ticket.ai_draft_status === 'suppressed') return;
+  if (canonicalTicketId.value && Number(canonicalTicketId.value) !== Number(ticket.id)) return;
 
   autoDraftPreparedIds.value = new Set([...autoDraftPreparedIds.value, preparationKey]);
-
-  const existing = String(ticket.ai_draft_response || '').trim();
-  if (existing) {
-    setReplyDraft(existing);
-    return;
-  }
-
-  if (ticket.ai_draft_status === 'suppressed' || composerMode.value === 'internal') return;
-  await generateDraft({ replace: true, automatic: true });
+  await generateDraft({ automatic: true });
 }
 
 function clearSelection({ persist = true } = {}) {
@@ -2184,8 +2211,6 @@ async function openTicketAttachment(att) {
 }
 
 function writeOwnReply() {
-  draftGenerationSequence += 1;
-  generatingDraft.value = false;
   switchComposerMode('reply');
   draft.value = '';
   draftSnapshotId.value = null;
@@ -2428,7 +2453,7 @@ async function sendMessage() {
   const mode = composerMode.value;
   const body = draft.value.trim();
   const email = isEmailTicket.value && mode !== 'internal';
-  if (email && !selectedSender.value) { actionError.value = 'Choose a shared email sender before replying.'; return; }
+  if (email && (emailSendBlock.value || !selectedSender.value)) return;
   const storageKey = draftStorageKey(ticketId);
   const fingerprint = JSON.stringify([ticketId, mode, body, senderIdentityId.value, senderMode.value]);
   if (sendAttempt.value?.fingerprint !== fingerprint) {
@@ -2475,7 +2500,7 @@ async function sendMessage() {
     if (sendContext.current()) await loadMetrics();
   } catch (e) {
     if (sendContext.current()) {
-      messagesError.value = e?.response?.data?.error?.message || e?.message || 'Send failed. Your reply is saved.';
+      actionError.value = e?.response?.data?.error?.message || e?.message || 'Send failed. Your reply is saved.';
       if (e?.response?.status === 409) await loadMessages(ticketId);
     }
   } finally { sendContext.finish(); }
@@ -2571,40 +2596,10 @@ async function onPriorityChange(ev) {
   }
 }
 
-async function loadAssignees(t) {
-  try {
-    const agencyId = t?.agency_id || agencyIdInput.value || agencyStore.currentAgency?.id;
-    if (!agencyId) {
-      assignees.value = [];
-      return;
-    }
-    const resp = await api.get('/support-tickets/assignees', {
-      params: { agencyId },
-      skipGlobalLoading: true
-    });
-    assignees.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
-  } catch {
-    assignees.value = [];
-  }
-}
-
-async function assignTicket() {
-  if (!selected.value?.id || !assignToId.value) return;
-  assigning.value = true;
-  actionError.value = '';
-  try {
-    await api.post(`/support-tickets/${selected.value.id}/assign`, {
-      assigneeUserId: parseInt(assignToId.value, 10)
-    });
-    assignToId.value = '';
-    await loadAll();
-    await loadMessages(selected.value.id);
-    emit('updated', selected.value);
-  } catch (e) {
-    actionError.value = e?.response?.data?.error?.message || e?.message || 'Assign failed';
-  } finally {
-    assigning.value = false;
-  }
+async function refreshAssignedTicket(ticket) {
+  if (Number(selectedId.value) !== Number(ticket?.id)) return;
+  await Promise.all([loadAll(), loadMessages(ticket.id, { quiet: true })]);
+  if (Number(selectedId.value) === Number(ticket.id)) emit('updated', selected.value);
 }
 
 function insertReplyLibraryText(text) {
@@ -2622,9 +2617,9 @@ async function generateDraft({ replace = true, guidance = null, automatic = fals
   const initialText = draft.value;
   const initialMode = composerMode.value;
   const sequence = ++draftGenerationSequence;
-  generatingDraft.value = true; actionError.value = '';
+  generatingDraft.value = true; actionError.value = ''; draftPreparationNotice.value = '';
   try {
-    if (!automatic && !selected.value.claimed_by_user_id) {
+    if (!automatic && !isEmailTicket.value && !selected.value.claimed_by_user_id) {
       await api.post(`/support-tickets/${ticketId}/claim`, {}, { skipGlobalLoading: true });
     }
     const guide = String(guidance ?? '').trim();
@@ -2633,22 +2628,29 @@ async function generateDraft({ replace = true, guidance = null, automatic = fals
     const text = String(r.data?.suggestedAnswer || '').trim();
     draftSources.value = r.data?.draftSources || [];
     draftWarnings.value = r.data?.reviewWarnings || [];
-    selected.value = { ...selected.value, ai_draft_response: text, ai_draft_review_state: 'pending', draft_sources: draftSources.value, ai_draft_snapshot_id: r.data?.draftSnapshotId || null, ai_draft_thread_revision: r.data?.lastMessageId ?? null };
-    if (!text) { actionError.value = r.data?.suppressionReason || 'No reply draft is needed for this message.'; return; }
-    if (draft.value !== initialText || composerMode.value !== initialMode) {
-      emailNotice.value = 'A new draft is ready. Your edits have been kept; choose Use draft to replace them.';
+    selected.value = { ...selected.value, ai_draft_response: text, ai_draft_status: r.data?.suppressed ? 'suppressed' : 'needs_review', ai_draft_review_state: 'pending', draft_sources: draftSources.value, ai_draft_snapshot_id: r.data?.draftSnapshotId || null, ai_draft_thread_revision: r.data?.lastMessageId ?? null };
+    if (!text) {
+      draftPreparationNotice.value = 'No suggested reply for this message.';
       return;
     }
-    draftSnapshotId.value = r.data?.draftSnapshotId || null;
-    draftThreadRevision.value = r.data?.lastMessageId ?? null;
-    lastMessageId.value = Number(r.data?.lastMessageId || lastMessageId.value);
-    setReplyDraft(replace || !initialText.trim() ? text : `${initialText.trim()}\n\n${text}`);
+
+    if (!isEmailTicket.value && draft.value === initialText && composerMode.value === initialMode) {
+      draftSnapshotId.value = r.data?.draftSnapshotId || null;
+      draftThreadRevision.value = r.data?.lastMessageId ?? null;
+      setReplyDraft(replace || !initialText.trim() ? text : `${initialText.trim()}\n\n${text}`);
+    }
     const found = tickets.value.find((x) => Number(x.id) === Number(ticketId));
     if (found) Object.assign(found, { ai_draft_response: text, ai_draft_review_state: 'pending' });
     showRegenGuidance.value = false;
-    await loadResponsePlan(ticketId);
+    if (Number(r.data?.lastMessageId || 0) > lastMessageId.value) {
+      await loadMessages(ticketId, { quiet: true });
+    }
+    if (Number(selectedId.value) === Number(ticketId)) await loadResponsePlan(ticketId);
   } catch (e) {
-    if (Number(selectedId.value) === Number(ticketId)) actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate draft';
+    if (Number(selectedId.value) === Number(ticketId) && sequence === draftGenerationSequence) {
+      const message = e?.response?.data?.error?.message || e?.message || 'Failed to generate draft';
+      draftPreparationNotice.value = message;
+    }
   } finally { if (sequence === draftGenerationSequence) generatingDraft.value = false; }
 }
 
@@ -2662,6 +2664,7 @@ async function runRegenWithGuidance() {
 }
 
 function useAiDraft() {
+  if (!canActOnSelected.value || suggestionIsStale.value) return;
   draftSnapshotId.value = selected.value?.ai_draft_snapshot_id || null;
   draftThreadRevision.value = selected.value?.ai_draft_thread_revision ?? null;
   const text = String(selected.value?.ai_draft_response || '').trim();
@@ -3847,13 +3850,7 @@ defineExpose({ loadAll, clearSelection });
   margin-bottom: 6px;
 }
 .pad-sm { padding: 4px 0; }
-.assign-row {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-  align-items: center;
-}
-.assign-row select { flex: 1; }
+
 .forward-block { border-top: 1px solid var(--border, #e2e8f0); padding-top: 10px; }
 .forward-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .forward-pill {
@@ -3955,7 +3952,7 @@ defineExpose({ loadAll, clearSelection });
 .ticket-desk--platform .detail-pane,
 .ticket-desk--platform .meta-sidebar,
 .ticket-desk--platform .composer textarea,
-.ticket-desk--platform .assign-row select {
+.ticket-desk--platform :deep(.assignment-options select) {
   background: var(--bg-card);
   border-color: var(--border);
   color: var(--text-primary);
@@ -4095,7 +4092,33 @@ defineExpose({ loadAll, clearSelection });
 .reply-col .composer{flex:1;position:static;padding:10px;border:0;background:var(--bg-card,#fff)}
 .reply-col .response-plan-banner,.reply-col .suggested-actions-banner{margin:8px 10px 0;padding:8px;font-size:12px;flex-shrink:0}
 .reply-col .response-plan-head,.reply-col .suggested-actions-head{gap:5px}.reply-col .response-plan-steps{padding-left:0}
-.draft-choice{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.draft-choice>span{font-size:13px;font-weight:700;margin-right:auto}
+.reply-suggestion {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border, #dbe4ef);
+  border-radius: 10px;
+  background: var(--bg-secondary, #f5f8fc);
+}
+.reply-suggestion h3, .reply-suggestion p { margin: 0; }
+.reply-suggestion h3 { font-size: .95rem; }
+.reply-suggestion-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.draft-choice { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.composer-send-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border, #dbe4ef);
+  background: var(--bg-card, #fff);
+}
+.composer-send-bar p { flex: 1 1 200px; margin: 0; font-size: .85rem; }
 .composer-tabs{margin-bottom:8px}.composer-actions{gap:6px;flex-wrap:wrap}.composer-actions .btn{font-size:12px;padding:6px 9px}
 .reply-col .composer-textarea{min-height:180px;max-height:45dvh;resize:vertical;font-size:14px}
 .reply-col .email-sender-controls{padding:6px;gap:6px;font-size:12px}.reply-col .email-sender-controls p{margin:3px 0}
