@@ -21,8 +21,19 @@ export function planObjectiveReview(goals, ratings, previousScores = {}) {
       if (!observation) missing.push(objective.id);
       else objectives.push({ goal: goal.goal_text || goal.title, objective: objective.objective_text || objective.title,
         ...(previousScores[objective.id] != null ? { previousRating: previousScores[objective.id] } : {}),
+        ...(objective.scale_start != null ? {baseline:objective.scale_start} : {}),
         target: objective.scale_target ?? objective.scaleTarget ?? null, ...observation });
     }
   }
   return { objectives, missing };
+}
+
+export function formatObjectiveRatings(observations) {
+  const goals = new Map();
+  for (const item of observations || []) {
+    const goal = item.goal || 'Treatment goal';
+    if (!goals.has(goal)) goals.set(goal, []);
+    goals.get(goal).push(`${item.objective} — ${item.rating != null ? item.rating + '/10' : item.disposition}`);
+  }
+  return [...goals].map(([goal, lines]) => [goal, ...lines].join('\n')).join('\n\n');
 }

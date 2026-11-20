@@ -185,6 +185,7 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId,phase='out
    const previousScores=await ClinicalTreatmentObjectiveRating.previousClinicianScores({agencyId,clientId:client.id,dateOfService:eligible.dateOfService,
     objectiveIds:(eligible.plan?.goals || []).flatMap(goal=>(goal.objectives || []).map(o=>o.id))},clinicalDb);
    planReview = {planId:eligible.planId, eligible:eligible.eligible, message:eligible.message,
+    ...(eligible.plan?.presentingProblem ? {presentingProblem:eligible.plan.presentingProblem} : {}),
     ...planObjectiveReview(eligible.plan?.goals,meta.objectiveRatings,previousScores)};
   }
  }

@@ -184,7 +184,8 @@ describe('Narriva pre-generation review', () => {
   it('checks a private draft grounded in current ratings and never returns that draft to the reviewer',async()=>{
     const workingDraft='Private provisional wording for a synthetic session.';
     source.planReview={eligible:true,missing:[],objectives:[{goal:'Increase independence',objective:'Use the practiced strategy',rating:4,target:8}]};
-    m.model.mockResolvedValueOnce({text:workingDraft,finishReason:'STOP'});
+    facts.draftReadyForDisplay=true;
+    m.model.mockResolvedValueOnce({text:workingDraft,modelName:'reviewed-writer',finishReason:'STOP'});
     const review=await preflight();
     expect(review.status).toBe('passed');
     expect(m.model).toHaveBeenCalledTimes(2);
@@ -197,6 +198,7 @@ describe('Narriva pre-generation review', () => {
     expect(JSON.stringify(review)).not.toContain(workingDraft);
     const verified=await assertNarrivaPreGeneration({user:clinician,body:{preflightReviewId:review.id}},{agencyId:2,clientId:10,draftId:42,clinicalSessionId:20,inputText:source.inputText});
     expect(verified.workingDraft).toBe(workingDraft);
+    expect(verified.reviewedWriter).toMatchObject({model:'reviewed-writer',guidanceHash:expect.any(String)});
   });
   it('returns the objective prompt before starting a writing or compliance job',async()=>{
     source.planReview={eligible:true,missing:[52],objectives:[]};

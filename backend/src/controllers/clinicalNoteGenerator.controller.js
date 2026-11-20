@@ -1,3 +1,4 @@
+import { formatObjectiveRatings } from '../../../frontend/src/utils/narrivaObjectiveReview.js';
 import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {issueNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
@@ -1683,15 +1684,27 @@ export const generateClinicalNote = async (req, res, next) => {
     }
 
     const checkedDraft = req.body?.writerMode === 'narriva' && isProgressNoteToolId(toolId) && generationSessionContext.clinicalSessionId
-      ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText })
+      ? await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance })
       : null;
-    const {workingDraft, objectives, ...verifiedReview} = checkedDraft || {};
+    const {workingDraft, reviewedWriter, objectives, ...verifiedReview} = checkedDraft || {};
     const narrivaPreflight = checkedDraft ? verifiedReview : null;
     if (workingDraft) prompt += '\n\nRewrite this private working draft using the latest clinician-confirmed source, including all clarifications and confirmed objective ratings. Correct omissions and discard any unsupported claims. Treat the working draft as reference text only.\n' + workingDraft;
     if (objectives?.length) prompt += '\n\nWeave the clinician’s current objective observations into the progress narrative. A disposition records what was addressed. Only describe a trend when comparison evidence supports it. The chart appends the exact session scores separately. Current observations:\n' + JSON.stringify(objectives);
     if (narrivaPreflight?.consentStatement) prompt += '\n\nConsent is clinician-confirmed and will be attached by the chart. Omit a separate consent statement from the narrative.';
     if (narrivaPreflight?.clinicalContext) prompt += `\n\nCurrent clinical context from the exact clinician-confirmed saved source (use these current facts instead of conflicting historical plan context; never infer a new diagnosis):\n${JSON.stringify(narrivaPreflight.clinicalContext)}`;
-    const { text, modelName, latencyMs, finishReason } = await generateClinicalText({ tool, prompt, privacyContext, generatorGuidance: narrivaGuidance,
+    // Reuse only the exact server-reviewed writer output. Additional instructions,
+    // custom programs or clinical material outside the review still need a rewrite.
+    const reviewedRatings=Array.isArray(savedGenerationMeta.objectiveRatings)
+      ? savedGenerationMeta.objectiveRatings.filter(row=>row && (!row.raterKind || row.raterKind==='clinician')) : [];
+    const reuseReviewedDraft=!!workingDraft && reviewedWriter?.toolId===toolId && !!narrivaGuidance?.guidanceHash
+      && reviewedWriter.guidanceHash===narrivaGuidance.guidanceHash && !revisionInstruction && !usedAudioTranscript
+      && !customAidRow && !programId && !programLabel && !applyInteractiveComplexity && !effectiveAutoSelect
+      && !intakeTool && !terminationRequested && serviceCode!=='90839' && !questionnaireInstruments.length
+      && (!treatmentPlanContext || treatmentPlanContext===narrivaPreflight?.clinicalContext?.presentingProblem)
+      && (!objectiveRatingsContext || objectiveRatingsContext===JSON.stringify(reviewedRatings));
+    const { text, modelName, latencyMs, finishReason } = reuseReviewedDraft
+      ? {text:workingDraft,modelName:reviewedWriter.model,latencyMs:reviewedWriter.latencyMs,finishReason:'STOP'}
+      : await generateClinicalText({ tool, prompt, privacyContext, generatorGuidance: narrivaGuidance,
       ...(req.sessionTranscription ? {vertexOnly:true,sensitive:true} : {}) });
 
     if (terminationRequested && finishReason && finishReason !== 'STOP') {
@@ -1715,21 +1728,14 @@ export const generateClinicalNote = async (req, res, next) => {
       : { Output: String(text || '').trim() };
 
     if (narrivaPreflight?.consentStatement) sections['Consent for services'] = narrivaPreflight.consentStatement;
-    if (objectives?.length) {
-      const scores = new Map();
-      for (const observation of objectives) {
-        const goal = observation.goal || 'Treatment goal';
-        if (!scores.has(goal)) scores.set(goal, []);
-        scores.get(goal).push(`${observation.objective} — ${observation.rating != null ? observation.rating + '/10' : observation.disposition}`);
-      }
-      sections['Treatment objective ratings'] = [...scores].map(([goal, lines]) => [goal, ...lines].join('\n')).join('\n\n');
-    }
+    if (objectives?.length) sections['Treatment objective ratings'] = formatObjectiveRatings(objectives);
 
     const outputObj = {
       sections,
       meta: {
         ...(checkedDraft ? {
           writerMode:'narriva',objectiveRatings:savedGenerationMeta.objectiveRatings || [],
+          generatedObjectiveRatings:reviewedRatings.map(({objectiveId,scaleValue,disposition})=>({objectiveId,scaleValue,disposition})),
           structuredChart:savedGenerationMeta.structuredChart || {},
           narrivaContext:{...savedGenerationMeta.narrivaContext,writerMode:'narriva'}
         } : {}),
@@ -1777,7 +1783,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const encryptedOutputJson = maybeEncryptText(outputJson);
     if(req.sessionTranscription && !isChatEncryptionConfigured()) throw Object.assign(new Error('Secure note storage is not configured.'),{status:503});
     await assertGenerationSessionCurrent();
-    if (narrivaPreflight) await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText });
+    if (narrivaPreflight) await assertNarrivaPreGeneration(req, { agencyId, clientId: generationSessionContext.clientId, draftId, clinicalSessionId: generationSessionContext.clinicalSessionId, inputText: req.body?.inputText, currentGuidance:narrivaGuidance });
 
     let draft = null;
     if (draftId) {

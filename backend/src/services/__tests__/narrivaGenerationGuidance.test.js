@@ -110,6 +110,16 @@ describe('actual clinical generator shared service guidance boundary',()=>{
   m.payerEligibility.mockResolvedValue({serviceCodes:[],pendingClassificationCodes:['H0004']});
   const {res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();expect(m.model).toHaveBeenCalledOnce();
  });
+ it.each([false,true])('releases the checked text without a second writer unless new instructions exist (%s)',async(extra)=>{
+  vi.mocked(assertNarrivaPreGeneration).mockImplementationOnce(async(_req,{currentGuidance})=>({
+   reviewId:81,workingDraft:'Subjective: Checked session wording.\nPlan: Continue the documented intervention.',
+   reviewedWriter:{toolId:currentGuidance.mappedGeneratorId,guidanceHash:currentGuidance.guidanceHash,model:'reviewed-model',latencyMs:4000}
+  }));
+  const {res,next}=await invoke(extra?{revisionInstruction:'Expand the plan using these additional clinician instructions.'}:{});
+  expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
+  expect(m.model).toHaveBeenCalledTimes(extra?1:0);
+  if(!extra)expect(res.json.mock.calls[0][0].outputJson).toMatchObject({sections:{Subjective:'Checked session wording.'},meta:{model:'reviewed-model'}});
+ });
  it('blocks a payer-disallowed insured service before generation or draft mutation',async()=>{
   m.payerEligibility.mockResolvedValue({serviceCodes:[],message:'Service not enabled for this coverage'});
   const before=structuredClone(saved),{res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(403);expect(m.model).not.toHaveBeenCalled();expect(m.updateDraft).not.toHaveBeenCalled();expect(saved).toEqual(before);

@@ -116,7 +116,42 @@ it('checks the saved narrative before generation, reviews output separately, and
  const {w}=await mountWriter();expect(w.find('.mn-note').exists()).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);expect(w.find('.narriva-compliance').exists()).toBe(false);
  await w.get('[aria-label="Session Narrative"]').setValue(text);await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/reviews'))).toBe(false);expect(w.find('.mn-sign').exists()).toBe(false);
  await w.get('.mn-generate').trigger('click');await flushPromises();expect(api.post.mock.calls.some(([u])=>u.endsWith('/generate'))).toBe(false);expect(w.get('.mn-generate').text()).toContain('Generate note');expect(w.find('.mn-sign').exists()).toBe(false);await w.get('.mn-generate').trigger('click');await vi.waitFor(()=>expect(w.find('.mn-sign').exists()).toBe(true));expect(w.get('.mn-note').text()).toContain('Generated note');expect(api.post.mock.calls.find(([u])=>u.endsWith('/generate'))[1].preflightReviewId).toBe(41);expect(api.post.mock.calls.filter(([u])=>u.endsWith('/reviews')).map(([,body])=>body.phase)).toEqual(['pre_generation','output']);
+ expect(w.get('.mn-note').find('textarea').exists()).toBe(false);
+ expect(w.get('.mn-note .mn-draft-section p').text()).toBe('Generated supported clinical note.');
+ w.findComponent({name:'NoteAidStructuredChartPanel'}).vm.$emit('mse-all-normal');await flushPromises();
+ expect(w.get('#mobile-assessment-todos h2').text()).toBe('Assessments complete');
+ const sign=w.get('.mn-sign');
+ await sign.findAll('input[type="checkbox"]')[0].setValue(true);await sign.findAll('input[type="checkbox"]')[1].setValue(true);
+ expect(sign.get('button').element.disabled).toBe(false);
  await w.get('[aria-label="Session Narrative"]').setValue(text+' Changed source.');await flushPromises();expect(w.find('.mn-sign').exists()).toBe(false);expect(w.text()).toContain('Generate again');w.unmount();vi.unstubAllGlobals();
+});
+it('opens a previously generated note with its saved scores and signs it after the MSE',async()=>{
+ vi.stubGlobal('crypto',webcrypto);
+ const data=fixture();
+ const inputText='Synthetic session documenting a practiced skill.';
+ const sourceHash=createHash('sha256').update(JSON.stringify([inputText,'90834','narriva'])).digest('hex');
+ const generationReceipt=Buffer.from(JSON.stringify({v:1,sourceHash})).toString('base64url')+'.synthetic-signature';
+ data.treatmentPlan.goals=[{id:1,title:'Skill practice',objectives:[{id:8,title:'Use a grounding skill'},{id:9,title:'Practice at home'}]}];
+ data.draft={id:61,inputText,outputJson:{sections:{Narrative:'The client practiced the grounding skill.'},meta:{writerMode:'narriva',generationReceipt,objectiveRatings:[{objectiveId:8,scaleValue:6},{objectiveId:9,disposition:'not_addressed'}]}}};
+ api.get.mockResolvedValue({data});
+ api.post.mockImplementation(async(url,body)=>{
+   if(url.endsWith('/narriva/reviews'))return {data:{review:review(body.phase)}};
+   if(url.endsWith('/sessions/82/notes'))return {data:{note:{id:99,signingToken:'reviewed-token'}}};
+   if(url.endsWith('/notes/99/sign'))return {data:{ok:true,noteId:99,signedAt:'2026-11-11T19:00:00Z'}};
+   return {data:{}};
+ });
+ const {w}=await mountWriter();
+ await vi.waitFor(()=>expect(w.find('.mn-session-scores').exists()).toBe(true));
+ expect(w.get('.mn-session-scores').text()).toContain('Use a grounding skill — 6/10');
+ expect(w.get('.mn-session-scores').text()).toContain('Practice at home — Not addressed');
+ w.findComponent({name:'NoteAidStructuredChartPanel'}).vm.$emit('mse-all-normal');await flushPromises();
+ for(const box of w.get('.mn-sign').findAll('input[type="checkbox"]'))await box.setValue(true);
+ await w.get('.mn-sign button').trigger('click');await flushPromises();
+ await vi.waitFor(()=>expect(w.text()).toContain('Provider signature saved'));
+ const [,chart]=api.post.mock.calls.find(([url])=>url.endsWith('/sessions/82/notes'));
+ expect(JSON.parse(chart.notePayload).sections['Treatment objective ratings']).toContain('Use a grounding skill — 6/10');
+ expect(api.post.mock.calls.filter(([url])=>url.endsWith('/notes/99/sign'))).toHaveLength(1);
+ w.unmount();vi.unstubAllGlobals();
 });
 it('invalidates the pre-generation decision when the narrative changes before writing',async()=>{
  const data=fixture();data.preferences.defaultMode='narriva';api.get.mockResolvedValue({data});

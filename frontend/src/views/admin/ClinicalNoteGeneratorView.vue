@@ -6436,11 +6436,20 @@ const generateNote = async () => {
       sessionBits.push('Risk assessment: patient denies all areas of risk.');
     }
     planBits.push(sessionBits.join('\n'));
-    if (planBits.length) {
+    // Ordinary individual progress notes already have the reviewed chart plan,
+    // diagnoses, encounter header and clinician ratings on the server.
+    const useReviewedContext = preflightReviewId && ['90832','90834','90837','H0004'].includes(actualServiceCode.value)
+      && !String(selectedAidId.value).startsWith('custom_') && !includeInteractiveComplexity.value
+      && !selectedProgram.value && !pastedPlanText.value.trim()
+      && sessionParticipants.value === 'Client Only' && !sessionParticipantsDetail.value
+      && !isMentalStatusExamComplete(chartMentalStatus.value, MSE_DOMAINS)
+      && !chartRiskAssessment.value?.patientDeniesAll
+      && !sessionObjectiveRatings.value.some(row => row.raterKind && row.raterKind !== 'clinician');
+    if (planBits.length && !useReviewedContext) {
       fd.append('treatmentPlanContext', planBits.join('\n\n').slice(0, 8000));
     }
     const ratingsCtx = buildObjectiveRatingsContextText(sessionObjectiveRatings.value);
-    if (ratingsCtx) fd.append('objectiveRatingsContext', ratingsCtx);
+    if (ratingsCtx && !useReviewedContext) fd.append('objectiveRatingsContext', ratingsCtx);
     if (selectedAidId.value) rememberRecentAid(libraryUserId.value, selectedAidId.value);
     fd.append(
       'includeInteractiveComplexity',
@@ -6563,7 +6572,9 @@ const generateNote = async () => {
     }
     await loadRecent();
     if (outputObj.value) {
-      await runNarrivaChecks({ phase: 'output' });
+      void runNarrivaChecks({ phase: 'output' }).catch(() => {
+        narrivaReviewError.value = 'The note is saved. Retry the final check before signing.';
+      });
       await scrollGeneratedOutputIntoView();
     }
   } catch (e) {
