@@ -1,0 +1,72 @@
+import { readFile } from 'node:fs/promises';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isolatedWorkflowMysql, recoveryMysqlEnabled } from './fixtures/isolatedWorkflowMysql.js';
+import { changeSharedInboxTicketArchive } from '../sharedInboxTicketArchive.service.js';
+
+vi.mock('../../config/database.js', () => ({ default: {}, onTableWrite: () => {} }));
+vi.mock('../departmentalGroupAccess.service.js', async () => ({
+  ...await import('../departmentalGroupPolicy.js'),
+  assertDepartmentalGroupAccess: vi.fn(async ({ userId }) => {
+    if (userId === 9) throw Object.assign(new Error('Wrong group'), { status: 403 });
+  })
+}));
+
+describe.skipIf(!recoveryMysqlEnabled)('shared inbox archive transaction', () => {
+  let fixture;
+  const user = { id: 4, role: 'support' };
+  const change = (values = {}) => changeSharedInboxTicketArchive({ conversationId: 28, user, ...values }, fixture.db);
+  async function sql(statements) {
+    for (const statement of statements.split(';').map(s => s.trim()).filter(Boolean)) await fixture.db.query(statement);
+  }
+  async function status() {
+    const [[row]] = await fixture.db.execute(`SELECT t.status AS ticket_status,c.status AS conversation_status,c.archived_at,t.close_on_read
+      FROM support_tickets t JOIN communication_conversations c ON c.support_ticket_id=t.id WHERE t.id=53`);
+    return row;
+  }
+
+  beforeAll(async () => {
+    fixture = await isolatedWorkflowMysql('shared_inbox_archive');
+    await sql(await readFile(new URL('../../../../database/migrations/1854_shared_inbox_archive_and_security_mail.sql', import.meta.url), 'utf8'));
+    await sql(`
+      CREATE TABLE support_tickets (id INT PRIMARY KEY, agency_id INT, status VARCHAR(32),
+        close_on_read TINYINT, claimed_by_user_id INT, source_channel VARCHAR(32), source_email_thread_id VARCHAR(100));
+      CREATE TABLE communication_inboxes (id INT PRIMARY KEY, agency_id INT, identity_key VARCHAR(32),
+        kind VARCHAR(32), from_email VARCHAR(254), owner_user_id INT);
+      CREATE TABLE communication_conversations (id INT PRIMARY KEY, agency_id INT, support_ticket_id INT,
+        inbox_id INT, channel VARCHAR(32), status VARCHAR(32), archived_at DATETIME NULL);
+      CREATE TABLE support_ticket_messages (id INT PRIMARY KEY, ticket_id INT);
+      INSERT INTO support_tickets VALUES (53, 2, 'answered', 1, NULL, 'email', NULL);
+      INSERT INTO communication_inboxes VALUES (12, 2, 'support', 'support', 'support@example.test', NULL);
+      INSERT INTO communication_conversations VALUES (28, 2, 53, 12, 'email', 'waiting_on_them', NULL);
+    `);
+  });
+  afterAll(async () => { await fixture?.close(); });
+  beforeEach(async () => {
+    await sql(`DELETE FROM shared_inbox_ticket_archives; DELETE FROM support_ticket_messages;
+      UPDATE support_tickets SET status='answered', close_on_read=1, claimed_by_user_id=NULL;
+      UPDATE communication_conversations SET status='waiting_on_them', archived_at=NULL;`);
+  });
+
+  it('closes and archives in one operation and restores the exact prior status and flags on undo', async () => {
+    const archive = await change();
+    expect(await status()).toMatchObject({ ticket_status: 'closed', conversation_status: 'resolved', archived_at: expect.any(Date), close_on_read: 0 });
+    await expect(change({ undoId: archive.undoId })).resolves.toMatchObject({ undone: true });
+    expect(await status()).toEqual({ ticket_status: 'answered', conversation_status: 'waiting_on_them', archived_at: null, close_on_read: 1 });
+    await expect(change({ undoId: archive.undoId })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('scopes undo to the actor and prevents undo from overwriting a new reply', async () => {
+    const { undoId } = await change();
+    await expect(change({ undoId, user: { id: 5, role: 'admin' } })).rejects.toMatchObject({ status: 409 });
+    await fixture.db.execute('INSERT INTO support_ticket_messages (id,ticket_id) VALUES (10,53)');
+    await expect(change({ undoId })).rejects.toMatchObject({ status: 409 });
+    expect(await status()).toMatchObject({ ticket_status: 'closed', archived_at: expect.any(Date) });
+  });
+
+  it('rejects an expired undo receipt and denies closing tickets outside the actor’s group', async () => {
+    await expect(change({ user: { id: 9, role: 'support' } })).rejects.toMatchObject({ status: 403 });
+    const { undoId } = await change();
+    await fixture.db.execute('UPDATE shared_inbox_ticket_archives SET expires_at=UTC_TIMESTAMP(6) WHERE id=?', [undoId]);
+    await expect(change({ undoId })).rejects.toMatchObject({ status: 409 });
+  });
+});

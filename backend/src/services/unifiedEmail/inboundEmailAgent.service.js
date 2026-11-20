@@ -949,6 +949,18 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
     const routed = await routeSenderIdentityFromHeaders(hdrs);
     const outreachIdentity = routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null;
+    const { routeAccountSecurityMail } = await import('../accountSecurityMailRouting.service.js');
+    const accountMail = await routeAccountSecurityMail({
+      identity: outreachIdentity, matchedAddress: routed.matchedAddress, fromEmail, subject,
+      payload, receivedAt: Number(full.data?.internalDate) ? new Date(Number(full.data.internalDate)) : null, gmail
+    });
+    if (accountMail.handled) {
+      const labels = accountMail.review ? [processedLabelId, needsHumanLabelId] : [processedLabelId];
+      await gmail.users.messages.modify({ userId: 'me', id, requestBody: { addLabelIds: labels } });
+      if (accountMail.review) results.needsHuman++;
+      else results.inboxDeliveries++;
+      continue;
+    }
     const outreach = await filterSharedMailboxOutreach({
       identity: outreachIdentity, fromEmail, subject, bodyText: pickBodyText(payload), headers: hdrs, ourFromEmails
     });

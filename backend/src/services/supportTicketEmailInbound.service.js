@@ -175,6 +175,8 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
           [JSON.stringify({ autoSubmitted: String(input.headers?.autoSubmitted || '').slice(0, 100),
             listId: String(input.headers?.listId || '').slice(0, 200), listUnsubscribe: !!input.headers?.listUnsubscribe }),
             gmailMessageId, input.fromDisplayName || null, ticketMessageId, gmailMessageId, threadId, ticket.id]);
+          await db.execute(`UPDATE communication_conversations SET archived_at=NULL
+            WHERE support_ticket_id=? AND agency_id=? AND archived_at<?`, [ticket.id, agencyId, receivedAt]);
         }
       }
     }

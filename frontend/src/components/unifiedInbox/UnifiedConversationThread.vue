@@ -21,10 +21,12 @@ const props = defineProps({
   inbox: { type: Object, default: null },
   agencyId: { type: [Number, String], default: null },
   organizationSlug: { type: String, default: '' },
-  claimBusy: Boolean
+  claimBusy: Boolean,
+  canCloseTicket: Boolean,
+  ticketArchiveBusy: Boolean
 });
 
-const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh', 'claim-ticket', 'open-ticket']);
+const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh', 'claim-ticket', 'open-ticket', 'close-and-archive']);
 
 const attachments = ref([]);
 const composerMode = ref('reply'); // reply | reply_all | forward | internal
@@ -487,6 +489,13 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <span v-else-if="claimedBy">Claimed{{ conv.owner_first_name ? ` by ${conv.owner_first_name} ${conv.owner_last_name || ''}` : '' }} · managed in tickets</span>
         <span v-else>Available to claim · reading does not take ownership</span>
         <span v-if="conv.ticket_status">{{ conv.ticket_status.replace(/_/g, ' ') }}</span>
+        <button
+          v-if="canCloseTicket && (conv.is_ticketed_group || isTicketedGroup(conv)) && conv.support_ticket_id && !conv.archived_at"
+          type="button"
+          class="uc-btn ghost uc-close-archive"
+          :disabled="ticketArchiveBusy"
+          @click="emit('close-and-archive')"
+        >Close &amp; archive</button>
       </div>
 
       <EmailSendReceipt v-if="undoBanner" :receipt="undoBanner" :check-status="checkSendStatus" :busy="sending" @undo="undoSend" @status="emit('refresh')" />
@@ -652,6 +661,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 
 <style scoped>
 .uc-ticket-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--conversa-wash); border-bottom: 1px solid var(--conversa-border); font-size: 0.82rem; }
+.uc-close-archive { margin-inline-start: auto; }
 .uc-ticket-actions p { font-size: 0.85rem; color: var(--conversa-muted); }
 .uc-thread {
   display: flex;

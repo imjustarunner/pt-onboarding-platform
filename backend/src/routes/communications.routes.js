@@ -1,3 +1,4 @@
+import { changeSharedInboxTicketArchive } from '../services/sharedInboxTicketArchive.service.js';
 import {guardianContactContext,emailFilingOptions} from '../services/guardianContactContext.service.js';
 import clinicalMessagingBridge from './clinicalMessagingBridge.routes.js';
 import { getEmailDeliveryReceipt } from '../services/emailDeliveryReceipt.service.js';
@@ -135,6 +136,19 @@ router.get('/conversations/:id', getUnifiedConversation);
 router.patch('/conversations/:id', patchUnifiedConversation);
 router.post('/conversations/:id/reply', postUnifiedReply);
 router.post('/conversations/:id/claim', postClaimGroupEmail);
+router.post('/conversations/:id/close-and-archive', async (req, res, next) => {
+  try {
+    const undoId = req.body?.undoId;
+    if (undoId != null && (typeof undoId !== 'string' || !/^[a-f0-9-]{36}$/i.test(undoId))) {
+      return res.status(400).json({ error: { message: 'Invalid undo receipt.' } });
+    }
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await changeSharedInboxTicketArchive({ conversationId: Number(req.params.id), user: req.user, undoId }));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+});
 router.post('/conversations/:id/mark-known', postMarkSenderKnown);
 router.post('/conversations/:id/resolve-unknown', postResolveUnknownSender);
 router.get('/conversations/:id/export', getConversationExport);

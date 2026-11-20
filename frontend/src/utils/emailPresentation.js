@@ -23,9 +23,16 @@ function collapseAppEmailChrome(container){
  if(footer.childNodes.length>1)container.append(footer);
 }
 
-export function renderEmailContent({ body_html, body_text } = {}, { collapseQuotes = true, loadExternalImages = false, compactLayout = false, simplifyAppChrome = false } = {}) {
+// Some providers put an entire HTML document in the plain-text MIME part.
+export function emailHtmlSource({ body_html, body_text } = {}) {
+  if (String(body_html || '').trim()) return body_html;
+  const text = String(body_text || '').trim();
+  return /^(?:<\?xml[^>]*>\s*)?(?:<!doctype html[^>]*>\s*)?<html(?:\s|>)/i.test(text) ? text : '';
+}
+
+export function renderEmailContent(message = {}, { collapseQuotes = true, loadExternalImages = false, compactLayout = false, simplifyAppChrome = false } = {}) {
   let hasBlockedImages = false;
-  const html = body_html || '';
+  const html = emailHtmlSource(message);
   const fragment = DOMPurify.sanitize(html, {
     RETURN_DOM_FRAGMENT: true,
     ALLOWED_TAGS: ['a','p','br','div','span','strong','b','em','i','u','s','ul','ol','li','blockquote','pre','code','hr','h1','h2','h3','h4','table','thead','tbody','tr','th','td','img'],
@@ -35,7 +42,7 @@ export function renderEmailContent({ body_html, body_text } = {}, { collapseQuot
   const container = document.createElement('div');
   container.append(fragment);
   if (!html) {
-    const text = String(body_text || '');
+    const text = String(message.body_text || '');
     // Use text nodes for all sender-controlled text, including URL labels.
     const pattern = /https?:\/\/[^\s<>]+/gi;
     let position = 0;

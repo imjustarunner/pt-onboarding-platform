@@ -1,10 +1,12 @@
 import DOMPurify from 'dompurify';
+import { emailHtmlSource } from './emailPresentation';
 
 // Reading view only: original HTML/text is always available in the message expander.
 export function emailConversationText(message = {}) {
   let text = String(message.body_text || '');
-  if (message.body_html) {
-    const fragment = DOMPurify.sanitize(message.body_html, { RETURN_DOM_FRAGMENT: true });
+  const html = emailHtmlSource(message);
+  if (html) {
+    const fragment = DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: ['style', 'script', 'title'], FORBID_ATTR: ['src', 'srcset', 'style'] });
     const container = document.createElement('div');
     container.append(fragment);
     container.querySelectorAll('style,script,img,blockquote,.gmail_quote,.gmail_signature,.moz-signature,[data-smartmail="gmail_signature"]').forEach(node => node.remove());
@@ -15,7 +17,7 @@ export function emailConversationText(message = {}) {
     }
     container.querySelectorAll('br').forEach(node => node.replaceWith(document.createTextNode('\n')));
     container.querySelectorAll('p,div,li,tr,h1,h2,h3,h4,pre,table').forEach(node => node.append(document.createTextNode('\n')));
-    text = container.textContent || text;
+    text = container.textContent || '';
   }
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   let end = lines.length;

@@ -89,7 +89,7 @@ function onInboxChange(e) {
 
     <section v-if="groupInboxes.length" class="uc-group-email" aria-label="Groups">
       <button type="button" class="uc-section uc-group-heading" :class="{ on: selectedInboxId === 'group_email' }" @click="emit('update:selectedInboxId', 'group_email')">Groups <em aria-label="Unread">{{ viewUnread('group_email') }}</em></button>
-      <nav class="uc-channels" aria-label="Department group email">
+      <nav class="uc-channels uc-department-folders" aria-label="Department group email">
         <button v-for="box in groupInboxes" :key="box.id" type="button" :class="{ on: String(selectedInboxId) === String(box.id) }" :title="box.from_email" @click="emit('update:selectedInboxId', box.id)">
           <GroupEmailBadge :mailbox="box" /><em aria-label="Unread">{{ inboxUnread(box) }}</em>
         </button>
@@ -300,6 +300,17 @@ function onInboxChange(e) {
   color: var(--conversa-ink);
   text-align: left;
 }
+.uc-channels.uc-department-folders button {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 8px;
+}
+.uc-department-folders :deep(.group-email-badge) {
+  justify-self: start;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.uc-department-folders :deep(.group-email-badge svg) { flex-shrink: 0; }
+.uc-department-folders em { justify-self: end; font-variant-numeric: tabular-nums; }
 .uc-channels.compact button {
   grid-template-columns: 1fr;
 }

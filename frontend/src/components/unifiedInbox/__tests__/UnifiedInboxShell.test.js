@@ -151,3 +151,24 @@ it('does not poll the shared inbox when its tab is hidden',async()=>{
  await wrapper.setProps({active:true});await flushPromises();
  expect(api.get).toHaveBeenCalledWith('/communications/conversations',expect.any(Object));
 });
+
+it('closes and archives from the open thread, then restores it through Undo', async () => {
+  api.get.mockImplementation(async url => ({ data: url.endsWith('/conversations/9')
+    ? { conversation: { id: 9, support_ticket_id: 53 } } : {} }));
+  api.post.mockImplementation(async (url, payload) => ({ data: !url.endsWith('/close-and-archive')
+    ? {} : payload.undoId ? { undone: true } : { ticketId: 53, conversationId: 9, undoId: 'archive-53', undoSeconds: 20 } }));
+  await render();
+  const thread = wrapper.findComponent({ name: 'UnifiedConversationThread' });
+  wrapper.findComponent({ name: 'UnifiedConversationList' }).vm.$emit('select', 9);
+  await flushPromises();
+  thread.vm.$emit('close-and-archive');
+  await flushPromises();
+  expect(thread.props('detail')).toBe(null);
+  const receipt = wrapper.get('.uc-archive-receipt');
+  expect(receipt.text()).toContain('Ticket #53 closed and archived.');
+  await receipt.get('button').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/communications/conversations/9/close-and-archive', { undoId: 'archive-53' }, expect.any(Object));
+  expect(wrapper.find('.uc-archive-receipt').exists()).toBe(false);
+  expect(thread.props('detail').conversation.id).toBe(9);
+});

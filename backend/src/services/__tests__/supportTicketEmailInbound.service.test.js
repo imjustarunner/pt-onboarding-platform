@@ -250,6 +250,7 @@ function fixture({ credentialingCaseId = null, staffCopy = false, initialReceipt
     }
     if (sql.startsWith('UPDATE support_tickets')) { ticket.status = 'open'; return [{ affectedRows: 1 }]; }
     if (sql.startsWith('SELECT ticket_message_id AS id')) return [[{ id: 4 }]];
+    if (sql.startsWith('UPDATE communication_conversations SET archived_at=NULL')) return [{ affectedRows: 1 }];
     throw new Error(`Unexpected SQL ${sql}`);
   } };
   const dependencies = { database: { getConnection: async () => db, execute: (...args) => db.execute(...args) },
@@ -276,6 +277,7 @@ test('school follow-up appends to same closed ticket, reopens it and preserves c
   assert.equal(saved.ticketMessageId, 11);
   assert.equal(f.ticket.status, 'open');
   assert.equal(f.ticket.claimed_by_user_id, 5);
+  assert.deepEqual(f.statements.find(({ sql }) => sql.startsWith('UPDATE communication_conversations SET archived_at=NULL')).values, [7, 2, base.receivedAt]);
   assert.equal(f.generations.length, 1);
   assert.equal(f.generations[0].intakeComplete, true);
   assert.equal(f.statements.some((s) => s.sql.startsWith('INSERT INTO support_tickets')), false);

@@ -20,6 +20,8 @@ export default {
     'src/services/__tests__/schoolOnboardingReminders.test.js',
     'src/services/__tests__/messaging.groupRouting.test.js',
     'src/services/__tests__/messaging.agentDelivery.test.js',
+    'src/services/__tests__/accountSecurityMailRouting.test.js',
+    'src/services/__tests__/sharedInboxTicketArchive.mysql.test.js',
     'src/services/__tests__/messaging.personalImport.test.js'
   ], restoreMocks: true }
 };

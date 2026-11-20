@@ -51,6 +51,9 @@ const selectedId = ref(null);
 const detail = ref(null);
 const detailLoading = ref(false);
 const claimBusy = ref(false);
+const ticketArchiveBusy = ref(false);
+const ticketArchives = ref([]);
+const archiveTimers = new Map();
 const activeTicketId = ref(null);
 
 const selectedInboxId = ref(null); // null = All inboxes (matches agency-wide KPIs)
@@ -254,6 +257,48 @@ async function claimTicket() {
   }
 }
 
+function clearArchiveReceipt(undoId) {
+  clearTimeout(archiveTimers.get(undoId));
+  archiveTimers.delete(undoId);
+  ticketArchives.value = ticketArchives.value.filter(item => item.undoId !== undoId);
+}
+
+function clearArchiveReceipts() {
+  for (const timer of archiveTimers.values()) clearTimeout(timer);
+  archiveTimers.clear();
+  ticketArchives.value = [];
+}
+
+async function closeAndArchiveTicket(archive = null) {
+  const id = archive?.conversationId || selectedId.value;
+  const agency = resolvedAgencyId.value;
+  const userId = authStore.user?.id;
+  if (!id || ticketArchiveBusy.value) return;
+  ticketArchiveBusy.value = true;
+  error.value = '';
+  try {
+    const { data } = await api.post(`/communications/conversations/${id}/close-and-archive`,
+      archive ? { undoId: archive.undoId } : {}, { skipGlobalLoading: true });
+    if (agency !== resolvedAgencyId.value || userId !== authStore.user?.id) return;
+    if (archive) {
+      clearArchiveReceipt(archive.undoId);
+      if (!selectedId.value) await openConversation(id);
+    } else {
+      ticketArchives.value.push(data);
+      archiveTimers.set(data.undoId, setTimeout(() => clearArchiveReceipt(data.undoId), data.undoSeconds * 1000));
+      if (selectedId.value === id) await openConversation(null);
+    }
+    viewLists.clear();
+    await Promise.all([loadConversations(), loadAttention()]);
+  } catch (e) {
+    if (agency === resolvedAgencyId.value && userId === authStore.user?.id) {
+      error.value = e?.response?.data?.error?.message || (archive ? 'Could not undo the archive.' : 'Could not close and archive the ticket.');
+    }
+  } finally {
+    ticketArchiveBusy.value = false;
+  }
+}
+
 function selectInbox(id) {
   selectedInboxId.value = id;
   listFilter.value = 'all';
@@ -384,6 +429,7 @@ watch(
 );
 
 watch([resolvedAgencyId, () => authStore.user?.id], () => {
+  clearArchiveReceipts();
   clearUnifiedInboxCache(); viewLists.clear(); displayedListKey = null;
   activeListRequest?.controller.abort(); activeListRequest = null;
   detailRequestId += 1;
@@ -444,6 +490,7 @@ onMounted(() => {
   window.addEventListener('focus', refreshSharedState);
 });
 onUnmounted(() => {
+  clearArchiveReceipts();
   saveSnapshot();
   disposed = true; listRequestId += 1; detailRequestId += 1; attentionRequestId += 1; inboxRequestId += 1;
   activeListRequest?.controller.abort();
@@ -546,6 +593,11 @@ defineExpose({ refreshAll });
 
     <div v-if="error" class="uc-error" role="alert">{{ error }} <button type="button" class="btn btn-secondary btn-sm" @click="refreshAll">Retry</button></div>
 
+    <div v-for="archive in ticketArchives" :key="archive.undoId" class="uc-archive-receipt" role="status">
+      <span>Ticket #{{ archive.ticketId }} closed and archived.</span>
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="ticketArchiveBusy" @click="closeAndArchiveTicket(archive)">Undo</button>
+    </div>
+
     <div class="uc-mobile-toolbar">
       <button v-if="selectedId" type="button" class="btn btn-secondary btn-sm" @click="openConversation(null)">← Back to inbox</button>
       <button v-else type="button" class="btn btn-secondary btn-sm" :aria-expanded="mobileFiltersOpen" @click="mobileFiltersOpen = !mobileFiltersOpen">Inboxes &amp; channels</button>
@@ -583,6 +635,9 @@ defineExpose({ refreshAll });
         :agency-id="resolvedAgencyId"
         :organization-slug="route.params?.organizationSlug || ''"
         :claim-busy="claimBusy"
+        :can-close-ticket="['admin', 'super_admin', 'support'].includes(authStore.user?.role)"
+        :ticket-archive-busy="ticketArchiveBusy"
+        @close-and-archive="closeAndArchiveTicket()"
         @claim-ticket="claimTicket"
         @open-ticket="activeTicketId = $event"
         @reply="sendReply"
@@ -616,6 +671,17 @@ defineExpose({ refreshAll });
 </template>
 
 <style scoped>
+.uc-archive-receipt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--conversa-border);
+  border-radius: 8px;
+  background: var(--conversa-blue-soft);
+}
 .uc-shell {
   display: flex;
   flex-direction: column;
