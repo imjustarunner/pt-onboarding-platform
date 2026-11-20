@@ -337,7 +337,7 @@
               </div>
               <template v-else>
               <div class="msg-hub-avatar-wrap">
-                <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" icon-only />
+                <GroupEmailBadge v-if="isGroupEmail(c)" :mailbox="c" icon-only />
                 <div v-else class="msg-hub-avatar" aria-hidden="true">
                   <img v-if="c.photoUrl" :src="photoSrc(c.photoUrl)" :alt="''" />
                   <span v-else>{{ initials(conversationThreadTitle(c)) }}</span>
@@ -1753,7 +1753,7 @@ import HubSmsComposer from './HubSmsComposer.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 import GroupEmailBadge from '../unifiedInbox/GroupEmailBadge.vue';
-import { isTicketedGroup } from '../../utils/groupEmailPresentation';
+import { isGroupEmail, isTicketedGroup } from '../../utils/groupEmailPresentation';
 import { canAccessTicketDesk } from '../../utils/ticketAccess';
 import TicketDetailModal from '../tickets/TicketDetailModal.vue';
 import { mergeInboxSummaries, uniqueMessageRows, groupMailboxes } from '../../utils/messageWorkspace';
@@ -2640,7 +2640,7 @@ const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
   if (!isTicketQueue.value && inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel)
-    : inboxChannel.value === 'group' ? claimedNoticeView.value ? c.is_group_email || isTicketedGroup(c) : selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
+    : inboxChannel.value === 'group' ? claimedNoticeView.value ? isGroupEmail(c) : selectedReviewCategory.value ? c.message_category === selectedReviewCategory.value : isGroupEmail(c) || ['group', 'channel'].includes(c.channel)
     : inboxChannel.value === 'email' ? c.channel === 'email' && !isTicketedGroup(c) : c.channel === inboxChannel.value);
   if (claimedNoticeView.value) list = list.filter(isClaimedTicketNotice);
   if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => selectedDepartment.value ? selectedDepartment.value.mailboxes.some(box => String(box.id) === String(c.inbox_id)) : String(c.inbox_id) === String(selectedGroupInboxId.value));

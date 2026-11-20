@@ -37,6 +37,15 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('scoped message workspace', () => {
+  it('shows ordinary school group email with its group icon, even without a ticket', async () => {
+    state.selected = null;
+    state.inboxChannel = 'group';
+    state.navId = 'inbox';
+    state.conversations = [{ id: 5, channel: 'email', subject: 'School schedule', is_group_email: true, group_name: 'Sample School' }];
+    await nextTick();
+    expect(wrapper.get('.email-list-row').text()).toContain('School schedule');
+    expect(wrapper.findComponent({ name: 'GroupEmailBadge' }).exists()).toBe(true);
+  });
   it('shows Sent under SMS and loads only that channel', async () => {
     state.selectInboxChannel('sms');
     expect(state.inboxNavItems.map(item => item.id)).toContain('sent');

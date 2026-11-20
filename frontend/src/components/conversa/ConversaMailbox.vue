@@ -12,8 +12,9 @@ const organization = computed(() => {
 const mailbox = computed(() => props.conversation.group_name || props.conversation.inbox_display_name || props.conversation.inbox_from_email || '');
 </script>
 <template>
-  <span v-if="mailbox || organization" class="conversa-mailbox" :title="conversation.inbox_from_email || mailbox">
-    <ConversaSender v-if="organization" avatar-only :organization="organization" />
+  <span v-if="mailbox || organization" class="conversa-mailbox" :title="conversation.school_group_email || conversation.inbox_from_email || mailbox">
+    <ConversaSender v-if="conversation.school_group_logo_url" avatar-only :name="mailbox" :logo="conversation.school_group_logo_url" />
+    <ConversaSender v-else-if="organization" avatar-only :organization="organization" />
     <span v-if="conversation.is_group_email">{{ mailbox }}</span>
     <span v-else>Via {{ organization?.name || mailbox }}<template v-if="organization?.name && mailbox && mailbox !== organization.name"> · {{ mailbox }}</template></span>
   </span>

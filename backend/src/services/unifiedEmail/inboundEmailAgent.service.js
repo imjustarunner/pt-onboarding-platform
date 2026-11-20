@@ -3,6 +3,7 @@ import { listDedicatedSchoolMailboxes, schoolContextForAddresses } from './schoo
 import { isSchoolWelcomeSupportReply, isTechnologyIdentity, ingestTechnologyEmail, prioritizeTechnologyAddresses, ignoreOutboundTechnologyCopy } from '../technologySupport.service.js';
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
+import { findDirectSchoolGroup, packetNotificationSubject, recordDirectSchoolGroupEmail, recordSchoolGroupEmail, schoolGroupPersonalAddresses } from '../schoolGroupEmailInbox.service.js';
 import pool from '../../config/database.js';
 import { googleAuthenticationResults } from '../schoolGmailOwnership.service.js';
 import { isExternalTestingMailHeaders } from '../../utils/externalTestingEmail.js';
@@ -1065,12 +1066,39 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         continue;
       }
     }
+    const routedGroup = groupKeyForIdentity(routedIdentity);
+    const schoolDestination = !routed.technology && (!routedGroup || routedGroup === 'schools')
+      ? await findDirectSchoolGroup(routed.to, routed.cc) : null;
+    const directSchool = !routedGroup || Number(routedIdentity.agency_id) === schoolDestination?.agencyId
+      ? schoolDestination : null;
+    // Explicit department mail and existing department replies keep their
+    // ticket route. A school-addressed post gets an agency-owned copy.
+    const visibleDepartment = [...routed.to, ...routed.cc].includes(String(routedIdentity?.from_email || '').toLowerCase());
+    const hasReplyHeaders = !!(hdrs.get('in-reply-to') || hdrs.get('references'));
+    const saveAsSchoolGroup = directSchool && (!routedGroup || (!visibleDepartment && !hasReplyHeaders));
+    if (saveAsSchoolGroup) {
+      const schoolMail = {
+        school: directSchool, to: routed.to, cc: routed.cc, fromEmail, subject,
+        bodyText: pickBodyText(payload), messageId: hdrs.get('message-id') || `gmail:${id}`,
+        threadId: full.data?.threadId, receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),
+        gmail, gmailMessageId: id, payload
+      };
+      let notice;
+      if (automated || packetNotificationSubject(subject)) {
+        const { readGmailBodyHtml } = await import('../../utils/gmailMessageParse.shared.js');
+        notice = await recordSchoolGroupEmail({ ...schoolMail, agencyId: directSchool.agencyId, automated,
+          messageId: hdrs.get('x-original-message-id') || schoolMail.messageId,
+          bodyHtml: await readGmailBodyHtml(payload, { gmail, gmailMessageId: id }) });
+      }
+      if (!notice?.handled) await recordDirectSchoolGroupEmail(schoolMail);
+      results.inboxDeliveries += 1;
+    }
     let personalRecipients;
     try {
-      personalRecipients = await resolvePersonalMailRecipients([
-        ...routed.to, ...routed.cc, ...routed.deliveredTo,
-        ...extractEmails(hdrs.get('x-original-to')), ...extractEmails(hdrs.get('envelope-to'))
-      ], {
+      personalRecipients = await resolvePersonalMailRecipients(schoolGroupPersonalAddresses({
+        to: routed.to, cc: routed.cc, school: directSchool,
+        deliveryAddresses: [...routed.deliveredTo, ...extractEmails(hdrs.get('x-original-to')), ...extractEmails(hdrs.get('envelope-to'))]
+      }), {
         sentFromEmail: (full.data?.labelIds || []).includes('SENT') ? rawFromEmail : null,
         bccAddresses: (full.data?.labelIds || []).includes('SENT') ? extractEmails(hdrs.get('bcc')) : []
       });
@@ -1090,8 +1118,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     } catch (e) {
       throw e; // Never acknowledge partial fan-out; outer retry preserves successful copies.
     }
+    if (saveAsSchoolGroup) {
+      await gmail.users.messages.modify({ userId: 'me', id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
+      continue;
+    }
     if(routedIdentity?.agency_id && (automated || !/^\s*(?:re|fw|fwd):/i.test(subject) && / - (?:Paper Enrollment Packet Uploaded|Digital Enrollment Packet)$/i.test(subject))){
-      const {recordSchoolGroupEmail}=await import('../schoolGroupEmailInbox.service.js');
       const packetEmail=await recordSchoolGroupEmail({agencyId:routedIdentity.agency_id,fromEmail,subject,automated,gmail,gmailMessageId:id,payload,
         messageId:hdrs.get('x-original-message-id') || hdrs.get('message-id') || `gmail:${id}`,threadId:full.data?.threadId,
         bodyText:pickBodyText(payload),bodyHtml:await (await import('../../utils/gmailMessageParse.shared.js')).readGmailBodyHtml(payload,{gmail,gmailMessageId:id}),

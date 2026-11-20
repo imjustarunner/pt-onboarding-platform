@@ -64,3 +64,16 @@ it('uses the actual group name in shared desktop Conversa and keeps recipient ad
  const wrapper=mount(ConversationList,{props:{conversations:[{id:30,agency_id:3,channel:'email',is_group_email:true,is_ticketed_group:true,group_name:'Practice Technology Team',group_key:'technology',inbox_display_name:'Technology',inbox_from_email:'technology@example.test',primary_participant_name:'Michael Mendez',subject:'Synthetic group message',status:'needs_reply'}]}});
  expect(wrapper.get('.uc-list-name').text()).toContain('Practice Technology Team');expect(wrapper.get('.conversa-mailbox').text()).toBe('Practice Technology Team');expect(wrapper.text()).not.toContain('Michael Mendez');expect(wrapper.text()).not.toContain('technology@example.test');expect(wrapper.get('.uc-list-tabs').text()).not.toContain('Needs Reply');wrapper.unmount();
 });
+
+
+it('uses the school name and logo for group mail in a shared agency mailbox', () => {
+  const wrapper = mount(Mailbox, { props: { conversation: {
+    agency_id: 3, is_group_email: true, group_name: 'Sample School',
+    inbox_display_name: 'School Reply', inbox_from_email: 'schoolreply@example.test',
+    school_group_email: 'sample-school@example.test', school_group_logo_url: '/assets/school.svg'
+  } } });
+  expect(wrapper.text()).toBe('Sample School');
+  expect(wrapper.get('.conversa-mailbox').attributes('title')).toBe('sample-school@example.test');
+  expect(wrapper.get('img').attributes('src')).toBe('/assets/school.svg');
+  wrapper.unmount();
+});

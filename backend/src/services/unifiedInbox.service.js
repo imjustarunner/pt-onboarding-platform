@@ -1,5 +1,6 @@
 import { describeSmsConversations } from './smsConversationPresentation.service.js';
 import {groupEmailIdentity} from './groupEmailIdentity.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { plainEmailHtml } from '../utils/emailReplyContent.js';
 import { communicationPrintDocument } from './communicationPrint.service.js';
 import { resolveEmailClientFiling, linkConversationClients } from './clientConversationRecord.service.js';
@@ -49,6 +50,38 @@ export function withGroupEmailMetadata(conversation, userId, managedGroups=[]) {
     can_claim_ticket: !!key && !!conversation.support_ticket_id && !conversation.ticket_claimed_by_user_id
       && !['closed','resolved','done'].includes(conversation.ticket_status),
     is_ticket_claimant: !!conversation.ticket_claimed_by_user_id && Number(conversation.ticket_claimed_by_user_id) === Number(userId) };
+}
+
+// School branding is read after the normal mailbox access checks and only for
+// material already filed in an authorized shared Schools mailbox.
+async function addSchoolGroupIdentity(conversations) {
+  const ids = conversations.filter(row => row.is_group_email && row.group_key === 'schools').map(row => row.id);
+  if (!ids.length) return conversations;
+  const [rows] = await pool.execute(`
+    SELECT l.conversation_id, school.name, sp.itsco_email, school.logo_url, school.logo_path, icon.file_path AS icon_path
+    FROM communication_links l
+    JOIN communication_conversations c ON c.id=l.conversation_id
+    JOIN agencies school ON school.id=l.entity_id AND school.organization_type='school'
+      AND school.is_active=1 AND COALESCE(school.is_archived,0)=0
+    LEFT JOIN school_profiles sp ON sp.school_organization_id=school.id
+    LEFT JOIN icons icon ON icon.id=school.icon_id
+    WHERE l.entity_type='school' AND l.conversation_id IN (${ids.map(() => '?').join(',')})
+      AND (
+        EXISTS (SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id=school.id AND oa.agency_id=c.agency_id AND oa.is_active=1)
+        OR EXISTS (SELECT 1 FROM agency_schools a WHERE a.school_organization_id=school.id AND a.agency_id=c.agency_id AND a.is_active=1)
+      )`, ids);
+  const byId = new Map();
+  for (const row of rows) {
+    const id = Number(row.conversation_id);
+    byId.set(id, byId.has(id) ? null : row);
+  }
+  return conversations.map(conversation => {
+    const school = byId.get(Number(conversation.id));
+    if (!school) return conversation;
+    return { ...conversation, group_key: 'school_groups', group_name: school.name,
+      school_group_email: school.itsco_email,
+      school_group_logo_url: publicUploadsUrlFromStoredPath(school.icon_path || school.logo_path || school.logo_url) };
+  });
 }
 
 const UNDO_WINDOW_MS = 20 * 1000;
@@ -222,7 +255,7 @@ export async function listConversations(opts) {
   const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const rows = await CommunicationConversation.list({ ...opts, ...scope });
   const visible = rows.map(row => withGroupEmailMetadata(row, userId, scope.managedGroups));
-  return describeSmsConversations(visible);
+  return describeSmsConversations(await addSchoolGroupIdentity(visible));
 }
 
 export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null, includeResponseTime = true, ...filters } = {}) {
@@ -254,7 +287,7 @@ export async function getConversationDetail(conversationId, { userId, markRead =
     pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[conv.agency_id])
   ]);
   let messages=hydrated || storedMessages;
-  conv = withGroupEmailMetadata(conv, userId, managedGroups);
+  [conv] = await addSchoolGroupIdentity([withGroupEmailMetadata(conv, userId, managedGroups)]);
   if (conv.channel === 'sms') {
     [conv] = await describeSmsConversations([conv]);
     messages = messages.map(message => {

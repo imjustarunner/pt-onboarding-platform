@@ -4,11 +4,15 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTa
 vi.mock('../unifiedEmail/gmailClient.js', () => ({ getGmailClient: vi.fn(), getImpersonatedUser: () => 'ai@example.org' }));
 vi.mock('../unifiedEmail/gmailLabels.js', () => ({ ensureLabelId: async name => name }));
 vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { findByInboundAddress: vi.fn(async () => null), findByFromEmail: vi.fn(async () => null) } }));
+vi.mock('../schoolGroupEmailInbox.service.js',async importOriginal => ({
+  ...await importOriginal(), findDirectSchoolGroup: vi.fn(async () => null), recordDirectSchoolGroupEmail: vi.fn()
+}));
 vi.mock('../groupMailboxRouting.service.js', () => ({ resolvePersonalMailRecipients: vi.fn() }));
 vi.mock('../personalMailbox.service.js', () => ({ ingestPersonalMailboxInbound: vi.fn(), isPersonalMailboxIdentity: vi.fn() }));
 import pool from '../../config/database.js';
 import { getGmailClient } from '../unifiedEmail/gmailClient.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
+import { findDirectSchoolGroup, recordDirectSchoolGroupEmail } from '../schoolGroupEmailInbox.service.js';
 import { ingestPersonalMailboxInbound } from '../personalMailbox.service.js';
 import { runInboundEmailAgentOnce } from '../unifiedEmail/inboundEmailAgent.service.js';
 let gmail, headers;
@@ -26,6 +30,27 @@ it('delivers internal staff Group mail to every addressed personal inbox before 
   expect(ingestPersonalMailboxInbound).toHaveBeenCalledTimes(2);
   expect(ingestPersonalMailboxInbound).toHaveBeenCalledWith(expect.objectContaining({ fromEmail: 'admin@itsco.health', identity: { id: 12, agency_id: 2 } }));
   expect(gmail.users.messages.modify).toHaveBeenCalledWith(expect.objectContaining({ requestBody: expect.objectContaining({ addLabelIds: ['AI_PROCESSED'] }) }));
+});
+it('files explicitly addressed school mail once in the shared inbox and keeps independent To/Cc delivery', async () => {
+  headers[1].value = 'school-group@itsco.health';
+  headers.push({ name: 'Delivered-To', value: 'owner@other-tenant.example.org' }, { name: 'Cc', value: 'direct@itsco.health' });
+  const school = { agencyId: 2, schoolOrganizationId: 33, mailboxAddress: 'school-group@itsco.health' };
+  findDirectSchoolGroup.mockResolvedValueOnce(school);
+  resolvePersonalMailRecipients.mockResolvedValueOnce([{ id: 11, agency_id: 2 }]);
+  await runInboundEmailAgentOnce();
+  expect(recordDirectSchoolGroupEmail).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    school, to: ['school-group@itsco.health'], cc: ['direct@itsco.health'], messageId: '<group-mail@example.org>'
+  }));
+  expect(resolvePersonalMailRecipients).toHaveBeenCalledExactlyOnceWith(['direct@itsco.health'], expect.anything());
+  expect(ingestPersonalMailboxInbound).toHaveBeenCalledTimes(1);
+  expect(gmail.users.messages.modify).toHaveBeenCalledTimes(1);
+});
+it('keeps school mail queued when the shared inbox write fails', async () => {
+  findDirectSchoolGroup.mockResolvedValueOnce({ agencyId: 2, schoolOrganizationId: 33, mailboxAddress: 'staff@itsco.health' });
+  recordDirectSchoolGroupEmail.mockRejectedValueOnce(new Error('Temporary write failure'));
+  await runInboundEmailAgentOnce();
+  expect(resolvePersonalMailRecipients).not.toHaveBeenCalled();
+  expect(gmail.users.messages.modify).not.toHaveBeenCalled();
 });
 it('leaves partial recipient delivery unacknowledged so the missing copy retries', async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});

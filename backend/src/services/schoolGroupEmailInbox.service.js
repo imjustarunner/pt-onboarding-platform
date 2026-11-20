@@ -1,4 +1,6 @@
-import {extractEmails} from '../utils/gmailMessageParse.shared.js';
+import {extractEmails, readGmailBodyHtml} from '../utils/gmailMessageParse.shared.js';
+import { listDedicatedSchoolMailboxes, schoolContextForAddresses } from './unifiedEmail/schoolMailboxContext.service.js';
+import { groupKeyForIdentity } from './departmentalGroupPolicy.js';
 import pool from '../config/database.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import {persistInboundEmail} from './inboundEmailPersistence.service.js';
@@ -52,4 +54,60 @@ export async function recordSentSchoolGroupEmail({agencyId,schoolOrganizationId,
   return recordSchoolGroupEmail({agencyId,schoolOrganizationId,to:[to],cc:(Array.isArray(cc)?cc:String(cc || '').split(',')),subject,
     automated:true,messageId:result.internetMessageId,threadId:result.threadId,fromEmail:sender.from_email,bodyText:result.bodyText,bodyHtml:result.bodyHtml,
     receivedAt:new Date()},dependencies);
+}
+
+/** Route an explicit To/Cc school mailbox to its active tenant. Delivery headers
+ * can name nested groups or personal relays; they do not establish the audience. */
+export async function findDirectSchoolGroup(to, cc, db = pool) {
+  const recipients = emails([...(to || []), ...(cc || [])]);
+  if (!recipients.length) return null;
+  const [agencies] = await db.execute(`
+    SELECT DISTINCT affiliation.agency_id
+    FROM school_profiles sp
+    JOIN agencies school ON school.id=sp.school_organization_id AND school.organization_type='school'
+      AND school.is_active=1 AND COALESCE(school.is_archived,0)=0
+    JOIN (
+      SELECT organization_id AS school_id, agency_id FROM organization_affiliations WHERE is_active=1
+      UNION SELECT school_organization_id, agency_id FROM agency_schools WHERE is_active=1
+    ) affiliation ON affiliation.school_id=school.id
+    JOIN agencies tenant ON tenant.id=affiliation.agency_id AND tenant.is_active=1 AND COALESCE(tenant.is_archived,0)=0
+    WHERE LOWER(TRIM(sp.itsco_email)) IN (${recipients.map(() => '?').join(',')})`, recipients);
+  if (agencies.length !== 1) return null;
+  const agencyId = Number(agencies[0].agency_id);
+  const school = schoolContextForAddresses(await listDedicatedSchoolMailboxes(agencyId, db), recipients);
+  return school ? { agencyId, ...school } : null;
+}
+
+export function schoolGroupPersonalAddresses({ to, cc, deliveryAddresses, school }) {
+  if (!school) return [...to, ...cc, ...deliveryAddresses];
+  // Keep explicit personal recipients. The school group and relay addresses
+  // must not expand to a second set of personal app inboxes.
+  return emails([...to, ...cc]).filter(address => address !== school.mailboxAddress);
+}
+
+export async function recordDirectSchoolGroupEmail(input, dependencies = {}) {
+  const db = dependencies.database || pool;
+  const inboxes = dependencies.inboxes || CommunicationInbox;
+  const { school } = input;
+  await inboxes.ensureFromSenderIdentities(school.agencyId);
+  const schoolInboxes = (await inboxes.listForAgency({ agencyId: school.agencyId }))
+    .filter(box => Number(box.id) > 0 && groupKeyForIdentity(box) === 'schools');
+  const inbox = schoolInboxes.find(box => ['schoolreply', 'school_reply'].includes(box.identity_key)) || schoolInboxes[0];
+  if (!inbox) throw new Error('The school group inbox is unavailable');
+  const options = { gmail: input.gmail, gmailMessageId: input.gmailMessageId };
+  const prepare = dependencies.prepareAttachments || (await import('./communicationAttachments.service.js')).prepareInboundAttachments;
+  const persist = dependencies.persistEmail || persistInboundEmail;
+  const saved = await persist({
+    agencyId: school.agencyId, inboxId: inbox.id, deliveryId: input.messageId,
+    // The school and mailbox partition Gmail-derived thread identity.
+    threadId: input.threadId ? `school:${school.schoolOrganizationId}:${input.threadId}` : null,
+    fromEmail: input.fromEmail, subject: input.subject, bodyText: input.bodyText,
+    bodyHtml: await (dependencies.readHtml || readGmailBodyHtml)(input.payload, options),
+    to: emails(input.to).map(email => ({ email })), cc: emails(input.cc).map(email => ({ email })),
+    receivedAt: input.receivedAt,
+    attachments: await prepare({ ...options, payload: input.payload, inboxId: inbox.id }),
+    isGroupEmail: true, suppressPush: true, verifiedSchoolGroup: school
+  });
+  if (!saved.ingested) throw new Error('The school group email could not be saved');
+  return saved;
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
-import {recordSchoolGroupEmail,recordSentSchoolGroupEmail,packetNotificationSubject} from '../schoolGroupEmailInbox.service.js';
+import {recordSchoolGroupEmail,recordSentSchoolGroupEmail,packetNotificationSubject,findDirectSchoolGroup,recordDirectSchoolGroupEmail,schoolGroupPersonalAddresses} from '../schoolGroupEmailInbox.service.js';
 import {resolveNotificationTypePreference} from '../notificationPreferences.service.js';
 test.after(()=>pool.end());
 const input={agencyId:2,to:['bradley@itsco.health'],cc:['support@itsco.health'],fromEmail:'schools@itsco.health',subject:'Example School - Paper Enrollment Packet Uploaded',messageId:'<packet@app.test>',bodyText:'A packet has been uploaded.',receivedAt:'2026-11-10T15:00:00Z'};
@@ -50,4 +50,47 @@ test('school-email alerts default on for support, can be muted, and cannot send 
 test('other automatic school-group notifications remain email and do not require packet wording',async()=>{
  const f=fixture();const result=await recordSchoolGroupEmail({...input,automated:true,subject:'Example School - Clinician assigned'},f.deps);
  assert.equal(result.handled,true);assert.equal(f.copies[0].autoReplyKind,'school_group_notification');assert.equal(f.notifications.length,0);
+});
+
+
+test('matches an explicit school recipient only when the affiliation and school are unambiguous', async () => {
+  const matched = { school_organization_id: 77, school_name: 'Sample School', itsco_email: 'team@example.test' };
+  const database = { execute: async (sql, args) => {
+    if (sql.includes('SELECT DISTINCT affiliation.agency_id')) {
+      assert.deepEqual(args, ['team@example.test']);
+      return [[{ agency_id: 2 }]];
+    }
+    if (sql.includes('SELECT DISTINCT a.id')) return [[matched]];
+    return [[]];
+  }};
+  const school = await findDirectSchoolGroup(['Team@example.test'], [], database);
+  assert.deepEqual(school, { agencyId: 2, schoolOrganizationId: 77, schoolName: 'Sample School', mailboxAddress: 'team@example.test' });
+  assert.deepEqual(schoolGroupPersonalAddresses({
+    to: ['team@example.test'], cc: ['direct@example.test'], deliveryAddresses: ['relay@other.example.test'], school
+  }), ['direct@example.test']);
+  database.execute = async () => [[{ agency_id: 2 }, { agency_id: 3 }]];
+  assert.equal(await findDirectSchoolGroup(['team@example.test'], [], database), null);
+});
+
+test('files school correspondence in the school reply inbox with its original recipient and school context', async () => {
+  const school = { agencyId: 2, schoolOrganizationId: 77, schoolName: 'Sample School' };
+  let saved;
+  await recordDirectSchoolGroupEmail({ ...input, school, threadId: 'thread-10' }, {
+    inboxes: {
+      ensureFromSenderIdentities: async () => {},
+      listForAgency: async () => [
+        { id: 11, kind: 'personal', identity_key: 'personal_9', owner_user_id: 9 },
+        { id: 12, kind: 'shared', identity_key: 'schools' }, { id: 13, kind: 'shared', identity_key: 'schoolreply' }
+      ]
+    },
+    prepareAttachments: async () => [],
+    readHtml: async () => '<p>School correspondence</p>',
+    persistEmail: async email => { saved = email; return { ingested: true }; }
+  });
+  assert.equal(saved.inboxId, 13);
+  assert.equal(saved.agencyId, 2);
+  assert.equal(saved.threadId, 'school:77:thread-10');
+  assert.equal(saved.isGroupEmail, true);
+  assert.deepEqual(saved.verifiedSchoolGroup, school);
+  assert.deepEqual(saved.to, [{ email: 'bradley@itsco.health' }]);
 });

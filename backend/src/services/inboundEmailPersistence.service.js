@@ -15,7 +15,7 @@ export async function restoreMissingInboundHtml(db, messageId, bodyHtml) {
 }
 
 /** Inbox row lock serializes thread creation; receipt+message+attachments commit together. */
-export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conversationId = null, threadId = null, ownerUserId = null, fromEmail, replyToEmail = null, subject, bodyText, bodyHtml = null, to = [], cc = [], inReplyTo = null, referencesHeader = null, receivedAt = new Date(), attachments = [], isGroupEmail = false, internalNote = false, isAutoReply = false, standalone = false, suppressPush = false, autoReplyKind = null }) {
+export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conversationId = null, threadId = null, ownerUserId = null, fromEmail, replyToEmail = null, subject, bodyText, bodyHtml = null, to = [], cc = [], inReplyTo = null, referencesHeader = null, receivedAt = new Date(), attachments = [], isGroupEmail = false, internalNote = false, isAutoReply = false, standalone = false, suppressPush = false, autoReplyKind = null, verifiedSchoolGroup = null }) {
   if (isExternalTestingEmail(fromEmail, replyToEmail, to, cc)) {
     return { ingested: true, ignored: true, reason: 'external_testing_mail' };
   }
@@ -69,6 +69,12 @@ export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conve
     for (const att of attachments) await db.execute('INSERT INTO communication_attachments (message_id, filename, content_type, size_bytes, storage_key) VALUES (?, ?, ?, ?, ?)', [msg.insertId, att.filename, att.contentType, att.sizeBytes, att.storageKey]);
     await db.execute(`INSERT INTO communication_participants (conversation_id, kind, email, display_name, is_primary) SELECT ?, 'email', ?, ?, NOT EXISTS (SELECT 1 FROM communication_participants p WHERE p.conversation_id = ? AND p.is_primary = 1) WHERE NOT EXISTS (SELECT 1 FROM communication_participants p WHERE p.conversation_id = ? AND LOWER(p.email) = LOWER(?))`, [cid, fromEmail, fromEmail, cid, cid, fromEmail]);
     await db.execute(`UPDATE communication_conversations SET status = 'needs_reply', archived_at = NULL, last_message_preview = IF(last_message_at IS NULL OR last_message_at <= ?, ?, last_message_preview), last_message_at = GREATEST(COALESCE(last_message_at, ?), ?) WHERE id = ?`, [receivedAt, String(bodyText || subject || '').replace(/\s+/g, ' ').slice(0, 240), receivedAt, receivedAt, cid]);
+    if (verifiedSchoolGroup) {
+      await db.execute(`INSERT INTO communication_links (conversation_id, entity_type, entity_id, label)
+        VALUES (?, 'school', ?, ?) ON DUPLICATE KEY UPDATE label=VALUES(label)`,
+      [cid, verifiedSchoolGroup.schoolOrganizationId, verifiedSchoolGroup.schoolName]);
+      await db.execute('UPDATE communication_conversations SET is_unknown_sender=0 WHERE id=? AND agency_id=?', [cid, agencyId]);
+    }
     await db.execute('INSERT INTO communication_email_receipts (inbox_id, delivery_hash, message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)', [inboxId, hash, msg.insertId]);
     await db.commit();
     try {
