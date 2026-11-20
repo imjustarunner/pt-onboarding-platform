@@ -23,7 +23,12 @@ it('opens canonical session comments through the new calendar while keeping the 
  const w=mount(QuickView,{attachTo:document.body,props:{mobileSession:{sessionToken:'fixture-scoped',userId:1,agencyId:10,expiresAt:'2099-01-01',profile:{workspace:{name:'Synthetic'},appLock:{method:'none'}}}},global:{plugins:[router],stubs:{MobileMessages:true,QuickViewMusicDock:true,QuickViewPresence:true}}});
  try{await flushPromises();await w.get('.mobile-calendar input[type="date"]').setValue('2026-11-11');await flushPromises();await w.get('[aria-label="Session comments for Fic* Cli*"]').trigger('click');await flushPromises();
   expect(router.currentRoute.value.query.view).toBe('calendar');const button=w.get('[aria-label="Event details"] .aw-comment-button');expect(button.classes()).not.toContain('aw-comment-button--icon');await button.trigger('click');await flushPromises();expect(document.body.textContent).toContain('Fictional calendar comment');
-  await w.setProps({privacyHidden:true});await flushPromises();expect(document.body.textContent).not.toContain('Fictional calendar comment');expect(w.find('.mobile-calendar').exists()).toBe(true);await w.setProps({privacyHidden:false});await flushPromises();await w.get('.event-open').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toMatchObject({view:'clinical',clientId:'34',clinicalSessionId:'45'});
+  await w.setProps({privacyHidden:true});await flushPromises();expect(document.body.textContent).not.toContain('Fictional calendar comment');expect(w.find('.mobile-calendar').exists()).toBe(true);await w.setProps({privacyHidden:false});await flushPromises();await w.get('.event-open').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toMatchObject({view:'session',clientId:'34',clinicalSessionId:'45'});
+  const actions=w.get('.mobile-clinical-session').findAll('button');
+  expect(actions.find(button=>button.text().includes('Coming soon')).element.disabled).toBe(true);
+  await actions.find(button=>button.text()==='Open note').trigger('click');
+  await flushPromises();
+  expect(router.currentRoute.value.query).toMatchObject({view:'clinical',clientId:'34',clinicalSessionId:'45'});
  }finally{w.unmount();router.options.history.destroy();}
 });
 it('requests the ordinary workspace switch before opening another agency’s session comments',async()=>{
