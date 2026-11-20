@@ -85,3 +85,21 @@ it('serializes overlapping blur saves and keeps the latest fields together', asy
     expect(howItWent.element.value).toBe('Named the main idea');
   } finally { wrapper.unmount(); }
 });
+
+
+it('keeps unsaved text when a Hub refresh supplies equivalent parameters', async () => {
+  api.mockResolvedValueOnce(loaded('Original work'))
+    .mockResolvedValueOnce({ data: { note: { status: 'saved' } } });
+  const wrapper = mount(Editor, { props: { appointmentId: 419, params: { agencyId: 453, serviceId: 1038 } } });
+  try {
+    await flushPromises();
+    await wrapper.find('textarea').setValue('Practiced equivalent fractions and explained the model.');
+    await wrapper.setProps({ params: { agencyId: 453, serviceId: 1038 } });
+    await flushPromises();
+    expect(api).toHaveBeenCalledTimes(1);
+    await wrapper.find('textarea').trigger('blur');
+    await flushPromises();
+    expect(api.mock.lastCall[0].data.workedOn).toBe('Practiced equivalent fractions and explained the model.');
+    expect(wrapper.find('textarea').element.value).toBe('Practiced equivalent fractions and explained the model.');
+  } finally { wrapper.unmount(); }
+});

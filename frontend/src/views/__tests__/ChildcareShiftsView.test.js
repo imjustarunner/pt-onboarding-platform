@@ -22,7 +22,7 @@ describe('childcare app clocking', () => {
     expect(wrapper.text()).toContain('Were the scheduled 5 children present?');
     await wrapper.get('input[value=later]').setValue();
     await wrapper.findAll('button').find(b => b.text() === 'Clock in').trigger('click'); await flushPromises();
-    expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/clock-in', expect.objectContaining({ agencyId: 453, idempotencyKey: expect.any(String) }));
+    expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/clock-in', expect.objectContaining({ agencyId: 453, idempotencyKey: expect.any(String) }), { skipGlobalLoading: true });
     expect(http.post.mock.calls[0][1]).not.toHaveProperty('actualChildren');
     expect(wrapper.text()).toContain('Clock-in recorded.');
   });
@@ -50,7 +50,7 @@ it('lets a childcare-only reviewer inspect work and sign off without viewing ano
  expect(w.text()).toContain('Finley QA · submitted');expect(http.get.mock.calls.some(([url])=>url.includes('pay-preview'))).toBe(false);
  const approve=w.findAll('button').find(b=>b.text()==='Sign off on childcare work');expect(approve.attributes('disabled')).toBeDefined();
  await w.find('textarea').setValue('Reviewed the recorded work and child-count timeline.');await w.get('.work-review input[type=checkbox]').setValue(true);await approve.trigger('click');await flushPromises();
- expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/review-work',expect.objectContaining({agencyId:453,targetUserId:1496,decision:'approved',snapshotHash:'current-hash',confirmed:true}));w.unmount();
+ expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/review-work',expect.objectContaining({agencyId:453,targetUserId:1496,decision:'approved',snapshotHash:'current-hash',confirmed:true}), { skipGlobalLoading: true });w.unmount();
 });
 
 it('offers a review-only queue without loading peer pay or scheduling controls',async()=>{
@@ -62,4 +62,21 @@ it('retains seconds in the correction form and makes a deferred pay hold visible
  const own={...shift,status:'completed',workReviews:[{user_id:1496,status:'draft',intervals:[{startedAt:'2026-11-19T23:00:12Z',endedAt:'2026-11-20T00:00:48Z'}]}]};
  const http={get:vi.fn(async path=>({data:path.endsWith('/context')?{enabled:true,canWork:true}:path.endsWith('/shifts')?{shifts:[own]}:path.endsWith('/pay-preview')?{totalAmount:22,claimStatus:'deferred',segments:[]}:{shift:own}}))};
  const w=mount(View,{props:{agencyId:453,userId:1496,http,shiftId:7}});await flushPromises();const inputs=w.findAll('input[step="1"][type="datetime-local"]');expect(inputs).toHaveLength(2);expect(inputs[0].element.value).toMatch(/^2026-11-19T16:00:12(?:\.000)?$/);expect(inputs[1].element.value).toMatch(/^2026-11-19T17:00:48(?:\.000)?$/);expect(w.text()).toContain('Pay held for review');w.unmount();
+});
+
+
+it('restores a recorded count on reload and makes it available for clock-out', async () => {
+  const active = { ...shift, actualChildren: 3, providers: [{ ...shift.providers[0], clockedIn: true }] };
+  const http = client();
+  http.get.mockImplementation(async path => ({ data: path.endsWith('/context') ? { enabled: true, canWork: true } :
+    path.endsWith('/shifts') ? { shifts: [active] } : { shift: active } }));
+  const wrapper = mount(View, { props: { agencyId: 453, http, shiftId: 7 } });
+  try {
+    await flushPromises();
+    expect(wrapper.get('input[value=actual]').element.checked).toBe(true);
+    expect(wrapper.get('.child-count-choices input[type=number]').element.value).toBe('3');
+    await wrapper.findAll('button').find(button => button.text() === 'Clock out').trigger('click');
+    expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/clock-out',
+      expect.objectContaining({ actualChildren: 3, confirmPlannedCount: false }), { skipGlobalLoading: true });
+  } finally { wrapper.unmount(); }
 });

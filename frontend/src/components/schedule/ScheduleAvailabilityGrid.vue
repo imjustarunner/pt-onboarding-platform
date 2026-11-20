@@ -11310,7 +11310,7 @@ const isScheduleEventCancelled = (ev) => {
     || /^(canceled|cancelled|late_canceled|late_cancelled)/i.test(outcome);
 };
 
-const isScheduleEventMissed = (ev) => !!ev?.isMissed || ['MISSED','NO_SHOW','NO-SHOW'].includes(String(ev?.appointmentStatus || ev?.status || '').toUpperCase());
+const isScheduleEventMissed = ev => calendarSessionState(ev) === 'Missed';
 const isScheduleEventVoided = ev => calendarSessionState(ev)==='Voided';
 const isScheduleEventTerminal = (ev) => isScheduleEventCancelled(ev) || isScheduleEventMissed(ev) || isScheduleEventVoided(ev);
 
@@ -12360,6 +12360,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
     const attendeeCount = meetingBookedParticipantCount(ev);
     const isGroupMeeting = isMultiParticipantMeeting(ev);
+    const learningEvent = ['tutoring','learning'].includes(String(ev?.businessType || ev?.business_type || '').toLowerCase())
+      || String(ev?.serviceCode || ev?.service_code || '').toUpperCase() === 'TUTORING';
+    const locationLabel = learningEvent ? String(ev.locationLabel || '').replace(/telehealth/gi,'Virtual') : ev.locationLabel;
     const canEditEv = ev?.canEdit !== false && !isScheduleEventTerminal(ev);
     const canRescheduleEv = !isScheduleEventTerminal(ev) && (
       ev?.canReschedule === true
@@ -12373,9 +12376,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
       meetingSettings: ev?.meetingSettings || null,
       allDay: !!ev?.allDay,
-      shortLabel: [scheduleEventShortLabel(ev, 'start', { multiline: true }),ev.locationLabel].filter(Boolean).join('\n'),
+      shortLabel: [scheduleEventShortLabel(ev, 'start', { multiline: true }),locationLabel].filter(Boolean).join('\n'),
       calendarLocationKind:ev.calendarLocationKind,
-      locationLabel:ev.locationLabel,
+      locationLabel,
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
       appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || null) : null,
@@ -16578,6 +16581,12 @@ function onAppointmentChangeCompleted(result) {
   editorStatus.value = result?.appointment?.status || editorStatus.value;
   window.dispatchEvent(new Event('pt-schedule-refresh'));
   if(result?.seriesOperation){flashScheduleToast(`${result.seriesOperation.count} visits canceled. Signed notes are retained. ${result.seriesOperation.officeReservationDisposition==='keep'?'Your office reservations were kept.':'The associated office time was released.'}`,7000);return;}
+  if (editorIsLearning.value || ['tutoring','learning'].includes(result?.appointment?.businessType)) {
+    flashScheduleToast(result?.preview?.waiverRequested
+      ? 'The signed attendance record is saved. The waiver request is awaiting review.'
+      : 'Appointment change saved. The signed attendance record is available in the Session Hub.', 7000);
+    return;
+  }
   flashScheduleToast(result?.preview?.waiverRequested
     ? 'The signed session note is saved and the waiver request is in the review queue. No insurance claim was created.'
     : 'Appointment change saved. The signed, nonbillable note is attached to this session. No insurance claim was created.', 7000);

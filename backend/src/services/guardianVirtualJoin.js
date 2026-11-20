@@ -37,7 +37,7 @@ export async function guardianAppointmentJoin(row,client,db,{includeFutureDestin
   // A booked tutoring visit always has an appointment-specific destination.
   let context=row.learningContext||{};if(typeof context==='string'){try{context=JSON.parse(context);}catch{context={};}}
   const selectedServiceId=Number(context.serviceEnrollmentId||client.service?.id)||null;
-  if (Number(row.id)>0) return `/tutoring-session/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}${selectedServiceId?'&serviceId='+selectedServiceId:''}`;
+  if (Number(row.id)>0) return `/${includeFutureDestination?'tutoring':'tutoring-session'}/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}${selectedServiceId?'&serviceId='+selectedServiceId:''}`;
   // An unlinked legacy record cannot safely open an attendance-tracked room.
   return null;
 }

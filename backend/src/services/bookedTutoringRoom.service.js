@@ -4,6 +4,11 @@ import { saveLearningPlanSessionNote } from './tutoringSessionChecklist.service.
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { boardSkillProgress } from '../utils/tutoringBoardProgress.js';
+import { draftBoardQuestion, lessonActivity, recordLessonReview } from './tutoringBoardLesson.service.js';
 import { assertLearningClientAccess } from '../utils/learningAccess.js';
 import { ensureTutoringAppointmentWorkspace } from './tutoringAppointmentWorkspace.service.js';
 import { tutoringVisit } from './tutoringOffice.service.js';
@@ -17,7 +22,7 @@ import {publishTutoringNote,getPublishedTutoringNote,getAppointmentFamilySummary
 import {appointmentServiceLabel,appointmentAttendanceView} from '../utils/appointmentPresentation.js';
 import {resolveTutoringTrack} from './tutoringBookingContext.service.js';
 import {getLearningOverview} from './tutoringLearningOs.service.js';
-import { TutoringSessionNote, TutoringSessionBrief } from '../models/TutoringSessionLearning.model.js';
+import { AcademicSkillEvidence, TutoringSessionNote, TutoringSessionBrief } from '../models/TutoringSessionLearning.model.js';
 import {assertClinicalWorkActive} from './clinicalWorkArchiveRead.service.js';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -219,6 +224,22 @@ export async function bookedTutoringWorkspace(ctx,operation,input={}) {
  if(!ctx.host&&!visit)throw fail(403,'Admission to this appointment is required.');
  const scope={kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,role:ctx.host?'provider':'client',actor:ctx.actor,clientId:ctx.clientId,visitId:visit?.id,req:ctx.req,historical:ctx.host&&session.status==='ended',afterId:input.afterId};
  if(operation==='read')return workspace.readWorkspace(scope);
+ if(!ctx.host && input.type==='share')throw fail(403,'Only the assigned tutor can present lesson materials.');
+ if(input.type==='board_review')throw fail(400,'Review learning activities from the session record.');
+ if(input.type==='board_prompt'){
+  if(!ctx.host)throw fail(403,'Only the assigned tutor can present or review a problem.');
+  const subject=await resolveTutoringTrack(ctx.appointment,ctx.clientId,session.student_subject_id);
+  if(input.payload?.excerpt?.materialId){
+   const [rows]=await pool.execute('SELECT id FROM learning_class_session_materials WHERE session_id=? AND id=? AND storage_path IS NOT NULL',[session.id,input.payload.excerpt.materialId]);
+   if(!rows.length)throw fail(409,'Choose a prepared worksheet from this session.');
+  }
+  if(input.payload?.goalId){
+   const plan=subject&&await StudentLearningPlan.findActiveBySubject(subject.id);
+   const goals=plan?.approved_at && await StudentLearningPlan.listGoals(plan.id);
+   if(!goals||!goals.some(g=>Number(g.id)===input.payload.goalId))throw fail(409,'Choose a goal from this appointment’s approved learning plan.');
+  }
+
+ }
  if(operation==='download')return workspace.recordWorkspaceDownload(scope,Number(input.artifactId));
  if(input.payload?.mode==='treatment'||input.type==='rating')throw fail(400,'Use learning plans and family progress in the tutoring portal.');
  return workspace.appendWorkspace(scope,input);
@@ -259,6 +280,11 @@ export async function bookedTutoringNote(ctx, input = null) {
    if(!Array.isArray(input.goalIds)||input.goalIds.length>20||input.goalIds.some(id=>!Number.isSafeInteger(id)||id<=0))throw fail(400,'Select goals from this student’s learning plan.');
    for(const id of input.goalIds){const [[goal]]=await db.execute('SELECT g.id FROM student_learning_plan_goals g JOIN student_subjects s ON s.id=g.student_subject_id WHERE g.id=? AND s.client_id=? AND s.agency_id=? AND s.primary_tutor_user_id=?',[id,ctx.clientId,ctx.appointment.agencyId,ctx.appointment.providerUserId]);if(!goal)throw fail(403,'This goal belongs to a different learning assignment.');}
    const metadata=tutoringFamilyDraftMetadata(existing,input);
+   if(input.signAndShare===true){
+    const activity=await lessonActivity(ctx,session,db);
+    if(activity.items.some(i=>!i.rating))throw Object.assign(fail(409,'Review each shared activity before signing. Choose Not assessed for material you only demonstrated.'),{code:'UNRATED_LESSON_ACTIVITY'});
+    metadata.lessonActivity={activityIds:activity.items.map(i=>i.id),strokes:activity.strokes,snapshot:maybeEncryptNotePayload(JSON.stringify(activity.items))};
+   }
    const note=existing?await TutoringSessionNote.update(existing.id,{metadata},ctx.req.user.id,db):await TutoringSessionNote.create({agencyId:ctx.appointment.agencyId,clientId:ctx.clientId,studentSubjectId:session.student_subject_id||null,sessionId:session.id,status:'saved',summary:'',metadata},ctx.req.user.id,db);
    const publication=input.signAndShare===true?await publishTutoringNote(ctx,session,note,input,db):null;
    await audit(ctx,session,publication?'tutoring_summary_signed_shared':'tutoring_family_summary_draft_saved',{noteId:note.id,publicationId:publication?.id||null},db);
@@ -291,6 +317,49 @@ export async function startBookedInPersonTutoring(ctx){
  if(!ctx.host)throw fail(403,'Only the assigned tutor can start this session.');
  if(String(ctx.appointment.modality).toUpperCase()!=='IN_PERSON')throw fail(409,'Open the virtual session and admit its participant.');
  return transact(async db=>{await lockAppointment(ctx,db);if(terminal.has(ctx.appointment.status)||ctx.appointment.status==='no_show_pending'||ctx.appointment.status==='completed')throw fail(409,'This appointment already has an attendance outcome.');const session=await prepareSession(ctx,db,{workspaceOnly:true});if(session.actual_ended_at||session.status==='ended')throw fail(409,'This session has already ended.');await db.execute("UPDATE learning_class_sessions SET status='live',actual_started_at=COALESCE(actual_started_at,UTC_TIMESTAMP()),started_by_user_id=COALESCE(started_by_user_id,?) WHERE id=?",[ctx.req.user.id,session.id]);await db.execute("UPDATE appointments SET status='in_progress',updated_by_user_id=? WHERE id=?",[ctx.req.user.id,ctx.appointment.id]);await audit(ctx,session,'tutoring_in_person_started',{},db);return {sessionId:Number(session.id)};});
+}
+export async function tutoringBoardMaterials(ctx){
+ if(!ctx.host)throw fail(403,'Only the assigned tutor can select prepared materials.');
+ const session=await linkedSession(ctx);
+ if(!session)return {materials:[]};
+ const [rows]=await pool.execute("SELECT id,title FROM learning_class_session_materials WHERE session_id=? AND storage_path IS NOT NULL AND material_type IN ('document_template','session_pdf','user_document') ORDER BY position_index,id",[session.id]);
+ return {materials:rows};
+}
+export async function tutoringJoinLink(ctx){
+ const agency=await Agency.findById(ctx.appointment.agencyId);
+ const query=new URLSearchParams({clientId:ctx.clientId,agencyId:ctx.appointment.agencyId});
+ if(ctx.appointment.learningContext?.serviceEnrollmentId)query.set('serviceId',ctx.appointment.learningContext.serviceEnrollmentId);
+ return {url:buildPublicAppUrl(agency,`tutoring/appointment/${ctx.appointment.id}?${query}`)};
+}
+export async function tutoringBoardDraft(ctx,input){
+ if(!ctx.host||terminal.has(ctx.appointment.status)||ctx.appointment.status==='completed')throw fail(403,'Open an active tutoring appointment as its assigned tutor.');
+ return draftBoardQuestion(ctx,await bookedTutoringLearningContext(ctx),input);
+}
+export async function tutoringLessonReview(ctx,input){
+ if(!ctx.host)throw fail(403,'Only the assigned tutor may rate a learning activity.');
+ return transact(async db=>{
+  await lockAppointment(ctx,db);
+  if(terminal.has(ctx.appointment.status))throw fail(409,'This appointment has an attendance outcome.');
+  const session=await linkedSession(ctx,db,true);
+  if(!session?.actual_started_at)throw fail(409,'Open the attended session first.');
+  const note=await TutoringSessionNote.findBySession(session.id,db);
+  if(note?.status==='signed')throw fail(409,'This session record is signed.');
+  const subject=await resolveTutoringTrack(ctx.appointment,ctx.clientId,session.student_subject_id);
+  const scope={kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,role:'provider',actor:ctx.actor,req:ctx.req,
+    closedLessonReview:!!session.actual_ended_at,recordBoardReview:(conn,p,id)=>recordLessonReview(ctx,session,subject,conn,p,id)};
+  return workspace.appendWorkspace(scope,{type:'board_review',requestId:input.requestId,payload:{targetId:input.targetId,rating:input.rating}},db);
+ });
+}
+export async function tutoringLessonRecord(ctx){
+ if(!ctx.host)throw fail(403,'The session activity record is private to the assigned tutor.');
+ const session=await linkedSession(ctx);
+ if(!session)return {items:[],strokes:0};
+ const data=await lessonActivity(ctx,session,pool);
+ const subject=await resolveTutoringTrack(ctx.appointment,ctx.clientId,session.student_subject_id);
+ const evidence=subject?await AcademicSkillEvidence.listBySubject(subject.id):[];
+ data.progress=boardSkillProgress(evidence.filter(row=>Number(row.client_id)===ctx.clientId&&Number(row.agency_id)===Number(ctx.appointment.agencyId)));
+ await audit(ctx,session,'tutoring_lesson_activity_read',{activityCount:data.items.length},pool);
+ return data;
 }
 export async function bookedTutoringLearningContext(ctx) {
  if(!ctx.host)throw fail(403,'Learning-session documentation is private to the assigned tutor.');

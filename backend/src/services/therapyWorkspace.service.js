@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { authorizeBoard, boardTypes, priorBoardRequest, unpack } from './teachingBoard.service.js';
 import { encryptChatText, decryptChatText } from './chatEncryption.service.js';
 import { clinicalAudit } from './clinicalSessionAudit.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -7,8 +8,9 @@ const MODES=new Set(['video','whiteboard','pdf','book','media','resource','asses
 const scope=c=>[c.kind,c.sessionId,c.generation || 0,c.agencyId];
 export function validateArtifact(context,body) {
  const type=body?.type,payload=body?.payload;
- if(!TYPES.has(type)||!payload||typeof payload!=='object'||Array.isArray(payload)) throw fail(400,'Invalid session content.');
+ if((!TYPES.has(type)&&!boardTypes.has(type))||!payload||typeof payload!=='object'||Array.isArray(payload)) throw fail(400,'Invalid session content.');
  if(Buffer.byteLength(JSON.stringify(payload))>3*1024*1024) throw fail(413,'Session attachment must be under 2 MB.');
+ if(boardTypes.has(type))return {type,payload};
  if(type==='share') {
   if(!['provider','client'].includes(context.role)) throw fail(403,'Session admission is required.');
   if(payload.mode==='treatment'&&context.role!=='provider') throw fail(403,'Only the provider may share a treatment plan.');
@@ -26,6 +28,13 @@ export function validateArtifact(context,body) {
  const fields={chat:['text'],drawing:['shareId','color','points'],rating:['shareId','value'],download:['shareId'],viewed:['shareId','page'],response:['shareId','answers'],share:['mode','title','url','document','questions','description','planId','clientId','goals']}[type];
  const clean=Object.fromEntries(fields.filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]]));
  if(type==='share') {clean.title=String(clean.title||'').slice(0,150);clean.description=String(clean.description||'').slice(0,1000);if(clean.mode!=='treatment'){delete clean.planId;delete clean.clientId;delete clean.goals;}}
+ if(type==='drawing') {
+  if(!payload.points.length)throw fail(400,'Draw a stroke first.');
+  clean.width=[2,4,8,14].includes(payload.width)?payload.width:4;
+  clean.highlight=payload.highlight===true;
+  if(payload.targetId!=null)clean.targetId=payload.targetId;
+ }
+ if(type==='share'&&payload.boardId!==undefined)clean.boardId=payload.boardId;
  return {type,payload:clean};
 }
 // Serialize authorization and content access against the same row as end/revoke.
@@ -55,12 +64,17 @@ export async function readWorkspace(context, suppliedDb) {
  if(!Number.isSafeInteger(afterId)||afterId<0)throw fail(400,'Invalid content cursor.');
  const [rows]=await db.execute(`SELECT id,actor,actor_role,artifact_type,payload_envelope,created_at FROM therapy_session_artifacts WHERE session_kind=? AND session_id=? AND generation=? AND agency_id=? AND id>? ORDER BY id LIMIT 100`,[...scope(context),afterId]);
  if(rows.length)await clinicalAudit(context,'clinical_content_read',{artifactIds:rows.map(r=>r.id)},db);
- return {hasMore:rows.length===100,nextCursor:rows.at(-1)?.id||afterId,artifacts:rows.map(r=>({id:r.id,actor:r.actor,role:r.actor_role,type:r.artifact_type,payload:JSON.parse(decryptChatText(JSON.parse(r.payload_envelope))),createdAt:r.created_at}))};
+ return {actor:context.actor,hasMore:rows.length===100,nextCursor:rows.at(-1)?.id||afterId,artifacts:rows.filter(r=>context.role==='provider'||r.artifact_type!=='board_review').map(r=>({id:r.id,actor:r.actor,role:r.actor_role,type:r.artifact_type,payload:unpack(r),createdAt:r.created_at}))};
  },suppliedDb);
 }
 export async function appendWorkspace(context,body,suppliedDb) {
- return authorizedWorkspace({...context,historical:false},async db=>{
- const {type,payload}=validateArtifact(context,body);
+ const historical=context.closedLessonReview===true && context.kind==='tutoring' && context.role==='provider' && body?.type==='board_review';
+ return authorizedWorkspace({...context,historical},async db=>{
+ let {type,payload}=validateArtifact(context,body);
+ const boardAction=boardTypes.has(type)||type==='drawing'||type==='share'&&payload.mode==='whiteboard';
+ const key=boardAction?body.requestId||null:null;
+ if(key){const prior=await priorBoardRequest(db,context,key);if(prior){if(prior.artifact_type!==type)throw fail(409,'This action has already been used.');return {artifact:{id:prior.id,actor:prior.actor,role:prior.actor_role,type,payload:unpack(prior)}};}}
+ if(boardAction||type==='share'&&context.role!=='provider')payload=await authorizeBoard(db,context,type,payload);
  if(['response','viewed','rating','drawing','download'].includes(type)) {
   const [rows]=await db.execute(`SELECT payload_envelope FROM therapy_session_artifacts WHERE session_kind=? AND session_id=? AND generation=? AND agency_id=? AND id=? AND artifact_type='share'`,[...scope(context),payload.shareId]);
   if(!rows[0])throw fail(404,'Shared item not found in this session.');
@@ -69,7 +83,9 @@ export async function appendWorkspace(context,body,suppliedDb) {
   if(type==='drawing'&&shared.mode!=='whiteboard')throw fail(400,'Open a shared whiteboard first.');
   if(type==='response'&&(!['assessment','activity'].includes(shared.mode)||!Array.isArray(payload.answers)||payload.answers.length!==(shared.questions||[]).length||payload.answers.some(a=>typeof a!=='string'||a.length>4000)))throw fail(400,'Complete the shared questions.');
  }
- const [r]=await db.execute(`INSERT INTO therapy_session_artifacts (session_kind,session_id,generation,agency_id,actor,actor_role,artifact_type,payload_envelope) VALUES (?,?,?,?,?,?,?,?)`,[...scope(context),context.actor,context.role,type,JSON.stringify(encryptChatText(JSON.stringify(payload)))]);
+ const values=[...scope(context),context.actor,context.role,type,JSON.stringify(encryptChatText(JSON.stringify(payload)))];
+ const [r]=boardAction?await db.execute('INSERT INTO therapy_session_artifacts (session_kind,session_id,generation,agency_id,actor,actor_role,artifact_type,payload_envelope,board_id,board_target_id,board_request_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',[...values,payload.shareId||null,payload.targetId||null,key]):await db.execute('INSERT INTO therapy_session_artifacts (session_kind,session_id,generation,agency_id,actor,actor_role,artifact_type,payload_envelope) VALUES (?,?,?,?,?,?,?,?)',values);
+ if(type==='board_review' && context.recordBoardReview)await context.recordBoardReview(db,payload,r.insertId);
  await clinicalAudit(context,type==='download'?'clinical_download_requested':'clinical_content_saved',{artifactId:r.insertId,artifactType:type},db);
  return {artifact:{id:r.insertId,actor:context.actor,role:context.role,type,payload,createdAt:new Date().toISOString()}};
  },suppliedDb);

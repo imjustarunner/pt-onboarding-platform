@@ -1,12 +1,12 @@
 <template>
   <main class="childcare-page">
-    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><MomentumStickyComposer label="Add a sticky" /><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <header><div><button type="button" @click="router.push(`/${route.params.organizationSlug || agencyStore.currentAgency?.slug}/dashboard`)">Back to My Dashboard</button><p class="eyebrow">My work</p><h1>Childcare</h1><p>Scheduled children, attendance, and your actual work time.</p></div><div class="actions"><MomentumStickyComposer label="Add a sticky" show-saved /><button type="button" :disabled="loading || busy" @click="load">Refresh</button></div></header>
+    <p v-if="error && !selected && !editing" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading childcare shifts…</p>
     <p v-else-if="!context?.enabled || (!context.canWork && !context.canManage && !context.canApprove)" role="status">Childcare is not assigned to your account in this workspace. Ask your scheduler to review your service assignments.</p>
     <template v-else>
-      <section v-if="ownRates" class="card"><h2>Your childcare rates</h2><p v-if="ownRates.reviewRequired" class="review">{{ (ownRates.reasons || []).join('; ') }}</p><p>Category {{ ownRates.category || 'not configured' }} · Childcare level {{ ownRates.childcareLevel || 'not configured' }}<span v-if="ownRates.effectiveOn"> · Effective {{ ownRates.effectiveOn }}</span></p><ul><li v-for="band in CHILDCARE_BANDS" :key="band">{{ band }} {{ band === 1 ? 'child' : 'children' }} per caregiver: {{ childcareMoney(ownRates.ratesByBand?.[band]) }}/hour</li></ul></section>
+      <details v-if="ownRates" class="card rate-summary" :open="ownRates.reviewRequired || undefined"><summary>Your childcare rates</summary><p v-if="ownRates.reviewRequired" class="review">{{ (ownRates.reasons || []).join('; ') }}</p><p>Category {{ ownRates.category || 'not configured' }} · Childcare level {{ ownRates.childcareLevel || 'not configured' }}<span v-if="ownRates.effectiveOn"> · Effective {{ ownRates.effectiveOn }}</span></p><ul><li v-for="band in CHILDCARE_BANDS" :key="band">{{ band }} {{ band === 1 ? 'child' : 'children' }} per caregiver: {{ childcareMoney(ownRates.ratesByBand?.[band]) }}/hour</li></ul></details>
       <button v-if="context.canSchedule || context.canManage" type="button" :disabled="busy" @click="newShift">Schedule childcare</button>
       <form v-if="editing" class="card shift-form" @submit.prevent="saveShift">
         <h2>{{ editId ? 'Edit childcare shift' : 'Schedule childcare' }}</h2>
@@ -22,6 +22,7 @@
         <p v-else>You are scheduling your own childcare shift. An authorized scheduler can add eligible co-caregivers; only staff actually working share the child-count pay band.</p>
         <label>Private operational note (optional)<textarea v-model="draft.note" maxlength="4000" placeholder="Supplies, arrival instructions, or other operational details" /></label>
         <p>Child names are not needed. Planned children are kept separately from actual attendance.</p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div class="actions"><button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save shift' }}</button><button type="button" :disabled="busy" @click="editing = false">Cancel</button></div>
       </form>
       <section v-if="context.canApprove" class="card work-review-queue"><h2>Childcare work awaiting review</h2><p v-if="!reviewQueue.length">No submitted work, attendance or time corrections are awaiting your review.</p><button v-for="shift in reviewQueue" :key="shift.id" type="button" class="shift-choice" @click="openShift(shift.id)"><strong>{{shift.title || 'Childcare shift'}}</strong><span>{{when(shift)}}</span><span>{{reviewSummary(shift)}}</span></button></section>
@@ -29,6 +30,7 @@
         <div><h2>Shifts</h2><p v-if="!shifts.length">No childcare shifts are scheduled.</p><button v-for="shift in shifts" :key="shift.id" type="button" class="card shift-choice" :aria-pressed="selected?.id === shift.id" @click="openShift(shift.id)"><strong>{{ shift.title || 'Childcare shift' }}</strong><span>{{ when(shift) }}</span><span>{{ shift.plannedChildren }} children planned · {{ shift.status }}</span></button></div>
         <article v-if="selected" class="card shift-detail">
           <h2>{{ selected.title || 'Childcare shift' }}</h2><p>{{ when(selected) }}</p><p v-if="selected.locationName">{{ selected.locationName }}</p>
+          <p v-if="error && !editing" class="error" role="alert">{{ error }}</p>
           <p><strong>{{ selected.plannedChildren }} children planned</strong><span v-if="selected.actualChildren != null"> · Latest recorded count: {{ selected.actualChildren }}</span></p>
           <p v-if="selected.note" class="operational-note">{{ selected.note }}</p>
           <ul class="caregivers"><li v-for="person in selected.providers || []" :key="person.userId">{{ person.firstName }} {{ person.lastName }} · {{ person.clockedIn ? 'Clocked in' : person.clockedOut ? 'Clocked out' : 'Not clocked in' }}</li></ul>
@@ -143,7 +145,11 @@ async function openShift(id, expectedGeneration = generation) {
   try {
     const data = unwrap(await http.value.get(`/childcare/shifts/${id}`, { params: { agencyId: agencyId.value } }));
     if (expectedGeneration !== generation || selectionToken !== selectionGeneration) return;
-    selected.value = data.shift || data; finalizeShift.value=route.query.focus==='finalize'; confirmWork.value=false;correctionKey=null;correctionPending=null; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
+    selected.value = data.shift || data; finalizeShift.value=route.query.focus==='finalize'; confirmWork.value=false;correctionKey=null;correctionPending=null;
+    const recordedCount = selected.value.actualChildren;
+    countChoice.value = recordedCount == null ? '' : recordedCount === selected.value.plannedChildren ? 'planned' : 'actual';
+    actualCount.value = recordedCount ?? '';
+    reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
     correctionIntervals.value=(ownWorkReview.value?.intervals?.length?ownWorkReview.value.intervals:selected.value.myParticipation?.intervals||[]).map(row=>({startLocal:isoToZonedDatetimeLocal(row.startedAt,selected.value.timezone,{includeSeconds:true}),endLocal:isoToZonedDatetimeLocal(row.endedAt,selected.value.timezone,{includeSeconds:true})}));if(!correctionIntervals.value.length)correctionIntervals.value=[{startLocal:'',endLocal:''}];
     if (!props.http && Number(route.query.shiftId) !== Number(id)) router.replace({ query: { ...route.query, shiftId: String(id) } });
     if (isAssigned.value) {
@@ -153,9 +159,11 @@ async function openShift(id, expectedGeneration = generation) {
   } catch (e) { if (expectedGeneration === generation && selectionToken === selectionGeneration) error.value = message(e); }
 }
 function newShift() {
+  error.value = '';
   editId.value = null; draft.value = { title: 'Childcare shift', timezone: agencyStore.currentAgency?.timezone || 'America/Denver', startLocal: '', endLocal: '', plannedChildren: '', providerUserIds: context.value.canManage ? [] : [myId.value], note: '', locationName: '', officeLocationId: null, roomId: null, minimumHourlyRate: '', wageFloorJurisdiction: '' }; editing.value = true;
 }
 function editShift() {
+  error.value = '';
   const shift = selected.value; editId.value = shift.id;
   draft.value = { title: shift.title, timezone: shift.timezone, startLocal: isoToZonedDatetimeLocal(shift.startsAt, shift.timezone), endLocal: isoToZonedDatetimeLocal(shift.endsAt, shift.timezone), plannedChildren: shift.plannedChildren, providerUserIds: (shift.providers || []).map(p => p.userId), note: shift.note || '', locationName: shift.locationName || '', officeLocationId: shift.officeLocationId || null, roomId: shift.roomId || null, minimumHourlyRate: shift.minimumHourlyRate ?? '', wageFloorJurisdiction: shift.wageFloorJurisdiction || '' }; editing.value = true;
 }
@@ -168,7 +176,7 @@ async function saveShift() {
     if (String(draft.value.plannedChildren).trim() === '' || !Number.isSafeInteger(Number(draft.value.plannedChildren)) || Number(draft.value.plannedChildren) < 0) throw new Error('Enter the planned number of children.');
     busy.value = true; error.value = '';
     const body = { agencyId: aid, title: draft.value.title, startsAt, endsAt, timezone: draft.value.timezone, plannedChildren: Number(draft.value.plannedChildren), providerUserIds: context.value.canManage ? draft.value.providerUserIds : [myId.value], note: draft.value.note, locationName: draft.value.locationName, officeLocationId: draft.value.officeLocationId, roomId: draft.value.roomId, ...(context.value.canManagePay ? { minimumHourlyRate: draft.value.minimumHourlyRate === '' ? null : Number(draft.value.minimumHourlyRate), wageFloorJurisdiction: draft.value.wageFloorJurisdiction } : {}) };
-    const result = unwrap(await (editId.value ? http.value.patch(`/childcare/shifts/${editId.value}`, body) : http.value.post('/childcare/shifts', body)));
+    const result = unwrap(await (editId.value ? http.value.patch(`/childcare/shifts/${editId.value}`, body, { skipGlobalLoading: true }) : http.value.post('/childcare/shifts', body, { skipGlobalLoading: true })));
     if (aid !== agencyId.value) return;
     editing.value = false; notice.value = 'Childcare shift saved.';
     const id = result.shift?.id || result.id; await load(); if (id) await openShift(id);
@@ -180,7 +188,7 @@ async function perform(action, body, success) {
   const aid = agencyId.value, id = selected.value.id;
   busy.value = true; error.value = ''; notice.value = '';
   try {
-    await http.value.post(`/childcare/shifts/${id}/${action}`, { agencyId: aid, ...body });
+    await http.value.post(`/childcare/shifts/${id}/${action}`, { agencyId: aid, ...body }, { skipGlobalLoading: true });
     actionKey = null; pendingPunch = null;
     if (aid !== agencyId.value) return;
     notice.value = success;
@@ -243,4 +251,5 @@ watch(()=>selected.value?.id,focusFinalize);
 <style scoped>
 .childcare-page{max-width:1120px;margin:auto;padding:24px;color:var(--text-primary,#203b32)}header,.actions{display:flex;gap:12px;align-items:center;justify-content:space-between}header p{margin:5px 0}.eyebrow{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em}h1{margin:0}.card{border:1px solid #b7cfc3;border-radius:12px;background:var(--bg-card,#fff);padding:20px;margin:14px 0}.shift-layout{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,2fr);gap:24px}.shift-choice{display:flex;flex-direction:column;text-align:left;gap:8px;width:100%}.shift-choice[aria-pressed=true]{outline:2px solid #27654e}.shift-form{display:grid;gap:14px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:grid;gap:6px}.check{display:flex;align-items:center;gap:8px;margin:8px 0}.check input{width:auto}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #95b4a5;border-radius:7px;padding:10px;background:var(--bg-input,#fff);color:inherit}button{border:1px solid #739b87;border-radius:7px;padding:10px 14px;cursor:pointer;color:inherit;background:var(--bg-card,#fff)}button:disabled{opacity:.6;cursor:wait}.actions{justify-content:flex-start;flex-wrap:wrap}.error{background:#fff0ef;color:#8b2020;padding:14px;border-radius:8px}.notice{background:#e8f5ee;padding:12px;border-radius:8px}.review{color:#754800;background:#fff4d6;padding:12px}.operational-note{white-space:pre-wrap}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{text-align:left;padding:10px;border-bottom:1px solid #d4e1da}fieldset{border:1px solid #bbcec2;border-radius:8px;padding:14px;margin:14px 0}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #367bd4;outline-offset:2px}@media(max-width:700px){.childcare-page{padding:16px}.shift-layout,.columns{grid-template-columns:1fr}.card{padding:16px}header{align-items:flex-start;flex-wrap:wrap}}
 .shift-layout>*{min-width:0}.card{min-width:0;box-sizing:border-box}.table-wrap{max-width:100%}fieldset{min-inline-size:0}.check{overflow-wrap:anywhere}.child-count-choices .check{cursor:pointer;min-height:44px;text-align:left;justify-content:flex-start}.child-count-choices input[type=radio]{flex:0 0 18px;width:18px;height:18px;max-width:18px;margin:0;cursor:pointer}@media(max-width:700px){.shift-layout,.columns{grid-template-columns:minmax(0,1fr)}}
+.childcare-page{box-sizing:border-box;max-width:1540px;width:100%;padding:clamp(12px,1.5vw,24px)}.rate-summary{padding:10px 16px}.rate-summary summary{font-weight:700;cursor:pointer}.rate-summary ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:5px 20px;padding-left:20px}.shift-layout{align-items:start}.shift-choice{padding:12px 14px;margin:8px 0;gap:4px}@media(max-width:700px){header{flex-wrap:wrap}}
 </style>

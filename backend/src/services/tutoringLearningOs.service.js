@@ -1,3 +1,4 @@
+import { lessonMeasures } from '../utils/tutoringBoardProgress.js';
 import {appointmentAttendanceView,appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 import {tutoringBookingSubjects} from './tutoringBookingContext.service.js';
@@ -831,7 +832,7 @@ export async function evaluateGoalMastery(planGoalId) {
   const evidence = await AcademicSkillEvidence.listByGoal(planGoalId, { limit: 30 });
   const checklistReview = checklistMasteryReview(planGoalId, evidence);
   if (checklistReview) return checklistReview;
-  const chronological = [...evidence].reverse();
+  const chronological = lessonMeasures([...evidence].reverse());
   const rated = chronological.filter((e) => e.rating);
   const positive = rated.filter((e) => MASTERY_POSITIVE.has(String(e.rating)));
   const strong = rated.filter((e) => MASTERY_STRONG.has(String(e.rating)));

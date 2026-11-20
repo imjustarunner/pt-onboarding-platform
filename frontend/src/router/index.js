@@ -3637,12 +3637,14 @@ const routes = [
   },
   {
     path: '/tutoring-session/appointment/:appointmentId',
+    alias: '/tutoring/appointment/:appointmentId',
     name: 'VirtualTutoringAppointment',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
     meta: { requiresAuth: true }
   },
   {
     path: '/:organizationSlug/tutoring-session/appointment/:appointmentId',
+    alias: '/:organizationSlug/tutoring/appointment/:appointmentId',
     name: 'OrganizationVirtualTutoringAppointment',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
