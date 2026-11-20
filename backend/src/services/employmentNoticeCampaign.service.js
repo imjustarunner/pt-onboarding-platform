@@ -8,7 +8,7 @@ const failure = (status, message) => Object.assign(new Error(message), { status 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const normalized = value => String(value || '').trim().toLowerCase().replace(/[^a-z]/g, '');
 const supportedPersonal = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/i;
-const targetCompanies = Object.freeze(['itsco', 'nlu', 'isi']);
+const targetCompanies = Object.freeze(['itsco', 'nlu', 'tisi']);
 const jobRoles = Object.freeze({ billing: 'billing', people_operations: 'people_operations' });
 const keepWorkClassification = new Set(['is_hourly_worker']);
 
@@ -27,7 +27,8 @@ async function campaignInput(config) {
     || input.targets.filter(target => target.team === 'billing').length !== 1
     || input.targets.filter(target => target.team === 'people_operations').length !== 1
     || input.targets.filter(target => target.team === 'notice_only').length !== 2
-    || !input.letter || !input.subject || input.contact !== 'founders@itsco.health') throw failure(503, 'Invalid campaign content.');
+    || input.targets.some(target => !Number.isSafeInteger(target.userId) || target.userId < 1 || !target.first || !target.last)
+    || !Array.isArray(input.workDomains) || !input.letter || !input.subject || input.contact !== 'founders@itsco.health') throw failure(503, 'Invalid campaign content.');
   return input;
 }
 
@@ -37,17 +38,17 @@ async function resolveAccounts(input, db, lock = false) {
     const [rows] = await db.execute(
       `SELECT id,first_name,last_name,role,status,is_active,is_archived,identity_product,email,work_email,personal_email,
           login_is_group_email,sso_password_override,(password_hash IS NOT NULL AND password_hash<>'') AS has_app_password
-         FROM users WHERE LOWER(TRIM(first_name))=? AND REGEXP_REPLACE(LOWER(TRIM(last_name)),'[^a-z]','')=?
+         FROM users WHERE id=? AND LOWER(TRIM(first_name))=? AND REGEXP_REPLACE(LOWER(TRIM(last_name)),'[^a-z]','')=?
          AND COALESCE(is_demo,0)=0 AND COALESCE(is_assistant_account,0)=0
          ${lock ? 'FOR UPDATE' : ''}`,
-      [normalized(target.first), normalized(target.last)]
+      [target.userId, normalized(target.first), normalized(target.last)]
     );
     if (rows.length !== 1) throw failure(409, 'An approved employee account could not be uniquely matched.');
     const current = rows[0];
     const personal = String(current.personal_email || '').trim().toLowerCase();
-    const knownWork = [current.email, current.work_email].map(value => String(value || '').trim().toLowerCase()).filter(Boolean);
-    const isPersonal = supportedPersonal.test(personal) && !knownWork.includes(personal) &&
-      ![...input.workDomains, ...knownWork.map(address => address.split('@')[1])].includes(personal.split('@')[1]);
+    const workEmail = String(current.work_email || '').trim().toLowerCase();
+    const knownWorkDomains = [...input.workDomains, workEmail.split('@')[1]];
+    const isPersonal = supportedPersonal.test(personal) && personal !== workEmail && !knownWorkDomains.includes(personal.split('@')[1]);
     output.push({ ...current, team: target.team, personal, isPersonal });
   }
   if (new Set(output.map(account => account.id)).size !== 4) throw failure(409, 'The campaign needs four distinct employee accounts.');
@@ -56,7 +57,7 @@ async function resolveAccounts(input, db, lock = false) {
 
 async function resolveCompanies(db) {
   const [rows] = await db.execute(
-    `SELECT id,slug,name FROM agencies WHERE slug IN ('itsco','nlu','isi') AND is_active=1 AND COALESCE(is_archived,0)=0
+    `SELECT id,slug,name FROM agencies WHERE slug IN ('itsco','nlu','tisi') AND is_active=1 AND COALESCE(is_archived,0)=0
      AND organization_type IN ('agency','clubwebapp','life_coach','consultant')`
   );
   if (rows.length !== targetCompanies.length || new Set(rows.map(row => row.slug)).size !== targetCompanies.length) {
