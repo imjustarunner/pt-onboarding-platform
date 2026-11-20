@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import pool from '../config/database.js';
+import { readEmploymentNoticeCampaign } from './employmentNoticeCampaign.service.js';
 import { listSendAsAliases } from './gmailSendAs.service.js';
 import { getGmailClient } from './unifiedEmail/gmailClient.js';
 
@@ -33,18 +34,19 @@ function buildMessage({ from, to, contact, subject, link, messageId }) {
 }
 
 export async function deliverEmploymentNoticeMail({
-  version, automationIdentity, db = pool, listAliases = listSendAsAliases, getClient = getGmailClient
+  version, automationIdentity, db = pool, listAliases = listSendAsAliases, getClient = getGmailClient,
+  readCampaign = readEmploymentNoticeCampaign
 }) {
   const [rows] = await db.execute(
     `SELECT m.delivery_id, m.attempted_at, r.notice_id, r.user_id, n.subject, n.contact_email,
             LOWER(TRIM(u.personal_email)) AS personal_email,
-            m.personal_email_digest = UNHEX(SHA2(LOWER(TRIM(u.personal_email)),256)) AS recipient_matches
+            LOWER(HEX(m.personal_email_digest)) AS address_digest
        FROM employment_notice_mail m
        JOIN employment_notice_recipients r ON r.notice_id=m.notice_id AND r.user_id=m.user_id
        JOIN employment_notices n ON n.id=r.notice_id
        JOIN users u ON u.id=r.user_id
       WHERE n.version=? AND m.accepted_at IS NULL
-        AND n.publish_at <= UTC_TIMESTAMP(3) AND UTC_TIMESTAMP(3)<n.publish_at+INTERVAL 1 DAY
+        AND n.publish_at <= UTC_TIMESTAMP(3) AND UTC_TIMESTAMP(3)<n.link_until
       ORDER BY m.delivery_id LIMIT 5`,
     [version]
   );
@@ -58,8 +60,17 @@ export async function deliverEmploymentNoticeMail({
   const client = await getClient();
   let accepted = 0;
   let held = 0;
+  let campaign;
+  const matchesQueue = (address, row) => allowedPersonalEmail.test(address)
+    && createHash('sha256').update(address).digest('hex') === row.address_digest;
   for (const row of rows) {
-    if (!row.recipient_matches || !allowedPersonalEmail.test(row.personal_email) || row.contact_email.toLowerCase() !== 'founders@itsco.health') {
+    let destination = row.personal_email || '';
+    if (!matchesQueue(destination, row)) {
+      campaign ??= await readCampaign();
+      const target = campaign.version === version && campaign.targets.find(item => Number(item.userId) === Number(row.user_id));
+      destination = String(target?.noticeEmail || '').trim().toLowerCase();
+    }
+    if (!matchesQueue(destination, row) || row.contact_email.toLowerCase() !== 'founders@itsco.health') {
       held++;
       await db.execute(
         `INSERT IGNORE INTO employment_notice_automation_audit
@@ -94,7 +105,7 @@ export async function deliverEmploymentNoticeMail({
         const link = `https://app.itsco.health/employment-notice#${key}`;
         const { data } = await client.users.messages.send({
           userId: 'me', requestBody: {
-            raw: buildMessage({ from, to: row.personal_email, contact: row.contact_email, subject: row.subject, link, messageId: `<${messageId}>` })
+            raw: buildMessage({ from, to: destination, contact: row.contact_email, subject: row.subject, link, messageId: `<${messageId}>` })
           }
         });
         receipt = data.id;

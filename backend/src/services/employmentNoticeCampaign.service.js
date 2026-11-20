@@ -12,7 +12,7 @@ const targetCompanies = Object.freeze(['itsco', 'nlu', 'tisi']);
 const jobRoles = Object.freeze({ billing: 'billing', people_operations: 'people_operations' });
 const keepWorkClassification = new Set(['is_hourly_worker']);
 
-async function campaignInput(config) {
+export async function readEmploymentNoticeCampaign(config = process.env) {
   const object = String(config.EMPLOYMENT_NOTICE_CAMPAIGN_OBJECT || '');
   const expectedHash = config.EMPLOYMENT_NOTICE_CAMPAIGN_SHA256;
   if (!/^private-employment-notices\/[a-f0-9]{32}\.json$/.test(object) || !/^[a-f0-9]{64}$/.test(expectedHash || '')) {
@@ -27,7 +27,8 @@ async function campaignInput(config) {
     || input.targets.filter(target => target.team === 'billing').length !== 1
     || input.targets.filter(target => target.team === 'people_operations').length !== 1
     || input.targets.filter(target => target.team === 'notice_only').length !== 2
-    || input.targets.some(target => !Number.isSafeInteger(target.userId) || target.userId < 1 || !target.first || !target.last)
+    || input.targets.some(target => !Number.isSafeInteger(target.userId) || target.userId < 1 || !target.first || !target.last
+      || (Object.hasOwn(target, 'noticeEmail') && !supportedPersonal.test(target.noticeEmail || '')))
     || !Array.isArray(input.workDomains) || !input.letter || !input.subject || input.contact !== 'founders@itsco.health') throw failure(503, 'Invalid campaign content.');
   return input;
 }
@@ -45,11 +46,13 @@ async function resolveAccounts(input, db, lock = false) {
     );
     if (rows.length !== 1) throw failure(409, 'An approved employee account could not be uniquely matched.');
     const current = rows[0];
-    const personal = String(current.personal_email || '').trim().toLowerCase();
+    const approvedDestination = Object.hasOwn(target, 'noticeEmail');
+    const personal = String(approvedDestination ? target.noticeEmail : current.personal_email || '').trim().toLowerCase();
     const workEmail = String(current.work_email || '').trim().toLowerCase();
     const knownWorkDomains = [...input.workDomains, workEmail.split('@')[1]];
     const isPersonal = supportedPersonal.test(personal) && personal !== workEmail && !knownWorkDomains.includes(personal.split('@')[1]);
-    output.push({ ...current, team: target.team, personal, isPersonal });
+    if (approvedDestination && !isPersonal) throw failure(409, 'An approved notice destination matches a work mailbox or domain.');
+    output.push({ ...current, team: target.team, personal, isPersonal, approvedDestination });
   }
   if (new Set(output.map(account => account.id)).size !== 4) throw failure(409, 'The campaign needs four distinct employee accounts.');
   return output;
@@ -95,7 +98,7 @@ async function preflight(input, db) {
          WHEN activity_path REGEXP 'messages|conversa|communications|inbox|ticket' THEN 'messages_tickets'
          WHEN activity_path REGEXP 'client|students|chart' THEN 'client_work'
          ELSE 'other_activity' END AS category,
-       COUNT(*) AS events,COUNT(DISTINCT DATE(created_at)) AS days
+       COUNT(*) AS events,COUNT(DISTINCT DATE(r.created_at)) AS days
        FROM recent r LEFT JOIN agencies a ON a.id=r.agency_id
        GROUP BY r.user_id,agency,category ORDER BY r.user_id,events DESC`, ids
   );
@@ -132,10 +135,17 @@ async function stage(input, actor, db) {
   const noticeId = result.insertId;
   for (const account of accounts) {
     await db.execute('INSERT IGNORE INTO employment_notice_recipients (notice_id,user_id) VALUES (?,?)', [noticeId, account.id]);
-    if (account.isPersonal) await db.execute(
-      'INSERT IGNORE INTO employment_notice_mail (notice_id,user_id,personal_email_digest) VALUES (?,?,UNHEX(?))',
-      [noticeId, account.id, hash(account.personal)]
-    );
+    if (account.isPersonal) {
+      const [mail] = await db.execute(
+        'INSERT IGNORE INTO employment_notice_mail (notice_id,user_id,personal_email_digest) VALUES (?,?,UNHEX(?))',
+        [noticeId, account.id, hash(account.personal)]
+      );
+      if (mail.affectedRows && account.approvedDestination) await db.execute(
+        `INSERT INTO employment_notice_automation_audit (notice_id,user_id,operation,automation_identity,result)
+         VALUES (?,?,'personal_mail_destination_approved',?,JSON_OBJECT('purpose','employment_notice'))`,
+        [noticeId, account.id, actor]
+      );
+    }
     await db.execute(
       `INSERT IGNORE INTO employment_notice_automation_audit (notice_id,user_id,operation,automation_identity,result)
        VALUES (?,?,'staged',?,JSON_OBJECT('team',?,'personalMailQueued',CAST(? AS JSON)))`,
@@ -247,7 +257,7 @@ async function applyPermissions(input, actor, db) {
   return { updated };
 }
 
-export async function runEmploymentNoticeCampaign(action, actor, { database = pool, config = process.env, load = campaignInput } = {}) {
+export async function runEmploymentNoticeCampaign(action, actor, { database = pool, config = process.env, load = readEmploymentNoticeCampaign } = {}) {
   const input = await load(config);
   if (action === 'preflight') return preflight(input, database);
   const db = await database.getConnection();
