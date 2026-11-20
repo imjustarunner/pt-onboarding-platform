@@ -70,10 +70,11 @@ export async function inspectNarrivaFacts(source,{model=callPrivateSessionText,k
  const privacyContext=createSessionPrivacyContext({identifiers:source.identifiers,clientNames:[source.client.first_name,source.client.last_name,source.client.full_name,source.client.initials],providerNames:[source.provider?.first_name,source.provider?.last_name]});
  const preflight = source.phase === 'pre_generation';
  const evidencePayload=narrivaModelPayload(source);
+ if(preflight && evidencePayload.note===evidencePayload.sessionNarrative)delete evidencePayload.note;
  let workingDraft=null;
  if(preflight) {
   const tool=getNoteAidToolById(source.meta?.toolId) || getNoteAidToolById(mappedGeneratorId) || getNoteAidToolById('clinical_code_decider');
-  const prompt=[buildPromptForTool({tool,inputText:source.inputText}),guidance,
+  const prompt=[buildPromptForTool({tool,inputText:'Use the sessionNarrative in the encounter evidence below.'}),guidance,
    'Write a private working draft for the pre-generation check using only the encounter evidence below. Record the current objective ratings or dispositions. Leave unobserved facts open. A deferred risk assessment is a to-do, never a completed assessment.',
    JSON.stringify(evidencePayload)].join('\n\n');
   const written=await model({privacyContext,prompt,...clinicalWriterOptions(tool)});
@@ -123,28 +124,23 @@ async function persist(review) {
  await pool.execute('UPDATE narriva_reviews SET status=?,result_encrypted=?,risk_assessment_required=GREATEST(risk_assessment_required,?),completed_at=? WHERE id=?',[
   review.status,maybeEncryptNotePayload(JSON.stringify(review)),review.riskAssessmentRequired?1:0,['running','pending'].includes(review.status)?null:new Date(),review.id]);
 }
-async function executeReview(id,user,input,req) {
+async function executeReview(id,user,input,req,source) {
  if(activeJobs.has(id))return;activeJobs.add(id);
  let review;
  try {
-  review=await readStoredReview(id);const source=await loadNarrivaSource(user,input);
+  review=await readStoredReview(id);
   if(review.sourceHash!==source.sourceHash)throw narrivaError(409,'The note changed while the review was starting. Check the saved note again.');
   review.checks[0].status='running';await persist(review);
   const {workingDraft,facts,qualityEvidence,guidanceHash,serviceReferenceHash,model}=await inspectNarrivaFacts(source);
   if(workingDraft)review.workingDraft=workingDraft;
   review.guidanceHash=guidanceHash;review.serviceReferenceHash=serviceReferenceHash;review.model=model;
   review.qualityEvidence=qualityEvidence;review.qualityContext={assessmentMentioned:facts.assessmentMentioned};
-  for(let i=0;i<review.checks.length;i++) {
-   review.checks[i].status='running';await persist(review);
-   review.checks[i]=deriveNarrivaCheck(review.checks[i].id,{...source,facts},{preGeneration:source.phase==='pre_generation'});
-   review.riskAssessmentRequired=review.checks[0].riskAssessmentRequired===true;
-   await persist(review);
-  }
-  const current=await loadNarrivaSource(user,input);
-  // Descriptive local history is supplemental, never a substitute for the five
-  // exact-note checks and never an automatic treatment/termination instruction.
-  await inheritPreGenerationDecisions(review,source);
-  review.longitudinal=await loadNarrivaLongitudinalAdvisory(source);
+  review.checks=review.checks.map(check=>deriveNarrivaCheck(check.id,{...source,facts},{preGeneration:source.phase==='pre_generation'}));
+  review.riskAssessmentRequired=review.checks[0].riskAssessmentRequired===true;
+  const [current,longitudinal]=await Promise.all([
+   loadNarrivaSource(user,input),loadNarrivaLongitudinalAdvisory(source),inheritPreGenerationDecisions(review,source)
+  ]);
+  review.longitudinal=longitudinal;
   review.scoring=reviewedScoring(review,source);
   review.status=current.sourceHash===source.sourceHash?reviewedStatus(review):'stale';
   review.scoring=reviewedScoring(review,source);
@@ -238,10 +234,17 @@ export async function createNarrivaReview(req) {
  if(!features.compliance)throw narrivaError(403,'Narriva Compliance is disabled for this workspace.');
  const review={agencyId:source.agencyId,actorUserId:req.user.id,clientId:positiveId(source.client.id),clinicalSessionId:positiveId(source.source.clinical_session_id),draftId:input.draftId,noteId:input.noteId,phase:input.phase,inputHash:narrivaSourceHash(source.inputText),noteEvidenceHash:source.noteId?narrivaNoteEvidenceHash(source.source):null,draftEvidenceHash:source.draftId && source.phase==='output'?narrivaDraftEvidenceHash(source.source):null,sourceHash:source.sourceHash,rulesVersion:NARRIVA_RULES_VERSION,status:'running',checks:emptyNarrivaChecks(),scoring:pendingNarrivaScoring(),riskAssessmentIncluded:source.clinical.riskAssessmentIncluded===true,riskAssessmentRequired:false,quickSignEligible:false};
  const [row]=await pool.execute('INSERT INTO narriva_reviews(agency_id,actor_user_id,draft_id,clinical_note_id,clinical_session_id,source_hash,rules_version,status,result_encrypted) VALUES(?,?,?,?,?,?,?,?,?)',[source.agencyId,req.user.id,input.draftId,input.noteId,source.source.clinical_session_id || null,source.sourceHash,NARRIVA_RULES_VERSION,'running',maybeEncryptNotePayload(JSON.stringify(review))]);
- review.id=Number(row.insertId);await persist(review);
- setImmediate(()=>{void executeReview(review.id,req.user,input,req);});return review;
+ review.id=Number(row.insertId);
+ setImmediate(()=>{void executeReview(review.id,req.user,input,req,source);});return review;
 }
-export async function readNarrivaReview(user,id,agencyId,{clinicalDb}={}) {
+export async function readNarrivaReview(user,id,agencyId,{clinicalDb,poll=false}={}) {
+ if(poll) {
+  // A heartbeat reveals only that the caller's own job is running. Full results
+  // always reload the authorized chart and revalidate its content and guidance.
+  await requireNarrivaAgency(user,agencyId);
+  const [[job]]=await pool.execute("SELECT id FROM narriva_reviews WHERE id=? AND agency_id=? AND actor_user_id=? AND status='running' AND updated_at>UTC_TIMESTAMP()-INTERVAL 5 MINUTE",[positiveId(id),positiveId(agencyId),user.id]);
+  if(job)return {id:Number(job.id),status:'running',heartbeat:true};
+ }
  const review=await readStoredReview(positiveId(id));
  if(Number(agencyId)!==review.agencyId)throw narrivaError(404,'Review not found in this workspace.');
  const source=await loadNarrivaSource(user,review,{clinicalDb});

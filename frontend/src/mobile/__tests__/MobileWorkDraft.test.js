@@ -25,8 +25,12 @@ it('opens canonical session comments through the new calendar while keeping the 
   expect(router.currentRoute.value.query.view).toBe('calendar');const button=w.get('[aria-label="Event details"] .aw-comment-button');expect(button.classes()).not.toContain('aw-comment-button--icon');await button.trigger('click');await flushPromises();expect(document.body.textContent).toContain('Fictional calendar comment');
   await w.setProps({privacyHidden:true});await flushPromises();expect(document.body.textContent).not.toContain('Fictional calendar comment');expect(w.find('.mobile-calendar').exists()).toBe(true);await w.setProps({privacyHidden:false});await flushPromises();await w.get('.event-open').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toMatchObject({view:'session',clientId:'34',clinicalSessionId:'45'});
   const actions=w.get('.mobile-clinical-session').findAll('button');
-  expect(actions.find(button=>button.text().includes('Coming soon')).element.disabled).toBe(true);
-  await actions.find(button=>button.text()==='Open note').trigger('click');
+  await actions.find(button=>button.text().includes('Record session audio')).trigger('click');
+  await flushPromises();
+  expect(router.currentRoute.value.query.view).toBe('session');
+  expect(api.get.mock.calls.some(([path])=>path.endsWith('/clinical/recording/session/context'))).toBe(true);
+  await w.get('[aria-label="Close session recording"]').trigger('click');
+  await w.get('.mcs-action.note').trigger('click');
   await flushPromises();
   expect(router.currentRoute.value.query).toMatchObject({view:'clinical',clientId:'34',clinicalSessionId:'45'});
  }finally{w.unmount();router.options.history.destroy();}

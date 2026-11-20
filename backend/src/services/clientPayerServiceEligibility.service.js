@@ -5,12 +5,12 @@ import {loadBillingPayerRules,evaluateClientBillingPayerRules} from './billingPa
 import {coloradoDefaultCodes,filterServiceCodesForCredential,loadCredentialOverrides,grantedServiceCodesForProvider} from './billingRules.service.js';
 export function filterCodesForClientPayer({codes,rules,policy,secondaryPolicy=null,credentialTier,dateOfService}){
  if((!policy || !Object.values(policy).some(value=>value && value!==false)) && !secondaryPolicy)return {serviceCodes:codes,program:null,message:'No insurance policy is recorded. Confirm the billing basis before submission.'};
- const allowed=[],failures=[],coordinationCodes=[];
+ const allowed=[],failures=[],coordinationCodes=[],pendingClassificationCodes=[];
  const insurance={primary:policy || {},secondary:secondaryPolicy};
- for(const item of codes){const code=typeof item==='string'?item:String(item.code || item.service_code || '');const result=evaluateClientBillingPayerRules({rules,insurance,credentialTier,serviceCodes:[code],dateOfService,forSelection:true});if(result.ready){allowed.push(item);if(result.coordinationRequired)coordinationCodes.push(code);}else failures.push(...result.blockers);}
+ for(const item of codes){const code=typeof item==='string'?item:String(item.code || item.service_code || '');const result=evaluateClientBillingPayerRules({rules,insurance,credentialTier,serviceCodes:[code],dateOfService,forSelection:true});if(result.ready){allowed.push(item);if(result.coordinationRequired)coordinationCodes.push(code);}else {failures.push(...result.blockers);if(result.classificationOnly)pendingClassificationCodes.push(code);}}
  const result=evaluateClientBillingPayerRules({rules,insurance,credentialTier,serviceCodes:[],dateOfService});
  const message=coordinationCodes.length?'Medicaid secondary: additional service codes are available. Billing must resolve primary requirements and review its ERA/EOB before a secondary claim.':result.blockers[0] || (!allowed.length && failures[0]) || '';
- return {serviceCodes:allowed,program:result.program || null,message,coordinationCodes,revision:rules.revision};
+ return {serviceCodes:allowed,pendingClassificationCodes,program:result.program || null,message,coordinationCodes,revision:rules.revision};
 }
 export async function clientPayerServiceEligibility({agencyId,clientId,providerUserId,dateOfService,codes=null},deps={}){
  const care=await (deps.care || readStaffCareEligibility)(providerUserId,agencyId);

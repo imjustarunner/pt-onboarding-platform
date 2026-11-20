@@ -28,7 +28,7 @@ export async function getClientServiceCodeEligibility(req, res, next) {
     const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, clientId });
     if (!access.ok) throw Object.assign(new Error('This client is not available in the selected practice.'), { status: 403 });
 
-    let agencyId = requestedAgencyId;
+    let agencyId = requestedAgencyId, bookedCode = '';
     // A shell agency may differ from the saved encounter. Only an explicit,
     // fully validated session can select another practice; never guess from a name.
     const clinicalSessionId = req.query.clinicalSessionId ? positive(req.query.clinicalSessionId) : null;
@@ -38,6 +38,7 @@ export async function getClientServiceCodeEligibility(req, res, next) {
         : await ClinicalSession.findByOfficeEventAndClient({ officeEventId, clientId });
       if (!session) throw Object.assign(new Error('The selected session is not available.'), { status: 403 });
       agencyId = positive(session.agency_id);
+      bookedCode = String(session.service_code || '').trim().toUpperCase();
       await resolveClinicalDraftSessionContext({ agencyId, clientId, providerUserId,
         clinicalSessionId: session.id, officeEventId, dateOfService }, { sessions: { findById: async () => session } });
       if (agencyId !== requestedAgencyId) await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
@@ -46,6 +47,8 @@ export async function getClientServiceCodeEligibility(req, res, next) {
       throw Object.assign(new Error('This client is not available in the selected practice.'), { status: 403 });
     }
     const eligibility = await clientPayerServiceEligibility({ agencyId, clientId, providerUserId, dateOfService });
-    res.set('Cache-Control', 'no-store').json({ ...eligibility, agencyId });
+    const {pendingClassificationCodes = [], ...billing} = eligibility;
+    const documentationCode = pendingClassificationCodes.includes(bookedCode) ? bookedCode : null;
+    res.set('Cache-Control', 'no-store').json({ ...billing, agencyId, ...(documentationCode ? {documentationCode} : {}) });
   } catch (error) { next(error); }
 }

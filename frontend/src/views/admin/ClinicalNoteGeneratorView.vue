@@ -1008,6 +1008,7 @@
             </div>
           </template>
           <template v-if="narrivaPreGenerationRequired && narrivaReviewPhase === 'pre_generation'" #generate>
+            <p v-if="generateError" role="alert">{{ generateError }}</p>
             <button class="na-generate" type="button" :disabled="!narrivaPreflightReady || generateDisabled" @click="generateNote">{{ generating ? 'Generating…' : 'Generate note' }}</button>
           </template>
         </NarrivaCompliancePanel>
@@ -5328,9 +5329,9 @@ const refreshPayerServiceChoices = async () => {
       noteAidAgencyChoiceId.value = Number(data.agencyId);
       selectedQueueAgencyId.value = Number(data.agencyId);
     }
-    const allowed = data.serviceCodes || [];
+    const allowed = [...(data.serviceCodes || []), ...(data.documentationCode ? [data.documentationCode] : [])];
     eligibleServiceCodes.value = credentialContextCodes === null ? allowed : credentialContextCodes.filter(code => allowed.includes(code));
-    contextError.value = data.message || '';
+    contextError.value = data.documentationCode ? '' : data.message || '';
   } catch (error) {
     if (sequence === payerRequestSequence && key === JSON.stringify(eligibilityScope())) {
       eligibleServiceCodes.value = [];

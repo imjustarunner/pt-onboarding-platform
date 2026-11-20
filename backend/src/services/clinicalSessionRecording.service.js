@@ -215,7 +215,8 @@ export async function prepareRecordingConsent(user,recordingId,input) {
   const document={title:template.name,version:template.version||1,templateId:template.id,templateType:template.template_type,agencyName:agency.name,parties:[{role:'Recorded participant',name:decrypt(participant.name_encrypted)}],text:'Recording is optional. The signed waiver below applies to this participant.'};
   if(template.template_type==='pdf'){document.templatePath=template.file_path;document.templateHash=createHash('sha256').update(await StorageService.readObject(template.file_path)).digest('hex');}
   else{document.html=sanitizeHtml(template.html_content||'',{allowedTags:sanitizeHtml.defaults.allowedTags.concat(['h1','h2'])});if(!document.html.trim())throw fail('Choose a complete recording waiver; this template is empty.',400);}
-  await pool.execute('UPDATE session_recording_participants SET document_template_id=?,document_hash=?,document_encrypted=?,signature_encrypted=NULL,signed_at=NULL,signed_pdf_path=NULL,revoked_at=NULL,task_id=NULL,signed_document_id=NULL,signer_user_id=NULL WHERE id=?',[template.id,documentHash(document),maybeEncryptNotePayload(JSON.stringify(document)),participant.id]);await invalidate(recording.id);
+  const [prepared]=await pool.execute(`UPDATE session_recording_participants SET document_template_id=?,document_hash=?,document_encrypted=?,signature_encrypted=NULL,signed_at=NULL,signed_pdf_path=NULL,revoked_at=NULL,task_id=NULL,signed_document_id=NULL,signer_user_id=NULL WHERE id=? ${input.unassignedOnly===true?'AND task_id IS NULL AND signed_at IS NULL AND revoked_at IS NULL':''}`,[template.id,documentHash(document),maybeEncryptNotePayload(JSON.stringify(document)),participant.id]);
+  if(input.unassignedOnly===true && !prepared.affectedRows)throw fail('The waiver status changed. Review the current participant permissions.');await invalidate(recording.id);
   return {participantId:Number(participant.id),documentHash:documentHash(document),html:renderRecordingAgreement(document),templateType:document.templateType,signers:participant.client_id?await verifiedSigners(context,participant.client_id):[]};
 }
 export async function recordingConsentPdf(user,recordingId,participantId) {const {recording}=await recordingForUser(user,recordingId),p=await participantFor(recording,participantId),doc=parse(decrypt(p.document_encrypted));if(doc.templateType!=='pdf')throw fail('PDF not found.',404);return StorageService.readObject(doc.templatePath);}
@@ -286,7 +287,10 @@ export async function controlSessionRecording(user,recordingId,input) {
     if(context.required.some(p=>!participants.some(r=>r.participant_key===p.key)))throw fail('The appointment participants changed. Refresh required waivers and confirm this session.');
     assertRecordingReady({...recording,status:'recording',capture_paused:0},participants);
     if(recording.status==='completed'||recording.status==='processing')throw fail('This recording has ended. Use its saved narrative.');
-    await pool.execute("UPDATE session_recordings SET status='recording',capture_paused=0,started_at=COALESCE(started_at,UTC_TIMESTAMP()) WHERE id=?",[recording.id]);
+    const [started]=await pool.execute(`UPDATE session_recordings SET status='recording',capture_paused=0,started_at=COALESCE(started_at,UTC_TIMESTAMP())
+      WHERE id=? AND recording_revision=? AND confirmed_revision=recording_revision AND confirmed_at IS NOT NULL
+      AND status NOT IN ('completed','processing') AND (status='setup' OR capture_paused=1)`,[recording.id,recording.recording_revision]);
+    if(!started.affectedRows)throw fail('Recording is already active or the session changed. Refresh its permissions before starting.');
   }else{
     // Any paused segment revision becomes invalid before the response returns.
     await pool.execute('UPDATE session_recordings SET capture_paused=1,recording_revision=recording_revision+1,confirmed_revision=IF(confirmed_at IS NOT NULL,recording_revision,NULL) WHERE id=?',[recording.id]);

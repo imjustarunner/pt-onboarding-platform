@@ -12,25 +12,46 @@ const validDay=value=>/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.
 export const defaultProgramCredential=(program,tier)=>tiers.has(tier) && (program==='medicaid' || tier==='intern_plus');
 export const defaultProgramService=(program,code)=>program==='medicaid' || !(/^H/i.test(code) || String(code).toUpperCase()==='T1017');
 
+// Single-program electronic routes in the verified payer import. A carrier's
+// name alone cannot distinguish a commercial plan, Medicaid, Medicare or CHP+.
+const directoryRoutePrograms=new Map([
+ ['SKCO0','medicaid'],['04102','medicare'],['86033','medicare'],
+ ['TREST','tricare'],['99726','tricare']
+]);
 export async function loadBillingPayerRules(agencyId,db=pool){
  try{
   const [[state]]=await db.execute('SELECT revision FROM billing_payer_rule_state WHERE agency_id=?',[agencyId]);
   const [payerPrograms]=await db.execute('SELECT payer_id,programs_json FROM billing_payer_programs WHERE agency_id=?',[agencyId]);
+  const [directoryRoutes]=await db.execute(`SELECT DISTINCT d.claimmd_payer_id
+    FROM medical_payer_setup_requests r JOIN medical_payer_setup_details d ON d.request_id=r.id
+    WHERE r.agency_id=? AND r.archived_at IS NULL AND d.directory_status='id_match'
+    AND d.claimmd_payer_id IN (${[...directoryRoutePrograms].map(()=>'?').join(',')})`,[agencyId,...directoryRoutePrograms.keys()]);
+  const effectivePrograms=payerPrograms.map(row=>({payerId:row.payer_id,programs:json(row.programs_json) || []}));
+  for(const row of directoryRoutes){
+   const payerId=String(row.claimmd_payer_id).trim().toUpperCase(),program=directoryRoutePrograms.get(payerId);
+   if(program && !effectivePrograms.some(entry=>entry.payerId.toUpperCase()===payerId))effectivePrograms.push({payerId,programs:[program]});
+  }
   const [credentialRules]=await db.execute('SELECT program,credential_tier,allowed FROM billing_program_credential_rules WHERE agency_id=?',[agencyId]);
   const [serviceRules]=await db.execute('SELECT program,service_code,allowed FROM billing_program_service_rules WHERE agency_id=?',[agencyId]);
   const [overrides]=await db.execute('SELECT payer_id,program,plan_type,service_code,allowed,effective_from,effective_through,reason,policy_reference FROM billing_payer_service_overrides WHERE agency_id=?',[agencyId]);
-  return {available:true,revision:Number(state?.revision || 0),programs:PAYER_PROGRAMS,payerPrograms:payerPrograms.map(row=>({payerId:row.payer_id,programs:json(row.programs_json) || []})),credentialRules,serviceRules,overrides:overrides.map(row=>({...row,effective_from:day(row.effective_from),effective_through:day(row.effective_through)}))};
+  return {available:true,revision:Number(state?.revision || 0),programs:PAYER_PROGRAMS,payerPrograms:effectivePrograms,credentialRules,serviceRules,overrides:overrides.map(row=>({...row,effective_from:day(row.effective_from),effective_through:day(row.effective_through)}))};
  }catch(error){if(error.code!=='ER_NO_SUCH_TABLE')throw error;return {available:false,revision:0,programs:PAYER_PROGRAMS,payerPrograms:[],credentialRules:[],serviceRules:[],overrides:[]};}
 }
 
 export function programForPolicy(policy,rules){
- const explicit=String(policy?.programType || '').toLowerCase();
+ const explicit=String(policy?.programType || '').trim().toLowerCase();
  const configured=rules.payerPrograms.find(row=>row.payerId===policy?.payerId)?.programs || [];
  if(explicit && !programs.has(explicit))return {error:'Select a valid insurance coverage category.'};
  if(explicit){if(configured.length && !configured.includes(explicit))return {error:'The client coverage category conflicts with this payer’s configured categories.'};return {program:explicit};}
  if(policy?.isMedicaid===true || policy?.isMedicaid===1){if(configured.length && !configured.includes('medicaid'))return {error:'The Medicaid coverage flag conflicts with this payer’s configured categories.'};return {program:'medicaid'};}
+ const plan = String(policy?.planType || '').trim().toLowerCase();
+ const planProgram = plan === 'health first colorado' ? 'medicaid' : programs.has(plan) ? plan : null;
+ if(planProgram) {
+  if(configured.length && !configured.includes(planProgram))return {error:'The recorded plan type conflicts with this payer’s configured categories.'};
+  return {program:planProgram};
+ }
  if(configured.length===1)return {program:configured[0]};
- return {error:configured.length?'This payer serves multiple coverage categories. Select this client’s coverage category in Insurance.':'Classify this payer as Commercial, Medicaid, TRICARE or Medicare in Billing rules, or record the client’s coverage category.'};
+ return {classificationRequired:true,error:configured.length?'This payer serves multiple coverage categories. Select this client’s coverage category in Insurance.':'Classify this payer as Commercial, Medicaid, TRICARE or Medicare in Billing rules, or record the client’s coverage category.'};
 }
 
 export function programCredentialAllowed(rules,program,tier){const row=rules.credentialRules.find(row=>row.program===program && row.credential_tier===tier);return row?Number(row.allowed)===1:defaultProgramCredential(program,tier);}
@@ -55,7 +76,7 @@ export function evaluateBillingPayerRules({rules,policy,credentialTier,serviceCo
   if(!allowed)blockers.push(`${code} is not enabled for ${PAYER_PROGRAMS.find(p=>p.id===program).label}${policy.insurerName?` / ${policy.insurerName}`:''}. Review the code or record a dated individual payer service override.`);
  }
  const fingerprint=crypto.createHash('sha256').update(JSON.stringify({revision:rules.revision,program,credentialTier,serviceCodes,date,applied,blockers})).digest('hex');
- return {ready:!blockers.length,blockers,program,revision:rules.revision,applied,fingerprint};
+ return {ready:!blockers.length,classificationOnly:classification.classificationRequired===true && blockers.length===1,blockers,program,revision:rules.revision,applied,fingerprint};
 }
 
 // Secondary Medicaid opens the service choices it permits. Primary category

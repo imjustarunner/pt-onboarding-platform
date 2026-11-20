@@ -1338,6 +1338,9 @@ export const generateClinicalNote = async (req, res, next) => {
       if(!isProBonoServiceCode(serviceCode)){
         const eligibility=await clientPayerServiceEligibility({agencyId,clientId,providerUserId:req.user.id,dateOfService,codes:allowedCodes});
         allowedCodes=eligibility.serviceCodes;
+        if (serviceCode && validatedGenerationSession?.service_code?.trim().toUpperCase() === serviceCode && eligibility.pendingClassificationCodes?.includes(serviceCode)) {
+          allowedCodes = [...allowedCodes, serviceCode];
+        }
         if(!allowedCodes.length || (serviceCode && !allowedCodes.includes(serviceCode)))return res.status(403).json({error:{message:eligibility.message || 'This service is not enabled for the client’s payer and coverage category.'}});
       }
     }

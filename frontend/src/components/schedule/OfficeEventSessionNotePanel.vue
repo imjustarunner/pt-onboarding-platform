@@ -7,7 +7,7 @@
     </div>
 
     <div class="oesn-session-tools"><strong>Session Narrative</strong><button type="button" class="oesn-record-session" :disabled="!agencyId || !clientId || (!officeEventId && !clinicalSessionId) || loadingDraft || activeDraftState?.loadFailed" @click="recorderOpen = !recorderOpen">{{ recorderOpen ? 'Close session recorder' : 'Record session' }}</button></div>
-    <ClinicalSessionRecordingPanel v-if="recorderOpen" :key="`${agencyId}:${clientId}:${officeEventId}:${clinicalSessionId}`" :agency-id="agencyId" :client-id="clientId" :office-event-id="officeEventId" :clinical-session-id="clinicalSessionId" @narrative-ready="receiveRecordedNarrative" @close="recorderOpen = false" />
+    <ClinicalSessionRecordingPanel direct-launch v-if="recorderOpen" :key="`${agencyId}:${clientId}:${officeEventId}:${clinicalSessionId}`" :agency-id="agencyId" :client-id="clientId" :office-event-id="officeEventId" :clinical-session-id="clinicalSessionId" @narrative-ready="receiveRecordedNarrative" @close="recorderOpen = false" />
     <section v-if="pendingNarrative" class="oesn-narrative-choice" role="status"><strong>Your Session Narrative is ready.</strong><p>You already have session text. Choose how to use the recording’s reviewed narrative.</p><button type="button" @click="applyRecordedNarrative('append')" :disabled="String(inputText || '').length + pendingNarrative.text.length + 2 > 12000">Append to current text</button><button type="button" @click="applyRecordedNarrative('replace')">Replace current text</button><button type="button" @click="pendingNarrative = null">Keep current text</button></section>
 
     <div v-if="hasSavedPhi && !revealed" class="oesn-redacted">

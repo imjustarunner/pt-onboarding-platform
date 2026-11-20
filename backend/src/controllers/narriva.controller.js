@@ -30,7 +30,7 @@ export const patchNarrivaPreferences=handle(async(req,res)=>{
  res.json({defaultMode:req.body.defaultMode,features});
 });
 export const postNarrivaReview=handle(async(req,res)=>res.status(202).json({review:await createNarrivaReview(req)}));
-export const getNarrivaReview=handle(async(req,res)=>res.json({review:await readNarrivaReview(req.user,req.params.reviewId,positiveId(req.query.agencyId))}));
+export const getNarrivaReview=handle(async(req,res)=>res.json({review:await readNarrivaReview(req.user,req.params.reviewId,positiveId(req.query.agencyId),{poll:req.query.poll==='1'})}));
 export const patchNarrivaFinding=handle(async(req,res)=>res.json({review:await resolveNarrivaFinding(req)}));
 export const getNarrivaDraftStatus=handle(async(req,res)=>{
  const agencyId=positiveId(req.query.agencyId),draftId=positiveId(req.params.draftId),sessionId=positiveId(req.query.clinicalSessionId);

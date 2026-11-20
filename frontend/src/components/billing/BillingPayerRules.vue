@@ -3,6 +3,7 @@
     <h3>Payer coverage categories</h3>
     <p>A payer route may support more than one category, such as United handling both Commercial and Medicaid. The client’s primary coverage and any Medicaid secondary coverage determine their available codes. Medicaid secondary services follow the primary-first ERA/EOB workflow.</p>
     <p v-if="!rules.available" role="status">Payer rule storage needs setup before these rules can be saved.</p>
+    <label v-if="unclassifiedCount || onlyUnclassified"><span><input v-model="onlyUnclassified" type="checkbox" /> Needs classification ({{ unclassifiedCount }})</span></label>
     <label>Find a payer<input v-model="payerSearch" type="search" placeholder="Payer name" /></label>
     <div class="table-scroll"><table><thead><tr><th>Payer</th><th>Coverage categories</th><th></th></tr></thead><tbody><tr v-for="payer in visiblePayers" :key="payer.payerId"><th scope="row">{{ payer.name }}</th><td><label v-for="program in rules.programs" :key="program.id" class="program-chip"><input type="checkbox" :checked="payer.programs.includes(program.id)" :disabled="saving || !rules.available" @change="setPayerProgram(payer,program.id,$event.target.checked)" />{{ program.label }}</label></td><td><button type="button" :disabled="saving || !rules.available" @click="openOverrides(payer)">Individual service override</button></td></tr><tr v-if="!visiblePayers.length"><td colspan="3">Add a verified payer route in Payer connections to classify it here.</td></tr></tbody></table></div>
 
@@ -24,7 +25,9 @@ import {computed,ref,nextTick,watch} from 'vue';
 const props=defineProps({rules:{type:Object,required:true},codes:{type:Array,default:()=>[]},tiers:{type:Array,default:()=>[]},saving:Boolean});
 const emit=defineEmits(['change']);
 const payerSearch=ref(''),serviceSearch=ref(''),overridePayerId=ref(''),overrideProgram=ref(''),planType=ref(''),effectiveFrom=ref(new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver'}).format(new Date())),effectiveThrough=ref(''),reason=ref(''),policyReference=ref(''),edits=ref({}),overridePanel=ref(null);
-const visiblePayers=computed(()=>(props.rules.payers || []).filter(p=>p.name.toLowerCase().includes(payerSearch.value.trim().toLowerCase())));
+const onlyUnclassified=ref(false);
+const unclassifiedCount=computed(()=>(props.rules.payers || []).filter(payer=>!payer.programs.length).length);
+const visiblePayers=computed(()=>(props.rules.payers || []).filter(p=>(!onlyUnclassified.value || !p.programs.length) && p.name.toLowerCase().includes(payerSearch.value.trim().toLowerCase())));
 const selectedPayer=computed(()=>(props.rules.payers || []).find(p=>p.payerId===overridePayerId.value));
 const visibleServices=computed(()=>props.codes.filter(code=>`${code.code} ${code.description}`.toLowerCase().includes(serviceSearch.value.trim().toLowerCase())));
 const validOverride=computed(()=>overrideProgram.value && effectiveFrom.value && effectiveThrough.value>=effectiveFrom.value && reason.value.trim().length>=10 && policyReference.value.trim().length>=5);

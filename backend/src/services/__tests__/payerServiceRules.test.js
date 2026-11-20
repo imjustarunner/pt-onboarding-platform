@@ -10,6 +10,12 @@ const rules=()=>({available:true,revision:3,payerPrograms:[{payerId:'UNITED',pro
 const review=(extra={})=>evaluateBillingPayerRules({rules:rules(),policy:{payerId:'UNITED',programType:'commercial'},credentialTier:'intern_plus',serviceCodes:['H0004'],dateOfService:'2026-11-16',...extra});
 const exception=(extra={})=>({payer_id:'UNITED',program:'commercial',plan_type:'',service_code:'H0004',allowed:1,effective_from:'2026-11-01',effective_through:'2026-11-30',reason:'Payer confirmed this service',policy_reference:'Policy dated 2026-11-01',...extra});
 describe('client coverage drives code availability on a shared payer route',()=>{
+ it('separates missing classification from a coverage denial and recognizes explicit Colorado Medicaid coverage',()=>{
+  const options={codes:['90837'],rules:rules(),policy:{payerId:'84129',insurerName:'Colorado Access'},credentialTier:'intern_plus',dateOfService:'2026-11-16'};
+  expect(filterCodesForClientPayer(options)).toMatchObject({serviceCodes:[],pendingClassificationCodes:['90837']});
+  expect(filterCodesForClientPayer({...options,policy:{...options.policy,terminationDate:'2026-10-31'}})).toMatchObject({serviceCodes:[],pendingClassificationCodes:[]});
+  expect(filterCodesForClientPayer({...options,policy:{...options.policy,planType:'Health First Colorado'}})).toMatchObject({serviceCodes:['90837'],program:'medicaid'});
+ });
  it('opens Medicaid services for a Medicaid-qualified provider with Commercial primary and Medicaid secondary',()=>{
   const options={codes:['H0004','T1017'],rules:rules(),policy:{payerId:'UNITED',programType:'commercial'},secondaryPolicy:{payerId:'COCHA',programType:'medicaid'},credentialTier:'bachelors',dateOfService:'2026-11-16'};
   expect(filterCodesForClientPayer(options)).toMatchObject({serviceCodes:['H0004','T1017'],coordinationCodes:['H0004','T1017'],message:expect.stringContaining('Medicaid secondary')});

@@ -10,6 +10,23 @@ const mountPanel=()=>mount(Panel,{props:props(),global:{stubs:{AdaptiveSignature
 beforeEach(()=>{vi.useFakeTimers();trackStop=vi.fn();state={context:{clinicalSessionId:20,officeEventId:30},configured:true,ready:false,recording:{id:100,status:'setup',paused:true,confirmed:false,revision:2,narrative:''},participants:[{id:1,clientId:10,name:'Client',type:'client',requiresGuardian:true,consented:false,required:true,signers:[{userId:90,name:'Parent',relationship:'legal_guardian'}]},{id:2,name:'Other adult',type:'adult',consented:true,required:true}],templates:[{id:8,name:'Recording waiver',version:1}]};api={get:vi.fn(async()=>({data:structuredClone(state)})),post:vi.fn(async(path)=>path.endsWith('/consent')?{data:{documentHash:'hash',html:'<p>Waiver terms</p>',templateType:'html'}}:{data:{}})};Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:vi.fn(async()=>({getTracks:()=>[{stop:trackStop}]}))}});});
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 describe('session-bound recording UI',()=>{
+ it('opens the only available waiver on direct launch and keeps the microphone off',async()=>{
+  const w=mount(Panel,{props:{...props(),directLaunch:true}});await flushPromises();
+  expect(w.find('.waiver').exists()).toBe(true);
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();w.unmount();
+ });
+ it('preserves a pending portal assignment when opened from the schedule',async()=>{
+  state.participants[0].taskPending=true;
+  const w=mount(Panel,{props:{...props(),directLaunch:true}});await flushPromises();
+  expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('Awaiting portal signature');w.unmount();
+ });
+ it('starts directly from a confirmed session and releases the microphone on close',async()=>{
+  state.ready=true;state.recording.confirmed=true;state.participants.forEach(p=>p.consented=true);
+  vi.stubGlobal('MediaRecorder',class{static isTypeSupported(){return true;}start(){this.state='recording';}stop(){this.state='inactive';this.onstop?.();}});
+  const w=mount(Panel,{props:{...props(),directLaunch:true}});await flushPromises();
+  expect(w.text()).toContain('Recording this session');expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+  w.unmount();await flushPromises();expect(trackStop).toHaveBeenCalled();
+ });
  it('keeps capture disabled until every waiver and session confirmation is ready',async()=>{const w=mountPanel();await flushPromises();expect(button(w,'Start recording').attributes('disabled')).toBeDefined();expect(button(w,'Confirm session consent').attributes('disabled')).toBeDefined();expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();expect(w.text()).toContain('Every recorded adult');w.unmount();});
  it('uses the supplied scoped API client and actual clinical session context',async()=>{const w=mountPanel();await flushPromises();expect(api.get).toHaveBeenCalledWith('/scoped/recording/session/context',expect.objectContaining({params:{agencyId:2,clientId:10,clinicalSessionId:20}}));w.unmount();});
  it('opens a waiver for the actual recorded participant and captures a personal finger signature',async()=>{const w=mountPanel();await flushPromises();await w.findAll('select')[0].setValue('8');await button(w,'Sign here / assign').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/scoped/recording/session/100/consent',{participantId:1,templateId:8},expect.any(Object));expect(w.find('iframe').attributes('srcdoc')).toContain('Waiver terms');await w.findAll('select').find(s=>s.find('option[value="90"]').exists()&&s.element.required).setValue('90');expect(w.text()).toContain('presenter, not as the client');const inputs=w.findAll('input');await inputs.find(i=>i.attributes('autocomplete')==='off').setValue('Actual Guardian');const selects=w.findAll('select');await selects.find(s=>s.find('option[value="parent"]').exists()).setValue('parent');await button(w,'Draw signature').trigger('click');const waiver=w.find('.waiver');for(const checkbox of waiver.findAll('input[type="checkbox"]'))await checkbox.setValue(true);await waiver.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/scoped/recording/session/100/consent/1/sign',expect.objectContaining({signerName:'Actual Guardian',signerUserId:90,relationship:'parent',signatureData:'finger-signature',presentedByClinician:true,signerPresent:true,authorityConfirmed:true}),expect.any(Object));w.unmount();});

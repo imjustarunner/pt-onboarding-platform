@@ -24,10 +24,10 @@ export function useNarrivaReview({ agencyId, apiClient, base = '/narriva', pollM
     while(active(review.value) && current===generation){
       if(Date.now()>=deadline)throw new Error('Review did not complete');
       await wait();if(current!==generation)return null;
-      const result=await apiClient.get(`${base}/reviews/${review.value.id}`,{params:{agencyId:Number(unref(agencyId))},skipGlobalLoading:true});
+      const result=await apiClient.get(`${base}/reviews/${review.value.id}`,{params:{agencyId:Number(unref(agencyId)),poll:1},skipGlobalLoading:true});
       if(current!==generation)return null;
       if(!result.data?.review?.id)throw new Error('Missing review');
-      review.value=result.data.review;
+      if(!result.data.review.heartbeat)review.value=result.data.review;
     }
     return review.value;
   }

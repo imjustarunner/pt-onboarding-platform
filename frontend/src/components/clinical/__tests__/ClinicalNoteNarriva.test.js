@@ -97,7 +97,7 @@ describe('Narriva review request lifecycle', () => {
 
 it('observes an in-progress submission review through read-only polling and stops after completion',async()=>{
  vi.useFakeTimers();const api={get:vi.fn(async()=>({data:{review:passed()}})),post:vi.fn()};const scope=effectScope();const state=scope.run(()=>useNarrivaReview({agencyId:ref(2),apiClient:api,pollMs:20}));
- const done=state.observeReview({id:24,status:'running',checks:[]});expect(state.busy.value).toBe(true);await vi.advanceTimersByTimeAsync(20);await done;expect(state.review.value.status).toBe('passed');expect(state.busy.value).toBe(false);expect(api.post).not.toHaveBeenCalled();expect(api.get).toHaveBeenCalledWith('/narriva/reviews/24',expect.objectContaining({params:{agencyId:2}}));scope.stop();
+ const done=state.observeReview({id:24,status:'running',checks:[]});expect(state.busy.value).toBe(true);await vi.advanceTimersByTimeAsync(20);await done;expect(state.review.value.status).toBe('passed');expect(state.busy.value).toBe(false);expect(api.post).not.toHaveBeenCalled();expect(api.get).toHaveBeenCalledWith('/narriva/reviews/24',expect.objectContaining({params:{agencyId:2,poll:1}}));scope.stop();
 });
 
 it('shows the H0004 billing advisory alongside passed clinical checks without implying payment approval',()=>{

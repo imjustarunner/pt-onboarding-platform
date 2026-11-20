@@ -105,6 +105,11 @@ describe('actual clinical generator shared service guidance boundary',()=>{
   expect(output.meta.guidanceSnapshot).toMatchObject({serviceCode:'H0004',supportCoverageComplete:true,supportingDocumentCount:2,guidanceHash:expect.stringMatching(/^[a-f0-9]{64}$/),serviceReferenceHash:expect.stringMatching(/^[a-f0-9]{64}$/)});
   expect(JSON.parse(maybeDecryptNotePayload(saved.output_json)).meta.guidanceSnapshot).toEqual(output.meta.guidanceSnapshot);
  });
+ it('writes the booked service when only payer classification is pending',async()=>{
+  m.context.mockResolvedValue({id:20,agency_id:2,client_id:10,appointment_id:44,provider_user_id:7,service_code:'H0004'});
+  m.payerEligibility.mockResolvedValue({serviceCodes:[],pendingClassificationCodes:['H0004']});
+  const {res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();expect(m.model).toHaveBeenCalledOnce();
+ });
  it('blocks a payer-disallowed insured service before generation or draft mutation',async()=>{
   m.payerEligibility.mockResolvedValue({serviceCodes:[],message:'Service not enabled for this coverage'});
   const before=structuredClone(saved),{res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(403);expect(m.model).not.toHaveBeenCalled();expect(m.updateDraft).not.toHaveBeenCalled();expect(saved).toEqual(before);
