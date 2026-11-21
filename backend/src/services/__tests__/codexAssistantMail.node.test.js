@@ -169,3 +169,42 @@ test('rejects ambiguous shared identities without a canonical match', async () =
   await assert.rejects(f.send(payload), { code: 'MAIL_ALIAS_UNAVAILABLE' });
   assert.equal(f.sends.length, 0);
 });
+
+test('preserves BCC envelope privacy and binds hidden recipients to the persistent request', async () => {
+  const f = fixtures();
+  const bcc = ['second@example.net', 'first@example.net'];
+  const input = { ...payload, to: payload.from, bcc };
+  await f.send(input);
+  assert.equal(f.sends[0].to, payload.from);
+  assert.equal(f.sends[0].cc, payload.cc[0]);
+  assert.equal(f.sends[0].bcc, 'first@example.net, second@example.net');
+  assert.deepEqual(f.logs[0].metadata.bcc, ['first@example.net', 'second@example.net']);
+  for (const address of bcc) {
+    assert.ok(!f.sends[0].html.includes(address));
+    assert.ok(!f.sends[0].text.includes(address));
+  }
+  assert.equal((await f.send(input)).reused, true);
+  await assert.rejects(f.send({ ...input, bcc: ['third@example.net'] }), { code: 'MAIL_REQUEST_CHANGED' });
+  assert.equal(f.sends.length, 1);
+});
+
+test('normalizes BCC, deduplicates visible recipients, and rejects malformed or excessive lists', () => {
+  const parsed = parseCodexAssistantMail({ ...payload, bcc: ['Other@Example.net', 'other@example.net', payload.to, payload.cc[0]] });
+  assert.deepEqual(parsed.bcc, ['other@example.net']);
+  assert.deepEqual(parseCodexAssistantMail(payload), parseCodexAssistantMail({ ...payload, bcc: [] }));
+  for (const bcc of ['one@example.net', ['wrong'], ['one@example.net\r\nCc: other@example.net'], Array(21).fill('one@example.net')]) {
+    assert.throws(() => parseCodexAssistantMail({ ...payload, bcc }), { status: 400 });
+  }
+});
+
+test('retains an uncertain receipt for partial relay acceptance without resending accepted recipients', async () => {
+  const f = fixtures();
+  f.options.send = async (input) => {
+    f.sends.push(input);
+    return { id: 'partially-accepted', relay: { partial: true, rejectedCount: 1 } };
+  };
+  const input = { ...payload, bcc: ['hidden@example.net'] };
+  assert.equal((await f.send(input)).status, 'delivery_unknown');
+  assert.equal((await f.send(input)).reused, true);
+  assert.equal(f.sends.length, 1);
+});

@@ -6,7 +6,7 @@ vi.mock('../personalMailboxImportPolicy.service.js', () => ({ canImportPersonalM
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: m.mailbox }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: { create: m.create, addMessage: m.add, updateMessage: m.updateMessage, update: m.update, upsertLink: m.link, upsertParticipant: m.participant, findById: m.find } }));
-import { DEFAULT_SCHOOL_CONTACT_TEMPLATE as template, getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactEmail, sendSchoolContactExample, buildFamilyWelcomePdfPreview, isSchoolContactDemoAgency, renderSchoolContactTemplate, validateSchoolContactTemplate, schoolContactRouting } from '../schoolContactPlan.service.js';
+import { DEFAULT_SCHOOL_CONTACT_TEMPLATE as template, getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactEmail, sendSchoolContactExample, buildFamilyWelcomePdfPreview, isSchoolContactDemoAgency, renderSchoolContactTemplate, validateSchoolContactTemplate, schoolContactRouting, assertSchoolContactMailRoute } from '../schoolContactPlan.service.js';
 const agency = { id: 450, name: 'ITSCOLLC', slug: 'auricwell-qa-demo', is_active: 1, is_archived: 0, feature_flags: { googleSsoEnabled: true } };
 const provider = { id: 1433, first_name: 'Avery', last_name: 'Demo', role: 'provider', email: 'avery@example.com', work_mailbox_email: 'qaproviderauricwell@itsco.health', personal_email: 'private@example.com', sso_password_override: 0, login_is_group_email: 0 };
 const input = { agencyId: 450, userId: 1433 };
@@ -38,7 +38,7 @@ beforeEach(() => {
     if (sql.startsWith('SELECT c.id')) return [[{ id: 999 }]];
     return [{ affectedRows: 1 }];
   });
-  m.isGroup.mockResolvedValue(true);
+  m.isGroup.mockResolvedValue(false);
   m.mailbox.mockResolvedValue({ identity: { id: 1116, agency_id: 450, from_email: 'messages@itsco.health' }, inbox: { id: 223914 }, fromEmail: 'messages@itsco.health' });
   m.create.mockResolvedValue({ id: 800 }); m.add.mockResolvedValue(801); m.updateMessage.mockResolvedValue({}); m.update.mockResolvedValue({});
   m.send.mockResolvedValue({ id: 'gmail-1', internetMessageId: '<sent@itsco.health>', threadId: 'gmail-thread' });
@@ -126,6 +126,7 @@ it('selects the agency Messages sender for SSO and the owned work group for a pa
 });
 
 it('uses the provider-owned group sender and app inbox for non-SSO family outreach', async () => {
+  m.isGroup.mockResolvedValue(true);
   const original = m.execute.getMockImplementation();
   const live = { ...agency, id: 2, slug: 'itsco', feature_flags: { googleSsoEnabled: true, schoolContactPlanPilot: { enabled: true, providerIds: [1433] } } };
   m.execute.mockImplementation(async (sql, args) => sql.startsWith('SELECT id,name,slug') ? [[live]]
@@ -281,3 +282,53 @@ it('checks messaging setup before opting in while retaining the provider ability
 
 import {displaySchoolContactDay,preferredSchoolContactTemplate} from '../schoolContactTemplates.js';
 it('keeps custom wording and uses a clear pending label when the assignment day is unknown',()=>{const authored=template+'\nMy own words.';expect(preferredSchoolContactTemplate(authored)).toBe(authored);expect(displaySchoolContactDay('Unknown')).toBe('to be confirmed');expect(displaySchoolContactDay('Example day')).toBe('to be confirmed');expect(displaySchoolContactDay('Tuesday')).toBe('Tuesday');});
+
+it('keeps a managed tenant with SSO disabled on the provider work sender', () => {
+  const managed = { ...agency, slug: 'itsco', organization_type: 'agency', feature_flags: { googleSsoEnabled: false } };
+  expect(schoolContactRouting(provider, 'messages@itsco.health', managed)).toMatchObject({
+    isSso: false, from: provider.work_mailbox_email, replyTo: provider.work_mailbox_email
+  });
+});
+
+it('uses the verified group for outreach even when old account flags still suggest SSO', async () => {
+  m.isGroup.mockResolvedValue(true);
+  const context = await getSchoolContactPlan(input);
+  expect(context.routing).toMatchObject({
+    isSso: false, from: provider.work_mailbox_email, replyTo: provider.work_mailbox_email
+  });
+  await sendSchoolContactEmail({
+    agencyId: 450, providerUserId: 1433, clientId: 999, schoolId: 451,
+    to: 'family@synthetic.test', includePdf: false
+  });
+  expect(m.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    senderIdentityId: 456, replyToOverride: provider.work_mailbox_email
+  }));
+  expect(m.mailbox).not.toHaveBeenCalled();
+});
+
+it('rechecks the provider route at transport and blocks old Messages sends for a group account', async () => {
+  m.isGroup.mockResolvedValue(true);
+  await expect(assertSchoolContactMailRoute({
+    identity: { id: 1116, agency_id: 450, identity_key: 'messages', from_email: 'messages@itsco.health' },
+    providerUserId: 1433, replyTo: `messages+${'a'.repeat(36)}@itsco.health`
+  })).rejects.toMatchObject({ code: 'SCHOOL_CONTACT_REPLY_ROUTE_REQUIRED' });
+  await expect(assertSchoolContactMailRoute({
+    identity: { id: 456, agency_id: 450, identity_key: 'personal_1433', from_email: provider.work_mailbox_email },
+    providerUserId: 1433, replyTo: provider.work_mailbox_email
+  })).resolves.toBeUndefined();
+});
+
+it('allows a current SSO token route and rejects a mismatched sender or reply address', async () => {
+  const request = {
+    identity: { id: 1116, agency_id: 450, identity_key: 'messages', from_email: 'messages@itsco.health' },
+    providerUserId: 1433, replyTo: `messages+${'a'.repeat(36)}@itsco.health`
+  };
+  await expect(assertSchoolContactMailRoute(request)).resolves.toBeUndefined();
+  await expect(assertSchoolContactMailRoute({ ...request, replyTo: provider.personal_email }))
+    .rejects.toMatchObject({ code: 'SCHOOL_CONTACT_REPLY_ROUTE_REQUIRED' });
+  m.isGroup.mockResolvedValue(true);
+  await expect(assertSchoolContactMailRoute({ ...request,
+    identity: { id: 999, agency_id: 450, identity_key: 'personal_1433', from_email: provider.work_mailbox_email },
+    replyTo: provider.work_mailbox_email
+  })).rejects.toMatchObject({ code: 'SCHOOL_CONTACT_REPLY_ROUTE_REQUIRED' });
+});

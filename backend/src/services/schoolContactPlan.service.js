@@ -4,6 +4,7 @@ import Conversation from '../models/CommunicationConversation.model.js';
 import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
 import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { normalizeStaffContactAddress, redactStaffPrivateAddresses, tenantStaffWorkAddress } from '../utils/staffContactAddress.js';
 
@@ -47,11 +48,11 @@ function linkedEmailHtml(text, profileUrl) {
 
 export function schoolContactRouting(provider, from = '', agency = {}) {
   const managed = managedDomain(agency);
-  const policyRequiresSso = parse(agency.feature_flags).googleSsoEnabled === true || !!managed;
-  const isSso = policyRequiresSso && !flag(provider.sso_password_override) && !flag(provider.login_is_group_email);
+  const policyRequiresSso = parse(agency.feature_flags).googleSsoEnabled === true;
+  const isSso = policyRequiresSso && !usesPasswordLogin(provider) && provider.work_mailbox_is_group !== true;
   const candidate = normalizeStaffContactAddress(from);
   const messages = candidate.startsWith('messages@') && candidate !== normalizeStaffContactAddress(provider.personal_email) ? candidate : '';
-  const domain = managed || messages.split('@')[1];
+  const domain = managed || candidate.split('@')[1];
   const workGroup = tenantStaffWorkAddress({ work_mailbox_email: provider.work_mailbox_email, personal_email: provider.personal_email }, domain);
   const sender = isSso ? messages : workGroup;
   return {
@@ -62,7 +63,7 @@ export function schoolContactRouting(provider, from = '', agency = {}) {
     replyTracking: 'in_app',
     replyTrackingNote: isSso
       ? 'Family replies go to your client conversation in Messages. If a work mail address is configured, you receive a copy there.'
-      : 'Family replies go to your work group email and appear in your inbox in Messages.'
+      : 'Family replies go to your work email and appear in Messages.'
   };
 }
 
@@ -106,7 +107,7 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
     if (requireEligible) throw fail('Family Welcome is not enabled for this account in the current rollout.', 403);
     return { eligible: false, agency };
   }
-  const [[provider]] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.has_provider_access,u.email,u.work_email,u.personal_email,u.sso_password_override,u.login_is_group_email,
+  let [[provider]] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.has_provider_access,u.email,u.work_email,u.personal_email,u.sso_password_override,u.login_is_group_email,u.is_demo,
       (SELECT i.from_email FROM communication_inboxes i JOIN email_sender_identities esi ON esi.id=i.sender_identity_id AND esi.agency_id=i.agency_id AND esi.is_active=1 AND esi.identity_key=CONCAT('personal_',u.id) AND LOWER(esi.from_email)=LOWER(i.from_email)
         WHERE i.agency_id=ua.agency_id AND i.owner_user_id=u.id AND i.kind='personal' AND i.is_active=1 ORDER BY i.id LIMIT 1) AS work_mailbox_email
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
@@ -115,6 +116,9 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
   if (!provider || !careRole) {
     if (requireEligible) throw fail('This contact plan is available to assigned school providers.', 403);
     return { eligible: false, agency };
+  }
+  if (provider.work_mailbox_email && !usesPasswordLogin(provider)) {
+    provider = { ...provider, work_mailbox_is_group: await canImportPersonalMailboxEmail({ from_email: provider.work_mailbox_email }) };
   }
   const [schools] = await pool.execute(`SELECT DISTINCT s.id,s.name FROM agencies s
     JOIN organization_affiliations oa ON oa.organization_id=s.id AND oa.agency_id=? AND oa.is_active=1
@@ -156,6 +160,26 @@ function planDto(ctx, plan = {}, from) {
     subjects: SCHOOL_CONTACT_SUBJECTS,
     preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: redactStaffPrivateAddresses(renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: ctx.schools[0]?.name || 'Your assigned school', service_day: ctx.schools[0]?.serviceDayLabel || 'to be confirmed', profile_link: profileUrl }), ctx.provider, domain) },
     testDestination: isSchoolContactDemoAgency(ctx.agency) ? SCHOOL_CONTACT_TEST_INBOX : routing.providerEmail };
+}
+
+export async function assertSchoolContactMailRoute({ identity, providerUserId, replyTo }) {
+  const ctx = await getContactPlanContext({ agencyId: identity.agency_id, userId: providerUserId });
+  const routing = schoolContactRouting(ctx.provider, identity.from_email, ctx.agency);
+  const from = email(identity.from_email);
+  const reply = email(replyTo);
+  const messagesRoute = routing.isSso && from === routing.from
+    && ['messages', 'messages_at_tenant'].includes(identity.identity_key)
+    && /^messages\+[a-f0-9]{36}@[^@\s]+$/.test(reply) && reply.split('@')[1] === from.split('@')[1];
+  const workRoute = !routing.isSso && from === routing.from && reply === from
+    && identity.identity_key === `personal_${ctx.userId}`;
+  if (workRoute) {
+    const mailbox = await resolveSchoolContactWorkMailbox(ctx, from);
+    if (Number(mailbox.identity.id) === Number(identity.id)) return;
+  }
+  if (messagesRoute) return;
+  throw Object.assign(fail('The provider’s email setup changed. Refresh the Family Welcome email to use their current work address.', 409), {
+    code: 'SCHOOL_CONTACT_REPLY_ROUTE_REQUIRED'
+  });
 }
 
 export async function getSchoolContactPlan(input) {

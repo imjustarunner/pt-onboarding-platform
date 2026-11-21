@@ -1064,26 +1064,8 @@ export async function sendEmailFromIdentity({
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
   if (['school_contact_plan', 'school_contact_example'].includes(templateType)) {
-    const from = String(identity.from_email || '').trim().toLowerCase();
-    const reply = String(replyToOverride || '').trim().toLowerCase();
-    const messagesRoute = ['messages', 'messages_at_tenant'].includes(identity.identity_key) &&
-      /^messages@[^@\s]+$/.test(from) && /^messages\+[a-f0-9]{36}@[^@\s]+$/.test(reply) &&
-      reply.split('@')[1] === from.split('@')[1];
-    let workGroupRoute = false;
-    if (!messagesRoute && Number(generatedByUserId) > 0 &&
-        identity.identity_key === `personal_${Number(generatedByUserId)}` && from && reply === from) {
-      const [[mailbox]] = await pool.execute(`SELECT i.id FROM communication_inboxes i JOIN users u ON u.id=i.owner_user_id
-        WHERE i.sender_identity_id=? AND i.agency_id=? AND i.owner_user_id=?
-          AND i.kind='personal' AND i.is_active=1 AND LOWER(i.from_email)=?
-          AND LOWER(TRIM(COALESCE(u.personal_email,'')))<>? LIMIT 1`,
-      [identity.id, identity.agency_id, Number(generatedByUserId), from, from]);
-      workGroupRoute = !!mailbox;
-    }
-    if (!messagesRoute && !workGroupRoute) {
-      throw Object.assign(new Error('Family Welcome email requires the current Messages or work group reply address. Recreate the send with current routing.'), {
-        status: 409, code: 'SCHOOL_CONTACT_REPLY_ROUTE_REQUIRED'
-      });
-    }
+    const { assertSchoolContactMailRoute } = await import('../schoolContactPlan.service.js');
+    await assertSchoolContactMailRoute({ identity, providerUserId: generatedByUserId, replyTo: replyToOverride });
   }
 
   const checkManualRecipients = source === 'manual' && !!identity.agency_id;

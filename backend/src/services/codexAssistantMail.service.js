@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 export const CODEX_ASSISTANT_MAIL_TYPE = 'codex_assistant_requested_email';
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const mailbox = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i;
-const fields = new Set(['requestId', 'agencyId', 'from', 'replyTo', 'to', 'cc', 'subject', 'text', 'portalButton']);
+const fields = new Set(['requestId', 'agencyId', 'from', 'replyTo', 'to', 'cc', 'bcc', 'subject', 'text', 'portalButton']);
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
 const accountSetupLink = /https:\/\/[^\s/]+\/[^\s]*\/(?:new_account|reset-password)\//i;
 const escape = text => text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -37,10 +37,16 @@ export function parseCodexAssistantMail(input) {
     throw fail(400, 'INVALID_MAIL_CC', 'Add at most three individual CC addresses.');
   }
   const cc = [...new Set(rawCc.map(address))].filter(value => value !== to).sort();
+  const rawBcc = input.bcc ?? [];
+  if (!Array.isArray(rawBcc) || rawBcc.length > 20) {
+    throw fail(400, 'INVALID_MAIL_BCC', 'Add at most twenty individual BCC addresses.');
+  }
+  const bcc = [...new Set(rawBcc.map(address))].filter(value => value !== to && !cc.includes(value)).sort();
   return {
     requestId: input.requestId.toLowerCase(), agencyId: input.agencyId, from: address(input.from),
     replyTo: input.replyTo == null ? null : address(input.replyTo), to, cc, subject, text,
-    portalButton: input.portalButton === true
+    portalButton: input.portalButton === true,
+    ...(bcc.length ? { bcc } : {})
   };
 }
 
@@ -76,7 +82,7 @@ function receipt(row, reused = false) {
 
 export async function sendCodexAssistantMail({ input, principal, configuration, db, send, log, preflight = false }) {
   const message = parseCodexAssistantMail(input);
-  const { requestId, agencyId, from, replyTo, to, cc, subject } = message;
+  const { requestId, agencyId, from, replyTo, to, cc, bcc = [], subject } = message;
   const sender = await activeSharedAlias(db, agencyId, from);
   const grants = grantedAliases(configuration, agencyId, sender.slug);
   if (!grants.has(from) || (replyTo && !grants.has(replyTo))) {
@@ -114,16 +120,16 @@ export async function sendCodexAssistantMail({ input, principal, configuration, 
       <p><a href="${escape(portalUrl)}" style="display:inline-block;padding:12px 18px;border-radius:6px;background:#143365;color:white;text-decoration:none;font-weight:bold">Sign in to AuricWell</a></p>` : null;
     const record = await log({ agencyId, templateType: CODEX_ASSISTANT_MAIL_TYPE, subject, body: html || text,
       recipientAddress: to, metadata: { actorType: 'automation', actorKey: 'codex_assistant', automationSubject: principal,
-        requestId, senderIdentityId: sender.id, fromEmail: from, replyTo: replyTo || from, cc, source: 'manual' } });
+        requestId, senderIdentityId: sender.id, fromEmail: from, replyTo: replyTo || from, cc, ...(bcc.length ? { bcc } : {}), source: 'manual' } });
     if (!record?.id) throw new Error('No communication receipt was created');
     communicationId = record.id;
     await db.execute('UPDATE codex_assistant_mail_deliveries SET communication_id=? WHERE request_id=?', [communicationId, requestId]);
     // Once transport is attempted a timeout gives no evidence that mail was unsent.
     status = 'delivery_unknown';
     const result = await send({ senderIdentityId: sender.id, source: 'manual', templateType: CODEX_ASSISTANT_MAIL_TYPE,
-      existingCommunicationId: communicationId, preloggedReceipt: true, to, cc: cc.join(', ') || null, subject, text, html,
+      existingCommunicationId: communicationId, preloggedReceipt: true, to, cc: cc.join(', ') || null, bcc: bcc.join(', ') || null, subject, text, html,
       replyToOverride: replyTo || from });
-    if (result?.id && !result.queued && !result.pendingApproval && !result.blocked && !result.skipped && !result.redirected) {
+    if (result?.id && !result.queued && !result.pendingApproval && !result.blocked && !result.skipped && !result.redirected && !result.relay?.partial && !result.relay?.rejectedCount) {
       status = 'sent';
     } else if (result?.queued || result?.pendingApproval || result?.blocked || result?.skipped || result?.redirected) {
       status = 'held';
