@@ -328,10 +328,25 @@ it('offers tutoring booking and both new/current-student openings without a clin
  s.editorPackageEntitlementId=77;expect(s.normalizeBookingSelectionPayload().packageEntitlementId).toBe(77);
  s.editorPackageEntitlementId=0;s.editorCanSetTutoringPrice=false;expect(s.normalizeBookingSelectionPayload().tutoringSessionPrice).toBeUndefined();
 });
-it('requests an agency scheduling capability for the scoped admin instead of requiring the admin to be a provider',async()=>{
- mocks.user={id:1807,role:'admin'};mocks.agency={id:453,slug:'nlu-qa-demo',organization_type:'agency',feature_flags:{}};
- wrapper=shallowMount(Grid,{props:{userId:1807,agencyId:453},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();
- expect(mocks.get).toHaveBeenCalledWith('/appointments/booking-access',expect.objectContaining({params:expect.objectContaining({agencyId:453,providerUserId:1807,businessType:'any',scope:'agency'})}));expect(wrapper.vm.$.setupState.clientSessionBookingEnabled).toBe(true);
+it('lets an admin open the booking chooser while requiring an eligible provider before submitting', async () => {
+  mocks.user = { id: 1807, role: 'admin' };
+  mocks.agency = { id: 453, slug: 'nlu-qa-demo', organization_type: 'agency', feature_flags: {} };
+  const error = 'This provider cannot book clinical sessions for this practice.';
+  const base = mocks.get.getMockImplementation();
+  mocks.get.mockImplementation((url, options) => url.endsWith('/booking-access')
+    ? Promise.resolve({ data: options.params.scope === 'agency' ? { enabled: true } : { enabled: false, reason: error } })
+    : base(url, options));
+  wrapper = shallowMount(Grid, { props: { userId: 1807, agencyId: 453 }, global: { stubs: { Teleport: false, RouterLink: true } } });
+  await flushPromises();
+  const s = wrapper.vm.$.setupState;
+  expect(mocks.get).toHaveBeenCalledWith('/appointments/booking-access', expect.objectContaining({
+    params: expect.objectContaining({ agencyId: 453, providerUserId: 1807, businessType: 'any', scope: 'agency' })
+  }));
+  expect(s.clientSessionBookingEnabled).toBe(true);
+  await s.onQuickActionSelect({ id: 'individual_session' });
+  await s.submitRequest();
+  expect(s.modalError).toBe(error);
+  expect(mocks.post).not.toHaveBeenCalled();
 });
 it('uses Finley’s tutoring form and pricing capability when the viewer is the QA administrator',async()=>{
  mocks.user={id:1807,role:'admin'};mocks.agency={id:453,slug:'nlu-qa-demo',organization_type:'agency',feature_flags:{}};
