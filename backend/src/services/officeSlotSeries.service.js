@@ -114,7 +114,8 @@ export async function loadOfficeSlotInventory(
       WHERE e.room_id IN (${marks}) AND e.start_at<? AND e.end_at>?
       AND (e.status IS NULL OR e.status<>'CANCELLED')
       AND (e.status='BOOKED' OR e.slot_state IN ('ASSIGNED_BOOKED','COMPANY_HOLD')
-        OR (e.status='RELEASED' AND JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.officeCancellationDisposition'))='release'))`,
+        OR (e.status='RELEASED' AND JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.officeCancellationDisposition'))='release')
+        OR ${officeSessionGapSql()})`,
       [...ids, endAt, startAt]
     ),
     database.execute(

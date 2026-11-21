@@ -213,12 +213,16 @@ class OfficeEvent {
       if (conflicts.length) {
         const requestedProviderId = Number(args.bookedProviderId || args.assignedProviderId || 0) || null;
         const released = conflicts[0];
-        const borrowingReleased = args.allowReleasedOffice === true && isAvailableOfficeRelease(released)
-          && normalizeMySqlDateTime(released.start_at) === normalizedStartAt
+        const exactOccurrence = normalizeMySqlDateTime(released.start_at) === normalizedStartAt
           && normalizeMySqlDateTime(released.end_at) === normalizedEndAt;
+        const borrowingReleased = args.allowReleasedOffice === true && exactOccurrence && isAvailableOfficeRelease(released);
+        const borrowingAssigned = args.allowAssignedOfficeBorrow === true && exactOccurrence
+          && Number(released.assigned_provider_id) === Number(args.assignedProviderId)
+          && !Number(released.office_gap_blocked) && !released.client_id && !released.clinical_session_id
+          && !released.billing_context_id && !released.note_context_id;
         const reusable = conflicts.length === 1
           && requestedProviderId
-          && (borrowingReleased || Number(released.assigned_provider_id || released.booked_provider_id || 0) === requestedProviderId)
+          && (borrowingReleased || borrowingAssigned || Number(released.assigned_provider_id || released.booked_provider_id || 0) === requestedProviderId)
           && String(conflicts[0].status || '').toUpperCase() !== 'BOOKED'
           && !['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(String(conflicts[0].slot_state || '').toUpperCase());
         if (reusable) {

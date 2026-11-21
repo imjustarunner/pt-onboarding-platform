@@ -2961,9 +2961,17 @@ const assignTemporaryOfficeFromRequestImpl = async (req, res, next) => {
             return res.status(500).json({ error: { message: 'Could not prepare office slot for one-time booking' } });
           }
           // eslint-disable-next-line no-await-in-loop
-          const booked = await OfficeEvent.markBooked({
-            eventId,
-            bookedProviderId: providerId
+          const booked = await OfficeEvent.createIfRoomOpen({
+            officeLocationId: officeId,
+            roomId,
+            startAt,
+            endAt,
+            assignedProviderId: Number(standingOwner.provider_id),
+            bookedProviderId: providerId,
+            createdByUserId: req.user.id,
+            status: 'BOOKED',
+            slotState: 'ASSIGNED_BOOKED',
+            allowAssignedOfficeBorrow: true
           });
           try {
             // eslint-disable-next-line no-await-in-loop

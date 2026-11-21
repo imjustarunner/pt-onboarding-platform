@@ -101,6 +101,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT||process.env.CI!=='true'
     allowReleasedOffice:true, bookedProviderId:10, createdByUserId:10};
   expect(await blocked()).toBe(1);
   await expect(OfficeEvent.createIfRoomOpen(borrow)).rejects.toMatchObject({status:409});
+  await expect(OfficeEvent.createIfRoomOpen({ ...borrow, assignedProviderId: 9,
+    allowReleasedOffice: false, allowAssignedOfficeBorrow: true })).rejects.toMatchObject({status:409});
   await db.query("UPDATE appointments SET status='canceled_by_provider' WHERE id=91");
   expect(await blocked()).toBe(0);
   await db.query("UPDATE appointments SET status='scheduled' WHERE id=91");
