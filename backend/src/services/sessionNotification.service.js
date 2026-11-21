@@ -628,18 +628,18 @@ async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = t
   for (const d of plan.deliveries) {
     // Booking and edit confirmations use the shared schedule-change buffer.
     if (d.kind === 'confirmation') continue;
+    const now = Date.now();
     let when;
-    if (d.sendImmediately || d.kind === 'confirmation') {
-      when = new Date(Date.now() + 30 * 1000); // ~30s buffer after book
+    if (d.sendImmediately) {
+      when = new Date(now + 30 * 1000); // ~30s buffer after book
     } else {
       when = new Date(plan.start.getTime() - d.offsetMinutes * 60 * 1000);
     }
     if (d.ruleKey === 'school_morning') {
       const window = schoolAppointmentReminderWindow(plan.appointment);
-      if (!window || Date.now() >= +window.deadline) continue;
-      if (+when < Date.now()) when = new Date(Date.now() + 30 * 1000);
-    }
-    if (+when <= Date.now()) continue;
+      if (!window || now >= +window.deadline) continue;
+      if (+when < now) when = new Date(now + 30 * 1000);
+    } else if (+when <= now) continue;
     const scheduledFor = toMysqlDateTime(when);
     if (existing.some(row => row.status !== 'canceled' && row.channel === (d.channel === 'in_app' ? 'email' : d.channel)
       && String(row.kind || '').includes(':in_app') === (d.channel === 'in_app')
