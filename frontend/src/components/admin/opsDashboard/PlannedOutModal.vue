@@ -11,10 +11,12 @@
           This is a notification to let the admin team know when you will not be available.
           It does not submit vacation, PTO, or sick time.
         </p>
-        <p class="pom-info pom-info--sub" role="note">
-          The purpose of this feature is to notify Admin of a provider's availability.
-          It is not a time-off request and should not affect PTO or sick-time balances.
-        </p>
+        <fieldset v-if="agencyOptions.length" class="pom-span">
+          <legend>Organizations</legend>
+          <label v-for="agency in agencyOptions" :key="agency.id">
+            <input v-model="selectedAgencyIds" type="checkbox" :value="agency.id" /> {{ agency.label }}
+          </label>
+        </fieldset>
 
         <fieldset class="pom-span">
           <legend>Duration</legend>
@@ -131,7 +133,7 @@
         <p>Nothing has been canceled or sent yet. Selected sessions use nonurgent family emails. A school-session choice also emails the assigned school. That letter does not say the school is closed.</p>
         <p>{{ selectedWhen }} · {{ preflight.items.length }} items</p>
         <ul><li v-for="item in preflight.items" :key="item.key" :class="{ 'pom-err': item.clients?.some(c => !c.recipients?.some(r => r.email)) }">
-          <strong>{{ item.date }} · {{ item.title }}</strong>
+          <strong>{{ item.date }}<template v-if="selectedAgencyIds.length > 1"> · {{ agencyName(item.agencyId) }}</template> · {{ item.title }}</strong>
           <p>{{ item.kind === 'participation' ? 'Set RSVP to not attending; keep the event' : item.kind === 'school_roster' ? 'Notify assigned school family; no EHR session is created' : 'Cancel this scheduled item; preserve its content' }}</p>
           <p v-for="client in item.clients || []" :key="client.clientId">{{ client.clientName }}: <span v-for="r in client.recipients" :key="r.key">{{ r.name }} — {{ r.email || 'No email on file; follow-up required' }}; </span><strong v-if="!client.recipients?.length">No selected recipient; follow-up required</strong></p>
           <details v-if="item.message"><summary>Family email</summary><strong>{{ item.message.subject }}</strong><p style="white-space:pre-wrap">{{ item.message.text }}</p></details>
@@ -143,7 +145,7 @@
         <footer class="pom-foot"><button type="button" class="btn ghost" :disabled="saving" @click="preflight=null;reviewFinal=false">Back</button><button type="button" class="btn primary" :disabled="saving || (reviewFinal && !confirmedReview)" @click="reviewFinal ? confirmPlannedOut() : reviewPlannedOut()">{{ saving ? 'Saving…' : reviewFinal ? 'Confirm Planned Out and cancel items' : 'Review final Planned Out' }}</button></footer>
       </section>
       <section v-else class="pom-form"><p role="alert">{{ error }}</p><button type="button" class="btn primary" @click="showResume=true">Continue saved cancellations</button><button type="button" @click="emit('created');emit('close')">Close and follow up later</button></section>
-      <DayCancellationDialog v-if="showResume" :provider-id="savedCancellation.providerId" :agency-id="Number(agencyId)" :date="savedCancellation.date" :review-token="savedCancellation.token" @close="showResume=false" @saved="emit('created');emit('close')" />
+      <DayCancellationDialog v-if="showResume" :provider-id="savedCancellation.providerId" :agency-id="Number(selectedAgencyIds[0] || agencyId)" :date="savedCancellation.date" :review-token="savedCancellation.token" @close="showResume=false" @saved="emit('created');emit('close')" />
     </div>
   </div>
 </template>
@@ -158,13 +160,16 @@ import { formatPlannedOutWhen } from '../../../utils/plannedOuts.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
-  userId: { type: [Number,String], default:null }, initialDate: String
+  userId: { type: [Number,String], default:null }, initialDate: String, timeZone: String,
+  agencyOptions: { type: Array, default: () => [] }, initialAgencyIds: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits(['close', 'created']);
 
-const myTimezone = detectLocalTimezone();
+const myTimezone = props.timeZone || detectLocalTimezone();
+const selectedAgencyIds = ref(props.initialAgencyIds.length ? [...props.initialAgencyIds] : props.agencyOptions.map(agency => agency.id));
 const myTimezoneLabel = timezoneLabelFor(myTimezone);
+const agencyName = id => props.agencyOptions.find(agency => agency.id === Number(id))?.label;
 
 const spanType = ref(props.initialDate ? 'all_day' : 'hours');
 const startLocal = ref('');
@@ -220,14 +225,17 @@ function addOneDay(ymd) {
 
 async function submit() {
   error.value = '';
+  if (props.agencyOptions.length && !selectedAgencyIds.value.length) {
+    error.value = 'Choose at least one organization.';
+    return;
+  }
   saving.value = true;
   try {
     const body = {
-      agencyId: Number(props.agencyId),
+      agencyId: Number(selectedAgencyIds.value[0] || props.agencyId),
+      ...(props.agencyOptions.length ? { agencyIds: selectedAgencyIds.value } : {}),
       ...(props.userId ? {userId:Number(props.userId)} : {}),
       spanType: spanType.value,
-      // Submitter's own browser time zone — backend interprets Start/End (and half-day
-      // 8am-12pm / 12pm-5pm windows) in this zone, not the agency's configured time zone.
       timeZone: myTimezone,
       availability: availability.value,
       cancelScheduledItems: cancelScopes.value.length > 0,

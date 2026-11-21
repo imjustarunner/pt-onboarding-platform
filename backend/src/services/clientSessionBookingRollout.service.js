@@ -39,15 +39,16 @@ export async function readClientSessionBookingRollout(agencyId, db = pool) {
   return rolloutForPractice(agency);
 }
 export async function canStaffScheduleBeforeProviderActivation(agencyId, providerUserId, actorUserId, db = pool) {
-  if (Number(agencyId) !== 2 || !id(actorUserId) || Number(actorUserId) === Number(providerUserId)) return false;
+  if (Number(agencyId) !== 2 || !id(actorUserId)) return false;
   const [[actor]] = await db.execute(`SELECT u.role,u.is_active,u.status,COALESCE(u.is_archived,0) AS is_archived,
       COALESCE(ua.is_active,0) AS membership_active
     FROM users u LEFT JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? WHERE u.id=?`, [agencyId,actorUserId]);
-  const role = String(actor?.role || '').toLowerCase();
+  const role = String(actor?.role || '').trim().toLowerCase();
+  const superAdmin = ['super_admin', 'superadmin'].includes(role);
   const active = [true,1,'1'].includes(actor?.is_active) && ![true,1,'1'].includes(actor?.is_archived)
     && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(actor?.status || '').toUpperCase());
-  return active && ['support','admin','super_admin'].includes(role)
-    && (role === 'super_admin' || [true,1,'1'].includes(actor?.membership_active));
+  return active && (superAdmin || (Number(actorUserId) !== Number(providerUserId)
+    && ['support', 'admin'].includes(role) && [true, 1, '1'].includes(actor?.membership_active)));
 }
 export async function clientSessionBookingAccess(agencyId, providerUserId, db = pool, { businessType, actorUserId } = {}) {
   if (businessType === 'any') {

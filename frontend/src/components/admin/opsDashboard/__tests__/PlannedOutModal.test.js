@@ -62,3 +62,18 @@ it('reviews twice and requires explicit approval before saving or canceling',asy
   expect(api.post.mock.lastCall).toEqual(['/planned-outs',expect.objectContaining({cancelScheduledItems:true,cancellationReviewToken:'review-token'}),expect.any(Object)]);
   w.unmount();
 });
+
+it('allows removing an organization from the calendar’s default Planned Out selection', async () => {
+  const w = mount(PlannedOutModal, { props: {
+    agencyId: 2, userId: 7, timeZone: 'America/Denver', initialDate: '2026-11-22', initialAgencyIds: [2, 4],
+    agencyOptions: [{ id: 2, label: 'First practice' }, { id: 4, label: 'Second practice' }]
+  } });
+  const agencies = w.findAll('fieldset').find(group => group.text().includes('Organizations')).findAll('input');
+  expect(agencies.map(agency => agency.element.checked)).toEqual([true, true]);
+  await agencies[0].setValue(false);
+  await w.get('form').trigger('submit'); await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/planned-outs/preview', expect.objectContaining({
+    agencyId: 4, agencyIds: [4], userId: 7, timeZone: 'America/Denver', startDate: '2026-11-22'
+  }), expect.any(Object));
+  w.unmount();
+});

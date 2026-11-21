@@ -15,6 +15,7 @@ import { applyPlannedOutPresenceForUser } from '../services/plannedOutPresence.s
 import { syncScheduleEventFromPlannedOut } from '../services/plannedOutScheduleSync.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import pool from '../config/database.js';
+import { authorizeDayCancellation, isDayCancellationStaff } from './providerDayCancellation.controller.js';
 import { preparePlannedOutCancellation, completePlannedOutCancellation } from '../services/plannedOutCancellation.service.js';
 
 function roleOf(req) {
@@ -114,7 +115,7 @@ function buildTitle(userName, spanType) {
   return `${name} — Planned out`;
 }
 
-async function createScheduleBlockForOut({ req, agencyId, userId, payload, userName }) {
+async function createScheduleBlockForOut({ req, agencyId, userId, payload, userName }, db = pool) {
   const description = buildDescription(payload);
   const title = buildTitle(userName, payload.spanType);
   const allDay = payload.spanType === 'all_day' || !!payload.allDay;
@@ -135,7 +136,7 @@ async function createScheduleBlockForOut({ req, agencyId, userId, payload, userN
     endDate: allDay ? payload.endDate : null,
     eventTimezone: payload.timeZone,
     createdByUserId: req.user.id
-  });
+  }, db);
 }
 
 function plannedOutWhenLabel(row, timeZone = DEFAULT_SCHEDULE_TZ) {
@@ -321,122 +322,139 @@ export const listPlannedOuts = async (req, res, next) => {
   }
 };
 
+async function plannedOutAgencyIds(req, agencyId, providerId) {
+  const otherProvider = providerId !== Number(req.user.id);
+  if (otherProvider && !isDayCancellationStaff(req.user)) {
+    throw Object.assign(new Error('Only authorized scheduling staff can submit Planned Out for others.'), { status: 403 });
+  }
+  const submitted = req.body?.agencyIds;
+  if (submitted === undefined && !otherProvider) return [agencyId];
+  const ids = Array.isArray(submitted) ? [...new Set(submitted.map(Number))] : submitted === undefined ? [agencyId] : [];
+  if (!ids.length || ids.length > 30 || !ids.includes(agencyId) || ids.some(id => !Number.isSafeInteger(id) || id < 1)) {
+    throw Object.assign(new Error('Choose the organizations to include in Planned Out.'), { status: 400 });
+  }
+  await authorizeDayCancellation(req.user, providerId, ids);
+  return ids;
+}
+
 export const previewPlannedOut = async (req,res,next) => {
   try {
     const access = await ensureAgencyAccess(req,req.body?.agencyId);
     if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
     const providerId = Number(req.body?.userId || req.user.id);
-    if (providerId !== Number(req.user.id) && !isManager(req)) return res.status(403).json({error:{message:'Only authorized staff can submit Planned Out for others.'}});
+    const agencyIds = await plannedOutAgencyIds(req, access.agencyId, providerId);
     const payload = normalizePayload(req.body || {},req.body?.timeZone || access.agency.timezone || DEFAULT_SCHEDULE_TZ);
-    const review = await preparePlannedOutCancellation({payload,providerId,agencyId:access.agencyId},req.user,
+    const review = await preparePlannedOutCancellation({payload,providerId,agencyIds},req.user,
       {previewOnly:true,includeUntimedKeys:req.body?.includeUntimedKeys || [],finalReview:req.body?.finalReview === true});
     res.json({review});
   } catch(error) { if(error.status) return res.status(error.status).json({error:{message:error.message}}); next(error); }
 };
 
-export const createPlannedOut = async(req,res,next) => {
-  const token=String(req.body?.cancellationReviewToken || '');
-  if (!/^[a-f0-9-]{36}$/.test(token)) return createPlannedOutRecord(req,res,next);
-  let connection,locked=false;
+export const createPlannedOut = async (req, res, next) => {
+  const token = String(req.body?.cancellationReviewToken || '');
+  const lockKey = /^[a-f0-9-]{36}$/.test(token) ? `planned-out:${token}` : null;
+  let connection, locked = false;
   try {
-    connection=await pool.getConnection();
-    const [[lock]]=await connection.execute('SELECT GET_LOCK(?,5) AS acquired',[`planned-out:${token}`]);
-    if (Number(lock?.acquired)!==1) return res.status(409).json({error:{message:'This Planned Out is already being saved. Check its saved status before trying again.'}});
-    locked=true;
-    return await createPlannedOutRecord(req,res,next);
-  } catch(error) {next(error);}
-  finally {if(connection){if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[`planned-out:${token}`]).catch(()=>connection.destroy());connection.release();}}
+    connection = await pool.getConnection();
+    if (lockKey) {
+      const [[lock]] = await connection.execute('SELECT GET_LOCK(?,5) AS acquired', [lockKey]);
+      if (Number(lock?.acquired) !== 1) return res.status(409).json({ error: { message: 'This Planned Out is already being saved. Check its saved status before trying again.' } });
+      locked = true;
+    }
+    return await createPlannedOutRecord(req, res, connection, locked ? token : null);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  } finally {
+    if (connection) {
+      if (locked) await connection.execute('SELECT RELEASE_LOCK(?)', [lockKey]).catch(() => connection.destroy());
+      connection.release();
+    }
+  }
 };
 
-const createPlannedOutRecord = async (req, res, next) => {
+async function createPlannedOutRecord(req, res, connection, token) {
+  if (!(await PlannedOut.tableExists())) {
+    return res.status(503).json({ error: { message: 'Planned outs not available — run migration 1014' } });
+  }
+  const access = await ensureAgencyAccess(req, req.body?.agencyId);
+  if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+  const targetUserId = Number(req.body?.userId || req.user.id);
+  if (!Number.isSafeInteger(targetUserId) || targetUserId < 1) {
+    return res.status(400).json({ error: { message: 'Choose a provider.' } });
+  }
+  const agencyIds = await plannedOutAgencyIds(req, access.agencyId, targetUserId);
+  const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
+  const requestTz = String(req.body?.timeZone || '').trim();
+  const submitTz = (requestTz && isValidTimeZone(requestTz)) ? requestTz : agencyTz;
+  const payload = normalizePayload(req.body || {}, submitTz);
+  const user = await User.findById(targetUserId);
+  if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+  const userName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.email;
+
+  if (payload.emergencies === 'redirect' && payload.emergenciesRedirectUserId) {
+    const redirectUser = await User.findById(payload.emergenciesRedirectUserId);
+    if (redirectUser) payload.emergenciesRedirectName = [redirectUser.first_name, redirectUser.last_name]
+      .filter(Boolean).join(' ').trim() || redirectUser.email;
+  }
+
+  if (token) {
+    const [existing] = await connection.execute('SELECT id, agency_id FROM planned_outs WHERE cancellation_review_token=? AND user_id=? AND submitted_by_user_id=?', [token, targetUserId, req.user.id]);
+    if (existing.length) {
+      const savedByAgency = new Map(existing.map(row => [Number(row.agency_id), row.id]));
+      if (savedByAgency.size !== agencyIds.length || agencyIds.some(id => !savedByAgency.has(id))) {
+        return res.status(409).json({ error: { message: 'This Planned Out was saved for a different organization selection. Review its saved status.' } });
+      }
+      const saved = await Promise.all(agencyIds.map(id => PlannedOut.findById(savedByAgency.get(id))));
+      if (saved.some(row => !row || !['pending', 'approved', 'revision'].includes(row.status))) {
+        return res.status(409).json({ error: { message: 'This Planned Out is no longer active. Review its current status.' } });
+      }
+      const cancellation = await completePlannedOutCancellation({ token, providerId: targetUserId }, req.user);
+      return res.json({ plannedOut: serializePlannedOutForApi(saved[0]), plannedOuts: saved.map(serializePlannedOutForApi), cancellation, alreadySaved: true });
+    }
+  }
+  const cancellationPlan = await preparePlannedOutCancellation({ payload, providerId: targetUserId, agencyIds }, req.user, { requireReview: true, reviewToken: token });
+  const created = [];
+  await connection.beginTransaction();
   try {
-    if (!(await PlannedOut.tableExists())) {
-      return res.status(503).json({ error: { message: 'Planned outs not available — run migration 1014' } });
+    for (const agencyId of agencyIds) {
+      const event = await createScheduleBlockForOut({ req, agencyId, userId: targetUserId, payload, userName }, connection);
+      const row = await PlannedOut.create({
+        agencyId,
+        userId: targetUserId,
+        submittedByUserId: req.user.id,
+        status: 'pending',
+        ...payload,
+        scheduleEventId: event.id
+      }, connection);
+      if (cancellationPlan) await connection.execute('UPDATE planned_outs SET cancellation_review_token=? WHERE id=?', [cancellationPlan.token, row.id]);
+      created.push(row);
     }
-    const access = await ensureAgencyAccess(req, req.body?.agencyId);
-    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  }
 
-    const targetUserId = Number(req.body?.userId || req.user.id);
-    if (!targetUserId) {
-      return res.status(400).json({ error: { message: 'userId is required' } });
-    }
-    if (targetUserId !== Number(req.user.id) && !isManager(req)) {
-      return res.status(403).json({ error: { message: 'Only admins can submit planned outs for others' } });
-    }
-
-    const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
-    // Prefer the submitter's own browser timezone (sent from the form) so "11am" means 11am
-    // where they actually are, not 11am in the agency's configured timezone. Falls back to the
-    // agency timezone for older clients or admin-on-behalf-of-someone-else submissions that
-    // don't send one.
-    const requestTz = String(req.body?.timeZone || '').trim();
-    const submitTz = (requestTz && isValidTimeZone(requestTz)) ? requestTz : agencyTz;
-    let payload;
-    try {
-      payload = normalizePayload(req.body || {}, submitTz);
-    } catch (err) {
-      return res.status(err.status || 400).json({ error: { message: err.message } });
-    }
-
-    const user = await User.findById(targetUserId);
-    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
-    const userName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.email;
-
-    if (payload.emergencies === 'redirect' && payload.emergenciesRedirectUserId) {
-      const redirectUser = await User.findById(payload.emergenciesRedirectUserId);
-      if (redirectUser) {
-        payload.emergenciesRedirectName = [redirectUser.first_name, redirectUser.last_name]
-          .filter(Boolean).join(' ').trim() || payload.emergenciesRedirectName;
-      }
-    }
-
-    if (/^[a-f0-9-]{36}$/.test(String(req.body?.cancellationReviewToken || ''))) {
-      const [[existing]]=await pool.execute('SELECT id FROM planned_outs WHERE cancellation_review_token=? AND agency_id=? AND user_id=? AND submitted_by_user_id=? LIMIT 1',[req.body.cancellationReviewToken,access.agencyId,targetUserId,req.user.id]);
-      if (existing) {
-        const saved=await PlannedOut.findById(existing.id);
-        if (!saved || !['pending','approved','revision'].includes(saved.status)) return res.status(409).json({error:{message:'This Planned Out is no longer active. Review its current status.'}});
-        const cancellation=await completePlannedOutCancellation({token:req.body.cancellationReviewToken,providerId:targetUserId},req.user);
-        return res.json({plannedOut:serializePlannedOutForApi(saved),cancellation,alreadySaved:true});
-      }
-    }
-    const cancellationPlan = await preparePlannedOutCancellation({ payload,providerId:targetUserId,agencyId:access.agencyId },req.user,{requireReview:true,reviewToken:req.body?.cancellationReviewToken});
-    const event = await createScheduleBlockForOut({
-      req,
-      agencyId: access.agencyId,
-      userId: targetUserId,
-      payload,
-      userName
-    });
-
-    const created = await PlannedOut.create({
-      agencyId: access.agencyId,
-      userId: targetUserId,
-      submittedByUserId: req.user.id,
-      status: 'pending',
-      ...payload,
-      scheduleEventId: event?.id || null
-    });
-
-    if (cancellationPlan) await pool.execute('UPDATE planned_outs SET cancellation_review_token=? WHERE id=?', [cancellationPlan.token,created.id]);
-    const cancellation = await completePlannedOutCancellation(cancellationPlan,req.user);
-    await syncScheduleEventFromPlannedOut(created?.id);
-
-    const whenLabel = plannedOutWhenLabel(created, submitTz);
-    const submitterName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.email || 'A provider';
-    await notifyPlannedOut('planned_out_submitted', {
-      userId: targetUserId,
-      agencyId: access.agencyId,
-      plannedOutId: created?.id,
-      actorUserId: req.user.id,
-      title: 'Planned Out Submitted',
-      message: `Your Planned Out notification for ${whenLabel} has been submitted.`
-    });
+  const cancellation = await completePlannedOutCancellation(cancellationPlan, req.user);
+  const whenLabel = plannedOutWhenLabel(created[0], submitTz);
+  await notifyPlannedOut('planned_out_submitted', {
+    userId: targetUserId,
+    agencyId: created[0].agency_id,
+    plannedOutId: created[0].id,
+    actorUserId: req.user.id,
+    title: 'Planned Out Submitted',
+    message: `Your Planned Out notification for ${whenLabel} has been submitted.`
+  });
+  for (const row of created) {
+    await syncScheduleEventFromPlannedOut(row.id);
     await notifyPlannedOut('planned_out_admin_alert', {
-      agencyId: access.agencyId,
-      plannedOutId: created?.id,
+      agencyId: row.agency_id,
+      plannedOutId: row.id,
       actorUserId: req.user.id,
       title: 'Planned Out submitted',
-      message: `${submitterName} submitted a Planned Out notification for ${whenLabel}.`,
+      message: `${userName || 'A provider'} submitted a Planned Out notification for ${whenLabel}.`,
       audienceJson: {
         admin: true,
         clinicalPracticeAssistant: true,
@@ -445,12 +463,9 @@ const createPlannedOutRecord = async (req, res, next) => {
         supervisor: true
       }
     });
-
-    return res.status(201).json({ plannedOut: serializePlannedOutForApi(created), cancellation });
-  } catch (e) {
-    return next(e);
   }
-};
+  return res.status(201).json({ plannedOut: serializePlannedOutForApi(created[0]), plannedOuts: created.map(serializePlannedOutForApi), cancellation });
+}
 
 export const deletePlannedOut = async (req, res, next) => {
   try {

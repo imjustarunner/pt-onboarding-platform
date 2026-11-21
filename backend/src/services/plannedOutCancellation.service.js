@@ -9,7 +9,7 @@ import { addDaysYmd } from '../utils/scheduleRecurrence.js';
 import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
-export function plannedOutCancellationInput({ payload, providerId, agencyId }) {
+export function plannedOutCancellationInput({ payload, providerId, agencyId, agencyIds = [agencyId] }) {
   const cancelScopes = plannedOutScopes(payload);
   if (payload.availability === 'available' || !cancelScopes.length) return null;
   const timeZone = payload.timeZone || 'America/Denver';
@@ -18,7 +18,7 @@ export function plannedOutCancellationInput({ payload, providerId, agencyId }) {
   const end = payload.allDay ? payload.endDate : addDaysYmd(localDate(payload.endAt),1);
   const dates = [];
   for (let date = start; date < end && dates.length <= 90; date = addDaysYmd(date,1)) dates.push(date);
-  return { providerId, agencyIds:[agencyId],date:start,dates,timeZone,scopeMode:'days',absenceSource:'planned_out',urgent:false,
+  return { providerId, agencyIds,date:start,dates,timeZone,scopeMode:'days',absenceSource:'planned_out',urgent:false,
     reasonCategory:'planned_out',followUpAction:'none',notificationMode:'send',messagesReviewed:true,cancelScopes,
     ...(payload.allDay ? {} : { windowStart:payload.startAt, windowEnd:payload.endAt }) };
 }

@@ -13,6 +13,7 @@ import { clearScheduleSummaryCache } from '../../../utils/scheduleSummaryCache';
 
 const token = 'reviewed-day-token';
 const base = '/availability/providers/7/day-cancellation';
+const authorizedAgencies = [{ id: 2, name: 'Test agency' }, { id: 3, name: 'Second agency' }];
 const fixture = (status = 'preview', results = {}) => ({
   token, status, date: '2026-10-15', providerId: 7,
   scopes: [{ agencyId: 2, timeZone: 'America/Denver' }],
@@ -30,7 +31,7 @@ let wrapper;
 let originalShowModal;
 const button = text => wrapper.findAll('button').find(b => b.text() === text);
 function open() {
-  wrapper = mount(Dialog, { props: { providerId: 7, agencyId: 2, agencyOptions: [{ id: 2, name: 'Test agency' }, { id: 3, label: 'Second agency' }], date: '2026-10-15' }, attachTo: document.body });
+  wrapper = mount(Dialog, { props: { providerId: 7, agencyId: 2, date: '2026-10-15' }, attachTo: document.body });
   return wrapper;
 }
 async function review(finalReview = true) {
@@ -48,7 +49,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-13T18:00:00Z'));
   setActivePinia(createPinia()); localStorage.clear(); clearScheduleSummaryCache(); vi.clearAllMocks();
   m.route = reactive({ path: '/dashboard', params: {}, query: {} });
-  m.get.mockImplementation(async url => ({ data: url.includes('/schedule-summary') ? { providerId: 7, weekStart: '2026-10-12', scheduleEvents: [], scheduleAgencyIds: [2] } : { review: null } }));
+  m.get.mockImplementation(async url => ({ data: url.endsWith('/day-cancellation/agencies') ? { agencies: authorizedAgencies } : url.includes('/schedule-summary') ? { providerId: 7, weekStart: '2026-10-12', scheduleEvents: [], scheduleAgencyIds: [2] } : { review: null } }));
   originalShowModal = HTMLDialogElement.prototype.showModal;
   HTMLDialogElement.prototype.showModal = vi.fn(function () { this.open = true; });
   m.post.mockImplementation(async url => ({ data: url.endsWith('/preview') ? fixture() : fixture('completed', completed) }));
@@ -136,6 +137,7 @@ describe('day cancellation review', () => {
     expect(wrapper.find('dialog').attributes('open')).toBeDefined();
     expect(m.post).not.toHaveBeenCalled();
     expect(button('Review day').element.disabled).toBe(true);
+    await flushPromises();
     await wrapper.findAll('textarea')[0].setValue('Provider unavailable.');
     expect(button('Review day').element.disabled).toBe(false);
     for (const checkbox of wrapper.findAll('fieldset input')) await checkbox.setValue(false);
@@ -147,7 +149,8 @@ describe('day cancellation review', () => {
     expect(wrapper.emitted('saved')).toBeUndefined();
   });
   it('previews the chosen agencies and separate reasons before any apply request', async () => {
-    open();
+    open(); await flushPromises();
+    expect(wrapper.findAll('fieldset input').map(el => el.element.checked)).toEqual([true, true]);
     await wrapper.findAll('fieldset input')[1].setValue(false);
     await wrapper.findAll('textarea')[0].setValue('Private staffing note.');
     await wrapper.findAll('textarea')[1].setValue('Please contact support for another time.');
@@ -165,6 +168,10 @@ describe('day cancellation review', () => {
     expect(button('Confirm cancellation').element.disabled).toBe(true);
     await button('Confirm cancellation').trigger('click');
     expect(m.post).toHaveBeenCalledTimes(2);
+  });
+  it('starts the cancellation review with all authorized agencies', async () => {
+    open(); await review(false);
+    expect(m.post).toHaveBeenCalledWith(`${base}/preview`, expect.objectContaining({ agencyIds: [2, 3] }), { skipGlobalLoading: true });
   });
   it('requires a fresh signature after going back and rebuilding the preview', async () => {
     open(); await review();

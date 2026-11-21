@@ -97,10 +97,17 @@ it.each([{role:'provider'},{role:'intern'},{role:'support',membership_active:0},
  const db=staffBookingDatabase({...activeStaff,...actor});
  await expect(requireClientSessionBooking(2,13,db,{actorUserId:5})).rejects.toMatchObject({code:'CLIENT_SESSION_BOOKING_NOT_ENABLED'});
 });
-it('keeps provider self-scheduling closed and limits the staff exception to ITSCO',async()=>{
- const db=staffBookingDatabase({...activeStaff,role:'super_admin'});
- await expect(requireClientSessionBooking(2,13,db,{actorUserId:13})).rejects.toMatchObject({code:'CLIENT_SESSION_BOOKING_NOT_ENABLED'});
- await expect(requireClientSessionBooking(7,13,db,{actorUserId:5})).rejects.toMatchObject({code:'CLIENT_SESSION_BOOKING_NOT_ENABLED'});
+it.each(['super_admin', 'superadmin'])('allows an eligible ITSCO %s to book their own sessions without changing the rollout', async role => {
+ const db = staffBookingDatabase({ ...activeStaff, role });
+ await expect(requireClientSessionBooking(2, 13, db, { actorUserId: 13 })).resolves.toMatchObject({ enabled: true, staffScheduling: true, providerSelfSchedulingEnabled: false });
+ await expect(requireClientSessionBooking(7, 13, db, { actorUserId: 13 })).rejects.toMatchObject({ code: 'CLIENT_SESSION_BOOKING_NOT_ENABLED' });
+ m.care.mockResolvedValue({ canProvideCare: false, reason: 'Sees clients is off' });
+ await expect(requireClientSessionBooking(2, 13, db, { actorUserId: 13 })).rejects.toThrow('Sees clients is off');
+ expect(evaluateClientSessionBooking(policy, 13).enabled).toBe(false);
+});
+it.each(['provider', 'admin', 'support'])('keeps ordinary ITSCO %s self-scheduling closed until transition', async role => {
+ const db = staffBookingDatabase({ ...activeStaff, role });
+ await expect(requireClientSessionBooking(2, 13, db, { actorUserId: 13 })).rejects.toMatchObject({ code: 'CLIENT_SESSION_BOOKING_NOT_ENABLED' });
 });
 it('does not let staff schedule for a person who is not eligible to provide care',async()=>{
  const db=staffBookingDatabase(activeStaff);m.care.mockResolvedValue({canProvideCare:false,reason:'Active client-facing assignment required'});

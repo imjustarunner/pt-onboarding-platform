@@ -285,7 +285,7 @@ export function createDayCancellationService(overrides = {}) {
     if (!['days', 'sessions'].includes(scopeMode)) throw fail('Choose selected days or individual sessions.');
     const appointmentIds = scopeMode === 'sessions' ? [...new Set((input.appointmentIds || []).map(Number))] : null;
     if (appointmentIds && (!appointmentIds.length || appointmentIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw fail('Select at least one session.');
-    const plan = { providerId, schoolId, date: input.date || dates[0], dates, scopeMode, appointmentIds, windowStart: input.windowStart, windowEnd: input.windowEnd, includeUntimedKeys:input.includeUntimedKeys || [],
+    const plan = { providerId, agencyIds, schoolId, date: input.date || dates[0], dates, scopeMode, appointmentIds, windowStart: input.windowStart, windowEnd: input.windowEnd, includeUntimedKeys:input.includeUntimedKeys || [],
       contactFollowUpVersion:1, followupOwner: input.followupOwner === 'support' ? 'support' : 'provider', messagesReviewed: input.messagesReviewed === true, contactChoices: input.contactChoices || {}, schoolChoices: input.schoolChoices || {}, messages: input.messages || {}, facts: { ...dayCancellationFacts(input), providerAuthored: Number(actor.id) === providerId }, internalReason: String(input.internalReason || '').trim().slice(0, 2000), scopes: [] };
     for (const agencyId of agencyIds) for (const date of dates) {
       const timeZone = input.absenceSource === 'planned_out' && input.timeZone ? input.timeZone : await deps.timeZone(agencyId), bounds = dayBounds(date, timeZone);
@@ -526,6 +526,7 @@ export function createDayCancellationService(overrides = {}) {
     if (!plan.messagesReviewed || plan.facts.absenceSource !== 'planned_out' || utc(row.expires_at) <= deps.now()
       || plan.providerId !== Number(input.providerId) || JSON.stringify(plan.dates) !== JSON.stringify(input.dates)
       || reviewedScopes !== submittedScopes
+      || (plan.agencyIds && JSON.stringify(plan.agencyIds) !== JSON.stringify([...new Set(input.agencyIds)].sort((a, b) => a - b)))
       || plan.scopes.some(s => !input.agencyIds.includes(s.agencyId) || s.timeZone !== input.timeZone)
       || (plan.windowStart || null) !== (input.windowStart || null) || (plan.windowEnd || null) !== (input.windowEnd || null)) throw fail('Planned Out changed or its review expired. Review the affected items again.',409);
     return response(row,plan,{});

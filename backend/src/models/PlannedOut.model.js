@@ -54,8 +54,8 @@ class PlannedOut {
     };
   }
 
-  static async create(data) {
-    const [result] = await pool.execute(
+  static async create(data, db = pool) {
+    const [result] = await db.execute(
       `INSERT INTO planned_outs
         (agency_id, user_id, submitted_by_user_id, status, span_type, half_day_part,
          all_day, start_at, end_at, start_date, end_date,
@@ -83,13 +83,13 @@ class PlannedOut {
         data.scheduleEventId ? Number(data.scheduleEventId) : null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async findById(id) {
+  static async findById(id, db = pool) {
     const eid = Number(id || 0);
     if (!eid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT po.*,
               po.status AS approval_status,
               pse.start_at AS schedule_event_start_at,

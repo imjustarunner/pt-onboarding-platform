@@ -23,7 +23,7 @@
     <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
       @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDaySchool = null; cancelDayDate = date; }" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
-      :agency-id="Number(cancelDaySchool?.agencyId || effectiveAgencyId || 0)" :agency-options="cancelDaySchool ? [{id:cancelDaySchool.agencyId,label:cancelDaySchool.schoolName}] : headerTenantOptions" :school-id="cancelDaySchool?.schoolOrganizationId" :school-name="cancelDaySchool?.schoolName"
+      :agency-id="Number(cancelDaySchool?.agencyId || effectiveAgencyId || 0)" :school-id="cancelDaySchool?.schoolOrganizationId" :school-name="cancelDaySchool?.schoolName"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
     <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
@@ -9440,13 +9440,17 @@ const editorBookServiceChoices = computed(() => editorTypeOptions.value.filter(o
 const mixedSessionServices = computed(() => editorBookServiceChoices.value.length > 1);
 function openChildcareFromCalendar(){void router.push(scheduleOrgTo('/childcare'));}
 const clientSessionBookingEnabled = ref(false);
+const providerSessionBookingEnabled = ref(false);
 const clientSessionBookingAgencyId = computed(() => Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0));
 let bookingAccessGeneration = 0;
 const refreshClientSessionBookingAccess = async () => {
   const generation = ++bookingAccessGeneration;
   const agencyId = clientSessionBookingAgencyId.value;
   const providerUserId = scheduleActorUserId.value;
-  if (!agencyId || !providerUserId) { clientSessionBookingEnabled.value = false; return false; }
+  if (!agencyId || !providerUserId) {
+    providerSessionBookingEnabled.value = clientSessionBookingEnabled.value = false;
+    return false;
+  }
   try {
     const staffAgencyScope = (['admin','super_admin'].includes(authStore.user?.role) || (Number(agencyId)===2 && authStore.user?.role==='support'))
       && Number(providerUserId)===Number(authStore.user?.id);
@@ -9458,22 +9462,24 @@ const refreshClientSessionBookingAccess = async () => {
     const access = providerAccess.data || {};
     bookingProviderBusinessTypes.value = Array.isArray(access.availableBusinessTypes) ? access.availableBusinessTypes
       : tutoringWorkspaceOnly.value && access.enabled ? ['tutoring'] : null;
+    providerSessionBookingEnabled.value = access.enabled === true;
     bookingAccessReason.value = access.reason || '';
     const choosingAction = !showRequestModal.value || !CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value);
-    const result = staffAgencyScope && choosingAction && !tutoringWorkspaceOnly.value
+    const result = staffAgencyScope && choosingAction && !access.enabled && !tutoringWorkspaceOnly.value
       ? await api.get('/appointments/booking-access', { ...bookingAccessConfig, params: { ...bookingAccessConfig.params, scope: 'agency' } })
       : providerAccess;
     if (generation !== bookingAccessGeneration) return false;
     clientSessionBookingEnabled.value = result.data?.enabled === true;
     return clientSessionBookingEnabled.value;
   } catch {
-    if (generation === bookingAccessGeneration) clientSessionBookingEnabled.value = false;
+    if (generation === bookingAccessGeneration) providerSessionBookingEnabled.value = clientSessionBookingEnabled.value = false;
     return false;
   }
 };
 watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly], () => {
   // Revoke the previous provider/agency capability synchronously, before another click.
   clientSessionBookingEnabled.value = false;
+  providerSessionBookingEnabled.value = false;
   bookingProviderBusinessTypes.value = null;
   bookingAccessReason.value = '';
   void refreshClientSessionBookingAccess();
@@ -22056,7 +22062,8 @@ const onQuickActionSelect = async (act) => {
   recordSlotActionUsage(id);
   requestTypeChosenByUser.value = true;
   const officeSession = ['individual_session', 'group_session'].includes(id)
-    && modalIsOwnedAssignedSlot.value && Number(modalContext.value?.officeLocationId) > 0;
+    && modalIsAssignedSlot.value && Number(modalContext.value?.officeLocationId) > 0
+    && Number(modalContext.value?.assignedProviderId) === Number(scheduleActorUserId.value);
   if (officeSession) {
     bookingModality.value = 'IN_PERSON';
     selectedOfficeRoomId.value = Number(modalContext.value.roomId || 0);
@@ -22833,7 +22840,7 @@ const submitRequest = async () => {
   if(editorOutcomeReadOnly.value){modalError.value='This appointment has a final or pending attendance outcome. Its schedule is read-only.';return;}
   if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
   bookingSubmitAttempted.value = true;
-  if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !clientSessionBookingEnabled.value) {
+  if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !providerSessionBookingEnabled.value) {
     modalError.value = bookingAccessReason.value || 'Client session booking is coming soon for this provider. Ask your practice administrator about their rollout.';
     return;
   }

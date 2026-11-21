@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import PlannedOutModal from '../admin/opsDashboard/PlannedOutModal.vue';
-const props = defineProps({ deferredToken: String, reviewToken: String, schoolId: Number, schoolName: String, providerId: { type: Number, required: true }, agencyId: Number, agencyOptions: { type: Array, default: () => [] }, date: { type: String, required: true }, timeZone: { type: String, default: 'America/Denver' } });
+const props = defineProps({ deferredToken: String, reviewToken: String, schoolId: Number, schoolName: String, providerId: { type: Number, required: true }, agencyId: Number, date: { type: String, required: true }, timeZone: { type: String, default: 'America/Denver' } });
 const emit = defineEmits(['close', 'saved']);
 const dialog = ref(null), busy = ref(false), error = ref(''), plan = ref(null), signed = ref(false), reviewed = ref(false);
 const resumeChecked = ref(false), applyAttempted = ref(false);
@@ -26,11 +26,8 @@ const draftPlan = ref(null);
 const contactChoices = reactive({}), messages = reactive({}), schoolChoices = reactive({});
 const offerDays = ref(2), offeredSlots = ref([]), slotOptions = ref([]), slotBusy = ref(false);
 const pendingOfficeRequests = ref([]);
-const agencies = computed(() => {
-  const rows = props.agencyOptions.map(a => ({ id: Number(a.id ?? a.value), label: a.label || a.name || `Agency ${a.id}` })).filter(a => a.id > 0);
-  return rows.length ? rows : [{ id: props.agencyId, label: 'Current agency' }];
-});
-const selected = ref(agencies.value.map(a => a.id));
+const agencies = ref([]);
+const selected = ref([]);
 const changed = computed(() => plan.value && plan.value.status !== 'preview');
 const finished = computed(() => ['completed', 'partial'].includes(plan.value?.status));
 const appointmentItems = computed(() => (plan.value?.items || []).filter(i => i.kind === 'appointment'));
@@ -54,12 +51,19 @@ onMounted(async () => {
   dialog.value?.showModal(); busy.value = true;
   try {
     if (props.deferredToken) { resumeChecked.value = true; notificationMode.value = 'send'; await review(false); return; }
-    if (props.schoolId && !props.reviewToken) { resumeChecked.value = true; return; }
-    const previous = (await api.get(base.value, { params: { date: props.date, ...(props.reviewToken ? { token: props.reviewToken } : {}) }, skipGlobalLoading: true })).data?.review;
+    const schoolOnly = props.schoolId && !props.reviewToken;
+    const [allowed, previousResponse] = await Promise.all([
+      api.get(`${base.value}/agencies`, { skipGlobalLoading: true }),
+      schoolOnly ? null : api.get(base.value, { params: { date: props.date, ...(props.reviewToken ? { token: props.reviewToken } : {}) }, skipGlobalLoading: true })
+    ]);
+    agencies.value = (allowed.data?.agencies || []).map(agency => ({ id: Number(agency.id), label: agency.name }))
+      .filter(agency => !props.schoolId || agency.id === props.agencyId);
+    selected.value = agencies.value.map(agency => agency.id);
+    const previous = previousResponse?.data?.review;
     if (previous) { plan.value = previous; signed.value = true; reviewed.value = true; urgent.value = previous.urgent !== false; dates.value = previous.dates || [props.date]; followUpAction.value = previous.followUpAction; followUpMessage.value = previous.followUpMessage; notificationMode.value = previous.notificationMode || 'send'; scopeMode.value = previous.scopeMode || 'days'; }
     if (props.reviewToken && previous?.status === 'processing') await apply();
     resumeChecked.value = true;
-  } catch { error.value = 'Could not check for an interrupted cancellation. Close and reopen this review before proceeding.'; }
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Could not load the organizations for this cancellation. Close and reopen the review to try again.'; }
   finally { busy.value = false; }
 });
 function close() { if (busy.value) return; if (changed.value || applyAttempted.value) emit('saved'); emit('close'); }
@@ -154,7 +158,7 @@ async function apply(retryFailed = false) {
       <p v-if="!emailReview && schoolId" class="day-scope-note">Only sessions and assigned families at {{ schoolName || 'this school' }} are included. Other schools, meetings, and availability stay unchanged. Review the recipients and messages before sending.</p>
       <p v-else-if="!emailReview" class="day-scope-note">Canceling whole days marks those days unavailable across the provider’s calendars. Canceling selected sessions leaves the rest of the day available. Other recurring dates remain scheduled. School assignments remain in place. Assigned-day clients are included even without booked appointments. Review the family emails and any urgent school notice below; missing contacts and delivery restrictions need separate follow-up.</p>
       <template v-if="!plan">
-        <p v-if="!emailReview"><button type="button" @click="showPlannedOut = true">Use Planned Out instead</button></p>
+        <p v-if="!emailReview"><button type="button" :disabled="busy || !resumeChecked || !selected.length" @click="showPlannedOut = true">Use Planned Out instead</button></p>
         <label class="day-field">Absence type <select v-model="urgent" @change="reasonCategory = urgent ? 'provider_unavailable' : 'facility'; followUpAction = 'none'"><option :value="true">Urgent — sickness, weather, unexpected absence</option><option :value="false">Nonurgent — planned school closure or holiday</option></select></label>
         <p>Parents, clients, and the school each get their own letter. Parents who already opted into texts also get a short text with the portal link. Replies go to support, with support and any supervisor copied. The letter does not mention rescheduling unless you add that yourself.</p>
         <p v-if="urgent && dateTooFar" class="day-error" role="alert">Please use Planned Out. Cancel Day is only for today, tomorrow, and the next day.</p>
@@ -259,7 +263,7 @@ async function apply(retryFailed = false) {
       <button v-else-if="plan.status === 'partial'" type="button" class="day-primary" :disabled="busy" @click="apply(true)">Retry failed items</button>
       <button v-if="finished && plan.unsentFamilyNotices > 0" type="button" class="day-primary" :disabled="busy" @click="reviewUnsent">Review unsent family emails</button>
     </footer>
-    <PlannedOutModal v-if="showPlannedOut" :agency-id="selected[0]" :user-id="providerId" :initial-date="date" @close="showPlannedOut = false" @created="emit('saved'); close()" />
+    <PlannedOutModal v-if="showPlannedOut" :agency-id="selected[0]" :agency-options="agencies" :initial-agency-ids="selected" :user-id="providerId" :initial-date="date" :time-zone="timeZone" @close="showPlannedOut = false" @created="emit('saved'); close()" />
   </dialog>
 </template>
 <style scoped>

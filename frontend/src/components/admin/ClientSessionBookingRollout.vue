@@ -3,7 +3,7 @@
     <h2 id="booking-rollout-title">Client session booking · individual provider rollout</h2>
     <p v-if="policy.enabledForAllProviders" role="status">Scheduling is open for all eligible providers in this practice, including new providers. Individual pauses below still apply.</p>
     <p v-else>Enable each provider’s self-scheduling as they transition from TherapyNotes. Select one person or up to 10 reviewed providers; office requests, availability and supervision remain available.</p>
-    <p v-if="agencyId === 2">ITSCO support and administrators can book on behalf of eligible providers before self-scheduling is enabled. Providers cannot enable themselves.</p>
+    <p v-if="agencyId === 2">ITSCO support and administrators can book for eligible providers before the transition. Superadmins with an active care assignment can also book their own sessions.</p>
     <p class="account-readiness">Booking selection alone does not create a Google Group or change Google sign-in. Use Individual account conversion to prepare an ITSCO provider’s Group and password access after their original Workspace user is suspended and preserved. A group-login flag alone does not verify that a mailbox exists.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>

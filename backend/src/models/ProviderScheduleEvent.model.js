@@ -10,13 +10,13 @@ import { assertRecurringWindow, assertMeetingBookingWindow } from '../utils/recu
 import { generateJoinToken } from '../utils/joinToken.js';
 
 class ProviderScheduleEvent {
-  static async create(input) {
-    if (!['TEAM_MEETING', 'HUDDLE'].includes(String(input.kind).toUpperCase())) return this.createWithWindowChecked(input);
+  static async create(input, db = pool) {
+    if (!['TEAM_MEETING', 'HUDDLE'].includes(String(input.kind).toUpperCase())) return this.createWithWindowChecked(input, db);
     assertMeetingBookingWindow(input);
     const zone = input.eventTimezone || 'America/Denver';
     const startAt = input.allDay ? wallMysqlToUtcMysql(`${input.startDate} 00:00:00`, zone) : input.startAt;
     const endAt = input.allDay ? wallMysqlToUtcMysql(`${input.endDate} 00:00:00`, zone) : input.endAt;
-    return withMeetingWindow({ userIds: [input.providerId], startAt, endAt, timeZone: zone, ignoreScheduleHolds: input.ignoreScheduleHolds === true }, () => this.createWithWindowChecked(input));
+    return withMeetingWindow({ userIds: [input.providerId], startAt, endAt, timeZone: zone, ignoreScheduleHolds: input.ignoreScheduleHolds === true }, () => this.createWithWindowChecked(input, db));
   }
   static async createWithWindowChecked({
     agencyId,
@@ -51,7 +51,7 @@ class ProviderScheduleEvent {
     meetingSubtype = 'general',
     notifyParticipants = true,
     focusSessionEnabled = false
-  }) {
+  }, db = pool) {
     assertRecurringWindow({ recurrenceSeriesId, startAt, startDate, eventTimezone });
     const kindUpper = String(kind || '').trim().toUpperCase();
     const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
@@ -79,7 +79,7 @@ class ProviderScheduleEvent {
       ? 0
       : 1;
     try {
-      const [result] = await pool.execute(
+      const [result] = await db.execute(
         `INSERT INTO provider_schedule_events
           (join_token, host_join_token, participant_join_token, waiting_room_enabled, notify_participants,
            agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
@@ -127,11 +127,11 @@ class ProviderScheduleEvent {
           createdByUserId ? Number(createdByUserId) : null
         ]
       );
-      return this.findById(result.insertId);
+      return this.findById(result.insertId, db);
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO provider_schedule_events
         (join_token, agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
          kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
@@ -170,13 +170,13 @@ class ProviderScheduleEvent {
         createdByUserId ? Number(createdByUserId) : null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async findById(id) {
+  static async findById(id, db = pool) {
     const eid = Number(id || 0);
     if (!eid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT *
        FROM provider_schedule_events
        WHERE id = ?

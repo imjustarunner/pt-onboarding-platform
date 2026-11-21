@@ -71,6 +71,23 @@ it.each(['provider','admin','support'])('keeps a December 3 Denver 5 PM appointm
  expect(mocks.patch).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
 });
 
+it('uses the viewed provider’s reserved room when a staff member opens Book Session', async () => {
+  wrapper = shallowMount(Grid, { props: { userId: 9, agencyId: 2 }, global: { stubs: { Teleport: true, RouterLink: true } } });
+  await flushPromises();
+  const s = wrapper.vm.$.setupState;
+  s.weekStart = '2026-11-23'; s.modalDay = 'Thursday'; s.modalHour = 11; s.modalStartHour = 11; s.modalEndHour = 12;
+  s.selectedActionAgencyId = 2;
+  s.modalContext = { agencyId: 2, dateYmd: '2026-11-26', hour: 11, officeLocationId: 8, roomId: 10, assignedProviderId: 9, slotState: 'ASSIGNED_BOOKED' };
+  s.showRequestModal = true;
+  await flushPromises();
+  await s.onQuickActionSelect({ id: 'individual_session' });
+  await flushPromises();
+  expect(s.editorModality).toBe('IN_PERSON');
+  expect(s.editorOfficeLocationId).toBe(8);
+  expect(s.editorRoomId).toBe(10);
+  expect(s.scheduleActorUserId).toBe(9);
+});
+
 it('carries the reserved office, room, biweekly cadence and billing location into the session and keeps them after selecting a client', async () => {
   const track = vi.fn();
   wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: false, RouterLink: true, ScheduleBookingJobs: {template:'<div/>',setup:(_, {expose})=>{expose({track});return {};}} } } });

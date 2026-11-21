@@ -343,6 +343,7 @@ it('requires explicit inclusion of untimed school families in a timed Planned Ou
   expect(final.items).toHaveLength(1);expect(dependencies.rosterReview).toHaveBeenCalledTimes(1);
   expect((await service.plannedOutReview({...body,dates:[input.date]},final.token,actor,authorize)).status).toBe('preview');
   await expect(service.plannedOutReview({...body,windowEnd:'2026-11-04 20:00:00'},final.token,actor,authorize)).rejects.toThrow('changed');
+  await expect(service.plannedOutReview({ ...body, dates: [input.date], agencyIds: [2, 3] }, final.token, actor, authorize)).rejects.toThrow('changed');
   expect(dependencies.completeAppointment).not.toHaveBeenCalled();
 });
 
