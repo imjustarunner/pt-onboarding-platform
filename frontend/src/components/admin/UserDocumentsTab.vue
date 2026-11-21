@@ -1,8 +1,8 @@
 <template>
   <div class="user-documents-tab">
     <DocumentsHubPanel
-      title="User Documents"
-      subtitle="Manage document assignments, signatures, and compliance records for this user."
+      :title="guardianAccount ? 'Guardian account documents' : 'User Documents'"
+      :subtitle="guardianAccount ? 'Forms assigned directly to this guardian.' : 'Manage document assignments, signatures, and compliance records for this user.'"
       mode="admin"
       :tasks="documentTasks"
       :loading="loading"
@@ -52,7 +52,9 @@
     <DocumentAssignmentDialog
       v-if="showAssignDialog && selectedTemplate"
       :template="selectedTemplate"
-      :preSelectedUserId="userId"
+      :preSelectedUserId="Number(userId)"
+      :lock-recipient="guardianAccount"
+      :recipient-name="displayUserName"
       @close="showAssignDialog = false; selectedTemplate = null"
       @assigned="handleDocumentAssigned"
     />
@@ -203,6 +205,7 @@ import DocumentsHubPanel from '../documents/DocumentsHubPanel.vue';
 import { computeDocumentStats } from '../../utils/documentUiHelpers';
 
 const props = defineProps({
+  guardianAccount: Boolean,
   userId: {
     type: Number,
     required: true

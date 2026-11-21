@@ -32,6 +32,7 @@ it('keeps normal clinical notices when a clinician returns to their clinical con
  const w=render();state.agency.currentAgency={id:450,slug:'itsco'};state.branding.activeRouteSlug='itsco';
  state.auth.user.workspaceServiceContext={agencyId:450,canClinical:true,learningOnly:false};state.route.path='/itsco/dashboard';
  await w.vm.$nextTick();const hrefs=w.findAll('a').map(a=>a.attributes('href'));
- expect(hrefs).toContain('/records-request');expect(hrefs).toContain('https://www.itsco.health/itsco/platformhipaa');
+ expect(hrefs).not.toContain('/records-request');expect(hrefs).toContain('https://www.itsco.health/itsco/platformhipaa');
+ expect(w.get('.platform-legal').text()).toContain('AuricWell platform policies');
  expect(hrefs).toContain('https://auricwell.com/auricwell/terms');w.unmount();
 });

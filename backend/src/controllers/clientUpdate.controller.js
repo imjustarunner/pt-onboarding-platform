@@ -46,7 +46,7 @@ export async function getClientUpdateCatalog(req, res, next) {
     const [packages] = await pool.execute('SELECT id,name,school_only,selection_json FROM portal_assignment_packages WHERE agency_id=? ORDER BY name',[agencyId]);
     const [items]=await pool.execute(`SELECT i.id,i.title,i.item_type,i.status,i.completed_at,i.reference_key,i.assessment_id,
       (d.id IS NOT NULL) AS has_result,JSON_UNQUOTE(JSON_EXTRACT(d.scores_snapshot_json,'$.scores.overall')) AS overall_score,
-      r.id AS request_id,r.status AS request_status,r.sent_at,u.first_name,u.last_name
+      r.id AS request_id,r.guardian_user_id AS recipientUserId,r.status AS request_status,r.sent_at,u.first_name,u.last_name
       FROM client_update_items i JOIN client_update_requests r ON r.id=i.request_id
       LEFT JOIN users u ON u.id=r.guardian_user_id
       LEFT JOIN client_assessment_deliverables d ON i.item_type='assessment' AND d.client_id=r.client_id AND d.agency_id=r.agency_id
@@ -84,7 +84,7 @@ export async function getClientUpdateCatalog(req, res, next) {
     if(canAssignPayments){
       const [tasks]=await pool.execute(`SELECT task.id,'Payment authorization' AS title,'billing' AS item_type,
         CASE WHEN task.status='completed' THEN 'complete' WHEN task.status='pending' AND task.expires_at<=CURRENT_TIMESTAMP THEN 'expired' ELSE task.status END AS status,
-        task.completed_at, task.expires_at, u.first_name,u.last_name FROM family_billing_tasks task JOIN users u ON u.id=task.guardian_user_id
+        task.completed_at, task.expires_at, task.guardian_user_id AS recipientUserId, u.first_name,u.last_name FROM family_billing_tasks task JOIN users u ON u.id=task.guardian_user_id
         WHERE task.agency_id=? AND JSON_LENGTH(task.client_ids_json)=1 AND JSON_CONTAINS(task.client_ids_json,CAST(? AS JSON)) ORDER BY task.id DESC`,[agencyId,JSON.stringify(clientId)]);
       items.push(...tasks);
     }

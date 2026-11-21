@@ -1740,10 +1740,10 @@
               type="button"
               class="nr-forfeit-shortcut"
               :disabled="submitting || !!ownSlotForfeitAction.disabledReason"
-              :title="ownSlotForfeitAction.disabledReason || 'Release this office time so someone else can use it'"
+              :title="officeCancellationHelp"
               @click="openOwnSlotForfeit"
             >
-              Cancel office reservation
+              Cancel office booking
             </button>
             <button
               v-if="isPickScheduleEventMode || (isScheduleEventEditMode && stackDetailsItems.length > 1)"
@@ -3330,8 +3330,8 @@
         </div>
 
         <!-- Legacy create form: skip when unified shell already owns the type body -->
-        <div v-else-if="!showAppointmentEditorShell" class="nr-layout">
-          <aside class="nr-sidebar nr-sidebar--compact">
+        <div v-else-if="!showAppointmentEditorShell" class="nr-layout" :class="{ 'nr-layout--focused': focusedScheduleAction }">
+          <aside v-if="!focusedScheduleAction" class="nr-sidebar nr-sidebar--compact">
             <div class="nr-sidebar-title">Actions</div>
             <div class="nr-action-list">
               <button
@@ -4128,15 +4128,15 @@
           </div>
 
           <div v-if="requestType === 'forfeit_slot'" style="margin-top: 10px;">
-            <label class="lbl">Cancel which office reservations?</label>
-            <select v-model="forfeitScope" class="input" style="margin-bottom: 8px;">
-              <option value="occurrence">This date only — release selected hours; keep recurring assignment</option>
-              <option value="future" :disabled="!hasFutureForfeitSupport">This date and all following — end recurring assignment for selected hours</option>
+            <label class="lbl" for="office-cancellation-scope">Apply to</label>
+            <select id="office-cancellation-scope" v-model="forfeitScope" class="input" style="margin-bottom: 8px;">
+              <option value="occurrence">This occurrence only</option>
+              <option value="future" :disabled="!hasFutureForfeitSupport">This occurrence and future dates</option>
             </select>
             <label class="forfeit-ack" :class="{ 'forfeit-ack--on': ackForfeit, 'forfeit-ack--needed': !ackForfeit }">
               <input type="checkbox" v-model="ackForfeit" class="forfeit-ack__box" />
               <span class="forfeit-ack__text">
-                <strong>Required:</strong> {{ forfeitScope === 'future' ? 'Cancel the selected office hours from this date onward and end their recurring assignment. Other providers can reserve them.' : 'Cancel the selected office hours on this date only. My recurring assignment stays in place.' }}
+                I confirm cancellation for {{ forfeitScope === 'future' ? 'this occurrence and future dates' : 'this occurrence' }}.
               </span>
             </label>
           </div>
@@ -4166,7 +4166,7 @@
           </div>
 
           <div v-if="isScheduleEventRequestType" style="margin-top: 10px;">
-            <div class="modern-help">
+            <div v-if="!focusedScheduleAction" class="modern-help">
               Creates an event in this provider’s schedule and private calendar subscription.
             </div>
 
@@ -4243,7 +4243,9 @@
                     Add for me
                   </button>
                 </div>
-                <div class="hold-reason-chips" aria-label="Saved block reasons">
+                <details class="nr-saved-reasons">
+                  <summary>Saved reasons</summary>
+                  <div class="hold-reason-chips" aria-label="Saved block reasons">
                   <div v-for="opt in filteredHoldReasonOptions" :key="opt.code" class="hold-reason-choice">
                     <button type="button" class="hold-reason-chip"
                       :class="{ on: isHoldReasonSelected(opt) }" :aria-pressed="isHoldReasonSelected(opt)"
@@ -4254,9 +4256,9 @@
                   </div>
                 </div>
                 <p v-if="!filteredHoldReasonOptions.length" class="muted nr-help">No saved reasons match. Use “Add for me” to save your own.</p>
-                <p class="muted nr-help">Adding or removing reasons changes only your list. Existing blocks keep their reason and notes.</p>
                 <button v-if="hiddenHoldReasonCodes.length" type="button" class="btn btn-secondary btn-sm"
                   @click="restoreHiddenHoldReasons">Restore removed default reasons ({{ hiddenHoldReasonCodes.length }})</button>
+                </details>
               </div>
               <label class="sched-toggle" style="margin-top: 12px;">
                 <input v-model="scheduleHoldFocusSession" type="checkbox" />
@@ -4486,7 +4488,7 @@
               </div>
             </div>
 
-            <div class="nr-summary">
+            <div v-if="!focusedScheduleAction" class="nr-summary">
               <div class="nr-summary-title">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
                   <rect x="6" y="3" width="12" height="18" rx="2"/>
@@ -13686,13 +13688,10 @@ const requestNotesPlaceholder = computed(() => {
   return 'Any context for staff reviewing this request...';
 });
 
-const hasRecurringOfficeSlot = computed(() => {
-  const rows = requestType.value === 'forfeit_slot' ? selectedActionContexts() : [modalContext.value];
-  return rows.some((x) => Number(x?.standingAssignmentId || 0) > 0);
-});
 const hasFutureForfeitSupport = computed(() => {
   const rows = requestType.value === 'forfeit_slot' ? selectedActionContexts() : [modalContext.value];
-  return rows.some((x) => Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0);
+  return rows.length > 0 && rows.every(x => Number(x?.standingAssignmentId || 0) > 0
+    && (!Number(x?.bookedProviderId || 0) || Number(x.bookedProviderId) === Number(x.assignedProviderId)));
 });
 
 const availableQuickActions = computed(() => {
@@ -13711,6 +13710,7 @@ const availableQuickActions = computed(() => {
   const actorId = Number(authStore.user?.id || 0);
   const assignedId = Number(ctx.assignedProviderId || 0);
   const isOwnAssignedSlot = actorId > 0 && assignedId > 0 && actorId === assignedId;
+  const canCancelOffice = canManageOffices.value || (actorId > 0 && actorId === Number(ctx.bookedProviderId || assignedId));
   return [
     {
       id: 'slot_details',
@@ -13743,7 +13743,8 @@ const availableQuickActions = computed(() => {
     {
       id: 'portal_intake',
       label: 'Open Slot for Booking',
-      description: tutoringWorkspaceOnly.value ? 'Post tutoring hours for new or current students' : 'Publish service-specific openings for new or current clients',
+      description: hasEvent && hasAssignedOffice ? 'Publish in-person or virtual openings for this time'
+        : 'Publish service-specific openings for new or current clients',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'teal',
@@ -13784,15 +13785,6 @@ const availableQuickActions = computed(() => {
       tone: 'amber',
       // Push occupied-slot advanced assign into More; keep open-slot assign primary.
       chooserPriority: (booked || hasAssignedOffice) ? 90 : 15
-    },
-    {
-      id: 'attach_open_for_booking',
-      label: 'Attach Open for Booking',
-      description: 'Mark this office reservation as available for intake and/or current-client sessions',
-      disabledReason: hasEvent && hasAssignedOffice ? '' : 'Needs an office reserved/assigned slot',
-      visible: !supervisionOnlyMode && hasEvent && hasAssignedOffice,
-      tone: 'cyan',
-      chooserPriority: 25
     },
     {
       id: 'intake_virtual_off',
@@ -13860,7 +13852,7 @@ const availableQuickActions = computed(() => {
     {
       id: 'personal_event',
       label: 'Personal event',
-      description: 'Create a personal calendar event',
+      description: 'Add a personal plan or reminder',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'emerald'
@@ -13868,7 +13860,7 @@ const availableQuickActions = computed(() => {
     {
       id: 'schedule_hold',
       label: 'Schedule block',
-      description: 'Block time or an all-day span on your calendar',
+      description: 'Protect work time or mark yourself unavailable',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'orange'
@@ -13894,21 +13886,12 @@ const availableQuickActions = computed(() => {
     // Notes are session-affiliated: open the booked session (start_video / session edit) — not from empty office.
     {
       id: 'forfeit_slot',
-      label: 'Cancel office reservation',
-      description: 'Release the room for others. Choose one date or end the recurring assignment from that date onward.',
-      disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
-      visible: !supervisionOnlyMode && (hasAssignedOffice || booked),
+      label: 'Cancel office booking',
+      description: booked ? 'Clear the booking and keep the room assigned' : 'Give up the selected assigned office time',
+      disabledReason: '',
+      visible: hasAssignedOffice && canCancelOffice && (hasEvent || Number(ctx.standingAssignmentId) > 0),
       tone: 'red',
       chooserPriority: 70
-    },
-    {
-      id: 'cancel_booking',
-      label: 'Admin: cancel calendar booking',
-      description: 'Remove a calendar booking using admin cancellation options. To give up your office assignment, use Cancel office reservation.',
-      disabledReason: '',
-      visible: !supervisionOnlyMode && canManageOffices.value && booked,
-      tone: 'red',
-      chooserPriority: 72
     },
     {
       id: 'extend_assignment',
@@ -14090,11 +14073,13 @@ const visibleQuickActions = computed(() => {
 
 const personalCalendarAction = computed(() => visibleQuickActions.value.find(action => action.id === 'personal_event'));
 const primaryActionCount = computed(() => tutoringWorkspaceOnly.value ? 4 : 7);
-const ownSlotForfeitAction = computed(() => {
-  const ctx = modalContext.value || {};
-  const ownerId = Number(ctx.assignedProviderId || ctx.bookedProviderId || 0);
-  if (!ownerId || ownerId !== Number(authStore.user?.id || 0)) return null;
-  return visibleQuickActions.value.find((action) => action.id === 'forfeit_slot') || null;
+const ownSlotForfeitAction = computed(() => visibleQuickActions.value.find(action => action.id === 'forfeit_slot'));
+const officeCancellationHelp = computed(() => {
+  const contexts = requestType.value === 'forfeit_slot' ? selectedActionContexts() : [modalContext.value];
+  const booked = contexts.filter(ctx => ctx?.slotState === 'ASSIGNED_BOOKED').length;
+  if (!booked) return 'Release the selected assigned office time so others can book it.';
+  if (booked === contexts.length) return 'Return the selected room booking to Assigned available.';
+  return 'Booked hours return to Assigned available. Selected assigned hours are released.';
 });
 const chooserCardActions = computed(() => visibleQuickActions.value.filter(
   (action) => !ownSlotForfeitAction.value || action.id !== 'forfeit_slot'
@@ -14102,10 +14087,9 @@ const chooserCardActions = computed(() => visibleQuickActions.value.filter(
 const openOwnSlotForfeit = () => {
   const action = ownSlotForfeitAction.value;
   if (!action || action.disabledReason || submitting.value) return;
-  const recurring = hasRecurringOfficeSlot.value;
   ackForfeit.value = false;
+  forfeitScope.value = 'occurrence';
   onQuickActionSelect(action);
-  forfeitScope.value = recurring ? 'future' : 'occurrence';
 };
 const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
@@ -14395,10 +14379,10 @@ const submitActionLabel = computed(() => {
     agency_meeting: 'Schedule meeting',
     huddle: 'Schedule huddle',
     personal_event: 'Schedule event',
-    schedule_hold: 'Schedule hold',
+    schedule_hold: 'Save schedule block',
     schedule_hold_all_day: 'Schedule block',
     indirect_services: 'Schedule event',
-    forfeit_slot: 'Confirm cancellation of office reservation',
+    forfeit_slot: 'Confirm cancellation',
     extend_assignment: 'Extend assignment',
     intake_virtual_on: 'Enable virtual intake',
     intake_virtual_off: 'Disable virtual intake',
@@ -14484,6 +14468,9 @@ const modalScheduleSubtitle = computed(() => {
       ? 'Edit the selected office reservation'
       : 'Choose what to schedule for this time';
   }
+  if (t === 'personal_event') return 'Put a personal plan or reminder on your calendar.';
+  if (t === 'schedule_hold' || t === 'schedule_hold_all_day') return 'Protect work time or mark yourself unavailable.';
+  if (t === 'forfeit_slot') return officeCancellationHelp.value;
   if (t === 'slot_details') return 'Selected office slot details.';
   if (['office', 'office_request_only'].includes(t)) return 'Send an office or room request for approval.';
   if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
@@ -14512,6 +14499,7 @@ const UNIFIED_EDITOR_KINDS = new Set([
   'edit_supervision'
 ]);
 
+const focusedScheduleAction = computed(() => ['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'forfeit_slot'].includes(requestType.value));
 const showAppointmentEditorShell = computed(() => {
   if (showActionChooser.value) return false;
   if (isPickScheduleEventMode.value) return false;
@@ -22141,7 +22129,7 @@ const submitOfficeAssign = async () => {
 };
 
 const onQuickActionSelect = async (act) => {
-  const id = String(act?.id || '');
+  const id = act?.id === 'attach_open_for_booking' ? 'portal_intake' : String(act?.id || '');
   if (CLIENT_SESSION_CREATE_ACTIONS.has(id) && !clientSessionBookingEnabled.value && !(await refreshClientSessionBookingAccess())) return;
   if (act?.disabledReason) return;
   recordSlotActionUsage(id);
@@ -22155,6 +22143,8 @@ const onQuickActionSelect = async (act) => {
   }
   if (UNIFIED_EDITOR_KINDS.has(id)) {
     const hasOfficeEvent = Number(modalContext.value?.officeEventId || 0) > 0;
+    const publishingAtOffice = id === 'portal_intake' && hasOfficeEvent
+      && ['ASSIGNED_AVAILABLE', 'ASSIGNED_BOOKED', 'ASSIGNED_TEMPORARY'].includes(modalContext.value.slotState);
     if (hasOfficeEvent && ['portal_intake', 'attach_open_for_booking'].includes(id)) {
       bookingTargetUserId.value = Number(modalContext.value.assignedProviderId || modalContext.value.bookedProviderId || scheduleActorUserId.value);
     }
@@ -22162,8 +22152,7 @@ const onQuickActionSelect = async (act) => {
     // Do not inherit sticky sessionAlsoRequestOffice for untied portal slots.
     let attachOffice = false;
     if (id === 'office_request_only') attachOffice = true;
-    else if (id === 'portal_intake') attachOffice = hasOfficeEvent;
-    else if (id === 'attach_open_for_booking') attachOffice = false; // already on an office reservation
+    else if (id === 'portal_intake') attachOffice = false;
     else if (sessionAlsoRequestOffice.value) attachOffice = true;
     openAppointmentEditor({
       mode: 'create',
@@ -22179,7 +22168,8 @@ const onQuickActionSelect = async (act) => {
         openSlotEnabled: id === 'portal_intake' || id === 'attach_open_for_booking',
         availableForIntake: true,
         availableForSession: tutoringWorkspaceOnly.value,
-        inPersonEnabled: id === 'attach_open_for_booking',
+        inPersonEnabled: publishingAtOffice,
+        virtualEnabled: !publishingAtOffice,
         recurrence: officeSession ? normalizeRecurrenceFrequency(bookingStripFrequency.value)
           : (id === 'portal_intake' || id === 'attach_open_for_booking') ? 'WEEKLY' : undefined
       }
@@ -24073,10 +24063,12 @@ const submitRequest = async () => {
         const officeLocationId = Number(ctx.officeLocationId || 0);
         const officeEventId = Number(ctx.officeEventId || 0);
         const standingAssignmentId = Number(ctx.standingAssignmentId || 0);
-        if (officeEventId > 0) {
+        if (officeEventId > 0 && ctx.slotState === 'ASSIGNED_BOOKED') {
+          await api.post(`/office-slots/${officeLocationId}/events/${officeEventId}/book`, { booked: false, scope, expectedBooking: 'booked' });
+        } else if (officeEventId > 0) {
           // eslint-disable-next-line no-await-in-loop
           await api.post(`/office-slots/${officeLocationId}/events/${officeEventId}/forfeit`, {
-            acknowledged: true,
+            acknowledged: true, expectedBooking: 'assigned',
             scope
           });
         } else if (standingAssignmentId > 0) {
@@ -32110,6 +32102,10 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
   flex: 1 1 auto;
   overflow: hidden;
 }
+.nr-layout--focused { grid-template-columns: minmax(0, 1fr); }
+.nr-layout--focused .nr-main { padding: 12px 22px 20px; }
+.nr-saved-reasons { margin-top: 8px; }
+.nr-saved-reasons summary { cursor: pointer; width: fit-content; }
 .nr-sidebar {
   padding: 16px 14px 18px;
   border-right: 1px solid var(--nr-line);

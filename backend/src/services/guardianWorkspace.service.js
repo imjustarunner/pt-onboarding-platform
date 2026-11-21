@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { requireBillingStaff } from './familyLedger/policy.js';
 import { listBalances } from './familyLedger/views.js';
@@ -8,7 +9,7 @@ export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAcces
   if(!['super_admin','admin','support','staff'].includes(actor?.role))throw fail('Guardian account management requires staff access.',403);
   if(!Number.isSafeInteger(Number(guardianId))||Number(guardianId)<1)throw fail('Guardian not found.',404);
   const [[guardian]]=await db.execute(`SELECT id,first_name,last_name,email,COALESCE(NULLIF(phone_number,''),NULLIF(personal_phone,''),NULLIF(work_phone,'')) AS phone,
-    status,is_active,(password_hash IS NOT NULL AND temporary_password_hash IS NULL) AS password_set
+    status,is_active,(NULLIF(password_hash,'') IS NOT NULL AND NULLIF(temporary_password_hash,'') IS NULL) AS password_set
     FROM users WHERE id=? AND role IN ('client_guardian','guardian')`,[guardianId]);
   if(!guardian)throw fail('Guardian not found.',404);
   const [links]=await db.execute(`SELECT c.id AS client_id,c.agency_id,c.organization_id,c.full_name,c.initials,c.client_type,c.guardian_portal_enabled,
@@ -34,5 +35,15 @@ export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAcces
       WHERE target.user_id=? AND viewer.user_id=? AND target.is_active=1 AND viewer.is_active=1 LIMIT 1`,[guardianId,actor.id]);
     if(!membership)throw fail('This guardian account is outside your staff access.',403);
   }
-  return {guardian,clients,viewMode:'staff',actorUserId:actor.id};
+  const visibleAgencyIds = [...new Set(clients.map(client => Number(client.agency_id)).filter(id => id > 0))];
+  let lastLogin = null;
+  if (visibleAgencyIds.length) {
+    const [[activity]] = await db.execute(
+      `SELECT MAX(created_at) AS lastLogin FROM user_activity_log
+        WHERE user_id=? AND action_type='login' AND agency_id IN (${visibleAgencyIds.map(() => '?').join(',')})`,
+      [guardianId, ...visibleAgencyIds]
+    );
+    lastLogin = utcMysqlToIso(activity?.lastLogin);
+  }
+  return {guardian:{ ...guardian, lastLogin },clients,viewMode:'staff',actorUserId:actor.id};
 }

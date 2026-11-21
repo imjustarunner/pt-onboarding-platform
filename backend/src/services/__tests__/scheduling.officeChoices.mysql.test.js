@@ -119,4 +119,17 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT||process.env.CI!=='true'
   await expect(OfficeEvent.createIfRoomOpen(borrow)).resolves.toMatchObject({id:82, assigned_provider_id:9, booked_provider_id:10});
  });
 
+ it('clears an independent office booking to assigned available for its provider before the provider gives up the time', async () => {
+  await db.query(`INSERT INTO office_events
+    (id,office_location_id,room_id,start_at,end_at,status,slot_state,booked_provider_id)
+    VALUES (83,8,11,'2099-01-04 18:00','2099-01-04 19:00','BOOKED','ASSIGNED_BOOKED',9)`);
+  const target = {eventId:83,officeLocationId:8,actorUserId:9,expectedBooking:'booked'};
+  await expect(releaseOfficeReservation({...target,actorUserId:10,keepAssigned:true})).rejects.toHaveProperty('status',403);
+  await releaseOfficeReservation({...target,keepAssigned:true});
+  expect(await OfficeEvent.findById(83)).toMatchObject({status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',assigned_provider_id:9,booked_provider_id:null});
+  await expect(releaseOfficeReservation(target)).rejects.toHaveProperty('status',409);
+  await releaseOfficeReservation({...target,expectedBooking:'assigned'});
+  expect(await OfficeEvent.findById(83)).toMatchObject({status:'CANCELLED',slot_state:null});
+ });
+
 });

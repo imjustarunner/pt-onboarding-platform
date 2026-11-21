@@ -29,3 +29,14 @@ it('rejects family identities and unrelated staff accounts',async()=>{
  await expect(guardianWorkspace({actor,guardianId:20},deps)).rejects.toHaveProperty('status',403);
  expect(deps.balances).not.toHaveBeenCalled();
 });
+
+it('shows a recorded sign-in only from the account’s authorized linked practices', async () => {
+ const deps = fixture();
+ const base = deps.db.execute.getMockImplementation();
+ deps.db.execute.mockImplementation(async (sql, params) => sql.includes('FROM user_activity_log')
+   ? [[{lastLogin:'2026-11-21 13:13:00'}]]
+   : base(sql, params));
+ const result = await guardianWorkspace({actor, guardianId:20}, deps);
+ expect(result.guardian).toMatchObject({password_set:0,lastLogin:'2026-11-21T13:13:00.000Z'});
+ expect(deps.db.execute.mock.calls.find(([sql])=>sql.includes('FROM user_activity_log'))?.[1]).toEqual([20,2]);
+});

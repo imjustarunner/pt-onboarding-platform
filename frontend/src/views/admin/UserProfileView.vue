@@ -116,7 +116,7 @@
       </div>
 
       <!-- Fallback compact header (guardian / SSC / school staff) -->
-      <div v-else>
+      <div v-else :class="{ 'guardian-profile-heading': isViewingGuardian }">
         <div class="user-header-info" data-tour="user-profile-header">
           <div class="header-avatar">
             <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
@@ -129,7 +129,7 @@
             :title="`Team captain in ${memberCaptainMeta.captainTeamCount} season${memberCaptainMeta.captainTeamCount === 1 ? '' : 's'}`"
           >C</span>
           <span v-if="user" :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]">
-            {{ getStatusLabel(user.status, user.is_active) }}
+            {{ isViewingGuardian && user.status === 'PENDING_SETUP' && user.is_active ? 'Portal setup pending' : getStatusLabel(user.status, user.is_active) }}
           </span>
           <span v-if="!isSscMemberProfileMode && !isViewingGuardian && isOnLeave" class="status-badge-header status-badge-header--leave" :title="leaveOfAbsenceLabel">{{ leaveBadgeText }}</span>
           <button v-if="!isSscMemberProfileMode && !isViewingGuardian && showLeaveOfAbsenceButton" type="button" class="btn btn-secondary btn-sm" @click="showLeaveOfAbsenceModal = true">
@@ -258,7 +258,6 @@
             <StaffBusinessCardsButton :user-id="userId" :agency-id="profileOverviewAgencyId" />
           </section>
           <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
-          <GuardianFamilyWorkspace v-if="isViewingGuardian" :guardian-id="Number(userId)" :can-edit="canEditUser" @updated="fetchUser" />
           <GuardianContactCard v-if="isViewingGuardian" :guardian-id="Number(userId)" />
 
           <!-- Guardian insurance (from linked client intakes) -->
@@ -1029,15 +1028,15 @@
           </UserAccountDashboard>
         </div>
 
-        <div v-if="activeTab === 'linked_clients'" class="tab-panel">
+        <div v-if="activeTab === 'linked_clients'" class="tab-panel guardian-linked-clients">
           <h2>Linked Clients</h2>
           <p class="hint" style="margin-top: -6px;">
             Manage which clients this guardian can access and sign for.
           </p>
 
-          <div class="card" style="padding: 12px; margin-bottom: 14px;">
-            <h4 style="margin: 0 0 10px;">Link this guardian to a client</h4>
-            <div class="form-grid" style="grid-template-columns: 1fr 220px 160px auto; gap: 10px;">
+          <details v-if="canEditUser" class="card guardian-client-linker">
+            <summary>Link a client</summary>
+            <div class="form-grid guardian-link-fields">
               <div class="form-group">
                 <label>Search clients</label>
                 <input
@@ -1078,7 +1077,7 @@
             </div>
             <div v-if="guardianSearchLoading" class="muted" style="margin-top: 8px;">Searching…</div>
             <div v-if="guardianLinkError" class="error" style="margin-top: 8px;">{{ guardianLinkError }}</div>
-          </div>
+          </details>
 
           <div v-if="guardianLinkedClientsLoading" class="loading">Loading linked clients…</div>
           <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
@@ -1142,54 +1141,12 @@
           </div>
         </div>
 
-        <!-- Guardian: Assignments tab -->
-        <div v-if="activeTab === 'assignments' && isViewingGuardian" class="tab-panel">
-          <h2>Assignments</h2>
-          <p class="hint" style="margin-top: -6px;">
-            Programs and organizations this guardian's linked clients are enrolled in.
-          </p>
-          <div v-if="guardianLinkedClientsLoading" class="loading">Loading assignments…</div>
-          <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
-          <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
-            <p>No linked clients — no assignments to show.</p>
-          </div>
-          <div v-else class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Organization</th>
-                  <th>Agency</th>
-                  <th>Status</th>
-                  <th>Relationship</th>
-                  <th>Portal Access</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in guardianLinkedClients" :key="`assign-${row.client_id}`">
-                  <td>
-                    <a href="" @click.prevent="openLinkedClient(row.client_id)">
-                      {{ row.full_name || row.initials || `Client ${row.client_id}` }}
-                    </a>
-                  </td>
-                  <td>{{ row.organization_name || '—' }}</td>
-                  <td>{{ row.agency_name || '—' }}</td>
-                  <td>
-                    <span :class="['badge', row.status === 'ACTIVE' ? 'badge-success' : 'badge-secondary']">
-                      {{ row.status || '—' }}
-                    </span>
-                  </td>
-                  <td>{{ row.relationship_title || row.relationship_type || '—' }}</td>
-                  <td>
-                    <span :class="row.access_enabled ? 'badge badge-success' : 'badge badge-secondary'">
-                      {{ row.access_enabled ? 'Enabled' : 'Disabled' }}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <GuardianFamilyWorkspace v-if="activeTab === 'portal' && isViewingGuardian"
+          :guardian-id="Number(userId)" :can-edit="canEditUser" @updated="fetchUser" />
+        <GuardianProfileDocuments v-if="activeTab === 'documents' && isViewingGuardian" :key="Number(userId)"
+          :guardian-id="Number(userId)" :guardian-name="headerDisplayName" :clients="guardianLinkedClients"
+          :loading="guardianLinkedClientsLoading" :error="guardianLinkedClientsError"
+          :account-documents-allowed="guardianAccountDocumentsAllowed" :clinical-mode="guardianDocumentClinicalMode" />
 
         <!-- Guardian: Events tab -->
         <div v-if="activeTab === 'events' && isViewingGuardian" class="tab-panel">
@@ -2330,7 +2287,7 @@
         />
 
         <UserDocumentsTab
-          v-if="activeTab === 'documents'"
+          v-if="activeTab === 'documents' && !isViewingGuardian"
           :userId="userId"
           :highlight-task-id="route.query.taskId ? parseInt(route.query.taskId) : null"
           :viewOnly="!canEditUser"
@@ -2773,6 +2730,7 @@ import { providerBiographyPermissions, saveSchoolBiography } from '../../utils/p
 import AcceptedInsuranceBadges from '../../components/admin/AcceptedInsuranceBadges.vue';
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
+import GuardianProfileDocuments from '../../components/admin/GuardianProfileDocuments.vue';
 import ClinicalInformationTab from '../../components/admin/clinical/ClinicalInformationTab.vue';
 import ProviderClientsTab from '../../components/dashboard/ProviderClientsTab.vue';
 import TasksHub from '../../components/tasks/TasksHub.vue';
@@ -3554,12 +3512,16 @@ const toggleSeasonTeamCaptain = async (season, evt) => {
   }
 };
 
+let guardianClientLoadGeneration = 0;
 const loadGuardianLinkedClients = async () => {
   if (!userId.value || !isViewingGuardian.value) return;
+  const targetId = userId.value;
+  const generation = ++guardianClientLoadGeneration;
   guardianLinkedClientsLoading.value = true;
   guardianLinkedClientsError.value = '';
   try {
-    const response = await api.get(`/users/${userId.value}/guardian-clients`);
+    const response = await api.get(`/users/${targetId}/guardian-clients`);
+    if (targetId !== userId.value || generation !== guardianClientLoadGeneration) return;
     guardianLinkedClients.value = Array.isArray(response?.data)
       ? response.data.map((row) => ({
         ...row,
@@ -3569,10 +3531,11 @@ const loadGuardianLinkedClients = async () => {
       }))
       : [];
   } catch (e) {
+    if (targetId !== userId.value || generation !== guardianClientLoadGeneration) return;
     guardianLinkedClientsError.value = e.response?.data?.error?.message || 'Failed to load linked clients';
     guardianLinkedClients.value = [];
   } finally {
-    guardianLinkedClientsLoading.value = false;
+    if (targetId === userId.value && generation === guardianClientLoadGeneration) guardianLinkedClientsLoading.value = false;
   }
 };
 
@@ -3959,10 +3922,15 @@ const isProviderLikeUser = computed(() => {
 
 const canOpenSelfPayRates = computed(() => canManageSelfPayRates.value || (Number(userId.value)===Number(authStore.user?.id) && userAgencies.value.some(a=>['life_coach','consultant'].includes(a.organization_type||a.organizationType))));
 const canManageSelfPayRates = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
+const guardianAccountDocumentsAllowed = computed(() => ['super_admin', 'admin'].includes(authStore.user?.role));
+const guardianDocumentClinicalMode = computed(() => {
+  if (authStore.user?.role === 'support') return 'release';
+  return guardianAccountDocumentsAllowed.value ? 'full' : '';
+});
 const profileTabHints = computed(() => ({
   overview: 'Summary · Quick actions',
   account: 'Profile · Security',
-  assignments: isViewingGuardian.value ? 'Clients · Portal access' : 'Agencies · Offices',
+  assignments: 'Agencies · Offices',
   provider_info: 'Clinical categories',
   lifecycle: 'Onboarding · Offboarding'
 }));
@@ -3971,8 +3939,9 @@ const tabs = computed(() => {
   if (isViewingGuardian.value) {
     return [
       { id: 'account', label: 'Account' },
-      { id: 'linked_clients', label: 'Linked Clients' },
-      { id: 'assignments', label: 'Assignments' },
+      { id: 'portal', label: 'Portal' },
+      { id: 'linked_clients', label: 'Linked clients' },
+      { id: 'documents', label: 'Documents' },
       { id: 'events', label: 'Events' },
       { id: 'communications', label: 'Communications' },
       { id: 'preferences', label: 'Preferences' },
@@ -4048,6 +4017,7 @@ watch(
   (t) => {
     const allowed = new Set((t || []).map((x) => x.id));
     const cur = String(activeTab.value || '');
+    if (isViewingGuardian.value && cur === 'assignments') { activeTab.value = 'portal'; return; }
     if (isLegacyAffiliationTabId(cur)) {
       activeAffiliationSection.value = cur;
       activeTab.value = 'assignments';
@@ -4644,7 +4614,9 @@ watch(() => accountForm.value.role, (newRole) => {
   }
 });
 
-watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
+watch([activeTab, isViewingGuardian, userId], async ([t, viewingGuardian], [, , previousId]) => {
+  if (previousId !== undefined && previousId !== userId.value) guardianLinkedClients.value = [];
+  if (t === 'assignments' && viewingGuardian) { activeTab.value = 'portal'; return; }
   // NOTE: On initial mount, `activeTab` is already set (often "account"), but `user` isn't loaded yet.
   // This watch includes `isViewingGuardian` so we still load linked clients/insurance once the target
   // profile resolves as a guardian account.
@@ -4658,7 +4630,7 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
     await loadGuardianDeliveryPrefs();
     return;
   }
-  if (t === 'linked_clients' && viewingGuardian) {
+  if ((t === 'linked_clients' || t === 'documents') && viewingGuardian) {
     await loadGuardianLinkedClients();
     return;
   }
@@ -7542,6 +7514,7 @@ const selectTab = (tabId, sectionId = '', clinicalSubTab = '') => {
     id = 'assignments';
   }
   if (!id) return;
+  if (id === 'assignments' && isViewingGuardian.value) id = 'portal';
   if (!tabIds.value.includes(id)) return;
   // IMPORTANT: do not mutate the route from inside a tab click handler.
   // Writing to the router during a component update can trigger Vue's internal patch crashes
@@ -7608,6 +7581,7 @@ watch(
     } else if (nextTab === 'affiliations') {
       nextTab = 'assignments';
     }
+    if (nextTab === 'assignments' && isViewingGuardian.value) nextTab = 'portal';
     if (nextTab && tabIds.value.includes(nextTab)) {
       selectTab(nextTab, '', String(route.query.clinicalSubTab || ''));
       const scope = profileSearchScope.value;
@@ -7836,6 +7810,20 @@ onUnmounted(() => {
   color: var(--primary);
 }
 
+.guardian-profile-heading {
+  padding: 14px 18px;
+  border: 1px solid var(--border, #dce5ee);
+  border-radius: 12px;
+  background: var(--bg-card, #fff);
+}
+.guardian-profile-heading h1 { color: var(--text-primary, #20354f); }
+.guardian-linked-clients { max-width: 72rem; margin: 0 auto; }
+.guardian-client-linker { padding: 12px 16px; margin-bottom: 16px; }
+.guardian-client-linker summary { cursor: pointer; font-weight: 600; }
+.guardian-link-fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 10px; margin-top: 12px; }
+.guardian-linked-clients .table-wrap { overflow-x: auto; }
+.guardian-linked-clients .table { width: 100%; border-collapse: collapse; text-align: left; }
+.guardian-linked-clients .table th, .guardian-linked-clients .table td { padding: 9px 12px; border-bottom: 1px solid var(--border, #dce5ee); }
 .user-header-info {
   display: flex;
   align-items: center;

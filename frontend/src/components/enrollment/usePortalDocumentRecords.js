@@ -15,7 +15,7 @@ export function usePortalDocumentRecords(props, clientId, clientName) {
   const assignments=computed(()=>records.value.flatMap(r=>(r.portalAssignments || []).map(s=>{
     const status=r.revoked?'revoked':s.copyOnly?'shared':s.signedAt?'complete':'pending';
     return {id:s.signerId,recordId:r.id,item_type:'clinical',typeLabel:r.documentKey==='release-of-information'?'Release':'Form',
-      status,title:r.documentName || r.title,recipient:s.recipient,completed_at:s.signedAt,
+      status,title:r.documentName || r.title,recipient:s.recipient,recipientUserId:s.recipientUserId,completed_at:s.signedAt,
       progress:r.revoked?'Revoked':s.copyOnly?'Shared copy':s.signedAt?'Signed':'Awaiting signature',canRemind:status==='pending' && Number(s.version)===Number(r.version)};
   })));
   let pendingLoad;

@@ -105,3 +105,22 @@ it('preserves a successfully assigned form when the remaining billing assignment
   expect(api.post.mock.calls.filter(([url])=>url.endsWith('/assignments'))).toHaveLength(1);
   expect(wrapper.text()).toContain('Notification queued');
 });
+
+it('scopes a guardian-profile request and its history to the selected guardian', async () => {
+  const otherGuardian = {id:4, name:'Other account', kind:'guardian', email:'other@example.invalid', forms:true};
+  api.get.mockImplementation(async url => ({data:url.endsWith('/status') ? {enabled:true} : {
+    documents:[{id:1,name:'Current consent'}], recipients:[recipient, otherGuardian],
+    items:[
+      {id:7,item_type:'document',title:'This guardian’s request',status:'pending',recipientUserId:3},
+      {id:8,item_type:'document',title:'Other guardian’s request',status:'pending',recipientUserId:4}
+    ]
+  }}));
+  wrapper=mount(Modal,{props:{...props,recipientGuardianId:3}});
+  await selectDocument();
+  expect(wrapper.text()).toContain('This guardian’s request');
+  expect(wrapper.text()).not.toContain('Other guardian’s request');
+  expect(wrapper.findAll('option').some(option=>option.text().includes(otherGuardian.name))).toBe(false);
+  await sendButton().trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/clients/5/updates',expect.objectContaining({guardianUserId:3,documents:[1]}));
+});

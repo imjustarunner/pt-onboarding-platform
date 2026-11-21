@@ -14,7 +14,7 @@
       </div>
       
       <form v-if="template && template.id" @submit.prevent="handleAssign">
-        <div class="form-group">
+        <div v-if="!lockRecipient" class="form-group">
           <label>Assign To *</label>
           <select v-model="assignmentType" @change="resetAssignment">
             <option value="user">Individual User(s)</option>
@@ -44,8 +44,9 @@
           </div>
           
           <div class="form-group">
-            <label>Select Users *</label>
-            <div v-if="!selectedAgencyId" class="info-message">
+            <label>{{ lockRecipient ? 'Recipient' : 'Select Users *' }}</label>
+            <div v-if="lockRecipient">{{ recipientName }}</div>
+            <div v-else-if="!selectedAgencyId" class="info-message">
               Please select an agency first to see available users
             </div>
             <div v-else class="user-selector">
@@ -69,7 +70,7 @@
                 No users found in this agency
               </div>
             </div>
-            <small v-if="selectedUserIds.length > 0">{{ selectedUserIds.length }} user(s) selected</small>
+            <small v-if="!lockRecipient && selectedUserIds.length > 0">{{ selectedUserIds.length }} user(s) selected</small>
           </div>
         </div>
 
@@ -161,6 +162,8 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
 const props = defineProps({
+  lockRecipient: Boolean,
+  recipientName: String,
   template: {
     type: Object,
     required: true
@@ -202,7 +205,8 @@ const searchedUsers = computed(() => {
 });
 
 const isFormValid = computed(() => {
-  if (!taskTitle.value || !documentActionType.value) return false; // documentActionType is computed, .value is correct
+  if (!taskTitle.value || !documentActionType.value) return false;
+  if (props.lockRecipient) return Number(props.preSelectedUserId) > 0 && !!selectedAgencyId.value;
   
   if (assignmentType.value === 'user') {
     return selectedUserIds.value.length > 0 && selectedAgencyId.value;
@@ -230,6 +234,7 @@ const fetchUsers = async () => {
 };
 
 const handleAgencyChange = async () => {
+  if (props.lockRecipient) return;
   // Clear selected users when agency changes
   selectedUserIds.value = [];
   await fetchUsersForAgency();
@@ -348,7 +353,8 @@ const handleAssign = async () => {
     
     console.log('handleAssign: Task data to send:', taskData);
 
-    if (assignmentType.value === 'user') {
+    if (props.lockRecipient || assignmentType.value === 'user') {
+      if (props.lockRecipient) selectedUserIds.value = [props.preSelectedUserId];
       // Assign to individual users
       if (!selectedUserIds.value || selectedUserIds.value.length === 0) {
         error.value = 'Please select at least one user';

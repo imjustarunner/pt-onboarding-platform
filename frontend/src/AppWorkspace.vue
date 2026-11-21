@@ -707,7 +707,7 @@
                       :to="orgTo('/workforce-operations')"
                       @click="closeAllNavMenus"
                     >
-                      <span>Workforce Operations</span>
+                      <span class="product-nav-label"><img v-if="navBrandLogoUrl" :src="navBrandLogoUrl" alt="" />Workforce Operations</span>
                       <span
                         v-if="workforceOperationsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -1785,7 +1785,7 @@
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >
-                    <span>Workforce Operations</span>
+                    <span class="product-nav-label"><img v-if="navBrandLogoUrl" :src="navBrandLogoUrl" alt="" />Workforce Operations</span>
                     <span
                       v-if="workforceOperationsPendingCount > 0"
                       class="nav-badge nav-badge-pulse"

@@ -11,7 +11,7 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome && !legalContext.nonclinical" href="/records-request" class="legal-link">Request my records</a>
+    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome && !legalContext.nonclinical && !auth.user" href="/records-request" class="legal-link">Request my records</a>
     <ServiceUseNotice v-if="includeLegal && scopedFamilyLegal" :organization-slug="brandingStore.activeRouteSlug" :role="auth.user?.role" :service-type="workspaceServiceType" />
     <div v-else-if="includeLegal && legalLinksToRender.length" class="legal-links">
       <span v-if="legalTitleToRender" class="legal-title">{{ legalTitleToRender }}</span>
@@ -25,8 +25,16 @@
           rel="noopener noreferrer"
         >{{ item.label }}</a>
         <router-link v-else :to="item.href" class="legal-link">{{ item.label }}</router-link>
-        <span v-if="i < legalLinksToRender.length - 1" class="legal-sep">|</span>
+        <span v-if="i < legalLinksToRender.length - 1 || platformLinks.length" class="legal-sep">|</span>
       </template>
+      <details v-if="platformLinks.length" class="platform-legal">
+        <summary>AuricWell platform policies</summary>
+        <ul>
+          <li v-for="link in platformLinks" :key="link.href">
+            <a :href="link.href" class="legal-link" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>
+          </li>
+        </ul>
+      </details>
     </div>
   </div>
 </template>
@@ -137,7 +145,7 @@ const legalTitleToRender = computed(() => String(props.legalTitle || '').trim())
 const customOverrideLinks = computed(() => normalizeCustomLegalLinks(props.legalLinksOverride));
 const customExtraLinks = computed(() => normalizeCustomLegalLinks(props.extraLegalLinks));
 
-const legalLinksToRender = computed(() => {
+const allLegalLinks = computed(() => {
   let baseLinks = [];
   if (customOverrideLinks.value.length) {
     baseLinks = customOverrideLinks.value;
@@ -160,6 +168,18 @@ const legalLinksToRender = computed(() => {
     merged.push(link);
   }
   return merged;
+});
+
+const platformLinks = computed(() => {
+  if (!auth.user || scopedFamilyLegal.value || isSummitStatsChrome.value || customOverrideLinks.value.length) return [];
+  const platformOrigin = tenantLegalProfiles.auricwell.legalOrigin;
+  return allLegalLinks.value.filter(link => link.href.startsWith(platformOrigin + '/') && /^AuricWell /.test(link.label))
+    .map(link => ({ ...link, label: link.label.replace(/^AuricWell (?:platform )?/, '') }));
+});
+const legalLinksToRender = computed(() => {
+  const platformUrls = new Set(platformLinks.value.map(link => link.href));
+  return [...new Map(allLegalLinks.value.filter(link => !platformUrls.has(link.href))
+    .map(link => [link.href.replace(/\/$/, ''), link])).values()];
 });
 
 function isExternalLegalHref(href) {
@@ -275,6 +295,11 @@ const handleLogoError = (event) => {
   color: var(--text-secondary, #64748b);
   text-decoration: none;
 }
+
+.platform-legal { display: inline-block; text-align: left; vertical-align: top; color: var(--text-secondary, #64748b); }
+.platform-legal summary { cursor: pointer; }
+.platform-legal ul { margin: 6px 0 0; padding-left: 16px; }
+.platform-legal li + li { margin-top: 4px; }
 
 .legal-link:hover {
   text-decoration: underline;

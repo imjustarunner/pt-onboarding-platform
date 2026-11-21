@@ -14,7 +14,7 @@ const localDate = (value, zone) => {
 
 /** Release only the selected hourly assignment. Never delete history or a client appointment. */
 export async function releaseOfficeReservation({ assignmentId = null, eventId = null, date = null,
-  scope = 'occurrence', keepAssigned = false, actorUserId, canManage = false, officeLocationId, reviewedOccurrence = null }) {
+  scope = 'occurrence', keepAssigned = false, expectedBooking = null, actorUserId, canManage = false, officeLocationId, reviewedOccurrence = null }) {
   if (!['occurrence', 'future'].includes(scope)) throw fail('Choose one occurrence or this time and future occurrences.');
   const conn = await pool.getConnection();
   try {
@@ -49,6 +49,14 @@ export async function releaseOfficeReservation({ assignmentId = null, eventId = 
     }
     const providerId = Number(event?.booked_provider_id || event?.assigned_provider_id || assignment?.provider_id);
     if (!providerId || (!canManage && providerId !== Number(actorUserId))) throw Object.assign(new Error('Access denied'), { status: 403 });
+    if (expectedBooking && event) {
+      const booked = event.status === 'BOOKED' || event.slot_state === 'ASSIGNED_BOOKED';
+      const assigned = ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(event.slot_state);
+      const matches = (expectedBooking === 'booked' && booked) || (expectedBooking === 'assigned' && assigned && !booked);
+      if (event.status === 'CANCELLED' || !matches) {
+        throw fail('This office booking changed. Refresh the schedule before canceling.');
+      }
+    }
     if (scope === 'future' && (!assignment || Number(assignment.provider_id) !== providerId)) throw fail('This borrowed or independent occurrence cannot release someone else’s series. Choose this occurrence only.');
     const [[office]] = await conn.execute('SELECT timezone FROM office_locations WHERE id = ?', [officeLocationId]);
     const zone = office?.timezone || 'America/Denver';
@@ -116,7 +124,10 @@ export async function releaseOfficeReservation({ assignmentId = null, eventId = 
       ids.push(Number(created.insertId));
     } else if (ids.length) {
       const ph = ids.map(() => '?').join(',');
-      await conn.execute(`UPDATE office_events SET status = ?, slot_state = ?, booked_provider_id = NULL, booking_plan_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id IN (${ph})`, [keepAssigned ? 'RELEASED' : 'CANCELLED', keepAssigned ? 'ASSIGNED_AVAILABLE' : null, ...ids]);
+      await conn.execute(`UPDATE office_events SET status = ?, slot_state = ?,
+        assigned_provider_id = CASE WHEN ? THEN COALESCE(assigned_provider_id, booked_provider_id) ELSE assigned_provider_id END,
+        booked_provider_id = NULL, booking_plan_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id IN (${ph})`,
+      [keepAssigned ? 'RELEASED' : 'CANCELLED', keepAssigned ? 'ASSIGNED_AVAILABLE' : null, keepAssigned, ...ids]);
       if (reviewedOccurrence && keepAssigned) {
         await conn.execute("UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),'$.officeCancellationDisposition','release') WHERE id=?", [event.id]);
       }

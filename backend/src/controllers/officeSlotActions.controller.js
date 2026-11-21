@@ -1072,6 +1072,9 @@ const staffBookEventLocked = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Event not found' } });
     }
 
+    const shouldBook = req.body?.booked !== false && String(req.body?.booked || '').toLowerCase() !== 'false';
+    if (!shouldBook) return releaseReservation(req, res, next, { keepAssigned: true });
+
     const assignedProviderId = Number(ev.assigned_provider_id || 0) || null;
     const bodyBookedProviderId = Number(
       req.body?.bookedProviderId || req.body?.requestedProviderId || req.body?.booked_provider_id || 0
@@ -1107,8 +1110,6 @@ const staffBookEventLocked = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the borrowing provider or a schedule manager can book this assigned slot for someone else' } });
     }
 
-    const shouldBook = req.body?.booked !== false && String(req.body?.booked || '').toLowerCase() !== 'false';
-    if (!shouldBook) return releaseReservation(req, res, next, { keepAssigned: true });
     let validatedSelection = {
       appointmentTypeCode: null,
       appointmentSubtypeCode: null,
@@ -2554,7 +2555,7 @@ async function releaseReservation(req, res, next, { keepAssigned = false, defaul
     if (!(await requireOfficeAccess(req, officeLocationId))) return res.status(403).json({ error: { message: 'Access denied' } });
     if (!keepAssigned && req.body?.acknowledged !== true && req.body?.acknowledged !== 'true') return res.status(400).json({ error: { message: 'Acknowledge releasing this office time.' } });
     const result = await releaseOfficeReservation({ officeLocationId, assignmentId: Number(req.params.assignmentId) || null,
-      eventId: Number(req.params.eventId) || null, date: req.body?.date, scope: req.body?.scope || defaultScope,
+      eventId: Number(req.params.eventId) || null, date: req.body?.date, scope: req.body?.scope || defaultScope, expectedBooking: req.body?.expectedBooking,
       keepAssigned, actorUserId: req.user.id, canManage: canManageSchedule(req.user.role) });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
     // The database change is complete; external calendar requests must not hold the save spinner open.

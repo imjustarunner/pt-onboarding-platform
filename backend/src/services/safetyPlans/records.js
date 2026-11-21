@@ -85,7 +85,7 @@ export async function listPlans(user,{agencyId,clientId,mine,documentKey}){
    );
    const active = signers.filter(s => !s.revoked_at).map(s => ({ ...s, details: decode(s.details_encrypted) }));
    const portalAssignments = active.filter(s => s.portal_shared_at && s.recipient_user_id && s.signer_kind !== 'clinician').map(s => ({
-     signerId: s.id, recipient: s.details.name, kind: s.signer_kind, copyOnly: !!s.details.copyOnly,
+     signerId: s.id, recipient: s.details.name, recipientUserId: Number(s.recipient_user_id), kind: s.signer_kind, copyOnly: !!s.details.copyOnly,
      signedAt: s.signed_at, version: s.version, sharedAt: s.portal_shared_at
    }));
    plans.push({

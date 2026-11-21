@@ -57,7 +57,7 @@
               <h4>Assign to client portal</h4>
               <button v-if="enabled" class="choice" type="button" @click="openPicker('packages')"><Layers /> Use a package <ChevronRight /></button>
               <button class="choice" type="button" @click="openPicker('items')"><ListChecks /> Select individual items <ChevronRight /></button>
-              <button v-if="clinicalMode" class="choice" type="button" :disabled="saving||preparing" @click="clinical.prepare({group:'release'})"><FileSignature /> Prepare a release <ChevronRight /></button>
+              <button v-if="clinicalMode && !recipientGuardianId" class="choice" type="button" :disabled="saving||preparing" @click="clinical.prepare({group:'release'})"><FileSignature /> Prepare a release <ChevronRight /></button>
               <template v-if="packages.length"><h5>Agency packages</h5>
                 <button type="button" class="package-link" v-for="pkg in packages.slice(0,4)" :key="pkg.id" @click="usePackage(pkg)">{{ pkg.name }} <small>{{ packageSize(pkg) }} items</small></button>
               </template>
@@ -104,7 +104,7 @@
                     <h5>{{ group.label }}</h5><div v-for="item in group.items" :key="item.id" class="pick-row">
                       <label><input v-if="clinicalMode!=='release' || group.key!=='records'" type="checkbox" :checked="isSelected(item)" @change="toggleItem(item,$event.target.checked)" /> {{ item.title }}</label>
                       <button type="button" class="text-action" @click="previewItems=[item]">Preview</button>
-                      <button v-if="['foundation','records'].includes(group.key)" type="button" class="text-action" @click="clinical.prepare(item)">{{ group.key==='records'?'Open':'Prepare' }}</button>
+                      <button v-if="!recipientGuardianId && ['foundation','records'].includes(group.key)" type="button" class="text-action" @click="clinical.prepare(item)">{{ group.key==='records'?'Open':'Prepare' }}</button>
                     </div>
                   </section>
                   <p v-if="!selectionGroups.length && !busyLoading">No matching items.</p>
@@ -147,7 +147,8 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   clientName: { type: String, default: '' },
   guardianEmail: { type: String, default: '' },
-  guardianName: { type: String, default: '' }
+  guardianName: { type: String, default: '' },
+  recipientGuardianId: Number
 });
 const emit = defineEmits(['close', 'sent', 'created']);
 
@@ -229,7 +230,12 @@ defineExpose({prepareToLeave});
 const schoolClient=ref(false),schoolExpiry=ref('');
 const packages=ref([]),items=ref([]),recipients=ref([]),chosenId=ref(''),packageName=ref(''),schoolOnly=ref(false),packageFilter=ref(''),search=ref('');
 const itemType=ref(''),itemStatus=ref('');
-const allItems=computed(()=>[...items.value,...clinical.assignments.value]);
+const allItems = computed(() => {
+  const history = [...items.value, ...clinical.assignments.value];
+  return props.recipientGuardianId
+    ? history.filter(item => Number(item.recipientUserId) === props.recipientGuardianId)
+    : history;
+});
 const typeName=item=>item.typeLabel || ({document:'Document',assessment:'Assessment',portal_step:'Portal step',billing:'Billing'}[item.item_type] || 'Portal step');
 const statusName=value=>({complete:'Completed',in_progress:'In progress',result:'With results'}[value] || String(value).replaceAll('_',' ').replace(/^./,c=>c.toUpperCase()));
 const dateLabel=value=>new Date(value).toLocaleDateString();
@@ -251,7 +257,7 @@ function matchesStatus(i,status){return !status || (status==='result'?!!Number(i
 const filteredItems=computed(()=>allItems.value.filter(i=>(!itemType.value || typeName(i)===itemType.value) && matchesStatus(i,itemStatus.value) && i.title.toLowerCase().includes(search.value.toLowerCase())));
 const paymentSelected=computed(()=>selected.portalSteps.some(k=>['payment','authorization'].includes(k)));
 const paymentOnly=computed(()=>paymentSelected.value && !selected.documents.length && !selected.assessments.length && selected.portalSteps.every(k=>['payment','authorization'].includes(k)));
-const eligible=computed(()=>{
+const eligibleRecipients=computed(()=>{
   const updateRecipients=recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing) && (!selected.portalSteps.includes('payment') || r.cardAllowed!==false));
   if(!clinicalSelection.value.length)return updateRecipients;
   const clinicalRecipients=clinicalCatalog.value?.recipients || [];
@@ -261,6 +267,9 @@ const eligible=computed(()=>{
     return update?[{...update,kind:r.kind}]:[];
   });
 });
+const eligible = computed(() => props.recipientGuardianId
+  ? eligibleRecipients.value.filter(recipient => Number(recipient.id) === props.recipientGuardianId && recipient.kind !== 'client')
+  : eligibleRecipients.value);
 const chosen=computed(()=>eligible.value.find(r=>Number(r.id)===Number(chosenId.value)));
 watch(eligible,rows=>{if(!rows.some(r=>Number(r.id)===Number(chosenId.value)))chosenId.value=!saving.value && rows.length===1?rows[0].id:'';},{flush:'sync'});
 watch(chosenId,()=>{authority.value=false;},{flush:'sync'});
