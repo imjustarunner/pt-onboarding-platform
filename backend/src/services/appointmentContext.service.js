@@ -120,7 +120,7 @@ async function ensureLockedAppointmentContext({
       clientId: resolvedClientId, startAt, endAt,
       modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
       serviceLocationId: actualServiceLocationId,
-      learningSubjectKey:bookingContext.learningSubjectKey ?? null, tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
+      makeupForAppointmentId:bookingContext.makeupForAppointmentId ?? null, learningSubjectKey:bookingContext.learningSubjectKey ?? null, tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
       serviceCode: event.service_code, notificationMode: bookingContext.notificationMode, customReminders: bookingContext.customReminders, sendBookingNotice: bookingContext.sendBookingNotice, notes: bookingContext.schedulingNotes,
       clinicalSessionId, actorUserId, billing: bookingContext.billing || null, strict: true, preserveParticipants: !!boundAppointment,
       othersPresentNames: bookingContext.othersPresentNames, deferScheduleNotice: bookingContext.deferScheduleNotice === true });

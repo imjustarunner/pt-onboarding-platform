@@ -23,7 +23,7 @@
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
     <p v-else-if="!error&&!appointments.length">{{ ft("No appointments are scheduled yet. Contact your team to arrange the next visit.") }} <button type="button" @click="$emit('help')">{{ ft("Contact your team") }}</button></p>
     <section v-for="group in appointmentGroups" :key="group.label"><h3>{{ft(group.label)}}</h3>
-    <article v-for="a in group.rows" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
+    <article v-for="a in group.rows" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1"><p v-for="linked in a.makeupLinks || []" :key="linked.appointmentId">{{linked.relation==='original' ? 'Makeup for' : 'Makeup booking'}} appointment #{{linked.appointmentId}} · {{linked.status}} · {{linked.feeStatus}}</p>
       <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : ['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(a.modality) ? ft('Online') : a.modality }} · {{ ft(a.displayStatus||a.status.replaceAll('_',' ')) }}</p>
       <router-link v-if="canJoin(a) && !/^https?:/.test(a.joinUrl)" :to="a.joinUrl" class="join-appointment">{{ ft("Join online appointment →") }}</router-link>
       <a v-if="canJoin(a) && /^https?:/.test(a.joinUrl)" :href="a.joinUrl" target="_blank" rel="noopener noreferrer">{{ft("Join online appointment →")}}</a>

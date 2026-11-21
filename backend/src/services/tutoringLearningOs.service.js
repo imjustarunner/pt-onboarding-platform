@@ -1732,7 +1732,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
        JOIN tutoring_session_clients m ON m.session_id=s.id AND m.client_id=?
        LEFT JOIN users u ON u.id = s.provider_user_id
        WHERE (? IS NULL OR klass.organization_id=?) AND (? IS NULL OR s.provider_user_id=?) AND (s.session_subtype = 'tutoring' OR s.mode = 'individual')
-         AND s.starts_at < NOW()
+         AND (s.starts_at < NOW() OR s.actual_ended_at IS NOT NULL)
        ORDER BY COALESCE(s.ends_at, s.starts_at) DESC
        LIMIT 5`,
       [clientId,agencyId,agencyId,providerId??null,providerId??null]

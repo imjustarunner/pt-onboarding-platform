@@ -48,3 +48,18 @@ describe('scheduled tutoring session documentation', () => {
   });
 
 });
+
+it('saves a different practiced skill without rating an unrelated plan objective',async()=>{
+ const request=vi.fn(async(path)=>path==='/learning-note-context'?context():{note:{id:40,summary:'Equivalent fractions practice'}});
+ const wrapper=mount(Panel,{props:{clientId:90004,sessionId:1001,request}});
+ try{
+  await flushPromises();
+  const choice=wrapper.findAll('label').find(label=>label.text().includes('Record a session observation for a different skill'));
+  await choice.get('input').setValue(true);
+  expect(wrapper.findComponent(Checklist).exists()).toBe(false);
+  await wrapper.get('textarea').setValue('Equivalent fractions practice');
+  await wrapper.findAll('button').find(button=>button.text()==='Save session observation').trigger('click');
+  expect(request).toHaveBeenCalledWith('/note','put',expect.objectContaining({summary:'Equivalent fractions practice'}));
+  expect(request.mock.calls.at(-1)[2].planChecklist).toBeUndefined();
+ }finally{wrapper.unmount();}
+});

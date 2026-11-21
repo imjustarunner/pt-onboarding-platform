@@ -1,6 +1,6 @@
 <template>
   <section class="learning-checklist">
-    <header><div><h3>Session learning record</h3><p>{{ bundle.plan.title }} <span class="plan-label">Approved learning plan</span></p></div><span class="selection-count">{{ selections.length }} selected</span></header>
+    <header><div><h3>Session learning record</h3><p>{{ bundle.plan.approved_at ? bundle.plan.title.replace(/\s*\(AI draft\)/gi, '').trim() : bundle.plan.title }} <span class="plan-label">Approved learning plan</span></p></div><span class="selection-count">{{ selections.length }} selected</span></header>
     <p class="help">Choose learning or session focuses from the saved plan and session brief. Check strategies used and rate today’s performance.</p>
     <label v-if="areas.length > 6" class="search">Find a focus<input v-model="search" type="search" placeholder="Search learning and session focuses" /></label>
     <div class="focus-list">

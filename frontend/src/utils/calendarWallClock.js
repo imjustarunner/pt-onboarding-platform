@@ -35,5 +35,11 @@ export function calendarSessionState(row){
  if(status==='VOIDED'||row?.isVoided)return 'Voided';
  if(/MISSED|NO[-_]?SHOW/.test(status)||row?.isMissed)return 'Missed';
  if(/^CANCEL|^LATE_CANCEL/.test(status)||row?.isCancelled)return 'Cancelled';
+ if(['tutoring','learning'].includes(row?.businessType)) {
+  if(status==='COMPLETED')return 'Attended';
+  if(status==='IN_PROGRESS')return 'In progress';
+  const end=parseScheduleUtcInstant(row.appointmentEndAt||row.endAt);
+  if(status==='ENDED'||(end&&+end<Date.now()&&['SCHEDULED','CONFIRMED','CLIENT_CONFIRMED','CHECKED_IN'].includes(status)))return 'Attendance awaiting review';
+ }
  return '';
 }

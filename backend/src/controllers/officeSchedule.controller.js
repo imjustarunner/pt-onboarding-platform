@@ -2752,7 +2752,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     if (individualPrice && (!clientId || req.body?.appointmentId || req.body?.appointmentSeriesId))
       return res.status(400).json({error:{message:'Set an individual price only while booking a new student session.'}});
     const roomBlock = clientId ? roomBlockForSession(startAt, endAt, loc.timezone || 'America/Denver') : { startAt, endAt };
-    const ownedInput = { learningSubjectKey:req.body?.learningSubjectKey ?? null, office: loc, roomId: room?.id || null,
+    const ownedInput = { makeupForAppointmentId:req.body?.makeupForAppointmentId ?? null, learningSubjectKey:req.body?.learningSubjectKey ?? null, office: loc, roomId: room?.id || null,
       providerId: requestedProviderId, actorUserId: req.user.id, agencyId: policyAgencyId, clientId,
       startAt, endAt, recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1,
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
@@ -2769,7 +2769,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     // Every new room request uses the same allocator and pending hold. Legacy
     // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
-      sessionContext: { learningSubjectKey:req.body?.learningSubjectKey ?? null, appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, sendBookingNotice, schedulingNotes: notes,
+      sessionContext: { makeupForAppointmentId:req.body?.makeupForAppointmentId ?? null, learningSubjectKey:req.body?.learningSubjectKey ?? null, appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, sendBookingNotice, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
         othersPresentNames: String(req.body?.othersPresentNames || '').trim().slice(0, 500) || null,
         ...(preciseSession ? { sessionOffsets: roomBlock.offsets, officeSessionSeriesId: bookedOccurrenceCount > 1 ? randomUUID() : null } : {}),

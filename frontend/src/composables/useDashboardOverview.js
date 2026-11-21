@@ -176,7 +176,7 @@ export function useDashboardOverview(opts = {}) {
         startMs,
         endMs,
         timeLabel: formatTimeRange(startMs, endMs),
-        status: statusForWindow(startMs, endMs, now),
+        status: ['tutoring','learning'].includes(e.businessType) && endMs<now && ['scheduled','confirmed','client_confirmed'].includes(e.appointmentStatus) ? 'ended' : e.appointmentStatus || statusForWindow(startMs, endMs, now),
         featured: isBookedVisit,
         preslot: isPreslot,
         logoAgencyId: isBookedVisit ? Number(e.agencyId || 0) || null : null,

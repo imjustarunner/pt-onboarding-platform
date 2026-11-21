@@ -39,7 +39,7 @@
             class="todays-focus__rotate-teaser"
             @click="onOpenItem(rotateItem)"
           >
-            <span class="todays-focus__rotate-label">{{ rotateItem.label }}</span>
+            <span class="todays-focus__rotate-label">{{ rotateItem.label?.replace(/^Notes: (.+?) \(TUTORING\)/i, 'Tutoring notes: $1').replace(/\(TUTORING\)/g, '(Tutoring)') }}</span>
             <span class="todays-focus__rotate-meta">
               {{ rotateIndex + 1 }}/{{ displayItems.length }} · Open ↗
             </span>

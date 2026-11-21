@@ -12,6 +12,7 @@ export const FALLBACK_SENDER_FLAG = {
 };
 
 export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
+  tutoring_summary_shared: ['notifications', 'default_notifications'],
   school_weekday_invitation: ['notifications', 'default_notifications'],
   school_weekday_thankyou: ['notifications', 'default_notifications'],
   school_weekday_reminder: ['notifications', 'default_notifications'],

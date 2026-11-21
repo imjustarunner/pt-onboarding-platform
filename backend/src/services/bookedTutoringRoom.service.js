@@ -145,7 +145,7 @@ export async function openBookedTutoringRoom(ctx) {
    await db.execute('UPDATE learning_class_sessions SET booked_media_id=? WHERE id=?',[mediaId,session.id]);
    await audit(ctx,session,'tutoring_room_opened',{},db);
   }
-  return {sessionId:mediaId,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(mediaId,{actor:ctx.actor,role:'provider',req:ctx.req},db),participantRole:'provider'};
+  return {sessionId:mediaId,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(mediaId,{actor:ctx.actor,role:'provider',req:ctx.req,displayName:[ctx.req.user.first_name,ctx.req.user.last_name].filter(Boolean).join(' ')||'Tutor'},db),participantRole:'provider'};
  });
 }
 export async function joinBookedTutoringRoom(ctx) {
@@ -189,7 +189,7 @@ export async function bookedTutoringToken(ctx) {
   if(!session?.booked_media_id||session.status==='ended')throw fail(409,'Wait for your tutor to open this session.');
   const [[visit]]=await db.execute("SELECT id FROM tutoring_session_visits WHERE session_id=? AND user_id=? AND client_id=? AND status='admitted' ORDER BY id DESC LIMIT 1",[session.id,ctx.req.user.id,ctx.clientId]);
   if(!visit)throw fail(403,'Wait for your tutor to admit you to this appointment.');
-  return {sessionId:session.booked_media_id,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(session.booked_media_id,{actor:ctx.actor,role:'client',visitId:visit.id,req:ctx.req},db),participantRole:'client'};
+  return {sessionId:session.booked_media_id,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(session.booked_media_id,{actor:ctx.actor,role:'client',visitId:visit.id,req:ctx.req,displayName:ctx.studentName ? `${ctx.studentName}’s family` : 'Family participant'},db),participantRole:'client'};
  });
 }
 export async function leaveBookedTutoringRoom(ctx) {
@@ -283,7 +283,7 @@ async function validateSessionGoals(ctx, session, goalIds, db) {
 
 export async function bookedTutoringNote(ctx, input = null) {
  if(!ctx.host)throw fail(403,'Session notes are private to the assigned tutor.');
- return transact(async db=>{
+ const result = await transact(async db=>{
   await lockAppointment(ctx,db);
   const closed=terminal.has(ctx.appointment.status);
   if(input!==null&&closed)throw fail(409,'This appointment has an attendance outcome. The saved record is read-only.');
@@ -296,6 +296,7 @@ export async function bookedTutoringNote(ctx, input = null) {
   if(input.familySummary===true){
    await validateSessionGoals(ctx, session, input.goalIds ?? [], db);
    const metadata=tutoringFamilyDraftMetadata(existing,input);
+   if(input.signAndShare===true)metadata.summaryNoticeRequested=true;
    let reviewedItems = [];
    if(input.signAndShare===true){
     const activity=await lessonActivity(ctx,session,db);
@@ -325,6 +326,11 @@ export async function bookedTutoringNote(ctx, input = null) {
   if(publication)await audit(ctx,session,'tutoring_summary_signed_shared',{noteId:note.id,publicationId:publication.id},db);
   return {note:publication?{...note,status:'signed'}:note,publication};
  });
+ if (input?.signAndShare && result.publication && (result.publication.newPublication || result.note?.metadata_json?.summaryNoticeRequested)) {
+  try { result.summaryNotices = await (await import('./tutoringSummaryNotice.service.js')).notifyTutoringSummary(ctx,result.publication); }
+  catch { result.summaryNoticePending = true; }
+ }
+ return result;
 }
 
 export async function prepareBookedTutoringHub(ctx){

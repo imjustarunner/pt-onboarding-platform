@@ -34,7 +34,7 @@ export async function requireMonitoredProvider(mediaId, db = pool) {
   await requireActiveClinicalMedia(mediaId, db);
   if (!await hasMonitoredProvider(mediaId, db)) throw fail(409, 'Waiting for secure confirmation of the provider video connection.');
 }
-export async function clinicalVideoToken(mediaId, { actor, role, visitId = null, req }, db = pool) {
+export async function clinicalVideoToken(mediaId, { actor, role, visitId = null, req, displayName = null }, db = pool) {
   requireClinicalVideoMonitoring();
   const media = await requireActiveClinicalMedia(mediaId, db);
   const grantId = crypto.randomUUID();
@@ -43,7 +43,7 @@ export async function clinicalVideoToken(mediaId, { actor, role, visitId = null,
     VALUES (?,?,?,?,?,?)`, [grantId, mediaId, actor, role, visitId, new Date(expiresAt * 1000)]);
   await clinicalAudit({ ...scope(media), actor, role, req }, 'clinical_video_token_issued', { visitId }, db);
   return Video.generateToken(mediaId, { expireTime: expiresAt,
-    data: JSON.stringify({ grantId, identity: actor, role, displayName: media.session_kind==='tutoring'?(role==='provider'?'Tutor':'Family participant'):(role === 'provider' ? 'Provider' : 'Client') }) });
+    data: JSON.stringify({ grantId, identity: actor, role, displayName: media.session_kind==='tutoring'?(String(displayName || '').slice(0,150) || (role==='provider'?'Tutor':'Family participant')):(role === 'provider' ? 'Provider' : 'Client') }) });
 }
 const scope = media => ({ kind: media.session_kind, sessionId: media.session_id, generation: media.generation, agencyId: media.agency_id });
 

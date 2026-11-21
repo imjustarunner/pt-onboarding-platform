@@ -167,8 +167,8 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   // This is a display window only: keep the provider's future reservation intact.
   // Query upcoming and history independently, so far-future rows cannot crowd out either.
   const [upcoming] = await pool.execute(`${selection} AND a.start_at>=UTC_TIMESTAMP()
-    AND a.status IN ('scheduled','confirmed','client_confirmed') ORDER BY a.start_at ASC,a.id ASC LIMIT 6`, params);
-  const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR a.status IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
+    AND a.status IN ('scheduled','confirmed','client_confirmed') AND ls.actual_ended_at IS NULL ORDER BY a.start_at ASC,a.id ASC LIMIT 6`, params);
+  const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR ls.actual_ended_at IS NOT NULL OR a.status IN ('completed','ended','no_show','no_show_pending','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
     AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, params);
   const rows = [...upcoming, ...history].filter(a=>guardianContextAllowsAppointment(client,a));
   const permissions=typeof client.permissions_json==='string'?JSON.parse(client.permissions_json):client.permissions_json||{};
@@ -199,6 +199,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   for (const row of rows) {
     Object.assign(row,appointmentAttendanceView(row,{learningSession:{status:row.learningStatus,actual_started_at:row.learningStartedAt,actual_ended_at:row.learningEndedAt}}));
     row.serviceLabel=appointmentServiceLabel(row);
+    row.makeupLinks=await (await import('./tutoringMakeup.service.js')).tutoringMakeupDetails(row);
     if(summaryByAppointment.has(Number(row.id))&&['completed','ended'].includes(row.status)){
       row.tutoringSummary=summaryByAppointment.get(Number(row.id));
     }

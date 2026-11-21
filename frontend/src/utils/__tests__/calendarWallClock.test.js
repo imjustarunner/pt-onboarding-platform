@@ -40,3 +40,10 @@ it('formats a repeated instant once instead of once per calendar cell or hover',
   expect(spy).toHaveBeenCalledTimes(1);
  }finally{spy.mockRestore()}
 });
+
+it('uses recorded tutoring outcomes and labels past unreviewed attendance without inferring a no-show',()=>{
+ expect(calendarSessionState({businessType:'tutoring',appointmentStatus:'completed',endAt:'2099-01-01T00:00:00Z'})).toBe('Attended');
+ expect(calendarSessionState({businessType:'tutoring',appointmentStatus:'scheduled',endAt:'2000-01-01T00:00:00Z'})).toBe('Attendance awaiting review');
+ expect(calendarSessionState({businessType:'tutoring',appointmentStatus:'in_progress'})).toBe('In progress');
+ expect(calendarSessionState({businessType:'mental_health',appointmentStatus:'scheduled',endAt:'2000-01-01T00:00:00Z'})).toBe('');
+});

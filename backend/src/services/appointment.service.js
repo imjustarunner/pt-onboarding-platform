@@ -156,7 +156,7 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
   const noShowReview=appt.status==='no_show_pending'?await (await import('./appointmentNoShowReview.service.js')).getAppointmentNoShowReview(appt.id):null;
   const { resolveAppointmentPresentation } = await import('./appointmentPresentation.service.js');
   const outcome = await resolveAppointmentPresentation(appt);
-  return { ...appt, ...outcome, noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
+  return { ...appt, ...outcome, makeupLinks:await (await import('./tutoringMakeup.service.js')).tutoringMakeupDetails(appt), noShowReview, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment(input) {
@@ -193,6 +193,7 @@ async function createLockedAppointment({
   participants = [],
   billing = null,
   learningSubjectKey = null,
+  makeupForAppointmentId = null,
   serviceCode = null,
   addonServiceCodes = [],
   ensureContext = true,
@@ -282,6 +283,10 @@ async function createLockedAppointment({
     if(businessType!=='tutoring'||serviceCode!=='TUTORING'||bookingClients.length!==1)throw Object.assign(new Error('Select an individual tutoring service before choosing an academic subject.'),{status:400});
     learningContext=await resolveTutoringBookingContext({agencyId:aid,providerId:providerUserId,clientId:bookingClients[0].id,key:learningSubjectKey});
     title=`${learningContext.subjectLabel} tutoring`;
+  }
+  if (makeupForAppointmentId != null) {
+    if (businessType!=='tutoring' || bookingClients.length!==1) throw Object.assign(new Error('Choose an individual tutoring service for a makeup.'),{status:400});
+    learningContext=await (await import('./tutoringMakeup.service.js')).tutoringMakeupContext({makeupForAppointmentId,agencyId:aid,clientId:bookingClients[0].id,learningContext});
   }
   const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
     || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));

@@ -174,7 +174,11 @@ const onRowClick = (item) => {
 
 const statusLabel = (s) => {
   if (s === 'completed') return 'Completed';
-  if (s === 'in_progress') return 'In Progress';
+  if (s === 'in_progress') return 'In progress';
+  if (s === 'ended') return 'Attendance awaiting review';
+  if (s === 'no_show') return 'No-show';
+  if (s === 'no_show_pending') return 'No-show pending';
+  if (s === 'late_canceled') return 'Late cancel';
   return 'Upcoming';
 };
 </script>

@@ -205,6 +205,7 @@ import {inject,unref} from 'vue';
 const careContext=inject('portalCareContext',null);
 import PackagePriceChoice from '../learning/PackagePriceChoice.vue';
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import {canPollWorkspace} from '../../composables/useSessionPolling';
 import { useRouter } from 'vue-router';
 import TutorOfficeStatus from './TutorOfficeStatus.vue';
 import StripeCardEntry from '../billing/StripeCardEntry.vue';
@@ -516,8 +517,17 @@ watch(selectedPackageId, async (id, prev) => {
     await prepareCheckout();
   }
 });
-onMounted(load);
-onBeforeUnmount(destroyCard);
+let dashboardRefreshTimer;
+async function refreshSessionStatus() {
+ if (document.visibilityState==='hidden' || loading.value || !props.clientId || !props.progressAllowed || !canPollWorkspace()) return;
+ const version=loadVersion;
+ try {
+  const fresh=await los.fetchGuardianTutoringDashboard(props.clientId,{agencyId:unref(careContext)?.agencyId,serviceId:unref(careContext)?.serviceId});
+  if(version===loadVersion)dashboard.value=fresh;
+ } catch { /* Keep the last authorized display. The Refresh control can surface a failure. */ }
+}
+onMounted(()=>{load();dashboardRefreshTimer=setInterval(refreshSessionStatus,30000);window.addEventListener('focus',refreshSessionStatus);});
+onBeforeUnmount(()=>{loadVersion++;clearInterval(dashboardRefreshTimer);window.removeEventListener('focus',refreshSessionStatus);destroyCard();});
 </script>
 
 <style scoped>

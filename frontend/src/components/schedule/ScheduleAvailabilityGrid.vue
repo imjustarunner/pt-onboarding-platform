@@ -1955,7 +1955,7 @@
           <template v-if="editorIsLearning">
           <label v-if="editorHeaderServiceOptions.length>1">Tutoring service<select :value="editorTenantServiceId" @change="onEditorTenantServiceId($event.target.value)" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
           <label v-if="editorTutoringSubjectApplicable">Subject<select v-model="editorTutoringSubject"><option value="general">General</option><option v-for="subject in editorTutoringSubjects" :key="subject.key" :value="subject.key">{{subject.label}}</option></select></label>
-          <label>Session credits<select v-model="editorPackageEntitlementId" :disabled="editorServicesLoading"><option :value="0">Use assigned service rate / no package</option><option v-for="entitlement in editorPackageEntitlements" :key="entitlement.id" :value="Number(entitlement.id)">{{ entitlement.packageName || `Package #${entitlement.packageId}` }} — {{ entitlement.sessionsRemaining }} available</option></select></label>
+          <p v-if="makeupAppointment" role="status">Makeup for appointment #{{makeupAppointment.id}}. Review the original missed-session fee decision with Support.</p><label>Session credits<select v-model="editorPackageEntitlementId" :disabled="editorServicesLoading"><option :value="0">Use assigned service rate / no package</option><option v-for="entitlement in editorPackageEntitlements" :key="entitlement.id" :value="Number(entitlement.id)">{{ entitlement.packageName || `Package #${entitlement.packageId}` }} — {{ entitlement.sessionsRemaining }} available</option></select></label>
           <p v-if="!editorServicesLoading && !editorPackageEntitlements.length" class="muted">No eligible package credits for this selection. The provider’s assigned service rate applies.</p>
           <TutoringSessionPrice v-if="editorMayOverrideTutoringPrice" v-model="editorIndividualPrice" :quote="editorTutoringQuote"
             :can-set="editorMayOverrideTutoringPrice" :loading="editorServicesLoading" :package-id="Number(editorPackageEntitlementId || 0)"
@@ -14615,7 +14615,10 @@ async function bookOutcomeMakeup(appointment) {
     ? Number(s.serviceEnrollmentId)===Number(context.serviceEnrollmentId)
     : context?.studentSubjectId && Number(s.studentSubjectId)===Number(context.studentSubjectId));
   editorTutoringSubject.value=context?.generalSupport || !selected ? 'general' : selected.key;
+  makeupAppointment.value=appointment;
 }
+const makeupAppointment=ref(null);
+watch(showRequestModal,()=>{makeupAppointment.value=null;});
 const editorStatus = ref('scheduled');
 const editorStatusBaseline = ref('scheduled');
 const editorOutcomeReadOnly=computed(()=>Number(editorAppointmentId.value||0)>0&&['completed','ended','no_show','no_show_pending','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(editorStatus.value).toLowerCase()));
@@ -17362,6 +17365,7 @@ const normalizeBookingSelectionPayload = () => {
     tenantServiceId: Number(editorTenantServiceId.value || 0) || null,
     packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || null,
     tutoringSessionPrice: tutoringSessionPricePayload(),
+    ...(makeupAppointment.value ? {makeupForAppointmentId:makeupAppointment.value.id} : {}),
     ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
     status: 'scheduled',
     videoRoomMode: editorBookingVideoMode.value,
@@ -22836,7 +22840,8 @@ const completePlatformVirtualSessionBooking = async ({
       occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12,
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
       tutoringSessionPrice: tutoringSessionPricePayload(),
-      ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
+      ...(makeupAppointment.value ? {makeupForAppointmentId:makeupAppointment.value.id} : {}),
+    ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
       participants,
@@ -26772,6 +26777,7 @@ function parseClientIdFromScheduleEvent(evOrItem) {
 function sessionConfirmationState(ev = null) {
   if (!ev || !isClientSessionScheduleEvent(ev)) return null;
   if (isScheduleEventCancelled(ev)) return null;
+  if (['tutoring','learning'].includes(ev.businessType) && calendarSessionState(ev)) return null;
   const st = String(ev?.appointmentStatus || ev?.appointment_status || '').trim().toLowerCase();
   if (st === 'in_progress' || st === 'no_show_pending') return null;
   if (st === 'client_confirmed') return 'confirmed';
@@ -27886,7 +27892,13 @@ const scheduleKindLabel = (kindRaw, ev = null) => {
     }
   }
   if (k === 'PERSONAL_EVENT' || (!k && isClientSessionScheduleEvent(ev))) {
-    if (isClientSessionScheduleEvent(ev || { kind: k })) return 'Session';
+    if (isClientSessionScheduleEvent(ev || { kind: k })) {
+      if (['tutoring','learning'].includes(ev?.businessType)) {
+        const context=typeof ev.learningContext==='string' ? JSON.parse(ev.learningContext||'{}') : ev.learningContext;
+        return `${context?.subjectLabel || 'General'} tutoring`;
+      }
+      return 'Session';
+    }
     return 'Personal';
   }
   if (k === 'SCHEDULE_HOLD' && ev?.allDay) return 'Schedule block';

@@ -17,7 +17,7 @@
               class="focus-item"
               data-add-to-sticky
             >
-              <span class="focus-item-label">{{ item.label }}</span>
+              <span class="focus-item-label">{{ item.label?.replace(/^Notes: (.+?) \(TUTORING\)/i, 'Tutoring notes: $1').replace(/\(TUTORING\)/g, '(Tutoring)') }}</span>
               <div class="focus-item-actions">
                 <router-link
                   v-if="item.source === 'payroll' || item.source === 'notes-to-sign'"
@@ -56,7 +56,7 @@
               class="radar-item"
               data-add-to-sticky
             >
-              <span class="radar-item-label">{{ item.label }}</span>
+              <span class="radar-item-label">{{ item.label?.replace(/^Notes: (.+?) \(TUTORING\)/i, 'Tutoring notes: $1').replace(/\(TUTORING\)/g, '(Tutoring)') }}</span>
               <div class="radar-item-actions">
                 <router-link
                   v-if="item.source === 'payroll' || item.source === 'notes-to-sign'"

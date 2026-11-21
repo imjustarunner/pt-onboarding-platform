@@ -44,7 +44,7 @@
 
     <div v-if="!errorMessage && connecting" class="vsr__connecting" role="status" aria-live="polite">
       <div class="vsr__pulse" aria-hidden="true" />
-      <p>Connecting to your session…</p>
+      <p>Connecting to your session…</p><p v-if="renewCredentials">If your browser asks, allow microphone and camera access. You can keep using the shared lesson while media reconnects.</p>
       <button type="button" class="vsr__btn vsr__btn--ghost" @click="disconnect">Cancel</button>
     </div>
 
@@ -356,6 +356,7 @@
 
       <div v-if="audioProblem" class="vsr__audio-problem" role="alert">
         {{ audioProblem }}
+        <button v-if="renewCredentials" type="button" class="vsr__ctrl" :disabled="renewing" @click="retryConnect">Rejoin audio and video</button>
         <button type="button" v-if="!interviewMicUnavailable" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">Reconnect microphone</button>
         <button type="button" v-if="!interviewMicUnavailable" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="useBasicMicrophoneAudio">Use basic microphone audio</button>
       </div>
@@ -2848,7 +2849,7 @@ async function connect() {
 
     const createPublisher = async (withAudio, captureAudio, track, captureVideo = true) => {
       const options = buildPublisherOpts(withAudio, captureAudio);
-      if (props.interviewRoom) options.audioSource = track || null;
+      if (props.interviewRoom || props.renewCredentials) options.audioSource = track || null;
       if (!captureVideo) {
         options.videoSource = null;
         options.publishVideo = false;
@@ -2873,7 +2874,7 @@ async function connect() {
           }); }
         );
         pendingConnectPublishers.add(nextPublisher);
-      }), 'Starting camera and microphone', props.renewCredentials ? 90000 : undefined);
+      }), 'Starting camera and microphone', props.renewCredentials ? 15000 : undefined);
       if (!current()) return null;
       pub?.on?.('videoElementCreated', (event) => {
         silenceLocalPublisherMedia(event?.element || event?.videoElement || null);
@@ -2892,21 +2893,30 @@ async function connect() {
       let capture;
       try {
         let track = null;
-        if (props.interviewRoom && captureAudio) {
-          track = await attempt.wait(() => {
-            capture = beginInterviewMicrophone();
-            return capture.track;
-          }, 'Starting microphone');
+        if ((props.interviewRoom || props.renewCredentials) && captureAudio) {
+          try {
+            track = await attempt.wait(() => {
+              capture = beginInterviewMicrophone();
+              return capture.track;
+            }, 'Starting microphone', props.renewCredentials ? 15000 : undefined);
+          } catch (error) {
+            if (!props.renewCredentials || (!isMicAccessError(error) && error.code !== 'VIDEO_CONNECTION_WAIT_EXPIRED')) throw error;
+            discardInterviewMicrophone(capture);
+            capture = null;
+            publishAudio.value = false;
+            audioProblem.value = 'Your microphone is off. Allow it in your browser, then choose Rejoin to connect audio. Your shared lesson is available.';
+            return null;
+          }
         }
         if (!current()) return null;
-        let cameraAvailable = !props.interviewRoom || await attempt.wait(hasInterviewCamera, 'Checking camera');
+        let cameraAvailable = !(props.interviewRoom || props.renewCredentials) || await attempt.wait(hasInterviewCamera, 'Checking camera');
         if (!current()) return null;
         let pub;
         if (cameraAvailable) {
           try {
             pub = await createPublisher(withAudio, captureAudio, track);
           } catch (error) {
-            if (!props.interviewRoom || !isInterviewCameraError(error)) throw error;
+            if (!(props.interviewRoom || props.renewCredentials) || !isInterviewCameraError(error)) throw error;
             cameraAvailable = false;
           }
         }

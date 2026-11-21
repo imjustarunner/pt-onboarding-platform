@@ -1079,6 +1079,23 @@ describe('interview microphone permission lifecycle', () => {
     expect(track.stop).toHaveBeenCalled();
   });
 
+  it('keeps the booked lesson connected and releases an unanswered microphone prompt after 15 seconds',async()=>{
+    vi.useFakeTimers();
+    let resolveCapture;
+    getUserMedia.mockImplementation(()=>new Promise(resolve=>{resolveCapture=resolve;}));
+    wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'booked-tutoring',token:'eyJ.test.token',renewCredentials:vi.fn(),playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.connectCallback(null);await flushPromises();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(15001);await flushPromises();
+    expect(frame.isConnected).toBe(false);
+    expect(wrapper.text()).toContain('Your microphone is off');
+    expect(wrapper.emitted('connected')).toBeTruthy();
+    expect(wrapper.findAll('button').some(b=>b.text()==='Rejoin audio and video')).toBe(true);
+    resolveCapture(stream);await flushPromises();
+    expect(track.stop).toHaveBeenCalled();
+  });
+
   it('joins as a listener when the mic is denied with no camera available', async () => {
     getUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
     await startInterview();

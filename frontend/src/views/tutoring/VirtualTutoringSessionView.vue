@@ -8,7 +8,7 @@
    <AppointmentNoShowStatus v-if="state.host" :appointment-id="Number(state.appointmentId)" :resolved-attendance="ended&&!!state.startedAt" :time-zone="state.timeZone" @undone="refresh" @changed="refresh" />
    <p v-if="state.unavailableReason" role="alert">{{state.unavailableReason}}</p>
    <p v-if="!state.available && !closed && !inPerson" role="status">{{ windowMessage }}</p>
-   <section v-if="ended" class="room-ended"><h2>Session ended</h2><p v-if="state.endedAt">Ended {{ formatTime(state.endedAt) }}. Attendance and saved work remain linked to appointment #{{ state.appointmentId }}.</p><p v-if="billingWarning" role="status">{{ billingWarning }}</p><button v-if="state.host && state.roomState==='ending'" :disabled="busy" @click="finish">Confirm disconnection</button></section>
+   <section v-if="ended" class="room-ended"><h2>Session ended</h2><p v-if="state.endedAt">Ended {{ formatTime(state.endedAt) }}. Attendance and saved work remain linked to appointment #{{ state.appointmentId }}.</p><button v-if="state.host && state.roomState==='ending'" :disabled="busy" @click="finish">Confirm disconnection</button></section>
    <section v-if="closed && !ended" class="room-ended"><h2>{{ statusLabel }}</h2><p>Attendance history is linked to appointment #{{ state.appointmentId }}.</p></section>
    <section v-if="!state.host && state.familySummary" class="session-note" aria-label="Shared tutoring summary">
     <h2>Session summary</h2>
@@ -19,7 +19,7 @@
     <small>Shared by {{ state.familySummary.authorName }} · {{ formatTime(state.familySummary.signedAt) }}</small>
    </section>
    <div class="hub-layout" :class="{'hub-layout--host':state.host}">
-    <details v-if="state.host" class="hub-context" :open="false"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{entry.activePlan?.title || learningContext?.tracks?.find(t=>t.subject.id===entry.subject.id)?.draftTitle || 'No learning plan yet'}}<span v-if="!hasApprovedPlan && (entry.activePlan || learningContext?.tracks?.some(t=>t.subject.id===entry.subject.id && t.draftTitle))"> · Draft for tutor review</span></p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
+    <details v-if="state.host" class="hub-context" :open="false"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{(entry.activePlan?.approved_at ? entry.activePlan.title.replace(/\s*\(AI draft\)/gi, '').trim() : entry.activePlan?.title) || learningContext?.tracks?.find(t=>t.subject.id===entry.subject.id)?.draftTitle || 'No learning plan yet'}}<span v-if="!hasApprovedPlan && (entry.activePlan || learningContext?.tracks?.some(t=>t.subject.id===entry.subject.id && t.draftTitle))"> · Draft for tutor review</span></p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
     <div class="hub-work">
    <div v-if="!inPerson&&!video&&!closed" class="lesson-lobby">
     <div><span class="lobby-label">Virtual tutoring</span>
@@ -74,7 +74,7 @@ function openNoShow(){
  }});
 }
 const focused=ref(false),materials=ref([]);
-const state=ref(null),loading=ref(true),error=ref(''),video=ref(null),connected=ref(false),wantsJoin=ref(false),busy=ref(false),confirmingEnd=ref(false),billingWarning=ref('');
+const state=ref(null),loading=ref(true),error=ref(''),video=ref(null),connected=ref(false),wantsJoin=ref(false),busy=ref(false),confirmingEnd=ref(false);
 const learningContext=ref(null),contextError=ref(''),noteVersion=ref(0);
 const inPerson=computed(()=>String(state.value?.modality).toUpperCase()==='IN_PERSON');
 const hasApprovedPlan=computed(()=>(learningContext.value?.tracks||[]).some(t=>t.bundle));
@@ -176,7 +176,7 @@ async function reconnect(event) {
  }
 }
 async function leave(){await action(async()=>{await request('/leave','post');rememberJoin(false);clearPresence();video.value=null;wantsJoin.value=false;connected.value=false;await refresh();});}
-async function finish(){await action(async()=>{const data=await request('/end','post');rememberJoin(false);clearPresence();video.value=null;connected.value=false;wantsJoin.value=false;confirmingEnd.value=false;billingWarning.value=data.billingWarning||'';await refresh();});}
+async function finish(){await action(async()=>{await request('/end','post');rememberJoin(false);clearPresence();video.value=null;connected.value=false;wantsJoin.value=false;confirmingEnd.value=false;await refresh();});}
 const rateActivity=(targetId,rating)=>request('/lesson-review','post',{targetId,rating,requestId:crypto.randomUUID()});
 const generateQuestion=input=>request('/board-draft','post',input);
 async function readMaterial(id){

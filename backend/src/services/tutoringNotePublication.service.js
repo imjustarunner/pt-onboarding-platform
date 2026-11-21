@@ -49,7 +49,7 @@ export async function publishTutoringNote(ctx,session,note,input,db=pool,reviewe
  const json=JSON.stringify(snapshot),hash=crypto.createHash('sha256').update(json).digest('hex');
  const [saved]=await db.execute('INSERT INTO tutoring_note_publications(note_id,appointment_id,session_id,agency_id,client_id,author_user_id,snapshot_json,payload_hash) VALUES (?,?,?,?,?,?,?,?)',[note.id,ctx.appointment.id,session.id,ctx.appointment.agencyId,ctx.clientId,ctx.req.user.id,maybeEncryptNotePayload(json),hash]);
  await db.execute("UPDATE tutoring_session_notes SET status='signed',saved_at=COALESCE(saved_at,UTC_TIMESTAMP()),saved_by_user_id=?,updated_by_user_id=? WHERE id=?",[ctx.req.user.id,ctx.req.user.id,note.id]);
- return {id:Number(saved.insertId),summary:snapshot.summary};
+ return {id:Number(saved.insertId),summary:snapshot.summary,newPublication:true};
 }
 export async function listPublishedTutoringSummaries(clientId,{agencyId,providerId=null,serviceId=null}={},db=pool){
  if(!agencyId||providerId===0)return [];

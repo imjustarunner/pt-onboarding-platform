@@ -175,6 +175,7 @@ export const createAppointmentHandler = async (req, res, next) => {
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
           learningSubjectKey:req.body?.learningSubjectKey ?? null,
+          makeupForAppointmentId:req.body?.makeupForAppointmentId ?? null,
           tenantServiceId: req.body?.tenantServiceId || null,
           providerUserId,
           startAt: occurrence.startAt,
