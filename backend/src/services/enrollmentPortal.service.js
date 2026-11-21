@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import StorageService from './storage.service.js';
 import {clientAccess,agencyBrand,recipientOptions} from './safetyPlans/access.js';
+import { isStandaloneEnrollmentForm, REFRESH_FOUNDATION_KEYS } from './familySharingCatalog.js';
 import {fail,positiveId} from './safetyPlans/template.js';
 
 /** The caller chooses a document, never its authoritative text or field schema. */
@@ -20,8 +21,9 @@ async function documents(options) {
 }
 export async function enrollmentPortalCatalog(user,clientId,input={}) {
  const {client,options}=await enrollmentDocumentContext(user,clientId,input);
- const list=await documents(options);
- return {context:options,client:{id:client.id,name:client.full_name||client.initials||''},branding:await agencyBrand(client.agency_id),recipients:await recipientOptions(user,{client_id:client.id,agency_id:client.agency_id,document_key:'enrollment-document'}),documents:list.map(d=>({key:d.key,title:d.title,version:d.version,hash:d.hash,hasFields:!!d.sections?.some(s=>s.fields?.length)}))};
+ const list=(await documents(options)).filter(d=>isStandaloneEnrollmentForm(d.key));
+ const refreshFoundationKeys=REFRESH_FOUNDATION_KEYS.every(key=>list.some(d=>d.key===key)) ? REFRESH_FOUNDATION_KEYS : [];
+ return {context:options,refreshFoundationKeys,client:{id:client.id,name:client.full_name||client.initials||''},branding:await agencyBrand(client.agency_id),recipients:await recipientOptions(user,{client_id:client.id,agency_id:client.agency_id,document_key:'enrollment-document'}),documents:list.map(d=>({key:d.key,title:d.title,version:d.version,hash:d.hash,hasFields:!!d.sections?.some(s=>s.fields?.length)}))};
 }
 export async function resolveEnrollmentFoundation(user,{clientId,agencyId,foundationKey,...context}={}) {
  if(!clientId)fail(400,'Start enrollment documents in the client’s medical file.');

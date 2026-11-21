@@ -1,4 +1,5 @@
 import {resolveEnrollmentFoundation} from '../enrollmentPortal.service.js';
+import { isStandaloneEnrollmentForm } from '../familySharingCatalog.js';
 import {queueClinicalFormNotification} from './notificationQueue.js';
 import {createHash} from 'node:crypto';
 import pool from '../../config/clinicalDatabase.js';
@@ -19,8 +20,8 @@ async function snapshot(db,row,user,payload){const serialized=JSON.stringify(pay
 function expectVersion(row,version){if(Number(version)!==Number(row.current_version))fail(409,'This plan has changed. Reload the current version before continuing.');}
 export async function templateFor(user,{agencyId,clientId,documentKey='safety-plan',eventType,eventId,appointmentId}={}){
  const appointment=documentKey==='attendance-verification'&&eventId?await appointmentPrefill(user,{eventType,eventId,appointmentId,agencyId,clientId}):null;
- const client=clientId?await clientAccess(user,clientId):null;const id=appointment?.client.agencyId||client?.agency_id||positiveId(agencyId);if(!client&&!appointment)await agencyAccess(user,id);
- return {prefill:appointment?.data||null,source:appointment?.source||null,catalog:clinicalFormCatalog,template:await getClinicalTemplate(documentKey,id),branding:await agencyBrand(id),client:appointment?.client||(client?{id:client.id,name:client.full_name||client.initials||'',agencyId:client.agency_id}:null)};
+ const client=clientId?await clientAccess(user,clientId,{documentKey}):null;const id=appointment?.client.agencyId||client?.agency_id||positiveId(agencyId);if(!client&&!appointment)await agencyAccess(user,id);
+ return {prefill:appointment?.data||null,source:appointment?.source||null,catalog:clinicalFormCatalog,template:await getClinicalTemplate(documentKey,id),branding:await agencyBrand(id),...(client&&documentKey==='release-of-information'?{recipients:await recipientOptions(user,{client_id:client.id,agency_id:id,document_key:documentKey})}:{}),client:appointment?.client||(client?{id:client.id,name:client.full_name||client.initials||'',agencyId:client.agency_id}:null)};
 }
 export async function savePlan(user,input,id=null,{database=null,returnReference=false}={}){
  if(user?.role!=='support'||input.documentKey!=='release-of-information'||!input.clientId)staffRole(user);
@@ -124,6 +125,10 @@ export async function addSigner(user,id,input,{notify=true,database=null,returnR
  if(allowCompletion){if(!portalEditableKeys.has(payload.template.key))fail(400,'This form must be completed by staff. Share it for review or signature.');if(!payload.data.personLabel||!payload.data.planDate)fail(400,'Enter the client name and document date before sharing.');}else validateClinicalReady(payload.data,payload.template);
  if(user.role==='support' && (input.kind==='clinician'||!input.userId))fail(403,'Select a linked portal recipient to sign this release.');
  const kind=input.kind;if(!['client','guardian','clinician'].includes(kind))fail(400,'Select a signer role.');
+ if(kind!=='clinician' && input.userId && (payload.template.key==='cssrs-screener'
+   || (payload.template.key==='enrollment-document' && payload.template.source?.foundationKey && !isStandaloneEnrollmentForm(payload.template.source.foundationKey)))) {
+   fail(400,'This form has a dedicated workflow or is available for staff use only.');
+ }
  const copyOnly=input.copyOnly===true&&kind!=='clinician';
  if(payload.template.key==='attendance-verification'&&kind!=='clinician'){if(!copyOnly||!input.userId)fail(400,'Share an issued attendance letter as a portal copy.');const [staffSigners]=await db.execute('SELECT * FROM clinical_form_signers WHERE plan_id=? AND version=? ORDER BY id',[row.id,row.current_version]);if(!staffSigners.some(s=>s.signer_kind==='clinician'&&s.signed_at))fail(400,'Issuing staff must sign the attendance letter before sharing it.');}
  let name=typeof input.name==='string'?input.name.trim():'',recipientId=input.userId?positiveId(input.userId):null;
@@ -181,7 +186,9 @@ export async function portalSubmitUpdate(user,shareId,input){
   await recipientAccess(row,user.id,signer.signer_kind);
   const permission=decode(signer.details_encrypted);if(permission.copyOnly||!(permission.allowCompletion||shared.template.key==='client-information-update'))fail(400,'This document is not available for completion.');
   const old=await versionById(db,row);if(old.content_hash!==input.contentHash)fail(409,'Reload this update before submitting.');
-  const previous=decode(old.payload_encrypted);if(previous.revocation)fail(409,'This authorization was revoked.');const data=normalizeClinicalData(input.data,previous.template);validateClinicalReady(data,previous.template);
+  const previous=decode(old.payload_encrypted);if(previous.revocation)fail(409,'This authorization was revoked.');const data=normalizeClinicalData(input.data,previous.template);
+  if(previous.template.key==='release-of-information')data.personLabel=previous.data.personLabel;
+  validateClinicalReady(data,previous.template);
   if(previous.template.defaultTermMonths===12 && signer.signer_kind==='guardian' && !data.representativeAuthority)fail(400,'Enter your authority to sign for the client.');
   const evidence=signatureEvidence(input,previous.template.title);
   row.current_version+=1;await db.execute('UPDATE clinical_form_records SET current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[row.current_version,row.id]);
@@ -191,10 +198,26 @@ export async function portalSubmitUpdate(user,shareId,input){
   await event(db,row,user,'information_update_submitted');
  });return portalList(user,shared.clientId);
 }
+async function fileReleaseRecipient(row, payload, user) {
+ const {recipientName:fullName,recipientEmail:email,recipientPhone:phone,direction}=payload.data;
+ if(!fullName || !direction?.some(option=>option!=='Provide a copy to the client'))return;
+ const [{default:ClientContactAffiliation},{upsertClientAffiliatedContact}]=await Promise.all([
+   import('../../models/ClientContactAffiliation.model.js'),import('../clientContactAffiliation.service.js')
+ ]);
+ const key=value=>String(value||'').toLowerCase().trim().replace(/\s+/g,' ');
+ const normalizePhone=value=>String(value||'').replace(/\D/g,'');
+ const existing=(await ClientContactAffiliation.listForClient(row.client_id)).some(contact=>
+   key(contact.contact_full_name)===key(fullName)
+   && (!email || key(contact.contact_email)===key(email))
+   && (!phone || normalizePhone(contact.contact_phone)===normalizePhone(phone)));
+ if(!existing)await upsertClientAffiliatedContact({agencyId:row.agency_id,clientId:row.client_id,userId:user.id,fullName,email,phone,importOnly:true});
+}
+
 export async function reviewUpdate(user,id,input){
  await transaction(async db=>{const row=await rowById(db,id,true);await planAccess(user,row,{write:true});expectVersion(row,input.version);const previous=decode((await versionById(db,row)).payload_encrypted);
  if(!portalEditableKeys.has(previous.template.key)||previous.reviewStatus!=='pending')fail(400,'Select a submitted form awaiting review.');
  if(input.reviewed!==true)fail(400,'Confirm that you reviewed this submission.');
+ if(previous.template.key==='release-of-information')await fileReleaseRecipient(row,previous,user);
  row.current_version+=1;await db.execute('UPDATE clinical_form_records SET current_version=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[row.current_version,row.id]);await snapshot(db,row,user,{...previous,reviewStatus:'reviewed',reviewOfVersion:row.current_version-1,reviewedByUserId:user.id,reviewedAt:new Date().toISOString()});await event(db,row,user,'information_update_reviewed');});return readPlan(user,id);
 }
 export async function revokeAuthorization(user,id,input,{portalShareId=null}={}){

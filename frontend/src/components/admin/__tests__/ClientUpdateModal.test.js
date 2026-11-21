@@ -124,3 +124,56 @@ it('scopes a guardian-profile request and its history to the selected guardian',
   await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/clients/5/updates',expect.objectContaining({guardianUserId:3,documents:[1]}));
 });
+
+
+it('lists reviewed assessments and the client’s current school forms without offering draft assessments for assignment', async () => {
+  api.get.mockImplementation(async url => {
+    if (url.endsWith('/status')) return {data:{enabled:true}};
+    if (url==='/clinical-forms') return {data:{plans:[]}};
+    if (url.endsWith('/updates/catalog')) return {data:{recipients:[recipient],schoolClient:true,schoolName:'Test Elementary',
+      assessments:[{family:'life_balance',title:'Life Balance',assignable:true},{family:'gad-7',title:'GAD-7',assignable:false}],
+      portalSteps:[{key:'payment',title:'Payment setup'},{key:'information',title:'Verify contact information'}]}};
+    if (url.endsWith('/catalog')) return {data:{recipients:[recipient],documents:[
+      {key:'informed-consent',title:'Informed consent'},{key:'policy-services',title:'Policy and services'},{key:'hipaa-notice',title:'Privacy notice'}
+    ],refreshFoundationKeys:['informed-consent','policy-services','hipaa-notice']}};
+    throw new Error('Unexpected request '+url);
+  });
+  wrapper=mount(Modal,{props:{...props,inline:true,clinicalMode:'full',recipientGuardianId:3}});
+  await flushPromises();
+  await button('Select individual items').trigger('click');
+  const row = title => wrapper.findAll('.pick-row').find(item=>item.text().startsWith(title));
+  expect(row('Smart School ROI').text()).toContain('Test Elementary');
+  expect(row('Life Balance').find('input').exists()).toBe(true);
+  expect(row('GAD-7').text()).toContain('Coming soon');
+  expect(row('GAD-7').find('input').exists()).toBe(false);
+  await button('Bring client records up to date').trigger('click');
+  expect(wrapper.findAll('.review-selection li').map(item=>item.text())).toEqual([
+    'Current provider disclosure','Verify contact information','Informed consent','Policy and services','Privacy notice'
+  ]);
+  expect(api.post).not.toHaveBeenCalled();
+});
+
+it('assigns a general release with the selected chart contact and leaves the signer pinned', async () => {
+  api.get.mockImplementation(async url => {
+    if (url.endsWith('/status')) return {data:{enabled:true}};
+    if (url==='/clinical-forms') return {data:{plans:[]}};
+    if (url.endsWith('/updates/catalog')) return {data:{recipients:[recipient]}};
+    if (url.endsWith('/contacts')) return {data:{items:[{id:12,isActive:true,contact:{isActive:true,fullName:'External Contact'}}]}};
+    if (url.endsWith('/catalog')) return {data:{recipients:[recipient],documents:[]}};
+    throw new Error('Unexpected request '+url);
+  });
+  api.post.mockResolvedValue({data:{assignedCount:1}});
+  wrapper=mount(Modal,{props:{...props,inline:true,clinicalMode:'full',recipientGuardianId:3}});
+  await flushPromises();
+  await button('Select individual items').trigger('click');
+  const release = wrapper.findAll('.pick-row').find(row=>row.text().startsWith('Release of information'));
+  await release.get('input').setValue(true);
+  await flushPromises();
+  await wrapper.get('.release-recipient select').setValue(12);
+  await wrapper.get('.review-selection > label input[type=checkbox]').setValue(true);
+  await button('Assign in portal').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledExactlyOnceWith('/enrollment-portal/clients/5/assignments',expect.objectContaining({
+    recipient:{id:3,kind:'guardian'},authorityConfirmed:true,documents:[{release:true,contactId:12}]
+  }));
+});

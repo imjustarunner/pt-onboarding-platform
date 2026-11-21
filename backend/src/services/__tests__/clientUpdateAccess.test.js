@@ -8,7 +8,7 @@ vi.mock('../assessmentDeliverable.service.js',()=>({assertClientCanViewOwnShared
 vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:m.gate}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:async()=>({portal:{slug:'care',clinical_portal:true},url:path=>`https://auricwell.com/care/${path}`}),sendClientPortalEmail:m.send}));
 vi.mock('../clientPortalContext.service.js',()=>({clientPortalInviteUrl:()=> 'https://auricwell.com/care/login?redirect=%2Fcare%2Fguardian'}));
-import {createClientUpdate,sendClientUpdate,sendReenrollmentUpdate,currentClientUpdateRecipient,guardianClientUpdate,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
+import {createClientUpdate,sendClientUpdate,sendReenrollmentUpdate,currentClientUpdateRecipient,guardianClientUpdate,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,previewClientUpdateNotice,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
 let request,client,contact;
 it('sends a dedicated re-enrollment invitation for an archived client without reopening care',async()=>{
  vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','');request.purpose='reenrollment';request.service_enrollment_id=3;client.status='ARCHIVED';
@@ -41,3 +41,21 @@ it.each([{},'{broken',{clientUpdateRequestId:99}])('fails closed for a saved upd
 it.each([{coGuardianToken:'separate-invitation'},{coGuardianInviteId:77}])('rejects an additional guardian binding before accepting an existing-client document update: %j',async context=>{request.status='sent';await expect(assertClientUpdateSubmissionContext({public_key:'packet',scope_type:'agency',organization_id:2,custom_messages:{clientUpdateRequestId:7}},context)).rejects.toMatchObject({status:409});expect(m.upsert).not.toHaveBeenCalled();});
 
 it.each(['caregiver@example.invalid,outsider@else.invalid','caregiver@example.invalid;outsider@else.invalid','Name <caregiver@example.invalid>','caregiver@example.invalid\r\nBcc: outsider@else.invalid',['caregiver@example.invalid']])('rejects a malformed saved recipient before account authority or transport: %j',async email=>{contact.email=email;await expect(currentClientUpdateRecipient({agencyId:2,clientId:5,to:email})).rejects.toMatchObject({status:409});expect(m.access).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();});
+
+
+it('keeps unreviewed measures and static school releases out of new family requests',async()=>{
+  m.execute.mockResolvedValueOnce([[{id:22,name:'Ashley ROI',document_type:'authorization'}]]);
+  await expect(createClientUpdate({agencyId:2,clientId:5,body:{documents:[22]}})).rejects.toMatchObject({status:400});
+  await expect(createClientUpdate({agencyId:2,clientId:5,body:{assessments:['values_alignment']}})).rejects.toMatchObject({status:400});
+  expect(m.execute).toHaveBeenCalledTimes(1);
+  expect(m.send).not.toHaveBeenCalled();
+});
+
+it('renders the existing-recipient email without creating an assignment or attempting delivery',async()=>{
+  const result=await previewClientUpdateNotice({client,recipientId:8});
+  expect(result.subject).toBe('Updates are ready in your secure portal');
+  expect(result.html).toContain('Review portal updates');
+  expect(result.html).not.toContain(contact.email);
+  expect(m.execute.mock.calls.filter(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toEqual([]);
+  expect(m.send).not.toHaveBeenCalled();
+});

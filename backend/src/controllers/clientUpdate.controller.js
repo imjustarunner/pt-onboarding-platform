@@ -1,3 +1,4 @@
+import { familySharingSchool } from '../services/familySharingCatalog.js';
 import {getFamilyMeta} from '../services/assessmentFamilyRegistry.js';
 import {normalizeUpdateSelection} from '../services/clientUpdateSelection.js';
 import {requireBillingStaff} from '../services/familyLedger/policy.js';
@@ -39,10 +40,10 @@ export async function getClientUpdateCatalog(req, res, next) {
     const agencyId = access.client.agency_id;
     if(!catalog.enabled)return res.json({client_id:clientId,...catalog});
     const recipients=await ClientUpdate.assignmentRecipients(clientId,agencyId);
-    const [[school]]=await pool.execute(`SELECT org.id FROM agencies org WHERE org.organization_type='school'
-      AND (org.id=? OR EXISTS(SELECT 1 FROM client_organization_assignments ca WHERE ca.client_id=? AND ca.organization_id=org.id AND ca.is_active=1))
-      AND (EXISTS(SELECT 1 FROM organization_affiliations f WHERE f.organization_id=org.id AND f.agency_id=? AND f.is_active=1)
-      OR EXISTS(SELECT 1 FROM agency_schools f WHERE f.school_organization_id=org.id AND f.agency_id=? AND f.is_active=1)) LIMIT 1`,[access.client.organization_id||null,clientId,agencyId,agencyId]);
+    const school = await familySharingSchool(access.client);
+    const portalSteps = catalog.portalSteps.filter(step => step.key !== 'authorization').map(step => step.key === 'payment'
+      ? { ...step, title: 'Payment setup', detail: 'Review and sign one payment authorization, then add or select a card in Stripe when required.' }
+      : step);
     const [packages] = await pool.execute('SELECT id,name,school_only,selection_json FROM portal_assignment_packages WHERE agency_id=? ORDER BY name',[agencyId]);
     const [items]=await pool.execute(`SELECT i.id,i.title,i.item_type,i.status,i.completed_at,i.reference_key,i.assessment_id,
       (d.id IS NOT NULL) AS has_result,JSON_UNQUOTE(JSON_EXTRACT(d.scores_snapshot_json,'$.scores.overall')) AS overall_score,
@@ -67,14 +68,24 @@ export async function getClientUpdateCatalog(req, res, next) {
         else if(item.status==='pending' && ['in_progress','waiting_for_partner','shared_results_released','priority_selection','planning'].includes(state))item.status='in_progress';
       }
     }
+    if (school) {
+      const [schoolItems] = await pool.execute(`SELECT s.id, 'Smart School ROI' AS title, 'school_roi' AS item_type,
+        CASE s.status WHEN 'completed' THEN 'complete' WHEN 'issued' THEN 'pending' ELSE s.status END AS status, s.signed_at AS completed_at,
+        s.recipient_guardian_user_id AS recipientUserId,u.first_name,u.last_name
+        FROM client_school_roi_signing_links s JOIN users u ON u.id=s.recipient_guardian_user_id
+        WHERE s.client_id=? AND s.school_organization_id=? AND (s.staff_requested_at IS NOT NULL OR s.issued_by_user_id<>s.recipient_guardian_user_id)`, [clientId, school.id]);
+      items.push(...schoolItems.map(item => ({ ...item, typeLabel: 'School document', canRemind: false })));
+    }
     const requests = new Map();
     for (const item of items) {
+      if (!item.request_id) continue;
       const progress = requests.get(item.request_id) || { total: 0, completed: 0 };
       progress.total++;
       if (item.status === 'complete') progress.completed++;
       requests.set(item.request_id, progress);
     }
     for (const item of items) {
+      if (!item.request_id) continue;
       const { total, completed } = requests.get(item.request_id);
       item.requestTotal = total;
       item.requestCompleted = completed;
@@ -88,7 +99,7 @@ export async function getClientUpdateCatalog(req, res, next) {
         WHERE task.agency_id=? AND JSON_LENGTH(task.client_ids_json)=1 AND JSON_CONTAINS(task.client_ids_json,CAST(? AS JSON)) ORDER BY task.id DESC`,[agencyId,JSON.stringify(clientId)]);
       items.push(...tasks);
     }
-    res.json({ client_id: clientId, ...catalog, canAssignPayments, recipients, items, schoolClient:!!school, schoolRoiExpiresAt:school?access.client.roi_expires_at:null, packages:packages.map(row=>({...row,selection_json:typeof row.selection_json==='string'?JSON.parse(row.selection_json):row.selection_json})) });
+    res.json({ client_id: clientId, ...catalog, portalSteps, canAssignPayments, recipients, items, schoolClient:!!school, schoolName:school?.name || null, schoolRoiExpiresAt:school?access.client.roi_expires_at:null, packages:packages.map(row=>({...row,selection_json:typeof row.selection_json==='string'?JSON.parse(row.selection_json):row.selection_json})) });
   } catch (error) {
     sendError(res, error, next);
   }
@@ -104,7 +115,16 @@ export async function previewUpdateItem(req,res,next) {
     const catalog=await ClientUpdate.listUpdateCatalog(agencyId);
     if(!catalog.enabled)return res.sendStatus(404);
     res.set('Cache-Control','no-store');
-    if(req.params.kind==='assessment' && catalog.assessments.some(a=>a.family===req.params.key)){
+    if (req.params.kind === 'email' && req.params.key === 'notice') {
+      return res.json(await ClientUpdate.previewClientUpdateNotice({client:access.client,recipientId:Number(req.query.recipientId)}));
+    }
+    if (req.params.kind === 'smart') {
+      const { clientAccess } = await import('../services/safetyPlans/access.js');
+      await clientAccess(req.user, clientId);
+      const { previewFamilySmartForm } = await import('../services/familySharingSmartForms.js');
+      return res.json(await previewFamilySmartForm(access.client, req.params.key, req.query.locale || 'en'));
+    }
+    if(req.params.kind==='assessment' && catalog.assessments.some(a=>a.family===req.params.key && a.assignable)){
       const {readAssignmentTemplate}=await import('../services/assessmentAssign.service.js');
       return res.json(await readAssignmentTemplate(req.params.key,agencyId));
     }
@@ -140,6 +160,19 @@ export async function previewUpdateItem(req,res,next) {
     }
     return res.sendStatus(404);
   } catch(error){return sendError(res,error,next);}
+}
+
+export async function assignSmartUpdateItem(req, res, next) {
+  try {
+    if (req.user?.demoMode || req.user?.switchedFromUserId) return res.sendStatus(403);
+    const access = await requireManagedClient(req, Number(req.params.id));
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    if (!ClientUpdate.clientUpdatesEnabled()) return res.sendStatus(404);
+    const { assignFamilySmartForm } = await import('../services/familySharingSmartForms.js');
+    return res.json(await assignFamilySmartForm(req.user, access.client, req.body || {}));
+  } catch (error) {
+    return sendError(res, error, next);
+  }
 }
 
 export async function listClientUpdates(req, res, next) {
@@ -230,7 +263,7 @@ export async function createAssignmentPackage(req,res,next) {
       selection.context={channel:context.channel,audience:context.audience,service:context.service,locale:context.locale};
     }
     const catalog=await ClientUpdate.listUpdateCatalog(access.client.agency_id);
-    if(!name || name.length>100 || !catalog.enabled || selection.documents.some(id=>!catalog.documents.some(d=>d.id===id)) || selection.assessments.some(key=>!catalog.assessments.some(a=>a.family===key)))return res.status(400).json({error:{message:'Enter a package name and select current agency items.'}});
+    if(!name || name.length>100 || !catalog.enabled || selection.documents.some(id=>!catalog.documents.some(d=>d.id===id)) || selection.assessments.some(key=>!catalog.assessments.some(a=>a.family===key && a.assignable)))return res.status(400).json({error:{message:'Enter a package name and select current agency items.'}});
     const [result]=await pool.execute('INSERT INTO portal_assignment_packages (agency_id,name,school_only,selection_json,created_by_user_id) VALUES (?,?,?,?,?)',[access.client.agency_id,name,req.body.schoolOnly===true,JSON.stringify(selection),req.user.id]);
     res.status(201).json({id:result.insertId});
   } catch(error) {

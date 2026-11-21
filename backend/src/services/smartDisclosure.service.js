@@ -691,6 +691,8 @@ export async function buildSmartDisclosureContext({
 } = {}) {
   const schoolOrg = organization || null;
   const orgType = String(schoolOrg?.organization_type || 'school').trim().toLowerCase();
+  const messages = parseJsonMaybe(link?.custom_messages || link?.customMessages);
+  const assignedTeamOnly = messages?.disclosureAssignedTeamOnly === true;
   const isSchoolFamilyOrg = !!schoolOrg && ['school', 'program', 'learning'].includes(orgType);
   // Enabled for any school-family org, programmed disclosure steps, or standalone smart_disclosure forms.
   // Demo Hogwarts people remain filtered via isDemoPacketIdentity in listDisclosureProviders.
@@ -703,7 +705,7 @@ export async function buildSmartDisclosureContext({
   }
 
   const agencyId = Number(agency?.id || boundClient?.agency_id || link?.agency_id || 0);
-  const schoolId = Number(schoolOrg?.id || boundClient?.organization_id || link?.organization_id || 0);
+  const schoolId = assignedTeamOnly && !isSchoolFamilyOrg ? null : Number(schoolOrg?.id || boundClient?.organization_id || link?.organization_id || 0);
   const loc = normalizeLocale(locale || link?.language_code || schoolOrg?.language_code || 'en');
   const settings = agencyId
     ? await loadAgencyDisclosureSettings(agencyId, loc)
@@ -730,8 +732,17 @@ export async function buildSmartDisclosureContext({
     })
     : [];
 
+  let disclosedProviders = providers;
+  if (assignedTeamOnly) {
+    const [assignments] = await pool.execute(
+      'SELECT provider_user_id FROM client_provider_assignments WHERE client_id=? AND is_active=1',
+      [boundClient?.id || 0]
+    );
+    const assigned = new Set([boundClient?.provider_id, ...assignments.map(row => row.provider_user_id)].map(Number));
+    disclosedProviders = providers.filter(provider => assigned.has(Number(provider.id)));
+  }
   const contentHash = crypto.createHash('sha256').update(JSON.stringify({
-    copy, businessEntity, providers: providers.map((p) => p.credentialFingerprint)
+    copy, businessEntity, providers: disclosedProviders.map((p) => p.credentialFingerprint)
   })).digest('hex').slice(0, 40);
 
   let signerPrefill = null;
@@ -768,10 +779,10 @@ export async function buildSmartDisclosureContext({
       id: Number(boundClient.id),
       fullName: boundClient.full_name || boundClient.fullName || null
     } : null,
-    signerPrefill,
+    signerPrefill: assignedTeamOnly ? null : signerPrefill,
     businessEntity,
     copy,
-    providers,
+    providers: disclosedProviders,
     sections: [
       { id: 'intro', title: copy.title, html: copy.introHtml },
       ...(copy.doraHtml ? [{ id: 'dora', title: null, html: copy.doraHtml }] : []),

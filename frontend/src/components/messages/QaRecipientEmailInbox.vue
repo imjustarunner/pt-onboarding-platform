@@ -19,7 +19,8 @@
       <h3>{{ selected.subject }}</h3>
       <p>To: {{ selected.recipient }} · Status: {{ selected.deliveryStatus }}</p>
       <p v-if="selected.from">From: {{ selected.from }}</p>
-      <iframe title="Email message" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" :srcdoc="safeDocument" />
+      <iframe title="Email message" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" :srcdoc="safeDocument" v-if="safeDocument" />
+      <pre v-else class="email-plain">{{ selected.body }}</pre>
     </article>
     </div>
   </details>
@@ -27,7 +28,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import DOMPurify from 'dompurify';
+import { prepareEmailPreview } from '../../utils/emailPreview';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 const auth = useAuthStore();
@@ -40,22 +41,7 @@ function formatTime(value) {
     month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'
   }).format(date);
 }
-const safeDocument=computed(() => {
-  const clean=DOMPurify.sanitize(selected.value?.body || '', { FORBID_TAGS:['form','input','button','iframe','script','style','link','meta','base'], ADD_ATTR:['target'] });
-  const document=new DOMParser().parseFromString(clean,'text/html');
-  for(const link of document.querySelectorAll('a')){link.setAttribute('target','_blank');link.setAttribute('rel','noopener noreferrer');}
-  // Remote images remain blocked; avoid displaying broken-image placeholders.
-  for(const img of document.querySelectorAll('img')) {
-    if (!String(img.getAttribute('src') || '').startsWith('data:')) img.remove();
-  }
-  // Branded signatures reserve columns for remote logos/icons. With those
-  // images blocked, empty columns must not squeeze contact text on a phone.
-  for(const cell of document.querySelectorAll('[data-pt-staff-signature] td')) {
-    if(!cell.textContent.trim()&&!cell.querySelector('img'))cell.style.display='none';
-  }
-  const body=document.body.innerHTML;
-  return '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>body{font:16px/1.5 system-ui;margin:0;padding:12px;overflow-wrap:anywhere}table{max-width:100%!important}img{max-width:100%;height:auto}a{color:#1659a4}@media(max-width:600px){[data-pt-staff-signature]>table:first-child>tbody>tr>td:not([style*="display: none"]){display:block;width:auto!important;border-left:0!important;padding:4px 0!important;text-align:left!important}}</style>'+body;
-});
+const safeDocument=computed(() => prepareEmailPreview(selected.value?.body, { openLinks:true }).html);
 async function load(beforeId=null) {
   const version=++generation; loading.value=true; error.value=''; selected.value=null;
   try {
@@ -89,6 +75,7 @@ button:disabled{cursor:wait;opacity:.65}li button{width:100%;text-align:left;lin
 li button:hover,li button[aria-pressed="true"]{background:#edf4ff;border-color:#b9d3fa}
 li span{display:block;margin:6px 12px;color:#52647a}
 article{min-width:0}h3{margin:0 0 12px;font-size:18px;line-height:1.4;overflow-wrap:anywhere}
+.email-plain{white-space:pre-wrap;overflow-wrap:anywhere}
 iframe{display:block;box-sizing:border-box;width:100%;height:650px;border:1px solid #d8e2ee;border-radius:10px;background:white}
 span,p{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 @media(max-width:850px){.email-layout.has-selection{grid-template-columns:minmax(0,1fr)}.email-list{max-height:240px}iframe{height:560px}.qa-email-inbox{padding:12px}}

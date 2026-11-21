@@ -39,7 +39,7 @@
       </form>
 
       <template v-if="activeClientId && (enabled || clinicalMode)">
-        <p v-if="schoolClient" class="hint">School release expires · {{ schoolExpiry || 'No expiration recorded' }}</p>
+        <p v-if="schoolClient" class="hint">{{ schoolName || "School" }} release expires · {{ schoolExpiry || 'No expiration recorded' }}</p>
         <p v-if="error || clinicalError" class="cu-error" role="alert">{{ error }} {{ clinicalError }} <button v-if="clinicalError" @click="reloadWorkspace">Retry</button></p>
         <p v-if="success" class="cu-ok" role="status">{{ success }}</p>
         <template v-if="editorId">
@@ -57,6 +57,7 @@
               <h4>Assign to client portal</h4>
               <button v-if="enabled" class="choice" type="button" @click="openPicker('packages')"><Layers /> Use a package <ChevronRight /></button>
               <button class="choice" type="button" @click="openPicker('items')"><ListChecks /> Select individual items <ChevronRight /></button>
+              <button v-if="refreshAvailable" class="choice" type="button" @click="useRefreshPackage"><Layers /> Bring client records up to date <ChevronRight /></button>
               <button v-if="clinicalMode && !recipientGuardianId" class="choice" type="button" :disabled="saving||preparing" @click="clinical.prepare({group:'release'})"><FileSignature /> Prepare a release <ChevronRight /></button>
               <template v-if="packages.length"><h5>Agency packages</h5>
                 <button type="button" class="package-link" v-for="pkg in packages.slice(0,4)" :key="pkg.id" @click="usePackage(pkg)">{{ pkg.name }} <small>{{ packageSize(pkg) }} items</small></button>
@@ -98,12 +99,14 @@
                 <div v-if="clinicalMode==='full'" class="context-options">
                   <label v-for="field in contextOptions" :key="field.key">{{ field.label }}<select v-model="context[field.key]"><option v-for="[value,label] in field.options" :key="value" :value="value">{{ label }}</option></select></label>
                 </div>
+                <p v-if="picker !== 'create'" class="hint">Choose individual items for the selected client. The family completes them in their portal.</p>
                 <input type="search" v-model.trim="catalogSearch" placeholder="Find a form or assessment" aria-label="Search available items" />
                 <div class="cu-grid">
                   <section v-for="group in selectionGroups" :key="group.key">
                     <h5>{{ group.label }}</h5><div v-for="item in group.items" :key="item.id" class="pick-row">
-                      <label><input v-if="clinicalMode!=='release' || group.key!=='records'" type="checkbox" :checked="isSelected(item)" @change="toggleItem(item,$event.target.checked)" /> {{ item.title }}</label>
-                      <button type="button" class="text-action" @click="previewItems=[item]">Preview</button>
+                      <label><input v-if="item.assignable !== false && (clinicalMode!=='release' || group.key!=='records')" type="checkbox" :checked="isSelected(item)" @change="toggleItem(item,$event.target.checked)" /> {{ item.title }}</label>
+                      <small v-if="item.assignable === false" class="status-tag">Coming soon</small>
+                      <button v-else type="button" class="text-action" @click="previewItems=[item]">Preview</button>
                       <button v-if="!recipientGuardianId && ['foundation','records'].includes(group.key)" type="button" class="text-action" @click="clinical.prepare(item)">{{ group.key==='records'?'Open':'Prepare' }}</button>
                     </div>
                   </section>
@@ -116,18 +119,39 @@
           <section v-if="selectedItems.length && picker!=='create'" class="review-selection">
             <h4>Review assignment <span>({{ selectedItems.length }})</span></h4>
             <ul><li v-for="s in selectedItems" :key="s.group+':'+s.id">{{ s.title }}</li></ul>
+            <section v-if="releaseSelected" class="release-recipient">
+              <label>Release recipient
+                <select v-model="releaseContactId" :disabled="saving || attemptedDelivery">
+                  <option :value="null">Let the signer enter the contact</option>
+                  <option v-for="entry in releaseContacts" :key="entry.id" :value="entry.id">{{ entry.contact.fullName }}</option>
+                </select>
+              </label>
+              <button v-if="contactError" type="button" @click="loadReleaseContacts">Retry loading contacts</button>
+              <p v-if="contactError" role="alert">{{ contactError }}</p>
+              <small>Contact details entered by the signer are filed on the client’s profile after staff review.</small>
+              <details v-if="!attemptedDelivery"><summary>Add a contact to the client’s profile</summary>
+                <form @submit.prevent="addReleaseContact">
+                  <label>Name <input v-model.trim="newContact.fullName" required maxlength="180" /></label>
+                  <label>Email <input v-model.trim="newContact.email" type="email" /></label>
+                  <label>Phone <input v-model.trim="newContact.phone" type="tel" /></label>
+                  <button type="submit" :disabled="savingContact">Save and select contact</button>
+                </form>
+              </details>
+            </section>
             <label>Portal recipient <select v-model="chosenId" :disabled="saving || attemptedDelivery"><option value="">Select a linked account</option><option v-for="r in eligible" :value="r.id" :key="r.id">{{ r.name }}{{ r.email?' · '+r.email:'' }}</option></select></label>
             <p v-if="!eligible.length" class="hint">No linked account has access to this selection. Review portal access or the responsible payer in Billing.</p>
-            <template v-if="clinicalSelection.length">
-              <label>Recipient action <select v-model="clinicalAction" :disabled="saving"><option value="complete">Complete forms and sign</option><option value="sign">Review and sign</option></select></label>
+            <template v-if="needsAuthority">
+              <label v-if="clinicalSelection.length">Recipient action <select v-model="clinicalAction" :disabled="saving"><option value="complete">Complete forms and sign</option><option value="sign">Review and sign</option></select></label>
               <label v-if="chosen?.kind==='guardian'"><input type="checkbox" v-model="authority" :disabled="saving" /> I verified this guardian is authorized to sign the selected documents.</label>
             </template>
             <p v-if="clinicalSelection.length>30" role="alert">Select up to 30 enrollment forms and saved documents at once.</p>
-            <footer><button type="button" @click="previewItems=selectedItems.slice()">Preview selection</button>
-              <button type="button" class="btn btn-primary" :disabled="!canSend" @click="send">{{ saving ? 'Assigning…' : 'Send portal update' }}</button></footer>
+            <p v-if="chosen" class="hint">{{ includeUpdateEmail ? 'A portal update email is requested, subject to the recipient’s contact choices. The forms are completed in the portal.' : 'This selection is assigned in the portal.' }}</p>
+            <footer><button v-if="chosen && includeUpdateEmail && !paymentOnly" type="button" @click="previewItems=[{group:'notice',id:'notice',title:'Email notice'}]">Preview email notice</button>
+              <button type="button" @click="previewItems=selectedItems.slice()">Preview selection</button>
+              <button type="button" class="btn btn-primary" :disabled="!canSend" @click="send">{{ saving ? 'Assigning…' : includeUpdateEmail ? 'Send portal update' : 'Assign in portal' }}</button></footer>
           </section>
         </template>
-        <PortalSelectionPreview v-if="previewItems.length" :items="previewItems" :client-id="activeClientId" :agency-id="agencyId" :client-name="activeName" :recipient="chosen" :action="clinicalAction" :context="context" :branding="clinicalCatalog?.branding || {name:agencyName}" @close="previewItems=[]" />
+        <PortalSelectionPreview v-if="previewItems.length" :items="previewItems" :client-id="activeClientId" :agency-id="agencyId" :client-name="activeName" :recipient="authorizationOnlyPackage && chosen ? {...chosen,cardAllowed:false} : chosen" :action="clinicalAction" :context="context" :release-contact="chosenReleaseContact" :branding="clinicalCatalog?.branding || {name:agencyName}" @reviewed="rememberSmartPreview" @close="previewItems=[]" />
       </template>
     </div>
   </div>
@@ -153,6 +177,11 @@ const props = defineProps({
 const emit = defineEmits(['close', 'sent', 'created']);
 
 const catalog = reactive({ documents: [], assessments: [], portalSteps: [] });
+const previewedSmart = new Map();
+function rememberSmartPreview({key,locale,contentHash}) { previewedSmart.set(key+':'+locale, contentHash); }
+const smartKeys = ref([]), releaseSelected = ref(false), authorizationOnlyPackage = ref(false);
+const releaseContactId = ref(null), releaseContacts = ref([]), contactError = ref(''), savingContact = ref(false);
+const newContact = reactive({fullName:'',email:'',phone:''});
 const selected = reactive({ documents: [], assessments: [], portalSteps: [] });
 const organizations = ref([]);
 const providers = ref([]);
@@ -179,16 +208,24 @@ const clinicalAction=ref('complete'), authority=ref(false), catalogLoading=ref(f
 const picker=ref(''), pickerPanel=ref(null), previewItems=ref([]), catalogSearch=ref('');
 const busyLoading=computed(()=>readinessLoading.value || catalogLoading.value || clinicalLoading.value);
 const anyUpdates=computed(()=>selected.documents.length+selected.assessments.length+selected.portalSteps.length>0);
-const anySelected=computed(()=>anyUpdates.value || clinicalSelection.value.length>0);
+const needsAuthority = computed(() => clinicalSelection.value.length > 0 || smartKeys.value.length > 0 || releaseSelected.value);
+const anySelected = computed(() => anyUpdates.value || needsAuthority.value);
+const includeUpdateEmail = computed(() => anyUpdates.value);
+const chosenReleaseContact = computed(() => releaseContacts.value.find(entry => entry.id === releaseContactId.value)?.contact);
+const typedForms = computed(() => [
+  ...(enabled.value && props.clinicalMode === 'full' ? [{group:'smart',id:'smart-disclosure',title:'Current provider disclosure'}] : []),
+  ...(enabled.value && schoolClient.value && props.clinicalMode === 'full' ? [{group:'smart',id:'smart-school-roi',title:'Smart School ROI · ' + (schoolName.value || 'Client’s school')}] : []),
+  ...(props.clinicalMode ? [{group:'release',id:'release-of-information',title:'Release of information'}] : [])
+]);
 const updateChoices=computed(()=>[
   ...catalog.documents.map(d=>({group:'documents',id:d.id,title:d.name})),
-  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title})),
+  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title,assignable:a.assignable})),
   ...catalog.portalSteps.map(s=>({group:'portalSteps',id:s.key,title:s.title,detail:s.detail}))
 ]);
-const selectedItems=computed(()=>[...updateChoices.value.filter(isSelected),...clinicalSelection.value]);
-const groupLabels={documents:'Agency documents',assessments:'Assessments',portalSteps:'Portal steps',foundation:'Enrollment forms',records:'Saved documents'};
+const selectedItems=computed(()=>[...typedForms.value.filter(isSelected),...updateChoices.value.filter(isSelected),...clinicalSelection.value]);
+const groupLabels={smart:'School & provider forms',release:'Releases',foundation:'Current agreements',portalSteps:'Portal tasks',documents:'Other agency documents',records:'Saved documents',assessments:'Assessments'};
 const selectionGroups=computed(()=>{
-  const choices=[...updateChoices.value,...clinical.foundations.value,...clinical.saved.value];
+  const choices=[...(picker.value==='create'?[]:typedForms.value),...updateChoices.value,...clinical.foundations.value,...clinical.saved.value];
   return Object.entries(groupLabels).filter(([key])=>key!=='records'||picker.value!=='create').map(([key,label])=>({
     key,label,items:choices.filter(d=>d.group===key && d.title.toLowerCase().includes(catalogSearch.value.toLowerCase()))
   })).filter(group=>group.items.length);
@@ -198,10 +235,21 @@ function idsFor(group){
   if(group==='foundation')return clinical.foundationKeys.value;
   return selected[group];
 }
-function isSelected(item){return idsFor(item.group).includes(item.id);}
+function isSelected(item){
+  if(item.group==='smart')return smartKeys.value.includes(item.id);
+  if(item.group==='release')return releaseSelected.value;
+  return idsFor(item.group).includes(item.id);
+}
 function toggleItem(item,on){
+  if(item.assignable===false)return;
   authority.value=false;
-  const ids=idsFor(item.group),index=ids.indexOf(item.id);
+  if(item.group==='portalSteps' && item.id==='payment')authorizationOnlyPackage.value=false;
+  if(item.group==='release'){
+    releaseSelected.value=on;
+    if(on)void loadReleaseContacts();
+    return;
+  }
+  const ids=item.group==='smart'?smartKeys.value:idsFor(item.group),index=ids.indexOf(item.id);
   if(on && index<0)ids.push(item.id);
   if(!on && index>=0)ids.splice(index,1);
 }
@@ -222,12 +270,13 @@ async function openPicker(value){
 }
 function clearSelection(){
   for(const group of Object.keys(selected))selected[group]=[];
-  clinical.foundationKeys.value=[];clinical.recordIds.value=[];authority.value=false;
+  authorizationOnlyPackage.value=false;
+  clinical.foundationKeys.value=[];clinical.recordIds.value=[];smartKeys.value=[];releaseSelected.value=false;releaseContactId.value=null;authority.value=false;
 }
 async function reloadWorkspace(){await Promise.all([enabled.value?loadCatalog().catch(()=>{error.value='The assignment list could not be refreshed.';}):null,clinical.load()]);}
 function prepareToLeave(){return !saving.value && clinical.canLeave();}
 defineExpose({prepareToLeave});
-const schoolClient=ref(false),schoolExpiry=ref('');
+const schoolClient=ref(false),schoolName=ref(''),schoolExpiry=ref('');
 const packages=ref([]),items=ref([]),recipients=ref([]),chosenId=ref(''),packageName=ref(''),schoolOnly=ref(false),packageFilter=ref(''),search=ref('');
 const itemType=ref(''),itemStatus=ref('');
 const allItems = computed(() => {
@@ -258,12 +307,14 @@ const filteredItems=computed(()=>allItems.value.filter(i=>(!itemType.value || ty
 const paymentSelected=computed(()=>selected.portalSteps.some(k=>['payment','authorization'].includes(k)));
 const paymentOnly=computed(()=>paymentSelected.value && !selected.documents.length && !selected.assessments.length && selected.portalSteps.every(k=>['payment','authorization'].includes(k)));
 const eligibleRecipients=computed(()=>{
-  const updateRecipients=recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing) && (!selected.portalSteps.includes('payment') || r.cardAllowed!==false));
-  if(!clinicalSelection.value.length)return updateRecipients;
-  const clinicalRecipients=clinicalCatalog.value?.recipients || [];
-  if(!anyUpdates.value)return clinicalRecipients;
+  const updateRecipients=recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing));
+  const schoolRelease=smartKeys.value.includes('smart-school-roi');
+  const allowed=schoolRelease ? updateRecipients.filter(r=>r.kind!=='client') : updateRecipients;
+  if(!needsAuthority.value)return allowed;
+  const clinicalRecipients=(clinicalCatalog.value?.recipients || []).filter(r=>!schoolRelease || r.kind==='guardian');
+  if(!anyUpdates.value && !smartKeys.value.length)return clinicalRecipients;
   return clinicalRecipients.flatMap(r=>{
-    const update=updateRecipients.find(u=>Number(u.id)===Number(r.id));
+    const update=allowed.find(u=>Number(u.id)===Number(r.id));
     return update?[{...update,kind:r.kind}]:[];
   });
 });
@@ -273,12 +324,17 @@ const eligible = computed(() => props.recipientGuardianId
 const chosen=computed(()=>eligible.value.find(r=>Number(r.id)===Number(chosenId.value)));
 watch(eligible,rows=>{if(!rows.some(r=>Number(r.id)===Number(chosenId.value)))chosenId.value=!saving.value && rows.length===1?rows[0].id:'';},{flush:'sync'});
 watch(chosenId,()=>{authority.value=false;},{flush:'sync'});
-const canSend=computed(()=>anySelected.value && chosen.value && !saving.value && !attemptedDelivery.value && clinicalSelection.value.length<=30 && (!clinicalSelection.value.length || chosen.value.kind!=='guardian' || authority.value));
+const canSend=computed(()=>anySelected.value && chosen.value && !saving.value && !attemptedDelivery.value && clinicalSelection.value.length+Number(releaseSelected.value)<=30 && (!needsAuthority.value || chosen.value.kind!=='guardian' || authority.value));
 const visiblePackages=computed(()=>packages.value.filter(p=>!packageFilter.value || Number(p.school_only)));
 const packageSize=p=>['documents','assessments','portalSteps','foundationKeys'].reduce((n,k)=>n+(p.selection_json?.[k]?.length || 0),0);
 async function usePackage(pkg){
   if(saving.value || attemptedDelivery.value)return;
-  const selection=pkg.selection_json;
+  const stored=pkg.selection_json;
+  const paymentSteps=stored.portalSteps || [];
+  const useCurrentPayment=catalog.portalSteps.some(step=>step.key==='payment');
+  const selection=useCurrentPayment
+    ? {...stored,portalSteps:[...new Set(paymentSteps.map(key=>key==='authorization'?'payment':key))]}
+    : stored;
   authority.value=false;
   if(selection.foundationKeys?.length && props.clinicalMode!=='full'){
     error.value='This package includes enrollment forms. Open it in the client portal workspace with clinical access.';return;
@@ -292,14 +348,50 @@ async function usePackage(pkg){
       error.value='An enrollment form in this package is unavailable for this client.';return;
     }
   }
-  const allowed={documents:catalog.documents.map(r=>r.id),assessments:catalog.assessments.map(r=>r.family),portalSteps:catalog.portalSteps.map(r=>r.key)};
-  if(Object.keys(allowed).some(k=>(pkg.selection_json[k]||[]).some(v=>!allowed[k].includes(v)))){
+  const allowed={documents:catalog.documents.map(r=>r.id),assessments:catalog.assessments.filter(r=>r.assignable!==false).map(r=>r.family),portalSteps:catalog.portalSteps.map(r=>r.key)};
+  if(Object.keys(allowed).some(k=>(selection[k]||[]).some(v=>!allowed[k].includes(v)))){
     error.value='This package contains an unavailable item. Choose current items individually.';
     return;
   }
-  picker.value='items';catalogSearch.value='';clinical.recordIds.value=[];clinical.foundationKeys.value=[...(selection.foundationKeys||[])];
+  picker.value='items';catalogSearch.value='';clinical.recordIds.value=[];smartKeys.value=[];releaseSelected.value=false;clinical.foundationKeys.value=[...(selection.foundationKeys||[])];
   error.value='';
-  for(const key of Object.keys(allowed))selected[key]=[...(pkg.selection_json[key]||[])];
+  authorizationOnlyPackage.value=useCurrentPayment && paymentSteps.includes('authorization') && !paymentSteps.includes('payment');
+  for(const key of Object.keys(allowed))selected[key]=[...(selection[key]||[])];
+}
+const refreshAvailable = computed(() => enabled.value && props.clinicalMode==='full' && clinicalCatalog.value?.refreshFoundationKeys?.length);
+async function useRefreshPackage(){
+  if(saving.value || attemptedDelivery.value)return;
+  clearSelection();
+  clinicalAction.value='complete';
+  clinical.foundationKeys.value=[...clinicalCatalog.value.refreshFoundationKeys];
+  smartKeys.value=['smart-disclosure'];
+  selected.portalSteps=['information'];
+  await openPicker('items');
+}
+async function loadReleaseContacts(){
+  const current=generation;
+  contactError.value='';
+  try {
+    const {data}=await api.get(`/clients/${activeClientId.value}/contacts`);
+    if(current===generation)releaseContacts.value=(data.items || []).filter(entry=>entry.isActive && entry.contact?.isActive);
+  } catch(e) {
+    if(current===generation)contactError.value=e.response?.data?.error?.message || 'Saved contacts could not be loaded.';
+  }
+}
+async function addReleaseContact(){
+  const current=generation;
+  if(savingContact.value || !newContact.fullName)return;
+  savingContact.value=true;
+  contactError.value='';
+  try {
+    const {data}=await api.post(`/clients/${activeClientId.value}/contacts`,{...newContact,importContext:'release_recipient'});
+    if(current!==generation)return;
+    Object.assign(newContact,{fullName:'',email:'',phone:''});
+    await loadReleaseContacts();
+    if(current===generation)releaseContactId.value=Number(data.affiliation?.id) || null;
+  } catch(e) {
+    if(current===generation)contactError.value=e.response?.data?.error?.message || 'The contact could not be saved.';
+  } finally { savingContact.value=false; }
 }
 async function savePackage(){
   const current=generation;
@@ -340,7 +432,9 @@ async function loadCatalog() {
   finally{if(current===generation)catalogLoading.value=false;}
   if(current!==generation)return;
   historyError.value=false;
-  schoolClient.value=response.data?.schoolClient===true;schoolExpiry.value=String(response.data?.schoolRoiExpiresAt||'').slice(0,10);
+  const firstSchoolLoad = !schoolClient.value && response.data?.schoolClient===true;
+  schoolClient.value=response.data?.schoolClient===true;schoolName.value=response.data?.schoolName || '';schoolExpiry.value=String(response.data?.schoolRoiExpiresAt||'').slice(0,10);
+  if (firstSchoolLoad) context.channel='school';
   recipients.value=response.data?.recipients||[];packages.value=response.data?.packages||[];items.value=response.data?.items||[];
   catalog.documents = response.data?.documents || [];
   catalog.assessments = response.data?.assessments || [];
@@ -436,9 +530,23 @@ async function send() {
   saving.value=true;
   let assignedClinical=false;
   try {
-    if(clinicalSelection.value.length){
+    const requestContext={...context};
+    const signerAuthority=authority.value;
+    const reviewedSmartForms = [];
+    for(const key of smartKeys.value){
+      const {data}=await api.get(`/clients/${clientId}/updates/preview/smart/${key}`,{params:{locale:requestContext.locale}});
+      const previewHash=previewedSmart.get(key+':'+requestContext.locale);
+      if(previewHash && previewHash!==data.context?.contentHash){
+        if(current===generation)error.value='The provider disclosure changed. Open its preview again before assigning.';
+        return;
+      }
+      reviewedSmartForms.push({key,contentHash:data.context?.contentHash});
+    }
+    if(current!==generation)return;
+    if(clinicalSelection.value.length || releaseSelected.value){
       const documents=clinicalSelection.value.map(d=>d.group==='records'?{recordId:d.id,version:d.version}:{foundationKey:d.id});
-      const payload={agencyId,recipient:{id:recipient.id,kind:recipient.kind},authorityConfirmed:authority.value,action:clinicalAction.value,context:{...context},documents};
+      if(releaseSelected.value)documents.push({release:true,contactId:releaseContactId.value});
+      const payload={agencyId,recipient:{id:recipient.id,kind:recipient.kind},authorityConfirmed:signerAuthority,action:clinicalAction.value,context:requestContext,documents};
       const fingerprint=JSON.stringify([clientId,payload]);
       if(lastClinicalRequest?.fingerprint!==fingerprint)lastClinicalRequest={fingerprint,requestKey:crypto.randomUUID(),planDate:new Date().toLocaleDateString('en-CA')};
       const {data}=await api.post('/enrollment-portal/clients/'+clientId+'/assignments',{...payload,requestKey:lastClinicalRequest.requestKey,planDate:lastClinicalRequest.planDate});
@@ -447,12 +555,23 @@ async function send() {
       success.value=data.assignedCount ? data.assignedCount+' document(s) assigned. A portal notification is queued.' : 'Selected documents are already assigned.';
       clinical.recordIds.value=[];
       clinical.foundationKeys.value=[];
+      releaseSelected.value=false;
       await clinical.load();
-      if(current!==generation || !includeUpdates)return;
+      if(current!==generation)return;
+    }
+    for(const reviewed of reviewedSmartForms){
+      await api.post(`/clients/${clientId}/updates/smart-form`,{...reviewed,locale:requestContext.locale,recipient:{id:recipient.id,kind:recipient.kind},authorityConfirmed:signerAuthority});
+      if(current!==generation)return;
+      smartKeys.value=smartKeys.value.filter(key=>key!==reviewed.key);
+      success.value='Current forms are assigned in the portal.';
+    }
+    if(!includeUpdates){
+      if(reviewedSmartForms.length)await loadCatalog();
+      return;
     }
     if(paymentSelected.value){
       attemptedDelivery.value=true;
-      const {data}=await api.post('/family-billing/staff/tasks',{agencyId,guardianUserId:recipient.id,clientIds:[clientId],fromPortal:true,requireCard:selected.portalSteps.includes('payment')});
+      const {data}=await api.post('/family-billing/staff/tasks',{agencyId,guardianUserId:recipient.id,clientIds:[clientId],fromPortal:true,requireCard:selected.portalSteps.includes('payment') && recipient.cardAllowed!==false && !authorizationOnlyPackage.value});
       if(current!==generation)return;
       if(paymentOnly.value){
         const notice=await api.post(`/family-billing/staff/notices/${data.noticeId}/send`,{agencyId});
@@ -466,7 +585,7 @@ async function send() {
       send: false,
       documents: selected.documents,
       assessments: selected.assessments,
-      portalSteps: selected.portalSteps,
+      portalSteps: selected.portalSteps.filter(key=>!['payment','authorization'].includes(key)),
       guardianUserId: recipient.id,
       guardianEmail: recipient.email,
       guardianFirstName: guardianFirstName.value.trim(),
@@ -497,16 +616,20 @@ async function send() {
 
 watch(() => [props.open,props.clientId,props.agencyId,props.canUpdate], async ([open]) => {
   const current=++generation;
+  previewedSmart.clear();
   historyError.value=false;lastClinicalRequest=null;previewItems.value=[];authority.value=false;picker.value=props.inline?'':'items';catalogSearch.value='';catalogLoading.value=false;
   if (!open) return;
   error.value = '';
   success.value = '';
   createdClientId.value = null;
   createdName.value = '';
+  authorizationOnlyPackage.value=false;
   selected.documents = [];
   selected.assessments = [];
   selected.portalSteps = [];
-  itemType.value='';itemStatus.value='';schoolClient.value=false;schoolExpiry.value='';packages.value=[];items.value=[];recipients.value=[];chosenId.value='';packageName.value='';schoolOnly.value=false;packageFilter.value='';search.value='';saving.value=false;
+  itemType.value='';itemStatus.value='';schoolClient.value=false;schoolName.value='';schoolExpiry.value='';
+  smartKeys.value=[];releaseSelected.value=false;releaseContactId.value=null;releaseContacts.value=[];contactError.value='';packages.value=[];items.value=[];recipients.value=[];chosenId.value='';packageName.value='';schoolOnly.value=false;packageFilter.value='';search.value='';saving.value=false;
+  context.channel='office';
   catalog.documents=[];catalog.assessments=[];catalog.portalSteps=[];organizations.value=[];providers.value=[];
   enabled.value=false;requestId.value=null;attemptedDelivery.value=false;readinessLoading.value=true;
   if(!props.canUpdate){readinessLoading.value=false;return;}
@@ -537,7 +660,8 @@ onBeforeUnmount(()=>{generation++;});
 .cu-modal button,.cu-modal input:not([type=checkbox]),.cu-modal select{font:inherit;box-sizing:border-box;max-width:100%;min-width:0;padding:8px 12px;border:1px solid #cad7e4;border-radius:7px;background:white;color:#193a60}
 .cu-modal button{cursor:pointer}.cu-modal button:disabled{opacity:.55;cursor:default}.cu-modal .btn-primary{background:#123967;color:#fff;border-color:#123967}.heading-actions button,.choice{display:flex;align-items:center;gap:8px}.heading-actions svg,.choice svg{width:18px;height:18px;flex-shrink:0}
 .cu-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:22px 0}.cu-metrics button{display:flex;align-items:center;gap:12px;padding:14px;text-align:left;border-color:transparent;background:#edf4fc;color:#22496c}.cu-metrics b{font-size:1.4rem}.cu-metrics small{display:block;margin-top:3px}.cu-metrics .pending{background:#fff6e4;color:#845e09}.cu-metrics .started{background:#eaf2fe}.cu-metrics .complete{background:#eaf6ee;color:#266140}.cu-metrics .result{background:#f2effb;color:#66508c}.cu-metrics button[aria-pressed=true]{border-color:#8ca3bf}
-.cu-layout{display:grid;grid-template-columns:minmax(200px,.72fr) minmax(0,2fr);align-items:start;gap:16px}.assignment-panel,.assigned-list,.picker-panel,.review-selection{border:1px solid #d4dfe9;border-radius:11px;padding:16px;min-width:0}.cu-modal h4{font-size:1.08rem}.cu-modal h5{margin:14px 0 6px;font-size:.9rem}.cu-modal .choice,.package-link{width:100%;text-align:left;margin-top:9px}.choice svg:last-child,.package-link small{margin-left:auto}.cu-modal .package-link{display:flex;align-items:center;justify-content:space-between}.filters{margin:14px 0}.filters input{flex:1;min-width:135px}.request-progress{display:grid;gap:3px;margin-top:4px}.request-progress progress{max-width:100%;width:100px;height:7px;accent-color:#275e94}.table-scroll{overflow-x:auto}.assigned-list table{width:100%;border-collapse:collapse;font-size:.85rem}.assigned-list th,.assigned-list td{padding:12px 8px;border-bottom:1px solid #e3e9ef;text-align:left}.assigned-list th{color:#52647a;font-weight:600;background:#f6f8fb}.assigned-list td.empty{text-align:center;padding:24px;color:#607187}.status-tag{display:inline-block;background:#eef1f6;border-radius:6px;padding:3px 7px}.status-tag.pending{background:#fff2cd;color:#795800}.status-tag.complete{background:#e0f3e7;color:#23563a}.status-tag.in_progress{background:#e4edff;color:#1a4886}.picker-panel,.review-selection{margin-top:16px;padding:18px}.cu-modal fieldset{border:0;padding:0;margin:12px 0;min-width:0}.cu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(270px,100%),1fr));align-items:start;gap:15px;margin-top:12px}.cu-grid section{border:1px solid #d4dfe9;border-radius:9px;padding:0 12px 8px}.pick-row{display:flex;align-items:center;gap:6px;border-top:1px solid #e7edf2;padding:8px 0}.pick-row label{flex:1}.cu-modal .text-action{padding:3px;border:0;color:#205d93;text-decoration:underline}.review-selection label,.cu-shell label,.context-options label{display:block;margin:10px 0}.context-options select,.cu-shell input,.cu-shell select{display:block;margin-top:4px}.review-selection footer{justify-content:flex-end;margin-top:12px}.cu-error,.cu-ok{padding:10px;border-radius:6px}.cu-error{color:#883221;background:#fdf1ed}.cu-ok{color:#235b3c;background:#edf7ee}
+.cu-layout{display:grid;grid-template-columns:minmax(200px,.72fr) minmax(0,2fr);align-items:start;gap:16px}.assignment-panel,.assigned-list,.picker-panel,.review-selection{border:1px solid #d4dfe9;border-radius:11px;padding:16px;min-width:0}.cu-modal h4{font-size:1.08rem}.cu-modal h5{margin:14px 0 6px;font-size:.9rem}.cu-modal .choice,.package-link{width:100%;text-align:left;margin-top:9px}.choice svg:last-child,.package-link small{margin-left:auto}.cu-modal .package-link{display:flex;align-items:center;justify-content:space-between}.filters{margin:14px 0}.filters input{flex:1;min-width:135px}.request-progress{display:grid;gap:3px;margin-top:4px}.request-progress progress{max-width:100%;width:100px;height:7px;accent-color:#275e94}.table-scroll{overflow-x:auto}.assigned-list table{width:100%;border-collapse:collapse;font-size:.85rem}.assigned-list th,.assigned-list td{padding:12px 8px;border-bottom:1px solid #e3e9ef;text-align:left}.assigned-list th{color:#52647a;font-weight:600;background:#f6f8fb}.assigned-list td.empty{text-align:center;padding:24px;color:#607187}.status-tag{display:inline-block;background:#eef1f6;border-radius:6px;padding:3px 7px}.status-tag.pending{background:#fff2cd;color:#795800}.status-tag.complete{background:#e0f3e7;color:#23563a}.status-tag.in_progress{background:#e4edff;color:#1a4886}.picker-panel,.review-selection{margin-top:16px;padding:18px}.cu-modal fieldset{border:0;padding:0;margin:12px 0;min-width:0}.release-recipient{margin:12px 0;padding:12px;border:1px solid #d5dfeb;border-radius:8px}.release-recipient form{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin-top:10px}
+.cu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(270px,100%),1fr));align-items:start;gap:15px;margin-top:12px}.cu-grid section{border:1px solid #d4dfe9;border-radius:9px;padding:0 12px 8px}.pick-row{display:flex;align-items:center;gap:6px;border-top:1px solid #e7edf2;padding:8px 0}.pick-row label{flex:1}.cu-modal .text-action{padding:3px;border:0;color:#205d93;text-decoration:underline}.review-selection label,.cu-shell label,.context-options label{display:block;margin:10px 0}.context-options select,.cu-shell input,.cu-shell select{display:block;margin-top:4px}.review-selection footer{justify-content:flex-end;margin-top:12px}.cu-error,.cu-ok{padding:10px;border-radius:6px}.cu-error{color:#883221;background:#fdf1ed}.cu-ok{color:#235b3c;background:#edf7ee}
 @media(max-width:950px){.cu-layout{grid-template-columns:1fr}.cu-metrics{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}
 @media(max-width:540px){.cu-backdrop{padding:6px}.cu-modal{padding:12px}.cu-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.cu-metrics button{padding:10px}.heading-actions{width:100%}.cu-grid{display:block}.cu-grid section{margin:8px 0}}
 </style>

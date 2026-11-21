@@ -782,7 +782,8 @@ const loadTemplates = async () => {
       params: {
         isUserSpecific: false, // Only show library documents, not user-specific
         limit: 100, // Get more templates for selection
-        isActive: true
+        isActive: true,
+        ...(props.guardianAccount ? { guardianAccount: true } : {})
       }
     });
     

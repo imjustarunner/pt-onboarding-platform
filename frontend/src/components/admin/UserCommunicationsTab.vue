@@ -252,8 +252,9 @@
           <div class="view-communication-content">
             <h4>Subject:</h4>
             <p class="email-subject">{{ viewingCommunication.subject }}</p>
-            <h4>Body:</h4>
-            <pre class="email-body">{{ viewingCommunication.body }}</pre>
+            <h4>Email body</h4>
+            <iframe v-if="emailPreview.html" class="email-frame" sandbox="" referrerpolicy="no-referrer" title="Email preview" :srcdoc="emailPreview.html" />
+            <pre v-else class="email-body">{{ emailPreview.text }}</pre>
           </div>
           <div class="modal-actions">
             <button @click="copyCommunication(viewingCommunication)" class="btn btn-primary">Copy Email</button>
@@ -269,6 +270,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
+import { prepareEmailPreview } from '../../utils/emailPreview';
 
 const router = useRouter();
 
@@ -312,6 +314,7 @@ const error = ref('');
 const selectedAgency = ref('');
 const selectedType = ref('');
 const viewingCommunication = ref(null);
+const emailPreview = computed(() => prepareEmailPreview(viewingCommunication.value?.body));
 const posting = ref(false);
 const postError = ref('');
 const postSuccess = ref('');
@@ -485,7 +488,7 @@ const closeViewModal = () => {
 };
 
 const copyCommunication = async (comm) => {
-  const emailText = `Subject: ${comm.subject}\n\n${comm.body}`;
+  const emailText = `Subject: ${comm.subject}\n\n${prepareEmailPreview(comm.body).text}`;
   try {
     await navigator.clipboard.writeText(emailText);
     alert('Email copied to clipboard');
@@ -679,6 +682,8 @@ onMounted(() => {
   font-size: 14px;
   margin-bottom: 16px;
 }
+
+.email-frame { width: 100%; min-height: 340px; height: 48dvh; border: 1px solid var(--border, #dbe3ec); border-radius: 8px; background: #fff; }
 
 .email-body {
   padding: 12px;

@@ -7,7 +7,7 @@ export function usePortalDocumentRecords(props, clientId, clientName) {
   const recordIds=ref([]), foundationKeys=ref([]), editorId=ref(null), editor=ref(null), preparing=ref(false);
   let generation=0;
   const foundations=computed(()=>(catalog.value?.documents || []).map(d=>({group:'foundation',id:d.key,title:d.title})));
-  const saved=computed(()=>records.value.filter(r=>!r.revoked).map(r=>({group:'records',id:r.id,version:r.version,title:r.documentName || r.title})));
+  const saved=computed(()=>records.value.filter(r=>!r.revoked && r.documentKey !== 'cssrs-screener' && !['screening-questionnaires','school-roi','communications-preferences','insurance-information','enrollment-form','packet-acknowledgment'].includes(r.source?.foundationKey)).map(r=>({group:'records',id:r.id,version:r.version,title:r.documentName || r.title})));
   const selected=computed(()=>[
     ...saved.value.filter(d=>recordIds.value.includes(d.id)),
     ...foundations.value.filter(d=>foundationKeys.value.includes(d.id))
@@ -30,12 +30,14 @@ export function usePortalDocumentRecords(props, clientId, clientName) {
     const releaseOnly=props.clinicalMode==='release';
     loading.value=true;
     const requests=[api.get('/clinical-forms',{params:{clientId:clientId.value,...(releaseOnly?{documentKey:'release-of-information'}:{})}})];
-    if(!releaseOnly)requests.push(api.get('/enrollment-portal/clients/'+clientId.value+'/catalog',{params:{agencyId:props.agencyId,...context}}));
+    requests.push(releaseOnly
+      ? api.get('/clinical-forms/template',{params:{documentKey:'release-of-information',clientId:clientId.value,agencyId:props.agencyId}})
+      : api.get('/enrollment-portal/clients/'+clientId.value+'/catalog',{params:{agencyId:props.agencyId,...context}}));
     const [savedResult,templateResult]=await Promise.allSettled(requests);
     if(run!==generation)return;
     if(savedResult.status==='fulfilled')records.value=savedResult.value.data.plans || [];
     if(templateResult?.status==='fulfilled')catalog.value=templateResult.value.data;
-    error.value=[savedResult.status==='rejected'?'Saved documents could not be loaded.':'',templateResult?.status==='rejected'?'Enrollment forms could not be loaded.':''].filter(Boolean).join(' ');
+    error.value=[savedResult.status==='rejected'?'Saved documents could not be loaded.':'',templateResult?.status==='rejected'?(releaseOnly?'Release options could not be loaded.':'Enrollment forms could not be loaded.'):''].filter(Boolean).join(' ');
     loading.value=false;
   }
   async function prepare(item){

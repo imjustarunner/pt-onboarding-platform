@@ -1,5 +1,11 @@
 <template>
   <div ref="flowRoot" class="smart-roi-flow" tabindex="-1">
+    <nav v-if="previewOnly" class="form-preview-nav" aria-label="Form steps">
+      <button type="button" :disabled="stageIndex === 0" @click="stageIndex--">Previous step</button>
+      <span>Step {{ stageIndex + 1 }} of {{ stageOrder.length - 1 }}</span>
+      <button type="button" :disabled="stageIndex >= stageOrder.length - 2" @click="stageIndex++">Next step</button>
+    </nav>
+    <div class="flow-stages" :inert="previewOnly">
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="stage === 'intro'" class="smart-roi-card">
@@ -683,6 +689,7 @@
         <a v-if="downloadUrl" class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">{{ tr('Download signed ROI', 'Descargar ROI firmado') }}</a>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -693,6 +700,7 @@ import SignaturePad from '../SignaturePad.vue';
 import BirthDateInput from '../public-intake/BirthDateInput.vue';
 
 const props = defineProps({
+  previewOnly: Boolean,
   publicKey: {
     type: String,
     required: true
@@ -799,7 +807,7 @@ const stageIndex = ref(0);
 const flowRoot = ref(null);
 watch(stageIndex, async () => {
   await nextTick();
-  flowRoot.value?.focus({ preventScroll: true });
+  if (!props.previewOnly) flowRoot.value?.focus({ preventScroll: true });
   flowRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
 });
 const submissionId = ref(null);
@@ -1118,7 +1126,7 @@ const buildSubmissionPayload = () => ({
 });
 
 const clearDraft = () => {
-  if (isEmbeddedMode.value) return;
+  if (isEmbeddedMode.value || props.previewOnly) return;
   try {
     localStorage.removeItem(draftStorageKey.value);
   } catch {
@@ -1171,7 +1179,7 @@ const buildDraftSnapshot = () => ({
 });
 
 const restoreDraftSnapshot = () => {
-  if (isEmbeddedMode.value) return;
+  if (isEmbeddedMode.value || props.previewOnly) return;
   let parsed = null;
   try {
     const raw = localStorage.getItem(draftStorageKey.value);
@@ -1253,7 +1261,7 @@ const restoreDraftSnapshot = () => {
 };
 
 const queueDraftPersist = () => {
-  if (isEmbeddedMode.value) return;
+  if (isEmbeddedMode.value || props.previewOnly) return;
   if (draftPersistTimer) clearTimeout(draftPersistTimer);
   draftPersistTimer = setTimeout(() => {
     try {
@@ -1520,6 +1528,7 @@ const withRequestTimeout = (promise, ms = 30000) =>
   ]);
 
 const submitRoi = async () => {
+  if (props.previewOnly) return;
   if (!validateCurrentStage()) return;
   submitting.value = true;
   error.value = '';
@@ -1583,6 +1592,8 @@ const submitRoi = async () => {
 </script>
 
 <style scoped>
+.flow-stages { display: contents; }
+.form-preview-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
 .smart-roi-flow { scroll-margin-top: 24px; outline: none; }
 .roi-decision-group + .roi-decision-group { margin-top: 24px; padding-top: 24px; border-top: 1px solid #dce4ed; }
 .smart-roi-flow {

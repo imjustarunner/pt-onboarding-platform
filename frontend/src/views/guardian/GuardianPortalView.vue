@@ -31,6 +31,8 @@
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>{{ ft("Please complete onboarding for") }} <strong>{{ profileLabel(selectedChild) }}</strong> {{ ft("so your new portal is accurate.") }}</span><button type="button" @click="navigatePortal('onboarding')">{{ ft("Continue onboarding") }}</button></p>
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">{{ ft("Please complete the available onboarding steps before opening billing. Payment setup is included below.") }}</p>
       <PortalMigrationChecklist :profiles="readableFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
+      <PortalPaymentTasks v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess && activePanel === 'updates'"
+        :agency-id="selectedChildAgencyId" :client-id="selectedChildId" hide-empty />
       <ClientUpdateChecklist v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess && activePanel === 'updates'" :key="`updates:${selectedChildAgencyId}:${selectedChildId}`" :profiles="readableFamilyProfiles" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :brand-name="auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :learning="standardsLearningVisible" @navigate="navigatePortal" />
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
@@ -635,6 +637,7 @@ import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
 import { tenantLegalProfiles } from '../../content/tenantLegalProfiles.js';
 import FamilyNotificationChoices from '../../components/guardian/FamilyNotificationChoices.vue';
 import PortalMigrationChecklist from '../../components/guardian/PortalMigrationChecklist.vue';
+import PortalPaymentTasks from '../../components/portal/PortalPaymentTasks.vue';
 import ClientUpdateChecklist from '../../components/guardian/ClientUpdateChecklist.vue';
 import AuricWellPortalGuide from '../../components/guardian/AuricWellPortalGuide.vue';
 import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';

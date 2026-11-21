@@ -549,8 +549,17 @@ export const assignTask = async (req, res, next) => {
       if (!template) {
         return res.status(404).json({ error: { message: 'Document template not found' } });
       }
-      if (!template.is_active) {
+      if (!template.is_active || Number(template.is_archived)) {
         return res.status(400).json({ error: { message: 'Document template is not active' } });
+      }
+      if (assignedToUserId) {
+        const assignee = await User.findById(Number(assignedToUserId));
+        if (['client','client_guardian','guardian'].includes(assignee?.role)) {
+          const { isGuardianAccountDocument } = await import('../services/familySharingCatalog.js');
+          if (!isGuardianAccountDocument(template)) {
+            return res.status(400).json({ error: { message: 'Choose current account documents or assign this form from the linked client’s portal workflow.' } });
+          }
+        }
       }
       
       // Use the template's document_action_type (set at upload time)
@@ -660,7 +669,7 @@ export const bulkAssignTasks = async (req, res, next) => {
         // Get template to use its document_action_type
         const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
         const template = await DocumentTemplate.findById(referenceId);
-        if (!template) {
+        if (!template || Number(template.is_archived)) {
           return res.status(404).json({ error: { message: 'Document template not found' } });
         }
         const templateActionType = template.document_action_type || 'signature';
@@ -701,7 +710,7 @@ export const bulkAssignTasks = async (req, res, next) => {
         // Get template to use its document_action_type
         const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
         const template = await DocumentTemplate.findById(referenceId);
-        if (!template) {
+        if (!template || Number(template.is_archived)) {
           return res.status(404).json({ error: { message: 'Document template not found' } });
         }
         const templateActionType = template.document_action_type || 'signature';

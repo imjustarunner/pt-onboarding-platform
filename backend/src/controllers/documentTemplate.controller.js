@@ -1,3 +1,4 @@
+import { GUARDIAN_ACCOUNT_DOCUMENT_TYPES, isGuardianAccountDocument } from '../services/familySharingCatalog.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import DocumentVariableService from '../services/documentVariable.service.js';
 import pool from '../config/database.js';
@@ -501,8 +502,17 @@ export const getTemplates = async (req, res, next) => {
     if (sortBy) filters.sortBy = sortBy;
     if (sortOrder) filters.sortOrder = sortOrder;
 
+    const guardianAccount = req.query.guardianAccount === 'true';
+    if (guardianAccount) {
+      filters.documentType = GUARDIAN_ACCOUNT_DOCUMENT_TYPES;
+      filters.isUserSpecific = false;
+      filters.isActive = true;
+    }
     const result = await DocumentTemplate.findAll(filters);
-    return res.json(result);
+    if (guardianAccount && Array.isArray(result?.data)) {
+      return res.json({ ...result, data: result.data.filter(isGuardianAccountDocument) });
+    }
+    return res.json(guardianAccount && Array.isArray(result) ? result.filter(isGuardianAccountDocument) : result);
   } catch (error) {
     return next(error);
   }

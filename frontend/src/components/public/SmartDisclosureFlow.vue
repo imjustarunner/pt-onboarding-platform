@@ -1,5 +1,11 @@
 <template>
   <div class="smart-disclosure-flow">
+    <nav v-if="previewOnly" class="form-preview-nav" aria-label="Form steps">
+      <button type="button" :disabled="stageIndex === 0" @click="stageIndex--">Previous step</button>
+      <span>Step {{ stageIndex + 1 }} of {{ stageOrder.length - 1 }}</span>
+      <button type="button" :disabled="stageIndex >= stageOrder.length - 2" @click="stageIndex++">Next step</button>
+    </nav>
+    <div class="flow-stages" :inert="previewOnly">
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="stage === 'intro'" class="smart-disclosure-card">
@@ -238,6 +244,7 @@
         </a>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -254,6 +261,7 @@ const CATEGORY_LABELS = {
 };
 
 const props = defineProps({
+  previewOnly: Boolean,
   disclosureContext: {
     type: Object,
     default: null
@@ -640,6 +648,7 @@ const withRequestTimeout = (promise, ms = 30000) =>
   ]);
 
 const submitDisclosure = async () => {
+  if (props.previewOnly) return;
   if (!providers.value.length) {
     error.value = tr('The provider disclosure is not ready. Please contact your care team before continuing.', 'La declaración del proveedor aún no está lista. Comuníquese con su equipo de atención antes de continuar.');
     return;
@@ -728,6 +737,8 @@ const submitDisclosure = async () => {
 </script>
 
 <style scoped>
+.flow-stages { display: contents; }
+.form-preview-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
 .smart-disclosure-flow {
   display: grid;
   gap: 16px;

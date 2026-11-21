@@ -76,8 +76,8 @@ export async function openGuardianSchoolRelease({
   const existing = await findExisting({ clientId: cid, schoolOrganizationId: schoolId, recipientGuardianUserId: uid });
   // Enrollment may contain this guardian's signed release without a separate
   // portal signing link. Only a new staff-issued request should reopen it.
-  const explicitlyRequested = existing && Number(existing.issued_by_user_id) > 0
-    && Number(existing.issued_by_user_id) !== uid;
+  const explicitlyRequested = existing && (existing.staff_requested_at || (Number(existing.issued_by_user_id) > 0
+    && Number(existing.issued_by_user_id) !== uid));
   const consent = await loadConsent({ clientId: cid, schoolOrganizationId: schoolId, db });
   // Expose only shared release decisions, never enrollment answers or documents
   // belonging to another guardian. The existing document-access check still applies.
@@ -108,6 +108,7 @@ export async function openGuardianSchoolRelease({
     schoolOrganizationId: schoolId,
     actorUserId: uid,
     recipientGuardianUserId: uid,
+    preferredLanguageCode: existing?.roi_context_json?.issuedConfig?.preferredLanguageCode || existing?.intake_link_language_code || 'en',
     regenerate: false
   });
   const publicKey = String(issued?.issuedLink?.public_key || '').trim();

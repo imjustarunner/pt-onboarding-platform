@@ -24,7 +24,7 @@ import {enrollmentCoverageFingerprint} from '../../utils/enrollmentCoverage.js';
 import api from '../../services/api';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 const { tx, txFmt, intakeLocale } = useIntakeStepTx();
-const props = defineProps({ agencyId: [String, Number], publicKey: String, submissionId: [String, Number], ownerKey:[String,Number], email:String, insuranceInfo:{type:Object,default:null}, paymentOnly:Boolean, collectionAllowed:{type:Boolean,default:true} });
+const props = defineProps({ agencyId: [String, Number], publicKey: String, submissionId: [String, Number], ownerKey:[String,Number], email:String, initialName:String, insuranceInfo:{type:Object,default:null}, paymentOnly:Boolean, collectionAllowed:{type:Boolean,default:true} });
 const emit = defineEmits(['saved', 'unavailable']);
 const intakeSession = inject('intakeSessionToken', ref(''));
 const cardEntry = ref(null), loading = ref(true), ready = ref(false), busy = ref(false), error = ref(''), name = ref(''), accepted = ref(false), complete = ref(false), saved = ref(''), terms = ref('');
@@ -43,7 +43,7 @@ const requestOptions = () => intake() ? { headers: { 'x-intake-session': intakeS
 const coverageReview=()=>({coverageReviewed:true,coverageFingerprint:enrollmentCoverageFingerprint(props.insuranceInfo||{})});
 async function initialize() {
   const generation=++requestGeneration;
-  loading.value = true; ready.value = false; error.value = '';name.value='';billingEmail.value='';terms.value='';busy.value=false;complete.value=false;saved.value='';accepted.value=false;config.value={};clientSecret.value='';
+  loading.value = true; ready.value = false; error.value = '';name.value=props.initialName || '';billingEmail.value='';terms.value='';busy.value=false;complete.value=false;saved.value='';accepted.value=false;config.value={};clientSecret.value='';
   if(!collectionAllowed.value){loading.value=false;return;}
   try {
     if(intake()&&prepareIntakePayment)await prepareIntakePayment();

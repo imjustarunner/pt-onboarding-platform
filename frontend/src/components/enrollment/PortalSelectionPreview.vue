@@ -12,6 +12,15 @@
     <main aria-live="polite">
       <p v-if="loading" role="status">Loading preview…</p>
       <div v-else-if="error" role="alert">{{ error }} <button type="button" @click="load">Retry</button></div>
+      <section v-else-if="notice">
+        <h4>{{ notice.subject }}</h4>
+        <iframe title="Email notice preview" sandbox="" referrerpolicy="no-referrer" :srcdoc="notice.html" />
+        <p>Final delivery follows this account’s contact choices and the agency’s email settings.</p>
+      </section>
+      <SmartSchoolRoiFlow v-else-if="smart && item.id === 'smart-school-roi'" :key="item.id" :roi-context="smart" :locale="smart.locale"
+        :link="{language_code:smart.locale}" :bound-client="smart.client" public-key="" session-token="" preview-only />
+      <SmartDisclosureFlow v-else-if="smart" :key="item.id" :disclosure-context="smart" :locale="smart.locale"
+        :bound-client="smart.client" public-key="" preview-only />
       <fieldset v-else-if="plan" disabled>
         <SafetyPlanDocument :model-value="plan.data" :template="plan.template" :branding="plan.branding || branding" :version="plan.version" :editable="editableForm" />
         <div v-if="plan.template.key !== 'attendance-verification'" inert @submit.capture.stop.prevent>
@@ -51,31 +60,34 @@
             <label><input type="checkbox" /> I have reviewed this plan and agree to sign electronically.</label>
             <label>Full name for your signature <input /></label>
           </template>
-          <p v-if="item.id==='payment'">The recipient can select or add a payment method in secure payment setup.</p>
+          <p v-if="item.id==='payment' && recipient?.cardAllowed !== false">After accepting the payment authorization, the payer selects an eligible saved card or opens Stripe’s secure card form if a card is required.</p>
           <label v-if="item.id==='information'"><input type="checkbox" /> I reviewed this information. It is correct, or I submitted the needed corrections.</label>
         </fieldset>
       </section>
     </main>
-    <footer>Preview only. Sending and signing are separate actions.</footer>
+    <footer>Read-only preview · Nothing is sent or signed here.</footer>
   </dialog>
 </template>
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';
+import {prepareEmailPreview} from '../../utils/emailPreview';
 import SafetyPlanDocument from '../safetyPlans/SafetyPlanDocument.vue';
 import SafetyPlanSigning from '../safetyPlans/SafetyPlanSigning.vue';
-const props = defineProps({items:{type:Array,required:true},clientId:[Number,String],agencyId:[Number,String],clientName:String,recipient:Object,context:Object,branding:Object,action:String});
-defineEmits(['close']);
+import SmartSchoolRoiFlow from '../public/SmartSchoolRoiFlow.vue';
+import SmartDisclosureFlow from '../public/SmartDisclosureFlow.vue';
+const props = defineProps({items:{type:Array,required:true},clientId:[Number,String],agencyId:[Number,String],clientName:String,recipient:Object,context:Object,branding:Object,action:String,releaseContact:Object});
+const emit = defineEmits(['close','reviewed']);
 const position=ref(0), dialog=ref(null), loading=ref(false), error=ref('');
-const plan=ref(null), assessment=ref(null), html=ref(''), terms=ref(''), pdf=ref(''), step=ref({});
+const notice=ref(null), smart=ref(null), plan=ref(null), assessment=ref(null), html=ref(''), terms=ref(''), pdf=ref(''), step=ref({});
 const item=computed(()=>props.items[position.value]);
 const payment=computed(()=>item.value?.group==='portalSteps' && ['authorization','payment'].includes(item.value.id));
-const editableForm=computed(()=>props.action==='complete' && ['safety-plan','release-of-information','client-information-update','enrollment-document'].includes(plan.value?.template.key));
+const editableForm=computed(()=>item.value?.group==='release' || props.action==='complete' && ['safety-plan','release-of-information','client-information-update','enrollment-document'].includes(plan.value?.template.key));
 let sequence=0;
 function clear(){
   if(pdf.value)URL.revokeObjectURL(pdf.value);
-  pdf.value='';plan.value=null;assessment.value=null;html.value='';terms.value='';step.value={};
+  pdf.value='';notice.value=null;smart.value=null;plan.value=null;assessment.value=null;html.value='';terms.value='';step.value={};
 }
 function questionText(questions){
   return Object.values(questions || {}).flat().map(q=>typeof q==='string'?q:q?.text || q?.prompt).filter(Boolean);
@@ -85,7 +97,22 @@ async function load(){
   clear();error.value='';loading.value=true;
   try{
     const base='/clients/'+props.clientId+'/updates/preview/';
-    if(selected.group==='foundation'){
+    if(selected.group==='notice'){
+      const {data}=await api.get(base+'email/notice',{params:{recipientId:props.recipient?.id}});
+      if(run===sequence)notice.value={subject:data.subject,html:prepareEmailPreview(data.html).html};
+    }else if(selected.group==='smart'){
+      const {data}=await api.get(base+'smart/'+selected.id,{params:{locale:props.context?.locale || 'en'}});
+      if(run===sequence){
+        smart.value=data.context;
+        if(data.context?.contentHash)emit('reviewed',{key:selected.id,locale:props.context?.locale || 'en',contentHash:data.context.contentHash});
+      }
+    }else if(selected.group==='release'){
+      const {data}=await api.get('/clinical-forms/template',{params:{documentKey:selected.id,clientId:props.clientId,agencyId:props.agencyId}});
+      if(run===sequence)plan.value={template:data.template,branding:data.branding,version:1,data:{
+        personLabel:props.clientName,planDate:new Date().toLocaleDateString('en-CA'),
+        recipientName:props.releaseContact?.fullName || '',recipientEmail:props.releaseContact?.email || '',recipientPhone:props.releaseContact?.phone || ''
+      }};
+    }else if(selected.group==='foundation'){
       const {data}=await api.get('/enrollment-portal/clients/'+props.clientId+'/preview/'+encodeURIComponent(selected.id),{params:{...props.context,agencyId:props.agencyId}});
       if(run===sequence)plan.value={template:data,version:1,data:{personLabel:props.clientName,planDate:new Date().toLocaleDateString('en-CA')}};
     }else if(selected.group==='records'){
@@ -114,7 +141,7 @@ async function load(){
   }catch(e){if(run===sequence)error.value=e.response?.data?.error?.message || 'This preview could not be loaded.';}
   finally{if(run===sequence)loading.value=false;}
 }
-watch(()=>[item.value,props.clientId,props.recipient?.id],load,{immediate:true});
+watch(()=>[item.value,props.clientId,props.recipient?.id,props.context?.channel,props.context?.locale,props.context?.audience,props.context?.service,props.releaseContact?.id],load,{immediate:true});
 onMounted(()=>dialog.value?.showModal?.());
 onBeforeUnmount(()=>{sequence++;clear();});
 </script>

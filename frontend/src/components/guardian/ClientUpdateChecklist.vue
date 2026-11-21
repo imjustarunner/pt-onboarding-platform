@@ -13,7 +13,12 @@
         <template v-else>
           <p>{{ ft(item.detail) }}</p>
           <a v-if="item.href && ['document','assessment'].includes(item.type)" class="update-action" :href="item.href">{{ ft("Open") }} {{ ft(item.title) }}</a>
-          <GuardianClientDetails v-else-if="item.type === 'information'" :client-id="Number(clientId)" />
+          <template v-else-if="item.type === 'information'">
+            <GuardianClientDetails :client-id="Number(clientId)" />
+            <details><summary>{{ ft("Review additional contacts") }}</summary>
+              <ClientAffiliatedContactsPanel :client-id="Number(clientId)" mode="guardian" title="Additional contacts" embedded />
+            </details>
+          </template>
           <FamilyNotificationChoices v-else-if="item.type === 'notifications'" :agency-id="agencyId" :client-id="clientId" @saved="load" />
           <GuardianPlanProgressPanel v-else-if="item.type === 'plan'" :client-id="clientId" :agency-id="agencyId" :client-type="clientType" />
           <InsuranceCardTasks v-else-if="item.type === 'insurance'" :agency-id="agencyId" :client-id="clientId" />
@@ -36,6 +41,7 @@ import GuardianClientDetails from './GuardianClientDetails.vue';
 import FamilyNotificationChoices from './FamilyNotificationChoices.vue';
 import GuardianPlanProgressPanel from './GuardianPlanProgressPanel.vue';
 import GuardianPaymentInsuranceTab from './GuardianPaymentInsuranceTab.vue';
+import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 
 const props = defineProps({

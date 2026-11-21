@@ -120,6 +120,7 @@ for (const scenario of [
   { name: 'recognizes the current guardian’s enrollment signature', guardian: 15, existing: null, completed: true },
   { name: 'does not treat another guardian’s signature as this guardian’s', guardian: 16, existing: null, completed: false },
   { name: 'preserves a new staff-issued update request', guardian: 15, existing: { status: 'issued', issued_by_user_id: 99 }, completed: false },
+  { name: 'honors a staff assignment on a link originally opened by the guardian', guardian: 15, existing: { status: 'issued', issued_by_user_id: 15, staff_requested_at: '2026-11-21' }, completed: false },
   { name: 'does not reopen an automatically created portal link', guardian: 15, existing: { status: 'issued', issued_by_user_id: 15 }, completed: true }
 ]) it(scenario.name, async () => {
   let issued = false;

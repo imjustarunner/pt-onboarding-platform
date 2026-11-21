@@ -25,19 +25,35 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
       INSERT INTO chat_messages VALUES(3);
       CREATE TABLE users(id INT PRIMARY KEY,first_name TEXT,last_name TEXT,is_active BOOL,is_archived BOOL,terminated_at DATETIME,status VARCHAR(50));
       CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOL);
-      CREATE TABLE agencies(id INT,organization_type VARCHAR(30));
-      CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active BOOL);
+      CREATE TABLE agencies(id INT,name VARCHAR(80),organization_type VARCHAR(30),is_active BOOL,is_archived BOOL);
+      CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active BOOL,is_primary BOOL);
+      CREATE TABLE client_school_roi_signing_links(id INT,client_id INT,school_organization_id INT,recipient_guardian_user_id INT,issued_by_user_id INT,status VARCHAR(30),signed_at DATETIME);
       CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOL);
       CREATE TABLE agency_schools(school_organization_id INT,agency_id INT,is_active BOOL);
+      CREATE TABLE document_templates (id INT,name VARCHAR(255),agency_id INT,document_type VARCHAR(30),is_archived BOOL,archived_at DATETIME,archived_by_agency_id INT);
+      CREATE TABLE intake_links (is_active BOOL,allowed_document_template_ids JSON,intake_steps JSON);
+      CREATE TABLE agency_school_intake_masters(intake_steps JSON);
+      CREATE TABLE agency_office_intake_masters(intake_steps JSON);
+      CREATE TABLE agency_channel_intake_masters(intake_steps JSON);
+      INSERT INTO document_templates VALUES
+        (11,'ASHLEY ELEMENTARY SCHOOL ROI ESPAÑOL',3,'authorization',0,NULL,NULL),
+        (12,'BROADMOOR ELEMENTARY SCHOOL ROI',3,'authorization',0,NULL,NULL),
+        (13,'CHEYENNE MOUNTAIN HIGH SCHOOL ROI',3,'school_roi',0,NULL,NULL),
+        (14,'BROWN INTERNATIONAL ACADEMY ROI',3,'authorization',0,NULL,NULL),
+        (15,'Current general release',3,'consent',0,NULL,NULL);
+      INSERT INTO intake_links VALUES(1,JSON_ARRAY(12),NULL);
+      INSERT INTO agency_school_intake_masters VALUES(JSON_ARRAY(JSON_OBJECT('templateId',14)));
       CREATE TABLE family_billing_tasks(id INT,agency_id INT,guardian_user_id INT,client_ids_json JSON,status VARCHAR(30),expires_at DATETIME,completed_at DATETIME);
       CREATE TABLE client_assessment_deliverables(id INT,scores_snapshot_json JSON,client_id INT,agency_id INT,assessment_family VARCHAR(64),assessment_id INT,kind VARCHAR(30));
       INSERT INTO users VALUES(7,'Support','Staff',1,0,NULL,'ACTIVE'),(8,'Test','Guardian',1,0,NULL,'ACTIVE');
       INSERT INTO user_agencies VALUES(7,3,1);
-      INSERT INTO agencies VALUES(17,'school');
+      INSERT INTO agencies VALUES(17,'Test School','school',1,0),(18,'Other School','school',1,0);
+      INSERT INTO client_school_roi_signing_links VALUES(31,44,17,8,7,'issued',NULL),(32,44,18,8,7,'issued',NULL);
       INSERT INTO organization_affiliations VALUES(17,3,1);
       INSERT INTO family_billing_tasks VALUES(9,3,8,JSON_ARRAY(44),'pending',DATE_ADD(NOW(),INTERVAL 15 DAY),NULL);
     `);
     await runSql(await migration('1752_client_update_workflows.sql'));
+    await runSql(await migration('1857_archive_legacy_school_roi_templates.sql'));
     await runSql("ALTER TABLE client_update_requests ADD COLUMN purpose VARCHAR(30);");
     const setup=await migration('1852_portal_assignment_packages.sql');
     await runSql(setup);
@@ -59,8 +75,18 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
     const data=res.json.mock.lastCall[0];
     expect(data.packages.map(p=>p.name)).toEqual(['School intake']);
     expect(data.schoolRoiExpiresAt).toBe('2027-04-03');
-    expect(data.items).toMatchObject([{id:9,item_type:'billing',status:'pending',last_name:'Guardian'}]);
+    expect(data.schoolName).toBe('Test School');
+    expect(data.items).toMatchObject([
+      {id:31,item_type:'school_roi',status:'pending',recipientUserId:8},
+      {id:9,item_type:'billing',status:'pending',last_name:'Guardian'}
+    ]);
     expect(data.recipients).toMatchObject([{id:8,billing:true,forms:false}]);
+  });
+  it('archives named static uploads and preserves active references and the canonical smart template',async()=>{
+    const [rows]=await fixture.db.execute('SELECT id,is_archived,archived_by_agency_id FROM document_templates ORDER BY id');
+    expect(rows.map(row=>[row.id,row.is_archived,row.archived_by_agency_id])).toEqual([
+      [11,1,3],[12,0,null],[13,0,null],[14,0,null],[15,0,null]
+    ]);
   });
   it('counts completed items in each sent request using the actual assessment state', async () => {
     await fixture.db.execute('CREATE TABLE teen_wellbeing_assessments(id INT PRIMARY KEY, agency_id INT, client_id INT, status VARCHAR(40))');

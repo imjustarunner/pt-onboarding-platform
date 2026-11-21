@@ -118,7 +118,7 @@ export async function createClientAffiliatedContact(req, res, next) {
       acknowledgeNotify: !!req.body?.acknowledgeNotify,
       recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true,
       existingContactId: req.body?.existingContactId || req.body?.agencyContactId || null,
-      importOnly: req.body?.importContext === 'ehr_transition'
+      importOnly: ['ehr_transition','release_recipient'].includes(req.body?.importContext)
     });
     await logAuditEvent(req, { actionType: 'client_reminder_contact_added', agencyId: out.affiliation.agencyId, targetType: 'client_reminder_contact', targetId: out.affiliation.id, metadata: { clientId } });
     res.status(201).json(out);
