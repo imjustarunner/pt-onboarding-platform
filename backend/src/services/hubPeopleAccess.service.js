@@ -68,7 +68,9 @@ export async function scopeHubPeople(people, userId) {
        WHERE sa.supervisor_id = ? AND sa.agency_id = c.agency_id
          AND COALESCE(p.is_archived,0) = 0 AND UPPER(COALESCE(p.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','TERMINATED_PENDING','ARCHIVED','DELETED')
          AND (c.provider_id = p.id OR EXISTS (SELECT 1 FROM client_provider_assignments cpa WHERE cpa.client_id = c.id AND cpa.provider_user_id = p.id AND cpa.is_active = 1))) AS supervisee_names
-    FROM clients c LEFT JOIN client_guardians cg ON cg.client_id = c.id LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+    FROM clients c LEFT JOIN client_guardians cg ON cg.client_id = c.id
+      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
+    LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
     WHERE (${selector.join(' OR ')}) AND ${scope.sql}`, [userId,userId,userId,...args,...scope.params]);
   return visible.flatMap(p=>{
     if (!clinical.includes(p)) return [p];

@@ -141,6 +141,7 @@ import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from 
 import {
   getPeopleDuplicates as getClientDuplicates,
   getPeopleTests as getClientTests,
+  getLinkedClientCharts,
   previewPeopleMerge as previewClientMerge,
   applyPeopleMerge as applyClientMerge,
   patchClientDemo,
@@ -181,6 +182,7 @@ router.get('/archived', getArchivedClients);
 router.get('/name-duplicates', getClientNameDuplicates);
 router.get('/duplicates', getClientDuplicates);
 router.get('/tests', getClientTests);
+router.get('/:id/linked-charts', getLinkedClientCharts);
 router.post('/merge/preview', requireBackofficeAdmin, previewClientMerge);
 router.post('/merge', requireBackofficeAdmin, applyClientMerge);
 router.post('/demo/bulk', requireBackofficeAdmin, bulkPatchClientDemo);

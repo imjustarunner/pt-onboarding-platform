@@ -1,4 +1,5 @@
 import { authorizeClientMerge } from '../services/clientEnrollmentMerge.service.js';
+import { linkClientChartIdentity, listLinkedClientCharts, reviewClientChartIdentity } from '../services/clientChartIdentity.service.js';
 import { assertEnrollmentAgencyMembership } from '../services/enrollmentAgencyAccess.service.js';
 import {
   bulkSetClientDemo,
@@ -78,7 +79,14 @@ export async function previewPeopleMerge(req, res, next) {
     if (!keepId || !sourceIds.length) {
       return res.status(400).json({ error: { message: 'keepId and sourceIds are required' } });
     }
-    if (persona === 'clients') await authorizeClientMerge(req.user, keepId, sourceIds);
+    if (persona === 'clients') {
+      const review = await reviewClientChartIdentity(req.user, keepId, sourceIds);
+      if (review.crossAgency) return res.json({ crossAgency: true, records: review.records.map(({ id, agency_name }) => ({ id, agency_name })) });
+      if (review.records.some(row => Number(row.id) !== keepId && row.identity_id)) {
+        return res.status(409).json({ error: { message: 'Keep the chart that is already linked to another agency.' } });
+      }
+      await authorizeClientMerge(req.user, keepId, sourceIds);
+    }
     const preview = persona === 'clients'
       ? await previewClientMerge({ keepId, sourceIds, fieldChoices })
       : await previewUserMerge({ keepId, sourceIds, fieldChoices });
@@ -95,14 +103,36 @@ export async function applyPeopleMerge(req, res, next) {
     const keepId = Number(req.body?.keepId);
     const sourceIds = parseIds(req.body?.sourceIds);
     const fieldChoices = req.body?.fieldChoices || {};
+    let reviewedClientCharts = null;
     if (!keepId || !sourceIds.length) {
       return res.status(400).json({ error: { message: 'keepId and sourceIds are required' } });
     }
-    if (persona === 'clients') await authorizeClientMerge(req.user, keepId, sourceIds);
+    if (persona === 'clients') {
+      const review = await reviewClientChartIdentity(req.user, keepId, sourceIds);
+      if (review.crossAgency) {
+        if (req.body?.confirmIdentity !== true) return res.status(400).json({ error: { message: 'Confirm the charts belong to the same person.' } });
+        return res.json({ ok: true, result: await linkClientChartIdentity({ review, actorUserId: req.user.id }) });
+      }
+      if (req.body?.confirmIdentity === true || review.records.some(row => Number(row.id) !== keepId && row.identity_id)) {
+        return res.status(409).json({ error: { message: 'Chart affiliations changed or the source is already linked. Reopen the duplicate review.' } });
+      }
+      await authorizeClientMerge(req.user, keepId, sourceIds);
+      reviewedClientCharts = review.records;
+    }
     const result = persona === 'clients'
-      ? await mergeClients({ keepId, sourceIds, fieldChoices, completedOrganizationIds: parseIds(req.body?.completedOrganizationIds), guardianAccessResolution:req.body?.guardianAccessResolution === 'keep_current' ? 'keep_current' : null, actorUserId: req.user.id })
+      ? await mergeClients({ keepId, sourceIds, fieldChoices, completedOrganizationIds: parseIds(req.body?.completedOrganizationIds), guardianAccessResolution:req.body?.guardianAccessResolution === 'keep_current' ? 'keep_current' : null, actorUserId: req.user.id, reviewedClientCharts })
       : await mergeUsers({ keepId, sourceIds, fieldChoices, actorUserId: req.user.id });
     return res.json({ ok: true, result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getLinkedClientCharts(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: { message: 'Invalid client ID.' } });
+    return res.json({ charts: await listLinkedClientCharts(req.user, id) });
   } catch (err) {
     next(err);
   }

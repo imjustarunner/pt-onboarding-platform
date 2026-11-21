@@ -39,18 +39,27 @@ export function normalizeContinuationWeekday(value) {
 
 /** Date of created_at / submission_date as YYYY-MM-DD, or null. */
 export function clientAnchorYmd(client) {
-  const ymd = (value) => value instanceof Date && Number.isFinite(value.getTime())
+  return calendarDate(client?.submission_date) || calendarDate(client?.created_at);
+}
+
+function calendarDate(value) {
+  const ymd = value instanceof Date && Number.isFinite(value.getTime())
     ? value.toISOString().slice(0, 10)
     : String(value || '').slice(0, 10);
-  const sub = ymd(client?.submission_date);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(sub)) return sub;
-  const created = ymd(client?.created_at);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(created)) return created;
-  return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
 }
 
 export function isSchoolClientRow(client) {
   return String(client?.client_type || '').toLowerCase() === 'school';
+}
+
+export function isNewSchoolIntakeThisYear(client, now = new Date()) {
+  if (!isSchoolClientRow(client)) return false;
+  const cutoff = julyCutoffYmd(now);
+  const anchor = clientAnchorYmd(client);
+  if (!anchor || !isDateInCurrentSchoolYear(anchor, now)) return false;
+  return ![client.created_at, client.staff_onboarding_completed_at, client.first_service_at, client.services_started_at]
+    .map(calendarDate).some(date => date && date < cutoff);
 }
 
 /**
@@ -63,6 +72,7 @@ export function isReturningSchoolClient(client, now = new Date()) {
   const statusKey = String(client?.client_status_key || '').toLowerCase();
   if (statusKey === 'terminated' || statusKey === 'waitlist') return false;
   if (String(client?.status || '').toUpperCase() === 'ARCHIVED') return false;
+  if (isNewSchoolIntakeThisYear(client, now)) return false;
 
   const currentYear = computeCurrentSchoolYearLabel(now);
   const clientYear = normalizeSchoolYearLabel(client?.school_year);
@@ -129,8 +139,9 @@ export function continuingClientDisclosureAutoOk(client) {
  * Provider fall pushback (unable to reach / other + remove from assignment) needs agency
  * to reassign provider/day and re-confirm disclosure + insurance before Ready to Schedule.
  */
-export function needsFallReassignmentClearance({ client, disposition = null } = {}) {
+export function needsFallReassignmentClearance({ client, disposition = null, now = new Date() } = {}) {
   if (String(client?.client_type || 'school').toLowerCase() !== 'school') return false;
+  if (isNewSchoolIntakeThisYear(client, now)) return false;
   const statusKey = String(client?.client_status_key || '').toLowerCase();
   if (statusKey === 'waitlist' || statusKey === 'terminated') return false;
   const disp = disposition || {};

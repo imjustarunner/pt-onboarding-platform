@@ -14,6 +14,9 @@ vi.mock('../../config/clinicalDatabase.js', () => ({ default: { getConnection: a
  return state.pool.getConnection();
 } } }));
 import { mergeClients } from '../identityHygiene.service.js';
+import { clientDuplicateReviewAgencies, linkClientChartIdentity, listLinkedClientCharts, reviewClientChartIdentity } from '../clientChartIdentity.service.js';
+import { findNameDuplicateGroups } from '../clientNameDuplicate.service.js';
+import User from '../../models/User.model.js';
 import { enrollmentOptions } from '../guardianEnrollmentStart.service.js';
 import { CLIENT_MERGE_FIELDS } from '../../utils/identityHygiene.js';
 
@@ -28,7 +31,9 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   state.pool = mysql.createPool({ ...connection, user: 'root', database, multipleStatements: true });
   await state.pool.query(`
    CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(255), last_name VARCHAR(255));
-   CREATE TABLE clients (id INT PRIMARY KEY, agency_id INT, organization_id INT, ${CLIENT_MERGE_FIELDS.map(f => `${f.key} VARCHAR(255)`).join(',')});
+   CREATE TABLE clients (id INT PRIMARY KEY, agency_id INT, organization_id INT,
+    provider_id INT, client_status_id INT, ${CLIENT_MERGE_FIELDS.map(f => `${f.key} VARCHAR(255)`).join(',')});
+   CREATE TABLE client_statuses (id INT PRIMARY KEY, label VARCHAR(100), status_key VARCHAR(100));
    CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_primary INT,is_active INT,PRIMARY KEY(client_id,organization_id));
    CREATE TABLE client_contact_affiliations(id INT PRIMARY KEY,client_id INT,agency_contact_id INT,created_by_user_id INT,email_reminders_enabled INT,sms_reminders_enabled INT,is_active INT);
    CREATE TABLE agency_contacts(id INT PRIMARY KEY,client_id INT);
@@ -58,6 +63,7 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
    INSERT INTO agency_schools VALUES (450,451,1);
   `);
   await state.pool.query(await readFile(new URL('../../../../database/migrations/1823_sequential_client_identifiers.sql',import.meta.url),'utf8'));
+  await state.pool.query(await readFile(new URL('../../../../database/migrations/1858_client_chart_identity_members.sql',import.meta.url),'utf8'));
  });
  beforeEach(async () => {
   state.clinicalUnavailable = false;
@@ -77,6 +83,33 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
  afterAll(async () => {
   if (state.pool) await state.pool.end();
   if (admin) { await admin.query(`DROP DATABASE IF EXISTS ${database}`); await admin.end(); }
+ });
+ it('finds cross-agency duplicates within the reviewer scope and links the charts without moving either agency’s records', async () => {
+  await state.pool.execute('UPDATE clients SET agency_id=2 WHERE id=2');
+  const actor = { id: 40, role: 'super_admin' };
+  const agencyIds = (await clientDuplicateReviewAgencies(actor)).map(agency => agency.id);
+  const all = await findNameDuplicateGroups({ agencyIds });
+  expect(all.groups[0].members.map(row => row.agency_id)).toEqual([450, 2]);
+  const filtered = await findNameDuplicateGroups({ agencyIds, agencyId: 450 });
+  expect(filtered.groups[0].members.map(row => row.id)).toEqual([1, 2]);
+  expect((await findNameDuplicateGroups({ agencyIds: [450] })).groupCount).toBe(0);
+  const getAgencies = vi.spyOn(User, 'getAgencies').mockResolvedValue([{ id: 450 }, { id: 2, is_platform_access_only: 1 }]);
+  try {
+    await expect(reviewClientChartIdentity({ id: 30, role: 'admin' }, 1, [2])).rejects.toHaveProperty('status', 403);
+  } finally {
+    getAgencies.mockRestore();
+  }
+
+  const review = await reviewClientChartIdentity(actor, 1, [2]);
+  expect(review.crossAgency).toBe(true);
+  await linkClientChartIdentity({ review, actorUserId: actor.id });
+  await linkClientChartIdentity({ review, actorUserId: actor.id });
+  expect((await findNameDuplicateGroups({ agencyIds })).groupCount).toBe(0);
+  expect(await listLinkedClientCharts(actor, 1)).toEqual([{ id: 2, agencyId: 2, agencyName: 'Other agency', agencySlug: null }]);
+  const [documents] = await state.pool.query('SELECT client_id FROM client_phi_documents');
+  expect(documents).toEqual([{ client_id: 2 }]);
+  const [events] = await state.pool.query('SELECT client_id,changed_by_user_id FROM client_status_history ORDER BY client_id');
+  expect(events).toEqual([{ client_id: 1, changed_by_user_id: 40 }, { client_id: 2, changed_by_user_id: 40 }]);
  });
  it('reserves distinct sequential six-digit numbers concurrently and skips existing legacy identifiers',async()=>{
   const codes=await Promise.all(Array.from({length:20},()=>generateUniqueSixDigitClientCode({agencyId:450},state.pool)));

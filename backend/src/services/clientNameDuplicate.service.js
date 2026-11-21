@@ -2,16 +2,16 @@ import pool from '../config/database.js';
 import { groupClientsByFirstLastName } from '../utils/clientNameDuplicate.js';
 
 export async function findNameDuplicateGroups({
-  agencyId,
+  agencyIds = [],
+  agencyId = null,
   organizationId = null,
   includeArchived = false
 } = {}) {
-  const aid = Number(agencyId);
-  if (!Number.isFinite(aid) || aid <= 0) {
+  if (!agencyIds.length) {
     return { groups: [], groupCount: 0, clientCount: 0 };
   }
 
-  const values = [aid];
+  const values = [...agencyIds];
   let sql = `
     SELECT
       c.id,
@@ -31,13 +31,15 @@ export async function findNameDuplicateGroups({
       c.provider_id,
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS provider_name,
       c.grade,
-      c.school_year
+      c.school_year,
+      identity.identity_id
     FROM clients c
     LEFT JOIN agencies org ON org.id = c.organization_id
     LEFT JOIN agencies a ON a.id = c.agency_id
     LEFT JOIN users p ON p.id = c.provider_id
     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-    WHERE c.agency_id = ?
+    LEFT JOIN client_chart_identity_members identity ON identity.client_id = c.id
+    WHERE c.agency_id IN (${agencyIds.map(() => '?').join(',')})
       AND c.full_name IS NOT NULL
       AND TRIM(c.full_name) <> ''
   `;
@@ -52,7 +54,13 @@ export async function findNameDuplicateGroups({
   sql += ' ORDER BY c.id ASC';
 
   const [rows] = await pool.execute(sql, values);
-  const groups = groupClientsByFirstLastName(rows || []);
+  const groups = groupClientsByFirstLastName(rows || [])
+    .filter(({ members }) => !agencyId || members.some(member => Number(member.agency_id) === agencyId))
+    .filter(({ members }) => !members[0].identity_id || members.some(member => member.identity_id !== members[0].identity_id))
+    .map(group => ({
+      ...group,
+      members: group.members.map(({ identity_id, ...member }) => member)
+    }));
   return {
     groups,
     groupCount: groups.length,

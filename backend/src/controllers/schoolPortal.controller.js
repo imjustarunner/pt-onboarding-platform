@@ -1574,7 +1574,7 @@ export const getProviderMyRoster = async (req, res, next) => {
     let providerUserId = null;
     if (Number.isInteger(asProviderId) && asProviderId > 0 && adminRoles.includes(userRole)) {
       providerUserId = asProviderId;
-    } else if (providerRoles.includes(userRole)) {
+    } else if (providerRoles.includes(userRole) || adminRoles.includes(userRole) || userRole === 'supervisor') {
       providerUserId = parseInt(userId, 10);
     } else {
       return res.status(403).json({ error: { message: 'Provider access required' } });
@@ -1596,6 +1596,16 @@ export const getProviderMyRoster = async (req, res, next) => {
     if (!Number.isFinite(orgId) || orgId < 1) {
       // No org key resolved → treat as empty roster rather than 404 (prevents broken UX).
       return res.json([]);
+    }
+
+    const viewWaitlist = String(req.query.view || '').toLowerCase() === 'waitlist';
+    if (providerUserId !== Number(userId) || viewWaitlist) {
+      const allowed = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: userRole, user: req.user, schoolOrganizationId: orgId })
+        || (providerUserId === Number(userId) && providerRoles.includes(userRole)
+          && await providerHasSchoolAccess({ providerUserId, schoolOrganizationId: orgId }));
+      if (!allowed) {
+        return res.status(403).json({ error: { message: 'Roster access is limited to your assigned clients or authorized schools.' } });
+      }
     }
 
     let schoolName = null;
@@ -1655,8 +1665,6 @@ export const getProviderMyRoster = async (req, res, next) => {
             AND (sgc.active_for_providers = 1 OR sgc.active_for_providers IS TRUE)
         )`
       : '';
-
-    const viewWaitlist = String(req.query.view || '').toLowerCase() === 'waitlist';
 
     // Use the same restricted roster query but force provider filtering.
     // Include clients linked via COA, active CPA at this school, or legacy clients.organization_id

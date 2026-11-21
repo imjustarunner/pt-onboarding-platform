@@ -3,7 +3,12 @@
     <p v-if="loading" role="status">Loading guardian contact…</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
     <template v-else-if="contact">
-      <header><div><h3>{{ contact.guardian.name || 'Guardian' }}</h3><p>{{ contact.guardian.email || 'No email on file' }}</p></div><RouterLink v-if="showAccountLink" :to="accountPath">Open guardian account</RouterLink></header>
+      <header>
+        <div><h3>{{ contact.guardian.name || 'Guardian' }}</h3><p>{{ contact.guardian.email || 'No email on file' }}</p></div>
+        <RouterLink v-if="showAccountLink" :to="accountPath">{{ canManage ? 'Open guardian account' : 'Open guardian contact' }}</RouterLink>
+        <DisconnectGuardianButton v-if="canManage && clientId && contact.clients.some(client => client.id === clientId)"
+          :key="clientId" :client-id="clientId" :guardian-id="guardianId" @disconnected="$emit('disconnected', $event)" />
+      </header>
       <p v-if="contact.guardian.phone"><a :href="`tel:${contact.guardian.phone.replace(/[^+0-9]/g,'')}`">{{contact.guardian.phone}}</a></p>
       <p>Select every client this email concerns. The conversation will be filed in each selected client’s record.</p>
       <fieldset v-for="agency in agencies" :key="agency.id">
@@ -31,8 +36,14 @@ import EmailThreadReader from '../messages/EmailThreadReader.vue';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
+import { guardianAccountPath } from '../../utils/guardianDirectory.js';
+import DisconnectGuardianButton from '../clients/DisconnectGuardianButton.vue';
 const props=defineProps({guardianId:{type:Number,required:true},clientId:Number,showAccountLink:Boolean});
+defineEmits(['disconnected']);
+const auth = useAuthStore();
+const canManage = computed(() => ['admin', 'support', 'super_admin'].includes(auth.user?.role));
 const route=useRoute(),router=useRouter();
 const contact=ref(null),loading=ref(false),error=ref(''),selectedIds=ref([]);
 const voicemails=ref([]),voicemail=ref(null),voicemailError=ref('');
@@ -42,7 +53,7 @@ async function openVoicemail(thread) {
   try { const {data}=await api.get(`/communications/conversations/${thread.id}`);if(current===generation)voicemail.value=data; }
   catch { if(current===generation)voicemailError.value='Could not open this voicemail.'; }
 }
-const accountPath=computed(()=>`${route.params.organizationSlug ? `/${encodeURIComponent(route.params.organizationSlug)}` : ''}/guardian-contacts/${props.guardianId}`);
+const accountPath=computed(()=>canManage.value ? guardianAccountPath(props.guardianId, route.params.organizationSlug) : `${route.params.organizationSlug ? `/${encodeURIComponent(route.params.organizationSlug)}` : ''}/guardian-contacts/${props.guardianId}`);
 const agencies=computed(()=>{
   const map=new Map();
   for(const c of contact.value?.clients||[]){if(!map.has(c.agencyId))map.set(c.agencyId,{id:c.agencyId,name:c.agencyName,clients:[]});map.get(c.agencyId).clients.push(c);}

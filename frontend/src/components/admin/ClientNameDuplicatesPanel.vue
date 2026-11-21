@@ -4,19 +4,23 @@
       <div>
         <h2 class="cnd-title">Possible name duplicates</h2>
         <p class="cnd-sub">
-          Compare the records, keep the current school or office record, and retain completed program history.
+          Compare possible matches before merging or linking charts.
         </p>
       </div>
-      <label class="cnd-include">
-        <input v-model="includeArchived" type="checkbox" @change="loadGroups" />
-        Include archived
-      </label>
+      <div class="cnd-merge-controls">
+        <label>Agency
+          <select v-model="agencyFilter" :disabled="merging">
+            <option :value="null">All agencies</option>
+            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+          </select>
+        </label>
+        <label class="cnd-include"><input v-model="includeArchived" type="checkbox" :disabled="merging" /> Include archived</label>
+      </div>
     </div>
 
-    <p v-if="!agencyId" class="cnd-empty">Pick a tenant to review matching full names.</p>
-    <p v-else-if="loading" class="cnd-empty">Scanning names…</p>
+    <p v-if="loading" class="cnd-empty">Scanning names…</p>
     <p v-else-if="error" class="cnd-error">{{ error }}</p>
-    <p v-else-if="!groups.length" class="cnd-empty">No matching full names found for this tenant.</p>
+    <p v-else-if="!groups.length" class="cnd-empty">No unresolved matching names found.</p>
 
     <div v-else class="cnd-groups">
       <article v-for="group in groups" :key="group.key" class="cnd-group">
@@ -34,7 +38,8 @@
             <tr>
               <th>Name</th>
               <th>Initials</th>
-              <th>School</th>
+              <th>Agency</th>
+              <th>School / program</th>
               <th>DOB</th>
               <th>Status</th>
               <th>Provider</th>
@@ -45,6 +50,7 @@
             <tr v-for="member in group.members" :key="member.id">
               <td>{{ member.full_name || '—' }}</td>
               <td>{{ member.initials || '—' }}</td>
+              <td>{{ member.agency_name || '—' }}</td>
               <td>{{ member.organization_name || '—' }}</td>
               <td>{{ formatDob(member.date_of_birth) }}</td>
               <td>{{ member.client_status_label || member.status || '—' }}</td>
@@ -56,12 +62,19 @@
           </tbody>
         </table>
         <div class="cnd-merge-controls">
-          <label>Keep current record <select v-model="keepByGroup[group.key]" :disabled="merging || mergeBusy" @change="cancelMerge"><option v-for="member in group.members" :key="member.id" :value="member.id">{{ member.organization_name || 'Office' }} · {{ member.provider_name || member.full_name }} · {{ member.client_status_label || member.status }}</option></select></label>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="merging || group.members.some(m => m.status === 'ARCHIVED')" @click="reviewMerge(group)">Review merge</button>
+          <label v-if="!isCrossAgency(group)">Keep current record <select v-model="keepByGroup[group.key]" :disabled="merging || mergeBusy" @change="cancelMerge"><option v-for="member in group.members" :key="member.id" :value="member.id">{{ member.organization_name || 'Office' }} · {{ member.provider_name || member.full_name }} · {{ member.client_status_label || member.status }}</option></select></label>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="merging || mergeBusy || group.members.some(m => String(m.status).toUpperCase() === 'ARCHIVED')" @click="reviewMerge(group)">{{ isCrossAgency(group) ? 'Review chart link' : 'Review merge' }}</button>
         </div>
         <section v-if="mergeGroupKey === group.key" class="cnd-merge-review" aria-label="Review client merge">
           <p v-if="mergeBusy" role="status">Loading comparison…</p>
-          <template v-if="mergePreview">
+          <template v-if="mergePreview?.crossAgency">
+            <h3>Link these agency charts</h3>
+            <p>Open either chart to switch between agencies you have access to. Each agency keeps its own records, assignments, and portal permissions.</p>
+            <ul><li v-for="record in mergePreview.records" :key="record.id">{{ record.agency_name }} · Chart #{{ record.id }}</li></ul>
+            <label class="cnd-include"><input v-model="identityConfirmed" type="checkbox" /> I compared the records and confirmed they are the same person.</label>
+            <div class="cnd-merge-controls"><button type="button" class="btn btn-secondary btn-sm" :disabled="merging" @click="cancelMerge">Cancel</button><button type="button" class="btn btn-primary btn-sm" :disabled="!identityConfirmed || merging" @click="applyMerge(group)">{{ merging ? 'Linking…' : 'Link agency charts' }}</button></div>
+          </template>
+          <template v-else-if="mergePreview">
             <h3>Review the combined client record</h3>
             <p>Current school, office, and provider assignments stay with the record you keep. Prior program affiliations remain in its history. Uploaded enrollment documents and guardian links are retained.</p>
             <div class="cnd-comparison"><table class="cnd-table"><thead><tr><th>Field</th><th>Value to keep</th></tr></thead><tbody><tr v-for="field in mergePreview.fields" :key="field.key"><td>{{ field.label || field.key }}</td><td><select :value="fieldSource(field)" @change="chooseField(group,field.key,$event.target.value)"><option :value="mergePreview.keep.id">{{ displayValue(field.keepValue) }} · Current record</option><option v-for="other in field.otherValues" :key="other.id" :value="other.id">{{ displayValue(other.value) }} · Prior record</option></select></td></tr></tbody></table></div>
@@ -81,19 +94,18 @@
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 
-const props = defineProps({
-  agencyId: { type: [Number, String], default: null }
-});
-
 const emit = defineEmits(['open-client', 'merged']);
 
 const groups = ref([]);
+const agencies = ref([]);
+const agencyFilter = ref(null);
 const keepByGroup = reactive({}), fieldChoices = reactive({});
 const keepCurrentGuardianAccess=ref(false);
 const mergeGroupKey = ref(null), mergePreview = ref(null), mergeError = ref(''), mergeBusy = ref(false), merging = ref(false), identityConfirmed = ref(false), completedOrganizationIds = ref([]);
 const priorPrograms = computed(() => [...new Map((mergePreview.value?.affiliations || []).filter(row => ['program','clinical'].includes(String(row.organization_type).toLowerCase()) && !(Number(row.client_id) === Number(mergePreview.value?.keep.id) && Number(row.is_primary) === 1)).map(row => [Number(row.organization_id),row])).values()]);
 function fieldSource(field) { return fieldChoices[field.key] || (JSON.stringify(field.chosenValue) === JSON.stringify(field.keepValue) ? mergePreview.value.keep.id : field.otherValues.find(row => JSON.stringify(row.value) === JSON.stringify(field.chosenValue))?.id) || mergePreview.value.keep.id; }
 function displayValue(value) { return value === null || value === undefined || value === '' ? 'Not recorded' : String(value); }
+function isCrossAgency(group) { return new Set(group.members.map(member => member.agency_id).filter(Boolean)).size > 1; }
 function cancelMerge() { mergeGroupKey.value=null;mergePreview.value=null;mergeError.value='';identityConfirmed.value=false; }
 async function reviewMerge(group, reset=true) {
   mergeGroupKey.value=group.key;mergeBusy.value=true;mergeError.value='';
@@ -106,13 +118,23 @@ async function chooseField(group,key,id){fieldChoices[key]=Number(id);await revi
 async function applyMerge(group) {
   if(!identityConfirmed.value || merging.value)return;
   merging.value=true;mergeError.value='';
-  try {await api.post('/clients/merge',{keepId:Number(mergePreview.value.keep.id),sourceIds:mergePreview.value.others.map(row => row.id),fieldChoices:{...fieldChoices},completedOrganizationIds:completedOrganizationIds.value,guardianAccessResolution:keepCurrentGuardianAccess.value?'keep_current':null},{skipGlobalLoading:true});cancelMerge();await loadGroups();emit('merged');}
+  try {
+    const keepId = Number(keepByGroup[group.key]);
+    const payload = mergePreview.value.crossAgency
+      ? { keepId, sourceIds: mergePreview.value.records.map(row => Number(row.id)).filter(id => id !== keepId), confirmIdentity: true }
+      : { keepId, sourceIds: mergePreview.value.others.map(row => row.id), fieldChoices: { ...fieldChoices }, completedOrganizationIds: completedOrganizationIds.value, guardianAccessResolution: keepCurrentGuardianAccess.value ? 'keep_current' : null };
+    await api.post('/clients/merge', payload, { skipGlobalLoading: true });
+    cancelMerge();
+    await loadGroups();
+    emit('merged');
+  }
   catch(e){mergeError.value=e.response?.data?.error?.message || 'The merge could not finish. Your review is still here.';}
   finally{merging.value=false;}
 }
 const loading = ref(false);
 const error = ref('');
 const includeArchived = ref(false);
+let scan = 0;
 
 function displayName(group) {
   const fullName = String(group?.members?.[0]?.full_name || '').trim();
@@ -135,30 +157,28 @@ function formatDob(value) {
 }
 
 async function loadGroups() {
-  const aid = Number(props.agencyId);
-  if (!Number.isFinite(aid) || aid <= 0) {
-    groups.value = [];
-    error.value = '';
-    return;
-  }
+  const currentScan = ++scan;
   loading.value = true;
   error.value = '';
   try {
     const res = await api.get('/clients/name-duplicates', {
-      params: { agencyId: aid, includeArchived: includeArchived.value },
+      params: { ...(agencyFilter.value ? { agencyId: agencyFilter.value } : {}), includeArchived: includeArchived.value },
       skipGlobalLoading: true
     });
+    if (currentScan !== scan) return;
+    agencies.value = res.data?.agencies || [];
     groups.value = Array.isArray(res.data?.groups) ? res.data.groups : [];
     for(const group of groups.value){keepByGroup[group.key]=group.members.find(row => row.provider_name && !String(row.organization_name || '').toLowerCase().includes('summer'))?.id || group.members[0]?.id;}
   } catch (e) {
+    if (currentScan !== scan) return;
     groups.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not scan for name duplicates.';
   } finally {
-    loading.value = false;
+    if (currentScan === scan) loading.value = false;
   }
 }
 
-watch(() => props.agencyId, () => {cancelMerge();return loadGroups();}, { immediate: true });
+watch([agencyFilter, includeArchived], () => { cancelMerge(); return loadGroups(); }, { immediate: true });
 
 defineExpose({ loadGroups, groups });
 </script>

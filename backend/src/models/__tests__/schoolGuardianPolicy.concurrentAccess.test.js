@@ -37,3 +37,20 @@ it('permits an enrolled guardian without the old two-guardian preparation limit'
  db.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT guardian_user_id')?[[{guardian_user_id:9},{guardian_user_id:10}]]:execute(sql,...args));
  await expect(ClientGuardian.upsertLink({...input,permissionsJson:{enrollmentAccessConfirmed:true}})).resolves.toBe(true);
 });
+it('revokes only the selected relationship and preserves its prior grants in the same transaction', async () => {
+  current = { access_enabled: 1, permissions_json: { canViewDocs: true } };
+  await expect(ClientGuardian.revokeIncorrectLink({ clientId: 4, guardianUserId: 8, actorUserId: 6 })).resolves.toBe(true);
+  const [, args] = db.execute.mock.calls.find(([sql]) => sql.includes('UPDATE client_guardians'));
+  expect(args.slice(1)).toEqual([4, 8]);
+  expect(JSON.parse(args[0])).toMatchObject({ relationshipRevoked: true, noContact: true, noView: true });
+  const [, audit] = db.execute.mock.calls.find(([sql]) => sql.includes('incorrect_guardian_relationship'));
+  expect(audit.slice(0, 2)).toEqual([4, 6]);
+  expect(JSON.parse(audit[2])).toEqual({ guardianUserId: 8, accessEnabled: true, permissions: { canViewDocs: true } });
+  expect(db.commit).toHaveBeenCalled();
+});
+
+it('fails closed when enrollment attempts to restore a relationship marked incorrect', async () => {
+  current = { access_enabled: 0, permissions_json: { relationshipRevoked: true } };
+  await expect(ClientGuardian.upsertLink({ ...input, expectedLink: undefined })).rejects.toHaveProperty('status', 409);
+  expect(db.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO client_guardians'))).toBe(false);
+});

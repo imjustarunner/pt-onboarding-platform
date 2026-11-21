@@ -5,6 +5,11 @@
         <span aria-hidden="true">←</span> Back to workspace
       </button>
     </div>
+    <nav v-if="!loading && linkedCharts.length" class="cpv-linked-charts" aria-label="Agency charts for this client">
+      <strong>Agency charts</strong>
+      <span aria-current="page">{{ currentChartAgency }}</span>
+      <RouterLink v-for="chart in linkedCharts" :key="chart.id" :to="linkedChartRoute(chart)">{{ chart.agencyName }}</RouterLink>
+    </nav>
 
     <div v-if="loading" class="cpv-loading">Loading client profile…</div>
     <div v-else-if="error" class="cpv-error">{{ error }}</div>
@@ -60,9 +65,20 @@ const initialEncounterId = computed(() => {
 const client = ref(null);
 const loading = ref(false);
 const error = ref('');
+const linkedCharts = ref([]);
+let profileLoad = 0;
+const currentChartAgency = computed(() => client.value?.agency_name || 'Current chart');
+
+function linkedChartRoute(chart) {
+  return chart.agencySlug && route.params.organizationSlug
+    ? { name: 'OrganizationClientProfile', params: { organizationSlug: chart.agencySlug, clientId: chart.id } }
+    : { name: 'ClientProfile', params: { clientId: chart.id } };
+}
 
 async function fetchClient() {
+  const currentLoad = ++profileLoad;
   const id = clientId.value;
+  linkedCharts.value = [];
   if (!id) {
     error.value = 'Invalid client ID.';
     return;
@@ -71,12 +87,16 @@ async function fetchClient() {
   error.value = '';
   try {
     const res = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
+    if (currentLoad !== profileLoad) return;
     client.value = res.data ? { ...res.data } : null;
     if (!client.value) error.value = 'Client not found.';
+    else api.get(`/clients/${id}/linked-charts`, { skipGlobalLoading: true })
+      .then(({ data }) => { if (currentLoad === profileLoad) linkedCharts.value = data?.charts || []; })
+      .catch(() => {});
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to load client.';
+    if (currentLoad === profileLoad) error.value = e.response?.data?.error?.message || e.message || 'Failed to load client.';
   } finally {
-    loading.value = false;
+    if (currentLoad === profileLoad) loading.value = false;
   }
 }
 
@@ -130,6 +150,17 @@ watch(clientId, (id, prev) => {
 }
 .cpv-breadcrumb {
   padding: 14px 24px 0;
+}
+.cpv-linked-charts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 24px;
+}
+.cpv-linked-charts [aria-current="page"] {
+  font-weight: 600;
+  color: var(--primary, #15803d);
 }
 .cpv-back-btn {
   background: none;

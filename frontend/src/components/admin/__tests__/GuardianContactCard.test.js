@@ -3,7 +3,9 @@ import { mount, flushPromises } from '@vue/test-utils';
 import Card from '../GuardianContactCard.vue';
 import api from '../../../services/api';
 import {openEmailComposer} from '../../../utils/emailComposerWindow';
-vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));
+const auth = vi.hoisted(() => ({ user: { role: 'provider' } }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => auth }));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),delete:vi.fn()}}));
 vi.mock('../../../utils/emailComposerWindow',()=>({openEmailComposer:vi.fn()}));
 vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'itsco'}}),useRouter:()=>({})}));
 it('sends one parent email with both explicitly selected client records',async()=>{
@@ -24,4 +26,23 @@ it('opens a linked voicemail and shows its transcript without sending email',asy
  const w=mount(Card,{props:{guardianId:30},global:{stubs:{RouterLink:true}}});await flushPromises();
  await w.findAll('button').find(b=>b.text().includes('Voicemail from parent')).trigger('click');await flushPromises();
  expect(w.text()).toContain('Transcription: Please call me back.');w.unmount();
+});
+it('opens the full guardian profile for staff and disconnects only the current client', async () => {
+ auth.user.role = 'super_admin';
+ const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+ api.get.mockResolvedValue({ data: { guardian: { id: 30 }, clients: [{ id: 1, agencyId: 2 }, { id: 2, agencyId: 2 }] } });
+ api.delete.mockResolvedValue({ data: { ok: true } });
+ const wrapper = mount(Card, { props: { guardianId: 30, clientId: 2, showAccountLink: true }, global: { stubs: { RouterLink: true } } });
+ try {
+  await flushPromises();
+  expect(wrapper.get('router-link-stub').attributes('to')).toBe('/itsco/admin/users/30');
+  await wrapper.findAll('button').find(button => button.text() === 'Disconnect from this client').trigger('click');
+  await flushPromises();
+  expect(api.delete).toHaveBeenCalledExactlyOnceWith('/clients/2/guardians/30', { skipGlobalLoading: true });
+  expect(wrapper.emitted('disconnected')).toEqual([[{ guardianId: 30, clientId: 2 }]]);
+ } finally {
+  wrapper.unmount();
+  confirm.mockRestore();
+  auth.user.role = 'provider';
+ }
 });

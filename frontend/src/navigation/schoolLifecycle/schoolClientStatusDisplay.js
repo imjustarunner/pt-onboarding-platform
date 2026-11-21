@@ -3,7 +3,7 @@
  * Returning / leftover current rows show Fall Confirmation Pending (no weekday)
  * or Ready to Schedule (weekday assigned).
  */
-import { isReturningSchoolClient, needsFallReassignmentClearance, servicesConfirmedThisSchoolYear } from './fallReadiness.js';
+import { isNewSchoolIntakeThisYear, isReturningSchoolClient, needsFallReassignmentClearance, parseJsonMaybe, servicesConfirmedThisSchoolYear } from './fallReadiness.js';
 
 const KEEP_KEY_LABELS = {
   being_seen: 'Being Seen',
@@ -47,6 +47,22 @@ function isLegacyCurrent(client) {
   return false;
 }
 
+export function resolveNewSchoolIntakeStatus(client, now = new Date()) {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  const schoolClient = { ...client, client_type: client?.client_type || 'school' };
+  if (!['current', 'confirmation_pending', 'continuation_unknown', 'confirmed_returning', 'returning', 'spring_update_pending'].includes(key)
+      || !isNewSchoolIntakeThisYear(schoolClient, now)) return null;
+
+  if (servicesConfirmedThisSchoolYear(schoolClient, now)) return 'being_seen';
+  const intake = parseJsonMaybe(client.agency_intake_json) || {};
+  if (intake.pendingCorrections === true) return 'pending_corrections';
+  if (hasWeekday(client)) return 'ready_to_schedule';
+  const assignedProvider = client.has_provider || Number(client.provider_id) > 0 || !!client.provider_ids;
+  const intakeComplete = intake.agencyIntakeComplete === true || !!client.staff_onboarding_completed_at;
+  if (assignedProvider && intakeComplete) return 'needs_day_assignment';
+  return assignedProvider || intakeComplete || intake.inProcess === true ? 'in_process' : 'received';
+}
+
 /**
  * @returns {{ key: string, label: string }}
  */
@@ -60,6 +76,9 @@ export function resolveSchoolRosterDisplayStatus(client, now = new Date()) {
     return { key, label: KEEP_KEY_LABELS[key] || catalogLabel || key };
   }
 
+  const newIntakeStatus = resolveNewSchoolIntakeStatus(client, now);
+  if (newIntakeStatus) return { key: newIntakeStatus, label: KEEP_KEY_LABELS[newIntakeStatus] };
+
   // Service evidence and scheduling follow-up are separate facts. Do not reopen
   // closed/paused dispositions merely because a historical date exists.
   const serviceEligible = new Set(['current', 'being_seen', 'ready_to_schedule', 'scheduled',
@@ -71,6 +90,7 @@ export function resolveSchoolRosterDisplayStatus(client, now = new Date()) {
 
   if (needsFallReassignmentClearance({
     client,
+    now,
     disposition: {
       fall_completed_at: client?.fall_completed_at,
       fall_outcome: client?.fall_outcome,

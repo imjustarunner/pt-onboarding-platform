@@ -64,6 +64,7 @@ import { applyFallContinuationSideEffects } from '../services/fallContinuation.s
 import { addClientToSchoolYear } from '../services/clientSchoolYear.service.js';
 import { stampClientTerminationSchoolYear } from '../services/clientTerminationSchoolYear.service.js';
 import { findNameDuplicateGroups } from '../services/clientNameDuplicate.service.js';
+import { clientDuplicateReviewAgencies } from '../services/clientChartIdentity.service.js';
 import { nameMatchKey, parseFullName } from '../utils/clientNameDuplicate.js';
 import {
   complianceArchiveClient,
@@ -199,8 +200,8 @@ function normalizeSixDigitClientCode(value) {
 async function buildGuardianProfileFallbackFromLinked(clientId) {
   try {
     const guardians = await ClientGuardian.listForClient(clientId);
-    if (!Array.isArray(guardians) || guardians.length === 0) return null;
-    const primary = guardians[0];
+    const primary = guardians.find(guardian => !guardian.permissions_json?.relationshipRevoked);
+    if (!primary) return null;
     const [uRows] = await pool.execute(
       `SELECT id, first_name, last_name, email, phone_number, personal_phone, work_phone, date_of_birth
          FROM users WHERE id = ? LIMIT 1`,
@@ -988,38 +989,29 @@ export const getClientNameDuplicates = async (req, res, next) => {
       });
     }
 
-    const requestedAgencyId = parseInt(String(req.query.agencyId || req.query.agency_id || ''), 10);
+    const requestedAgency = req.query.agencyId ?? req.query.agency_id;
+    const requestedAgencyId = requestedAgency == null || requestedAgency === '' ? null : Number(requestedAgency);
     const organizationId = parseInt(String(req.query.organizationId || req.query.organization_id || ''), 10);
     const includeArchived =
       String(req.query.includeArchived || '').toLowerCase() === 'true'
       || String(req.query.includeArchived || '') === '1';
 
-    const userId = req.user.id;
-    const userRole = req.user.role;
-    let allowedAgencyIds = [];
-    if (String(userRole || '').toLowerCase() === 'super_admin') {
-      const allAgencies = await Agency.findAll(true, false);
-      allowedAgencyIds = (allAgencies || []).map((a) => a.id);
-    } else {
-      const userAgencies = await User.getAgencies(userId);
-      allowedAgencyIds = (userAgencies || []).map((a) => a.id);
+    const agencies = await clientDuplicateReviewAgencies(req.user);
+    const allowedAgencyIds = agencies.map(agency => agency.id);
+    if (requestedAgencyId !== null && (!Number.isSafeInteger(requestedAgencyId) || requestedAgencyId < 1)) {
+      return res.status(400).json({ error: { message: 'Choose a valid agency.' } });
     }
-    if (!allowedAgencyIds.length) {
-      return res.json({ groups: [], groupCount: 0, clientCount: 0 });
-    }
-    if (!Number.isFinite(requestedAgencyId) || requestedAgencyId <= 0) {
-      return res.status(400).json({ error: { message: 'agencyId is required to scan for name duplicates.' } });
-    }
-    if (String(userRole || '').toLowerCase() !== 'super_admin' && !allowedAgencyIds.includes(requestedAgencyId)) {
+    if (requestedAgencyId !== null && !allowedAgencyIds.includes(requestedAgencyId)) {
       return res.status(403).json({ error: { message: 'You do not have access to this agency.' } });
     }
 
     const result = await findNameDuplicateGroups({
       agencyId: requestedAgencyId,
+      agencyIds: allowedAgencyIds,
       organizationId: Number.isFinite(organizationId) && organizationId > 0 ? organizationId : null,
       includeArchived
     });
-    return res.json(result);
+    return res.json({ ...result, agencies });
   } catch (e) {
     next(e);
   }

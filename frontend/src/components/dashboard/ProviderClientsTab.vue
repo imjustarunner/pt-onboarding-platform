@@ -606,12 +606,13 @@ const membershipAgencies = computed(() => {
 
 const caseloadAgencies=computed(()=>props.subjectAgencyId?[membershipAgencies.value.find(a=>Number(a.id)===Number(props.subjectAgencyId))||{id:Number(props.subjectAgencyId)}]:membershipAgencies.value.length?membershipAgencies.value:agencyId.value?[{id:Number(agencyId.value)}]:[]);
 const officeWaitlistAgencyIds = computed(() => {
-  if (membershipAgencies.value.length) {
-    return membershipAgencies.value.filter(agency => !isSchoolCareBridgeOnly(agency)).map(agency => Number(agency.id));
-  }
-  const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
-  return agencyId.value && !isSchoolCareBridgeOnly(current) ? [Number(agencyId.value)] : [];
+  if (serverMemberships.value === null) return [];
+  return membershipAgencies.value
+    .filter(agency => Number(agency.is_direct_membership) === 1 && !isSchoolCareBridgeOnly(agency))
+    .map(agency => Number(agency.id));
 });
+const exchangeAgencyIds = computed(() => caseloadAgencies.value
+  .filter(agency => !isSchoolCareBridgeOnly(agency)).map(agency => Number(agency.id)));
 
 function parseAgencyPrimary(agency) {
   try {
@@ -996,7 +997,6 @@ const sortedCombinedClientsList = computed(() => {
 });
 
 const schoolClientsForGrid = computed(() => {
-  // Always pass an override so hideTerminated filtering is consistent in All schools and single-school mode.
   if (isAllSchools.value) return allClients.value;
   return null;
 });
@@ -1024,8 +1024,8 @@ const exchangeCounts=ref({matches:null,requestable:null}),checkinCount=ref(null)
 let countGeneration=0,checkinGeneration=0;
 function sectionBadgeLabel(section){return [section.label,Number(section.leftBadge)>0?`${section.leftBadge} matches`:'',Number(section.badge)>0?`${section.badge} ${section.badgeTitle||'clients'}`:''].filter(Boolean).join(', ');}
 async function loadCheckinCount(){if(props.profileEmbed)return;const own=++checkinGeneration;try{const {data}=await api.get('/kiosk/client-checkins/counts',{skipGlobalLoading:true});if(own===checkinGeneration)checkinCount.value=Number(data.unassigned)||0;}catch{if(own===checkinGeneration)checkinCount.value=null;}}
-async function loadNavigationCounts(){if(props.profileEmbed)return;const own=++countGeneration,ids=officeWaitlistAgencyIds.value;void loadCheckinCount();const results=await Promise.allSettled(ids.map(agencyId=>api.get('/client-exchange/counts',{params:{agencyId},skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId)}})));if(own!==countGeneration)return;const ok=results.filter(r=>r.status==='fulfilled');exchangeCounts.value=ok.length?{matches:ok.reduce((sum,r)=>sum+(Number(r.value.data?.matches)||0),0),requestable:ok.reduce((sum,r)=>sum+(Number(r.value.data?.requestable)||0),0)}:{matches:null,requestable:null};}
-function acceptExchangeCounts(data){const ids=officeWaitlistAgencyIds.value.map(Number).sort().join(',');if(data.complete&&(data.agencyIds||[]).map(Number).sort().join(',')===ids)exchangeCounts.value={matches:data.matches,requestable:data.requestable};}
+async function loadNavigationCounts(){if(props.profileEmbed)return;const own=++countGeneration,ids=exchangeAgencyIds.value;void loadCheckinCount();const results=await Promise.allSettled(ids.map(agencyId=>api.get('/client-exchange/counts',{params:{agencyId},skipGlobalLoading:true,headers:{'X-Agency-Id':String(agencyId)}})));if(own!==countGeneration)return;const ok=results.filter(r=>r.status==='fulfilled');exchangeCounts.value=ok.length?{matches:ok.reduce((sum,r)=>sum+(Number(r.value.data?.matches)||0),0),requestable:ok.reduce((sum,r)=>sum+(Number(r.value.data?.requestable)||0),0)}:{matches:null,requestable:null};}
+function acceptExchangeCounts(data){const ids=exchangeAgencyIds.value.map(Number).sort().join(',');if(data.complete&&(data.agencyIds||[]).map(Number).sort().join(',')===ids)exchangeCounts.value={matches:data.matches,requestable:data.requestable};}
 const sectionIcons = {
   waitlist:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 
@@ -1409,6 +1409,23 @@ const loadOfficeClients = async () => {
   }
 };
 
+const rosterRequests = new Map();
+function requestSchoolRoster(school, { skillBuildersOnly = false } = {}) {
+  const schoolId = Number(school.schoolOrganizationId);
+  const parentAgencyId = Number(school.caseloadAgencyId || agencyId.value);
+  const providerUserId = rosterProviderUserId.value;
+  const key = [rosterLoadVersion, schoolId, parentAgencyId, providerUserId, skillBuildersOnly].join(':');
+  if (!rosterRequests.has(key)) {
+    const request = api.get(`/school-portal/${schoolId}/my-roster`, {
+      headers: { 'X-Agency-Id': String(parentAgencyId) },
+      params: { ...(providerUserId ? { providerUserId } : {}), ...(skillBuildersOnly ? { skillBuildersOnly } : {}) },
+      skipGlobalLoading: true
+    }).then(({ data }) => Array.isArray(data) ? data : []).finally(() => rosterRequests.delete(key));
+    rosterRequests.set(key, request);
+  }
+  return rosterRequests.get(key);
+}
+
 async function refreshSchoolAffiliatedClientIds() {
   const version=rosterLoadVersion,providerId=currentUserId.value;
   // Preserve affiliation IDs already discovered via billing/COA so my-roster gaps
@@ -1419,21 +1436,7 @@ async function refreshSchoolAffiliatedClientIds() {
     schoolAffiliatedClientIds.value = ids;
     return ids;
   }
-  const rosterParams = {
-    ...(rosterProviderUserId.value ? { providerUserId: rosterProviderUserId.value } : {}),
-  };
-  const results = await Promise.all(
-    list.map((s) =>
-      api
-        .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
-          headers:{'X-Agency-Id':String(s.caseloadAgencyId||agencyId.value)},
-          params: rosterParams,
-          skipGlobalLoading: true,
-        })
-        .then((res) => (Array.isArray(res?.data) ? res.data : []))
-        .catch(() => [])
-    )
-  );
+  const results = await Promise.all(list.map(school => requestSchoolRoster(school).catch(() => [])));
   for (const rows of results) {
     for (const c of rows) {
       const id = Number(c?.id);
@@ -1473,23 +1476,14 @@ const loadAllRosters = async () => {
     return;
   }
   try {
-    const sbParams = skillBuildersOnlyFilter.value ? { skillBuildersOnly: true } : {};
+    const skillBuildersOnly = skillBuildersOnlyFilter.value;
     const results = await Promise.all(
-        list.map((s) =>
-        api
-          .get(`/school-portal/${encodeURIComponent(s.schoolOrganizationId)}/my-roster`, {
-            headers:{'X-Agency-Id':String(s.caseloadAgencyId||agencyId.value)},
-            params: {
-              ...sbParams,
-              ...(rosterProviderUserId.value ? { providerUserId: rosterProviderUserId.value } : {}),
-            },
-            skipGlobalLoading: true,
-          })
-          .then((res) => ({ school: s, rows: Array.isArray(res?.data) ? res.data : [] }))
-          .catch(() => ({ school: s, rows: null }))
+        list.map(school => requestSchoolRoster(school, { skillBuildersOnly })
+          .then(rows => ({ school, rows }))
+          .catch(() => ({ school, rows: null }))
       )
     );
-    if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
+    if(version!==rosterLoadVersion||providerId!==currentUserId.value||skillBuildersOnly!==skillBuildersOnlyFilter.value)return;
     schoolRosters.value = Object.fromEntries(results.map(({ school, rows }) => [Number(school.schoolOrganizationId), rows]));
     const byId = new Map();
     for (const { school, rows } of results) {
@@ -1579,13 +1573,11 @@ const load = async () => {
     allClients.value = [];
     await loadSchools();
     if(version!==rosterLoadVersion)return;
-    const tasks = [loadOfficeClients(), loadSessionTotals()];
+    const tasks = [loadOfficeClients(), loadSessionTotals(), loadAllRosters()];
     if (!props.profileEmbed) {
       tasks.push(loadPendingClients());
     }
     await Promise.all(tasks);
-    if(version!==rosterLoadVersion)return;
-    await loadAllRosters();
     if(version!==rosterLoadVersion)return;
     await loadTerminatedOfficeExtras();
   } catch (e) {

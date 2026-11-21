@@ -9,7 +9,8 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
-import { isReturningSchoolClient, needsFallReassignmentClearance, servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
+import { isNewSchoolIntakeThisYear, isReturningSchoolClient, needsFallReassignmentClearance, servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
+import { resolveNewSchoolIntakeStatus } from '../utils/schoolClientStatusDisplay.js';
 
 export { deriveLifecycleAction };
 
@@ -247,6 +248,15 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   const hasProvider = await clientHasProvider(cid, client);
   const returning = isReturningSchoolClient(client);
   const servicesStarted = servicesConfirmedThisSchoolYear(client);
+  const newIntakeStatus = resolveNewSchoolIntakeStatus({ ...client, has_weekday: hasWeekday, has_provider: hasProvider });
+  if (newIntakeStatus) {
+    return setClientLifecycleStatus({
+      clientId: cid,
+      statusKey: newIntakeStatus,
+      actorUserId,
+      note: note || 'Reconcile: current-year school intake'
+    });
+  }
 
   // Being Seen reflects confirmed services; a missing weekday is a separate action.
   // Returners require the provider "Mark Being Seen" action (services_started_at this year), not last year's first_service_at.
@@ -307,7 +317,7 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   );
   const disp = dispRows?.[0] || null;
 
-  if (disp) {
+  if (disp && !isNewSchoolIntakeThisYear(client)) {
     if (disp.fall_outcome === 'recommend_termination') {
       return setClientLifecycleStatus({
         clientId: cid,

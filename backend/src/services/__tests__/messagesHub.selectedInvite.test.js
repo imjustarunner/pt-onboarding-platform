@@ -62,6 +62,17 @@ it('never replaces a deleted or suspended existing contact with a new account',a
  }
  expect(m.create).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();
 });
+it('requires a verified link for the older Messages Hub invitation path too', async () => {
+ const { existingLinkOnly, selectedClientIds, expectedRecipientEmail, ...legacyArgs } = args();
+ m.links.mockResolvedValue([]);
+ await expect(send(legacyArgs)).rejects.toHaveProperty('status', 409);
+ m.links.mockResolvedValue([{ guardian_user_id: 10, access_enabled: 1, permissions_json: { pendingGuardianVerification: true } }]);
+ await expect(send(legacyArgs)).rejects.toHaveProperty('status', 409);
+ expect(m.create).not.toHaveBeenCalled();
+ expect(m.upsert).not.toHaveBeenCalled();
+ expect(m.prepare).not.toHaveBeenCalled();
+ expect(m.email).not.toHaveBeenCalled();
+});
 
 it('delivers the school paper welcome to the current guardian account',async()=>{
  const result=await send({...args(),selectedClientIds:undefined,paperPacketProcessed:true});

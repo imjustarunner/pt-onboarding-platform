@@ -11,13 +11,15 @@ vi.mock('../../../store/agency', () => ({ useAgencyStore: () => m.agencies }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 1433, role: 'provider' } }) }));
 vi.mock('../../admin/ClientDetailPanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../admin/clientChart/ClientEhrBringUpToDatePanel.vue', () => ({ default: { template: '<div />' } }));
-const full = { id: 450, slug: 'auricwell-qa-demo', organization_type: 'agency' };
-const limited = { id: 456, slug: 'scb-qa-company', organization_type: 'agency', feature_flags: JSON.stringify({ schoolCareBridgeOnly: true }) };
+const full = { id: 450, slug: 'auricwell-qa-demo', organization_type: 'agency', is_direct_membership: 1 };
+const limited = { id: 456, slug: 'scb-qa-company', organization_type: 'agency', is_direct_membership: 1, feature_flags: JSON.stringify({ schoolCareBridgeOnly: true }) };
+const virtualAccess = { id: 452, slug: 'virtual-access', organization_type: 'agency', is_platform_access_only: 1 };
 let wrapper;
 beforeEach(() => {
   vi.clearAllMocks();
-  m.agencies = reactive({ currentAgency: full, userAgencies: [full, limited] });
+  m.agencies = reactive({ currentAgency: virtualAccess, userAgencies: [full, limited, virtualAccess] });
   m.get.mockImplementation(async (url, options) => {
+    if (url === '/users/me/agencies') return { data: m.agencies.userAgencies };
     if (url.endsWith('/enrollment-waitlist')) {
       if (options.params.agencyId === 456) throw { response: { status: 403 } };
       return { data: { requests: [], waitlistEnabled: true } };
@@ -33,7 +35,7 @@ async function render() {
   wrapper = shallowMount(ProviderClientsTab, { global: { plugins: [router], stubs: { ProviderEnrollmentWaitlist: false } } });
   await flushPromises();
 }
-it('requests only full-agency waitlists from provider Office Clients without displaying a zero badge', async () => {
+it('uses confirmed direct memberships for waitlists and skips virtual agency access', async () => {
   await render();
   expect(m.get.mock.calls.filter(([url]) => url.endsWith('/enrollment-waitlist')).map(([, options]) => options.params.agencyId)).toEqual([450]);
   const waitlist = wrapper.findComponent(ProviderEnrollmentWaitlist);

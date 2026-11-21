@@ -2196,7 +2196,7 @@ class User {
     }
 
     const activeFilter = hasIsActive && !includeInactive ? ' AND ua.is_active = 1' : '';
-    const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}${hasIsActive ? ', ua.is_active AS membership_is_active' : ''}
+    const query = `SELECT a.*, TRUE AS is_direct_membership${selectExtra ? ', ' + selectExtra : ''}${hasIsActive ? ', ua.is_active AS membership_is_active' : ''}
        FROM agencies a
        JOIN user_agencies ua ON a.id = ua.agency_id
        ${joins ? joins : ''}

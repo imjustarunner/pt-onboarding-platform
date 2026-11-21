@@ -169,7 +169,7 @@ async function fetchSmsForClient(clientId) {
 async function fetchClientGuardiansSummary(clientId) {
   try {
     const links = await ClientGuardian.listForClient(clientId);
-    return Promise.all(links.map(async r => ({
+    return Promise.all(links.filter(link => !link.permissions_json?.relationshipRevoked && !link.permissions_json?.pendingGuardianVerification).map(async r => ({
       id: r.guardian_user_id,
       canText: (await resolveRelayFamily({id:clientId}, r.phone, links))?.guardianUserId === Number(r.guardian_user_id),
       name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || null,

@@ -120,12 +120,16 @@ class ClientGuardian {
     try {
       await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      const [[current]] = await db.execute(`SELECT access_enabled, permissions_json FROM client_guardians
+        WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE`, [cid, uid]);
+      const currentPermissions = this.parsePermissions(current?.permissions_json);
+      if (currentPermissions?.relationshipRevoked) {
+        throw Object.assign(new Error('This relationship was marked incorrect and needs separate review.'), { status: 409 });
+      }
       if (expectedLink !== undefined) {
-        const [[current]] = await db.execute(`SELECT access_enabled, permissions_json FROM client_guardians
-          WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE`, [cid, uid]);
         const unchanged = expectedLink === null ? !current : !!current
           && Number(current.access_enabled) === Number(expectedLink.access_enabled)
-          && isDeepStrictEqual(this.parsePermissions(current.permissions_json), this.parsePermissions(expectedLink.permissions_json));
+          && isDeepStrictEqual(currentPermissions, this.parsePermissions(expectedLink.permissions_json));
         if (!unchanged) throw Object.assign(new Error('Guardian access changed during enrollment. Review the current relationship before retrying.'), { status: 409 });
       }
       if(enabled){
@@ -166,15 +170,35 @@ class ClientGuardian {
     } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
   }
 
-  static async removeLink({ clientId, guardianUserId }) {
+  static async revokeIncorrectLink({ clientId, guardianUserId, actorUserId }) {
     const cid = Number(clientId);
     const uid = Number(guardianUserId);
     if (!cid || !uid) return false;
-    const [r] = await pool.execute(
-      'DELETE FROM client_guardians WHERE client_id = ? AND guardian_user_id = ?',
-      [cid, uid]
-    );
-    return (r?.affectedRows || 0) > 0;
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      const [[row]] = await db.execute(
+        'SELECT access_enabled, permissions_json FROM client_guardians WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE',
+        [cid, uid]
+      );
+      const previous = this.parsePermissions(row?.permissions_json);
+      if (row && !previous?.relationshipRevoked) {
+        await db.execute(`UPDATE client_guardians SET access_enabled = 0, permissions_json = ?
+          WHERE client_id = ? AND guardian_user_id = ?`,
+        [JSON.stringify({ ...previous, relationshipRevoked: true, noContact: true, noView: true }), cid, uid]);
+        await db.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+          VALUES (?, ?, 'incorrect_guardian_relationship', ?, ?, 'Staff marked the guardian relationship incorrect')`,
+        [cid, actorUserId, JSON.stringify({ guardianUserId: uid, accessEnabled: Number(row.access_enabled) === 1, permissions: previous }), String(uid)]);
+      }
+      await db.commit();
+      return !!row;
+    } catch (error) {
+      await db.rollback();
+      throw error;
+    } finally {
+      db.release();
+    }
   }
 
   static async listClientsForGuardian({ guardianUserId, requiredClinicalScope = null }) {

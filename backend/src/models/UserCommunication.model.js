@@ -131,7 +131,9 @@ class UserCommunication {
        WHERE ${appCommunicationVisibilitySql('uc')} AND (uc.client_id = ?
           OR (uc.client_id IS NULL AND uc.agency_id = (SELECT agency_id FROM clients WHERE id = ?)
             AND EXISTS (SELECT 1 FROM client_guardians only_guardian JOIN users recipient ON recipient.id=only_guardian.guardian_user_id
-              WHERE only_guardian.client_id=? AND (recipient.id=uc.user_id OR LOWER(recipient.email) COLLATE utf8mb4_unicode_ci=LOWER(uc.recipient_address) COLLATE utf8mb4_unicode_ci)
+              WHERE only_guardian.client_id=?
+              AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(only_guardian.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
+              AND (recipient.id=uc.user_id OR LOWER(recipient.email) COLLATE utf8mb4_unicode_ci=LOWER(uc.recipient_address) COLLATE utf8mb4_unicode_ci)
               AND NOT EXISTS (SELECT 1 FROM client_guardians sibling JOIN clients sibling_client ON sibling_client.id=sibling.client_id WHERE sibling.guardian_user_id=recipient.id AND sibling.client_id<>only_guardian.client_id AND sibling_client.agency_id=uc.agency_id))))
        ORDER BY COALESCE(uc.sent_at, uc.generated_at) DESC, uc.id DESC
        LIMIT ${lim}`,

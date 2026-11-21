@@ -349,7 +349,7 @@ export async function assertClientMergePreservesSignedNotes(database, sourceIds)
   if (records.length) throw Object.assign(new Error('A source client has signed clinical records. Preserve those records under their original client identity and use the clinical chart reconciliation workflow before merging.'), { status: 409 });
 }
 
-export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, completedOrganizationIds = [], guardianAccessResolution = null, actorUserId = null }) {
+export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, completedOrganizationIds = [], guardianAccessResolution = null, actorUserId = null, reviewedClientCharts = null }) {
   const preview = await previewClientMerge({ keepId, sourceIds, fieldChoices });
   const conn = await pool.getConnection();
   let clinicalConn = null;
@@ -366,6 +366,14 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, compl
     const [locked] = await conn.execute(`SELECT id, agency_id, status FROM clients WHERE id IN (${ids.map(() => '?').join(',')}) FOR UPDATE`, ids);
     if (locked.length !== ids.length || locked.some(row => Number(row.agency_id) !== Number(preview.keep.agency_id) || row.status === 'ARCHIVED')) {
       throw Object.assign(new Error('Client records changed or belong to different agencies. Refresh the merge review.'), { status: 409 });
+    }
+    if (reviewedClientCharts) {
+      const sourceChartIds = ids.filter(id => id !== Number(keepId));
+      const [sourceLinks] = await conn.execute(`SELECT client_id FROM client_chart_identity_members
+        WHERE client_id IN (${sourceChartIds.map(() => '?').join(',')}) FOR UPDATE`, sourceChartIds);
+      if (sourceLinks.length || locked.some(row => Number(row.agency_id) !== Number(reviewedClientCharts.find(chart => Number(chart.id) === Number(row.id))?.agency_id))) {
+        throw Object.assign(new Error('Chart affiliations changed. Reopen the duplicate review.'), { status: 409 });
+      }
     }
     await assertClientMergePreservesSignedNotes(clinicalConn || conn, preview.others.map(row => row.id));
 

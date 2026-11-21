@@ -12,7 +12,9 @@ export async function guardianContactContext({ userId, guardianId }) {
     COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone
     FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id
     JOIN agencies a ON a.id=c.agency_id
-    WHERE cg.guardian_user_id=? AND cg.relationship_type<>'self' AND ${scope.sql}
+    WHERE cg.guardian_user_id=? AND cg.relationship_type<>'self'
+      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
+      AND ${scope.sql}
     ORDER BY a.name,c.full_name,c.initials,c.id`,[guardianId,...scope.params]);
   if(!rows.length)throw Object.assign(new Error('Guardian not found'),{status:404});
   const first=rows[0];

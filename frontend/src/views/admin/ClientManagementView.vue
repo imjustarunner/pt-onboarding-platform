@@ -38,7 +38,7 @@
           v-if="canBackofficeEdit"
           type="button"
           class="cm-hbtn cm-hbtn--ghost"
-          @click="identityReviewMode = 'duplicates'"
+          @click="cmViewMode = 'duplicates'"
         >Show Duplicates</button>
         <button
           v-if="canBackofficeEdit"
@@ -109,7 +109,6 @@
 
     <div v-else-if="cmViewMode === 'duplicates'" class="cm-inline-panel">
       <ClientNameDuplicatesPanel
-        :agency-id="effectiveAgencyScopeId"
         @open-client="openClientDetail"
         @merged="fetchClients(); loadSideCounts()"
       />
@@ -1429,7 +1428,7 @@ async function loadSideCounts() {
       api.get('/client-exchange/pending-office-clients', { params: { agencyId: aid, includeSchool: 'true' }, skipGlobalLoading: true }),
       api.get('/client-exchange/listings', { params: { agencyId: aid }, skipGlobalLoading: true }),
       canBackofficeEdit.value
-        ? api.get('/clients/name-duplicates', { params: { agencyId: aid }, skipGlobalLoading: true })
+        ? api.get('/clients/name-duplicates', { skipGlobalLoading: true })
         : Promise.resolve({ data: { groups: [] } })
     ]);
     pendingIntakeCount.value = (intakeRes.data?.clients || []).length;

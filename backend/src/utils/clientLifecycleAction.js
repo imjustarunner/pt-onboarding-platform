@@ -24,6 +24,7 @@ import {
   needsFallReassignmentClearance,
   servicesConfirmedThisSchoolYear
 } from './fallReadiness.js';
+import { resolveNewSchoolIntakeStatus } from './schoolClientStatusDisplay.js';
 
 const NO_AGENCY_CLEARANCE = new Set([
   'terminated',
@@ -113,7 +114,7 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
   if (client?.client_type && String(client.client_type).trim().toLowerCase() !== 'school') return null;
   if (client?.organization_type && String(client.organization_type).trim().toLowerCase() !== 'school') return null;
   const role = String(viewerRole || '').toLowerCase();
-  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  const statusKey = resolveNewSchoolIntakeStatus(client, now) || String(client?.client_status_key || '').toLowerCase();
   const agencyIntake = parseJson(client?.agency_intake_json) || {};
   const clearance = parseJson(disposition?.agency_clearance_json) || parseJson(client?.agency_clearance_json) || {};
   const continuation = parseJson(client?.continuation_services_json) || {};
@@ -143,7 +144,7 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
   }
 
   if (isAgency) {
-    if (needsFallReassignmentClearance({ client, disposition })) {
+    if (needsFallReassignmentClearance({ client, disposition, now })) {
       return { role: 'agency', actionKey: 'fall_reassignment', label: 'Fall reassignment – Action Needed' };
     }
     if (needsSharedDayAssignmentAction(client)) {

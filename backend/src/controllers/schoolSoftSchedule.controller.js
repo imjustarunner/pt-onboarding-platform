@@ -316,6 +316,7 @@ function buildDefaultSlots({ slotCount, startTime, endTime }) {
 async function promoteClientForAssignedDay({ clientId, actorUserId }) {
   const [rows] = await pool.execute(
     `SELECT c.id, c.agency_id, c.school_year, c.grade, c.client_status_id,
+            c.client_type, c.submission_date, c.created_at, c.first_service_at, c.services_started_at,
             c.staff_onboarding_completed_at, c.provider_id, c.status AS workflow_status,
             cs.status_key AS client_status_key
      FROM clients c

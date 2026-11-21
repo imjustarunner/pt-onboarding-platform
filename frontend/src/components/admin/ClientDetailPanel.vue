@@ -59,7 +59,11 @@
                 <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
                 <span v-if="recordSexLabel">Sex {{ recordSexLabel }}</span>
                 <span v-else-if="intakeSexLabel">Sex {{ intakeSexLabel }} · intake</span>
-                <span v-if="guardianIntakeName">{{ intakeContactLabel }}: {{ guardianIntakeName }}</span>
+                <span v-if="guardianIntakeName">
+                  {{ intakeContactLabel }}:
+                  <RouterLink v-if="canManageGuardians && overviewGuardianAccount?.guardian_user_id" :to="guardianAccountPath(overviewGuardianAccount.guardian_user_id, route.params.organizationSlug)">{{ guardianIntakeName }}</RouterLink>
+                  <template v-else>{{ guardianIntakeName }}</template>
+                </span>
               </div>
               <div v-show="!headerCollapsed" class="cdp-tenant-line">
                 <span
@@ -1721,9 +1725,9 @@
                     :disabled="creatingIntakeGuardian || !guardianIntakeEmail"
                     @click="createGuardianFromIntake"
                   >
-                    {{ creatingIntakeGuardian ? 'Creating…' : 'Create Account' }}
+                    {{ creatingIntakeGuardian ? 'Preparing…' : 'Prepare guardian account' }}
                   </button>
-                  <div class="hint" style="margin-top: 6px; text-align: center;">Creates login &amp; generates invite link</div>
+                  <div class="hint">Verify the relationship in Portal before enabling access or sending an invitation.</div>
                 </div>
               </div>
             </div>
@@ -1790,12 +1794,12 @@
                 <tbody>
                   <tr v-for="g in guardians" :key="g.guardian_user_id">
                     <td><RouterLink :to="guardianAccountPath(g.guardian_user_id, route.params.organizationSlug)">{{ [g.first_name,g.last_name].filter(Boolean).join(' ') || 'Open guardian account' }}</RouterLink></td>
-                    <td>{{ g.email }}</td>
+                    <td>{{ g.email }}<p v-if="g.permissions_json?.relationshipRevoked" class="hint">Marked as an incorrect relationship</p></td>
                     <td><a v-if="guardianPhone(g)" :href="`tel:${guardianPhone(g).replace(/[^+0-9]/g,'')}`">{{ guardianPhone(g) }}</a><span v-else>No phone on file</span></td>
                     <td style="min-width: 220px;">
                       <span v-if="guardianRowIsSelf(g)">Client (self)</span>
                       <input
-                        v-else-if="canManageGuardians"
+                        v-else-if="canManageGuardians && !g.permissions_json?.relationshipRevoked"
                         v-model="g.relationship_title"
                         type="text"
                       />
@@ -1803,7 +1807,7 @@
                     </td>
                     <td>
                       <input
-                        v-if="canManageGuardians"
+                        v-if="canManageGuardians && !g.permissions_json?.relationshipRevoked"
                         v-model="g.access_enabled"
                         type="checkbox"
                         :true-value="1"
@@ -1814,9 +1818,9 @@
                     </td>
                     <td><strong>{{ guardianPortalStatus(g).label }}</strong><p class="hint">{{ guardianPortalStatus(g).detail }}</p></td>
                     <td class="right" style="white-space: nowrap;">
-                      <ClientGuardianContactEditor v-if="canManageGuardians" :client-id="Number(client.id)" :guardian-user-id="Number(g.guardian_user_id)" :profile="{firstName:g.first_name,lastName:g.last_name,email:g.email,phone:guardianPhone(g),relationship:g.relationship_title}" @saved="fetchGuardians" />
+                      <ClientGuardianContactEditor v-if="canManageGuardians && !g.permissions_json?.relationshipRevoked" :client-id="Number(client.id)" :guardian-user-id="Number(g.guardian_user_id)" :profile="{firstName:g.first_name,lastName:g.last_name,email:g.email,phone:guardianPhone(g),relationship:g.relationship_title}" @saved="fetchGuardians" />
                       <button
-                        v-if="canMessageGuardian"
+                        v-if="canMessageGuardian && !g.permissions_json?.relationshipRevoked && !g.permissions_json?.pendingGuardianVerification"
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="messagingGuardianId === g.guardian_user_id"
@@ -1826,7 +1830,7 @@
                         Message
                       </button>
                       <button
-                        v-if="canManageGuardians"
+                        v-if="canManageGuardians && !g.permissions_json?.relationshipRevoked"
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="updatingGuardianId === g.guardian_user_id"
@@ -1835,14 +1839,14 @@
                         {{ updatingGuardianId === g.guardian_user_id ? 'Saving…' : 'Save' }}
                       </button>
                       <button
-                        v-if="canManageGuardians"
+                        v-if="canManageGuardians && !g.permissions_json?.relationshipRevoked"
                         type="button"
                         class="btn btn-danger btn-sm"
                         :disabled="updatingGuardianId === g.guardian_user_id"
                         @click="removeGuardian(g)"
                         style="margin-left: 8px;"
                       >
-                        Remove
+                        Mark incorrect
                       </button>
                     </td>
                   </tr>
@@ -1899,7 +1903,7 @@
                 <div class="form-group">
                   <label class="checkbox-label">
                     <input v-model="addGuardianForm.accessEnabled" type="checkbox" />
-                    Enabled
+                    I verified this person’s identity and authority for this client. Enable portal access.
                   </label>
                 </div>
                 <div class="form-section-divider" style="margin-top: 14px; margin-bottom: 10px;">
@@ -3321,9 +3325,9 @@ function guardianRowIsSelf(row) {
 }
 const intakeContactLabel = computed(() => isSelfIntakeContact.value ? 'Client (self)' : 'Guardian');
 const overviewGuardianAccount = computed(() => {
-  const contacts=(guardians.value||[]).filter(g=>!guardianRowIsSelf(g));
+  const contacts=(guardians.value||[]).filter(g=>!guardianRowIsSelf(g) && !g.permissions_json?.relationshipRevoked);
   const email=String(guardianIntakeProfile.value?.email||'').trim().toLowerCase();
-  return contacts.find(g=>email&&String(g.email||'').trim().toLowerCase()===email) || (contacts.length===1?contacts[0]:null);
+  return email ? contacts.find(g=>String(g.email||'').trim().toLowerCase()===email) || null : (contacts.length===1?contacts[0]:null);
 });
 const overviewGuardianContactProfile=computed(()=>overviewGuardianAccount.value ? {firstName:overviewGuardianAccount.value.first_name,lastName:overviewGuardianAccount.value.last_name,
  email:overviewGuardianAccount.value.email,phone:overviewGuardianAccount.value.phone || guardianIntakeProfile.value?.phone || '',relationship:overviewGuardianAccount.value.relationship_title} : guardianIntakeProfile.value);
@@ -4965,7 +4969,7 @@ const addGuardianForm = ref({
   firstName: '',
   lastName: '',
   relationshipTitle: 'Guardian',
-  accessEnabled: true,
+  accessEnabled: false,
   permissions: {
     canViewDocs: true,
     canSignDocs: true,
@@ -5710,7 +5714,7 @@ const openAddGuardian = () => {
     firstName: gip?.firstName || '',
     lastName: gip?.lastName || '',
     relationshipTitle: gip?.relationship || 'Guardian',
-    accessEnabled: true,
+    accessEnabled: false,
     permissions: {
       canViewDocs: true,
       canSignDocs: true,
@@ -5730,7 +5734,7 @@ const clearAddGuardianForm = () => {
     firstName: '',
     lastName: '',
     relationshipTitle: 'Guardian',
-    accessEnabled: true,
+    accessEnabled: false,
     permissions: {
       canViewDocs: true,
       canSignDocs: true,
@@ -5778,6 +5782,8 @@ const addGuardian = async () => {
       lastName,
       relationshipTitle: String(addGuardianForm.value.relationshipTitle || 'Guardian').trim() || 'Guardian',
       accessEnabled: addGuardianForm.value.accessEnabled !== false,
+      relationshipVerified: addGuardianForm.value.accessEnabled === true,
+      sendInvitation: false,
       permissionsJson: addGuardianForm.value.permissions
     });
     lastInviteLink.value = resp.data?.passwordlessTokenLink || '';
@@ -5801,7 +5807,8 @@ const createGuardianFromIntake = async () => {
       firstName: gip.firstName,
       lastName: gip.lastName || '',
       relationshipTitle: gip.relationship || 'Guardian',
-      accessEnabled: true,
+      accessEnabled: false,
+      sendInvitation: false,
       permissionsJson: {
         canViewDocs: true,
         canSignDocs: true,
@@ -5891,7 +5898,7 @@ const removeGuardian = async (g) => {
   if (!canManageGuardians.value) return;
   const id = Number(g?.guardian_user_id);
   if (!id) return;
-  if (!window.confirm('Remove this guardian’s access to this client?')) return;
+  if (!window.confirm('Mark this relationship as incorrect? This revokes this account’s access to this client and keeps an audit record.')) return;
   try {
     updatingGuardianId.value = id;
     await api.delete(`/clients/${props.client.id}/guardians/${id}`);

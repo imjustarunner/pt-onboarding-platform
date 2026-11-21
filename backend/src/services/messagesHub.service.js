@@ -3846,7 +3846,7 @@ export async function lookupHubExternalIdentity({
 
 /**
  * Send branded portal invitation from Messages Hub.
- * Enables guardian portal access, issues setup token, emails You’re Invited HTML.
+ * Issues an invitation for a verified relationship with portal access.
  */
 export async function sendHubPortalInvitation({
   agencyId,
@@ -3855,7 +3855,6 @@ export async function sendHubPortalInvitation({
   clientId = null,
   guardianUserId = null,
   skipEmail = false,
-  existingLinkOnly = false,
   expectedRecipientEmail = null,
   selectedClientIds = null,
   paperPacketProcessed = false,
@@ -3878,24 +3877,15 @@ export async function sendHubPortalInvitation({
   }
 
   let cid = Number(clientId || person?.clientId || 0) || null;
-  let uid = Number(guardianUserId || person?.userId || 0) || null;
-  let email = person?.email || null;
-  let firstName = null;
-  let lastName = null;
+  const uid = Number(guardianUserId || person?.userId || 0) || null;
+  if (!uid || (person?.userId && Number(person.userId) !== uid)) {
+    throw Object.assign(new Error('Select an existing portal account with access to this client. Review the relationship on the client’s Portal tab first.'), { status: 409 });
+  }
 
   const Client = (await import('../models/Client.model.js')).default;
   const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
   const User = (await import('../models/User.model.js')).default;
   const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
-
-  if (uid && !email) {
-    const u = await User.findById(uid);
-    if (u) {
-      email = u.email || u.personal_email || null;
-      firstName = u.first_name;
-      lastName = u.last_name;
-    }
-  }
 
   if (!cid && uid) {
     const [linkRows] = await pool.execute(
@@ -3939,105 +3929,41 @@ export async function sendHubPortalInvitation({
   const portalContext = await resolveClientPortalContext(client);
   const inviteAgencyId = Number(portalContext.tenant.id);
 
-  if (existingLinkOnly) {
-    const selected = Array.isArray(selectedClientIds) ? [...new Set(selectedClientIds.map(Number))] : [cid];
-    if (!selected.length || !selected.includes(cid) || selected.some(id => !Number.isSafeInteger(id) || id <= 0)) {
-      throw Object.assign(new Error('The selected clients changed. Refresh the invitation preview.'), { status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED' });
-    }
-    for (const selectedId of selected) {
-      const selectedClient = selectedId === cid ? client : await Client.findById(selectedId);
-      const link = (await ClientGuardian.listForClient(selectedId)).find(g => Number(g.guardian_user_id) === uid);
-      let permissions;
-      try { permissions = typeof link?.permissions_json === 'string' ? JSON.parse(link.permissions_json) : link?.permissions_json || {}; } catch { permissions = null; }
-      const access = selectedId === cid ? {ok:true} : await resolveClientRecordAccess({userId:actorId,role:actorRows?.[0]?.role,clientId:selectedId});
-      if (Number(selectedClient?.agency_id) !== aid || !access?.ok || !link || ![1, true].includes(link.access_enabled)
-        || !permissions || typeof permissions !== 'object' || Array.isArray(permissions)
-        || permissions.noView || permissions.noViewOtherGuardian || permissions.noContact || permissions.no_contact
-        || permissions.contactRestricted || permissions.revoked || permissions.relationshipRevoked) {
-        throw Object.assign(new Error('Portal contact access changed. Refresh the invitation preview.'), { status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED' });
-      }
+  const selected = Array.isArray(selectedClientIds) ? [...new Set(selectedClientIds.map(Number))] : [cid];
+  if (!selected.length || !selected.includes(cid) || selected.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    throw Object.assign(new Error('The selected clients changed. Refresh the invitation preview.'), { status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED' });
+  }
+  for (const selectedId of selected) {
+    const selectedClient = selectedId === cid ? client : await Client.findById(selectedId);
+    const link = (await ClientGuardian.listForClient(selectedId)).find(g => Number(g.guardian_user_id) === uid);
+    let permissions;
+    try { permissions = typeof link?.permissions_json === 'string' ? JSON.parse(link.permissions_json) : link?.permissions_json || {}; } catch { permissions = null; }
+    const access = selectedId === cid ? {ok:true} : await resolveClientRecordAccess({userId:actorId,role:actorRows?.[0]?.role,clientId:selectedId});
+    if (Number(selectedClient?.agency_id) !== aid || !access?.ok || !link || ![1, true].includes(link.access_enabled)
+      || !permissions || typeof permissions !== 'object' || Array.isArray(permissions)
+      || permissions.pendingGuardianVerification || permissions.noView || permissions.noViewOtherGuardian || permissions.noContact || permissions.no_contact
+      || permissions.contactRestricted || permissions.revoked || permissions.relationshipRevoked) {
+      throw Object.assign(new Error('Portal contact access changed. Refresh the invitation preview.'), { status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED' });
     }
   }
 
-  let guardian = uid ? await User.findById(uid) : null;
-  if (!guardian && email) {
-    guardian = await User.findByEmail(email);
-  }
-
-  if (existingLinkOnly && (!guardian || guardian.is_active === 0 || guardian.is_active === false
-    || ['ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED'].includes(String(guardian.status).toUpperCase()))) {
+  const guardian = await User.findById(uid);
+  if (!guardian || !['client_guardian', 'guardian', 'client'].includes(String(guardian.role).toLowerCase())
+    || guardian.is_active === 0 || guardian.is_active === false
+    || ['ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED'].includes(String(guardian.status).toUpperCase())) {
     throw Object.assign(new Error('This portal account is no longer available. Refresh the invitation preview.'), {status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
   }
-
-  if (!guardian) {
-    const nameParts = String(person?.displayName || '').trim().split(/\s+/).filter(Boolean);
-    firstName = firstName || nameParts[0] || 'Portal';
-    lastName = lastName || nameParts.slice(1).join(' ') || 'User';
-    if (!email) {
-      const err = new Error('An email address is required to send a portal invitation');
-      err.status = 400;
-      throw err;
-    }
-    guardian = await User.create({
-      email,
-      passwordHash: null,
-      firstName,
-      lastName,
-      personalEmail: email,
-      role: 'client_guardian',
-      status: 'PENDING_SETUP'
-    });
-  } else {
-    email = email || guardian.email || guardian.personal_email;
-    firstName = guardian.first_name || firstName;
-    lastName = guardian.last_name || lastName;
-    const role = String(guardian.role || '').toLowerCase();
-    if (!['client_guardian', 'guardian', 'client'].includes(role)) {
-      const err = new Error('That email belongs to a staff account and cannot receive a guardian portal invite');
-      err.status = 409;
-      throw err;
-    }
-  }
-
-  if(existingLinkOnly && expectedRecipientEmail && (
-    String(email||'').trim().toLowerCase()!==String(expectedRecipientEmail).trim().toLowerCase()
-    || String(guardian.email||guardian.personal_email||'').trim().toLowerCase()!==String(expectedRecipientEmail).trim().toLowerCase())) {
-    throw Object.assign(new Error('This recipient changed. Refresh the invitation preview before sending.'),{status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
-  }
-
-  if (!email || !String(email).includes('@')) {
-    const err = new Error('An email address is required to send a portal invitation');
-    err.status = 400;
-    throw err;
+  const email = guardian.email || guardian.personal_email;
+  const firstName = guardian.first_name;
+  if (!email || !String(email).includes('@') ||
+      (expectedRecipientEmail && String(email).trim().toLowerCase() !== String(expectedRecipientEmail).trim().toLowerCase())) {
+    throw Object.assign(new Error('The recipient’s email changed or is unavailable. Refresh the invitation preview.'), {status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
   }
 
   if (client.organization_id) {
     await User.assignToAgency(guardian.id, parseInt(client.organization_id, 10)).catch(() => {});
   }
   await User.assignToAgency(guardian.id, inviteAgencyId).catch(() => {});
-
-  const existingLink = (await ClientGuardian.listForClient(cid)).find(
-    (g) => Number(g.guardian_user_id) === Number(guardian.id)
-  );
-  if (!existingLinkOnly) await ClientGuardian.upsertLink({
-    clientId: cid,
-    guardianUserId: guardian.id,
-    relationshipType: ClientGuardian.normalizeRelationshipType(
-      existingLink?.relationship_type || 'guardian'
-    ),
-    relationshipTitle: existingLink?.relationship_title || 'Guardian',
-    accessEnabled: true,
-    permissionsJson:
-      existingLink?.permissions_json || {
-        canViewDocs: true,
-        canSignDocs: true,
-        canViewLinks: true,
-        canViewProgramMaterials: true,
-        canViewProgress: true,
-        canMessage: true
-      },
-    createdByUserId: actorId
-  });
 
   try {
     if (client.guardian_portal_enabled !== 1 && client.guardian_portal_enabled !== true) {
@@ -4091,7 +4017,7 @@ export async function sendHubPortalInvitation({
         const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
         if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
         if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
-        if(existingLinkOnly&&Array.isArray(selectedClientIds)&&!selectedClientIds.map(Number).includes(Number(sibling.id)))continue;
+        if(Array.isArray(selectedClientIds)&&!selected.includes(Number(sibling.id)))continue;
         const siblingContext = await resolveClientPortalContext(sibling);
         if (siblingContext.learning === portalContext.learning) included.push(sibling);
       }
@@ -4108,7 +4034,7 @@ export async function sendHubPortalInvitation({
           agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
           portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school'),locale:enrollmentLocale,documents:migrationDocuments})
         : buildClientEnrollmentEmail({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
-          agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl});
+          agencyName:agency.name,clients:Array.isArray(selectedClientIds) && included.length ? included : [client],learning:portalContext.learning,existingAccount,url:setupUrl});
     }
     delivery = await sendClientPortalEmail({
       agencyId: inviteAgencyId,

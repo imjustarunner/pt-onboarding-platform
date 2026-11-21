@@ -592,9 +592,6 @@ export const requireKioskUser = (req, res, next) => {
  * or assigned clinician (view). Mutations stay on requireBackofficeAdmin routes.
  */
 export const requireGuardianListAccess = async (req, res, next) => {
-  if (req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support') {
-    return next();
-  }
   try {
     const clientId = parseInt(req.params.id, 10);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
@@ -609,7 +606,7 @@ export const requireGuardianListAccess = async (req, res, next) => {
       clientId,
       client
     });
-    if (access.ok && access.isAssignedClinician) {
+    if (access.ok && (access.isAssignedClinician || ['admin', 'super_admin', 'support'].includes(req.user.role))) {
       return next();
     }
 

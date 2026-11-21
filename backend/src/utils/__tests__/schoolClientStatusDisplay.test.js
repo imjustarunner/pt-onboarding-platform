@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import { resolveSchoolRosterDisplayStatus } from '../schoolClientStatusDisplay.js';
 
 describe('resolveSchoolRosterDisplayStatus', () => {
+  it('puts new intakes mislabeled as fall confirmation back on the intake path', () => {
+    const now = new Date('2026-11-21T12:00:00');
+    const client = { client_type: 'school', client_status_key: 'confirmation_pending',
+      submission_date: '2026-11-17', created_at: '2026-11-17', school_year: '2025-2026', provider_id: 45 };
+    assert.equal(resolveSchoolRosterDisplayStatus(client, now).key, 'in_process');
+    assert.equal(resolveSchoolRosterDisplayStatus({ ...client, first_service_at: '2026-11-19' }, now).key, 'being_seen');
+    assert.equal(resolveSchoolRosterDisplayStatus({ ...client, agency_intake_json: { agencyIntakeComplete: true } }, now).key, 'needs_day_assignment');
+    assert.equal(resolveSchoolRosterDisplayStatus({ ...client, first_service_at: '2026-05-18' }, now).key, 'confirmation_pending');
+  });
   it('maps leftover Current with no weekday to confirmation_pending', () => {
     const display = resolveSchoolRosterDisplayStatus({
       client_type: 'school',

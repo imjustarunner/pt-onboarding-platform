@@ -1071,7 +1071,7 @@
                   :disabled="guardianSearchLoading || guardianLinkSaving || !guardianSelectedClientId"
                   @click="linkGuardianToClient"
                 >
-                  {{ guardianLinkSaving ? 'Linking…' : 'Link client' }}
+                  {{ guardianLinkSaving ? 'Linking…' : 'Link for access review' }}
                 </button>
               </div>
             </div>
@@ -1132,7 +1132,7 @@
                       style="margin-left: 8px;"
                       @click="removeGuardianClientLink(row)"
                     >
-                      Remove
+                      Disconnect from this client
                     </button>
                   </td>
                 </tr>
@@ -2331,21 +2331,19 @@
 
         <!-- Guardian: Communication Preferences (replaces full staff preferences hub) -->
         <div v-if="activeTab === 'preferences' && isViewingGuardian" class="tab-panel">
-          <h2>Communication Preferences</h2>
-          <p class="section-description" style="margin-top: -6px;">
-            Guardian-level delivery settings below control how notifications are sent to this guardian account. Intake answers per linked client are shown for reference.
-          </p>
+          <h2>Communication preferences</h2>
 
           <!-- Guardian-level delivery preferences (drives notifications) -->
           <div class="card" style="padding: 16px; margin-bottom: 14px;">
-            <h3 style="margin: 0 0 6px;">Notification delivery (guardian account)</h3>
+            <h3 style="margin: 0 0 6px;">Account notifications</h3>
             <p class="hint" style="margin-top: 0;">
-              Notifications are delivered to the guardian user (not the client). These settings apply across all linked clients.
+              These delivery preferences apply to the guardian’s account across linked clients.
             </p>
 
             <div v-if="guardianDeliveryPrefsLoading" class="loading">Loading delivery settings…</div>
             <div v-else>
-              <div v-if="guardianDeliveryPrefsError" class="error" style="margin-bottom: 10px;">{{ guardianDeliveryPrefsError }}</div>
+              <p v-if="guardianDeliveryPrefsError" role="alert" class="error">{{ guardianDeliveryPrefsError }}</p>
+              <p v-if="guardianDeliveryPrefsNotice" role="status">{{ guardianDeliveryPrefsNotice }}</p>
 
               <div class="comm-pref-row">
                 <span class="comm-pref-label">In-app notifications</span>
@@ -2369,6 +2367,7 @@
                   </label>
                 </span>
               </div>
+              <p class="hint">Appointment texts require consent for the specific client. Review or record consent below.</p>
 
               <div style="display:flex; gap: 10px; align-items:center; margin-top: 12px; flex-wrap: wrap;">
                 <button
@@ -2395,7 +2394,8 @@
             </div>
           </div>
 
-          <div v-if="guardianLinkedClientsLoading" class="loading">Loading preferences…</div>
+          <h3>Appointment text consent</h3>
+          <div v-if="guardianLinkedClientsLoading" class="loading">Loading linked clients…</div>
           <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
             <p>No linked clients — no communication preferences to display.</p>
           </div>
@@ -2417,7 +2417,7 @@
                 </div>
               </div>
 
-              <div v-if="guardianCommPrefs[client.client_id]">
+              <div v-if="guardianCommPrefs[client.client_id]?.length">
                 <div
                   v-for="pref in guardianCommPrefs[client.client_id]"
                   :key="pref.key"
@@ -2433,6 +2433,16 @@
               <div v-else class="muted" style="font-size: 13px;">
                 No communication preferences on record for this client.
               </div>
+              <template v-if="['super_admin', 'admin', 'support'].includes(authStore.user?.role)">
+                <button type="button" class="btn btn-secondary btn-sm"
+                  style="margin-top: 12px"
+                  :aria-expanded="guardianConsentClientId === Number(client.client_id)"
+                  @click="guardianConsentClientId = guardianConsentClientId === Number(client.client_id) ? null : Number(client.client_id)">
+                  {{ guardianConsentClientId === Number(client.client_id) ? 'Close verbal consent' : 'Review or record verbal consent for reminder texts' }}
+                </button>
+                <ClientReminderTextConsent v-if="guardianConsentClientId === Number(client.client_id)"
+                  :key="`${userId}:${client.client_id}`" :client-id="Number(client.client_id)" :recipient-id="Number(userId)" />
+              </template>
             </div>
           </div>
         </div>
@@ -2709,7 +2719,9 @@
 <script setup>
 import { agencyCardStyle } from '../../utils/agencyCardScope.js';
 import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
+import { guardianNotificationDelivery } from '../../utils/guardianDirectory.js';
 import GuardianFamilyWorkspace from '../../components/admin/GuardianFamilyWorkspace.vue';
+import ClientReminderTextConsent from '../../components/admin/ClientReminderTextConsent.vue';
 import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -2871,6 +2883,7 @@ const memberRegistrationProfile = ref({ customFields: {} });
 const memberSeasonAiSummary = ref('');
 const seasonCaptainTogglingKey = ref('');
 const guardianLinkedClients = ref([]);
+const guardianConsentClientId = ref(null);
 const guardianLinkedClientsLoading = ref(false);
 const guardianLinkedClientsError = ref('');
 const guardianClientQuery = ref('');
@@ -2902,6 +2915,7 @@ const guardianDeliveryPrefs = ref({
 const guardianDeliveryPrefsLoading = ref(false);
 const guardianDeliveryPrefsSaving = ref(false);
 const guardianDeliveryPrefsError = ref('');
+const guardianDeliveryPrefsNotice = ref('');
 const guardianDeliveryPrefsExists = ref(false);
 
 const insuranceSlotFromFieldKey = (key) => {
@@ -3584,42 +3598,48 @@ const loadGuardianCommPrefsForClient = async (clientId) => {
   }
 };
 
+function applySavedGuardianDelivery(data) {
+  guardianDeliveryPrefsExists.value = !!(data?.user_id || data?.userId);
+  guardianDeliveryPrefs.value = guardianNotificationDelivery(data);
+}
+
 const loadGuardianDeliveryPrefs = async () => {
   if (!userId.value || !isViewingGuardian.value) return;
+  const guardianId = userId.value;
   guardianDeliveryPrefsLoading.value = true;
   guardianDeliveryPrefsError.value = '';
+  guardianDeliveryPrefsNotice.value = '';
   try {
-    const r = await api.get(`/users/${userId.value}/preferences`);
-    const data = r?.data || {};
-    guardianDeliveryPrefsExists.value = !!(data?.user_id || data?.userId);
-    guardianDeliveryPrefs.value = {
-      email_enabled: data?.email_enabled !== false,
-      sms_enabled: data?.sms_enabled === true,
-      in_app_enabled: true,
-    };
+    const { data } = await api.get(`/users/${guardianId}/preferences`);
+    if (guardianId === userId.value) applySavedGuardianDelivery(data || {});
   } catch (e) {
-    guardianDeliveryPrefsError.value = e.response?.data?.error?.message || 'Failed to load delivery settings';
+    if (guardianId === userId.value) guardianDeliveryPrefsError.value = e.response?.data?.error?.message || 'Failed to load delivery settings';
   } finally {
-    guardianDeliveryPrefsLoading.value = false;
+    if (guardianId === userId.value) guardianDeliveryPrefsLoading.value = false;
   }
 };
 
 const saveGuardianDeliveryPrefs = async () => {
   if (!userId.value || !isViewingGuardian.value) return;
   if (!canEditUser.value) return;
+  const guardianId = userId.value;
   guardianDeliveryPrefsSaving.value = true;
   guardianDeliveryPrefsError.value = '';
+  guardianDeliveryPrefsNotice.value = '';
   try {
-    await api.put(`/users/${userId.value}/preferences`, {
+    const { data } = await api.put(`/users/${guardianId}/preferences`, {
       email_enabled: guardianDeliveryPrefs.value.email_enabled === true,
       sms_enabled: guardianDeliveryPrefs.value.sms_enabled === true,
       in_app_enabled: true,
     });
-    guardianDeliveryPrefsExists.value = true;
+    if (guardianId === userId.value && data?.preferences) {
+      applySavedGuardianDelivery(data.preferences);
+      guardianDeliveryPrefsNotice.value = 'Delivery preferences saved.';
+    }
   } catch (e) {
-    guardianDeliveryPrefsError.value = e.response?.data?.error?.message || 'Failed to save delivery settings';
+    if (guardianId === userId.value) guardianDeliveryPrefsError.value = e.response?.data?.error?.message || 'Failed to save delivery settings';
   } finally {
-    guardianDeliveryPrefsSaving.value = false;
+    if (guardianId === userId.value) guardianDeliveryPrefsSaving.value = false;
   }
 };
 
@@ -3722,7 +3742,8 @@ const linkGuardianToClient = async () => {
       lastName: String(user.value?.last_name || '').trim(),
       relationshipType: relType,
       relationshipTitle,
-      accessEnabled: true
+      accessEnabled: false,
+      sendInvitation: false
     });
     await loadGuardianLinkedClients();
   } catch (e) {
@@ -3753,7 +3774,7 @@ const saveGuardianClientLink = async (row) => {
 
 const removeGuardianClientLink = async (row) => {
   if (!row?.client_id || !userId.value) return;
-  if (!confirm('Remove this client link from the guardian account?')) return;
+  if (!confirm('Disconnect this guardian from this client? Their access to this client will be revoked. The change will be recorded in the audit history.')) return;
   guardianLinkSaving.value = true;
   guardianLinkError.value = '';
   try {
@@ -6389,6 +6410,10 @@ const ensureAvailableAgencies = async () => {
 
 watch(userId, () => {
   availableAgenciesReady.value = false;
+  guardianConsentClientId.value = null;
+  guardianDeliveryPrefsSaving.value = false;
+  guardianDeliveryPrefsLoading.value = false;
+  guardianDeliveryPrefsNotice.value = '';
 });
 
 watch(affiliationOptionsAgencyId, () => {

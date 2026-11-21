@@ -6,3 +6,11 @@ export function guardianDirectoryMatches(guardian, query) {
   return words.every(word=>text.includes(word)||(/^[\d()+.-]+$/.test(word)&&word.replace(/\D/g,'').length>1&&digits.includes(word.replace(/\D/g,''))));
 }
 export const guardianAccountPath=(id,slug='')=>`${slug?`/${encodeURIComponent(slug)}`:''}/admin/users/${Number(id)}`;
+
+export function guardianNotificationDelivery(preferences = {}) {
+  return {
+    email_enabled: ![false, 0, '0', 'false'].includes(preferences.email_enabled),
+    sms_enabled: [true, 1, '1', 'true'].includes(preferences.sms_enabled),
+    in_app_enabled: true
+  };
+}

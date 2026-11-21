@@ -18,7 +18,9 @@ export async function emailClientCandidates(agencyId, emails) {
   const ph=values.map(()=>'?').join(',');
   const [rows]=await pool.execute(`SELECT DISTINCT c.id,c.full_name,c.initials FROM clients c
     WHERE c.agency_id=? AND (LOWER(c.email) IN (${ph})
-      OR EXISTS (SELECT 1 FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=c.id AND (LOWER(u.email) IN (${ph}) OR LOWER(u.personal_email) IN (${ph})))
+      OR EXISTS (SELECT 1 FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=c.id
+        AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
+        AND (LOWER(u.email) IN (${ph}) OR LOWER(u.personal_email) IN (${ph})))
       OR EXISTS (SELECT 1 FROM agency_contacts ac WHERE ac.client_id=c.id AND ac.agency_id=c.agency_id AND ac.is_active=1 AND LOWER(ac.email) IN (${ph})))
     ORDER BY COALESCE(c.full_name,c.initials),c.id`, [agencyId,...values,...values,...values,...values]);
   return rows;

@@ -87,7 +87,7 @@
       </span>
     </div>
 
-    <GuardianContactCard v-for="guardian in guardians" :key="guardian.id" :guardian-id="Number(guardian.id)" :client-id="clientId" show-account-link />
+    <GuardianContactCard v-for="guardian in guardians" :key="guardian.id" :guardian-id="Number(guardian.id)" :client-id="clientId" show-account-link @disconnected="loadCommunications" />
 
     <section class="sms-audit-card">
       <div class="sms-audit-head">
