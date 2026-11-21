@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { filterAdministrativeCareCandidates, isAdministrativeCareCandidate, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
@@ -1945,6 +1946,7 @@ export const listAddableSchoolProviders = async (req, res, next) => {
     try {
       const [r] = await pool.execute(
         `SELECT u.id AS provider_user_id,
+                u.role,
                 u.first_name,
                 u.last_name,
                 u.email,
@@ -1959,7 +1961,8 @@ export const listAddableSchoolProviders = async (req, res, next) => {
          WHERE (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
-           AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
+           AND COALESCE(ua_agency.is_active, 1) = 1
+           AND (u.role IN ('provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin') OR u.has_provider_access = TRUE)
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [schoolOrgId, agencyId]
       );
@@ -1969,6 +1972,7 @@ export const listAddableSchoolProviders = async (req, res, next) => {
       if (!msg.includes('Unknown column')) throw e;
       const [r2] = await pool.execute(
         `SELECT u.id AS provider_user_id,
+                u.role,
                 u.first_name,
                 u.last_name,
                 u.email,
@@ -1980,12 +1984,15 @@ export const listAddableSchoolProviders = async (req, res, next) => {
                 ) AS already_at_school
          FROM users u
          JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
-         WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         WHERE COALESCE(ua_agency.is_active, 1) = 1
+           AND (u.role IN ('provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin') OR u.has_provider_access = TRUE)
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [schoolOrgId, agencyId]
       );
       rows = r2 || [];
     }
+
+    rows = await filterAdministrativeCareCandidates(rows, agencyId);
 
     // Attach existing active days at this school (if any).
     const providerIds = rows.map((r) => Number(r.provider_user_id)).filter(Boolean);
@@ -2059,7 +2066,7 @@ export const addSchoolProviderWithSchedule = async (req, res, next) => {
 
     // Provider must belong to the parent agency.
     const [agencyMembership] = await pool.execute(
-      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
       [providerUserId, agencyId]
     );
     if (!agencyMembership?.[0]) {
@@ -2077,9 +2084,10 @@ export const addSchoolProviderWithSchedule = async (req, res, next) => {
     const user = userRows?.[0];
     if (!user) return res.status(404).json({ error: { message: 'Provider not found' } });
     const role = String(user.role || '').toLowerCase();
-    if (role !== 'provider' && !user.has_provider_access) {
+    if (!['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin'].includes(role) && !user.has_provider_access) {
       return res.status(400).json({ error: { message: 'Selected user is not a provider' } });
     }
+    if (isAdministrativeCareCandidate(user)) await requireStaffCareEligibility(providerUserId, agencyId);
 
     let daySpecs = Array.isArray(req.body?.days) ? req.body.days : null;
     if (!daySpecs || !daySpecs.length) {

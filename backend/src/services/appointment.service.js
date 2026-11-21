@@ -253,7 +253,7 @@ async function createLockedAppointment({
     }
   }
 
-  const bookingClients = await assertAppointmentClients(aid, participants);
+  const bookingClients = await assertAppointmentClients(aid, participants, { providerUserId, serviceLocationId });
   videoRoomMode = appointmentVideoRoomMode({ modality, businessType: bookingClients.some(client => ['clinical', 'school'].includes(client.client_type)) ? 'mental_health' : businessType, videoRoomMode });
   for (const client of bookingClients) await assertClientServiceSchedulingActive({ agencyId:aid, providerUserId,
     clientId:client.id, businessType:businessType || (['learning','tutoring'].includes(client.client_type)?'learning':null), source, providerScheduleEventId,officeEventId });
@@ -506,8 +506,11 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       await requireGuardianCancellation({ userId: actorUserId, clientId: guardianCancellationClientId, appointment: existing });
     } else await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
   }
-  if (patch.startAt || patch.endAt || patch.participants || ['scheduled','confirmed'].includes(patch.status)) {
-    const clients=await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId));
+  if (patch.startAt || patch.endAt || patch.participants || patch.providerUserId != null || patch.serviceLocationId != null || patch.modality != null || ['scheduled','confirmed'].includes(patch.status)) {
+    const clients=await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId), {
+      providerUserId: patch.providerUserId ?? existing.providerUserId,
+      serviceLocationId: patch.serviceLocationId ?? existing.serviceLocationId
+    });
     for(const client of clients||[])await assertClientServiceSchedulingActive({agencyId:existing.agencyId,providerUserId:patch.providerUserId||existing.providerUserId,
       clientId:client.id,businessType:patch.businessType||existing.businessType,source:existing.source,providerScheduleEventId:existing.providerScheduleEventId,officeEventId:existing.officeEventId});
   }

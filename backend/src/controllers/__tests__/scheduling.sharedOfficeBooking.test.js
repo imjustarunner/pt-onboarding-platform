@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../../services/appointmentClinicalLink.service.js',()=>({assertAppointmentClients:m.assertClients}));
 vi.mock('../../services/ownedOfficeSession.service.js',()=>({bookSessionInOwnedOffice:vi.fn(async()=>null)}));
 vi.mock('../../services/ownedOfficeSessionJobs.service.js',()=>({queueOwnedOfficeSession:vi.fn(async()=>null)}));
-const m=vi.hoisted(()=>({execute:vi.fn(),agencies:vi.fn(),officeAgencies:vi.fn(),office:vi.fn(),provider:vi.fn(),create:vi.fn(),selection:vi.fn(),rollout:vi.fn(),locations:vi.fn(),room:vi.fn(),access:vi.fn(),warnings:vi.fn(),tenantService:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),agencies:vi.fn(),officeAgencies:vi.fn(),office:vi.fn(),provider:vi.fn(),create:vi.fn(),selection:vi.fn(),rollout:vi.fn(),locations:vi.fn(),room:vi.fn(),access:vi.fn(),warnings:vi.fn(),tenantService:vi.fn(),assertClients:vi.fn()}));
 vi.mock('../../models/TenantService.model.js',()=>({default:{findById:m.tenantService}}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies,findById:m.provider}}));
@@ -19,7 +20,7 @@ import { bookSessionInOwnedOffice } from '../../services/ownedOfficeSession.serv
 import { queueOwnedOfficeSession } from '../../services/ownedOfficeSessionJobs.service.js';
 import { createOfficeBookingRequest, getBookingLocations } from '../officeSchedule.controller.js';
 beforeEach(()=>{
- vi.clearAllMocks();m.execute.mockResolvedValue([[]]);m.room.mockResolvedValue({id:10,location_id:1});m.access.mockResolvedValue(true);
+ vi.clearAllMocks();m.assertClients.mockResolvedValue([{id:81}]);m.execute.mockResolvedValue([[]]);m.room.mockResolvedValue({id:10,location_id:1});m.access.mockResolvedValue(true);
  m.warnings.mockResolvedValue(true);m.rollout.mockResolvedValue({enabled:true});
  m.tenantService.mockResolvedValue({id:320,businessType:'tutoring',serviceCode:'TUTORING',isActive:true});
  m.agencies.mockResolvedValue([{id:2},{id:377}]);m.officeAgencies.mockResolvedValue([{id:2},{id:377}]);
@@ -111,4 +112,13 @@ it('returns a durable progress job promptly for the session form instead of wait
  const res=response(),next=vi.fn();await createOfficeBookingRequest(req,res,next);
  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(202);expect(res.json).toHaveBeenCalledWith(expect.objectContaining({kind:'booking_job'}));
  expect(bookSessionInOwnedOffice).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
+});
+
+it('rejects an unassigned client before creating an office request or owned-office session',async()=>{
+ m.assertClients.mockRejectedValueOnce(Object.assign(new Error('Client is not assigned to this provider'),{status:403}));
+ const req={user:{id:501,role:'super_admin'},body:{agencyId:377,officeLocationId:1,roomId:10,clientId:81,startAt:'2026-11-26T15:00:00',endAt:'2026-11-26T16:00:00',appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'90837'}};
+ const next=vi.fn();await createOfficeBookingRequest(req,response(),next);
+ expect(m.assertClients).toHaveBeenCalledWith(377,[{clientId:81}],{providerUserId:501,serviceLocationId:undefined});
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));
+ expect(bookSessionInOwnedOffice).not.toHaveBeenCalled();expect(queueOwnedOfficeSession).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
 });

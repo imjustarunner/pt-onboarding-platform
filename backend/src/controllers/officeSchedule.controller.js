@@ -1,3 +1,4 @@
+import { assertAppointmentClients } from '../services/appointmentClinicalLink.service.js';
 import { clinicalCodesForClientContext } from '../services/clientServiceContext.service.js';
 import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
@@ -2698,6 +2699,9 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       if (!actorAgencies.some(row => Number(row.id) === policyAgencyId)) return res.status(403).json({ error: { message: 'Scheduling access to the selected agency is required.' } });
     }
     if (clientId) await requireOfficeSessionBooking(policyAgencyId, requestedProviderId, rawSelection.serviceCode, req.user.id);
+    if (clientId) await assertAppointmentClients(policyAgencyId, [{ clientId }], {
+      providerUserId: requestedProviderId, serviceLocationId: req.body?.serviceLocationId
+    });
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
@@ -3166,6 +3170,9 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
       appointmentSubtypeCode:reqRow.appointment_subtype_code,serviceCode:reqRow.service_code,modality:reqRow.modality},
       policyAgencyId, Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0), reqRow.client_id);
     if (reqRow.client_id) await requireOfficeSessionBooking(policyAgencyId, requestedProvider.id, officeSelection.serviceCode, req.user.id);
+    if (reqRow.client_id) await assertAppointmentClients(policyAgencyId, [{ clientId: reqRow.client_id }], {
+      providerUserId: requestedProvider.id, serviceLocationId: reqRow.service_location_id
+    });
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
         agencyId: policyAgencyId,

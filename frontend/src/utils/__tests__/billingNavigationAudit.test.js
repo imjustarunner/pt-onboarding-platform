@@ -16,3 +16,10 @@ it('shows every event in a provider day with explicit types and Mountain times',
 });
 it('keeps busy-only views free of titles, service codes and external identities',()=>{const summary={detailLevel:'typed',scheduleEvents:[{title:'PRIVATE',startAt:'2026-10-01T21:00:00Z',endAt:'2026-10-01T22:00:00Z'}],busyBlocks:[{startAt:'2026-10-01T21:00:00Z',endAt:'2026-10-01T22:00:00Z',title:'PRIVATE',activityType:'session',serviceCode:'PRIVATE'}]};const items=dayScheduleEntries(summary,'2026-10-01','America/Denver','typed');expect(JSON.stringify(items)).not.toContain('PRIVATE');expect(items[0].title).toBe('Session');});
 it('assigns late evening UTC instants to the actual Colorado service day',()=>{const summary={scheduleEvents:[{id:1,startAt:'2026-10-02T02:00:00Z',endAt:'2026-10-02T03:00:00Z'}]};expect(dayScheduleEntries(summary,'2026-10-01')[0].hour).toBe(20);expect(dayScheduleEntries(summary,'2026-10-02')).toHaveLength(0);});
+
+it('defaults in-person school clients to their school while allowing explicit office and virtual choices', () => {
+  const locations = [{ id: 30, schoolOrganizationId: 3, placeOfService: '03' }, { id: 44, placeOfService: '11', physicalOfficeLocationId: 1 }, { id: 50, placeOfService: '10' }];
+  expect(defaultAppointmentServiceLocation(locations, 'IN_PERSON', 1)?.id).toBe(30);
+  expect(defaultAppointmentServiceLocation(locations, 'IN_PERSON', 1, { preferSchool: false })?.id).toBe(44);
+  expect(defaultAppointmentServiceLocation(locations, 'TELEHEALTH', 1)?.id).toBe(50);
+});

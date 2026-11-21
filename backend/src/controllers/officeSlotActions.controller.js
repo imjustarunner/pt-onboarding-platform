@@ -695,7 +695,7 @@ const setBookingPlanLocked = async (req, res, next) => {
       preferredAgencyId: Number(req.body?.agencyId || assignment.booking_agency_id || 0) || null });
     const clientId = Number(req.body?.clientId || 0) || null;
     if (clientId) {
-      await assertAppointmentClients(agencyId, [{ clientId }]);
+      await assertAppointmentClients(agencyId, [{ clientId }], { providerUserId: provider.id, serviceLocationId: selection.serviceLocationId });
       await requireClientSessionBooking(agencyId, provider.id, undefined, { actorUserId: req.user.id });
     }
     const validated = await validateSchedulingSelection({ clientIds: clientId ? [clientId] : [], enforceSessionRollout: true, actorUserId: req.user.id, agencyId, providerId: provider.id, userRole: provider.role,
@@ -1125,6 +1125,11 @@ const staffBookEventLocked = async (req, res, next) => {
         preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || officeBookingAgencyId(ev) || 0) || null
       });
       if (req.body?.clientId || ev.client_id) await requireClientSessionBooking(policyAgencyId, provider.id, undefined, { actorUserId: req.user.id });
+      if (req.body?.clientId || ev.client_id) await assertAppointmentClients(policyAgencyId,
+        [{ clientId: Number(req.body?.clientId || ev.client_id) }], {
+          providerUserId: provider.id,
+          serviceLocationId: rawSelection.serviceLocationId || ev.service_location_id
+        });
       validatedSelection = await validateSchedulingSelection({ enforceSessionRollout: true, actorUserId: req.user.id,
         agencyId: policyAgencyId,
         clientIds: Number(req.body?.clientId || ev.client_id) > 0 ? [Number(req.body?.clientId || ev.client_id)] : [],
@@ -1615,7 +1620,9 @@ const setEventBookingPlanLocked = async (req, res, next) => {
     });
     const planClientId = Number(req.body?.clientId || ev.client_id || 0) || null;
     if (planClientId) {
-      await assertAppointmentClients(policyAgencyId, [{ clientId: planClientId }]);
+      await assertAppointmentClients(policyAgencyId, [{ clientId: planClientId }], {
+        providerUserId: provider.id, serviceLocationId: rawSelection.serviceLocationId || ev.service_location_id
+      });
       await requireClientSessionBooking(policyAgencyId, provider.id, undefined, { actorUserId: req.user.id });
     }
 

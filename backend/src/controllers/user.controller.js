@@ -3950,13 +3950,6 @@ async function loadHostDisplayNamesByUserIds(userIds = []) {
   return out;
 }
 
-/** Admins/support booking on behalf of a provider can pick any active client at the agency.
- *  Providers (and anyone else) still see only that provider's caseload. */
-const canListAllAgencyClientsForSchedule = (role) => {
-  const r = String(role || '').toLowerCase();
-  return r === 'super_admin' || r === 'superadmin' || r === 'admin' || r === 'support';
-};
-
 function toDisplayStatus({ status, slotState }) {
   const st = String(status || '').trim().toUpperCase();
   const ss = String(slotState || '').trim().toUpperCase();
@@ -7847,104 +7840,24 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
       return res.json({ clients: roster.students.map(student => ({ ...student, clientType: 'learning', schools: [] })), guardians: [] });
     }
     const includeGuardians = String(req.query?.includeGuardians || '').trim().toLowerCase() === 'true';
-    const listAllAgencyClients = canListAllAgencyClientsForSchedule(actorRole);
-
-    const serviceAssignment = clientServiceAssignmentSql({providerId:userId,agencyId,serviceKind:'counseling'});
-    let clientRows = [];
-    try {
-      if (listAllAgencyClients) {
-        const [rows] = await pool.execute(
-          `SELECT DISTINCT
-             c.id,
-             c.full_name,
-             c.initials,
-             c.identifier_code,
-             c.client_type,
-             cs.status_key AS client_status_key,
-             cs.label AS client_status_label
-           FROM clients c
-           LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-           WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND (c.agency_id = ? OR EXISTS (SELECT 1 FROM client_agency_assignments picked_agency WHERE picked_agency.client_id=c.id AND picked_agency.agency_id=? AND picked_agency.is_active=1))
-           ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [agencyId,agencyId]
-        );
-        clientRows = rows || [];
-      } else {
-        // All clients assigned to this provider (primary provider_id or active CPA),
-        // school or clinical — tenant access is already gated above.
-        const [rows] = await pool.execute(
-          `SELECT DISTINCT
-             c.id,
-             c.full_name,
-             c.initials,
-             c.identifier_code,
-             c.client_type,
-             cs.status_key AS client_status_key,
-             cs.label AS client_status_label
-           FROM clients c
-           LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-           WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments picked_agency WHERE picked_agency.client_id=c.id AND picked_agency.agency_id=? AND picked_agency.is_active=1))
-             AND (
-               (c.provider_id = ? AND c.agency_id=?)
-               OR ${serviceAssignment.sql}
-               OR EXISTS (
-                 SELECT 1
-                 FROM client_provider_assignments cpa
-                 WHERE cpa.client_id = c.id
-                   AND cpa.provider_user_id = ?
-                   AND cpa.is_active = TRUE
-               )
-             )
-           ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [agencyId,agencyId,userId,agencyId,...serviceAssignment.params,userId]
-        );
-        clientRows = rows || [];
-      }
-    } catch (e) {
-      const msg = String(e?.message || '');
-      const missing =
-        msg.includes("doesn't exist") ||
-        msg.includes('ER_NO_SUCH_TABLE') ||
-        msg.includes('Unknown column');
-      if (!missing) throw e;
-      if (listAllAgencyClients) {
-        const [rows] = await pool.execute(
-          `SELECT DISTINCT
-             c.id,
-             c.full_name,
-             c.initials,
-             c.identifier_code,
-             c.client_type,
-             NULL AS client_status_key,
-             NULL AS client_status_label
-           FROM clients c
-           WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND (c.agency_id = ? OR EXISTS (SELECT 1 FROM client_agency_assignments picked_agency WHERE picked_agency.client_id=c.id AND picked_agency.agency_id=? AND picked_agency.is_active=1))
-           ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [agencyId]
-        );
-        clientRows = rows || [];
-      } else {
-        const [rows] = await pool.execute(
-          `SELECT DISTINCT
-             c.id,
-             c.full_name,
-             c.initials,
-             c.identifier_code,
-             c.client_type,
-             NULL AS client_status_key,
-             NULL AS client_status_label
-           FROM clients c
-           WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND c.provider_id = ?
-           ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [userId]
-        );
-        clientRows = rows || [];
-      }
-    }
+    // Booking on behalf of a provider uses that provider's assigned caseload for every role.
+    const [clientRows] = await pool.execute(
+      `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code, c.client_type,
+         cs.status_key AS client_status_key, cs.label AS client_status_label
+       FROM clients c
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+         AND (c.agency_id = ? OR EXISTS (
+           SELECT 1 FROM client_agency_assignments caa
+           WHERE caa.client_id = c.id AND caa.agency_id = ? AND caa.is_active = TRUE
+         ))
+         AND (c.provider_id = ? OR EXISTS (
+           SELECT 1 FROM client_provider_assignments cpa
+           WHERE cpa.client_id = c.id AND cpa.provider_user_id = ? AND cpa.is_active = TRUE
+         ))
+       ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
+      [agencyId, agencyId, userId, userId]
+    );
 
     const clients = (clientRows || []).map((r) => ({
       id: Number(r.id || 0),

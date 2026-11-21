@@ -33,7 +33,7 @@ describe('agency care assignment is independent of academic credentials', () => 
     expect(staffCareEligibility(p, 1).canProvideCare).toBe(false);
     expect(staffCareEligibility(p, 6).canProvideCare).toBe(true);
   });
-  it.each([{ is_active: 0 }, { membership_active: 0 }, { status: 'ARCHIVED' }])('rejects inactive people or memberships: %j', change => {
+  it.each([{ is_active: 0 }, { is_archived: 1 }, { membership_active: 0 }, { status: 'ARCHIVED' }])('rejects inactive people or memberships: %j', change => {
     expect(staffCareEligibility({ ...person, agency_role: 'provider', ...change }, 6).canProvideCare).toBe(false);
   });
   it('requires an actual membership and returns a 403 to direct API callers', async () => {

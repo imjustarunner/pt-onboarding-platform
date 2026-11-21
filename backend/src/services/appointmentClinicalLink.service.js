@@ -9,7 +9,18 @@ import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { ensureAppointmentContext } from './appointmentContext.service.js';
 import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
 
-export async function assertAppointmentClients(agencyId, participants, { allowTerminated = false } = {}) {
+export async function assertAppointmentClients(agencyId, participants, { allowTerminated = false, providerUserId = null, serviceLocationId = null } = {}) {
+  let schoolId = null;
+  if (serviceLocationId) {
+    const location = await AgencyServiceLocation.findById(serviceLocationId);
+    if (!location || Number(location.agency_id) !== Number(agencyId)) {
+      throw Object.assign(new Error('Service location does not belong to this agency'), { status: 403 });
+    }
+    schoolId = Number(location.school_organization_id || 0);
+    if (String(location.place_of_service) === '03' && !schoolId) {
+      throw Object.assign(new Error('Select the client’s assigned school service location'), { status: 403 });
+    }
+  }
   const clients = [];
   for (const participant of participants || []) {
     const clientId = Number(participant.clientId || participant.client_id || 0);
@@ -24,6 +35,22 @@ export async function assertAppointmentClients(agencyId, participants, { allowTe
         [clientId, agencyId]
       );
       if (!memberships.length) throw Object.assign(new Error('Client is not assigned to this agency'), { status: 403 });
+    }
+    // A school assignment is a default care setting, not a restriction to that setting.
+    // Provider assignments apply equally to school, office and virtual sessions.
+    if (providerUserId && Number(client.provider_id) !== Number(providerUserId)) {
+      const [assignments] = await pool.execute(
+        `SELECT 1 FROM client_provider_assignments WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE LIMIT 1`,
+        [clientId, providerUserId]
+      );
+      if (!assignments.length) throw Object.assign(new Error('Client is not assigned to this provider'), { status: 403 });
+    }
+    if (schoolId) {
+      const [assignments] = await pool.execute(
+        `SELECT 1 FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? AND is_active = TRUE LIMIT 1`,
+        [clientId, schoolId]
+      );
+      if (!assignments.length) throw Object.assign(new Error('Client is not assigned to this school'), { status: 403 });
     }
   }
   return clients;

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { filterAdministrativeCareCandidates } from '../services/staffCareEligibility.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { PROVIDER_ROLE_SQL } from '../services/clientAssignmentScope.service.js';
@@ -21,13 +22,14 @@ export const listProvidersForScheduling = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const activeProvidersOnly = ['true', '1'].includes(String(req.query.activeProvidersOnly || '').toLowerCase());
     const clientAssignmentsOnly = ['true','1'].includes(String(req.query.clientAssignmentsOnly||'').toLowerCase());
-    const providerRoles = clientAssignmentsOnly ? PROVIDER_ROLE_SQL : `(LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','employee','admin','super_admin') OR u.has_provider_access = TRUE)`;
+    const clientProviderRoles = `(${PROVIDER_ROLE_SQL} OR LOWER(COALESCE(u.role, '')) IN ('admin','super_admin'))`;
+    const providerRoles = clientAssignmentsOnly ? clientProviderRoles : `(LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','employee','admin','super_admin') OR u.has_provider_access = TRUE)`;
     const providerFilter = activeProvidersOnly ? `
       AND COALESCE(ua.is_active, 1) = 1
       AND COALESCE(u.is_demo, 0) = 0
-      AND COALESCE(u.sees_clients, 1) = 1
+      AND (COALESCE(u.sees_clients, 1) = 1 OR LOWER(COALESCE(u.role, '')) IN ('admin','super_admin'))
       AND UPPER(COALESCE(u.status, '')) NOT IN ('INACTIVE','TERMINATED','SUSPENDED','DISABLED','DELETED')
-      AND ${clientAssignmentsOnly ? PROVIDER_ROLE_SQL : `(LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','facilitator') OR u.has_provider_access = TRUE)`}
+      AND ${clientAssignmentsOnly ? clientProviderRoles : `(LOWER(COALESCE(u.role, '')) IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','counselor','therapist','coach','facilitator','admin','super_admin') OR u.has_provider_access = TRUE)`}
     ` : '';
 
     // Backward compatible: some user fields may not exist yet (provider_accepting_new_clients, is_archived, etc).
@@ -54,7 +56,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
       );
-      res.json(rows);
+      res.json(activeProvidersOnly || clientAssignmentsOnly ? await filterAdministrativeCareCandidates(rows, agencyId) : rows);
     } catch (e) {
       const msg = String(e?.message || '');
       if (!msg.includes('Unknown column')) throw e;
@@ -71,7 +73,8 @@ export const listProvidersForScheduling = async (req, res, next) => {
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
       );
-      res.json((rows || []).map((r) => ({ ...r, provider_accepting_new_clients: true })));
+      const candidates = activeProvidersOnly || clientAssignmentsOnly ? await filterAdministrativeCareCandidates(rows, agencyId) : rows;
+      res.json((candidates || []).map((r) => ({ ...r, provider_accepting_new_clients: true })));
     }
   } catch (e) {
     next(e);

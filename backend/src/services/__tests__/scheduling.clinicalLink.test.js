@@ -13,7 +13,7 @@ import Appointment from '../../models/Appointment.model.js';
 import Client from '../../models/Client.model.js';
 import ClinicalSession from '../../models/clinical/ClinicalSession.model.js';
 import { ensureAppointmentContext } from '../appointmentContext.service.js';
-import { ensureAppointmentClinicalLink } from '../appointmentClinicalLink.service.js';
+import { ensureAppointmentClinicalLink, assertAppointmentClients } from '../appointmentClinicalLink.service.js';
 describe('appointment clinical linkage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,5 +86,34 @@ describe('appointment clinical linkage', () => {
     Appointment.findById.mockResolvedValue({ id: 3, agencyId: 1, packageEntitlementId: 7, businessType: 'tutoring' });
     expect(await ensureAppointmentClinicalLink(3, 9)).toEqual([]);
     expect(clinicalPool.execute).not.toHaveBeenCalled();
+  });
+  it.each(['school', 'clinical'])('allows an assigned %s client at an office, virtually, and at their school', async clientType => {
+    Client.findById.mockResolvedValue({ id: 2, agency_id: 1, provider_id: 9, client_type: clientType });
+    for (const location of [null, { id: 6, agency_id: 1, place_of_service: '11' }, { id: 7, agency_id: 1, place_of_service: '10' }]) {
+      AgencyServiceLocation.findById.mockResolvedValue(location);
+      await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 9, serviceLocationId: location?.id })).resolves.toHaveLength(1);
+    }
+    expect(pool.execute).not.toHaveBeenCalled();
+    AgencyServiceLocation.findById.mockResolvedValue({ id: 8, agency_id: 1, school_organization_id: 30, place_of_service: '03' });
+    pool.execute.mockResolvedValue([[{ allowed: 1 }]]);
+    await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 9, serviceLocationId: 8 })).resolves.toHaveLength(1);
+    expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('client_organization_assignments'), [2, 30]);
+  });
+  it('accepts active additional provider assignments across settings', async () => {
+    Client.findById.mockResolvedValue({ id: 2, agency_id: 1, provider_id: 8, client_type: 'school' });
+    pool.execute.mockResolvedValue([[{ allowed: 1 }]]);
+    await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 9 })).resolves.toHaveLength(1);
+    expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('is_active = TRUE'), [2, 9]);
+  });
+  it.each([null, 6, 7])('rejects an unassigned provider regardless of location %s', async serviceLocationId => {
+    AgencyServiceLocation.findById.mockResolvedValue({ agency_id: 1, place_of_service: serviceLocationId === 7 ? '10' : '11' });
+    await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 99, serviceLocationId })).rejects.toThrow('not assigned to this provider');
+  });
+  it('rejects an unrelated school even for the assigned provider and checks every group participant', async () => {
+    Client.findById.mockResolvedValue({ id: 2, agency_id: 1, provider_id: 9, client_type: 'school' });
+    AgencyServiceLocation.findById.mockResolvedValue({ agency_id: 1, school_organization_id: 30, place_of_service: '03' });
+    await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 9, serviceLocationId: 8 })).rejects.toThrow('not assigned to this school');
+    pool.execute.mockResolvedValueOnce([[{ allowed: 1 }]]).mockResolvedValueOnce([[]]);
+    await expect(assertAppointmentClients(1, [{ clientId: 2 }, { clientId: 4 }], { providerUserId: 9, serviceLocationId: 8 })).rejects.toThrow('not assigned to this school');
   });
 });

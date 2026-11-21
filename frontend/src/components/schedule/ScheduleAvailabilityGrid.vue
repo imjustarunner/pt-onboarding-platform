@@ -14981,15 +14981,19 @@ const editorClientSchoolLocationOptions = computed(() => {
   const selected = new Set(
     (virtualSessionSelectedClientIds.value || []).map((n) => Number(n)).filter((n) => n > 0)
   );
+  if (isScheduleEventEditMode.value && Number(editorInfoClientId.value) > 0) selected.add(Number(editorInfoClientId.value));
   const clients = scheduleEventEditClientOptions.value.length
     ? scheduleEventEditClientOptions.value
     : (virtualSessionClients.value || []);
   const bySchool = new Map();
+  const selectedClients = clients.filter(c => selected.has(Number(c.id)));
+  if (!selected.size || selectedClients.length !== selected.size) return [];
   for (const c of clients) {
     if (selected.size && !selected.has(Number(c.id))) continue;
     for (const s of c.schools || []) {
       const sid = Number(s.schoolOrganizationId || s.id || 0);
       if (!sid || bySchool.has(sid)) continue;
+      if (!selectedClients.every(client => (client.schools || []).some(school => Number(school.schoolOrganizationId || school.id) === sid))) continue;
       bySchool.set(sid, {
         id: schoolLocationSyntheticId(sid),
         label: `${s.name || `School #${sid}`} · School · POS 03`,
@@ -15016,7 +15020,9 @@ const allowedPosForSelectedServiceCode = computed(() => {
 const editorServiceLocationOptions = computed(() => {
   const allowed = allowedPosForSelectedServiceCode.value;
   const rows = bookingServiceLocationOptions.value || [];
+  const assignedSchools = new Set(editorClientSchoolLocationOptions.value.map(location => Number(location.schoolOrganizationId)));
   const base = rows
+    .filter(loc => !(Number(loc.schoolOrganizationId) > 0 || loc.placeOfService === '03') || assignedSchools.has(Number(loc.schoolOrganizationId)))
     .filter((loc) => editorModality.value !== 'IN_PERSON' || !['02', '10'].includes(loc.placeOfService))
     .filter((loc) => !allowed || !loc.placeOfService || allowed.has(String(loc.placeOfService)))
     .map((loc) => {
@@ -15036,17 +15042,13 @@ const editorServiceLocationOptions = computed(() => {
         isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
         schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
         defaultModifiers: loc.defaultModifiers || '',
-        billingOfficeLocationId: loc.billingOfficeLocationId || 0,
         name: loc.name
       };
     });
-  const existingSchoolOrgIds = new Set(
-    base.map((b) => Number(b.schoolOrganizationId || 0)).filter((n) => n > 0)
-  );
   const schools = (editorClientSchoolLocationOptions.value || [])
     .filter((s) => !allowed || allowed.has('03'))
-    .filter((s) => !existingSchoolOrgIds.has(Number(s.schoolOrganizationId || 0)));
-  return [...schools, ...base];
+    .map(s => base.find(location => Number(location.schoolOrganizationId) === Number(s.schoolOrganizationId)) || s);
+  return [...schools, ...base.filter(location => !location.isSchool)];
 });
 
 const editorHeaderServiceOptions = computed(() => {
@@ -15888,7 +15890,7 @@ function onEditorOfficeLocationId(id) {
   const next = Number(id || 0);
   editorOfficeLocationId.value = next;
   editorPreferredRoomId.value = 0;
-  preferDefaultServiceLocation({force:true});
+  preferDefaultServiceLocation({force:true, preferSchool:false});
   if (next > 0) {
     void loadOfficeRooms(next);
     void loadEditorOpenRoomsForWindow();
@@ -15917,9 +15919,13 @@ async function onEditorServiceLocationId(id) {
         });
         const realId = Number(r?.data?.item?.id || 0);
         if (realId > 0) {
+          if (!bookingMetadata.value.serviceLocations.some(location => Number(location.id) === realId)) {
+            bookingMetadata.value = { ...bookingMetadata.value, serviceLocations: [...bookingMetadata.value.serviceLocations, {
+              ...r.data.item, school_organization_id: schoolOrgId, place_of_service: '03', name: r.data.item.name || schoolOpt?.name
+            }] };
+          }
           editorServiceLocationId.value = realId;
           bookingServiceLocationId.value = realId;
-          void loadBookingMetadataForProvider();
           return;
         }
       } catch {
@@ -17183,16 +17189,17 @@ const normalizeBookingSelectionPayload = () => {
   };
 };
 
-const preferDefaultServiceLocation = ({ force = false } = {}) => {
+const preferDefaultServiceLocation = ({ force = false, preferSchool = true } = {}) => {
   const locs = (editorIsClinical.value || editorServiceLocationOptions.value?.length
     ? editorServiceLocationOptions.value
     : bookingServiceLocationOptions.value) || [];
   const currentId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
   if (!force && currentId !== 0 && (isAppointmentEditMode.value || locs.some(location => Number(location.id) === currentId))) return;
   const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
-  const hit=defaultAppointmentServiceLocation(locs,modality,appointmentOfficeId(editorOfficeLocationId.value,selectedOfficeLocationId.value));
+  const hit=defaultAppointmentServiceLocation(locs,modality,appointmentOfficeId(editorOfficeLocationId.value,selectedOfficeLocationId.value),{preferSchool});
   bookingServiceLocationId.value=Number(hit?.id || 0);
   editorServiceLocationId.value=Number(hit?.id || 0);
+  editorSchoolOrganizationId.value=Number(hit?.schoolOrganizationId || 0);
 };
 
 const refreshBookingUnitPreview = async () => {
@@ -23209,8 +23216,12 @@ const submitRequest = async () => {
         throw new Error('Select a client for this individual session.');
       }
       const selectedLocId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
+      if (selectedLocId < 0) {
+        await onEditorServiceLocationId(selectedLocId);
+        if (Number(editorServiceLocationId.value) <= 0) throw new Error('The school service location could not be prepared. Retry before scheduling.');
+      }
       const schoolLoc = (editorServiceLocationOptions.value || []).find(
-        (l) => Number(l.id) === selectedLocId
+        (l) => Number(l.id) === Number(editorServiceLocationId.value || selectedLocId)
           && (l.isSchool || Number(l.schoolOrganizationId) > 0 || String(l.placeOfService) === '03')
       ) || (Number(editorSchoolOrganizationId.value || 0) > 0
         ? {
@@ -23232,7 +23243,6 @@ const submitRequest = async () => {
       if (
         requestType.value === 'individual_session'
         && modality === 'IN_PERSON'
-        && !officeId
         && schoolLoc
         && !(sessionAlsoRequestOffice.value)
       ) {
@@ -28166,6 +28176,12 @@ watch(bookingTimezoneIana, (zone, previous) => {
   void load({ forceRefresh: true });
   void loadPeerBusySummaries();
 });
+
+watch(editorClientSchoolLocationOptions, (schools, previous) => {
+  if (!showRequestModal.value || isAppointmentEditMode.value || !editorIsClinical.value) return;
+  if (schools.length && schools.map(s => s.id).join(',') !== previous.map(s => s.id).join(',')) preferDefaultServiceLocation({ force: true });
+});
+
 </script>
 
 <style scoped>

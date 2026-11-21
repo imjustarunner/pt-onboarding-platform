@@ -38,7 +38,9 @@ async function saveLockedPlanContext(planId, context, actorUserId) {
     if (!plan || Number(plan.is_active) === 0) throw fail('Office booking plan is inactive or not found');
     const [[assignment]] = await conn.execute('SELECT a.*, l.timezone FROM office_standing_assignments a JOIN office_locations l ON l.id = a.office_location_id WHERE a.id = ?', [plan.standing_assignment_id]);
     if (!assignment) throw fail('Office assignment not found');
-    await assertAppointmentClients(context.agencyId, [{ clientId: context.clientId }]);
+    await assertAppointmentClients(context.agencyId, [{ clientId: context.clientId }], {
+      providerUserId: assignment.provider_id, serviceLocationId: context.serviceLocationId
+    });
     const candidate = { ...plan, session_context_json: context };
     const allDates = officeSessionPlanDates(candidate, assignment);
     const openEnded = !Number(plan.booked_occurrence_count) && !plan.active_until_date;

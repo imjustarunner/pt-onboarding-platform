@@ -38,6 +38,60 @@ async function editor({ mode = 'self' } = {}) {
 }
 const countCreates = () => m.post.mock.calls.filter(([url]) => url === '/appointments').length;
 
+async function schoolClientEditor({ synthetic = false } = {}) {
+  const base = m.get.getMockImplementation();
+  const serviceLocations = [
+    { id: 51, name: 'Assigned office', place_of_service: '11', physical_office_location_id: 8 },
+    { id: 52, name: 'Virtual', place_of_service: '10' },
+    { id: 54, name: 'Unassigned school', place_of_service: '03', school_organization_id: 40 },
+    ...(!synthetic ? [{ id: 53, name: 'Assigned school', place_of_service: '03', school_organization_id: 30 }] : [])
+  ];
+  const clients = [{ id: 8, displayName: 'School client', schools: [{ schoolOrganizationId: 30, name: 'Assigned school' }] }];
+  m.get.mockImplementation(async (url, ...args) => url.includes('virtual-session-clients') ? { data: { clients } } : /booking-(metadata|locations)/.test(url)
+    ? { data: { serviceLocations, serviceCodes: [{ code: '90837' }] } }
+    : url.includes('service-code-eligibility') ? { data: { serviceCodes: ['90837'] } } : base(url, ...args));
+  const s = await editor();
+  s.virtualSessionClients = clients;
+  s.editorModality = 'IN_PERSON';
+  await s.loadBookingMetadataForProvider(); await flushPromises();
+  return s;
+}
+
+it('defaults to the assigned school, retains office and virtual choices, and excludes unassigned schools', async () => {
+  const s = await schoolClientEditor();
+  expect(s.editorServiceLocationId).toBe(53);
+  expect(s.editorServiceLocationOptions.map(l => l.id)).toEqual([53, 51]);
+  s.onEditorOfficeLocationId(8); await flushPromises();
+  expect(s.editorServiceLocationId).toBe(51); expect(s.editorSchoolOrganizationId).toBe(0);
+  s.editorModality = 'TELEHEALTH'; await flushPromises();
+  expect(s.editorServiceLocationId).toBe(52); expect(s.editorSchoolOrganizationId).toBe(0);
+});
+
+it('offers only schools shared by all selected clients and no schools before selecting a client', async () => {
+  const s = await schoolClientEditor();
+  s.virtualSessionClients = [...s.virtualSessionClients, { id: 9, displayName: 'Other client', schools: [{ schoolOrganizationId: 40, name: 'Other school' }] }];
+  s.virtualSessionSelectedClientIds = [8, 9]; await flushPromises();
+  expect(s.editorServiceLocationOptions.some(l => l.isSchool)).toBe(false);
+  s.virtualSessionSelectedClientIds = []; await flushPromises();
+  expect(s.editorServiceLocationOptions.some(l => l.isSchool)).toBe(false);
+});
+
+it('prepares a default synthetic school location before saving the school appointment', async () => {
+  const s = await schoolClientEditor({ synthetic: true });
+  expect(s.editorServiceLocationId).toBe(-30);
+  const base = m.post.getMockImplementation();
+  m.post.mockImplementation(async (url, body) => url.includes('ensure-school') ? { data: { item: { id: 53 } } } : base(url, body));
+  await s.submitRequest(); await flushPromises();
+  expect(s.modalError).toBe('');
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ serviceLocationId: 53, modality: 'IN_PERSON' }));
+});
+
+it('blocks a school appointment if its default school location cannot be prepared', async () => {
+  const s = await schoolClientEditor({ synthetic: true });
+  await s.submitRequest(); await flushPromises();
+  expect(s.modalError).toContain('school service location could not be prepared'); expect(countCreates()).toBe(0);
+});
+
 it('offers only the appointment-linked office room when scheduling virtual counseling, including old personal-room defaults', () => {
   wrapper = mount(Header, { props: { showModality: true, modality: 'TELEHEALTH', videoRoomMode: 'my_room' } });
   expect(wrapper.text()).toContain('Each recurring session gets its own room');
