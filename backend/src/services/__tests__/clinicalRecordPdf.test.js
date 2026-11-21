@@ -57,6 +57,16 @@ describe('clinical record PDF content and attachments', () => {
     expect(options.headerTemplate).not.toContain('tracker.invalid');
     expect(options.headerTemplate).toContain('Clinic A');
   });
+  it('keeps the single-plan header with its content and uses local dates for nested fields', () => {
+    const html = buildClinicalRecordHtml({
+      singleDocument: true, recordTitle: 'Treatment plan', agency: { timezone: 'America/Denver' },
+      plans: [{ status: 'active', title: 'Current plan', goals: [{ created_at: '2026-11-22T02:00:00.000Z', objectives: [{ updated_at: new Date('2026-11-23T02:45:00.000Z') }] }] }]
+    });
+    expect(html).toContain('single-document-plan');
+    expect(html).toContain('2026-11-21');
+    expect(html).toContain('2026-11-22');
+    expect(html).not.toContain('T02:');
+  });
   it('keeps single-note identity compact without a record-count cover or duplicate note heading', () => {
     const html = buildClinicalRecordHtml({ singleDocument: true, recordTitle: 'Psychotherapy progress note', agency: { name: 'Clinic A' }, client: { full_name: 'Fictional Client' }, notes: [{ note: { title: 'Psychotherapy progress note', provider_signed_at: '2026-11-18', note_payload: '{"sections":{"Subjective":"Documented response"}}' } }] });
     expect(html.match(/<h[12]>Psychotherapy progress note<\/h[12]>/g)).toHaveLength(1);

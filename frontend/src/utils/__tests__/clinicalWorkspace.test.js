@@ -37,7 +37,7 @@ describe('clinical workspace presentation boundaries', () => {
     expect(clinicalReturnPath({ previous: '/itsco/school/12?tab=roster', current: '/itsco/admin/clients/7' })).toBe('/itsco/school/12?tab=roster');
     expect(clinicalReturnPath({ previous: '/itsco/dashboard?tab=schedule', current: '/itsco/note-aid' })).toBe('/itsco/dashboard?tab=schedule');
   });
-  it.each(['https://example.com', '//example.com', '/itsco/note-aid', '/itsco/admin/clients/7', '/itsco/login', '/itsco/counseling/session/8'])('rejects unsafe or recursive return target %s', previous => {
+  it.each(['https://example.com', '//example.com', '/itsco/note-aid', '/itsco/therapy-notes-generator', '/therapy-notes-generator', '/itsco/admin/clients/7', '/itsco/login', '/itsco/counseling/session/8'])('rejects unsafe or recursive return target %s', previous => {
     expect(clinicalReturnPath({ previous, slug: 'itsco' })).toBe('/itsco/dashboard');
   });
 });

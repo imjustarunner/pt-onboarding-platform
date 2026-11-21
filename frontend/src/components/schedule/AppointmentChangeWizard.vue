@@ -427,7 +427,7 @@
                 :readonly="!!change.workflow.value && change.workflow.value.status !== 'draft'" :event-type="change.facts.eventType" @refresh="change.refreshSchoolSupport()"
               />
               <div class="acw-note-head">
-                <h3 class="acw-h">System-generated note</h3>
+                <h3 class="acw-h">{{ change.facts.eventType === 'canceled' ? 'Canceled session note' : 'System-generated note' }}</h3>
                 <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? (isLearning ? 'Signed' : 'Signed · Nonbillable') : 'Ready for review' }}</span>
               </div>
               <p class="muted">{{ isLearning ? 'This note records the tutoring attendance decision. Any fee follows the reviewed missed-session policy.' : 'This note is attached to the session and is nonbillable. Signing does not create an insurance claim.' }}</p>

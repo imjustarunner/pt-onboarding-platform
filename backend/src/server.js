@@ -426,7 +426,7 @@ app.use(cors({
     'X-Account-User-Id'
   ],
   // Explicitly set exposed headers (cookies are automatically exposed)
-  exposedHeaders: ['Set-Cookie', 'X-Request-ID', 'X-Evidence-SHA256'],
+  exposedHeaders: ['Set-Cookie', 'X-Request-ID', 'X-Evidence-SHA256', 'Content-Disposition'],
   // Ensure preflight requests work correctly on mobile
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));

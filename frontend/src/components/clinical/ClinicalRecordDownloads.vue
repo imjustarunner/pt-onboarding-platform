@@ -19,9 +19,9 @@ async function download(kind) {
   busy.value = kind; error.value = '';
   try {
     const endpoint = kind === 'plan' ? `/medical-billing/clients/${props.clientId}/plans/${props.planId}/pdf` : kind === 'draft' ? `/clinical-notes/drafts/${props.draftId}/pdf` : kind === 'note' ? `/medical-billing/notes/${props.noteId}/pdf` : `/medical-billing/clients/${props.clientId}/record-pdf`;
-    const { data } = await api.get(endpoint, { params: { agencyId: Number(props.agencyId), includeDrafts: includeDrafts.value || undefined, from: from.value || undefined, to: to.value || undefined }, responseType: 'blob', headers: { 'X-Record-Download-Notice': RECORD_DOWNLOAD_NOTICE_VERSION } });
+    const { data, headers } = await api.get(endpoint, { params: { agencyId: Number(props.agencyId), includeDrafts: includeDrafts.value || undefined, from: from.value || undefined, to: to.value || undefined }, responseType: 'blob', headers: { 'X-Record-Download-Notice': RECORD_DOWNLOAD_NOTICE_VERSION } });
     const url = URL.createObjectURL(data), anchor = document.createElement('a');
-    anchor.href = url; anchor.download = kind === 'plan' ? `treatment-plan-${props.planId}.pdf` : kind === 'draft' ? `workspace-draft-${props.draftId}.pdf` : kind === 'note' ? `clinical-note-${props.noteId}.pdf` : `medical-record-${props.clientId}.pdf`;
+    anchor.href = url; anchor.download = kind === 'plan' ? (/filename="([A-Za-z0-9-]+\.pdf)"/i.exec(headers?.['content-disposition'] || '')?.[1] || 'treatmentplan.pdf') : kind === 'draft' ? `workspace-draft-${props.draftId}.pdf` : kind === 'note' ? `clinical-note-${props.noteId}.pdf` : `medical-record-${props.clientId}.pdf`;
     document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (err) {
     let message = err.response?.data?.error?.message;

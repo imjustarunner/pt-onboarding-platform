@@ -5490,6 +5490,9 @@
               >
                 {{calendarSessionState(item) || 'Cancelled'}} — retained in schedule history
               </div>
+              <p v-if="item.isCancelled && item.meetingSettings?.cancellationReason" class="muted">
+                {{ item.meetingSettings.cancellationReason }}
+              </p>
               <CanceledSessionDetails v-if="item.isCancelled && item.appointmentId" :appointment-id="Number(item.appointmentId)" />
               <div
                 v-if="isEditableScheduleStackItem(item) && scheduleEventEditId !== Number(item.eventId || 0)"
@@ -5649,6 +5652,11 @@
           <p v-else class="cancel-meeting-copy">
             This is part of a series. Choose what to cancel — cancelled items stay on everyone’s schedule.
           </p>
+          <label v-if="cancelMeetingIsMeeting" class="meeting-cancel-reason">
+            Cancellation reason
+            <textarea v-model="cancelMeetingReason" rows="3" maxlength="500" required
+              :disabled="!!cancellingScheduleEventId" />
+          </label>
           <label
             v-if="cancelMeetingIsMeeting"
             style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;"
@@ -12136,6 +12144,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       : officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId);
   const officeByKey = new Map();
   for (const e of officeHits) {
+    if (e.appointmentId && /^(?:CANCELLED|CANCELED|RELEASED)$/i.test(e.status)) continue;
     if (officeCoveredBySession(e, scheduleEventsInCell(dayName,hour,minute))) continue;
     const aid = Number(e?._agencyId || 0) || null;
     const bid = Number(e?.buildingId || 0) || 0;
@@ -12190,7 +12199,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
           key: `office-booked-${blockKeySuffix}`,
           kind: 'ob',
           eventId: Number(top?.id || top?.eventId || 0),
-          appointmentId: Number(top?.appointmentId || 0),
+          appointmentId: isScheduleEventTerminal(top) ? 0 : Number(top?.appointmentId || 0),
           officeLocationId: buildingId,
           providerId: Number(top?.bookedProviderId || top?.assignedProviderId || 0),
           startAt: top?.startAt,
@@ -26677,6 +26686,7 @@ const cancellingScheduleEventScope = ref('');
 const showCancelMeetingModal = ref(false);
 const cancelMeetingItem = ref(null);
 const cancelMeetingError = ref('');
+const cancelMeetingReason = ref('');
 /** Default on (matches prior always-email behavior) — host can opt out so a
  * cancellation doesn't blast the whole team by surprise. */
 const cancelMeetingNotify = ref(true);
@@ -27653,6 +27663,7 @@ const openCancelMeetingConfirm = (item) => {
   cancelMeetingItem.value = item;
   cancelMeetingError.value = '';
   cancelMeetingNotify.value = true;
+  cancelMeetingReason.value = '';
   showCancelMeetingModal.value = true;
 };
 
@@ -27663,6 +27674,11 @@ const confirmCancelMeeting = async (scope = 'single') => {
   const normalizedScope = ['future', 'others'].includes(scope) ? scope : 'single';
   if ((normalizedScope === 'future' || normalizedScope === 'others') && !String(item?.recurrenceSeriesId || '').trim()) {
     cancelMeetingError.value = 'This event is not part of a recurring series.';
+    return;
+  }
+  const cancelReason = cancelMeetingReason.value.trim();
+  if (cancelMeetingIsMeeting.value && !cancelReason) {
+    cancelMeetingError.value = 'Enter a cancellation reason.';
     return;
   }
   const hostProviderId = resolveBookedProviderIdForEvent(item);
@@ -27676,6 +27692,7 @@ const confirmCancelMeeting = async (scope = 'single') => {
     cancelMeetingError.value = '';
     await api.delete(`/users/${hostProviderId}/schedule-events/${eventId}`, {
       params: { scope: normalizedScope, notifyParticipants: cancelMeetingNotify.value },
+      data: cancelMeetingIsMeeting.value ? { cancelReason } : undefined,
       skipGlobalLoading: true
     });
     invalidateScheduleSummaryCacheForUser(props.userId);
@@ -31681,6 +31698,8 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
   --text-secondary: #475569;
   background: #ffffff;
 }
+.meeting-cancel-reason { display: grid; gap: 6px; margin-bottom: 12px; }
+.meeting-cancel-reason textarea { width: 100%; resize: vertical; }
 .cancel-meeting-modal .modal-title {
   color: #0f172a;
 }

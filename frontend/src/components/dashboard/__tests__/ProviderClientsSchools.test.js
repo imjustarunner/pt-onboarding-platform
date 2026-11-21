@@ -85,3 +85,22 @@ it('keeps the school/program column when a client actually has a named program',
  api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'program',organization_name:'Student Support',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Student Support',organization_type:'program'}]}]:[]}));
  await render('tab=clients&clients=all');expect(wrapper.findAll('th').some(th=>th.text().includes('School / program'))).toBe(true);expect(wrapper.text()).toContain('Student Support');
 });
+
+it('shows assigned clients while school and billing details are still loading', async () => {
+  const pending = [];
+  api.get.mockImplementation(async url => {
+    if (url === '/clients') return { data: [{ id: 220, initials: 'QUICKVISIT', status: 'ACTIVE', client_type: 'clinical' }] };
+    if (url.endsWith('assigned-schools') || url.endsWith('provider-client-pos')) {
+      return new Promise(resolve => pending.push(resolve));
+    }
+    return { data: [] };
+  });
+  try {
+    await render('tab=clients&clients=all');
+    expect(pending).toHaveLength(2);
+    expect(wrapper.get('.pct-client-charts').text()).toContain('QUICKVISIT');
+  } finally {
+    for (const resolve of pending) resolve({ data: [] });
+    await flushPromises();
+  }
+});

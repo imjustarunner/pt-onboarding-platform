@@ -1479,7 +1479,7 @@ export async function getRevenueAggregates({ agencyId = null, startYmd = null, e
   return { totals, agencies };
 }
 
-export async function listBillingEncountersForClient({ agencyId, agencyIds = null, clientId, clientIds = null, limit = 200 }) {
+export async function listBillingEncountersForClient({ agencyId, agencyIds = null, clientId, clientIds = null, throughDate = null, limit = 200 }) {
   const lim = Math.max(1, Math.min(500, Number(limit) || 200));
   const aids = Array.isArray(agencyIds) && agencyIds.length
     ? [...new Set(agencyIds.map((n) => Number(n)).filter((n) => n > 0))]
@@ -1495,9 +1495,10 @@ export async function listBillingEncountersForClient({ agencyId, agencyIds = nul
      FROM billing_encounters be
      LEFT JOIN users u ON u.id = be.provider_user_id
      WHERE be.agency_id IN (${inList}) AND be.client_id IN (${clientIn})
+       ${throughDate ? 'AND be.service_date <= ?' : ''}
      ORDER BY be.service_date DESC, be.id DESC
      LIMIT ${lim}`,
-    [...aids, ...cids]
+    [...aids, ...cids, ...(throughDate ? [throughDate] : [])]
   );
   return rows || [];
 }

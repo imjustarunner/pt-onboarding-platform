@@ -233,24 +233,19 @@
               >
                 <td>
                   <div class="pct-client-cell">
-                    <div v-if="(c.agencyBrands || []).length" class="pct-agency-logos">
+                    <div class="pct-agency-logos">
                       <ClientAgencyLogo v-for="b in c.agencyBrands" :key="`logo-${c.id}-${b.agencyId}`" :agency="b" class="pct-agency-logo" />
                     </div>
-                    <button
-                      type="button"
-                      class="pct-client-link"
-                      :title="officeHoverTitle(c)"
-                      @click="openClientProfile(c, sortedCombinedClientsList)"
-                    >
-                      {{ formatOfficeClientLabel(c) }}
-                    </button>
-                  <button
-                    v-for="chart in c.linkedCaseloadCharts"
-                    :key="chart.id"
-                    type="button"
-                    class="pct-client-link"
-                    @click="openClientProfile(chart)"
-                  >{{ chart.agency_name || chart.agencyName || 'Chart ' + chart.id }}</button>
+                    <div class="pct-client-charts">
+                      <button type="button" class="pct-client-link" :title="officeHoverTitle(c)"
+                        @click="openClientProfile(c, sortedCombinedClientsList)">
+                        {{ formatOfficeClientLabel(c) }}
+                      </button>
+                      <button v-for="chart in c.linkedCaseloadCharts" :key="chart.id" type="button"
+                        class="pct-client-link pct-linked-chart" @click="openClientProfile(chart)">
+                        {{ chart.agency_name || chart.agencyName || 'Chart ' + chart.id }}
+                      </button>
+                    </div>
                   </div>
                 </td>
                 <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
@@ -490,6 +485,7 @@
           :key="`pct-client-${profileClient.id}`"
           :client="profileClient"
           :school-organization-id="profileClient.organization_id"
+          return-label="Back to My Clients"
           :current-client-index="profileClientIndex"
           :navigation-count="profileNavClients.length"
           @close="closeClientProfile"
@@ -681,7 +677,7 @@ const schoolAffiliatedClientIds = ref(new Set());
 const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
 const clientLabelMode = ref('initials');
-const officeClients = ref([]);
+const officeClients = computed(() => assignedProviderClients.value.filter(isPosOfficeClient));
 const assignedProviderClients = ref([]);
 const billingPosByClientId = ref({});
 const officeLoading = ref(false);
@@ -1308,18 +1304,20 @@ const formatInsuranceTypeLabel = (c) =>
   String(c?.insurance_type_label || c?.primary_insurer_name || '').trim() || '—';
 
 const loadBillingPosFlags = async () => {
-  if (!agencyId.value || !currentUserId.value) {
+  const version = rosterLoadVersion, providerId = currentUserId.value, aid = agencyId.value;
+  if (!aid || !providerId) {
     billingPosByClientId.value = {};
     return;
   }
   try {
     const r = await api.get('/billing-reports/provider-client-pos', {
       params: {
-        agencyId: agencyId.value,
-        providerUserId: currentUserId.value,
+        agencyId: aid,
+        providerUserId: providerId,
       },
       skipGlobalLoading: true,
     });
+    if (version !== rosterLoadVersion || providerId !== currentUserId.value) return;
     billingPosByClientId.value = r.data?.byClientId || {};
     // Merge lifetime school affiliations (COA/CPA/client_type) into roster set.
     const affiliated = Array.isArray(r.data?.schoolAffiliatedClientIds)
@@ -1334,7 +1332,7 @@ const loadBillingPosFlags = async () => {
       schoolAffiliatedClientIds.value = next;
     }
   } catch {
-    billingPosByClientId.value = {};
+    if (version === rosterLoadVersion && providerId === currentUserId.value) billingPosByClientId.value = {};
   }
 };
 
@@ -1361,31 +1359,32 @@ const formatPreferred = (c) => {
 };
 
 const loadOfficeAcceptance = async () => {
-  if (!agencyId.value || !currentUserId.value) {
+  const version = rosterLoadVersion, providerId = currentUserId.value, aid = agencyId.value;
+  if (!aid || !providerId) {
     officeAcceptance.value = null;
     return;
   }
   try {
     const r = await api.get('/client-exchange/acceptance-metrics', {
       params: {
-        agencyId: agencyId.value,
-        providerUserId: currentUserId.value,
+        agencyId: aid,
+        providerUserId: providerId,
       },
       skipGlobalLoading: true,
     });
+    if (version !== rosterLoadVersion || providerId !== currentUserId.value) return;
     officeAcceptance.value = r.data?.provider || null;
     if (officeAcceptance.value && !officeAcceptance.value.windowDays) {
       officeAcceptance.value.windowDays = r.data?.windowDays || 30;
     }
   } catch {
-    officeAcceptance.value = null;
+    if (version === rosterLoadVersion && providerId === currentUserId.value) officeAcceptance.value = null;
   }
 };
 
 const loadOfficeClients = async () => {
   const version=rosterLoadVersion,providerId=currentUserId.value;
   if (!currentUserId.value) {
-    officeClients.value = [];
     assignedProviderClients.value = [];
     billingPosByClientId.value = {};
     return;
@@ -1393,8 +1392,6 @@ const loadOfficeClients = async () => {
   officeLoading.value = true;
   officeError.value = '';
   try {
-    await refreshSchoolAffiliatedClientIds();
-    if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
     const agencyIds = (caseloadAgencies.value || [])
       .map((a) => Number(a.id))
       .filter((id) => id > 0);
@@ -1403,25 +1400,20 @@ const loadOfficeClients = async () => {
       : (agencyId.value ? [Number(agencyId.value)] : []);
     if (!idsToFetch.length) {
       assignedProviderClients.value = [];
-      officeClients.value = [];
       return;
     }
-    const [responses] = await Promise.all([
-      Promise.all(
-        idsToFetch.map((aid) =>
-          api
-            .get('/clients', {
-              params: { agency_id: aid, provider_id: currentUserId.value, includeServiceContext: 1 },
-              headers:{'X-Agency-Id':String(aid)},
-              skipGlobalLoading: true
-            })
-            .then((r) => ({ aid, rows: Array.isArray(r.data) ? r.data : r.data?.items || [] }))
-            .catch(() => ({ aid, rows: [], failed:true }))
-        )
-      ),
-      loadOfficeAcceptance(),
-      loadBillingPosFlags()
-    ]);
+    const responses = await Promise.all(idsToFetch.map(async aid => {
+      try {
+        const { data } = await api.get('/clients', {
+          params: { agency_id: aid, provider_id: providerId, includeServiceContext: 1 },
+          headers: { 'X-Agency-Id': String(aid) },
+          skipGlobalLoading: true
+        });
+        return { aid, rows: Array.isArray(data) ? data : data?.items || [] };
+      } catch {
+        return { aid, rows: [], failed: true };
+      }
+    }));
     if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
     const failures=(responses||[]).filter(r=>r.failed);
     if(failures.length)officeError.value='Some agency caseloads could not be loaded: '+failures.map(r=>caseloadAgencies.value.find(a=>Number(a.id)===r.aid)?.name||`agency #${r.aid}`).join(', ')+'. Refresh to retry.';
@@ -1441,10 +1433,8 @@ const loadOfficeClients = async () => {
       }
     }
     assignedProviderClients.value = Array.from(byId.values());
-    officeClients.value = assignedProviderClients.value.filter((c) => isPosOfficeClient(c));
   } catch (e) {
     if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;
-    officeClients.value = [];
     officeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load office clients';
   } finally {
     if(version===rosterLoadVersion&&providerId===currentUserId.value){officeLoading.value = false;emitPendingCount();}
@@ -1472,10 +1462,9 @@ async function refreshSchoolAffiliatedClientIds() {
   const version=rosterLoadVersion,providerId=currentUserId.value;
   // Preserve affiliation IDs already discovered via billing/COA so my-roster gaps
   // do not wipe "In School" for historically school-affiliated clients.
-  const ids = new Set(schoolAffiliatedClientIds.value || []);
+  const ids = new Set();
   const list = schools.value || [];
   if (!list.length || !currentUserId.value) {
-    schoolAffiliatedClientIds.value = ids;
     return ids;
   }
   const results = await Promise.all(list.map(school => requestSchoolRoster(school).catch(() => [])));
@@ -1485,7 +1474,9 @@ async function refreshSchoolAffiliatedClientIds() {
       if (id) ids.add(id);
     }
   }
-  if(version===rosterLoadVersion&&providerId===currentUserId.value)schoolAffiliatedClientIds.value = ids;
+  if (version === rosterLoadVersion && providerId === currentUserId.value) {
+    schoolAffiliatedClientIds.value = new Set([...schoolAffiliatedClientIds.value, ...ids]);
+  }
   return ids;
 }
 
@@ -1602,26 +1593,20 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    sessionTotalsByClientId.value = null;
-
     if (!selectedFiscalYearStart.value) {
       selectedFiscalYearStart.value = fiscalYearOptions.value[0]?.startYmd || '';
     }
 
     if(!props.profileEmbed){try{const response=await api.get('/users/me/agencies',{skipGlobalLoading:true});if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;if(Array.isArray(response.data))serverMemberships.value=response.data;}catch{if(version===rosterLoadVersion)error.value='Agency memberships could not be refreshed. Your loaded caseload may be incomplete; refresh to retry.';}}
     if(version!==rosterLoadVersion)return;
-    void loadNavigationCounts();
-    schoolRosters.value = {};
-    allClients.value = [];
-    await loadSchools();
-    if(version!==rosterLoadVersion)return;
-    const tasks = [loadOfficeClients(), loadSessionTotals(), loadAllRosters()];
-    if (!props.profileEmbed) {
-      tasks.push(loadPendingClients());
-    }
-    await Promise.all(tasks);
-    if(version!==rosterLoadVersion)return;
-    await loadTerminatedOfficeExtras();
+    const officeClientsTask = loadOfficeClients();
+    const schoolsTask = loadSchools().then(async () => {
+      if (version !== rosterLoadVersion) return;
+      await Promise.all([loadAllRosters(), refreshSchoolAffiliatedClientIds()]);
+    });
+    const secondaryTasks = [loadBillingPosFlags(), loadOfficeAcceptance(), loadSessionTotals(), loadTerminatedOfficeExtras()];
+    if (!props.profileEmbed) secondaryTasks.push(loadPendingClients(), loadNavigationCounts());
+    await Promise.all([officeClientsTask, schoolsTask, ...secondaryTasks]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';
   } finally {
@@ -1631,7 +1616,7 @@ const load = async () => {
 
 const refreshCurrentScope = () => {
   if (activeSection.value === 'office' || activeSection.value === 'new') {
-    return Promise.all([loadOfficeClients(), loadPendingClients(), loadSessionTotals(), loadTerminatedOfficeExtras(),loadNavigationCounts()]);
+    return Promise.all([loadOfficeClients(), loadBillingPosFlags(), loadOfficeAcceptance(), loadPendingClients(), loadSessionTotals(), loadTerminatedOfficeExtras(),loadNavigationCounts()]);
   }
   if (activeSection.value === 'all') {
     return load();
@@ -1679,6 +1664,8 @@ watch(showTerminated, () => {
   loadTerminatedOfficeExtras().catch(() => {});
 });
 watch(() => currentUserId.value, () => {
+  assignedProviderClients.value = []; schoolRosters.value = {}; allClients.value = [];
+  schoolAffiliatedClientIds.value = new Set(); billingPosByClientId.value = {};
   serverMemberships.value=null;exchangeCounts.value={matches:null,requestable:null};checkinCount.value=null;waitlistCount.value=null;
   selectedSchoolOrgId.value = 'all';
   load();
@@ -2059,6 +2046,8 @@ watch(skillBuildersOnlyFilter, async () => {
   align-items: center;
   gap: 8px;
 }
+.pct-client-charts { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.pct-linked-chart { font-size: 0.85em; font-weight: 600; }
 .pct-agency-logos {
   width: 40px;
   min-height: 20px;

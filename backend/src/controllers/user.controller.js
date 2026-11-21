@@ -5824,7 +5824,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     try {
       const { appointmentCalendarFallbacks } = await import('../services/appointmentCalendarFallback.service.js');
       scheduleEvents.push(...await appointmentCalendarFallbacks({ providerId, agencyId, allAgencies: includeAllAgencies, windowStart, windowEnd,
-        existingEventIds: scheduleEvents.map(e=>Number(e.id)), existingOfficeIds: officeEvents.map(e=>Number(e.id)),
+        existingEventIds: scheduleEvents.map(e=>Number(e.id)), existingOfficeIds: officeEvents.filter(e => !/^(?:CANCELLED|CANCELED|RELEASED)$/i.test(e.status)).map(e => Number(e.id)),
         canSeePrivateTitle:isSelf,
         canEdit: Number(req.user?.id) === Number(providerId) || canCreateProviderScheduleEvent(String(req.user?.role || '').toLowerCase()) || isSupervisorOfTarget }));
     } catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') throw error; }
@@ -7363,10 +7363,14 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
 
     const seriesId = String(target.recurrence_series_id || '').trim();
     const isMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(String(target.kind).toUpperCase());
+    const cancelReason = typeof req.body?.cancelReason === 'string' ? req.body.cancelReason.trim() : '';
+    if (isMeeting && (!cancelReason || cancelReason.length > 500)) {
+      return res.status(400).json({ error: { message: 'Enter a cancellation reason of up to 500 characters.' } });
+    }
     let rowsToCancel;
     let cancelledCount;
     if (isMeeting || target.kind === 'SCHEDULE_HOLD') {
-      const canceled = await cancelMeetingOccurrences({ kind: 'meeting', eventId, scope, actorUserId });
+      const canceled = await cancelMeetingOccurrences({ kind: 'meeting', eventId, scope, actorUserId, cancelReason: isMeeting ? cancelReason : null });
       rowsToCancel = canceled.rows;
       cancelledCount = canceled.cancelledCount;
     } else {
@@ -7404,7 +7408,7 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       console.warn('[deleteUserScheduleEvent] training pay withdraw failed', payErr?.message || payErr);
     }
 
-    if (notifyParticipants && ['TEAM_MEETING','HUDDLE'].includes(String(target.kind || '').toUpperCase())) await sendMeetingScheduleChange(rowsToCancel,'cancelled');
+    if (notifyParticipants && ['TEAM_MEETING','HUDDLE'].includes(String(target.kind || '').toUpperCase())) await sendMeetingScheduleChange(rowsToCancel, 'cancelled', { scope, changeReason: cancelReason });
     return res.json({
       ok: true,
       scope,

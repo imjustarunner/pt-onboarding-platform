@@ -51,12 +51,14 @@ export async function attachAppointmentChangeNotes({ appointment, narrative, eve
         const metadata = { payloadEncrypted: payload !== narrative, source: 'appointment_change', appointmentId: appointment.id, eventType,
           noteType, nonBillable: true, requiresSupervisorCosign: false,
           signedByUserId: actorUserId, signedAt, ...(declarationId?{noShowReviewId:declarationId}:{}) };
+        const title = kind === 'waiver' ? 'Appointment waiver addendum'
+          : eventType === 'canceled' ? 'Canceled session' : 'Appointment change';
         const [created] = await conn.execute(
           `INSERT INTO clinical_notes (clinical_session_id, agency_id, client_id, title, note_payload,
            metadata_json, created_by_user_id, note_type, content_hash, provider_signed_at,
            provider_signed_by_user_id, is_billable)
            VALUES (?, ?, ?, ?, ?, ?, ?, '${noteType}', ?, ?, ?, 0)`,
-          [session.id, appointment.agencyId, session.client_id, kind === 'waiver' ? 'Appointment waiver addendum — nonbillable' : 'Appointment change — nonbillable', payload,
+          [session.id, appointment.agencyId, session.client_id, title + ' — nonbillable', payload,
             JSON.stringify(metadata), actorUserId, createHash('sha256').update(narrative).digest('hex'), signedAt, actorUserId]
         );
         id = created.insertId;

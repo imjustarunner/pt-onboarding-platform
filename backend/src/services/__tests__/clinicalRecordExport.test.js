@@ -37,6 +37,17 @@ describe('clinical record export scope', () => {
     expect(result.filename).toBe('clinical-note-3.pdf');
     expect(dependencies.render.mock.calls[0][0].notes[0]).toMatchObject({ note: { title: 'Approved amended note' }, addenda: [{ body: 'Signed addendum' }], revisions: [{ id: 7 }] });
   });
+  it('downloads only the requested plan with client initials and the local download date', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-22T02:00:00Z'));
+    try {
+      dependencies.planModel.findById.mockResolvedValue({ id: 7, client_id: 4, agency_id: 2, status: 'active' });
+      dependencies.planApproval = vi.fn(async () => ({}));
+      const result = await createClinicalRecordExporter(dependencies)({ user }, { planId: 7, clientId: 4, agencyId: 2 });
+      expect(result.filename).toBe('SC-treatmentplan-2026-11-21.pdf');
+      expect(dependencies.render.mock.calls[0][0]).toMatchObject({ notes: [], plans: [expect.objectContaining({ id: 7 })], singleDocument: true });
+    } finally { vi.useRealTimers(); }
+  });
   it('never reads another agency attachment and manifests quarantined content', async () => {
     dependencies.phiDocuments.mockResolvedValue([{ id: 12, agency_id: 99, client_id: 4, storage_path: 'other-agency-file', original_name: 'Other record' }, { id: 13, agency_id: 2, client_id: 4, quarantine_path: 'private-quarantine', original_name: 'Pending source' }]);
     await createClinicalRecordExporter(dependencies)({ user }, { clientId: 4, agencyId: 2 });

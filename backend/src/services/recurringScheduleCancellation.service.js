@@ -45,10 +45,13 @@ export async function cancelMeetingOccurrences({ kind, eventId, scope = 'single'
         && (String(row.status).toUpperCase() !== 'CANCELLED' || Number(row.recurrence_horizon_held)));
       const ids = rows.map(row => Number(row.id));
       const reason = kind === 'supervision' ? String(cancelReason || 'Canceled by the host').trim().slice(0,500) : null;
+      const meetingReason = kind === 'meeting' && cancelReason ? String(cancelReason).trim().slice(0, 500) : null;
       if (ids.length) await db.execute(`UPDATE ${table} SET status='CANCELLED', recurrence_horizon_held=0,
         recurrence_calendar_pending=1, updated_at=CURRENT_TIMESTAMP${kind === 'meeting' ? ', updated_by_user_id=?' : ''}
+        ${meetingReason ? ", meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json, JSON_OBJECT()), '$.cancellationReason', ?)" : ''}
         ${kind === 'supervision' ? ', cancel_reason=?, cancel_attribution=?' : ''}
-        WHERE id IN (${ids.map(() => '?').join(',')})`, kind === 'meeting' ? [actorUserId, ...ids] : [reason,cancelAttribution,...ids]);
+        WHERE id IN (${ids.map(() => '?').join(',')})`,
+      kind === 'meeting' ? [actorUserId, ...(meetingReason ? [meetingReason] : []), ...ids] : [reason, cancelAttribution, ...ids]);
       if (kind === 'supervision') for (const row of rows) await db.execute(`INSERT INTO supervision_schedule_actions (session_id,actor_user_id,action_kind,reason,attribution,details_json) VALUES (?,?,'cancelled',?,?,?)`,[row.id,actorUserId,reason,cancelAttribution,JSON.stringify({scope,previousStatus:row.status})]);
       await db.commit();
       return { rows: rows.map(row => ({...row,...(reason ? {cancel_reason:reason,cancel_attribution:cancelAttribution} : {})})), ids, cancelledCount: ids.length, seriesId: anchor.recurrence_series_id || null, scope };

@@ -87,6 +87,26 @@ it('sends distinct single-occurrence and future block cancellation scopes',async
   }
 });
 
+it('requires a reason before canceling a recurring team meeting', async () => {
+  const schedule = await open();
+  schedule.openCancelMeetingConfirm({
+    eventId: 82, providerId: 7, bookedProviderId: 7, eventKind: 'TEAM_MEETING', recurrenceSeriesId: 'monthly'
+  });
+  await flushPromises();
+  const reason = wrapper.get('.meeting-cancel-reason textarea');
+  await schedule.confirmCancelMeeting('future');
+  expect(schedule.cancelMeetingError).toBe('Enter a cancellation reason.');
+  expect(m.remove).not.toHaveBeenCalled();
+
+  await reason.setValue('Office closure');
+  await schedule.confirmCancelMeeting('future');
+  expect(m.remove).toHaveBeenCalledWith('/users/7/schedule-events/82', {
+    data: { cancelReason: 'Office closure' },
+    params: { scope: 'future', notifyParticipants: true },
+    skipGlobalLoading: true
+  });
+});
+
 it('requires a weekday and a date range containing an occurrence before creating blocks',async()=>{
  const s=await open();s.scheduleEventRecurrence='WEEKLY';s.editorRecurrenceWeekdays=[];
  await s.submitRequest();expect(s.modalError).toContain('Select at least one day');expect(m.post).not.toHaveBeenCalled();

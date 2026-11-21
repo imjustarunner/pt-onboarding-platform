@@ -27,6 +27,7 @@ describe('appointment change session note', () => {
     for (const [sql, values] of inserts) {
       expect(sql).toContain('provider_signed_at'); expect(sql).toContain('is_billable');
       expect(sql).toContain("'APPOINTMENT_CHANGE'"); expect(sql).toContain('?, ?, ?, 0)');
+      expect(values).toContain('Canceled session — nonbillable');
       expect(values).toContain('encrypted:Client canceled.'); expect(values).toContain('2026-09-12 15:00:00');
       expect(sql).not.toContain('clinical_claims');
     }

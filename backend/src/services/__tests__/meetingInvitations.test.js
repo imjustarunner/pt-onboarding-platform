@@ -162,3 +162,17 @@ describe('supervision change notices',()=>{
     expect(m.send).not.toHaveBeenCalled();
   });
 });
+
+it('includes the host’s reason in the team meeting cancellation notice', async () => {
+  m.execute.mockImplementation(async (sql, params) => {
+    if (sql.includes('FROM provider_schedule_event_attendees')) return [[{ user_id: 5 }]];
+    if (sql.includes('FROM users WHERE id=')) return [[{ id: params[0], email: 'staff@example.com' }]];
+    return [{ affectedRows: 1 }];
+  });
+  await sendMeetingScheduleChange([event], 'cancelled', { scope: 'others', changeReason: 'Office closure' });
+  expect(m.send).toHaveBeenCalledTimes(2);
+  for (const [message] of m.send.mock.calls) {
+    expect(message.text).toContain('Cancellation reason: Office closure');
+    expect(message.text).toContain('The selected occurrence stays on the calendar.');
+  }
+});

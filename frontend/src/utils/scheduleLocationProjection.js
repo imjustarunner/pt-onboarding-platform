@@ -4,14 +4,14 @@ const number = (...values) => Number(values.find(value => Number(value) > 0) || 
 const schoolId = row => number(row?.schoolOrganizationId, row?.schoolOrgId, row?.school_organization_id);
 const agencyId = row => number(row?.agencyId, row?._agencyId);
 const range = row => [parseScheduleUtcInstant(row?.startAt), parseScheduleUtcInstant(row?.endAt)];
-const terminal = row => /^(?:CANCEL|VOID|RESCHEDUL|NO_SHOW|MISSED)/i.test(String(row?.appointmentStatus || row?.status || ''));
+const terminal = row => /^(?:(?:LATE_)?CANCEL|VOID|RESCHEDUL|NO_SHOW|MISSED)/i.test(String(row?.appointmentStatus || row?.statusOutcome || row?.status || ''));
 export const isClientCalendarSession = row => !!number(row?.clientId, row?.appointmentId) || /Client\s*id:\s*\d+/i.test(String(row?.description || ''));
 // Client appointments remain appointments when the optional room-reservation layer is hidden.
 export function includeOfficeClientSessions(events = [], offices = []) {
   const result = [...events], linked = new Set(events.map(row => number(row.appointmentId)).filter(Boolean));
   for (const office of offices) {
     const appointmentId = number(office.appointmentId);
-    if (!appointmentId || !number(office.clientId) || linked.has(appointmentId) || terminal(office)) continue;
+    if (!appointmentId || linked.has(appointmentId) || (!number(office.clientId) && !terminal(office))) continue;
     const start=parseScheduleUtcInstant(office.appointmentStartAt),end=parseScheduleUtcInstant(office.appointmentEndAt);
     const [roomStart,roomEnd]=range(office);
     const mismatch=!!(start&&end&&roomStart&&roomEnd&&(roomStart>start||roomEnd<end));

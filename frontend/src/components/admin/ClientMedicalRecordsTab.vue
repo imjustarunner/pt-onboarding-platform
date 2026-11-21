@@ -34,12 +34,11 @@
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading sessions…</p>
     <p v-else-if="!chronologicalRows.length && !history.loading.value" class="cc-enc-empty">
-      No sessions or signed documentation on file for this client yet. Past and future booked
-      appointments, recurring planned sessions, and signed notes appear here — billing attaches when imported.
+      No past sessions or other medical records are available for this client yet.
     </p>
 
-    <div v-else class="cc-enc-master-detail">
-      <aside class="cc-enc-list-panel">
+    <div v-else class="cc-enc-timeline">
+      <div class="cc-enc-timeline-filters">
         <div class="cc-enc-filters">
           <button
             v-for="f in filterOptions"
@@ -56,17 +55,18 @@
           v-model="searchQuery"
           type="search"
           class="cc-enc-search"
-          placeholder="Search code, provider, diagnosis…"
-          aria-label="Search sessions"
+          placeholder="Search title, code, provider, or diagnosis…"
+          aria-label="Search medical records"
         />
-        <div class="cc-enc-list">
+      </div>
+      <div class="cc-enc-timeline-list">
+        <article v-for="row in filteredEncounters" :key="encounterKey(row)" class="cc-enc-timeline-entry">
           <button
-            v-for="row in filteredEncounters"
-            :key="row.record_key || row.id"
+            :aria-expanded="encounterKey(row) === selectedId"
             type="button"
             class="cc-enc-list-item"
             :class="{ 'cc-enc-list-item--active': encounterKey(row) === selectedId }"
-            @click="selectEncounter(row)"
+            @click="toggleEncounter(row)"
           >
             <template v-if="row.historyKind"><div class="cc-enc-list-item__row"><strong>{{ formatEncounterDate(row.service_date) }}</strong><span>{{ row.historyKind }}</span></div><div>{{ row.title }}</div></template>
             <template v-else><div class="cc-enc-list-item__row">
@@ -91,12 +91,7 @@
             </div>
           </template>
           </button>
-          <p v-if="!filteredEncounters.length" class="muted tiny" style="padding: 8px 4px;">
-            No sessions match this filter.
-          </p>
-        </div>
-      </aside>
-
+          <template v-if="encounterKey(row) === selectedId">
       <section v-if="selectedRow?.historyKind" class="cc-enc-detail-panel">
         <h3>{{ selectedRow.title }}</h3><p>{{ selectedRow.historyKind }} · {{ formatEncounterDate(selectedRow.service_date) }}</p>
         <button type="button" class="btn btn-secondary" @click="selectedRow.action==='document' ? emit('open-document',selectedRow.sourceId) : emit('navigate',selectedRow.tab)">Open {{ selectedRow.historyKind.toLowerCase() }}</button>
@@ -239,9 +234,10 @@
         </div>
       </section>
 
-      <section v-else class="cc-enc-detail-panel">
-        <p class="muted">Select a session from the list to view details.</p>
-      </section>
+          </template>
+        </article>
+        <p v-if="!filteredEncounters.length" class="muted tiny">No medical records match this filter.</p>
+      </div>
     </div>
     </template>
   </div>
@@ -388,7 +384,6 @@ async function printRecord() {
 const filterOptions = computed(() => {
   const base = [
     { id: 'all', label: 'All' },
-    { id: 'planned', label: 'Planned' },
     { id: 'notes_needed', label: 'Notes needed' },
     { id: 'signed', label: 'Signed' }
   ];
@@ -406,9 +401,7 @@ const detailTabs = [
 
 const filteredEncounters = computed(() => {
   let rows = chronologicalRows.value;
-  if (listFilter.value === 'planned') {
-    rows = rows.filter((row) => String(row?.display_state || row?.note_status || '') === 'planned');
-  } else if (listFilter.value === 'notes_needed') {
+  if (listFilter.value === 'notes_needed') {
     rows = rows.filter(encounterNeedsNote);
   } else if (listFilter.value === 'signed') {
     rows = rows.filter((row) => String(row?.note_status || 'none') === 'signed');
@@ -438,6 +431,16 @@ function selectEncounter(rowOrKey) {
   emit('encounter-change', Number.isFinite(n) ? n : 0);
 }
 
+function toggleEncounter(row) {
+  if (encounterKey(row) === selectedId.value) {
+    selectedId.value = null;
+    emit('encounter-change', 0);
+    return;
+  }
+  detailTab.value = 'summary';
+  selectEncounter(row);
+}
+
 function openNote(row) {
   if (row.display_state === 'planned') return;
   if(row.intake_draft_id){openedIntake.value=row;return;}
@@ -459,9 +462,6 @@ function syncSelectionFromProps() {
       return;
     }
   }
-  if (!selectedId.value && sortedEncounters.value.length) {
-    selectEncounter(sortedEncounters.value[0]);
-  }
 }
 
 watch(
@@ -473,15 +473,29 @@ watch(
 watch(
   filteredEncounters,
   (rows) => {
-    if (!rows.length) return;
-    if (!rows.some((row) => encounterKey(row) === selectedId.value)) {
-      selectEncounter(rows[0]);
+    if (selectedId.value && !rows.some(row => encounterKey(row) === selectedId.value)) {
+      selectedId.value = null;
     }
   }
 );
 </script>
 
 <style scoped>
+.cc-enc-timeline { display: grid; gap: 12px; }
+.cc-enc-timeline-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.cc-enc-timeline-filters .cc-enc-search { width: min(100%, 320px); }
+.cc-enc-timeline-list { display: grid; gap: 8px; }
+.cc-enc-timeline-entry {
+  min-width: 0;
+  border: 1px solid var(--cc-border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--cc-card, #fff);
+}
+.cc-enc-timeline-entry .cc-enc-detail-panel {
+  border: 0;
+  border-top: 1px solid var(--cc-border, #e2e8f0);
+  min-height: 0;
+}
 .muted { color: var(--text-secondary, #64748b); }
 .tiny { font-size: 12px; }
 </style>

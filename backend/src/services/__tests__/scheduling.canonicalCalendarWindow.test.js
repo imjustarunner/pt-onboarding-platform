@@ -45,6 +45,15 @@ it.each([{existingEventIds:[80]},{existingOfficeIds:[90]}])('does not duplicate 
  const db={execute:vi.fn().mockResolvedValue([[{id:41,calendar_event_id:80,office_event_id:90,status:'scheduled'}]])};
  expect(await appointmentCalendarFallbacks({providerId:7,agencyId:2,windowStart:'start',windowEnd:'end',...represented},db)).toEqual([]);
 });
+it('keeps a canceled session on the calendar when the room is still represented', async () => {
+  const row = { id: 41, provider_user_id: 7, agency_id: 2, status: 'canceled_by_provider', office_event_id: 90,
+    start_at: appointment.startAt, end_at: appointment.endAt };
+  const db = { execute: vi.fn().mockResolvedValue([[row]]) };
+  const events = await appointmentCalendarFallbacks({
+    providerId: 7, agencyId: 2, windowStart: 'start', windowEnd: 'end', existingOfficeIds: [90]
+  }, db);
+  expect(events).toMatchObject([{ appointmentId: 41, officeEventId: 90, isCancelled: true }]);
+});
 it('keeps recovered private calendar titles private and applies linked archive references',async()=>{
  const db={execute:vi.fn(async sql=>sql.includes('FROM appointments a')?[[{id:41,provider_schedule_event_id:80,calendar_event_id:80,is_private:1,title:'Private title',notes:'Private details',start_at:appointment.startAt,end_at:appointment.endAt}]]:[])};
  let result=await appointmentCalendarFallbacks({providerId:7,agencyId:2,windowStart:'start',windowEnd:'end'},db);

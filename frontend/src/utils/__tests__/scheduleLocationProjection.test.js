@@ -57,3 +57,16 @@ it('combines a legacy session with the same provider’s exact room reservation 
   expect(officeCoveredBySession({...office,providerId:8,assignedProviderId:8},[session])).toBe(false);
   expect(officeCoveredBySession({...office,roomId:11},[session])).toBe(false);
 });
+
+it('keeps a canceled client session separate from the office kept for that time', () => {
+  const canceledVisit = {
+    ...session, id: 19, buildingId: 2, roomId: 10, status: 'CANCELLED',
+    appointmentStatus: 'canceled_by_provider',
+    appointmentStartAt: session.startAt, appointmentEndAt: session.endAt
+  };
+  const keptOffice = { id: 20, buildingId: 2, roomId: 10, status: 'BOOKED', startAt: session.startAt, endAt: session.endAt };
+  const rows = includeOfficeClientSessions([], [keptOffice, canceledVisit]);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ appointmentId: session.appointmentId, appointmentStatus: 'canceled_by_provider' });
+  expect(officeCoveredBySession(keptOffice, rows)).toBe(false);
+});

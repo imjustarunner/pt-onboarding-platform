@@ -34,6 +34,14 @@ const serviceDate = (value, timeZone = 'America/Denver') => {
   return `${parts.year}-${parts.month}-${parts.day}`;
 };
 
+function treatmentPlanFilename(client, timeZone, now) {
+  const person = String(client.full_name || client.recordDemographics?.fullName || '').trim().split(/\s+/);
+  const first = client.first_name || person[0] || '';
+  const last = client.last_name || (person.length > 1 ? person.at(-1) : '');
+  const initials = [first, last].map(name => String(name).normalize('NFD').match(/[A-Za-z]/)?.[0]?.toUpperCase() || '').join('');
+  return [initials, 'treatmentplan', serviceDate(now, timeZone)].filter(Boolean).join('-') + '.pdf';
+}
+
 export function createClinicalRecordExporter(dependencies = {}) {
   const db = dependencies.clinicalDb || clinicalPool, main = dependencies.mainDb || pool;
   const access = dependencies.clientAccess || requireNarrivaClient;
@@ -94,6 +102,7 @@ export function createClinicalRecordExporter(dependencies = {}) {
     client.recordGuardians = guardians;
     const agency = await findAgency(agencyId);
     if (!agency) throw fail(404, 'Clinical workspace not found.');
+    if (planId) sourceNotes = [];
     if (!sourceNotes) {
       const dateExpression = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(v.snapshot_json,'$.metadataJson.dateOfService')),JSON_UNQUOTE(JSON_EXTRACT(v.snapshot_json,'$.encounterContext.dateOfService')),JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json,'$.dateOfService')),DATE(n.created_at))";
       const [rows] = await db.execute(`SELECT n.* FROM clinical_notes n LEFT JOIN clinical_note_revision_heads h ON h.clinical_note_id=n.id AND h.agency_id=n.agency_id LEFT JOIN clinical_note_revisions v ON v.id=h.effective_revision_id WHERE n.agency_id=? AND n.client_id=? AND n.is_deleted=0 AND ${sharedNotePredicate('n')} ${includeDrafts ? '' : 'AND n.provider_signed_at IS NOT NULL'} ${from ? `AND ${dateExpression}>=?` : ''} ${to ? `AND ${dateExpression}<=?` : ''} ORDER BY n.created_at,n.id LIMIT 1001`, [agencyId, clientId, ...(from ? [from] : []), ...(to ? [to] : [])]);
@@ -231,9 +240,10 @@ export function createClinicalRecordExporter(dependencies = {}) {
     }
     if (planId && !plans.length) throw fail(404,'This treatment plan is unavailable in the selected chart.');
     const recordTitle = planId ? 'Treatment plan' : singleDocument ? notes[0]?.note.title || 'Clinical note' : 'Full medical record';
-    const bytes = await render({ agency, client, notes, plans, diagnoses, names, manifest, attachments, recordTitle, includeDrafts, singleDocument });
+    const exportedAt = new Date();
+    const bytes = await render({ agency, client, notes, plans, diagnoses, names, manifest, attachments, recordTitle, includeDrafts, singleDocument, exportedAt });
     await audit(req, { required: true, actionType: planId ? 'clinical_plan_pdf_exported' : singleDocument ? 'clinical_note_pdf_exported' : 'clinical_medical_record_pdf_exported', agencyId, clientId: Number(clientId), metadata: { clientId: Number(clientId), planId:positive(planId), actorRole: req.user.role, noticeVersion: req.headers?.['x-record-download-notice'] || null, deliveryStage: 'prepared_for_download', noteId: positive(noteId), draftId: positive(draftId), noteCount: notes.length, planCount: plans.length, attachmentCount: attachments.length, includeDrafts, from: from || null, to: to || null } });
-    return { bytes, filename: planId ? `treatment-plan-${positive(planId)}.pdf` : draftId ? `workspace-draft-${draftId}.pdf` : noteId ? `clinical-note-${noteId}.pdf` : `medical-record-${clientId}.pdf` };
+    return { bytes, filename: planId ? treatmentPlanFilename(client, agency.timezone || 'America/Denver', exportedAt) : draftId ? `workspace-draft-${draftId}.pdf` : noteId ? `clinical-note-${noteId}.pdf` : `medical-record-${clientId}.pdf` };
   };
 }
 export default createClinicalRecordExporter();

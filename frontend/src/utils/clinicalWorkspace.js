@@ -7,7 +7,7 @@ export function isClinicalClient(record = {}) {
   return ['clinical', 'school'].includes(String(record?.organization_type || '').toLowerCase());
 }
 export function isClinicalWorkspacePath(path = '') {
-  return /\/(?:note-aid|admin\/clinical-note-generator)(?:[/?#]|$)/.test(path)
+  return /\/(?:note-aid|therapy-notes-generator|admin\/clinical-note-generator)(?:[/?#]|$)/.test(path)
     || /\/counseling\/(?:session|room)\//.test(path)
     || /\/admin\/clients\/\d+(?:[/?#]|$)/.test(path);
 }

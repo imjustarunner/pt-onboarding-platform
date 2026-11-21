@@ -5,7 +5,7 @@
     :header-collapsed="headerCollapsed"
     :clinical-branding="showClinicalChartSurfaces" :workspace-mode="clinicalWorkspaceMode"
     :tenant-id="selectedAgencyId || client.agency_id" :tenant-name="primaryAgencyDisplayName"
-    :return-label="props.schoolOrganizationId ? 'Back to school portal' : ''"
+    :return-label="props.returnLabel || (props.schoolOrganizationId ? 'Back to school portal' : '')"
     @workspace-mode="changeClinicalWorkspaceMode"
     :tabs="tabs"
     :active-tab="chartHub"
@@ -2999,6 +2999,7 @@ import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianConta
 import {guardianAccountPath} from '../../utils/guardianDirectory.js';
 
 const props = defineProps({
+  returnLabel: { type: String, default: '' },
   client: {
     type: Object,
     required: true

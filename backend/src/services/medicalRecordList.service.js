@@ -3,6 +3,8 @@ import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { listBillingEncountersForClient } from './billingReportIngest.service.js';
 import { mergeMedicalRecordSources } from './medicalRecordTimeline.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { collectChartScope } from '../utils/noteAidClientAgency.js';
 
 export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 200 }) {
@@ -19,6 +21,8 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
 
   const [[agency]] = await pool.execute('SELECT timezone FROM agencies WHERE id=?', [aid]);
   const timeZone = agency?.timezone || 'America/Denver';
+  const now = new Date();
+  const today = utcDateToZonedYmd(now, timeZone);
 
   let billing = [];
   try {
@@ -27,6 +31,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
       agencyIds,
       clientId: cid,
       clientIds,
+      throughDate: today,
       limit: lim
     });
   } catch {
@@ -42,6 +47,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
        WHERE cs.client_id IN (${clientIn})
          AND cs.agency_id IN (${inList})
          AND (cs.scheduled_start_at IS NOT NULL OR JSON_UNQUOTE(JSON_EXTRACT(cs.metadata_json,'$.source'))='h0002_digital_screening')
+         AND COALESCE(cs.scheduled_end_at, cs.scheduled_start_at, cs.created_at) <= UTC_TIMESTAMP()
        ORDER BY COALESCE(cs.scheduled_start_at,cs.created_at) DESC
        LIMIT ${lim}`,
       [...clientIds, ...agencyIds]
@@ -55,6 +61,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
          WHERE cs.client_id IN (${clientIn})
            AND cs.agency_id IN (${inList})
            AND (cs.scheduled_start_at IS NOT NULL OR JSON_UNQUOTE(JSON_EXTRACT(cs.metadata_json,'$.source'))='h0002_digital_screening')
+           AND COALESCE(cs.scheduled_end_at, cs.scheduled_start_at, cs.created_at) <= UTC_TIMESTAMP()
          ORDER BY COALESCE(cs.scheduled_start_at,cs.created_at) DESC
          LIMIT ${lim}`,
         [...clientIds, ...agencyIds]
@@ -112,6 +119,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
            OR ap.client_id IN (${clientIn})
          )
          AND oe.start_at IS NOT NULL
+         AND COALESCE(oe.end_at, oe.start_at) <= UTC_TIMESTAMP()
          AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
        ORDER BY oe.start_at DESC
        LIMIT ${lim}`,
@@ -131,6 +139,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
          LEFT JOIN users u ON u.id = COALESCE(oe.booked_provider_id, oe.assigned_provider_id)
          WHERE oe.client_id IN (${clientIn})
            AND oe.start_at IS NOT NULL
+           AND COALESCE(oe.end_at, oe.start_at) <= UTC_TIMESTAMP()
            AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
          ORDER BY oe.start_at DESC
          LIMIT ${lim}`,
@@ -167,6 +176,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
        WHERE ap.client_id IN (${clientIn})
          AND a.agency_id IN (${inList})
          AND a.start_at IS NOT NULL
+         AND COALESCE(a.end_at, a.start_at) <= UTC_TIMESTAMP()
          AND UPPER(COALESCE(a.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'VOID', 'VOIDED')
        ORDER BY a.start_at DESC
        LIMIT ${lim}`,
@@ -189,14 +199,15 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
               pse.client_id,
               pse.agency_id,
               pse.title,
-              pse.provider_user_id,
+              pse.provider_id AS provider_user_id,
               u.first_name AS provider_first_name,
               u.last_name AS provider_last_name
        FROM provider_schedule_events pse
-       LEFT JOIN users u ON u.id = pse.provider_user_id
+       LEFT JOIN users u ON u.id = pse.provider_id
        WHERE pse.client_id IN (${clientIn})
          AND pse.agency_id IN (${inList})
          AND pse.start_at IS NOT NULL
+         AND COALESCE(pse.end_at, pse.start_at) <= UTC_TIMESTAMP()
          AND UPPER(COALESCE(pse.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'DELETED', 'VOID')
        ORDER BY pse.start_at DESC
        LIMIT ${lim}`,
@@ -222,6 +233,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
        WHERE n.client_id IN (${clientIn})
          AND n.agency_id IN (${inList})
          AND n.is_deleted = 0
+         AND (cs.scheduled_start_at IS NULL OR COALESCE(cs.scheduled_end_at, cs.scheduled_start_at) <= UTC_TIMESTAMP())
          AND (n.provider_signed_at IS NOT NULL OR n.clinical_session_id IS NOT NULL)
        ORDER BY (n.provider_signed_at IS NOT NULL) DESC, COALESCE(n.provider_signed_at, n.updated_at, n.created_at) DESC
        LIMIT ${lim}`,
@@ -259,17 +271,25 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     note_status:'imported',display_state:'imported',records_import:true,non_billable:true,billing_attached:false,
     clinical_session_id:null,clinical_note_id:null
   }));
+  const hasEnded = row => {
+    const end = parseUtcDate(row.scheduled_end_at || row.end_at || row.scheduled_start_at || row.start_at);
+    return !end || end <= now;
+  };
   const encounters=mergeMedicalRecordSources({
     timeZone,
+    now,
     billing,
-    sessions,
-    officeEvents,
-    appointments,
-    scheduleEvents,
+    sessions: sessions.filter(hasEnded),
+    officeEvents: officeEvents.filter(hasEnded),
+    appointments: appointments.filter(hasEnded),
+    scheduleEvents: scheduleEvents.filter(hasEnded),
     notes,
     claims
   });
-  return [...encounters,...importedIntakes].sort((a,b)=>new Date(b.service_date||b.created_at||0)-new Date(a.service_date||a.created_at||0)).slice(0,lim);
+  const pastEncounters = encounters.filter(row => {
+    return hasEnded(row) && (!row.service_date || String(row.service_date).slice(0, 10) <= today);
+  });
+  return [...pastEncounters,...importedIntakes].sort((a,b)=>new Date(b.service_date||b.created_at||0)-new Date(a.service_date||a.created_at||0)).slice(0,lim);
 }
 
 export default { listClientMedicalRecordRows };

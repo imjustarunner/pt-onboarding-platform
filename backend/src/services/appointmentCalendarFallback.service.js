@@ -21,7 +21,12 @@ export async function appointmentCalendarFallbacks({ providerId, agencyId, allAg
       AND a.status IN ('scheduled','confirmed','client_confirmed','in_progress','completed','no_show','no_show_pending','late_canceled','canceled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','rescheduled','voided')`,
   [providerId, allAgencies ? 1 : 0, agencyId, windowEnd, windowStart]);
   const representedEvents = new Set(existingEventIds.map(Number).filter(id=>id>0)), representedOffices = new Set(existingOfficeIds.map(Number).filter(id=>id>0));
-  const missing = rows.filter(a => !representedEvents.has(Number(a.calendar_event_id)) && !representedOffices.has(Number(a.office_event_id)));
+  const missing = rows.filter(appointment => {
+    if (representedEvents.has(Number(appointment.calendar_event_id))) return false;
+    // A retained room booking can be used again. It cannot stand in for the canceled appointment.
+    const canceled = /^(?:late_)?cancel/i.test(String(appointment.status || ''));
+    return canceled || !representedOffices.has(Number(appointment.office_event_id));
+  });
   const visible = await visibleClinicalWork(missing, { db, kind: 'appointment' });
   return visible.map(a => {
     const outcome=appointmentAttendanceView({...a,endAt:a.end_at},{learningSession:{
