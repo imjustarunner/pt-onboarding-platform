@@ -1,3 +1,4 @@
+import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { mysqlDateTimeForDateHour } from '../utils/officeEventDateTime.util.js';
@@ -30,14 +31,13 @@ export async function releaseOfficeReservation({ assignmentId = null, eventId = 
         if (+utc(event.start_at) !== +utc(reviewedOccurrence.startAt) || +utc(event.end_at) !== +utc(reviewedOccurrence.endAt)) {
           throw fail('The office reservation time changed. Review the day again.');
         }
-        const released = keepAssigned
-          ? event.status === 'RELEASED' && event.slot_state === 'ASSIGNED_AVAILABLE'
-          : event.status === 'CANCELLED';
+        const assignedAvailable = keepAssigned && event.status === 'RELEASED' && event.slot_state === 'ASSIGNED_AVAILABLE';
+        const released = keepAssigned ? isBorrowableOfficeRelease(event) : event.status === 'CANCELLED';
         if (released && !event.booked_provider_id) {
           await conn.commit();
           return { ok: true, scope, keepAssigned, eventIds: [Number(eventId)], standingAssignmentId: event.standing_assignment_id || null };
         }
-        if (event.status !== 'BOOKED' || Number(event.booked_provider_id || event.assigned_provider_id) !== reviewedOccurrence.providerId
+        if ((!assignedAvailable && event.status !== 'BOOKED') || Number(event.booked_provider_id || event.assigned_provider_id) !== reviewedOccurrence.providerId
             || +utc(event.start_at) <= +reviewedOccurrence.now) throw fail('The office reservation changed or has started. Review it individually.');
       }
       assignmentId = event.standing_assignment_id || null;
