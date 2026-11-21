@@ -16,6 +16,9 @@ export function familyAssessmentChoices() {
       family: id, title: title || id, assignable: false, availabilityLabel: 'Available in Outcome Measures'
     })),
     { family: 'psc-17', title: 'PSC-17 · Parent / guardian report', assignable: false, availabilityLabel: 'Available in enrollment' },
+    { family: 'scared-5-parent', title: 'SCARED-5 · Parent report', assignable: false, availabilityLabel: 'Available in dependent counseling intake' },
+    { family: 'vanderbilt-parent', title: 'Vanderbilt ADHD · Parent report', assignable: false, availabilityLabel: 'Available in dependent counseling intake' },
+    { family: 'scared', title: 'SCARED · Full-length questionnaire', assignable: false, availabilityLabel: 'Reference only' },
     { family: 'cssrs-screener', title: 'C-SSRS · Suicide ideation screener', assignable: false, availabilityLabel: 'Available in Clinical Forms' }
   ];
 }
@@ -44,7 +47,7 @@ export const REFRESH_FOUNDATION_KEYS = ['informed-consent', 'policy-services', '
 
 export async function familySharingSchool(client) {
   const { default: pool } = await import('../config/database.js');
-  const [[school]] = await pool.execute(`SELECT org.id,org.name FROM agencies org
+  const [[school]] = await pool.execute(`SELECT org.id,org.name,org.city FROM agencies org
     WHERE org.organization_type='school' AND org.is_active=1 AND COALESCE(org.is_archived,0)=0
       AND (org.id=? OR EXISTS(SELECT 1 FROM client_organization_assignments ca WHERE ca.client_id=? AND ca.organization_id=org.id AND ca.is_active=1))
       AND (EXISTS(SELECT 1 FROM organization_affiliations f WHERE f.organization_id=org.id AND f.agency_id=? AND f.is_active=1)

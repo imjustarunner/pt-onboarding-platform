@@ -8,7 +8,7 @@ vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
 vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:vi.fn()}));
 vi.mock('../staffCareEligibility.service.js',()=>({requireStaffCareEligibility:vi.fn()}));
 vi.mock('../../utils/supervisorSchoolAccess.js',()=>({supervisorCanAccessClientInOrg:vi.fn()}));
-vi.mock('../guardianClinicalAccess.service.js',()=>({requireClinicalScope:vi.fn()}));
+vi.mock('../guardianClinicalAccess.service.js',async importOriginal=>({...await importOriginal(),requireClinicalScope:vi.fn()}));
 import db from '../../config/clinicalDatabase.js';
 import main from '../../config/database.js';
 import User from '../../models/User.model.js';
@@ -58,9 +58,43 @@ beforeEach(()=>{
  main.execute.mockImplementation(async(sql,p)=>{
   if(sql.includes('FROM agencies'))return [[{id:2,name:'ITSCO',slug:'itsco',logo_path:'logos/itsco.png',color_palette:'{"primary":"#175b48"}'}]];
   if(sql.includes('SELECT guardian_user_id'))return [[{id:20,relationship_type:'parent'},{id:21,relationship_type:'self'}]];
+  if(sql.startsWith('SELECT client_id, guardian_user_id, relationship_type'))return [[{access_enabled:1,permissions_json:{canSignDocs:true}}]];
   if(sql.includes('cg.relationship_type'))return [[{relationship_type:p[1]===21?'self':'parent',access_enabled:1,date_of_birth:'2010-01-01',permissions_json:{},first_name:'Synthetic',last_name:p[1]===21?'Client':'Guardian'}]];
   throw Error('Unexpected main SQL');
  });
+});
+it('assigns GAD-7 to the linked adult and saves a scored, encrypted response for clinician review',async()=>{
+ resolveClientRecordAccess.mockResolvedValue({ok:true,isAssignedClinician:true,client:{...client,date_of_birth:'1990-01-01'}});
+ const assignment=await assignPortalDocuments(staff,41,{
+   agencyId:2,requestKey:'aaece52c-7966-4d15-b32b-4d3567d1a508',
+   recipient:{id:21,kind:'client'},action:'complete',context:{audience:'self'},
+   planDate:'2026-10-11',documents:[{foundationKey:'portal-gad-7'}]
+ });
+ expect(assignment.assignedCount).toBe(1);
+ expect((await records.portalList(guardian,41)).shares).toEqual([]);
+ const form=await records.portalRead(clientUser,1);
+ const answers=Object.fromEntries(form.template.sections[0].fields.map(([key])=>[key,'2']));
+ const result=await records.portalSubmitUpdate(clientUser,1,{
+   ...signature(),version:1,contentHash:form.contentHash,data:{...form.data,...answers}
+ });
+ expect(result.shares.some(share=>share.signedAt&&share.title==='GAD-7')).toBe(true);
+ expect(await records.readPlan(staff,1)).toMatchObject({
+   version:2,reviewStatus:'pending',screeningResult:{instrumentKey:'gad7',total:14}
+ });
+ expect(state.versions[1].payload_encrypted).not.toContain('gad7_1');
+});
+it('checks the guardian’s current clinical access when they open an assigned PSC-17',async()=>{
+ resolveClientRecordAccess.mockResolvedValue({ok:true,isAssignedClinician:true,
+   client:{...client,date_of_birth:`${new Date().getUTCFullYear()-10}-01-01`}});
+ await assignPortalDocuments(staff,41,{
+   agencyId:2,requestKey:'3b97f03d-e45f-4320-8ecf-c2cf6d3b1330',
+   recipient:{id:20,kind:'guardian'},action:'complete',authorityConfirmed:true,
+   planDate:'2026-10-11',documents:[{foundationKey:'portal-psc-17'}]
+ });
+ expect((await records.portalRead(guardian,1)).template.sections[0].fields).toHaveLength(17);
+ requireClinicalScope.mockRejectedValue(Object.assign(new Error('Access withdrawn'),{status:403}));
+ expect((await records.portalList(guardian,41)).shares).toEqual([]);
+ await expect(records.portalRead(guardian,1)).rejects.toMatchObject({status:403});
 });
 describe('safety-plan access and storage',()=>{
  it('defaults to the authorized client agency and retains branded encrypted versions',async()=>{const p=await records.savePlan(staff,input());expect(p.clientId).toBe(41);expect(p.branding).toMatchObject({name:'ITSCO',font:'Comfortaa'});expect(state.versions[0].payload_encrypted).not.toContain('Synthetic');expect(JSON.parse(state.versions[0].payload_encrypted)._enc).toBe(true);});

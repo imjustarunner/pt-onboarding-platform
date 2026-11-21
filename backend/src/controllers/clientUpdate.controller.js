@@ -99,7 +99,7 @@ export async function getClientUpdateCatalog(req, res, next) {
         WHERE task.agency_id=? AND JSON_LENGTH(task.client_ids_json)=1 AND JSON_CONTAINS(task.client_ids_json,CAST(? AS JSON)) ORDER BY task.id DESC`,[agencyId,JSON.stringify(clientId)]);
       items.push(...tasks);
     }
-    res.json({ client_id: clientId, ...catalog, portalSteps, canAssignPayments, recipients, items, schoolClient:!!school, schoolName:school?.name || null, schoolRoiExpiresAt:school?access.client.roi_expires_at:null, packages:packages.map(row=>({...row,selection_json:typeof row.selection_json==='string'?JSON.parse(row.selection_json):row.selection_json})) });
+    res.json({ client_id: clientId, ...catalog, portalSteps, canAssignPayments, recipients, items, schoolClient:!!school, schoolName:school?.name || null, schoolCity:school?.city || null, schoolRoiExpiresAt:school?access.client.roi_expires_at:null, packages:packages.map(row=>({...row,selection_json:typeof row.selection_json==='string'?JSON.parse(row.selection_json):row.selection_json})) });
   } catch (error) {
     sendError(res, error, next);
   }

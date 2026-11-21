@@ -23,6 +23,27 @@ it('keeps demo providers excluded from real agencies', async () => {
   expect((await listEnrolledProviders(2,'counseling')).map(p=>p.id)).toEqual([998]);
   expect(Agency.findById).not.toHaveBeenCalled();
 });
+it('uses the affiliated city campuses only and omits clinicians from the broader agency roster', async () => {
+  const provider = {...approved, id:9, is_demo:0, first_name:'Local'};
+  const otherLocal = {...provider, id:10, first_name:'Also local'};
+  const outOfCity = {...provider, id:11, first_name:'Outside city'};
+  pool.execute.mockImplementation(async (sql, args) => {
+    if (sql.includes('FROM agencies campus')) {
+      expect(sql).toContain('LOWER(TRIM(campus.city)) = LOWER(TRIM(source.city))');
+      expect(sql).toContain('campus.organization_type');
+      expect(args).toEqual([101,2,2]);
+      return [[{id:101},{id:102}]];
+    }
+    if (sql.includes('FROM provider_school_assignments')) {
+      expect(args).toEqual([2,101,102]);
+      return [[provider,otherLocal]];
+    }
+    if (sql.includes('FROM user_agencies ua')) return [[provider,otherLocal,outOfCity]];
+    return [[]];
+  });
+  const result=await listDisclosureProviders({agencyId:2,schoolOrganizationId:101,schoolCityOnly:true});
+  expect(result.map(p=>p.id)).toEqual([9,10]);
+});
 it('does not treat an unverified agency or malformed roster as permission to expose demos', async () => {
   Agency.findById.mockResolvedValue({id:450,slug:'other',feature_flags:{qaSandbox:{syntheticOnly:true}}});
   expect((await listEnrolledProviders(450,'counseling')).map(p=>p.id)).toEqual([998]);

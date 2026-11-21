@@ -69,5 +69,7 @@ it('identifies available clinical assessments separately from family assignment'
     expect(measure(key)).toMatchObject({assignable:false,availabilityLabel:'Available in Outcome Measures'});
   }
   expect(measure('cssrs-screener')).toMatchObject({assignable:false,availabilityLabel:'Available in Clinical Forms'});
+  expect(measure('scared-5-parent')).toMatchObject({assignable:false,availabilityLabel:'Available in dependent counseling intake'});
+  expect(measure('scared')).toMatchObject({assignable:false,availabilityLabel:'Reference only'});
   expect(measure('life_balance')).toMatchObject({assignable:true});
 });

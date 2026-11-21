@@ -3,7 +3,7 @@ import { familySharingSchool } from './familySharingCatalog.js';
 import Agency from '../models/Agency.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
-import { canReceiveGuardianConsentRequest } from './schoolRoiGuardianConsent.service.js';
+import { canReceiveGuardianConsentRequest, hasRecordedGuardianSigningAuthority } from './schoolRoiGuardianConsent.service.js';
 import { buildSmartSchoolRoiContext } from './smartSchoolRoi.service.js';
 import { buildSmartDisclosureContext } from './smartDisclosure.service.js';
 import { assignSmartDisclosureToPortal } from './clientUpdate.service.js';
@@ -24,30 +24,42 @@ export async function previewFamilySmartForm(client, key, locale) {
     }) };
   }
 
-  if (key !== 'smart-disclosure') throw fail(404, 'Choose a current smart form.');
-  const organization = client.organization_id ? await Agency.findById(client.organization_id) : null;
+  if (!['smart-disclosure', 'school-city-disclosure'].includes(key)) throw fail(404, 'Choose a current smart form.');
+  const school = key === 'school-city-disclosure' ? await familySharingSchool(client) : null;
+  if (key === 'school-city-disclosure' && !school) throw fail(404, 'The client has no active school affiliation in this agency.');
+  const organizationId = school?.id || client.organization_id;
+  const organization = organizationId ? await Agency.findById(organizationId) : null;
+  const customMessages = school ? { disclosureSchoolCityId: Number(school.id) } : { disclosureAssignedTeamOnly: true };
   const context = await buildSmartDisclosureContext({
     boundClient: client, agency, organization, locale,
-    link: { form_type: 'smart_disclosure', language_code: locale, custom_messages: { disclosureAssignedTeamOnly: true } }
+    link: { form_type: 'smart_disclosure', language_code: locale, custom_messages: customMessages }
   });
-  if (!context?.providers.length) throw fail(409, 'Assign a provider with current disclosure information before sharing this form.');
+  if (!context?.providers.length) throw fail(409, school
+    ? 'No eligible providers with current disclosure information are assigned to schools in this city.'
+    : 'Assign a provider with current disclosure information before sharing this form.');
   return { context };
 }
 
 export async function assignFamilySmartForm(user, client, input) {
   await clientAccess(user, client.id, { write: true });
-  const { key, locale, contentHash, recipient, authorityConfirmed } = input;
+  const { key, locale, contentHash, recipient, authorityConfirmed, useRecordedAuthority } = input;
   if (!['en', 'es'].includes(locale)) throw fail(400, 'Choose a supported form language.');
   if (!['guardian', 'client'].includes(recipient?.kind)) throw fail(400, 'Choose a linked portal recipient.');
-  if (recipient.kind === 'guardian' && authorityConfirmed !== true) throw fail(400, 'Confirm the guardian is authorized to sign.');
   const recipients = await ClientGuardian.listForClient(client.id);
   const link = recipients.find(row => Number(row.guardian_user_id) === Number(recipient.id));
   if (!link || !canReceiveGuardianConsentRequest(link)) throw fail(403, 'Choose a currently authorized portal signer.');
+  if (recipient.kind === 'guardian' && authorityConfirmed !== true
+      && !(key === 'smart-disclosure' && useRecordedAuthority === true && hasRecordedGuardianSigningAuthority(link))) {
+    throw fail(400, 'Confirm the guardian is authorized to sign.');
+  }
   await recipientAccess({ client_id: client.id, agency_id: client.agency_id, document_key: 'enrollment-document' }, recipient.id, recipient.kind);
-  if (key === 'smart-disclosure') {
+  if (['smart-disclosure', 'school-city-disclosure'].includes(key)) {
+    const school = key === 'school-city-disclosure' ? await familySharingSchool(client) : null;
+    if (key === 'school-city-disclosure' && !school) throw fail(404, 'The client has no active school affiliation in this agency.');
     return assignSmartDisclosureToPortal({
       agencyId: client.agency_id, clientId: client.id, guardianUserId: recipient.id,
-      locale, contentHash, actorUserId: user.id, assignedTeamOnly: true
+      locale, contentHash, actorUserId: user.id, assignedTeamOnly: !school,
+      schoolCityId: school?.id, useRecordedAuthority: recipient.kind === 'guardian' && useRecordedAuthority === true
     });
   }
 

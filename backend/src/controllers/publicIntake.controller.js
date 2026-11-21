@@ -5714,8 +5714,8 @@ const resolveIntakeOrgContext = async (link, { issuedRoiLink = null, boundClient
     return { organization, agency };
   }
 
-  let agencyId = null;
-  if (orgId) {
+  let agencyId = isClientUpdatePacket(link) ? Number(boundClient?.agency_id) || null : null;
+  if (orgId && !agencyId) {
     if (scope === 'school') {
       agencyId = await AgencySchool.getActiveAgencyIdForSchool(orgId);
     }

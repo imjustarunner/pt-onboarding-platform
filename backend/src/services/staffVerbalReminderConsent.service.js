@@ -56,9 +56,11 @@ async function program(agencyId){
   }
   return {sender,reason,deliveryReady,disclosure:verbalReminderDisclosure(agency,registration),version:VERBAL_REMINDER_CONSENT_VERSION};
 }
-export async function staffReminderConsentContext(user,clientId){
+export async function staffReminderConsentContext(user,clientId,{guardianId=null}={}){
   const client=await requireClientAccountSupport(user,clientId);
-  const p=await program(client.agency_id),people=await recipients(client);
+  if(guardianId!=null&&(!Number.isSafeInteger(Number(guardianId))||Number(guardianId)<1))throw fail('Choose a linked guardian.');
+  const p=await program(client.agency_id);
+  const people=(await recipients(client)).filter(person=>guardianId==null||person.id===Number(guardianId));
   for(const person of people){
     person.stopped=!!(person.phone&&p.sender&&await isSmsSuppressed(p.sender,person.phone));
     const [[latest]]=await pool.execute(`SELECT id,evidence_json,created_at FROM sms_permission_events

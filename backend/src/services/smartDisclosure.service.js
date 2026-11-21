@@ -481,7 +481,7 @@ async function loadUserInfoMap(userIds) {
   return map;
 }
 
-export async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulatoryBoardOverrides = {} }) {
+export async function listDisclosureProviders({ agencyId, schoolOrganizationId, schoolCityOnly = false, regulatoryBoardOverrides = {} }) {
   const schoolId = Number(schoolOrganizationId || 0);
   const aid = Number(agencyId || 0);
   if (!aid) return [];
@@ -498,21 +498,41 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
 
   const schoolProviders = [];
   if (schoolId) {
+    let schoolIds = [schoolId];
+    if (schoolCityOnly) {
+      const [campuses] = await pool.execute(
+        `SELECT campus.id FROM agencies campus
+         JOIN agencies source ON source.id = ?
+         WHERE campus.organization_type = 'school' AND campus.is_active = 1 AND COALESCE(campus.is_archived, 0) = 0
+           AND (campus.id = source.id OR (
+             TRIM(COALESCE(source.city, '')) <> '' AND TRIM(COALESCE(source.state, '')) <> ''
+             AND LOWER(TRIM(campus.city)) = LOWER(TRIM(source.city))
+             AND REPLACE(LOWER(TRIM(campus.state)), 'colorado', 'co') = REPLACE(LOWER(TRIM(source.state)), 'colorado', 'co')
+           ))
+           AND (EXISTS (SELECT 1 FROM organization_affiliations f
+                        WHERE f.organization_id = campus.id AND f.agency_id = ? AND f.is_active = 1)
+             OR EXISTS (SELECT 1 FROM agency_schools f
+                        WHERE f.school_organization_id = campus.id AND f.agency_id = ? AND f.is_active = 1))`,
+        [schoolId, aid, aid]
+      );
+      schoolIds = campuses.map(({ id }) => Number(id));
+      if (!schoolIds.length) return [];
+    }
     try {
       const [rows] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
          JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1
-         WHERE psa.school_organization_id = ?
+         WHERE psa.school_organization_id IN (${schoolIds.map(() => '?').join(',')})
            AND COALESCE(psa.is_active, 1) = 1
            ${activeUserClause}
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [aid, schoolId]
+        [aid, ...schoolIds]
       );
       schoolProviders.push(...(rows || []));
-    } catch {
-      // ignore
+    } catch (error) {
+      if (schoolCityOnly) throw error;
     }
   }
 
@@ -570,7 +590,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
 
   const seen = new Set();
   const ordered = [];
-  for (const row of [...schoolProviders, ...agencyProviders]) {
+  for (const row of schoolCityOnly ? schoolProviders : [...schoolProviders, ...agencyProviders]) {
     const id = Number(row.id);
     if (!id || seen.has(id)) continue;
     if (!isDisclosureEligibleUserStatus(row.status)) continue;
@@ -693,6 +713,10 @@ export async function buildSmartDisclosureContext({
   const orgType = String(schoolOrg?.organization_type || 'school').trim().toLowerCase();
   const messages = parseJsonMaybe(link?.custom_messages || link?.customMessages);
   const assignedTeamOnly = messages?.disclosureAssignedTeamOnly === true;
+  const schoolCityOnly = !assignedTeamOnly && (
+    Number(messages?.disclosureSchoolCityId) > 0
+    || (!!schoolOrg && orgType === 'school' && link?.scope_type === 'school' && !messages?.disclosureContentHash)
+  );
   const isSchoolFamilyOrg = !!schoolOrg && ['school', 'program', 'learning'].includes(orgType);
   // Enabled for any school-family org, programmed disclosure steps, or standalone smart_disclosure forms.
   // Demo Hogwarts people remain filtered via isDemoPacketIdentity in listDisclosureProviders.
@@ -728,6 +752,7 @@ export async function buildSmartDisclosureContext({
     ? await listDisclosureProviders({
       agencyId,
       schoolOrganizationId: schoolId,
+      ...(schoolCityOnly ? { schoolCityOnly } : {}),
       regulatoryBoardOverrides: settings.regulatoryBoardOverrides || {}
     })
     : [];

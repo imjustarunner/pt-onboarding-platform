@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import StorageService from './storage.service.js';
 import {clientAccess,agencyBrand,recipientOptions} from './safetyPlans/access.js';
 import { isStandaloneEnrollmentForm, REFRESH_FOUNDATION_KEYS } from './familySharingCatalog.js';
+import { familyPortalScreens, portalScreenDefinition } from './familyPortalScreening.service.js';
 import {fail,positiveId} from './safetyPlans/template.js';
 
 /** The caller chooses a document, never its authoritative text or field schema. */
@@ -21,14 +22,23 @@ async function documents(options) {
 }
 export async function enrollmentPortalCatalog(user,clientId,input={}) {
  const {client,options}=await enrollmentDocumentContext(user,clientId,input);
- const list=(await documents(options)).filter(d=>isStandaloneEnrollmentForm(d.key));
+ const list=[...(await documents(options)).filter(d=>isStandaloneEnrollmentForm(d.key)), ...familyPortalScreens(client,options)];
  const refreshFoundationKeys=REFRESH_FOUNDATION_KEYS.every(key=>list.some(d=>d.key===key)) ? REFRESH_FOUNDATION_KEYS : [];
- return {context:options,refreshFoundationKeys,client:{id:client.id,name:client.full_name||client.initials||''},branding:await agencyBrand(client.agency_id),recipients:await recipientOptions(user,{client_id:client.id,agency_id:client.agency_id,document_key:'enrollment-document'}),documents:list.map(d=>({key:d.key,title:d.title,version:d.version,hash:d.hash,hasFields:!!d.sections?.some(s=>s.fields?.length)}))};
+ return {context:options,refreshFoundationKeys,client:{id:client.id,name:client.full_name||client.initials||''},branding:await agencyBrand(client.agency_id),recipients:await recipientOptions(user,{client_id:client.id,agency_id:client.agency_id,document_key:'enrollment-document'}),documents:list.map(d=>({key:d.key,title:d.title,version:d.version,hash:d.hash,hasFields:!!d.sections?.some(s=>s.fields?.length),...(d.instrumentId?{instrumentId:d.instrumentId}:{})}))};
 }
 export async function resolveEnrollmentFoundation(user,{clientId,agencyId,foundationKey,...context}={}) {
  if(!clientId)fail(400,'Start enrollment documents in the client’s medical file.');
- const {options}=await enrollmentDocumentContext(user,clientId,{agencyId,...context});
+ const {client,options}=await enrollmentDocumentContext(user,clientId,{agencyId,...context});
  if(typeof foundationKey!=='string'||!foundationKey.trim())fail(400,'Choose an enrollment document.');
+ if (portalScreenDefinition(foundationKey)) {
+  const screen=familyPortalScreens(client,options).find(document=>document.key===foundationKey);
+  if (!screen) fail(404,'This questionnaire is unavailable for the selected client, service, and respondent.');
+  const description=options.locale==='es'
+    ? 'El equipo de atención revisará sus respuestas. Para asuntos urgentes, use el plan de contacto de su equipo o llame a los servicios de emergencia.'
+    : 'The care team will review your answers. For urgent concerns, use your care team’s contact plan or call emergency services.';
+  return {key:'enrollment-document',version:screen.version,title:screen.title,description,
+    source:{kind:'portal-screening',foundationKey:screen.key,context:options},sections:screen.sections,portalCompletion:true};
+ }
  const available=await documents(options);
  const document=available.find(d=>d.key===foundationKey);
  if(!document)fail(404,'This document is not included in the selected enrollment packet.');

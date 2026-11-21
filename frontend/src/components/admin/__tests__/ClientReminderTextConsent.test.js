@@ -7,6 +7,21 @@ const person={id:55,name:'Guardian QA',relationship:'guardian',phone:'+130355501
 const context={agencyId:2,version:'2026-11-01.1',disclosure:'The current optional-text disclosure.',recipients:[person],activationBlocked:null};
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:structuredClone(context)});api.post.mockResolvedValue({data:{recorded:true,activated:true,confirmation:'accepted'}});});
 async function selected(){const w=mount(Component,{props:{clientId:101}});await flushPromises();await w.find('select').setValue('55');return w;}
+it('uses only the profile guardian’s account and switches when the profile changes',async()=>{
+ const w=mount(Component,{props:{clientId:101,recipientId:55}});
+ await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/clients/101/reminder-text-consent',{skipGlobalLoading:true,params:{guardianId:55}});
+ expect(w.text()).toContain('Guardian QA');
+ expect(w.findAll('select').map(select=>select.text())).toEqual(['Phone callIn person']);
+ for(const control of w.findAll('input[type="checkbox"]'))await control.setValue(true);
+ await w.get('form').trigger('submit');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/clients/101/reminder-text-consent',expect.objectContaining({recipientId:55}));
+ api.get.mockResolvedValueOnce({data:{...context,recipients:[]}});
+ await w.setProps({recipientId:56});await flushPromises();
+ expect(w.text()).toContain('This guardian is not eligible');
+ expect(w.text()).not.toContain(person.phone);
+ w.unmount();
+});
 it('requires all attestations and sends the exact saved recipient and disclosure',async()=>{
  const w=await selected();expect(w.find('button').attributes('disabled')).toBeDefined();
  for(const c of w.findAll('input[type="checkbox"]'))await c.setValue(true);

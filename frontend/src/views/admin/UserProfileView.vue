@@ -2433,6 +2433,16 @@
               <div v-else class="muted" style="font-size: 13px;">
                 No communication preferences on record for this client.
               </div>
+              <template v-if="['super_admin', 'admin', 'support'].includes(authStore.user?.role)">
+                <button type="button" class="btn btn-secondary btn-sm"
+                  style="margin-top: 12px"
+                  :aria-expanded="guardianConsentClientId === Number(client.client_id)"
+                  @click="guardianConsentClientId = guardianConsentClientId === Number(client.client_id) ? null : Number(client.client_id)">
+                  {{ guardianConsentClientId === Number(client.client_id) ? 'Close verbal consent' : 'Review or record verbal consent for reminder texts' }}
+                </button>
+                <ClientReminderTextConsent v-if="guardianConsentClientId === Number(client.client_id)"
+                  :key="`${userId}:${client.client_id}`" :client-id="Number(client.client_id)" :recipient-id="Number(userId)" />
+              </template>
             </div>
           </div>
         </div>
@@ -2710,6 +2720,7 @@
 import { agencyCardStyle } from '../../utils/agencyCardScope.js';
 import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
 import GuardianFamilyWorkspace from '../../components/admin/GuardianFamilyWorkspace.vue';
+import ClientReminderTextConsent from '../../components/admin/ClientReminderTextConsent.vue';
 import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -2871,6 +2882,7 @@ const memberRegistrationProfile = ref({ customFields: {} });
 const memberSeasonAiSummary = ref('');
 const seasonCaptainTogglingKey = ref('');
 const guardianLinkedClients = ref([]);
+const guardianConsentClientId = ref(null);
 const guardianLinkedClientsLoading = ref(false);
 const guardianLinkedClientsError = ref('');
 const guardianClientQuery = ref('');
@@ -6389,6 +6401,7 @@ const ensureAvailableAgencies = async () => {
 
 watch(userId, () => {
   availableAgenciesReady.value = false;
+  guardianConsentClientId.value = null;
 });
 
 watch(affiliationOptionsAgencyId, () => {
