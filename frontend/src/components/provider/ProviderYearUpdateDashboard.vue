@@ -756,11 +756,11 @@
           <!-- Clients without day -->
           <section v-else-if="activeSection === 'clients'" class="pyu__panel">
             <h2>Fall Update — Clients</h2>
-            <p class="muted">
-              Confirm returning clients, attest last-year service if needed, and assign a weekday here.
-              This replaces the Clients tab until these fall actions are complete. New clients still use New Client – Action Needed after they are Ready to Schedule.
+            <p v-if="fallClientActionsOpen" class="muted">
+              Confirm returning school clients and assign their service days.
             </p>
-            <div v-if="fallActionLoading" class="muted">Loading client action items…</div>
+            <p v-else class="muted">Fall client updates are closed for this school year.</p>
+            <div v-if="fallClientActionsOpen && fallActionLoading" class="muted">Loading client action items…</div>
             <div v-else-if="(fallActionClients || []).length" class="pyu__school-block">
               <h3>Action needed ({{ fallActionClients.length }})</h3>
               <ul class="pyu__client-list">
@@ -781,7 +781,7 @@
                 </li>
               </ul>
             </div>
-            <div v-if="!(clientsWithoutDay || []).length && !(fallActionClients || []).length && !fallActionLoading" class="success-banner">
+            <div v-if="fallClientActionsOpen && !clientsWithoutDay.length && !fallActionClients.length && !fallActionLoading" class="success-banner">
               No assigned clients need fall confirmation or a service day right now.
             </div>
             <div v-for="school in clientsWithoutDay" :key="school.schoolOrganizationId" class="pyu__school-block">
@@ -793,7 +793,7 @@
                 <li v-for="c in school.clients || []" :key="c.clientId" class="pyu__client-row">
                   <div class="pyu__client-row-main">
                     <strong>{{ c.initials }}</strong>
-                    <span class="muted">{{ c.grade ? `Grade ${c.grade}` : 'Grade —' }}</span>
+                    <span v-if="c.grade" class="muted">Grade {{ c.grade }}</span>
                   </div>
                   <div v-if="!isFinalized" class="pyu__client-row-actions">
                     <label class="pyu__client-day-field">
@@ -818,7 +818,7 @@
                 </li>
               </ul>
             </div>
-            <div v-if="!embedded" class="pyu__section-actions">
+            <div v-if="!embedded && fallClientActionsOpen" class="pyu__section-actions">
               <button
                 type="button"
                 class="btn btn-primary"
@@ -892,6 +892,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useProviderYearUpdateSession } from '../../composables/useProviderYearUpdateSession';
 import { SECTION_META } from '../../utils/providerYearUpdate';
+import { isReturningSchoolClient } from '../../navigation/schoolLifecycle/fallReadiness.js';
 import {
   agencyDisplayName,
   formatSchoolYearLabel,
@@ -1031,6 +1032,7 @@ const schoolYearDisplay = computed(() => formatSchoolYearLabel(payload.value?.cy
 const yearOptions = computed(() => Array.isArray(payload.value?.availableYears) ? payload.value.availableYears : []);
 const isArchivedView = computed(() => !!payload.value?.isArchivedView);
 const isFinalized = computed(() => payload.value?.cycle?.status === 'finalized' || isArchivedView.value);
+const fallClientActionsOpen = computed(() => payload.value?.fallClientActionsOpen === true && !isFinalized.value);
 const providerLabel = computed(() => payload.value?.provider?.name || '');
 const providerUserId = computed(
   () => Number(payload.value?.cycle?.providerUserId || payload.value?.provider?.id || 0)
@@ -1055,7 +1057,7 @@ const brandStyle = computed(() => {
 const schedule = computed(() => payload.value?.schedule || []);
 const pendingScheduleAdjustments = computed(() => payload.value?.pendingScheduleAdjustments || []);
 const eventsBySchool = computed(() => payload.value?.eventsBySchool || []);
-const clientsWithoutDay = computed(() => payload.value?.clientsWithoutDay || []);
+const clientsWithoutDay = computed(() => fallClientActionsOpen.value ? payload.value?.clientsWithoutDay || [] : []);
 const schoolCartDisclaimer = computed(
   () =>
     payload.value?.schoolCartDisclaimer ||
@@ -1326,10 +1328,10 @@ function applyPayload(data) {
 }
 
 async function loadFallActionClients() {
-  if (props.mode === 'token') {
-    fallActionClients.value = [];
-    return;
-  }
+  const currentPayload = payload.value;
+  fallActionClients.value = [];
+  fallActionLoading.value = false;
+  if (props.mode === 'token' || !fallClientActionsOpen.value) return;
   const schools = schedule.value || [];
   fallActionLoading.value = true;
   try {
@@ -1338,19 +1340,22 @@ async function loadFallActionClients() {
         const orgId = Number(school.schoolOrganizationId || 0);
         if (!orgId) return [];
         const r = await api.get(`/school-portal/${orgId}/my-roster`, {
-          params: { schoolYear: payload.value?.schoolYear || schoolYearKey.value || 'current' },
+          params: { schoolYear: payload.value?.schoolYear || schoolYearKey.value || 'current', providerUserId: providerUserId.value },
           skipGlobalLoading: true
         }).catch(() => ({ data: [] }));
-        return (Array.isArray(r.data) ? r.data : []).filter((c) => c?.lifecycle_action && !c.lifecycle_action.quiet).map((c) => ({
+        return (Array.isArray(r.data) ? r.data : []).filter(c =>
+          isReturningSchoolClient(c) && c.lifecycle_action && !c.lifecycle_action.quiet
+          && ['fall_confirmation', 'confirm_services_started'].includes(c.lifecycle_action.actionKey)
+        ).map((c) => ({
           ...c,
           schoolName: school.schoolName,
           schoolOrganizationId: orgId
         }));
       })
     );
-    fallActionClients.value = chunks.flat();
+    if (payload.value === currentPayload) fallActionClients.value = chunks.flat();
   } finally {
-    fallActionLoading.value = false;
+    if (payload.value === currentPayload) fallActionLoading.value = false;
   }
 }
 
@@ -1395,8 +1400,11 @@ async function load() {
       if (year) params.schoolYear = year;
       const res = await api.get('/provider-year-update/me', { params });
       if (res.data?.available === false) {
+        payload.value = null;
         error.value =
-          res.data.reason === 'not_pushed'
+          res.data.reason === 'outside_fall_window'
+            ? 'Fall Update is closed for this school year.'
+            : res.data.reason === 'not_pushed'
             ? 'Provider Fall Update has not been pushed yet.'
             : (res.data.reason === 'no_archive'
               ? 'No archived Fall Update exists for that school year.'
@@ -1689,6 +1697,7 @@ async function onClientDaySelected(school, client, event) {
 }
 
 async function assignClientToDay(school, client, serviceDay) {
+  if (!fallClientActionsOpen.value) return;
   const schoolId = Number(school?.schoolOrganizationId);
   const clientId = Number(client?.clientId);
   const providerId = providerUserId.value;

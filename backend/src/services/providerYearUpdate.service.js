@@ -34,6 +34,8 @@ import { ensureD11ComplianceForProvider } from './d11Compliance.service.js';
 import { notifyProviderYearUpdateCompleted } from './yearUpdateNotifications.service.js';
 import UserLifecycleChecklistItem from '../models/UserLifecycleChecklistItem.model.js';
 import LifecycleChecklistDefinition from '../models/LifecycleChecklistDefinition.model.js';
+import { isReturningSchoolClient } from '../utils/fallReadiness.js';
+import { isInFallConfirmationWindow } from '../utils/schoolYearCalendar.js';
 
 /** Persist actor types allowed on provider_year_update *_by_actor_type ENUM columns. */
 export function persistedPyuActorType(actorType) {
@@ -481,13 +483,20 @@ export function campaignIsEnabled(campaign) {
   return s === 'enabled' || s === 'pushed';
 }
 
-/** Provider sees Year Update on My Dashboard when campaign is bulk-pushed or this cycle was pushed. */
-export function cycleIsPushed(cycle, campaign = null) {
+/** A bulk push applies to the providers assigned to schools at the time of the push. */
+export function cycleIsPushed(cycle, campaign, schools = []) {
   if (campaignIsDisabled(campaign)) return false;
   if (String(cycle?.status || '') === 'finalized') return false;
-  if (cycle?.pushed_at) return true;
-  if (campaignIsPushed(campaign)) return true;
-  return false;
+  if (cycle?.pushed_at && cycle.pushed_by_user_id) return true;
+  if (!campaignIsPushed(campaign) || !campaign.pushed_at) return false;
+  const pushedAt = new Date(campaign.pushed_at).getTime();
+  return schools.some(school => school.firstAssignedAt && new Date(school.firstAssignedAt).getTime() <= pushedAt);
+}
+
+export function isProviderFallUpdateOpen(schoolYear, now = new Date()) {
+  const year = currentSchoolYear(now);
+  const startYear = Number(year.slice(0, 4));
+  return isInFallConfirmationWindow(now) && [year, `${startYear}-${startYear + 1}`].includes(schoolYear);
 }
 
 export async function markCyclePushed(cycleId, userId) {
@@ -684,7 +693,9 @@ export async function listSchoolAssignedProviders(agencyId) {
        )
        AND (u.is_archived IS NULL OR u.is_archived = 0)
        AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
-       AND LOWER(COALESCE(sch.organization_type, 'school')) IN ('school', 'program', 'learning', '')
+       AND LOWER(sch.organization_type) = 'school'
+       AND COALESCE(sch.is_active, 1) = 1
+       AND COALESCE(sch.is_archived, 0) = 0
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [agencyId, agencyId]
   );
@@ -740,7 +751,7 @@ export async function loadProviderPendingScheduleAdjustments(providerUserId, age
   return out;
 }
 
-export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
+export async function loadProviderSchoolSchedule(providerUserId, agencyId, { schoolsOnly = false, includeClientCounts = true } = {}) {
   const [rows] = await pool.execute(
     `SELECT psa.id,
             psa.school_organization_id,
@@ -749,6 +760,7 @@ export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
             psa.slots_available,
             psa.start_time,
             psa.end_time,
+            psa.created_at AS assigned_at,
             sch.name AS school_name,
             sch.slug AS school_slug,
             sch.portal_url,
@@ -758,6 +770,7 @@ export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
      JOIN agencies sch ON sch.id = psa.school_organization_id
      WHERE psa.provider_user_id = ?
        AND psa.is_active = 1
+       ${schoolsOnly ? "AND LOWER(sch.organization_type) = 'school' AND COALESCE(sch.is_active, 1) = 1 AND COALESCE(sch.is_archived, 0) = 0" : ''}
        AND (
          EXISTS (
            SELECT 1
@@ -780,7 +793,7 @@ export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
 
   const schoolIds = [...new Set((rows || []).map((r) => Number(r.school_organization_id)).filter(Boolean))];
   const clientCounts = new Map();
-  if (schoolIds.length) {
+  if (includeClientCounts && schoolIds.length) {
     try {
       const placeholders = schoolIds.map(() => '?').join(',');
       const [cRows] = await pool.execute(
@@ -811,10 +824,15 @@ export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
         schoolName: r.school_name,
         schoolSlug: r.portal_url || r.school_slug || null,
         logoUrl: r.logo_url || publicUploadsUrlFromStoredPath(r.logo_path) || null,
+        firstAssignedAt: null,
         days: [],
       });
     }
-    bySchool.get(sid).days.push({
+    const school = bySchool.get(sid);
+    if (r.assigned_at && (!school.firstAssignedAt || new Date(r.assigned_at) < new Date(school.firstAssignedAt))) {
+      school.firstAssignedAt = r.assigned_at;
+    }
+    school.days.push({
       assignmentId: r.id,
       dayOfWeek: r.day_of_week,
       slotsTotal: r.slots_total,
@@ -827,8 +845,8 @@ export async function loadProviderSchoolSchedule(providerUserId, agencyId) {
   return Array.from(bySchool.values());
 }
 
-export async function loadProviderSchoolEvents(providerUserId, agencyId) {
-  const schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
+export async function loadProviderSchoolEvents(providerUserId, agencyId, schoolSchedule) {
+  const schools = schoolSchedule || await loadProviderSchoolSchedule(providerUserId, agencyId, { schoolsOnly: true });
   const out = [];
   for (const school of schools) {
     let events = [];
@@ -857,12 +875,20 @@ export async function loadProviderSchoolEvents(providerUserId, agencyId) {
 }
 
 /** Assigned school clients with no current service day (read-only for Year Update). */
-export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
+export async function loadProviderClientsWithoutDay(providerUserId, agencyId, {
+  now = new Date(), schoolYear = currentSchoolYear(now)
+} = {}) {
+  if (!isProviderFallUpdateOpen(schoolYear, now)) return [];
   try {
     // Active CPA with Unknown day (service_day NULL), plus legacy rows where
     // clients.provider_id is set / service_day NULL but no active weekday CPA remains.
     const [rows] = await pool.execute(
       `SELECT c.id AS client_id,
+              c.client_type,
+              c.school_year,
+              c.created_at,
+              c.submission_date,
+              c.staff_onboarding_completed_at,
               c.initials,
               c.identifier_code,
               c.grade,
@@ -877,7 +903,16 @@ export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
        JOIN agencies sch ON sch.id = coa.organization_id
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-         AND (cs.status_key IS NULL OR LOWER(cs.status_key) NOT IN ('terminated', 'archived'))
+         AND LOWER(c.client_type) = 'school'
+         AND LOWER(sch.organization_type) = 'school'
+         AND COALESCE(sch.is_active, 1) = 1
+         AND COALESCE(sch.is_archived, 0) = 0
+         AND c.compliance_archived_at IS NULL
+         AND (cs.status_key IS NULL OR LOWER(cs.status_key) NOT IN ('terminated', 'archived', 'waitlist', 'recommend_termination'))
+         AND EXISTS (
+           SELECT 1 FROM provider_school_assignments psa
+           WHERE psa.school_organization_id = sch.id AND psa.provider_user_id = ? AND psa.is_active = 1
+         )
          AND (
            EXISTS (
              SELECT 1
@@ -915,15 +950,17 @@ export async function loadProviderClientsWithoutDay(providerUserId, agencyId) {
            )
            OR (
              c.provider_id = ?
+             AND c.organization_id = sch.id
              AND c.service_day IS NULL
            )
          )
        ORDER BY sch.name ASC, c.initials ASC, c.identifier_code ASC`,
-      [agencyId, agencyId, providerUserId, providerUserId, providerUserId]
+      [providerUserId, agencyId, agencyId, providerUserId, providerUserId, providerUserId]
     );
     const bySchool = new Map();
     const seenClient = new Set();
     for (const r of rows || []) {
+      if (!isReturningSchoolClient(r, now)) continue;
       const sid = Number(r.school_organization_id);
       const clientId = Number(r.client_id);
       if (!clientId || seenClient.has(`${sid}:${clientId}`)) continue;
@@ -1345,7 +1382,7 @@ export async function pushProvider({ agencyId, providerUserId, schoolYear, userI
     throw err;
   }
 
-  if (cycle.pushed_at) {
+  if (cycle.pushed_at && cycle.pushed_by_user_id) {
     return {
       alreadyPushed: true,
       cycle,
@@ -2062,6 +2099,9 @@ export async function upsertSectionProgress({
 }) {
   const cycle = await getCycleById(cycleId);
   if (!cycle) throw new Error('Cycle not found');
+  if (sectionKey === 'clients' && !isProviderFallUpdateOpen(cycle.school_year)) {
+    throw Object.assign(new Error('Fall client updates are closed for this school year.'), { status: 400 });
+  }
   const effectiveKeys = await effectiveSectionKeysForProvider(
     cycle.provider_user_id,
     cycle.agency_id
@@ -2210,16 +2250,16 @@ export async function upsertSectionProgress({
 
 export async function buildDashboardPayload(cycle) {
   const sections = await getSectionProgress(cycle.id);
-  const schedule = await loadProviderSchoolSchedule(cycle.provider_user_id, cycle.agency_id);
+  const schedule = await loadProviderSchoolSchedule(cycle.provider_user_id, cycle.agency_id, { schoolsOnly: true });
   const pendingScheduleAdjustments = await loadProviderPendingScheduleAdjustments(
     cycle.provider_user_id,
     cycle.agency_id
   );
-  const eventsBySchool = await loadProviderSchoolEvents(cycle.provider_user_id, cycle.agency_id);
-  const clientsWithoutDay = await loadProviderClientsWithoutDay(
-    cycle.provider_user_id,
-    cycle.agency_id
-  );
+  const eventsBySchool = await loadProviderSchoolEvents(cycle.provider_user_id, cycle.agency_id, schedule);
+  const fallClientActionsOpen = cycle.status !== 'finalized' && isProviderFallUpdateOpen(cycle.school_year);
+  const clientsWithoutDay = fallClientActionsOpen
+    ? await loadProviderClientsWithoutDay(cycle.provider_user_id, cycle.agency_id, { schoolYear: cycle.school_year })
+    : [];
   const daysBySchool = new Map(
     (schedule || []).map((s) => [
       Number(s.schoolOrganizationId),
@@ -2321,6 +2361,7 @@ export async function buildDashboardPayload(cycle) {
     schedule,
     pendingScheduleAdjustments,
     eventsBySchool,
+    fallClientActionsOpen,
     clientsWithoutDay: clientsWithoutDayEnriched,
     kioskPath: '/itsco/school-events/kiosk',
   };
@@ -2399,6 +2440,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
   const year = schoolYear || currentSchoolYear();
   await backfillInferredActiveSecondsForAgency(agencyId, year);
   const providers = await listSchoolAssignedProviders(agencyId);
+  const campaign = await getOrCreateCampaign(agencyId, year);
   const out = [];
 
   for (const p of providers) {
@@ -2451,9 +2493,9 @@ export async function listAgencyReport(agencyId, schoolYear) {
       for (const s of sections) {
         if (s.data) sectionData[s.sectionKey] = s.data;
       }
-      schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
+      schools = await loadProviderSchoolSchedule(providerUserId, agencyId, { schoolsOnly: true });
     } else {
-      schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
+      schools = await loadProviderSchoolSchedule(providerUserId, agencyId, { schoolsOnly: true });
     }
 
     const reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
@@ -2480,6 +2522,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
     const reminderItems = Array.isArray(reminders.items) ? reminders.items : [];
     const remindersDone = reminderItems.filter((i) => i.completed || i.reviewed).length;
 
+    const isPushed = cycleIsPushed(cycle, campaign, schools);
     out.push({
       providerUserId,
       providerName: [p.first_name, p.last_name].filter(Boolean).join(' ') || p.email,
@@ -2498,8 +2541,9 @@ export async function listAgencyReport(agencyId, schoolYear) {
       status: cycle?.status || 'not_started',
       started: Boolean(cycle && cycle.status !== 'not_started'),
       finalizedAt: cycle?.finalized_at || null,
-      pushedAt: cycle?.pushed_at || null,
-      isPushed: false, // filled below after campaign load
+      pushedAt: cycle?.pushed_by_user_id ? cycle.pushed_at : isPushed ? campaign.pushed_at : null,
+      isPushed,
+      adminCompletedAt: null,
       sectionPercent: pct,
       reviewedCount,
       sectionTotal,
@@ -2536,14 +2580,6 @@ export async function listAgencyReport(agencyId, schoolYear) {
     });
   }
 
-  const campaign = await getOrCreateCampaign(agencyId, year);
-  for (const row of out) {
-    row.isPushed = cycleIsPushed({ pushed_at: row.pushedAt, status: row.status }, campaign);
-    row.adminCompletedAt = null;
-    if (campaignIsPushed(campaign) && !row.pushedAt && row.status !== 'finalized') {
-      row.pushedAt = campaign.pushed_at || null;
-    }
-  }
   return {
     agencyId,
     schoolYear: year,
@@ -2570,11 +2606,14 @@ export async function listAgencyReport(agencyId, schoolYear) {
 }
 
 /** Status for My Dashboard / provider me endpoint. */
-export async function getMyStatus({ agencyId, providerUserId, schoolYear, explicitYear = false }) {
-  const year = schoolYear || currentSchoolYear();
+export async function getMyStatus({ agencyId, providerUserId, schoolYear, explicitYear = false, now = new Date() }) {
+  const year = schoolYear || currentSchoolYear(now);
+  const fallUpdateOpen = isProviderFallUpdateOpen(year, now);
   const availableYears = await listCampaignYears(agencyId);
+  if (!fallUpdateOpen && !explicitYear) {
+    return { available: false, reason: 'outside_fall_window', schoolYear: year, availableYears };
+  }
   const campaign = await getCampaign(agencyId, year);
-  const schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
 
   const campaignPayload = campaign
     ? {
@@ -2594,7 +2633,8 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
         agencyId,
         providerUserId,
         schoolYear: nextYear,
-        explicitYear: true
+        explicitYear: true,
+        now
       });
       return {
         ...nextStatus,
@@ -2615,7 +2655,7 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
     };
   }
 
-  const isArchivedView = campaignIsDisabled(campaign) && explicitYear;
+  const isArchivedView = explicitYear && (campaignIsDisabled(campaign) || !fallUpdateOpen);
 
   const [cycleRows] = await pool.execute(
     `SELECT * FROM provider_year_update_cycles
@@ -2643,15 +2683,18 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
 
   const userFinalized = cycle?.status === 'finalized';
 
-  if (userFinalized) {
-    const sectionTotal = (await effectiveSectionKeysForProvider(providerUserId, agencyId)).length;
+  if (cycle && (userFinalized || isArchivedView)) {
+    const sectionKeys = await effectiveSectionKeysForProvider(providerUserId, agencyId);
+    const sectionTotal = sectionKeys.length;
+    const sections = userFinalized ? [] : await getSectionProgress(cycle.id);
+    const reviewedCount = userFinalized ? sectionTotal : sections.filter(s => s.reviewed || s.completed).length;
     return {
       available: true,
       showPulse: false,
       showSplash: false,
-      userFinalized: true,
+      userFinalized,
       dismissed: false,
-      allSectionsDone: true,
+      allSectionsDone: userFinalized || areAllSectionsComplete(sections, sectionKeys),
       campaign: campaignPayload,
       cycle: {
         id: cycle.id,
@@ -2659,24 +2702,11 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
         schoolYear: cycle.school_year,
         finalizedAt: cycle.finalized_at || null,
         pushedAt: cycle.pushed_at || null,
-        adminCompletedAt: null,
+        adminCompletedAt: cycle.admin_completed_at || null,
       },
-      sectionPercent: 100,
-      reviewedCount: sectionTotal,
+      sectionPercent: sectionTotal ? Math.round((reviewedCount / sectionTotal) * 100) : 0,
+      reviewedCount,
       sectionTotal,
-      schoolYear: year,
-      availableYears,
-      isArchivedView
-    };
-  }
-
-  const providerPushed = cycleIsPushed(cycle, campaign) || isArchivedView;
-
-  if (!providerPushed) {
-    return {
-      available: false,
-      reason: 'not_pushed',
-      campaign: campaignPayload,
       schoolYear: year,
       availableYears,
       isArchivedView
@@ -2694,11 +2724,23 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
     };
   }
 
+  const schools = await loadProviderSchoolSchedule(providerUserId, agencyId, { schoolsOnly: true, includeClientCounts: false });
   if (!schools.length) {
     return {
       available: false,
       reason: 'no_school_assignments',
       campaign: campaignPayload,
+    };
+  }
+
+  if (!cycleIsPushed(cycle, campaign, schools)) {
+    return {
+      available: false,
+      reason: 'not_pushed',
+      campaign: campaignPayload,
+      schoolYear: year,
+      availableYears,
+      isArchivedView
     };
   }
 
@@ -2710,15 +2752,11 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
   });
   cycle = ensured.cycle;
   const tokenRow = ensured.tokenRow;
-  if (campaignIsPushed(campaign) && !cycle.pushed_at) {
-    cycle = await markCyclePushed(cycle.id, null);
-  }
-
   const dismissal = await getDismissal(cycle.id, providerUserId);
   const dismissed =
     dismissal &&
     dismissal.dismiss_until &&
-    new Date(dismissal.dismiss_until).getTime() > Date.now();
+    new Date(dismissal.dismiss_until).getTime() > now.getTime();
 
   const effectiveKeys = await effectiveSectionKeysForProvider(providerUserId, agencyId);
   let sections = await getSectionProgress(cycle.id);
@@ -2782,8 +2820,8 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear, explic
 
   return {
     available: true,
-    showPulse: !allSectionsDone && !isArchivedView,
-    showSplash: !allSectionsDone && !isArchivedView,
+    showPulse: !allSectionsDone && !dismissed,
+    showSplash: !allSectionsDone && !dismissed,
     dismissed: Boolean(dismissed),
     userFinalized: false,
     allSectionsDone,

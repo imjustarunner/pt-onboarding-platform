@@ -45,3 +45,16 @@ it('never describes a failed schedule as empty or shows an all-clear after a fai
   expect(wrapper.text()).not.toContain('You’re all caught up');
   expect(wrapper.text()).not.toContain('0On your calendar today');
 });
+
+it.each([
+  [{ available: false, reason: 'outside_fall_window' }, false],
+  [{ available: true, showPulse: false, isArchivedView: true }, false],
+  [{ available: true, showPulse: true, dismissed: true }, false],
+  [{ available: true, showPulse: true }, true]
+])('matches the Fall Update reminder status %j', async (status, visible) => {
+  api.get.mockImplementation(async url => ({
+    data: url.endsWith('/provider-year-update/me/status') ? status : {}
+  }));
+  await mount();
+  expect(wrapper.text().includes('Complete your Provider Fall Update')).toBe(visible);
+});

@@ -7,6 +7,7 @@ import {
   springUpdateDueAt,
   julyRolloverAt,
   fallConfirmationDueAt,
+  isInFallConfirmationWindow,
   isSpringUpdateOpenDay,
   isJulyRolloverDay
 } from '../schoolYearCalendar.js';
@@ -52,6 +53,15 @@ describe('schoolYearCalendar', () => {
     assert.equal(isSpringUpdateOpenDay(new Date(2026, 4, 11)), true);
     assert.equal(isSpringUpdateOpenDay(new Date(2026, 4, 12)), false);
     assert.equal(isJulyRolloverDay(new Date(2026, 6, 27)), true);
+  });
+
+  it('opens and closes at Mountain Time midnight including the 90-day grace period', () => {
+    assert.equal(isInFallConfirmationWindow(new Date('2026-07-27T05:59:59Z')), false);
+    assert.equal(isInFallConfirmationWindow(new Date('2026-07-27T06:00:00Z')), true);
+    assert.equal(isInFallConfirmationWindow(new Date('2026-11-09T06:59:59Z')), true);
+    assert.equal(isInFallConfirmationWindow(new Date('2026-11-09T07:00:00Z')), false);
+    assert.equal(isInFallConfirmationWindow(new Date('2026-11-21T16:12:00Z')), false);
+    assert.equal(isInFallConfirmationWindow(new Date('2027-03-15T18:00:00Z')), false);
   });
 });
 

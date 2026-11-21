@@ -552,7 +552,7 @@ export async function ensureMyToken(req, res, next) {
       providerUserId: req.user.id,
       schoolYear,
     });
-    if (!status.available) {
+    if (!status.available || status.isArchivedView) {
       return res.status(400).json({
         error: {
           message:
@@ -579,14 +579,19 @@ export async function dismissMyCycle(req, res, next) {
   try {
     const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
     const schoolYear = String(req.body?.schoolYear || S.currentSchoolYear());
-    const cycle = await S.getOrCreateCycle({
+    const status = await S.getMyStatus({
       agencyId,
       providerUserId: req.user.id,
       schoolYear,
     });
-    await S.dismissForUser(cycle.id, req.user.id, req.body?.dismissUntil || null);
-    res.json({ ok: true, cycleId: cycle.id });
+    if (!status.available || status.userFinalized || !status.cycle?.id) return res.json({ ok: true });
+    const until = req.body?.dismissUntil || new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await S.dismissForUser(status.cycle.id, req.user.id, until);
+    res.json({ ok: true, cycleId: status.cycle.id });
   } catch (e) {
     next(e);
   }
@@ -898,6 +903,14 @@ export async function assignClientDayByToken(req, res, next) {
       return res.status(400).json({ error: { message: 'This Year Update is locked' } });
     }
     const providerUserId = Number(row.provider_user_id);
+    if (!S.isProviderFallUpdateOpen(row.school_year)) {
+      return res.status(400).json({ error: { message: 'Fall client updates are closed for this school year.' } });
+    }
+    const schools = await S.loadProviderClientsWithoutDay(providerUserId, row.agency_id, { schoolYear: row.school_year });
+    const school = schools.find(entry => entry.schoolOrganizationId === safeInt(req.params.schoolId));
+    if (!school?.clients.some(client => client.clientId === safeInt(req.params.clientId))) {
+      return res.status(404).json({ error: { message: 'This client is not awaiting a fall service day in this school.' } });
+    }
     req.user = { id: providerUserId, role: 'provider' };
     req.body = {
       ...(req.body || {}),

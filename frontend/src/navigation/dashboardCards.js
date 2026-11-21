@@ -38,7 +38,7 @@ export function buildDashboardCards({
   user, brandingStore, orgSlug = '', agencyFlags = {}, cardIconOrgOverride = null,
   filteredTabs = [], isOnboardingComplete = false, isClubContext = false,
   isSchoolStaff = false, isBookClubContext = false, momentumListEnabled = false,
-  portalsNestCard = null, clientActionItemCount = 0, swapClientsTabForFallUpdate = false,
+  portalsNestCard = null, clientActionItemCount = 0,
   providerSurfacesEnabled = true, shiftProgramsEnabledForAgency = false,
   canAccessToolsAids = false, hasClinicalSupervision = false, noteWorkspaceLabel = 'Note Workspace', agency = {}
 } = {}) {
@@ -155,9 +155,7 @@ export function buildDashboardCards({
           kind: 'content',
           badgeCount: clientActionItemCount || 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg),
-          description: swapClientsTabForFallUpdate
-            ? 'Complete fall client confirmation and assigned-day actions here until the Provider Fall Update is done.'
-            : 'Pending client action items — fall confirmation, new clients, and next steps.'
+          description: 'View your caseload and pending client actions.'
         });
         if (providerSurfacesEnabled && !isClubContext) {
           cards.push({
@@ -551,7 +549,7 @@ function buildPortalHubChildren({
 
   if (!isLimitedAccessNonProvider) {
     const pyu = providerYearUpdateStatus;
-    if (pyu?.available) {
+    if (pyu?.available && !pyu.isArchivedView) {
       children.push({
         id: 'provider_year_update',
         label: 'Provider Fall Update',

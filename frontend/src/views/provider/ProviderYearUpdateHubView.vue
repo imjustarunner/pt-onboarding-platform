@@ -80,17 +80,19 @@ const orgPrefix = computed(() => {
 });
 
 const cards = [
-  { ...SECTION_META[0], icon: '✅' },
-  { ...SECTION_META[1], icon: '🎉' },
-  { ...SECTION_META[2], icon: '📦' },
-  { ...SECTION_META[3], icon: '🪪' },
-  { ...SECTION_META[4], icon: '📅' },
-  { ...SECTION_META[5], icon: '👥' }
+  { ...SECTION_META[0], icon: '📱' },
+  { ...SECTION_META[1], icon: '✅' },
+  { ...SECTION_META[2], icon: '🎉' },
+  { ...SECTION_META[3], icon: '📦' },
+  { ...SECTION_META[4], icon: '🪪' },
+  { ...SECTION_META[5], icon: '📅' },
+  { ...SECTION_META[6], icon: '👥' }
 ];
 
 const unavailable = computed(() => {
   if (error.value) return error.value;
   if (status.value?.available === false) {
+    if (status.value.reason === 'outside_fall_window') return 'Fall Update is closed for this school year.';
     if (status.value.reason === 'not_pushed') return 'Provider Fall Update has not been pushed yet.';
     if (status.value.reason === 'no_school_assignments') return 'You do not have active school assignments.';
     return 'Provider Fall Update is not available.';

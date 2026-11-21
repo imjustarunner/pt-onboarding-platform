@@ -980,13 +980,7 @@
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
-            <ProviderYearUpdateDashboard
-              v-if="swapClientsTabForFallUpdate && !serviceWorkspace(authStore.user,currentAgency).learningOnly"
-              embedded
-              initial-section="clients"
-              :agency-id="currentAgencyId"
-            />
-            <TutoringStudentsView v-else-if="serviceWorkspace(authStore.user,currentAgency).learningOnly" :agency-id="currentAgencyId" />
+            <TutoringStudentsView v-if="serviceWorkspace(authStore.user,currentAgency).learningOnly" :agency-id="currentAgencyId" />
             <ProviderClientsTab
               v-else
               :initial-section="String(route.query.clients || route.query.clientsSection || 'all')"
@@ -1303,8 +1297,7 @@
         </div>
         <h3 class="blocking-splash-title">Provider Fall Update</h3>
         <p class="blocking-splash-message">
-          The school year is quickly approaching. Please complete your Provider Fall Update —
-          reminders, school events, materials, schedule, and clients — so we are ready for the year ahead.
+          Review your school schedule, returning school clients, and other fall tasks.
         </p>
         <p v-if="providerYearUpdateStatus?.sectionPercent != null" class="pyu-splash-progress">
           {{ providerYearUpdateStatus.sectionPercent }}% complete
@@ -1440,7 +1433,6 @@ import MyMeetingsView from './MyMeetingsView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import ProviderSchoolsPrograms from '../components/dashboard/ProviderSchoolsPrograms.vue';
-import ProviderYearUpdateDashboard from '../components/provider/ProviderYearUpdateDashboard.vue';
 import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
@@ -3618,8 +3610,10 @@ function dashboardOrgTo(path) {
 /** Provider Fall Update status for portals-nest link + pulse */
 const providerYearUpdateStatus = ref(null);
 const providerYearUpdateSplashDismissed = ref(false);
+let providerYearUpdateStatusRequest = 0;
 
 async function loadProviderYearUpdateStatus() {
+  const request = ++providerYearUpdateStatusRequest;
   providerYearUpdateStatus.value = null;
   try {
     const agencyId = Number(currentAgencyId.value || 0);
@@ -3641,29 +3635,30 @@ async function loadProviderYearUpdateStatus() {
       params: { agencyId },
       skipGlobalLoading: true
     });
-    providerYearUpdateStatus.value = res.data || null;
+    if (request === providerYearUpdateStatusRequest) providerYearUpdateStatus.value = res.data || null;
     // Do NOT auto-expand the portals nest — that crowds the rail. Splash handles the nudge.
   } catch {
-    providerYearUpdateStatus.value = null;
+    if (request === providerYearUpdateStatusRequest) providerYearUpdateStatus.value = null;
   }
 }
 
 const showProviderYearUpdateSplash = computed(() => {
   if (isClubContext.value || props.previewMode || providerYearUpdateSplashDismissed.value) return false;
   const st = providerYearUpdateStatus.value;
-  if (!st?.available || st.userFinalized) return false;
-  if (st.showSplash === false) return false;
-  return true;
-});
-
-const swapClientsTabForFallUpdate = computed(() => {
-  const st = providerYearUpdateStatus.value;
-  return !!(st?.available && !st.userFinalized);
+  return Boolean(st?.available && st.showSplash && !st.dismissed && !st.userFinalized);
 });
 
 async function dismissProviderYearUpdateSplash() {
-  // Session-only — splash returns on next login / fresh dashboard load.
   providerYearUpdateSplashDismissed.value = true;
+  try {
+    await api.post('/provider-year-update/me/dismiss', {
+      agencyId: Number(currentAgencyId.value),
+      schoolYear: providerYearUpdateStatus.value?.schoolYear
+    }, { skipGlobalLoading: true });
+    await loadProviderYearUpdateStatus();
+  } catch {
+    // The dialog stays closed on this page if the reminder preference cannot be saved.
+  }
 }
 
 function openProviderYearUpdateFromSplash() {
@@ -3740,7 +3735,6 @@ const dashboardCards = computed(() => buildDashboardCards({
   momentumListEnabled: momentumListEnabled.value,
   portalsNestCard: portalsNestCard.value,
   clientActionItemCount: clientActionItemCount.value,
-  swapClientsTabForFallUpdate: swapClientsTabForFallUpdate.value,
   providerSurfacesEnabled: providerSurfacesEnabled.value,
   shiftProgramsEnabledForAgency: shiftProgramsEnabledForAgency.value,
   canAccessToolsAids: canAccessToolsAids.value,

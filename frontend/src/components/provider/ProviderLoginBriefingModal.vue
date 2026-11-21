@@ -662,6 +662,8 @@ async function loadBriefing() {
 
     const yearUpdatePending =
       yearUpdateStatus?.available &&
+      yearUpdateStatus?.showPulse &&
+      !yearUpdateStatus?.dismissed &&
       !yearUpdateStatus?.userFinalized &&
       !yearUpdateStatus?.allSectionsDone;
     tierLabel.value = String(tierData?.tier?.label || tierData?.label || '').trim();

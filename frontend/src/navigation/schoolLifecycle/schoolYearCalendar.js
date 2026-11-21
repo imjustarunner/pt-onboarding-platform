@@ -91,14 +91,23 @@ export function isInSpringUpdateWindow(now = new Date()) {
   return t >= open.getTime() && t <= due.getTime();
 }
 
-/** From July rollover through fall confirmation due (inclusive). */
+const schoolDateFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Denver',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+/** From July rollover through the 90-day fall confirmation grace period. */
 export function isInFallConfirmationWindow(now = new Date()) {
-  const y = now.getFullYear();
-  const open = julyRolloverAt(y);
-  const due = fallConfirmationDueAt(y);
-  if (!open || !due) return false;
-  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  return t >= open.getTime() && t <= due.getTime() + 90 * 24 * 60 * 60 * 1000; // keep open past due until resolved
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) return false;
+  const parts = Object.fromEntries(schoolDateFormat.formatToParts(now).map(({ type, value }) => [type, value]));
+  const year = Number(parts.year);
+  const today = new Date(year, Number(parts.month) - 1, Number(parts.day));
+  const open = julyRolloverAt(year);
+  const close = fallConfirmationDueAt(year);
+  close.setDate(close.getDate() + 90);
+  return today >= open && today <= close;
 }
 
 export function upcomingSchoolYearLabel(now = new Date()) {
