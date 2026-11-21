@@ -43,7 +43,13 @@ export async function assertAppointmentClients(agencyId, participants, { allowTe
         `SELECT 1 FROM client_provider_assignments WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE LIMIT 1`,
         [clientId, providerUserId]
       );
-      if (!assignments.length) throw Object.assign(new Error('Client is not assigned to this provider'), { status: 403 });
+      if (!assignments.length) {
+        const [services] = await pool.execute(
+          `SELECT 1 FROM client_service_enrollments WHERE client_id = ? AND agency_id = ? AND provider_user_id = ? AND is_active = TRUE LIMIT 1`,
+          [clientId, agencyId, providerUserId]
+        );
+        if (!services.length) throw Object.assign(new Error('Client is not assigned to this provider'), { status: 403 });
+      }
     }
     if (schoolId) {
       const [assignments] = await pool.execute(

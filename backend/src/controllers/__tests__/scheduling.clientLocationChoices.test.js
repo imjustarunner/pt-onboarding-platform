@@ -23,9 +23,10 @@ it.each(['provider', 'admin', 'support'])('uses assigned clients and their schoo
   expect(next).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ clients: [expect.objectContaining({ id: 8, clientType: 'school', schools: [{ schoolOrganizationId: 30, name: 'Assigned school', isPrimary: true }] })] }));
   const [query, values] = pool.execute.mock.calls.find(([sql]) => sql.includes('FROM clients c'));
-  expect(values).toEqual([2, 2, 7, 7]);
+  expect(values).toEqual([2, 2, 7, 7, 2, 7]);
   expect(query).toContain('cpa.is_active = TRUE');
   expect(query).toContain('caa.is_active = TRUE');
+  expect(query).toContain('cse.is_active = TRUE');
 });
 
 it('fails closed if assignment storage is unavailable', async () => {

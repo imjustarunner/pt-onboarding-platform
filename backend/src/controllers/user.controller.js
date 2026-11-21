@@ -7854,9 +7854,12 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
          AND (c.provider_id = ? OR EXISTS (
            SELECT 1 FROM client_provider_assignments cpa
            WHERE cpa.client_id = c.id AND cpa.provider_user_id = ? AND cpa.is_active = TRUE
+         ) OR EXISTS (
+           SELECT 1 FROM client_service_enrollments cse
+           WHERE cse.client_id = c.id AND cse.agency_id = ? AND cse.provider_user_id = ? AND cse.is_active = TRUE
          ))
        ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-      [agencyId, agencyId, userId, userId]
+      [agencyId, agencyId, userId, userId, agencyId, userId]
     );
 
     const clients = (clientRows || []).map((r) => ({

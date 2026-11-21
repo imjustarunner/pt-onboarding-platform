@@ -105,6 +105,11 @@ describe('appointment clinical linkage', () => {
     await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 9 })).resolves.toHaveLength(1);
     expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('is_active = TRUE'), [2, 9]);
   });
+  it('accepts a provider assigned through an active service enrollment in this agency', async () => {
+    pool.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ allowed: 1 }]]);
+    await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 9 })).resolves.toHaveLength(1);
+    expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('client_service_enrollments'), [2, 1, 9]);
+  });
   it.each([null, 6, 7])('rejects an unassigned provider regardless of location %s', async serviceLocationId => {
     AgencyServiceLocation.findById.mockResolvedValue({ agency_id: 1, place_of_service: serviceLocationId === 7 ? '10' : '11' });
     await expect(assertAppointmentClients(1, [{ clientId: 2 }], { providerUserId: 99, serviceLocationId })).rejects.toThrow('not assigned to this provider');
