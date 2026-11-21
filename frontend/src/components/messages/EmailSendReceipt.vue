@@ -1,14 +1,14 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { emailDeliveryLabel } from '../../utils/emailPresentation';
-const props = defineProps({ receipt: { type: Object, required: true }, checkStatus: { type: Function, required: true }, busy: Boolean });
+const props = defineProps({ receipt: { type: Object, required: true }, checkStatus: { type: Function, required: true }, busy: Boolean, allowUndo: { type: Boolean, default: true } });
 const emit = defineEmits(['undo', 'status']);
 const message = ref(null), now = ref(Date.now()), refreshError = ref(false), checking = ref(false);
 let timer, generation = 0;
 const state = computed(() => message.value?.send_status || (props.receipt.cancelled ? 'cancelled' : props.receipt.sent ? 'sent' : props.receipt.scheduled ? 'scheduled' : 'pending'));
 const scheduledAt = computed(() => message.value?.scheduled_send_at || props.receipt.scheduledSendAt);
 const seconds = computed(() => Math.max(0, Math.ceil((new Date(scheduledAt.value).getTime() - now.value) / 1000)) || 0);
-const canUndo = computed(() => state.value === 'scheduled' && !!props.receipt.messageId);
+const canUndo = computed(() => props.allowUndo && state.value === 'scheduled' && !!props.receipt.messageId);
 const label = computed(() => state.value === 'scheduled'
   ? (seconds.value > 0 ? `Email scheduled for ${new Date(scheduledAt.value).toLocaleString()}. Not sent yet.` : 'Email queued for delivery. Not sent yet.')
   : emailDeliveryLabel({ ...message.value, direction: 'outbound', send_status: state.value }));

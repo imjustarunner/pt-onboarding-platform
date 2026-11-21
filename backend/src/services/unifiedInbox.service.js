@@ -705,10 +705,13 @@ async function deliverOutboundEmail({
   inReplyTo,
   referencesHeader = null,
   personalReminderId = null,
-  schoolContactDraft = null
+  schoolContactDraft = null,
+  appointmentReplyRouting = false
 }) {
   if (conv.support_ticket_id) throw supportEmailError('Send this reply from the linked support ticket so its shared sender and history are preserved.', 409);
-  let mailbox = await resolveConversationSendMailbox(conv, inbox, userId);
+  let mailbox = appointmentReplyRouting
+    ? await resolveEmailSendMailbox({ agencyId: conv.agency_id, userId, inbox, appointmentReplyRouting: true })
+    : await resolveConversationSendMailbox(conv, inbox, userId);
   if(personalReminderId) {
     const {personalReplySendMailbox}=await import('./personalThreadReminder.service.js');
     mailbox=await personalReplySendMailbox({reminderId:personalReminderId,conversationId:conv.id,inbox,userId,to,cc,bcc});
@@ -851,7 +854,8 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         inReplyTo: row.in_reply_to,
         referencesHeader: row.references_header,
         personalReminderId: row.personal_reply_reminder_id,
-        schoolContactDraft
+        schoolContactDraft,
+        appointmentReplyRouting: storedFrom.appointmentReplyRouting === true && Number(conv.owner_user_id) === Number(row.author_user_id)
       });
       if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
       await CommunicationConversation.updateMessage(row.id, {
@@ -985,7 +989,7 @@ function escapeHtml(s) {
 
 const plainTextToHtml = plainEmailHtml;
 
-export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
+export async function composeNewEmail({ agencyId, inboxId, userId, payload, appointmentReplyRouting = false }) {
   if(payload._schoolContact){
     const {validateSchoolContactStaffDraft}=await import('./schoolContactStaffEmail.service.js');
     await validateSchoolContactStaffDraft({agencyId,userId,draft:payload});
@@ -997,7 +1001,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     if (!access.ok || Number(access.client.agency_id) !== Number(agencyId)) throw Object.assign(new Error('Client communication access denied'), { status: 403 });
   }
   const requestedInbox = inboxId ? await CommunicationInbox.findById(inboxId) : null;
-  const mailbox = await resolveEmailSendMailbox({ agencyId, userId, inbox: requestedInbox });
+  const mailbox = await resolveEmailSendMailbox({ agencyId, userId, inbox: requestedInbox, appointmentReplyRouting });
   const inbox = mailbox.inbox;
   if (!inbox?.id || !mailbox.identity?.id) {
     throw new Error('Select an inbox with a configured From address');
@@ -1042,6 +1046,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   const fromEmail = mailbox.fromEmail;
   const replyTo = mailbox.replyTo;
   let fromDisplayName = mailbox.displayName;
+  const appointmentReplyEnvelope = appointmentReplyRouting ? { appointmentReplyRouting: true } : {};
   const schoolContactEnvelope=payload._schoolContact?{
     schoolContact:{workflowId:Number(payload._schoolContact.workflowId),staffUserId:Number(payload._schoolContact.staffUserId)},
     schoolContactClientIds:clientFiling.clientIds
@@ -1091,7 +1096,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       channel: 'email',
       direction: 'outbound',
       authorUserId: userId,
-      from: { email: fromEmail, name: fromDisplayName, replyTo, ...schoolContactEnvelope },
+      from: { email: fromEmail, name: fromDisplayName, replyTo, ...appointmentReplyEnvelope, ...schoolContactEnvelope },
       to,
       cc,
       bcc,
@@ -1122,7 +1127,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     channel: 'email',
     direction: 'outbound',
     authorUserId: userId,
-    from: { email: fromEmail, name: fromDisplayName, replyTo, ...schoolContactEnvelope },
+    from: { email: fromEmail, name: fromDisplayName, replyTo, ...appointmentReplyEnvelope, ...schoolContactEnvelope },
     to,
     cc,
     bcc,

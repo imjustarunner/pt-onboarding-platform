@@ -16074,9 +16074,8 @@ function findProviderOfficeBookingsForEditorWindow() {
   const seen = new Map();
   for (let h = startH; h < endH; h += 1) {
     for (const ev of officeEventsInCell(dayName, h, minute)) {
-      const assignedId = Number(ev?.assignedProviderId || 0);
-      const bookedId = Number(ev?.bookedProviderId || 0);
-      if (assignedId !== providerId && bookedId !== providerId) continue;
+      const reservedFor = Number(ev?.bookedProviderId || ev?.assignedProviderId || 0);
+      if (reservedFor !== providerId) continue;
       const st = String(ev?.slotState || '').toUpperCase();
       if (!['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'BOOKED'].includes(st)) continue;
       const roomId = Number(ev?.roomId || 0);
@@ -16766,6 +16765,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     ? defaults.addonServiceCodes.map((c) => String(c || '').toUpperCase()).filter(Boolean)
     : [];
   editorServiceLocationId.value = Number(defaults.serviceLocationId || bookingServiceLocationId.value || 0) || 0;
+  if (mode === 'create') editorSchoolOrganizationId.value = 0;
   if (editorAppointmentId.value) editorAppointmentBaseline.value = {
     id: editorAppointmentId.value,
     serviceCode: String(defaults.serviceCode || ''),
@@ -17324,7 +17324,7 @@ const normalizeBookingSelectionPayload = () => {
   };
 };
 
-const preferDefaultServiceLocation = ({ force = false, preferSchool = true } = {}) => {
+const preferDefaultServiceLocation = ({ force = false, preferSchool = !sessionReservationContext.value } = {}) => {
   const locs = (editorIsClinical.value || editorServiceLocationOptions.value?.length
     ? editorServiceLocationOptions.value
     : bookingServiceLocationOptions.value) || [];
@@ -17581,6 +17581,13 @@ const modalOfficeRoomOptions = computed(() => {
 });
 
 const modalSlotStateUpper = computed(() => String(modalContext.value?.slotState || '').toUpperCase());
+const sessionReservationContext = computed(() => {
+  const context = modalContext.value;
+  if (!context?.officeLocationId || !context?.roomId
+    || !['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED', 'BOOKED'].includes(modalSlotStateUpper.value)) return null;
+  const reservedFor = Number(context.bookedProviderId || context.assignedProviderId || 0);
+  return reservedFor === Number(scheduleActorUserId.value) || modalActionSource.value === 'office_block' ? context : null;
+});
 const modalIsAssignedSlot = computed(() => ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED'].includes(modalSlotStateUpper.value));
 const modalIsOwnedAssignedSlot = computed(() => {
   if (!modalIsAssignedSlot.value) return false;
@@ -19892,6 +19899,8 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     || slot?.slot_state
     || top?.slotState
     || top?.slot_state
+    || slot?.status
+    || top?.status
     || ''
   ).trim().toUpperCase();
   const resolvedRoomId = Number(roomId || slot?.roomId || slot?.room_id || top?.roomId || 0) || null;
@@ -19913,18 +19922,19 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     dateYmd: String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10),
     hour: Number(hour),
     agencyId: Number(slot?.bookingAgencyId || slot?.agencyId || slot?._agencyId || top?.bookingAgencyId || top?.agencyId || top?._agencyId || 0) || null,
-    officeEventId: Number(slot?.eventId || slot?.officeEventId || top?.id || 0) || null,
+    officeEventId: Number(slot?.eventId || slot?.officeEventId || slot?.id || top?.id || 0) || null,
     officeLocationId: Number(
       slot?.officeLocationId
       || slot?.office_location_id
+      || slot?.buildingId
       || top?.buildingId
       || selectedOfficeLocationId.value
       || 0
     ) || null,
     roomId: resolvedRoomId,
     roomLabel: roomLabel || (resolvedRoomId ? `Room ${resolvedRoomId}` : null),
-    assignedProviderId: Number(slot?.assignedProviderId || top?.assignedProviderId || 0) || null,
-    bookedProviderId: Number(slot?.bookedProviderId || top?.bookedProviderId || 0) || null,
+    assignedProviderId: Number(slot?.assignedProviderId || slot?.assigned_provider_id || top?.assignedProviderId || 0) || null,
+    bookedProviderId: Number(slot?.bookedProviderId || slot?.booked_provider_id || top?.bookedProviderId || 0) || null,
     assignedFrequency: String(slot?.assignedFrequency || top?.assignedFrequency || '').toUpperCase() || null,
     bookedFrequency: String(slot?.bookedFrequency || top?.bookedFrequency || '').toUpperCase() || null,
     frequencyLabel: String(slot?.frequencyLabel || top?.frequencyLabel || '').trim() || null,
@@ -20144,8 +20154,7 @@ const openSlotActionModal = async ({
   modalContext.value = buildModalContext({ dayName: modalDay.value, hour: modalHour.value, roomId, slot, dateYmd });
   // Prefer the standing assignee when opening an assigned office cell so admin work on
   // another person's calendar (e.g. Super Admin) does not default the booking target to that subject.
-  const assigneeOnSlot = Number(modalContext.value?.assignedProviderId || 0) || 0;
-  bookingTargetUserId.value = assigneeOnSlot
+  bookingTargetUserId.value = Number(modalContext.value?.bookedProviderId || modalContext.value?.assignedProviderId || 0)
     || Number(props.userId || authStore.user?.id || 0)
     || 0;
   if (canSelectBookingProvider.value) {
@@ -22061,9 +22070,7 @@ const onQuickActionSelect = async (act) => {
   if (act?.disabledReason) return;
   recordSlotActionUsage(id);
   requestTypeChosenByUser.value = true;
-  const officeSession = ['individual_session', 'group_session'].includes(id)
-    && modalIsAssignedSlot.value && Number(modalContext.value?.officeLocationId) > 0
-    && Number(modalContext.value?.assignedProviderId) === Number(scheduleActorUserId.value);
+  const officeSession = ['individual_session', 'group_session'].includes(id) && sessionReservationContext.value;
   if (officeSession) {
     bookingModality.value = 'IN_PERSON';
     selectedOfficeRoomId.value = Number(modalContext.value.roomId || 0);
@@ -23413,9 +23420,11 @@ const submitRequest = async () => {
         }
         const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
         if (!agencyId) throw new Error('Select an agency for this session.');
-        const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
-        const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
-        const endAt = `${endH===24?addDaysYmd(dateYmd,1):dateYmd}T${pad2(endH===24?0:endH)}:${pad2(endMinute)}:00`;
+        const dateYmd = editorDateYmd.value;
+        const timeZone = scheduleMeetingTimeZone();
+        const startAt = wallDatetimeLocalToSummaryIso(wallDatetimeFromParts(dateYmd, h, startMinute), timeZone);
+        const endAt = wallDatetimeLocalToSummaryIso(wallDatetimeFromParts(endH === 24 ? addDaysYmd(dateYmd, 1) : dateYmd, endH === 24 ? 0 : endH, endMinute), timeZone);
+        if (!startAt || !endAt) throw new Error('Choose a valid date and time for the school session.');
         const bookingSelection = normalizeBookingSelectionPayload();
         const titleParts = ['School session'];
         if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
@@ -23442,21 +23451,23 @@ const submitRequest = async () => {
           allDay: false,
           startAt,
           endAt,
-          timeZone: scheduleMeetingTimeZone(),
+          timeZone,
           isPrivate: false,
           allowLocalOnly: true,
           ...bookingSelection
         });
         clearSelectedActionSlots();
         ensureScheduleAgencyVisible(agencyId);
-        patchScheduleSummaryWithBookedEvent({
-          eventId: scheduleResp?.data?.appointment?.providerScheduleEventId,
-          agencyId,
-          title: titleParts.join(' · '),
-          startAt,
-          endAt,
-          kind: 'PERSONAL_EVENT'
-        });
+        for (const appointment of scheduleResp.data?.appointments || [scheduleResp.data?.appointment]) {
+          if (!appointment?.id) continue;
+          patchScheduleSummaryWithBookedEvent({
+            eventId: appointment.providerScheduleEventId || -Number(appointment.id),
+            agencyId, title: titleParts.join(' · '), kind: 'PERSONAL_EVENT',
+            startAt: parseScheduleInstant(appointment.startAt)?.toISOString(),
+            endAt: parseScheduleInstant(appointment.endAt)?.toISOString(),
+            appointmentContext: appointment
+          });
+        }
         refreshScheduleSummaryInBackground();
         closeModal();
         return;
@@ -28345,7 +28356,9 @@ watch(bookingTimezoneIana, (zone, previous) => {
 
 watch(editorClientSchoolLocationOptions, (schools, previous) => {
   if (!showRequestModal.value || isAppointmentEditMode.value || !editorIsClinical.value) return;
-  if (schools.length && schools.map(s => s.id).join(',') !== previous.map(s => s.id).join(',')) preferDefaultServiceLocation({ force: true });
+  if (schools.map(s => s.id).join(',') === previous.map(s => s.id).join(',')) return;
+  if (sessionReservationContext.value) preferDefaultServiceLocation({ preferSchool: false });
+  else if (schools.length) preferDefaultServiceLocation({ force: true });
 });
 
 </script>

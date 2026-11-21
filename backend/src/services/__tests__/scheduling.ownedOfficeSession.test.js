@@ -90,3 +90,11 @@ it('schedules 32 exact minutes inside an existing whole-hour room reservation ac
   expect(events.map(row => [row.start_at.slice(11), row.end_at.slice(11)])).toEqual([['22:00:00', '23:00:00'], ['22:00:00', '23:00:00']]);
   expect(events[0].session_context_json).toMatchObject({ sessionStartAt: '2026-11-26 22:07:00', sessionEndAt: '2026-11-26 22:39:00' });
 });
+
+it('uses the room’s active reservation owner even when the standing assignment belongs to another provider', async () => {
+  events[0].assigned_provider_id = 999;
+  const result = await bookSessionInOwnedOffice({ ...input, recurrence: 'ONCE', occurrenceCount: 1 });
+  expect(result).toMatchObject({ kind: 'auto_booked', officeEventId: 18510, appointmentIds: [100] });
+  expect(events[0].assigned_provider_id).toBe(999);
+  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ officeEventId: 18510, providerUserId: 501 }));
+});

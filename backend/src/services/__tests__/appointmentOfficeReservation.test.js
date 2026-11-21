@@ -1,9 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../appointmentStaffTools.service.js',()=>({default:{authorizeEdit:vi.fn()}}));
+vi.mock('../clientSchedulingGuard.service.js',()=>({withClientSchedulingLock: (_ids, work) => work()}));
 vi.mock('../appointment.service.js',()=>({updateAppointment:vi.fn()}));
 import { createAppointmentOfficeReservations } from '../appointmentOfficeReservation.service.js';
-let access,update,db,conn,service,options,peers,materialize;
+let access,update,db,conn,service,options,peers,materialize,readRecord;
 const appointment={id:12,agencyId:2,providerUserId:7,status:'scheduled',providerScheduleEventId:80,startAt:'2026-11-15 18:00:00',endAt:'2026-11-15 19:00:00',clinicalSessionId:110};
 beforeEach(()=>{
   options=[{id:40,room_id:10,office_location_id:8,room_number:10,office_name:'Main office'}];peers=[{id:12},{id:13}];
@@ -11,7 +12,8 @@ beforeEach(()=>{
   db={execute:vi.fn(async sql=>sql.includes('SELECT recurrence_series_id')?[[{recurrence_series_id:'monthly-sundays'}]]:sql.includes('SELECT a.id FROM appointments')?[peers]:[options])};
   conn={execute:vi.fn(async()=>[[{id:40}]]),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};db.getConnection=vi.fn(async()=>conn);
   materialize=vi.fn(async()=>{});
-  service=createAppointmentOfficeReservations({db,access,update,materialize,appointments:{listParticipants:async()=>[{clientId:31}]}});
+  readRecord = vi.fn(async () => ({ data: appointment, fingerprint: 'reviewed' }));
+  service=createAppointmentOfficeReservations({db,access,update,materialize,readRecord,serviceLocations:{listByAgency:async()=>[{id:51,place_of_service:'11',physical_office_location_id:8}]},appointments:{listParticipants:async()=>[{clientId:31}]}});
 });
 it('adds the reserved room to the existing session without replacing its clinical record or recurrence',async()=>{
   expect(await service.link({id:7},12,{officeEventId:40})).toMatchObject({linkedAppointmentIds:[12],roomId:10});
@@ -51,4 +53,24 @@ it('generates only a missing reserved hour for later dates before linking the wh
  });materialize.mockImplementation(async()=>{generated=true;});
  expect((await service.link({id:7},12,{officeEventId:40,scope:'series'})).linkedAppointmentIds).toEqual([12,13]);
  expect(materialize).toHaveBeenCalledOnce();expect(materialize.mock.calls[0][0]).toMatchObject({officeLocationId:8,createdByUserId:7,reservationWindow:{roomId:10,date:'2026-11-15'}});
+});
+
+const movePlan = { startAt: '2026-11-21 18:00:00', endAt: '2026-11-21 19:00:00', timeZone: 'America/Denver', hasSeries: true };
+const destination = { id: 10, buildingId: 8 };
+it('moves the same school appointment to its reserved office, keeping exact local time and detaching a single occurrence', async () => {
+  conn.execute.mockResolvedValueOnce([[{ acquired: 1 }]]).mockResolvedValueOnce([[
+    { id: 41, status: 'BOOKED', booked_provider_id: 7, start_at: movePlan.startAt, end_at: movePlan.endAt }
+  ]]);
+  await expect(service.moveToReservedRoom({ id: 17 }, appointment, movePlan, destination)).resolves.toMatchObject({ appointment: { id: 12 } });
+  expect(update).toHaveBeenCalledExactlyOnceWith(12, {
+    startAt: '2026-11-21T18:00:00.000Z', endAt: '2026-11-21T19:00:00.000Z',
+    timeZone: 'America/Denver', officeLocationId: 8, roomId: 10, serviceLocationId: 51
+  }, { actorUserId: 17, expectedScheduleFingerprint: 'reviewed', detachCalendarOccurrence: true });
+});
+
+it('leaves the appointment in place if the destination reservation no longer covers it', async () => {
+  conn.execute.mockResolvedValueOnce([[{ acquired: 1 }]]).mockResolvedValueOnce([[]]);
+  await expect(service.moveToReservedRoom({ id: 7 }, appointment, movePlan, destination)).rejects.toMatchObject({ status: 409 });
+  expect(update).not.toHaveBeenCalled();
+  expect(conn.execute).toHaveBeenLastCalledWith('SELECT RELEASE_LOCK(?)', [expect.any(String)]);
 });

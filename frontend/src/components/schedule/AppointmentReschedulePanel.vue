@@ -21,7 +21,8 @@
             <option v-for="room in checked.rooms" :key="room.id" :value="room.id">{{ room.label }} · {{ room.needsRequest ? 'Request booking' : 'Your reserved room' }}</option>
           </select>
         </label>
-        <p v-if="!checked.rooms.length">No rooms are available at that time. Choose another time.</p>
+        <p v-if="!checked.rooms.length">{{ checked.requiresReservedRoom
+          ? 'Reserve a room at the new time first, or choose a time when you already have a room.' : 'No rooms are available at that time. Choose another time.' }}</p>
         <p v-else-if="needsRequest">This submits a room request. Your current session stays in place until approval.</p>
         <p v-else>Your reserved room will be used for {{ scope === 'future' ? 'the selected time. We’ll also check each following date' : 'this session' }}.</p>
       </template>

@@ -21,8 +21,8 @@ import { roomBlockForSession } from '../utils/officeSessionWindow.js';
 const sqlTime = value => value instanceof Date ? value.toISOString().slice(0, 19).replace('T', ' ') : String(value || '').replace('T', ' ').replace(/Z$/, '').slice(0, 19);
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const fail = (message, extra = {}) => Object.assign(new Error(message), { status: 409, code: 'RESERVED_OFFICE_SESSION_CONFLICT', ...extra });
-const owned = (event, providerId) => event && Number(event.assigned_provider_id || event.booked_provider_id) === Number(providerId)
-  && (!Number(event.booked_provider_id) || Number(event.booked_provider_id) === Number(providerId)) && event.slot_state !== 'COMPANY_HOLD';
+const owned = (event, providerId) => event && Number(event.booked_provider_id || event.assigned_provider_id) === Number(providerId)
+  && event.slot_state !== 'COMPANY_HOLD';
 
 export function ownedOfficeSessionOccurrences({ startAt, endAt, timeZone, recurrence, occurrenceCount }) {
   return expandAppointmentRecurrence({ startAt: utcMysqlToIso(startAt), endAt: utcMysqlToIso(endAt), timeZone,

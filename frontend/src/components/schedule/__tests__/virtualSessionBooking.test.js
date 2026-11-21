@@ -244,8 +244,36 @@ it('saves typed minute times for a recurring school session', async () => {
   await s.submitRequest();
   expect(s.modalError).toBe('');
   expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
-    startAt: '2026-11-19T17:07:00', endAt: '2026-11-19T17:39:00', recurrence: 'WEEKLY', occurrenceCount: 3, modality: 'IN_PERSON'
+    startAt: '2026-11-20T00:07:00.000Z', endAt: '2026-11-20T00:39:00.000Z', recurrence: 'WEEKLY', occurrenceCount: 3, modality: 'IN_PERSON'
   }));
+});
+
+it('keeps the reserved office when the chosen client has an assigned school', async () => {
+  const s = await schoolClientEditor();
+  const base = m.get.getMockImplementation();
+  m.get.mockImplementation((url, ...args) => url === '/offices'
+    ? Promise.resolve({ data: [{ id: 8, name: 'Main office', timezone: 'America/Denver', agencyIds: [2] }] })
+    : base(url, ...args));
+  const clients = s.virtualSessionClients;
+  s.virtualSessionSelectedClientIds = [];
+  s.requestType = '';
+  s.modalActionSource = 'office_block';
+  s.modalContext = { agencyId: 2, dateYmd: '2026-11-19', hour: 17, officeLocationId: 8, roomId: 10,
+    officeEventId: 18510, bookedProviderId: 7, assignedProviderId: 222, slotState: 'BOOKED' };
+  await flushPromises();
+  await s.onQuickActionSelect({ id: 'individual_session' });
+  await flushPromises();
+  s.virtualSessionClients = clients;
+  s.virtualSessionSelectedClientIds = [8];
+  s.bookingServiceCode = '90837';
+  await flushPromises();
+  expect(s.editorModality).toBe('IN_PERSON');
+  expect(s.editorServiceLocationId).toBe(51);
+  expect(s.editorSchoolOrganizationId).toBe(0);
+  expect(s.editorServiceLocationOptions.some(location => location.id === 53)).toBe(true);
+  await s.submitRequest();
+  expect(m.post).toHaveBeenCalledWith('/office-schedule/booking-requests', expect.objectContaining({ serviceLocationId: 51, roomId: 10, clientId: 8 }));
+  expect(countCreates()).toBe(0);
 });
 
 it('shows the duration conflict while keeping the selected psychotherapy code and typed minutes', async () => {

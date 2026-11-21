@@ -637,7 +637,23 @@ export const postMessagesHubSend = async (req, res, next) => {
       req.body?.sendDuringNextAvailable === true;
 
     if (method === 'email') {
+      let appointmentReplyRouting = false;
+      if (Number(agencyId) === 2 && req.body?.appointmentId != null) {
+        const appointmentId = Number(req.body.appointmentId);
+        const { default: staffTools } = await import('../services/appointmentStaffTools.service.js');
+        const appointment = await staffTools.authorize(req.user, appointmentId);
+        const { default: Appointment } = await import('../models/Appointment.model.js');
+        const clientId = Number(req.body.clientId || person.clientId || 0);
+        const participants = await Appointment.listParticipants(appointmentId);
+        if (Number(appointment.agencyId) !== Number(agencyId) || !clientId
+          || (person.clientId && Number(person.clientId) !== clientId)
+          || !participants.some(participant => Number(participant.clientId) === clientId)) {
+          throw Object.assign(new Error('This email must use an authorized client on the selected appointment.'), { status: 403 });
+        }
+        appointmentReplyRouting = true;
+      }
       const out = await sendHubEmail({
+        appointmentReplyRouting,
         deliveryChoice: req.body?.deliveryChoice,
         agencyId,
         userId: req.user.id,

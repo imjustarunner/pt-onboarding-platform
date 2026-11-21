@@ -1,10 +1,10 @@
 <script setup>
-import { computed, defineAsyncComponent, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import AppointmentConversa from './AppointmentConversa.vue';
 import api from '../../services/api';
 import {useRoute} from 'vue-router';
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 const route=useRoute();
-const AppointmentConversa = defineAsyncComponent(() => import('./AppointmentConversa.vue'));
 const props = defineProps({ appointmentId: { type: Number, required: true } });
 const emit=defineEmits(['details']);
 const data = ref(null); const draft = ref(''); const showOnSchedule = ref(false); const editing = ref(false); const loading = ref(false); const saving = ref(false); const error = ref(''); const saved = ref(''); const selectedClientId = ref(0); const messaging = ref(false); let request = 0;
@@ -64,7 +64,7 @@ watch(() => props.appointmentId, load, { immediate: true });
       <div v-if="data.clients.length" class="staff-contact">
         <label v-if="data.clients.length > 1">Client<select v-model="selectedClientId" @change="messaging = false"><option v-for="client in data.clients" :key="client.id" :value="client.id">{{ client.name }}</option></select></label>
         <button type="button" class="conversa-launch" :aria-expanded="messaging" @click="messaging = !messaging"><img :src="CONVERSA_LOGO_URL" alt="Conversa" /><span><strong>{{ messaging ? 'Close conversation' : 'Contact client' }}</strong><small>Secure message, email, or text</small></span><span aria-hidden="true">{{ messaging ? '⌃' : '→' }}</span></button>
-        <AppointmentConversa v-if="messaging && selectedClient" :key="selectedClient.id" :agency-id="data.agencyId" :client-id="selectedClient.id" :client-name="selectedClient.name" @close="messaging = false" />
+        <AppointmentConversa v-if="messaging && selectedClient" :key="selectedClient.id" :appointment-id="appointmentId" :agency-id="data.agencyId" :client-id="selectedClient.id" :client-name="selectedClient.name" @close="messaging = false" />
       </div>
     </template>
     <p v-if="saved" role="status">{{ saved }}</p>

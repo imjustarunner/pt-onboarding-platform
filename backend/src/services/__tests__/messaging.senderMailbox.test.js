@@ -77,3 +77,23 @@ it('does not route non-SSO messages through the tenant sender or through a direc
   await expect(resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox })).rejects.toMatchObject({ status: 400 });
   expect(resolveMessagesSendMailbox).not.toHaveBeenCalled();
 });
+
+it.each(['group', 'user'])('sends appointment email through ITSCO Messages and replies to the verified %s work address', async type => {
+  User.getAgencies.mockResolvedValue([managedAgency]);
+  workspaceMailboxType.mockResolvedValue(type);
+  resolveMessagesSendMailbox.mockResolvedValue({
+    identity: { id: 8, agency_id: 2, is_active: 1 }, fromEmail: 'messages@itsco.health', inbox: { id: 99 }
+  });
+  const mailbox = await resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox, appointmentReplyRouting: true });
+  expect(mailbox).toMatchObject({
+    identity: { id: 8 }, fromEmail: 'messages@itsco.health', replyTo: inbox.from_email,
+    inbox: { id: 10, owner_user_id: 5 }, routing: 'appointment_email'
+  });
+});
+
+it('requires the verified work address and ITSCO sender for appointment routing', async () => {
+  User.getAgencies.mockResolvedValue([managedAgency]);
+  workspaceMailboxType.mockResolvedValue('group');
+  resolveMessagesSendMailbox.mockResolvedValue({ identity: { id: 8, agency_id: 2 }, fromEmail: 'support@itsco.health' });
+  await expect(resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox, appointmentReplyRouting: true })).rejects.toMatchObject({ status: 400 });
+});

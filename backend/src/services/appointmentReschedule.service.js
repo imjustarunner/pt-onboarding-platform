@@ -55,12 +55,12 @@ export function createAppointmentRescheduleService({ appointments = Appointment,
     const owned = coveringReplacementRooms(week.officeReservations, start, end).map(r => ({
       id: r.roomId, buildingId: r.buildingId, needsRequest: false,
       label: `${r.buildingName || 'Office'} · ${r.roomLabel || r.roomId}` }));
-    const available = await roomOptions(appointment, start, end);
+    const available = appointment.officeEventId ? await roomOptions(appointment, start, end) : [];
     const rooms = [...owned, ...available.filter(r => !owned.some(o => o.id === r.id))]
       .filter(r => !appointment.officeLocationId || Number(r.buildingId) === Number(appointment.officeLocationId));
     rooms.sort((a, b) => Number(a.needsRequest) - Number(b.needsRequest)
       || Number(b.id === appointment.roomId) - Number(a.id === appointment.roomId));
-    return { ...info, startAt, endAt, rooms, selectedRoomId: rooms[0]?.id || null };
+    return { ...info, startAt, endAt, rooms, selectedRoomId: rooms[0]?.id || null, requiresReservedRoom: !appointment.officeEventId };
   }
   return { context, options };
 }

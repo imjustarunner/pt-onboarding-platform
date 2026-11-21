@@ -1,12 +1,18 @@
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
+import OfficeEvent from '../models/OfficeEvent.model.js';
+import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
+import { ownReservationsCover } from '../utils/officeMoveReservation.js';
+import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { readAppointmentRecord } from './appointmentRecord.service.js';
 import staffTools from './appointmentStaffTools.service.js';
 import { utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { updateAppointment } from './appointment.service.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
 export function createAppointmentOfficeReservations({ db = pool, access = staffTools.authorizeEdit, appointments = Appointment, update = updateAppointment,
-  materialize = async input => (await import('./officeScheduleMaterializer.service.js')).default.materializeWeek(input)
+  readRecord = readAppointmentRecord, serviceLocations = AgencyServiceLocation, materialize = async input => (await import('./officeScheduleMaterializer.service.js')).default.materializeWeek(input)
 } = {}) {
   async function reservations(appointment) {
     const [rows] = await db.execute(`SELECT e.id,e.room_id,e.office_location_id,r.room_number,r.label,ol.name AS office_name,ol.timezone AS office_timezone
@@ -97,6 +103,58 @@ export function createAppointmentOfficeReservations({ db = pool, access = staffT
     finally { conn.release(); }
     return { linkedAppointmentIds, roomId: selected.roomId, officeLocationId: selected.officeLocationId };
   }
-  return { get, link };
+  async function moveToReservedRoom(user, appointment, plan, room) {
+    const { id } = appointment;
+    const participants = await appointments.listParticipants(id);
+    return withClientSchedulingLock(participants.map(person => person.clientId || person.client_id),
+      () => moveReservedOccurrence(user, appointment, plan, room));
+  }
+
+  async function moveReservedOccurrence(user, appointment, plan, room) {
+    const { agencyId, id, providerUserId } = appointment;
+    const connection = await db.getConnection();
+    const lockName = OfficeEvent.lockNameForSlot({ roomId: room.id });
+    let locked = false;
+    try {
+      const [[lock]] = await connection.execute('SELECT GET_LOCK(?,8) AS acquired', [lockName]);
+      locked = Number(lock?.acquired) === 1;
+      if (!locked) throw fail('This room is being updated. Retry the move shortly.');
+      const record = await readRecord(agencyId, id, connection);
+      const current = record.data;
+      if (current.officeEventId || Number(current.providerUserId) !== Number(providerUserId)
+        || +parseUtcDate(current.startAt) !== +parseUtcDate(appointment.startAt)
+        || +parseUtcDate(current.endAt) !== +parseUtcDate(appointment.endAt)) {
+        throw fail('This session changed. Refresh the schedule before moving it.');
+      }
+
+      const [events] = await connection.execute(`SELECT e.id,e.start_at,e.end_at,e.status,e.booked_provider_id,e.assigned_provider_id,e.billing_context_id
+        FROM office_events e JOIN office_location_agencies member ON member.office_location_id=e.office_location_id AND member.agency_id=?
+        WHERE e.office_location_id=? AND e.room_id=? AND COALESCE(e.booked_provider_id,e.assigned_provider_id)=?
+          AND e.status='BOOKED' AND COALESCE(e.slot_state,'')<>'COMPANY_HOLD'
+          AND e.client_id IS NULL AND e.clinical_session_id IS NULL AND e.start_at<? AND e.end_at>?
+          AND NOT EXISTS (SELECT 1 FROM appointments occupied WHERE occupied.room_id=e.room_id AND occupied.id<>?
+            AND occupied.start_at<? AND occupied.end_at>? AND occupied.status IN ('scheduled','confirmed','client_confirmed','in_progress'))
+        ORDER BY e.start_at,e.id`, [agencyId, room.buildingId, room.id, providerUserId, plan.endAt, plan.startAt, id, plan.endAt, plan.startAt]);
+      const start = parseUtcDate(plan.startAt), end = parseUtcDate(plan.endAt);
+      if (!ownReservationsCover(events, providerUserId, start, end)) {
+        throw fail('Your destination reservation changed or is occupied. Check the available rooms again.');
+      }
+      const officeLocations = (await serviceLocations.listByAgency(agencyId)).filter(location => String(location.place_of_service) === '11');
+      const location = officeLocations.find(location => [location.physical_office_location_id, location.billing_office_location_id].map(Number).includes(Number(room.buildingId)))
+        || officeLocations.find(location => !location.billing_office_location_id);
+      // Keep the school-origin appointment's calendar and clinical identity. The
+      // reserved building and room associate it with the office in the calendar.
+      const updated = await update(id, {
+        startAt: start.toISOString(), endAt: end.toISOString(), timeZone: plan.timeZone,
+        roomId: room.id, officeLocationId: room.buildingId, serviceLocationId: location ? Number(location.id) : null
+      }, { actorUserId: user.id, expectedScheduleFingerprint: record.fingerprint, detachCalendarOccurrence: plan.hasSeries });
+      return { ok: true, appointment: updated };
+    } finally {
+      try { if (locked) await connection.execute('SELECT RELEASE_LOCK(?)', [lockName]); }
+      finally { connection.release(); }
+    }
+  }
+
+  return { get, link, moveToReservedRoom };
 }
 export default createAppointmentOfficeReservations();

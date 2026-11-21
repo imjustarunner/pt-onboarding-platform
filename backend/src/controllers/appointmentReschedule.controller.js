@@ -35,7 +35,11 @@ export async function rescheduleAppointment(req, res, next) {
     if (plan.inPerson) {
       const room = plan.rooms.find(r => r.id === Number(req.body.roomId));
       if (!room) return res.status(409).json({ error: { message: 'Choose an available room for the new time.' } });
-      if (!appointment.officeEventId) return res.status(409).json({ error: { message: 'This in-person session needs its original office reservation linked before it can be moved.' } });
+      if (!appointment.officeEventId) {
+        if (room.needsRequest) return res.status(409).json({ error: { message: 'Reserve the destination room before moving this session.' } });
+        const reservations = (await import('../services/appointmentOfficeReservation.service.js')).default;
+        return res.json(await reservations.moveToReservedRoom(req.user, appointment, plan, room));
+      }
       const { rescheduleOfficeEvent } = await import('./officeSlotActions.controller.js');
       const { utcToZonedMysqlWall } = await import('../utils/officeEventDateTime.util.js');
       const OfficeLocation = (await import('../models/OfficeLocation.model.js')).default;

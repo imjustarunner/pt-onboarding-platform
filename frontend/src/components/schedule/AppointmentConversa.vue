@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import EmailSendReceipt from '../messages/EmailSendReceipt.vue';
 import ConversaBrand from '../conversa/ConversaBrand.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
@@ -10,10 +11,11 @@ const auth = getActivePinia() ? useAuthStore() : { user: null };
 const sharedAudience = ref(null);
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
 
-const props = defineProps({ agencyId: { type: Number, required: true }, clientId: { type: Number, required: true }, clientName: { type: String, default: '' } });
+const props = defineProps({ appointmentId: Number, agencyId: { type: Number, required: true }, clientId: { type: Number, required: true }, clientName: { type: String, default: '' } });
 const emit = defineEmits(['close']);
 const basePerson = ref(null); const recipient = ref(null); const recipientKey = ref('');
 const method = ref('secure'); const body = ref(''); const subject = ref(''); const error = ref(''); const status = ref('');
+const emailReceipt = ref(null);
 const busy = ref(false); const loading = ref(false); const deliveryChoice = ref(null); let request = 0;
 const clientKey = computed(() => `client:${props.clientId}@${props.agencyId}`);
 const recipients = computed(() => [...new Map([
@@ -47,20 +49,29 @@ async function load() {
   } catch (e) { if (current === request) error.value = e.response?.data?.error?.message || 'Could not load client communications.'; }
   finally { if (current === request) loading.value = false; }
 }
+async function checkEmailStatus(receipt) {
+  const { data } = await api.get(`/communications/conversations/${receipt.conversationId}/messages/${receipt.messageId}/delivery`,
+    { skipGlobalLoading: true });
+  return data.message;
+}
 function selectMethod(id) { if (busy.value) return; method.value = id; body.value = ''; subject.value = ''; error.value = ''; status.value = ''; deliveryChoice.value = null; }
 async function send(choice = null) {
   if (busy.value || loading.value || !body.value.trim() || !activeMethod.value?.available) return;
   const current=request;
   if(method.value==='secure'&&(!await sharedAudience.value?.prepareSend()||current!==request))return;
-  busy.value = true; error.value = ''; status.value = '';
+  busy.value = true; error.value = ''; status.value = ''; emailReceipt.value = null;
   try {
     const { data } = await api.post('/messages/hub/send', {
       agencyId: props.agencyId, personKey: method.value === 'sms' ? clientKey.value : recipientKey.value,
-      clientId: props.clientId, method: method.value, body: body.value.trim(), subject: subject.value.trim(),
+      clientId: props.clientId, ...(props.appointmentId ? { appointmentId: props.appointmentId } : {}), method: method.value, body: body.value.trim(), subject: subject.value.trim(),
       mode: 'new', newTopic: true, deliveryChoice: choice, ...(method.value==='secure'?{expectedRecipientUserIds:[...(sharedAudience.value?.recipientUserIds||[])],serviceId:sharedAudience.value?.serviceId||undefined}:{})
     }, { skipGlobalLoading: true });
     if (data?.error) throw new Error(data.error.message || 'Message was not sent.');
-    status.value = data.queued || data.scheduled ? 'Message queued in Conversa. Delivery follows the recipient’s settings.' : 'Message sent through Conversa.';
+    if (method.value === 'email' && data.messageId && data.threadRef?.conversationId) {
+      emailReceipt.value = { ...data, conversationId: data.threadRef.conversationId };
+    } else {
+      status.value = data.queued || data.scheduled ? 'Message queued for sending.' : 'Message sent through Conversa.';
+    }
     body.value = ''; subject.value = ''; deliveryChoice.value = null;
   } catch (e) {
     if (['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)) await sharedAudience.value?.refreshAfterAudienceChange();
@@ -68,7 +79,7 @@ async function send(choice = null) {
     else error.value = e.response?.data?.error?.message || e.message || 'Message could not be sent.';
   } finally { busy.value = false; }
 }
-watch(() => [props.clientId, props.agencyId], load, { immediate: true });
+watch(() => [props.clientId, props.agencyId], () => { emailReceipt.value = null; void load(); }, { immediate: true });
 </script>
 <template>
   <section class="appointment-conversa conversa-surface" aria-label="Message client from appointment">
@@ -88,6 +99,10 @@ watch(() => [props.clientId, props.agencyId], load, { immediate: true });
     <p v-if="method === 'sms'" class="hint">Texts follow existing consent and opt-out rules. Use secure messages for private care details.</p>
     <EmailDeliveryChoice :info="deliveryChoice" :busy="busy" @choose="send($event)" @cancel="deliveryChoice = null" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="status" role="status">{{ status }}</p>
+    <template v-if="emailReceipt">
+      <p v-if="emailReceipt.fromEmail">From {{ emailReceipt.fromEmail }}<template v-if="emailReceipt.replyTo"> · Replies to {{ emailReceipt.replyTo }}</template></p>
+      <EmailSendReceipt :receipt="emailReceipt" :check-status="checkEmailStatus" :busy="busy" :allow-undo="false" />
+    </template>
     <button type="button" class="btn btn-primary" :disabled="busy || loading || !body.trim() || !activeMethod?.available || (method === 'secure' && !sharedAudience?.canSend)" @click="send()">{{ busy ? 'Sending…' : 'Send through Conversa' }}</button>
   </section>
 </template>

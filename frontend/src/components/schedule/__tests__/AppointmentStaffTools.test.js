@@ -51,3 +51,25 @@ describe('appointment Conversa', () => {
 it('presents the Conversa logo and contact action at the bottom of appointment Info',async()=>{
  api.get.mockResolvedValue({data:{agencyId:377,alert:{text:'',revision:0},canEdit:true,clients:[{id:31,name:'Demo client'}]}});const w=mount(StaffTools,{props:{appointmentId:12}});await flushPromises();expect(w.get('.staff-contact .conversa-launch img').attributes('alt')).toBe('Conversa');expect(w.get('.conversa-launch').text()).toContain('Contact client');expect(w.text()).not.toContain('Text, message or email client · Conversa');w.unmount();
 });
+
+it('shows an appointment email’s verified routing and waits for an actual sent receipt', async () => {
+  api.post.mockResolvedValue({ data: { ok: true, scheduled: true, sent: false,
+    scheduledSendAt: new Date(Date.now() + 30000).toISOString(), messageId: 42, threadRef: { conversationId: 71 },
+    fromEmail: 'messages@itsco.health', replyTo: 'provider@itsco.health' } });
+  api.get.mockImplementation(async url => ({ data: url.endsWith('/delivery') ? { message: { send_status: 'sent' } } : { person } }));
+  const wrapper = mount(Conversa, { props: { appointmentId: 12, agencyId: 2, clientId: 31 } });
+  await flushPromises();
+  await wrapper.findAll('.channels button')[1].trigger('click');
+  await wrapper.find('textarea').setValue('Test scheduling message.');
+  await wrapper.find('.btn-primary').trigger('click');
+  await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/messages/hub/send', expect.objectContaining({ method: 'email', appointmentId: 12 }), { skipGlobalLoading: true });
+  expect(wrapper.text()).toContain('Not sent yet.');
+  expect(wrapper.text()).toContain('From messages@itsco.health · Replies to provider@itsco.health');
+  await wrapper.findAll('button').find(button => button.text() === 'Check delivery status').trigger('click');
+  await flushPromises();
+  expect(api.get).toHaveBeenCalledWith('/communications/conversations/71/messages/42/delivery', { skipGlobalLoading: true });
+  expect(wrapper.text()).toContain('Sent');
+  expect(wrapper.text()).not.toContain('Not sent yet.');
+  wrapper.unmount();
+});

@@ -466,7 +466,7 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
     return updateLockedAppointment(appointmentId, patch, options);
   });
 }
-async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false, allowPendingNoShow = false } = {}) {
+async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false, allowPendingNoShow = false, detachCalendarOccurrence = false } = {}) {
   if (patch.customReminders !== undefined) patch.customReminders = patch.notificationMode === 'off' ? [] : normalizeCustomSessionReminders(patch.customReminders);
   const existing = await Appointment.findById(appointmentId);
   if (existing && patch.customReminders !== undefined) {
@@ -516,7 +516,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   if (patch.startAt || patch.endAt || patch.participants || patch.providerUserId != null || patch.serviceLocationId != null || patch.modality != null || ['scheduled','confirmed'].includes(patch.status)) {
     const clients=await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId), {
       providerUserId: patch.providerUserId ?? existing.providerUserId,
-      serviceLocationId: patch.serviceLocationId ?? existing.serviceLocationId
+      serviceLocationId: patch.serviceLocationId === undefined ? existing.serviceLocationId : patch.serviceLocationId
     });
     for(const client of clients||[])await assertClientServiceSchedulingActive({agencyId:existing.agencyId,providerUserId:patch.providerUserId||existing.providerUserId,
       clientId:client.id,businessType:patch.businessType||existing.businessType,source:existing.source,providerScheduleEventId:existing.providerScheduleEventId,officeEventId:existing.officeEventId});
@@ -583,10 +583,11 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     patch.billing=proBonoClientBilling({...currentBilling,...patch.billing});
   }
   if(reconcileHours){
-    const location=(patch.serviceLocationId||existing.serviceLocationId)?await AgencyServiceLocation.findById(patch.serviceLocationId||existing.serviceLocationId):null;
+    const locationId = patch.serviceLocationId === undefined ? existing.serviceLocationId : patch.serviceLocationId;
+    const location = locationId ? await AgencyServiceLocation.findById(locationId) : null;
     const resolved=await reconcileClinicalAfterHours({agencyId:existing.agencyId,providerUserId:patch.providerUserId||existing.providerUserId,primaryCode:patch.serviceCode??existing.serviceCode,
       startAt:patch.startAt!=null?toMysqlDateTime(patch.startAt,sourceZoneForEdit):existing.startAt,timeZone:policySourceTimezone,
-      modality:patch.modality||existing.modality,placeOfService:location?.place_of_service,addonServiceCodes:patch.addonServiceCodes??existing.addonServiceCodes??[],billing:{...currentBilling,...patch.billing}});
+      modality:patch.modality||existing.modality,placeOfService:location?.place_of_service || (patch.roomId ? '11' : null),addonServiceCodes:patch.addonServiceCodes??existing.addonServiceCodes??[],billing:{...currentBilling,...patch.billing}});
     if(JSON.stringify(resolved.addonServiceCodes)!==JSON.stringify(patch.addonServiceCodes??existing.addonServiceCodes??[])){
       if(!clinicalContextChanged){const {assertAppointmentCanMove}=await import('./appointmentScheduleSync.service.js');await assertAppointmentCanMove(existing);}
       patch.addonServiceCodes=resolved.addonServiceCodes;clinicalContextChanged=true;
@@ -684,7 +685,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     if(patch.tenantServiceId!==undefined){fields.push("session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.tenantServiceId', ?)");values.push(patch.tenantServiceId);}
     if(fields.length)await pool.execute(`UPDATE office_events SET ${fields.join(', ')} WHERE id = ? AND EXISTS (SELECT 1 FROM appointments ap WHERE ap.id = ? AND ap.agency_id = ? AND ap.office_event_id = office_events.id)`,[...values,existing.officeEventId,appointmentId,existing.agencyId]);
   }
-  if(clinicalContextChanged && !moved)await ensureAppointmentClinicalLink(appointmentId,actorUserId);
+  if(clinicalContextChanged && !moved && !detachCalendarOccurrence)await ensureAppointmentClinicalLink(appointmentId,actorUserId);
 
   let settlement = null;
   const nextStatus = updatePatch.status != null
@@ -699,9 +700,9 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
 
   await syncQaAppointmentBalance(await Appointment.findById(appointmentId), actorUserId);
 
-  if (moved) {
+  if (moved || detachCalendarOccurrence) {
     const { refreshAppointmentCalendar } = await import('./appointmentCalendarMaintenance.service.js');
-    await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId);
+    await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId, { detachFromSeries: detachCalendarOccurrence });
   }
 
   if (!deferScheduleNotice && (moved || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k])))) {

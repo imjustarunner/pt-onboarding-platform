@@ -2844,7 +2844,8 @@ export async function sendHubEmail({
   conversationId = null,
   mode = 'reply',
   toOverride = null,
-  deliveryChoice = null
+  deliveryChoice = null,
+  appointmentReplyRouting = false
 }) {
   if (!person.email) {
     const err = new Error('Person has no email address');
@@ -2902,7 +2903,7 @@ export async function sendHubEmail({
   }
 
   const { resolveEmailSendMailbox } = await import('./emailSendMailbox.service.js');
-  const senderMailbox = await resolveEmailSendMailbox({ agencyId: aid, userId, inbox });
+  const senderMailbox = await resolveEmailSendMailbox({ agencyId: aid, userId, inbox, appointmentReplyRouting });
   inbox = senderMailbox.inbox;
   const replyTo = senderMailbox.replyTo;
 
@@ -2940,7 +2941,7 @@ export async function sendHubEmail({
   }
 
   const effectiveSubject = subject || `Message from ${agencyName}`;
-  const replyConversationId = await resolveHubEmailReplyConversation({
+  const replyConversationId = appointmentReplyRouting ? null : await resolveHubEmailReplyConversation({
     agencyId: aid,
     inboxId: inbox.id,
     email: person.email,
@@ -3140,7 +3141,8 @@ export async function sendHubEmail({
       agencyId: aid,
       inboxId: inbox.id,
       userId,
-      payload
+      payload,
+      appointmentReplyRouting
     });
   }
 
@@ -3194,6 +3196,7 @@ export async function sendHubEmail({
     fromEmail: senderMailbox.fromEmail,
     replyTo: senderMailbox.replyTo,
     scheduled: !!result?.scheduled,
+    sent: result?.sent === true,
     scheduledSendAt: result?.scheduledSendAt || effectiveScheduledAt?.toISOString() || null,
     scheduledSendAtLabel,
     undoExpiresAt: result?.undoExpiresAt || null,

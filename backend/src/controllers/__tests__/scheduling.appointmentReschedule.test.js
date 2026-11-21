@@ -2,12 +2,14 @@ import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../appointment.controller.js', () => ({ assertAppointmentChangeAccess: vi.fn(), updateAppointmentHandler: vi.fn() }));
 vi.mock('../../services/appointmentReschedule.service.js', () => ({ appointmentReschedule: { context: vi.fn(), options: vi.fn() } }));
+vi.mock('../../services/appointmentOfficeReservation.service.js', () => ({ default: { moveToReservedRoom: vi.fn() } }));
 vi.mock('../officeSlotActions.controller.js', () => ({ rescheduleOfficeEvent: vi.fn() }));
 vi.mock('../user.controller.js', () => ({ updateUserScheduleEvent: vi.fn() }));
 vi.mock('../../models/OfficeLocation.model.js', () => ({ default: { findById: vi.fn().mockResolvedValue({ timezone: 'America/Denver' }) } }));
 import Appointment from '../../models/Appointment.model.js';
 import { assertAppointmentChangeAccess, updateAppointmentHandler } from '../appointment.controller.js';
 import { appointmentReschedule } from '../../services/appointmentReschedule.service.js';
+import reservations from '../../services/appointmentOfficeReservation.service.js';
 import { rescheduleOfficeEvent } from '../officeSlotActions.controller.js';
 import { updateUserScheduleEvent } from '../user.controller.js';
 import { rescheduleAppointment } from '../appointmentReschedule.controller.js';
@@ -58,4 +60,16 @@ it('checks access before room lookup or writes', async () => {
   await rescheduleAppointment(req, res, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
   expect(appointmentReschedule.options).not.toHaveBeenCalled(); expect(rescheduleOfficeEvent).not.toHaveBeenCalled();
+});
+
+it('moves a school-origin appointment to the selected destination reservation', async () => {
+  appointment.officeEventId = null;
+  appointment.officeLocationId = null;
+  appointment.providerScheduleEventId = 44;
+  reservations.moveToReservedRoom.mockResolvedValue({ ok: true, appointment: { id: 18, roomId: 10 } });
+  await rescheduleAppointment(req, res, next);
+  expect(reservations.moveToReservedRoom).toHaveBeenCalledWith(req.user, appointment, plan, plan.rooms[0]);
+  expect(res.json).toHaveBeenCalledWith({ ok: true, appointment: { id: 18, roomId: 10 } });
+  expect(rescheduleOfficeEvent).not.toHaveBeenCalled();
+  expect(next).not.toHaveBeenCalled();
 });

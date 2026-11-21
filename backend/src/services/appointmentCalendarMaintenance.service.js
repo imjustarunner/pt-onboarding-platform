@@ -16,9 +16,11 @@ export async function moveAppointmentOffice(appointment, startAt, endAt, actorUs
     timeZone: office?.timezone || appointment.sourceTimezone, actorUserId });
 }
 
-export async function refreshAppointmentCalendar(appointment, actorUserId) {
-  if (appointment.providerScheduleEventId) await pool.execute(`UPDATE provider_schedule_events SET start_at = ?, end_at = ?, updated_by_user_id = ? WHERE id = ?`,
-    [appointment.startAt, appointment.endAt, actorUserId, appointment.providerScheduleEventId]);
+export async function refreshAppointmentCalendar(appointment, actorUserId, { detachFromSeries = false } = {}) {
+  if (appointment.providerScheduleEventId) await pool.execute(`UPDATE provider_schedule_events SET start_at = ?, end_at = ?, updated_by_user_id = ?
+    ${detachFromSeries ? ', recurrence_series_id=NULL, recurrence_frequency=NULL, recurrence_policy=NULL, recurrence_index=NULL' : ''}
+    WHERE id = ? AND provider_id = ? AND agency_id = ?`,
+    [appointment.startAt, appointment.endAt, actorUserId, appointment.providerScheduleEventId, appointment.providerUserId, appointment.agencyId]);
   await ensureAppointmentClinicalLink(appointment.id, actorUserId);
   await scheduleSessionNotifications(appointment.id, { replace: true });
 }

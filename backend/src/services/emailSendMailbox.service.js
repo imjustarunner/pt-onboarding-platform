@@ -8,7 +8,7 @@ import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 import { normalizeStaffContactAddress } from '../utils/staffContactAddress.js';
 
 /** Keep conversation ownership separate from the address used on the wire. */
-export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMessagesRoute = false, optional = false }) {
+export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMessagesRoute = false, optional = false, appointmentReplyRouting = false }) {
   let selected = inbox;
   if (!selected) {
     const { findPersonalInbox } = await import('./personalMailbox.service.js');
@@ -34,6 +34,10 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
   if (departmentalGroupKey) await assertDepartmentalGroupAccess({ agencyId, userId, groupKey: departmentalGroupKey });
   const personal = selected.kind === 'personal';
   const messages = ['messages', 'messages_at_tenant'].includes(identity.identity_key);
+  const appointmentRoute = appointmentReplyRouting && Number(agencyId) === 2;
+  if (appointmentRoute && !personal && !messages) {
+    throw Object.assign(new Error('Use your verified ITSCO work mailbox for appointment email.'), { status: 400 });
+  }
   const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags || '{}') : agency.feature_flags || {};
   if (messages && nluTutoringQaMailDomain(agency)) {
     // Synthetic staff do not acquire a real Workspace mailbox by opening
@@ -56,7 +60,7 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
     }
     return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: identity.from_email, displayName: identity.display_name, routing: 'shared_team' };
   }
-  if (personal || (messages && (groupLogin || ssoEnabled))) {
+  if (personal || (messages && (groupLogin || ssoEnabled || appointmentRoute))) {
     // Even when messages@ was selected explicitly, use the actor's own mailbox
     // to choose routing. Never move their private conversation to a shared inbox.
     const ownInbox = personal ? selected : await (await import('./personalMailbox.service.js')).findPersonalInbox({ agencyId, userId });
@@ -72,13 +76,20 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
       if (type !== 'group') {
         throw Object.assign(new Error('Configure your work group email before sending email.'), { status: 400 });
       }
-    } else if (type === 'user') {
+    }
+    const useAppointmentReply = appointmentRoute && ['group', 'user'].includes(type);
+    if (useAppointmentReply || (ssoEnabled && !groupLogin && type === 'user')) {
       const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
       const sender = await resolveMessagesSendMailbox(agencyId);
-      if (Number(sender.identity?.agency_id) !== Number(agencyId) || Number(sender.identity?.is_active) === 0) {
+      if (Number(sender.identity?.agency_id) !== Number(agencyId) || Number(sender.identity?.is_active) === 0
+        || (useAppointmentReply && !/^messages@itsco\.health$/i.test(sender.fromEmail))) {
         throw Object.assign(new Error('The tenant messages sender is unavailable.'), { status: 400 });
       }
-      return { ...sender, inbox: ownInbox, replyTo: sender.fromEmail, displayName: ownInbox.display_name || identity.display_name, routing: 'workspace_user' };
+      return { ...sender, inbox: ownInbox, replyTo: useAppointmentReply ? workAddress : sender.fromEmail,
+        displayName: ownInbox.display_name || identity.display_name, routing: useAppointmentReply ? 'appointment_email' : 'workspace_user' };
+    }
+    if (appointmentRoute) {
+      throw Object.assign(new Error('Configure your verified ITSCO work address to receive replies.'), { status: 400 });
     }
     if (!personal) return resolveEmailSendMailbox({ agencyId, userId, inbox: ownInbox });
   }
