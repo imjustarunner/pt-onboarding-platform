@@ -1053,3 +1053,20 @@ describe('interview microphone permission lifecycle', () => {
     if (allowed) expect(track.stop).toHaveBeenCalled();
   });
 });
+
+it('requests new booked-session credentials before reconnecting after a timeout',async()=>{
+ vi.useFakeTimers();
+ let wrapper;
+ const renewCredentials=vi.fn(async()=>{await wrapper.setProps({token:'eyJ.fresh.token'});});
+ wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'booked-visit',token:'eyJ.expired.token',renewCredentials,playJoinTone:false}});
+ try {
+  await flushPromises();await vi.dynamicImportSettled();
+  const first=videoSdk.session;
+  await vi.advanceTimersByTimeAsync(30001);await flushPromises();
+  await wrapper.videoDOM.findAll('button').find(b=>b.text()==='Retry').trigger('click');
+  await flushPromises();await vi.dynamicImportSettled();
+  expect(renewCredentials).toHaveBeenCalledTimes(1);
+  expect(first.connect).toHaveBeenCalledTimes(1);
+  expect(videoSdk.session.connect).toHaveBeenCalledWith('eyJ.fresh.token',expect.any(Function));
+ } finally {wrapper.unmount();vi.useRealTimers();}
+});

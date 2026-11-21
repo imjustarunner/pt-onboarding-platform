@@ -15,7 +15,7 @@ export function tutoringFamilyDraftMetadata(note,input) {
   if(typeof input[field]!=='string'||input[field].length>20000)throw fail('Keep each family summary field within 20,000 characters.',400);
   summary[field]=input[field];
  }
- return {...(note?.metadata_json||{}),familySummaryDraft:maybeEncryptNotePayload(JSON.stringify(summary)),familySummaryGoalIds:input.goalIds||[]};
+ return {...(note?.metadata_json||{}),familySummaryDraft:maybeEncryptNotePayload(JSON.stringify(summary)),shareSkillObservations:input.shareSkillObservations===true,familySummaryGoalIds:input.goalIds||[]};
 }
 export function tutoringSummaryInput(input={}) {
  const result={};
@@ -25,19 +25,31 @@ export function tutoringSummaryInput(input={}) {
  }
  return result;
 }
-export async function publishTutoringNote(ctx,session,note,input,db=pool){
+const familyRatingLabels = new Map([
+ ['needs_review','Needs more practice'], ['developing','Solved with support'], ['secure','Solved independently']
+]);
+function familySkillObservations(items) {
+ return items.filter(item => item.skill && familyRatingLabels.has(item.rating)).map(item => ({
+  skill: item.skill, grade: item.grade || null, observation: familyRatingLabels.get(item.rating)
+ }));
+}
+export async function publishTutoringNote(ctx,session,note,input,db=pool,reviewedItems=[]){
  if(!ctx.host)throw fail('Only the assigned tutor can sign this summary.',403);
  if(input.signatureConfirmed!==true)throw fail('Review this family summary and confirm your own signature.',400);
  const fields=tutoringSummaryInput(input);
  const [[existing]]=await db.execute('SELECT * FROM tutoring_note_publications WHERE note_id=?',[note.id]);
- if(existing){const snapshot=JSON.parse(maybeDecryptNotePayload(existing.snapshot_json));if(JSON.stringify(snapshot.summary)!==JSON.stringify(fields))throw fail('This signed summary is read-only. Its original content has been kept.');return {id:Number(existing.id),signedAt:utcMysqlToIso(existing.signed_at),summary:snapshot.summary};}
+ if(existing){const snapshot=JSON.parse(maybeDecryptNotePayload(existing.snapshot_json));if(Object.entries(fields).some(([key,value]) => snapshot.summary[key] !== value))throw fail('This signed summary is read-only. Its original content has been kept.');return {id:Number(existing.id),signedAt:utcMysqlToIso(existing.signed_at),summary:snapshot.summary};}
  if(['no_show_pending','no_show','late_canceled','canceled','canceled_by_client','canceled_by_provider','canceled_by_guardian','rescheduled','voided'].includes(ctx.appointment.status))throw fail('This appointment has no attended service to share. Review its attendance first.');
  if(!session.actual_started_at||!session.actual_ended_at)throw fail('End the attended session before signing and sharing its summary. Draft notes can be saved beforehand.');
  const snapshot={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,sessionId:session.id,subject:ctx.appointment.learningContext?.subjectLabel||'General',startAt:utcMysqlToIso(session.actual_started_at),endAt:utcMysqlToIso(session.actual_ended_at),scheduledStartAt:utcMysqlToIso(ctx.appointment.startAt),scheduledEndAt:utcMysqlToIso(ctx.appointment.endAt),summary:fields,goalIds:note.metadata_json?.familySummaryGoalIds||note.metadata_json?.goalIds||[],studentSubjectId:session.student_subject_id||null,learningPlanId:note.learning_plan_id||null,authorUserId:ctx.req.user.id};
+ if (input.shareSkillObservations === true && reviewedItems.length) {
+  const observations = familySkillObservations(reviewedItems);
+  if (observations.length) snapshot.summary.skillObservations = observations;
+ }
  const json=JSON.stringify(snapshot),hash=crypto.createHash('sha256').update(json).digest('hex');
  const [saved]=await db.execute('INSERT INTO tutoring_note_publications(note_id,appointment_id,session_id,agency_id,client_id,author_user_id,snapshot_json,payload_hash) VALUES (?,?,?,?,?,?,?,?)',[note.id,ctx.appointment.id,session.id,ctx.appointment.agencyId,ctx.clientId,ctx.req.user.id,maybeEncryptNotePayload(json),hash]);
  await db.execute("UPDATE tutoring_session_notes SET status='signed',saved_at=COALESCE(saved_at,UTC_TIMESTAMP()),saved_by_user_id=?,updated_by_user_id=? WHERE id=?",[ctx.req.user.id,ctx.req.user.id,note.id]);
- return {id:Number(saved.insertId),summary:fields};
+ return {id:Number(saved.insertId),summary:snapshot.summary};
 }
 export async function listPublishedTutoringSummaries(clientId,{agencyId,providerId=null,serviceId=null}={},db=pool){
  if(!agencyId||providerId===0)return [];

@@ -3,6 +3,7 @@
   <header><img v-if="logo" :src="logo" :alt="brand" /><div><p class="brand-name">{{brand}}</p><h1>Session Hub</h1><p><span v-if="state?.studentName">{{state.studentName}} · </span>{{state?.title || 'Tutoring session'}} · {{inPerson?'In person':'Virtual'}}</p><p v-if="state">Appointment #{{ state.appointmentId }} · {{ scheduleLabel }} · {{ statusLabel }}</p></div><button v-if="video" class="focus-toggle" type="button" :aria-pressed="focused" @click="focused=!focused">{{focused?"Show session panels":"Focus on lesson"}}</button><router-link :to="backPath">Back to {{ state?.host ? 'my schedule' : 'my portal' }}</router-link></header>
   <p v-if="loading" role="status">Checking your booked session…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="refresh">Try again</button></p>
+  <p v-if="reconnectError && video && !closed" role="alert">{{ reconnectError }} <button type="button" :disabled="busy" @click="reconnect()">Retry connection</button></p>
   <template v-if="state">
    <AppointmentNoShowStatus v-if="state.host" :appointment-id="Number(state.appointmentId)" :resolved-attendance="ended&&!!state.startedAt" :time-zone="state.timeZone" @undone="refresh" @changed="refresh" />
    <p v-if="state.unavailableReason" role="alert">{{state.unavailableReason}}</p>
@@ -13,11 +14,12 @@
     <h2>Session summary</h2>
     <h3>Worked on</h3><p>{{ state.familySummary.summary.workedOn }}</p>
     <h3>How it went</h3><p>{{ state.familySummary.summary.howItWent }}</p>
+<section v-if="state.familySummary.summary.skillObservations?.length"><h4>Skills practiced</h4><ul><li v-for="(item,index) in state.familySummary.summary.skillObservations" :key="index">{{item.skill}}{{item.grade ? ' · Grade ' + item.grade : ''}} · {{item.observation}}</li></ul></section>
     <h3>Practice at home</h3><p>{{ state.familySummary.summary.homePractice }}</p>
     <small>Shared by {{ state.familySummary.authorName }} · {{ formatTime(state.familySummary.signedAt) }}</small>
    </section>
    <div class="hub-layout" :class="{'hub-layout--host':state.host}">
-    <details v-if="state.host" class="hub-context" :open="false"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{entry.activePlan?.title || 'Learning plan awaiting review'}}<span v-if="entry.activePlan && !hasApprovedPlan"> · Draft for tutor review</span></p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
+    <details v-if="state.host" class="hub-context" :open="false"><summary>This student’s learning</summary><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h2>{{entry.subject.subject_label}}</h2><p>{{entry.activePlan?.title || learningContext?.tracks?.find(t=>t.subject.id===entry.subject.id)?.draftTitle || 'No learning plan yet'}}<span v-if="!hasApprovedPlan && (entry.activePlan || learningContext?.tracks?.some(t=>t.subject.id===entry.subject.id && t.draftTitle))"> · Draft for tutor review</span></p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p><details><summary>Previous session notes</summary><article v-for="prior in (entry.recentNotes||[]).filter(n=>Number(n.session_id)!==Number(state.sessionId))" :key="prior.id"><p>{{prior.summary}}</p><p>{{prior.homework}}</p></article></details></section><p v-if="!learningContext?.subjects?.length">No subject track is assigned yet. General tutoring notes can still be saved.</p></details>
     <div class="hub-work">
    <div v-if="!inPerson&&!video&&!closed" class="lesson-lobby">
     <div><span class="lobby-label">Virtual tutoring</span>
@@ -30,14 +32,14 @@
    <template v-if="!closed">
     <button v-if="canDeclareNoShow" type="button" @click="openNoShow">Mark no-show</button>
     <button v-if="state.host&&!inPerson" @click="copyJoinLink">Copy this appointment’s join link</button>
-    <button v-if="!inPerson&&!video && !wantsJoin" class="primary" :disabled="busy||!state.available" @click="join">{{ state.host ? 'Open this tutoring room' : 'Join this tutoring session' }}</button>
+    <button v-if="!inPerson&&!video && !wantsJoin && !windowExpired" class="primary" :disabled="busy||!state.available" @click="join">{{ state.host ? 'Open this tutoring room' : 'Join this tutoring session' }}</button>
     <label v-if="manualJoinLink">Appointment link<input :value="manualJoinLink" readonly @focus="$event.target.select()"></label><span role="status">{{linkNotice}}</span>
     <p v-if="wantsJoin&&!video" role="status">{{ state.host ? 'Connecting your camera and microphone…' : state.visit?.status==='admitted' ? 'Connecting to your tutoring session…' : 'You are in this appointment’s waiting room. Your tutor will admit you.' }}</p>
     </template></div><template v-if="!closed">
    <details v-if="state.host&&!inPerson" class="attendance" aria-label="Tutoring attendance" :open="!video||waiting.length>0"><summary>Waiting room · Appointment #{{state.appointmentId}}<span v-if="waiting.length"> · {{waiting.length}} waiting</span></summary><p v-if="!waiting.length">No participants are waiting for this appointment.</p><article v-for="visit in waiting" :key="visit.id"><span>{{visit.displayName}}</span><button :disabled="busy||!connected" @click="admit(visit.id)">Admit to this session</button></article><p v-for="visit in admitted" :key="visit.id">{{visit.displayName}} · Admitted {{formatTime(visit.admittedAt)}}</p><button v-if="state.sessionId&&!ended&&!connected" :disabled="busy" @click="confirmingEnd=true">End this tutoring session</button><details v-if="state.visits?.length"><summary>Attendance history</summary><p v-for="visit in state.visits" :key="visit.id">{{visit.displayName}} · {{visit.status}} · Admitted {{formatTime(visit.admittedAt)}} · Left {{formatTime(visit.endedAt)}} · Connected video: {{visit.mediaDurationSeconds==null?'Not confirmed':`${visit.mediaDurationSeconds} seconds`}}</p></details></details>
     <button v-if="inPerson&&state.host&&!state.startedAt" :disabled="busy" @click="startInPerson">Start in-person session</button><button v-if="inPerson&&state.host&&state.startedAt" :disabled="busy" @click="confirmingEnd=true">End this tutoring session</button>
     <InPersonTutoringSessionView v-if="inPerson&&state.host&&state.sessionId" :session-id-override="state.sessionId" embedded />
-    <TherapySessionWorkspace v-if="video" :key="video.sessionId" :video="video" :is-host="state.host" :defer-alone-warning="waitingForAdmittedConnection" :started-at="state.startedAt" :branding="state.branding" product-name="Tutoring" learning :show-brand="false" :learning-context="learningContext" :rate-activity="state.host ? rateActivity : undefined" :generate-question="state.host ? generateQuestion : undefined" :materials="materials" :read-material="readMaterial" :request="workspaceRequest" @connected="connected=true" @disconnected="reconnect" @meeting-ended="reconnect" @leave-request="state.host ? confirmingEnd=true : leave()" />
+    <TherapySessionWorkspace v-if="video" :key="video.sessionId" :video="{...video, renewCredentials: renewVideo}" :is-host="state.host" :defer-alone-warning="waitingForAdmittedConnection" :started-at="state.startedAt" :branding="state.branding" product-name="Tutoring" learning :show-brand="false" :learning-context="learningContext" :rate-activity="state.host ? rateActivity : undefined" :generate-question="state.host ? generateQuestion : undefined" :materials="materials" :read-material="readMaterial" :request="workspaceRequest" @connected="connected=true" @disconnected="reconnect" @meeting-ended="refresh" @leave-request="state.host ? confirmingEnd=true : leave()" />
    </template>
     </div>
     <details v-if="state.host && (!closed || ended)" class="hub-note" :open="false"><summary>Session notes &amp; activity</summary><details v-if="state.sessionId&&hasApprovedPlan"><summary>Learning plan results</summary><TutoringSessionLearningPanel :key="`${state.sessionId}-${noteVersion}`" :client-id="state.clientId" :agency-id="state.agencyId" :session-id="state.sessionId" :request="request" :session-type="inPerson?'in_person':'virtual'" /></details><TutoringSessionNoteEditor :key="appointmentId" :appointment-id="appointmentId" :params="params()" :request="request" :ended="ended&&!!state.startedAt" :goals="allGoals" @shared="noteVersion++" /></details>
@@ -59,6 +61,7 @@ import {useRoute} from 'vue-router';
 import {useAgencyStore} from '../../store/agency';
 import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 import TherapySessionWorkspace from '../../components/meetings/TherapySessionWorkspace.vue';
+import {startLiveMeetingPresence} from '../../utils/liveMeetingPresence';
 import api from '../../services/api';
 const route=useRoute(),agencies=useAgencyStore();
 const appointmentChange=useAppointmentChange();
@@ -75,7 +78,7 @@ const state=ref(null),loading=ref(true),error=ref(''),video=ref(null),connected=
 const learningContext=ref(null),contextError=ref(''),noteVersion=ref(0);
 const inPerson=computed(()=>String(state.value?.modality).toUpperCase()==='IN_PERSON');
 const hasApprovedPlan=computed(()=>(learningContext.value?.tracks||[]).some(t=>t.bundle));
-const allGoals=computed(()=>(learningContext.value?.subjects||[]).flatMap(s=>s.goals||[]).filter(g=>Number(g.id)>0));
+const allGoals=computed(()=>(learningContext.value?.tracks||[]).flatMap(track=>track.bundle?.goals||[]).filter(g=>Number(g.id)>0));
 
 let appointmentId=Number(route.params.appointmentId),timer,stopped=false,polling=false,refreshQueued=false;
 const scopedAgency=computed(()=>Number(agencies.currentAgency?.id)===Number(state.value?.agencyId)?agencies.currentAgency:null);
@@ -91,6 +94,7 @@ const ended=computed(()=>state.value?.status==='ended'||state.value?.status==='c
 const closed=computed(()=>ended.value||state.value?.closed===true||!!state.value?.unavailableReason);
 const statusLabel=computed(()=>state.value?.displayStatus||(ended.value?'Ended':state.value?.status==='live'||state.value?.status==='in_progress'?'In progress':'Scheduled'));
 const formatTime=value=>value?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:state.value?.timeZone||'America/Denver',timeZoneName:'short'}).format(new Date(String(value).includes('T')?value:String(value).replace(' ','T')+'Z')):'—';
+const windowExpired=computed(()=>state.value && Date.now()>Date.parse(state.value.closesAt));
 const windowMessage=computed(()=>Date.now()>Date.parse(state.value?.closesAt)
  ? 'The join window for this tutoring session has closed.'
  : `This tutoring room opens ${formatTime(state.value?.opensAt)}, 30 minutes before the appointment.`);
@@ -101,16 +105,78 @@ const params=()=>scopedParams.value;
 const contextKey=()=>`${appointmentId}:${JSON.stringify(params())}`;
 const request=async(suffix,method='get',body,options={})=>{const key=contextKey();const r=await api({...options,url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true});if(stopped||key!==contextKey())throw Object.assign(new Error('Session context changed.'),{stale:true});return r.data;};
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
-async function refresh(){if(stopped||!appointmentId||!canPollWorkspace())return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{state.value=await request('');error.value='';if(closed.value){video.value=null;connected.value=false;wantsJoin.value=false;}else if(wantsJoin.value&&!state.value.host&&!video.value){if((!state.value.visit||state.value.visit.status==='ended')&&state.value.sessionId)await request('/join','post');else if(state.value.visit?.status==='admitted')video.value=await request('/token','post');}
+// Keep a successful admitted board session active even while a device is reconnecting.
+let stopPresence, presenceExpiry;
+const reconnectError = ref('');
+let mediaPaused = false;
+function clearPresence() {
+ clearTimeout(presenceExpiry);
+ stopPresence?.();
+ stopPresence = null;
+}
+function updatePresence() {
+ const room = state.value;
+ if (mediaPaused || !wantsJoin.value || !video.value || closed.value || !room?.available ||
+     !(room.host ? room.roomState === 'active' && admitted.value.length : room.visit?.status === 'admitted')) {
+  clearPresence();
+  return;
+ }
+ stopPresence ||= startLiveMeetingPresence();
+ clearTimeout(presenceExpiry);
+ presenceExpiry = setTimeout(clearPresence, 20000);
+}
+function joinMarker() {
+ const login = localStorage.getItem('sessionId');
+ return login ? 'tutoring-joined/' + login + '/' + contextKey() : null;
+}
+function rememberJoin(value) {
+ try {
+  const key = joinMarker();
+  if (key) value ? sessionStorage.setItem(key, '1') : sessionStorage.removeItem(key);
+ } catch { /* Browser storage is optional. */ }
+}
+function previouslyJoined() {
+ try { const key = joinMarker(); return key && sessionStorage.getItem(key) === '1'; }
+ catch { return false; }
+}
+async function refresh(){if(stopped||!appointmentId||!canPollWorkspace())return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{state.value=await request('');error.value='';if(closed.value || (video.value && !state.value.host && state.value.visit?.status !== 'admitted')){clearPresence();rememberJoin(false);video.value=null;connected.value=false;wantsJoin.value=false;}else if(!wantsJoin.value && previouslyJoined() && state.value.available &&
+ (state.value.host ? state.value.roomState==='active' : state.value.visit?.status==='admitted')){
+ wantsJoin.value=true;
+ try { await renewVideo(); } catch(e){wantsJoin.value=false;rememberJoin(false);throw e;}
+ }else if(wantsJoin.value&&!state.value.host&&!video.value){if(state.value.visit?.status==='ended'){wantsJoin.value=false;rememberJoin(false);}else if(state.value.visit?.status==='admitted')await renewVideo();}
+ updatePresence();
  if(state.value.host&&!learningContext.value){try{learningContext.value=await request('/learning-context');contextError.value='';}catch{contextError.value='Learning context could not be loaded. Retry from this appointment.';}}
- }catch(e){if(e.stale||key!==contextKey())return;if([401,403,404,410].includes(e.response?.status)){state.value=null;learningContext.value=null;video.value=null;connected.value=false;wantsJoin.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;if(refreshQueued){refreshQueued=false;void refresh();}}}
+ }catch(e){if(e.stale||key!==contextKey())return;if([401,403,404,410].includes(e.response?.status)){clearPresence();state.value=null;learningContext.value=null;video.value=null;connected.value=false;wantsJoin.value=false;}error.value=e.response?.data?.error?.message||e.message;}finally{polling=false;if(refreshQueued){refreshQueued=false;void refresh();}}}
 async function action(fn){if(busy.value)return;const key=contextKey();busy.value=true;error.value='';try{await fn();}catch(e){if(!e.stale&&key===contextKey())error.value=e.response?.data?.error?.message||e.message;}finally{if(key===contextKey())busy.value=false;}}
-async function join(){await action(async()=>{const data=await request('/join','post');wantsJoin.value=true;if(data.token)video.value=data;await refresh();});}
+async function join(){await action(async()=>{const data=await request('/join','post');wantsJoin.value=true;rememberJoin(true);if(data.token)video.value=data;await refresh();});}
 async function startInPerson(){await action(async()=>{await request('/start-in-person','post');await refresh();});}
 async function admit(id){await action(async()=>{await request(`/admit/${id}`,'post');await refresh();});}
-async function reconnect(){connected.value=false;video.value=null;await refresh();if(!closed.value&&wantsJoin.value)await action(async()=>{video.value=await request('/token','post');});}
-async function leave(){await action(async()=>{await request('/leave','post');video.value=null;wantsJoin.value=false;connected.value=false;await refresh();});}
-async function finish(){await action(async()=>{const data=await request('/end','post');video.value=null;connected.value=false;wantsJoin.value=false;confirmingEnd.value=false;billingWarning.value=data.billingWarning||'';await refresh();});}
+let tokenRequest = null;
+async function renewVideo() {
+ const key = contextKey();
+ if (tokenRequest?.key === key) return tokenRequest.pending;
+ mediaPaused = false;
+ reconnectError.value = '';
+ if (!wantsJoin.value || closed.value) throw new Error('Reopen the session from your appointment.');
+ const pending = request('/token', 'post').then(data => {
+  if (!wantsJoin.value || closed.value || stopped || key !== contextKey()) throw new Error('Session changed.');
+  video.value = data;
+ });
+ tokenRequest = { key, pending };
+ try { await pending; } finally { if (tokenRequest?.pending === pending) tokenRequest = null; }
+}
+async function reconnect(event) {
+ connected.value = false;
+ if (event?.reason === 'alone-timeout') { mediaPaused = true; clearPresence(); return; }
+ if (!wantsJoin.value || closed.value) return;
+ const key = contextKey();
+ try { await renewVideo(); }
+ catch (e) {
+  if (!stopped && wantsJoin.value && key === contextKey()) reconnectError.value = e.response?.data?.error?.message || 'The video connection was interrupted. Your lesson is still open.';
+ }
+}
+async function leave(){await action(async()=>{await request('/leave','post');rememberJoin(false);clearPresence();video.value=null;wantsJoin.value=false;connected.value=false;await refresh();});}
+async function finish(){await action(async()=>{const data=await request('/end','post');rememberJoin(false);clearPresence();video.value=null;connected.value=false;wantsJoin.value=false;confirmingEnd.value=false;billingWarning.value=data.billingWarning||'';await refresh();});}
 const rateActivity=(targetId,rating)=>request('/lesson-review','post',{targetId,rating,requestId:crypto.randomUUID()});
 const generateQuestion=input=>request('/board-draft','post',input);
 async function readMaterial(id){
@@ -132,9 +198,9 @@ async function copyJoinLink(){
  catch(e){if(!e.stale)linkNotice.value='The appointment link could not be loaded. Try again.';}
 }
 onMounted(async()=>{try{if(!appointmentId&&route.params.sessionId){const {data}=await api.get(`/learning-class-sessions/sessions/${Number(route.params.sessionId)}`);appointmentId=Number(data.appointmentId);}if(!appointmentId)throw new Error('Open this session from its booked appointment. Ask Support to review any older unlinked visit.');await refresh();if(state.value?.host&&inPerson.value&&!closed.value&&!state.value.sessionId){await request('/prepare','post');await refresh();}timer=setInterval(refresh,5000);}catch(e){error.value=e.response?.data?.error?.message||e.message;}finally{loading.value=false;}});
-watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId,route.query.agencyId],()=>{appointmentId=Number(route.params.appointmentId);manualJoinLink.value='';linkNotice.value='';materials.value=[];focused.value=false;state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
+watch(()=>[route.params.appointmentId,route.query.clientId,route.query.serviceId,route.query.agencyId],()=>{clearPresence();reconnectError.value='';mediaPaused=false;appointmentId=Number(route.params.appointmentId);manualJoinLink.value='';linkNotice.value='';materials.value=[];focused.value=false;state.value=null;learningContext.value=null;contextError.value='';video.value=null;connected.value=false;wantsJoin.value=false;busy.value=false;error.value='';void refresh();});
 useSessionPolling(refresh);
-onBeforeUnmount(()=>{stopped=true;clearInterval(timer);});
+onBeforeUnmount(()=>{clearPresence();stopped=true;clearInterval(timer);});
 </script>
 <style scoped>
 .hub-layout{display:grid;gap:16px}.hub-layout--host{grid-template-columns:230px minmax(0,1fr) 310px;align-items:start}.hub-context{border:1px solid #ccdce7;border-radius:12px;padding:14px;overflow-wrap:anywhere}.hub-work{min-width:0}.hub-context h2{font-size:17px}.hub-context summary{cursor:pointer;font-weight:700}.hub-layout--host :deep(.therapy-main .therapy-video){max-height:230px}.hub-layout--host :deep(.therapy-layout.has-share .therapy-video){max-height:150px}@media(max-width:1150px){.hub-layout--host{grid-template-columns:1fr}.hub-context{max-height:250px;overflow:auto}}

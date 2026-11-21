@@ -13,7 +13,7 @@
       <p v-if="listError" role="alert">{{ listError }} <button type="button" @click="loadSaved">Retry</button></p>
       <p v-else-if="listLoading" role="status">Loading your stickies…</p>
       <ul v-else-if="savedStickies.length"><li v-for="sticky in savedStickies" :key="sticky.id">{{ sticky.title }}</li></ul>
-      <p v-else>No saved stickies.</p>
+      <p v-else-if="listLoaded">No saved stickies.</p>
     </details>
   </div>
 </template>
@@ -28,10 +28,12 @@ const props = defineProps({ label: { type: String, default: 'Add a sticky' }, sh
 const auth = useAuthStore();
 const open = ref(false), title = ref(''), titleInput = ref(null), saving = ref(false), error = ref(''), notice = ref('');
 
+const listLoaded = ref(false);
 const savedStickies = ref([]), listError = ref(''), listLoading = ref(false);
 let listRequest = 0;
 watch(() => auth.user?.id, () => {
   listRequest++;
+  listLoaded.value = false;
   savedStickies.value = [];
   listError.value = '';
   listLoading.value = false;
@@ -49,7 +51,10 @@ async function loadSaved() {
   listError.value = '';
   try {
     const { data } = await api.get(`/users/${userId}/momentum-stickies`, { skipGlobalLoading: true });
-    if (request === listRequest && Number(auth.user?.id) === userId) savedStickies.value = Array.isArray(data) ? data : [];
+    if (request === listRequest && Number(auth.user?.id) === userId) {
+      savedStickies.value = Array.isArray(data) ? data : [];
+      listLoaded.value = true;
+    }
   } catch {
     if (request === listRequest) listError.value = 'Your saved stickies could not be loaded.';
   } finally {

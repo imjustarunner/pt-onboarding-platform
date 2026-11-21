@@ -1,3 +1,4 @@
+import { clinicalNoteModelOptions } from '../config/clinicalNoteModel.js';
 import { callPrivateSessionText } from './sessionAiPrivacy.service.js';
 
 function extractJsonObject(text) {
@@ -23,7 +24,7 @@ function extractJsonObject(text) {
  * Call Gemini for tutoring drafts. Falls back to null so callers can use rules-v1.
  * Never diagnoses disabilities; returns structured JSON only.
  */
-export async function callTutoringAiJson({ prompt, temperature = 0.3, maxOutputTokens = 1400 }) {
+export async function callTutoringAiJson({ prompt, temperature = 0.3, maxOutputTokens = 1400, useSessionWriter = false }) {
   const guarded = [
     'You assist tutors with instructional planning for a private tutoring program in Colorado.',
     'Hard rules:',
@@ -38,6 +39,7 @@ export async function callTutoringAiJson({ prompt, temperature = 0.3, maxOutputT
   try {
     const generated = await callPrivateSessionText({
       prompt: guarded,
+      ...(useSessionWriter ? { ...clinicalNoteModelOptions(), jsonMode: true } : {}),
       temperature,
       maxOutputTokens
     });
@@ -60,7 +62,7 @@ export async function callTutoringAiJson({ prompt, temperature = 0.3, maxOutputT
     };
   } catch (err) {
     console.warn('[tutoringAi] Secure writing unavailable; using rules fallback.');
-    return { ok: false, error: 'Secure writing unavailable', draft: null };
+    return { ok: false, error: 'Secure writing unavailable', privacyReason: err?.code === 'SESSION_PRIVACY_UNAVAILABLE' ? err.details?.reason : undefined, draft: null };
   }
 }
 

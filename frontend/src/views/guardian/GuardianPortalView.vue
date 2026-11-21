@@ -784,14 +784,17 @@ const selectedServiceId=ref(Number(route.query.serviceId)||null);
 const familyMessageServiceKind=ref('');
 const rememberedServiceByProfile=new Map();
 const selectedServices=computed(()=>children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value))?.services||[]);
-const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||selectedServices.value[0]||null);
+function defaultFamilyService(services) {
+ return services.find(s => Number(s.provider_user_id) > 0 && Number(s.is_active ?? 1) === 1) || services[0] || null;
+}
+const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||defaultFamilyService(selectedServices.value));
 // The saved active child can differ from a deep link's child while overview
 // loads. Normalize only after that context is settled, keeping the URL service.
 watch([selectedServices,loading,()=>route.query.serviceId],([services,isLoading,requested])=>{
   if(isLoading)return;
   const fromUrl=services.find(service=>Number(service.id)===Number(requested));
   if(fromUrl)selectedServiceId.value=Number(fromUrl.id);
-  else if(!services.some(service=>Number(service.id)===Number(selectedServiceId.value)))selectedServiceId.value=Number(services[0]?.id)||null;
+  else if(!services.some(service=>Number(service.id)===Number(selectedServiceId.value)))selectedServiceId.value=Number(defaultFamilyService(services)?.id)||null;
 });
 const portalCareContext=computed(()=>({clientId:selectedChildId.value,agencyId:currentAgencyId.value,serviceId:selectedService.value?.id,serviceKind:selectedService.value?.service_kind}));
 provide('portalCareContext',portalCareContext);
@@ -953,7 +956,7 @@ async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId 
   const remembered=rememberedServiceByProfile.get(`${aid}:${profile.client_id}`);
   const wanted=Number(serviceId)||remembered;
   const services=contexts.find(c=>Number(c.agency_id)===Number(aid))?.services||[];
-  const service=services.find(s=>Number(s.id)===Number(wanted))||services[0];selectedServiceId.value=Number(service?.id)||null;
+  const service=services.find(s=>Number(s.id)===Number(wanted))||defaultFamilyService(services);selectedServiceId.value=Number(service?.id)||null;
   if(selectedServiceId.value)rememberedServiceByProfile.set(`${aid}:${profile.client_id}`,selectedServiceId.value);
   activePanel.value = panel || ((service?service.service_kind==='tutoring':['learning','tutoring'].includes(profile.client_type)) ? 'tutoring' : 'overview');
   await router.replace({path:`/${encodeURIComponent(agency.slug)}/guardian`,query:{portal:agency.slug,clientId:profile.client_id,serviceId:selectedServiceId.value||undefined,panel:activePanel.value}});

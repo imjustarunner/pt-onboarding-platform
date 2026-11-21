@@ -1,6 +1,13 @@
 import {appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 const escape=value=>String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function providerTutoringOutcomeUrl(portalUrl, appointmentId) {
+ const url = new URL(portalUrl);
+ const tenant = url.pathname.match(/^\/([a-z0-9_-]+)\/guardian(?:\/|$)/i)?.[1];
+ url.pathname = (tenant ? '/' + tenant : '') + '/tutoring-session/appointment/' + appointmentId;
+ url.search = ''; url.hash = '';
+ return url.href;
+}
 export function buildTutoringMissedNotice(appointment,portalUrl,{parentFirstName,studentFirstName,tutorFirstName,providerCopy=false}={}){
  const zone=appointment.sourceTimezone||'America/Denver',when=new Intl.DateTimeFormat('en-US',{timeZone:zone,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(parseUtcDate(appointment.startAt));
  const student=studentFirstName||'your child',tutor=tutorFirstName||'Your tutor',service=appointmentServiceLabel(appointment);

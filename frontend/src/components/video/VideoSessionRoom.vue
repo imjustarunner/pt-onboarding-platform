@@ -30,7 +30,7 @@
         <li v-for="(hint, i) in diagnosticHints" :key="i">{{ hint }}</li>
       </ul>
       <div class="vsr__error-actions">
-        <button type="button" class="vsr__btn vsr__btn--primary" @click="retryConnect">Retry</button>
+        <button type="button" class="vsr__btn vsr__btn--primary" :disabled="renewing" @click="retryConnect">Retry</button>
         <button
           v-if="canRecreateRoom"
           type="button"
@@ -57,7 +57,7 @@
       <h2>You left the video room</h2>
       <p>No one else joined while you were waiting. Your camera, microphone, and video connection have stopped.</p>
       <p>The meeting is still open. You can rejoin when someone is ready.</p>
-      <button type="button" class="vsr__btn" @click="emit('request-rejoin')">Rejoin meeting</button>
+      <button type="button" class="vsr__btn" @click="renewCredentials ? retryConnect() : emit('request-rejoin')">Rejoin meeting</button>
     </section>
     <div v-if="aloneWait.phase === 'prompt'" class="vsr__alone-prompt" role="alertdialog" aria-labelledby="alone-wait-title" aria-describedby="alone-wait-body">
       <h2 id="alone-wait-title">Waiting for someone?</h2>
@@ -632,6 +632,7 @@ const props = defineProps({
   controlsTarget: { type: String, default: '' },
   layout: { type: String, default: 'standard' }, // standard | strip
   autoConnect: { type: Boolean, default: true },
+  renewCredentials: Function,
   /** When alone, fill the main stage with self-view instead of a tiny PiP. */
   promoteLocalWhenAlone: { type: Boolean, default: true },
   /** When someone else joins, use equal side-by-side tiles (not a tiny corner PiP). */
@@ -2850,7 +2851,7 @@ async function connect() {
           }); }
         );
         pendingConnectPublishers.add(nextPublisher);
-      }), 'Starting camera and microphone');
+      }), 'Starting camera and microphone', props.renewCredentials ? 90000 : undefined);
       if (!current()) return null;
       pub?.on?.('videoElementCreated', (event) => {
         silenceLocalPublisherMedia(event?.element || event?.videoElement || null);
@@ -3623,8 +3624,18 @@ function toggleCamera() {
   }
 }
 
-function retryConnect() {
-  connect();
+const renewing = ref(false);
+async function retryConnect() {
+  if (!props.renewCredentials) return connect();
+  if (renewing.value) return;
+  renewing.value = true;
+  try {
+    await props.renewCredentials(); // The token watcher starts the new connection.
+  } catch (error) {
+    errorMessage.value = error.response?.data?.error?.message || 'Could not reconnect to this appointment. Check your connection and try again.';
+  } finally {
+    renewing.value = false;
+  }
 }
 
 function retryWithNewRoom() {

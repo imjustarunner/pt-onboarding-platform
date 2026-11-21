@@ -11,7 +11,7 @@
     <p v-if="pollError" role="alert">{{ pollError }} <button @click="refresh">Reconnect</button></p>
     <div class="therapy-layout" :class="{'has-share': shared && shared.payload.mode !== 'video', 'side-open':panel}">
       <div class="therapy-main">
-        <div class="therapy-video"><slot name="video"><VideoSessionRoom ref="videoRef" v-bind="video" :hide-controls="true" :server-managed-end="true" :defer-alone-warning="deferAloneWarning" :equal-tiles-when-remote="true" @screen-sharing-change="onScreenSharing" :is-host-or-cohost="isHost" :show-layout-controls="true" @connected="$emit('connected')" @disconnected="$emit('disconnected')" @leave-request="$emit('leave-request')" @meeting-ended="$emit('meeting-ended')" /></slot></div>
+        <div class="therapy-video"><slot name="video"><VideoSessionRoom ref="videoRef" v-bind="video" :hide-controls="true" :server-managed-end="true" :defer-alone-warning="deferAloneWarning" :equal-tiles-when-remote="true" @screen-sharing-change="onScreenSharing" :is-host-or-cohost="isHost" :show-layout-controls="true" @connected="$emit('connected')" @disconnected="$emit('disconnected', $event)" @leave-request="$emit('leave-request')" @meeting-ended="$emit('meeting-ended')" /></slot></div>
         <section v-if="learning && (!shared || shared.payload.mode==='video')" class="learning-ready">
           <Pencil :size="28" aria-hidden="true"/><h2>Shared learning space</h2><p>{{isHost?'Open a whiteboard to model a problem or share a worksheet.':'Your tutor will share the lesson here.'}}</p>
           <button v-if="isHost" type="button" class="primary" @click="shareWhiteboard">Open whiteboard</button>

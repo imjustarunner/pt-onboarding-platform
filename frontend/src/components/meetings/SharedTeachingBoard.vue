@@ -337,8 +337,9 @@ const redoItem = computed(
 const track = computed(() => props.learningContext?.tracks?.[0]),
   goals = computed(() => track.value?.bundle?.goals || []);
 watch(
-  track,
-  (t) => {
+  () => track.value?.subject?.id,
+  () => {
+    const t = track.value;
     grade.value = t?.subject?.school_grade || '';
     skill.value = t?.subject?.subject_label || '';
   },
@@ -394,7 +395,7 @@ async function draft() {
       parameters: parameters.value
     });
     question.value = d.prompt;
-    choices.value = d.options.join('\n');
+    choices.value = (d.options || []).join('\n');
     notify.value = 'Draft ready for your review.';
   } catch (e) {
     composerError.value = e.response?.data?.error?.message || 'Could not generate this question.';

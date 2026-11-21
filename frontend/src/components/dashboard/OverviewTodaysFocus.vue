@@ -73,7 +73,7 @@
           >
             <input type="checkbox" :checked="!!rotateItem?._done" disabled @click.stop />
             <div class="todays-focus__body">
-              <div class="todays-focus__label">{{ rotateItem?.label?.replace(/^Notes: (.+) \(TUTORING\)$/, 'Tutoring notes: $1') }}</div>
+              <div class="todays-focus__label">{{ rotateItem?.label?.replace(/^Notes: (.+?) \(TUTORING\)/i, 'Tutoring notes: $1').replace(/\(TUTORING\)/g, '(Tutoring)') }}</div>
               <div class="todays-focus__tags">
                 <span v-for="tag in rotateItem?.tags || ['Today']" :key="tag" class="tag">{{ tag }}</span>
                 <span class="tag tag--open">Open ↗</span>

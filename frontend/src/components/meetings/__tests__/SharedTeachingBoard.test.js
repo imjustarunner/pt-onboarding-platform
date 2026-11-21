@@ -91,3 +91,21 @@ it('restores each page from its own events without changing the old snapshot', (
   expect(teachingPage([board, prompt, unlock, moved, event(5, 'board_clear', {})], 1).items).toEqual([]);
   expect(teachingPage([board, prompt, unlock, moved], 2).locked).toBe(true);
 });
+
+it('keeps the tutor’s entered level and skill after a failed AI draft and context refresh',async()=>{
+ const track={subject:{id:42,school_grade:'5',subject_label:'Math'}};
+ const generate=vi.fn().mockRejectedValue(new Error('Unavailable'));
+ const {wrapper,save}=mountBoard(true,[board],{generate,learningContext:{tracks:[track]}});
+ try {
+  await button(wrapper,'Insert question').trigger('click');
+  const field=label=>wrapper.findAll('label').find(el=>el.text()===label).get('input');
+  await field('Skill').setValue('Compare unlike denominators');
+  await field('Grade or level').setValue('4');
+  await button(wrapper,'Draft with AI').trigger('click');
+  await flushPromises();
+  await wrapper.setProps({learningContext:{tracks:[{subject:{...track.subject}}]}});
+  expect(field('Skill').element.value).toBe('Compare unlike denominators');
+  expect(field('Grade or level').element.value).toBe('4');
+  expect(save).not.toHaveBeenCalled();
+ } finally {wrapper.unmount();}
+});

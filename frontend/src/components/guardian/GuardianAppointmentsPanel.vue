@@ -22,7 +22,8 @@
     <GuardianServiceExitFeedback v-if="exitFeedbackId&&!preview" :key="`${clientId}:${exitFeedbackId}`" :client-id="clientId" :operation-id="exitFeedbackId" @close="exitFeedbackId='';exitFeedbackDismissed=true" />
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
     <p v-else-if="!error&&!appointments.length">{{ ft("No appointments are scheduled yet. Contact your team to arrange the next visit.") }} <button type="button" @click="$emit('help')">{{ ft("Contact your team") }}</button></p>
-    <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
+    <section v-for="group in appointmentGroups" :key="group.label"><h3>{{ft(group.label)}}</h3>
+    <article v-for="a in group.rows" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : ['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(a.modality) ? ft('Online') : a.modality }} · {{ ft(a.displayStatus||a.status.replaceAll('_',' ')) }}</p>
       <router-link v-if="canJoin(a) && !/^https?:/.test(a.joinUrl)" :to="a.joinUrl" class="join-appointment">{{ ft("Join online appointment →") }}</router-link>
       <a v-if="canJoin(a) && /^https?:/.test(a.joinUrl)" :href="a.joinUrl" target="_blank" rel="noopener noreferrer">{{ft("Join online appointment →")}}</a>
@@ -32,6 +33,7 @@
       <details v-if="a.tutoringSummary">
         <summary>View shared session summary</summary>
         <h4>Worked on</h4><p>{{ a.tutoringSummary.summary.workedOn }}</p>
+<section v-if="a.tutoringSummary.summary.skillObservations?.length"><h4>Skills practiced</h4><ul><li v-for="(item,index) in a.tutoringSummary.summary.skillObservations" :key="index">{{item.skill}}{{item.grade ? ' · Grade ' + item.grade : ''}} · {{item.observation}}</li></ul></section>
         <h4>How it went</h4><p>{{ a.tutoringSummary.summary.howItWent }}</p>
         <h4>Practice at home</h4><p>{{ a.tutoringSummary.summary.homePractice }}</p>
         <small>Shared by {{ a.tutoringSummary.authorName }} · {{ when(a.tutoringSummary.signedAt,a.timeZone) }}</small>
@@ -82,7 +84,7 @@
         </section>
         <button :disabled="busy || !draft(a).reason.trim() || (draft(a).type === 'cancel' && draft(a).review && !draft(a).confirmed)">{{ draft(a).type === 'cancel' ? (!draft(a).review ? ft('Review cancellation') : draft(a).scope === 'future' ? ft('Cancel all future sessions') : ft('Confirm cancellation')) : ft('Request provider approval') }}</button>
       </form>
-    </article>
+    </article></section>
     <GuardianCancellationDialog v-if="cancellationAppointment && !preview" :client-id="clientId" :appointment="cancellationAppointment" :initial-scope="cancellationScope" @close="cancellationAppointment=null" @completed="cancellationCompleted" />
   </section>
 </template>
@@ -144,6 +146,18 @@ const canJoin=a=>{
  const now=Date.now(),start=+appointmentDate(a.startAt),end=+appointmentDate(a.endAt);
  return !!start&&!!end&&now>=start-1800000&&now<=end+1800000&&['scheduled','confirmed','client_confirmed','in_progress'].includes(a.status);
 };
+const appointmentGroups = computed(() => {
+ const pending = [], upcoming = [], history = [];
+ for (const a of appointments.value) {
+  if (a.status === 'reschedule_requested') pending.push(a);
+  else if (!['completed','ended','no_show','no_show_pending','rescheduled','voided','late_canceled'].includes(a.status) && !/^cancel(?:ed|led)/.test(a.status) && +appointmentDate(a.endAt || a.startAt) >= Date.now()) upcoming.push(a);
+  else history.push(a);
+ }
+ const byTime = (a,b) => appointmentDate(a.startAt) - appointmentDate(b.startAt);
+ return [{label:'Upcoming appointments',rows:upcoming.sort(byTime)},
+  {label:'Awaiting rescheduling',rows:pending.sort(byTime)},
+  {label:'Past appointments',rows:history.sort((a,b)=>byTime(b,a))}].filter(group=>group.rows.length);
+});
 const canRequest=a=>!props.preview&&!a.serviceEnded&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
 const cancellationSuggestion=computed(()=>props.preview?null:appointments.value.find(a=>!a.serviceEnded&&a.canEndServices!==false&&a.cancellationHint?.showEndServices)||null);
 const when=(value,timeZone)=>appointmentDate(value).toLocaleString(familyLocale.value,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});

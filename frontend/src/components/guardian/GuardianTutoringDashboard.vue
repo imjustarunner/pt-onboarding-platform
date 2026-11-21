@@ -101,6 +101,7 @@
           </li>
         </ul>
         <p v-if="!(dashboard.upcomingSessions || []).length" class="gtd-muted">No upcoming sessions yet.</p>
+        <template v-if="dashboard.pendingReschedules?.length"><h4>Awaiting rescheduling</h4><ul><li v-for="s in dashboard.pendingReschedules" :key="s.id">{{s.title}} · #{{s.id}} · Originally {{formatWhen(s.starts_at)}}</li></ul></template>
       </section>
 
       <section v-if="progressAllowed" class="gtd-card gtd-assignments">
@@ -134,7 +135,7 @@
 
       <section v-if="progressAllowed" class="gtd-card gtd-summary">
         <h3>Recent session summary</h3><LearningAttendanceHistory :data="dashboard.attendanceHistory" />
-        <article v-for="summary in dashboard.signedSessionSummaries||[]" :key="summary.id"><strong>{{summary.subjectLabel}} tutoring · #{{summary.appointmentId}}</strong><p>{{summary.summary.workedOn}}</p><p>{{summary.summary.howItWent}}</p><p>Practice at home: {{summary.summary.homePractice}}</p><small>Signed by {{summary.authorName}} · {{formatWhen(summary.signedAt)}}</small></article>
+        <article v-for="summary in dashboard.signedSessionSummaries||[]" :key="summary.id"><strong>{{summary.subjectLabel}} tutoring · #{{summary.appointmentId}}</strong><p>{{summary.summary.workedOn}}</p><p>{{summary.summary.howItWent}}</p><section v-if="summary.summary.skillObservations?.length"><h4>Skills practiced</h4><ul><li v-for="(item,index) in summary.summary.skillObservations" :key="index">{{item.skill}}{{item.grade ? ' · Grade ' + item.grade : ''}} · {{item.observation}}</li></ul></section><p>Practice at home: {{summary.summary.homePractice}}</p><small>Signed by {{summary.authorName}} · {{formatWhen(summary.signedAt)}}</small></article>
         <div v-if="latestUpdate">
           <div class="gtd-muted">{{ formatWhen(latestUpdate.at) }} · {{ latestUpdate.subjectLabel }}</div>
           <p>{{ latestUpdate.text }}</p>

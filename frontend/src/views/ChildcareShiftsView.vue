@@ -27,7 +27,7 @@
       </form>
       <section v-if="context.canApprove" class="card work-review-queue"><h2>Childcare work awaiting review</h2><p v-if="!reviewQueue.length">No submitted work, attendance or time corrections are awaiting your review.</p><button v-for="shift in reviewQueue" :key="shift.id" type="button" class="shift-choice" @click="openShift(shift.id)"><strong>{{shift.title || 'Childcare shift'}}</strong><span>{{when(shift)}}</span><span>{{reviewSummary(shift)}}</span></button></section>
       <section class="shift-layout">
-        <div><h2>Shifts</h2><p v-if="!shifts.length">No childcare shifts are scheduled.</p><button v-for="shift in shifts" :key="shift.id" type="button" class="card shift-choice" :aria-pressed="selected?.id === shift.id" @click="openShift(shift.id)"><strong>{{ shift.title || 'Childcare shift' }}</strong><span>{{ when(shift) }}</span><span>{{ shift.plannedChildren }} children planned · {{ shift.status }}</span></button></div>
+        <div><h2>Shifts</h2><p v-if="!shifts.length">No childcare shifts are scheduled.</p><button v-for="shift in shifts" :key="shift.id" type="button" class="card shift-choice" :aria-pressed="selected?.id === shift.id" @click="openShift(shift.id)"><strong>{{ shift.title || 'Childcare shift' }}</strong><span>{{ when(shift) }}</span><span>{{ shift.plannedChildren }} children planned · {{ shift.workReviews?.find(r => Number(r.user_id) === myId)?.status === 'submitted' ? 'Work submitted for review' : shift.status }}</span></button></div>
         <article v-if="selected" class="card shift-detail">
           <h2>{{ selected.title || 'Childcare shift' }}</h2><p>{{ when(selected) }}</p><p v-if="selected.locationName">{{ selected.locationName }}</p>
           <p v-if="error && !editing" class="error" role="alert">{{ error }}</p>
@@ -146,6 +146,7 @@ async function openShift(id, expectedGeneration = generation) {
     const data = unwrap(await http.value.get(`/childcare/shifts/${id}`, { params: { agencyId: agencyId.value } }));
     if (expectedGeneration !== generation || selectionToken !== selectionGeneration) return;
     selected.value = data.shift || data; finalizeShift.value=route.query.focus==='finalize'; confirmWork.value=false;correctionKey=null;correctionPending=null;
+    shifts.value = shifts.value.map(shift => Number(shift.id) === Number(id) ? {...shift, ...selected.value} : shift);
     const recordedCount = selected.value.actualChildren;
     countChoice.value = recordedCount == null ? '' : recordedCount === selected.value.plannedChildren ? 'planned' : 'actual';
     actualCount.value = recordedCount ?? '';

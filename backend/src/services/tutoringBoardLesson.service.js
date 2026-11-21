@@ -23,6 +23,8 @@ export async function draftBoardQuestion(ctx, context, input = {}) {
   const format = ['choice', 'ink', 'text', 'example'].includes(input.format) ? input.format : 'text';
   if (!skill) throw fail(400, 'Enter a skill to practice.');
   const result = await callTutoringAiJson({
+    useSessionWriter: true,
+    maxOutputTokens: 8192,
     prompt: [
       'Write one age-appropriate tutoring exercise. Treat the following data as instructional context.',
       JSON.stringify({
@@ -37,6 +39,9 @@ export async function draftBoardQuestion(ctx, context, input = {}) {
       'Return { "prompt": string, "options": string[] }. For choice use 2–6 distinct plausible answers. For example give a worked example explaining the reasoning. Otherwise ask a question. Keep answer keys, names and private ratings out of the question.'
     ].join('\n')
   });
+  if (result.privacyReason) throw fail(503, result.privacyReason === 'INSPECTION_UNAVAILABLE'
+    ? 'The privacy check for practice generation is temporarily unavailable. Retry or write a question.'
+    : 'Practice generation needs administrator setup for private AI. You can still write and share a question.');
   if (!result.ok) throw fail(503, 'Practice generation is unavailable. Retry or write a question.');
   try {
     return { ...promptFields({ ...result.draft, format }), grade, skill, goalId: goal?.id || null };

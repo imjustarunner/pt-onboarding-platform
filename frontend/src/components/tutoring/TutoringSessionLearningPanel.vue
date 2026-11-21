@@ -6,7 +6,7 @@
       <label v-if="tracks.length > 1" class="subject">Subject<select v-model="subjectId" :disabled="saving || !!existing?.student_subject_id"><option v-for="track in tracks" :key="track.subject.id" :value="Number(track.subject.id)">{{ track.subject.subject_label }}</option></select></label>
       <p v-if="existing?.status==='signed'" role="status">This session record is signed and read-only.</p><LearningPlanSessionChecklist v-else-if="bundle && !planChanged" :key="`${clientId}-${sessionId}-${subjectId}-${bundle.plan.id}`" :bundle="bundle" :brief="scopedBrief" :initial-checklist="existing?.metadata_json?.planChecklist || null" :previous-note="existing" :saving="saving" :status="status" @dirty="status = ''" @save="saveChecklist" />
       <p v-else-if="planChanged" role="alert">This saved session uses an earlier learning plan. Its note is preserved below. Review that plan before changing historical results.</p>
-      <template v-else><p>No approved learning plan is available for this subject. A private general session note can be saved here; it will not rate learning-plan progress.</p><label class="general">Session observation<textarea v-model="generalNote" rows="3" maxlength="20000" :disabled="saving" /></label><button :disabled="saving || !sessionId" @click="saveGeneral">Save session observation</button><p role="status">{{ status }}</p></template>
+      <template v-else><p v-if="draftTitle">“{{ draftTitle }}” is awaiting tutor approval. You can save observations for this session here.</p><p v-else>No approved learning plan is available for this subject. A private general session note can be saved here; it will not rate learning-plan progress.</p><label class="general">Session observation<textarea v-model="generalNote" rows="3" maxlength="20000" :disabled="saving" /></label><button :disabled="saving || !sessionId" @click="saveGeneral">Save session observation</button><p role="status">{{ status }}</p></template>
       <button v-if="existing?.id" type="button" :disabled="downloading || saving" @click="downloadPdf">{{ downloading ? 'Preparing PDF…' : 'Download saved record PDF' }}</button>
       <p v-if="planChanged && status" role="status">{{ status }}</p>
       <details v-if="planChanged && existing?.summary"><summary>Saved session note</summary><p>{{ existing.summary }}</p></details>
@@ -24,6 +24,7 @@ const sessionBrief = ref(null);
 const tracks = ref([]), subjectId = ref(null), existing = ref(null), loading = ref(false), saving = ref(false), error = ref(''), status = ref(''), generalNote = ref(''), downloading = ref(false);
 let generation = 0;
 const bundle = computed(() => tracks.value.find(track => Number(track.subject.id) === Number(subjectId.value))?.bundle || null);
+const draftTitle = computed(() => tracks.value.find(track => Number(track.subject.id) === Number(subjectId.value))?.draftTitle);
 const scopedBrief = computed(() => Number(sessionBrief.value?.learning_plan_id) === Number(bundle.value?.plan.id) && Number(sessionBrief.value?.student_subject_id) === Number(subjectId.value) && Number(sessionBrief.value?.client_id) === Number(props.clientId) && (!props.agencyId || Number(sessionBrief.value?.agency_id) === Number(props.agencyId)) ? sessionBrief.value : null);
 const planChanged = computed(() => !!existing.value?.metadata_json?.planChecklist && Number(existing.value.learning_plan_id) !== Number(bundle.value?.plan.id));
 async function load() {
@@ -36,7 +37,7 @@ async function load() {
       const found = await Promise.all((overview.subjects || []).map(async row => {
         const { plans = [] } = await los.listSubjectPlans(row.subject.id);
         const active = plans.find(plan => plan.status === 'active' && plan.approved_at);
-        return { subject: row.subject, bundle: active ? await los.getLearningPlan(active.id) : null };
+        return { subject: row.subject, draftTitle: plans.find(p => !p.approved_at && ['draft','pending_review','active'].includes(p.status))?.title, bundle: active ? await los.getLearningPlan(active.id) : null };
       }));
       context = { tracks: found, note: saved.note, brief: briefing.brief };
     }

@@ -1768,7 +1768,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
   };
   const activeStatuses=['scheduled','confirmed','client_confirmed','in_progress'];
   upcomingSessions=merge(upcomingSessions,canonical.filter(a=>+parseUtcDate(a.starts_at)>=now&&activeStatuses.includes(a.status)),1,8);
-  recentSessions=merge(recentSessions,canonical.filter(a=>+parseUtcDate(a.starts_at)<now||!activeStatuses.includes(a.status)),-1,5);
+  recentSessions=merge(recentSessions,canonical.filter(a=>+parseUtcDate(a.starts_at)<now||!activeStatuses.includes(a.status)).filter(a=>a.status!=='reschedule_requested'),-1,5);
   let [[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM client_service_enrollments s JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.is_active=1 AND s.service_kind='tutoring' AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId??null,providerId??null]);
   if(!assigned)[[assigned]] = await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM student_subjects s JOIN users u ON u.id=s.primary_tutor_user_id WHERE s.client_id=? AND s.status NOT IN ('completed','discharged') AND (? IS NULL OR s.agency_id=?) AND (? IS NULL OR u.id=?) ORDER BY s.updated_at DESC LIMIT 1`,[clientId,agencyId,agencyId,providerId??null,providerId??null]);
 
@@ -1805,6 +1805,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
   return {
     subjects: feed.subjects,
     upcomingSessions,
+    pendingReschedules:portalContext?.permissions?.canViewAppointments===false ? [] : canonical.filter(a=>a.status==='reschedule_requested').map(a=>({id:a.id,title:a.title,starts_at:a.starts_at,time_zone:a.time_zone})),
     recentSessions,
     attendanceHistory:await learningAttendanceHistory(clientId,{agencyId,providerId:portalContext?.permissions?.canViewAppointments===false?0:providerId,serviceId}),
     signedSessionSummaries:await listPublishedTutoringSummaries(clientId,{agencyId,providerId,serviceId}),

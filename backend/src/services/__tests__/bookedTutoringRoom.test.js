@@ -1,5 +1,5 @@
 vi.mock('../../models/StudentSubject.model.js',()=>({default:{listByClient:vi.fn(async()=>[]),findById:vi.fn()}}));
-vi.mock('../../models/StudentLearningPlan.model.js',()=>({default:{findActiveBySubject:vi.fn(),getPlanBundle:vi.fn()}}));
+vi.mock('../../models/StudentLearningPlan.model.js',()=>({default:{findActiveBySubject:vi.fn(),listBySubject:vi.fn(),listGoals:vi.fn(),getPlanBundle:vi.fn()}}));
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>`encrypted:${v}`,maybeDecryptNotePayload:v=>v.replace(/^encrypted:/,'')}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
@@ -101,4 +101,24 @@ it('shows the authorized family the exact ended appointment publication without 
  expect(state.familySummary).not.toHaveProperty('goalIds');
  expect(TutoringSessionNote.findBySession).not.toHaveBeenCalled();
  expect(db.execute.mock.calls.find(([sql])=>sql.includes('FROM tutoring_note_publications p'))[1]).toEqual([359,600,453,2547]);
+});
+
+it('shows the booked student from the authorized chart in both hubs', async () => {
+ assertLearningClientAccess.mockResolvedValue({client:{full_name:'River QA'},permissions:{canViewAppointments:true}});
+ for (const actor of [parent, tutor]) {
+  const ctx = await room.bookedTutoringAccess(actor,359);
+  expect((await room.tutoringRoomStatus(ctx)).studentName).toBe('River QA');
+ }
+});
+it('accepts the approved goal for an assigned track and rejects another track’s goal', async () => {
+ const {default:subjects}=await import('../../models/StudentSubject.model.js');
+ const {default:plans}=await import('../../models/StudentLearningPlan.model.js');
+ session.student_subject_id=92;
+ subjects.listByClient.mockResolvedValue([{id:92,status:'active',primary_tutor_user_id:null}]);
+ plans.findActiveBySubject.mockResolvedValue({id:16,client_id:2547,agency_id:453,approved_at:'2026-11-16'});
+ plans.listGoals.mockResolvedValue([{id:51,student_subject_id:92},{id:31,student_subject_id:7}]);
+ const ctx=await room.bookedTutoringAccess(tutor,359);
+ await room.bookedTutoringNote(ctx,{summary:'Recorded in this visit',goalIds:[51]});
+ await expect(room.bookedTutoringNote(ctx,{summary:'Do not save',goalIds:[31]})).rejects.toMatchObject({status:409});
+ expect(TutoringSessionNote.create).toHaveBeenCalledTimes(1);
 });

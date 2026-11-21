@@ -1703,7 +1703,7 @@
     </div>
 
     <p v-if="summary?.outcomeHistoryComplete===false" role="alert">Some past attendance could not be loaded. Refresh the schedule or contact Support for the complete history.</p>
-    <AppointmentOutcomeDetails v-if="outcomeDetailsId" :appointment-id="outcomeDetailsId" @close="outcomeDetailsId=0" @changed="load({forceRefresh:true})" />
+    <AppointmentOutcomeDetails v-if="outcomeDetailsId" :appointment-id="outcomeDetailsId" :can-book="canBookFromGrid" @makeup="bookOutcomeMakeup" @close="outcomeDetailsId=0" @changed="load({forceRefresh:true})" />
     <Teleport :to="fullscreenActive && fullscreenRoot ? fullscreenRoot : 'body'">
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
       <ClinicalWorkspaceFrame
@@ -7818,7 +7818,7 @@ const openQuickOfficeRoomRequest = async () => {
  * Dashboard overview "Book" / "Book virtual" deep-link:
  * open today's slot action modal on the personal schedule (existing booking flow).
  */
-const openQuickBook = async ({ virtual = false } = {}) => {
+const openQuickBook = async ({ virtual = false, makeup = null } = {}) => {
   if (!canBookFromGrid.value) {
     officeReminderToast.value = 'Open a time on the schedule to book.';
     setTimeout(() => { officeReminderToast.value = ''; }, 5000);
@@ -7847,13 +7847,13 @@ const openQuickBook = async ({ virtual = false } = {}) => {
   } else {
     initialRequestType = 'individual_session';
   }
-  openSlotActionModal({
+  await openSlotActionModal({
     dayName,
     hour,
     dateYmd: ymd,
     preserveSelectionRange: false,
-    initialRequestType,
-    initialModality: virtual ? 'TELEHEALTH' : (hasOffice ? '' : 'TELEHEALTH'),
+    initialRequestType: makeup ? 'individual_session' : initialRequestType,
+    initialModality: makeup ? (virtual ? 'TELEHEALTH' : 'IN_PERSON') : (virtual || !hasOffice ? 'TELEHEALTH' : ''),
     actionSource: virtual ? 'overview_book_virtual' : 'overview_book'
   });
   if (virtual) {
@@ -14531,6 +14531,34 @@ const editorLocationAddress = ref('');
 const editorRoomId = ref(0);
 const editorBookedUntil = ref('');
 const outcomeDetailsId=ref(0);
+function isMissedTutoringBlock(block) {
+  return Number(block?.appointmentId)>0 && ['learning','tutoring'].includes(block.businessType)
+    && ['no_show','late_canceled','no_show_pending'].includes(block.appointmentStatus);
+}
+async function bookOutcomeMakeup(appointment) {
+  if (!canBookFromGrid.value || Number(appointment.id)!==outcomeDetailsId.value) return;
+  outcomeDetailsId.value=0;
+  await openQuickBook({virtual:appointment.modality!=='IN_PERSON',makeup:appointment});
+  if (!showRequestModal.value || isAppointmentEditMode.value || isScheduleEventEditMode.value) return;
+  editorPracticeCategory.value='tutoring';
+  await nextTick();
+  const sameScope=()=>showRequestModal.value && !isAppointmentEditMode.value && !isScheduleEventEditMode.value
+    && Number(editorAgencyId.value)===Number(appointment.agencyId)
+    && Number(bookingTargetUserId.value || props.userId)===Number(appointment.providerUserId);
+  if (!sameScope()) return;
+  await loadVirtualSessionClients();
+  const students=(appointment.participants||[]).filter(p=>Number(p.clientId)>0);
+  if (!sameScope() || students.length!==1 || !virtualSessionClients.value.some(row=>Number(row.id)===Number(students[0].clientId))) return;
+  virtualSessionSelectedClientIds.value=[Number(students[0].clientId)];
+  await nextTick();
+  await loadEditorTenantServices();
+  if (!sameScope() || Number(virtualSessionSelectedClientIds.value[0])!==Number(students[0].clientId)) return;
+  const context=appointment.learningContext;
+  const selected=editorTutoringSubjects.value.find(s=>context?.serviceEnrollmentId
+    ? Number(s.serviceEnrollmentId)===Number(context.serviceEnrollmentId)
+    : context?.studentSubjectId && Number(s.studentSubjectId)===Number(context.studentSubjectId));
+  editorTutoringSubject.value=context?.generalSupport || !selected ? 'general' : selected.key;
+}
 const editorStatus = ref('scheduled');
 const editorStatusBaseline = ref('scheduled');
 const editorOutcomeReadOnly=computed(()=>Number(editorAppointmentId.value||0)>0&&['completed','ended','no_show','no_show_pending','canceled','cancelled','canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_organization','late_canceled','rescheduled','voided'].includes(String(editorStatus.value).toLowerCase()));
@@ -15299,7 +15327,8 @@ const stackItemTimezoneLabel = (item) => {
   return timezoneLabelFor(isMeetingStackItem(item) ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
 };
 const editorInfoTypeLabel = computed(() => {
-  if(editorIsLearning.value)return `${editorLearningDetails.value?.learningContext?.subjectLabel||editorTutoringSubjects.value?.find(s=>s.key===editorTutoringSubject.value)?.label||'General'} tutoring`;
+  if(editorIsLearning.value && Number(editorAppointmentId.value)>0) return Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value) ? `${editorLearningDetails.value?.learningContext?.subjectLabel||'General'} tutoring` : 'Tutoring';
+  if(editorIsLearning.value)return `${editorTutoringSubjects.value?.find(s=>s.key===editorTutoringSubject.value)?.label||'General'} tutoring`;
   if (editorIsMeeting.value) return ({general:'General team meeting',admin:'Admin Meeting',town_hall:'Town Hall',interview:'Interview',evaluation:'Employee Evaluation',leadership_circle:'Leadership Circle',supervisors_meeting:'Supervisors meeting'})[meetingSubtype.value] || 'Team meeting';
   if (editorIsClinical.value) {
     const sid = Number(editorTenantServiceId.value || 0);
@@ -26430,7 +26459,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
 };
 
 const onCellBlockClick = (e, block, dayName, hour, minute = 0, explicitPick = false) => {
-  if(block?.canonicalOutcome){e?.preventDefault?.();e?.stopPropagation?.();outcomeDetailsId.value=Number(block.appointmentId)||0;return;}
+  if(block?.canonicalOutcome || isMissedTutoringBlock(block)){e?.preventDefault?.();e?.stopPropagation?.();outcomeDetailsId.value=Number(block.appointmentId)||0;return;}
   if (suppressNextAppointmentClick) {
     suppressNextAppointmentClick = false;
     e?.preventDefault?.();
@@ -27166,6 +27195,8 @@ const openAppointmentEditInScheduleModal = async ({
 } = {}) => {
   const offered = item?.replacementSlotId ? item : !item && items.length === 1 && items[0]?.replacementSlotId ? items[0] : null;
   if (offered) { showStackDetailsModal.value = false; offeredTime.value = offered; return; }
+  const outcome=item || (items.length===1 ? items[0] : null);
+  if (outcome?.canonicalOutcome || isMissedTutoringBlock(outcome)) { showStackDetailsModal.value=false; outcomeDetailsId.value=Number(outcome.appointmentId); return; }
   const gen = ++appointmentEditOpenGen;
   const list = Array.isArray(items) && items.length
     ? items

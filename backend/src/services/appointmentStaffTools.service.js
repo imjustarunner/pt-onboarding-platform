@@ -52,6 +52,7 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     try { await scheduleAccess(user, appointment.providerUserId, appointment.agencyId, true); } catch (error) { if (error.status !== 403) throw error; canEdit = false; }
     return { appointmentId: appointment.id, agencyId: appointment.agencyId, alert: mapAlert(rows[0]), canEdit, clients, diagnosisAlerts:diagnosticAlerts,
       businessType: appointment.businessType,
+      ...(['learning','tutoring'].includes(appointment.businessType) ? { learningContext: { subjectLabel: appointment.learningContext?.subjectLabel || 'General' } } : {}),
       serviceSetting:['learning','tutoring'].includes(appointment.businessType)?await resolveAppointmentServiceSetting(appointment):null,
       canOpenLearningWorkspace: canOpenLearningWorkspace(appointment,user.id) };
   }

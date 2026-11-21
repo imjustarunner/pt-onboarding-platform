@@ -11,3 +11,12 @@ it('cannot turn a draft, opened room or a missed session into attended evidence'
 it('filters family summaries by exact client, agency, provider and selected service, and returns no unassigned fallback',async()=>{const db={execute:vi.fn(async()=>[[]])};expect(await listPublishedTutoringSummaries(2545,{agencyId:453,providerId:0},db)).toEqual([]);expect(db.execute).not.toHaveBeenCalled();await listPublishedTutoringSummaries(2545,{agencyId:453,providerId:1496,serviceId:1038},db);expect(db.execute.mock.calls[0][1]).toEqual([2545,453,1496,1038]);expect(db.execute.mock.calls[0][0]).toContain('serviceEnrollmentId');});
 
 it('stores an encrypted family draft beside the private checklist without replacing its plan results',()=>{const note={summary:'Private plan narrative',metadata_json:{documentationMode:'learning_plan_checklist',checklistRevision:4,planChecklist:{privateResult:'Keep this'}}};const metadata=tutoringFamilyDraftMetadata(note,{...fields,goalIds:[82]});expect(metadata).toMatchObject({documentationMode:'learning_plan_checklist',checklistRevision:4,planChecklist:{privateResult:'Keep this'},familySummaryGoalIds:[82]});expect(metadata.familySummaryDraft).toMatch(/^encrypted:/);expect(tutoringFamilyDraft({metadata_json:metadata})).toEqual(tutoringSummaryInput(fields));expect(note.summary).toBe('Private plan narrative');expect(note.metadata_json).not.toHaveProperty('familySummaryDraft');});
+
+it.each([true,false])('restricts shared skill observations to selected, reviewed evidence (opt-in %s)',async share=>{
+ const db={execute:vi.fn(async sql=>sql.startsWith('SELECT')?[[]]:[{insertId:7}])};
+ const activities=[{skill:'Equivalent fractions',grade:'5',rating:'developing',submissions:['private answer'],title:'private question'},{skill:'Reading',rating:'not_observed'}];
+ await publishTutoringNote(ctx,session,{id:1},{...fields,shareSkillObservations:share,skillObservations:['invented']},db,activities);
+ const snapshot=JSON.parse(db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT'))[1][6].replace('encrypted:',''));
+ expect(snapshot.summary.skillObservations).toEqual(share?[{skill:'Equivalent fractions',grade:'5',observation:'Solved with support'}]:undefined);
+ expect(JSON.stringify(snapshot)).not.toMatch(/private answer|private question|invented/);
+});

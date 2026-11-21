@@ -48,3 +48,18 @@ actor_id,action,appointment_id,session_id,activity_id,answer_or_stroke_id,rating
 ```csv
 case_id,logical_recipient,physical_inbox,trigger_appointment_id,received_at_denver,actual_from,reply_to,message_id,observed_host,landed_appointment_id,status,evidence
 ```
+
+## Follow-up to the November 20 final report
+
+The report for build `75c7ef228` recorded 20 PASS, 7 FAIL, 2 BLOCKED and 7 NOT RUN. Keep those results and record the new frontend and backend builds before testing. Use the existing evidence ledgers above. The following cases start NOT RUN on the replacement build.
+
+| Case | What to verify on the new build |
+| --- | --- |
+| WB02 / WB16-idle | Open the exact virtual appointment as Finley and the authorized family on separate devices. Check the student name, admission and real two-way audio/video. Interrupt the connection, wait longer than 60 seconds, then Retry. Refresh during an admitted session. Verify the same appointment, board, waiting-room visit and unsaved lesson inputs. Record any camera error and elapsed time. |
+| WB09 | Request a multiple-choice problem using a specific grade and skill. Inspect the actual generated choices, edit the draft, then share it. After a generation failure and a context refresh, verify the entered grade, skill and format remain. |
+| OR-03 / ITEM-1 | Find the original missed appointments from the calendar. Start a makeup booking for the same student and subject. Verify the new appointment ID and the original missed outcome, package balance and history. Check the saved subject, date and title on both calendar views. |
+| OR-08 | Open the family portal from a fresh sign-in, then explicitly switch to the unassigned service. Verify the default, any pending reschedules and recent appointments belong to the selected service, including after reload. |
+| OR-17-panel / #422 | Compare the draft or approved plan, goal, grade and subject across the Session Hub and appointment details. Rate an activity tied to the correct goal and save. Use a fresh authorized QA session for signing. Share selected skill observations, check the family's signed copy and keep tutor-only details private. Preserve the existing signed record. |
+| Follow-up | Check the tutor’s missed-session notice and family’s appointment link from actual inbox receipts. For childcare reminders, schedule a fresh shift and observe its real due time with the corresponding punch still outstanding. Record reminders for an already completed punch separately. |
+
+Use Session Hub for both virtual and in-person bookings. Run a separate in-person check through the calendar. Verify the learning tools and attendance for that appointment. Physical iPad input, two-device media, and actual inbox delivery each require their own evidence.

@@ -39,3 +39,13 @@ it('uses an actual attached counseling room for native client sessions',async()=
  expect(await guardianAppointmentJoin({...native,status:'canceled_by_provider'},client,db)).toBeNull();
  expect(db.execute).toHaveBeenCalledTimes(1);
 });
+
+it('keeps an NLU QA booked family join link on its agency path',async()=>{
+ const d=fixture();
+ const destination='/tutoring/appointment/422?clientId=22&serviceId=1038';
+ d.join=vi.fn(async()=>destination);
+ const qa={...appointment,id:422,agencyId:453};
+ const tenantContext={...context,tenant:{id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}}};
+ const result=await appointmentJoinEmail({appointment:qa,clientId:22,to:'guardian@example.test',context:tenantContext},d);
+ expect(result.url).toBe('https://app.nextleveluplcc.com/nlu-qa-demo'+destination);
+});

@@ -45,19 +45,20 @@ export async function bookedTutoringAccess(req, appointmentId) {
  }
  const clientId = Number(clients[0].clientId), host = Number(req.user.id) === Number(appointment.providerUserId);
  if(req.dependentPortalAccess && Number(req.dependentPortalAccess.client_id)!==clientId)throw fail(403,'This personal portal opens only your own tutoring sessions.');
+ let access;
  if (host) {
   if (!(await User.getAgencies(req.user.id)).some(a=>Number(a.id)===Number(appointment.agencyId))) throw fail(403, 'Your access to this tutoring organization is no longer active.');
-  await assertLearningClientAccess(req,clientId,appointment.agencyId);
+  access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
  } else {
   if (!['client','client_guardian','guardian'].includes(req.user.role)) throw fail(403, 'Only the assigned tutor or an authorized family participant can join this session.');
-  const access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
+  access = await assertLearningClientAccess(req,clientId,appointment.agencyId);
   if(access.service&&appointment.learningContext?.serviceEnrollmentId&&Number(access.service.id)!==Number(appointment.learningContext.serviceEnrollmentId))throw fail(403,'This appointment belongs to a different tutoring service.');
   if (access.service && Number(access.service.provider_user_id)!==Number(appointment.providerUserId)) throw fail(403, 'This appointment belongs to a different tutoring team.');
   if (Array.isArray(access.services) && !access.services.some(s=>s.service_kind==='tutoring'&&Number(s.is_active)===1&&Number(s.provider_user_id)===Number(appointment.providerUserId)&&(!appointment.learningContext?.serviceEnrollmentId||Number(s.id)===Number(appointment.learningContext.serviceEnrollmentId)))) throw fail(403,'An active tutoring assignment is required to join this appointment.');
   if (access.permissions?.canViewAppointments===false) throw fail(403, 'Appointment access is required to join this session.');
  }
  if (req.query?.clientId && Number(req.query.clientId)!==clientId) throw fail(403,'This appointment belongs to a different student.');
- return {appointment,clientId,studentName:clients[0].clientName||null,host,actor:`user-${req.user.id}`,req};
+ return {appointment,clientId,studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
 }
 const transact = async operation => {
  const db = await pool.getConnection();
@@ -265,6 +266,21 @@ export async function closeChangedBookedTutoringRoom(appointment,actorUserId){
  if(mediaId)await media.finishClinicalEnd(mediaId);
 }
 
+async function validateSessionGoals(ctx, session, goalIds, db) {
+ if (!Array.isArray(goalIds) || goalIds.length > 20 || goalIds.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+  throw fail(400, 'Select goals from this student’s learning plan.');
+ }
+ if (!goalIds.length) return;
+ const subject = await resolveTutoringTrack(ctx.appointment, ctx.clientId, session.student_subject_id);
+ const plan = subject && await StudentLearningPlan.findActiveBySubject(subject.id, db);
+ if (!plan?.approved_at || Number(plan.client_id) !== ctx.clientId || Number(plan.agency_id) !== Number(ctx.appointment.agencyId)) {
+  throw fail(409, 'This session has no approved plan for the booked subject. Reload its learning goals.');
+ }
+ const goals = await StudentLearningPlan.listGoals(plan.id, db);
+ const available = new Set(goals.filter(g => Number(g.student_subject_id) === Number(subject.id)).map(g => Number(g.id)));
+ if (goalIds.some(id => !available.has(id))) throw fail(409, 'A selected goal is outside the current approved plan. Reload its learning goals.');
+}
+
 export async function bookedTutoringNote(ctx, input = null) {
  if(!ctx.host)throw fail(403,'Session notes are private to the assigned tutor.');
  return transact(async db=>{
@@ -278,16 +294,17 @@ export async function bookedTutoringNote(ctx, input = null) {
   if(input===null)return {note:existing,familyDraft:tutoringFamilyDraft(existing),...(existing?.status==='signed'?{publication:await getPublishedTutoringNote(existing.id,db)}:{})};
   if(existing?.status==='signed'){if(input.signAndShare===true){const publication=await publishTutoringNote(ctx,session,existing,input,db);return {note:existing,publication};}throw fail(409,'This signed summary is read-only. Its original content has been kept.');}
   if(input.familySummary===true){
-   if(!Array.isArray(input.goalIds)||input.goalIds.length>20||input.goalIds.some(id=>!Number.isSafeInteger(id)||id<=0))throw fail(400,'Select goals from this student’s learning plan.');
-   for(const id of input.goalIds){const [[goal]]=await db.execute('SELECT g.id FROM student_learning_plan_goals g JOIN student_subjects s ON s.id=g.student_subject_id WHERE g.id=? AND s.client_id=? AND s.agency_id=? AND s.primary_tutor_user_id=?',[id,ctx.clientId,ctx.appointment.agencyId,ctx.appointment.providerUserId]);if(!goal)throw fail(403,'This goal belongs to a different learning assignment.');}
+   await validateSessionGoals(ctx, session, input.goalIds ?? [], db);
    const metadata=tutoringFamilyDraftMetadata(existing,input);
+   let reviewedItems = [];
    if(input.signAndShare===true){
     const activity=await lessonActivity(ctx,session,db);
     if(activity.items.some(i=>!i.rating))throw Object.assign(fail(409,'Review each shared activity before signing. Choose Not assessed for material you only demonstrated.'),{code:'UNRATED_LESSON_ACTIVITY'});
+    reviewedItems = activity.items;
     metadata.lessonActivity={activityIds:activity.items.map(i=>i.id),strokes:activity.strokes,snapshot:maybeEncryptNotePayload(JSON.stringify(activity.items))};
    }
    const note=existing?await TutoringSessionNote.update(existing.id,{metadata},ctx.req.user.id,db):await TutoringSessionNote.create({agencyId:ctx.appointment.agencyId,clientId:ctx.clientId,studentSubjectId:session.student_subject_id||null,sessionId:session.id,status:'saved',summary:'',metadata},ctx.req.user.id,db);
-   const publication=input.signAndShare===true?await publishTutoringNote(ctx,session,note,input,db):null;
+   const publication=input.signAndShare===true?await publishTutoringNote(ctx,session,note,input,db,reviewedItems):null;
    await audit(ctx,session,publication?'tutoring_summary_signed_shared':'tutoring_family_summary_draft_saved',{noteId:note.id,publicationId:publication?.id||null},db);
    return {note:publication?{...note,status:'signed'}:note,familyDraft:tutoringFamilyDraft(note),publication};
   }
@@ -300,7 +317,7 @@ export async function bookedTutoringNote(ctx, input = null) {
   if(typeof input.summary!=='string'||input.summary.length>20000)throw fail(400,'Write a session note of up to 20,000 characters.');
   const body={summary:input.summary,status:'saved',generalSupport:!session.student_subject_id};
   if(input.howItWent!==undefined){if(typeof input.howItWent!=='string'||input.howItWent.length>20000)throw fail(400,'Keep How it went within 20,000 characters.');body.howItWent={text:input.howItWent};}
-  if(input.goalIds!==undefined){if(!Array.isArray(input.goalIds)||input.goalIds.length>20||input.goalIds.some(id=>!Number.isSafeInteger(id)||id<=0))throw fail(400,'Select goals from this student’s learning plan.');for(const id of input.goalIds){const [[goal]]=await db.execute('SELECT g.id FROM student_learning_plan_goals g JOIN student_subjects s ON s.id=g.student_subject_id WHERE g.id=? AND s.client_id=? AND s.agency_id=? AND s.primary_tutor_user_id=?',[id,ctx.clientId,ctx.appointment.agencyId,ctx.appointment.providerUserId]);if(!goal)throw fail(403,'This goal belongs to a different learning assignment.');}body.metadata={...(existing?.metadata_json||{}),goalIds:[...new Set(input.goalIds)]};}
+  if(input.goalIds!==undefined){await validateSessionGoals(ctx, session, input.goalIds, db);body.metadata={...(existing?.metadata_json||{}),goalIds:[...new Set(input.goalIds)]};}
   for(const field of ['strengthsObserved','challengesObserved','nextSteps','homework']){if(input[field]!==undefined){if(typeof input[field]!=='string'||input[field].length>20000)throw fail(400,'Keep each session note field within 20,000 characters.');body[field]=input[field];}}
   const note=existing?await TutoringSessionNote.update(existing.id,body,ctx.req.user.id,db):await TutoringSessionNote.create({...body,agencyId:ctx.appointment.agencyId,clientId:ctx.clientId,studentSubjectId:session.student_subject_id||null,sessionId:session.id,sessionType:String(ctx.appointment.modality).toUpperCase()==='IN_PERSON'?'in_person':'virtual'},ctx.req.user.id,db);
   await audit(ctx,session,'tutoring_session_note_saved',{noteId:note.id},db);
@@ -370,7 +387,13 @@ export async function bookedTutoringLearningContext(ctx) {
  const subject=await resolveTutoringTrack(ctx.appointment,ctx.clientId,session?.student_subject_id);
  const subjects=subject?[subject]:[];
  const tracks=[];
- for(const subject of subjects){const active=await StudentLearningPlan.findActiveBySubject(subject.id);tracks.push({subject,bundle:active?.approved_at?await StudentLearningPlan.getPlanBundle(active.id):null});}
+ for (const subject of subjects) {
+  const plans = await StudentLearningPlan.listBySubject(subject.id);
+  const active = plans.find(plan => plan.status === 'active' && plan.approved_at);
+  const draft = plans.find(plan => ['draft','pending_review','active'].includes(plan.status) && !plan.approved_at);
+  tracks.push({subject, bundle:active ? await StudentLearningPlan.getPlanBundle(active.id) : null,
+   draftTitle:draft?.title || null});
+ }
  const savedBrief=session?await TutoringSessionBrief.findBySession(session.id):null;
  const brief=savedBrief&&Number(savedBrief.client_id)===ctx.clientId&&Number(savedBrief.agency_id)===Number(ctx.appointment.agencyId)?savedBrief:null;
  return {appointmentId:ctx.appointment.id,clientId:ctx.clientId,tracks,note,brief,...await getLearningOverview(ctx.clientId,{agencyId:ctx.appointment.agencyId,providerId:ctx.appointment.providerUserId,subjectIds:subjects.map(s=>Number(s.id))})};

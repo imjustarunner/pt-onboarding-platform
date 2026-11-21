@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {authorizedAppointmentClient} from './guardianAppointments.service.js';
 import {guardianAppointmentJoin} from './guardianVirtualJoin.js';
 import {guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
@@ -36,7 +37,8 @@ export async function appointmentJoinEmail({appointment,clientId,to,context},dep
   const destination=await d.join({...appointment,googleMeetLink:event?.google_meet_link||null},client,d.db,{includeFutureDestination:true});
   if(!destination)return null;
   context ||= await (await import('./clientPortalEmail.service.js')).clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(appointment.businessType)?{learning:true}:{})});
-  const url=destination.startsWith('/')?context.url(destination.slice(1)):destination;
+  const bookedTutoring = destination.startsWith('/tutoring/appointment/') && Number(context.tenant?.id) === Number(appointment.agencyId);
+  const url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
   const phone=appointment.includeGoogleDialIn===true?googleDialInContent(await d.conference(appointment)):null;
   const label=['learning','tutoring'].includes(appointment.businessType)?'Join tutoring session':'Join online appointment';
   return {url,text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};
