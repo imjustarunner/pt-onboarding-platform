@@ -148,3 +148,24 @@ test('enrolls an agency by its stored slug, regardless of its numeric ID', async
     configuration: JSON.stringify({ practice: [payload.from, payload.replyTo] }) });
   assert.equal(result.status, 'ready');
 });
+
+test('chooses the canonical shared department identity over a secondary workflow using the same address', async () => {
+  const f = fixtures();
+  const execute = f.options.db.execute;
+  f.options.db.execute = async (sql, params) => {
+    if (sql.includes('FROM email_sender_identities') && params[1] === payload.from) {
+      assert.match(sql, /ORDER BY canonical DESC/);
+      return [[{ id: 87, slug: 'practice', canonical: 1 }, { id: 88, slug: 'practice', canonical: 0 }]];
+    }
+    return execute(sql, params);
+  };
+  await f.send(payload);
+  assert.equal(f.sends[0].senderIdentityId, 87);
+});
+
+test('rejects ambiguous shared identities without a canonical match', async () => {
+  const f = fixtures();
+  f.options.db.execute = async () => [[{ id: 87, canonical: 0 }, { id: 88, canonical: 0 }]];
+  await assert.rejects(f.send(payload), { code: 'MAIL_ALIAS_UNAVAILABLE' });
+  assert.equal(f.sends.length, 0);
+});

@@ -53,14 +53,18 @@ function grantedAliases(configuration, agencyId, slug) {
 }
 
 async function activeSharedAlias(db, agencyId, email) {
-  const [rows] = await db.execute(`SELECT e.id,e.from_email,e.display_name,a.portal_url,a.slug
+  const [rows] = await db.execute(`SELECT e.id,a.portal_url,a.slug,
+      (LOWER(e.identity_key)=SUBSTRING_INDEX(LOWER(e.from_email),'@',1)) AS canonical
     FROM email_sender_identities e JOIN agencies a ON a.id=e.agency_id
     WHERE e.agency_id=? AND LOWER(e.from_email)=? AND e.is_active=1
       AND a.organization_type='agency' AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
       AND EXISTS (SELECT 1 FROM communication_inboxes i WHERE i.sender_identity_id=e.id
         AND i.agency_id=e.agency_id AND i.kind='shared' AND i.is_active=1
-        AND i.owner_user_id IS NULL AND LOWER(i.from_email)=LOWER(e.from_email)) LIMIT 2`, [agencyId, email]);
-  if (rows.length !== 1) {
+        AND i.owner_user_id IS NULL AND LOWER(i.from_email)=LOWER(e.from_email))
+    ORDER BY canonical DESC LIMIT 2`, [agencyId, email]);
+  // The same address can support several workflows. Only an exact department
+  // identity can disambiguate a shared address, such as Technology and recovery.
+  if (!rows.length || (rows.length > 1 && (!Number(rows[0].canonical) || Number(rows[1].canonical)))) {
     throw fail(409, 'MAIL_ALIAS_UNAVAILABLE', 'The selected shared mailbox is unavailable in this agency.');
   }
   return rows[0];
