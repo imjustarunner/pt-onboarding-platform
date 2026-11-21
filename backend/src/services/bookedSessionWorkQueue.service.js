@@ -5,17 +5,10 @@ import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
 import ClinicalEligibilityService from './clinicalEligibility.service.js';
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { listClientAgencyMembershipIds } from '../utils/noteAidClientAgency.js';
+import { SESSION_DOCUMENTATION_LEAD_MS } from '../utils/sessionDocumentationTiming.js';
 
 const roles = new Set(['provider','provider_plus','supervisor','intern','intern_plus','admin','super_admin','clinical_practice_assistant']);
 const asDate = value => value instanceof Date ? value : new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(String(value)) ? value : `${String(value).replace(' ','T')}Z`);
-const dateAt = (instant, timeZone) => {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(instant).map(part => [part.type, part.value]));
-  return `${parts.year}-${parts.month}-${parts.day}`;
-};
-function scheduledByToday(startAt, sourceTimezone, now) {
-  try { const start = asDate(startAt); return Number.isFinite(+start) && dateAt(start, sourceTimezone || 'UTC') <= dateAt(now, sourceTimezone || 'UTC'); }
-  catch { return false; }
-}
 function jsonObject(value) {
   if (value && typeof value === 'object') return value;
   try { return JSON.parse(value || '{}') || {}; } catch { return {}; }
@@ -44,6 +37,7 @@ export function bookedWorkItem(appointment, session, client) {
 export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,clinical=clinicalPool,queue=NoteAidWorkQueueItem,
   agencyAccess=ClinicalEligibilityService.ensureAgencyAccess.bind(ClinicalEligibilityService),clientAccess=resolveClientRecordAccess,clientAgencies=listClientAgencyMembershipIds,now=new Date()}={}) {
   if (!roles.has(user?.role) || !Number(user?.id)) return [];
+  const eligibleThrough = new Date(+now + SESSION_DOCUMENTATION_LEAD_MS);
   const [appointments] = await db.execute(`SELECT a.id,a.agency_id,a.provider_user_id,a.clinical_session_id,a.start_at,a.end_at,
     a.service_code,a.addon_service_codes_json,a.source_timezone,a.office_event_id,a.location_label,a.modality,
     (SELECT d.id FROM clinical_note_drafts d WHERE d.user_id=a.provider_user_id AND d.clinical_session_id=a.clinical_session_id
@@ -51,10 +45,10 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
     (SELECT d.created_at FROM clinical_note_drafts d WHERE d.user_id=a.provider_user_id AND d.clinical_session_id=a.clinical_session_id
       AND d.archived_at IS NULL ORDER BY d.updated_at DESC,d.id DESC LIMIT 1) AS draft_created_at
     FROM appointments a WHERE a.provider_user_id=? AND a.clinical_session_id IS NOT NULL
-    AND a.start_at<=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 2 DAY) AND a.status IN ('scheduled','confirmed','client_confirmed','checked_in','completed')
+    AND a.start_at<=? AND a.status IN ('scheduled','confirmed','client_confirmed','checked_in','completed')
     ${agencyId?'AND a.agency_id=?':''}
     AND NOT EXISTS (SELECT 1 FROM note_aid_work_queue_items q WHERE q.user_id=a.provider_user_id AND q.clinical_session_id=a.clinical_session_id)
-    ORDER BY a.start_at,a.id`,agencyId?[user.id,agencyId]:[user.id]);
+    ORDER BY a.start_at,a.id`,agencyId?[user.id,eligibleThrough,agencyId]:[user.id,eligibleThrough]);
   const sessionIds=[...new Set(appointments.map(a=>Number(a.clinical_session_id)))];
   const [sessions] = sessionIds.length ? await clinical.execute(`SELECT s.id,s.agency_id,s.client_id,s.appointment_id,s.provider_user_id,s.source_timezone,s.service_code
     FROM clinical_sessions s WHERE s.provider_user_id=? AND s.id IN (${sessionIds.map(()=>'?').join(',')})
@@ -77,7 +71,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
     const session=byId.get(Number(appointment.clinical_session_id));
     if (!session || Number(appointment.provider_user_id)!==Number(user.id) || Number(session.provider_user_id)!==Number(user.id)
       || Number(session.appointment_id)!==Number(appointment.id) || Number(session.agency_id)!==Number(appointment.agency_id)) continue;
-    if (!scheduledByToday(appointment.start_at, appointment.source_timezone || session.source_timezone, now)) continue;
+    if (!(asDate(appointment.start_at) <= eligibleThrough)) continue;
     const client = await authorizedClient(session,appointment.agency_id);
     if (!client) continue;
     const item = await queue.createIfMissingForUser(user.id,bookedWorkItem(appointment,session,client));
@@ -89,11 +83,11 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
   const [officeSessions] = await clinical.execute(`SELECT s.id,s.agency_id,s.client_id,s.office_event_id,s.provider_user_id,
     s.source_timezone,s.service_code,s.scheduled_start_at,s.scheduled_end_at,s.duration_minutes,s.is_telehealth
     FROM clinical_sessions s WHERE s.provider_user_id=? AND s.appointment_id IS NULL AND s.office_event_id IS NOT NULL
-      AND s.scheduled_start_at<=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 2 DAY)
+      AND s.scheduled_start_at<=?
       ${agencyId?'AND s.agency_id=?':''}
       AND COALESCE(s.encounter_status,'scheduled') NOT IN ('cancelled','canceled','voided','no_show')
       AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL)
-    ORDER BY s.scheduled_start_at,s.id`,agencyId?[user.id,agencyId]:[user.id]);
+    ORDER BY s.scheduled_start_at,s.id`,agencyId?[user.id,eligibleThrough,agencyId]:[user.id,eligibleThrough]);
   const candidates = (await visibleClinicalWork(officeSessions, { db, kind: 'clinical_session' })).filter(session => Number(session.office_event_id)>0 && Number(session.provider_user_id)===Number(user.id));
   if (!candidates.length) return added;
   const eventIds = [...new Set(candidates.map(session => Number(session.office_event_id)))];
@@ -115,7 +109,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
       || ['CANCELLED','CANCELED','VOIDED','NO_SHOW'].includes(String(event.status_outcome||'').toUpperCase())) continue;
     const context = jsonObject(event.session_context_json);
     const timezone = session.source_timezone || context.sourceTimezone || event.location_timezone || 'UTC';
-    if (!scheduledByToday(event.start_at || session.scheduled_start_at,timezone,now)) continue;
+    if (!(asDate(event.start_at || session.scheduled_start_at) <= eligibleThrough)) continue;
     const client = await authorizedClient(session,session.agency_id);
     if (!client) continue;
     const draft = drafts.find(row => Number(row.clinical_session_id)===Number(session.id));

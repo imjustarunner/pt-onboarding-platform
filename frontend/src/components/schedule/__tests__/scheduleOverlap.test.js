@@ -8,6 +8,7 @@ vi.mock('vue-router', () => ({useRoute:()=>m.route,useRouter:()=>({push:vi.fn(),
 vi.mock('../../../store/auth', () => ({useAuthStore:()=>({user:{id:7,role:'admin'},isAuthenticated:true})}));
 vi.mock('../../../store/agency', () => ({useAgencyStore:()=>({currentAgency:{id:2,name:'Test agency',slug:'test',organization_type:'agency',timezone:'America/Denver'},agencies:[],userAgencies:[]})}));
 import Grid from '../ScheduleAvailabilityGrid.vue';
+import { clearScheduleSummaryCache } from '../../../utils/scheduleSummaryCache.js';
 let wrapper;
 // These fixtures describe Mountain wall times on October 13 (MDT, UTC−6).
 // API timestamps are instants, independent of the browser/test runner's timezone.
@@ -22,8 +23,14 @@ async function mount(props={}, {focusedDay=null}={}) {
   await nextTick();
   return s;
 }
+async function hoverCell(cell, options) {
+  await cell.trigger('mouseenter', options);
+  await vi.advanceTimersByTimeAsync(200);
+  await nextTick();
+}
 beforeEach(()=>{
-  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-12T18:00:00Z'));
+  vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout']});vi.setSystemTime(new Date('2026-10-12T18:00:00Z'));
+  clearScheduleSummaryCache();
   setActivePinia(createPinia());localStorage.clear();vi.clearAllMocks();m.prefs={};m.colors={};
   m.summary={weekStart:'2026-10-12',scheduleEvents:[event(1,'09:00','14:30'),event(2,'11:00','12:00'),event(3,'13:00','14:00'),event(4,'16:00','17:00')]};
   m.route=reactive({path:'/dashboard',params:{},query:{}});
@@ -50,13 +57,13 @@ it('renders every event rather than capping crowded slots',async()=>{
 it('offers the saved side-by-side toggle on hover and zooms a single item when enabled',async()=>{
   const s=await mount({}, {focusedDay:'Tuesday'});s.scheduleSideBySide=false;await nextTick();
   const overlap=wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
-  await overlap.trigger('mouseenter');
+  await hoverCell(overlap);
   expect(wrapper.findAll('.cell-expanded-item')).toHaveLength(2);
   await wrapper.find('.cell-layout-toggle').trigger('click');
   expect(s.scheduleSideBySide).toBe(true);
   expect(wrapper.find('[data-testid="schedule-side-by-side-setting"]').attributes('aria-checked')).toBe('true');
   await overlap.trigger('mouseleave');
-  await wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="16"] .cell-blocks').trigger('mouseenter');
+  await hoverCell(wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="16"] .cell-blocks'));
   expect(wrapper.find('[aria-label="Enlarged schedule items"]').exists()).toBe(true);
   expect(wrapper.findAll('.cell-expanded-item')).toHaveLength(1);
   await s.saveDisplayPrefsToServer();
@@ -76,7 +83,7 @@ it('hovering a later part of a long event shows the events at that time',async()
   const owner=wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="9"] .cell-blocks');
   const later=wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"]');
   vi.spyOn(later.element,'getBoundingClientRect').mockReturnValue({top:400,bottom:500});
-  await owner.trigger('mouseenter',{clientY:450});
+  await hoverCell(owner,{clientY:450});
   expect(s.calendarStackContext.hour).toBe(11);
   expect(s.calendarStackItems.map(b=>b.eventId)).toEqual([1,2]);
   expect(wrapper.findAll('.cell-expanded-item')).toHaveLength(2);
@@ -112,7 +119,7 @@ it('omits exact-hour time from the grid but retains it in hover and off-hour car
   const full=s.cellBlocks('Tuesday',13,0)[0], partial=s.cellBlocks('Tuesday',14,0)[0];
   expect(s.gridBlockLabel(full)).not.toContain('1:00');expect(s.gridBlockLabel(full)).toContain('Planning');
   expect(s.gridBlockLabel(partial)).toContain(s.clockRangeLabel(partial.startAt,partial.endAt));
-  await wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="13"] .cell-blocks').trigger('mouseenter');
+  await hoverCell(wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="13"] .cell-blocks'));
   expect(wrapper.find('.cell-expanded-item').text()).toContain(s.clockRangeLabel(full.startAt,full.endAt));
   s.scheduleSideBySide=false;expect(s.gridBlockLabel(full)).toContain(s.clockRangeLabel(full.startAt,full.endAt));
 });
@@ -140,7 +147,7 @@ it.each([
   const s = await mount();
   const cell = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"]');
   vi.spyOn(cell.element, 'getBoundingClientRect').mockReturnValue({ left, right, top: 200, bottom: 280 });
-  await cell.find('.cell-blocks').trigger('mouseenter', { clientY: 220 });
+  await hoverCell(cell.find('.cell-blocks'), { clientY: 220 });
   const style = s.calendarStackPosition;
   const x = parseFloat(style.left), width = parseFloat(style.width);
   if (side === 'right') expect(x).toBeGreaterThanOrEqual(right);
@@ -156,12 +163,12 @@ it.each([
 it('closes on calendar scroll and resize but allows scrolling within the preview', async () => {
   await mount({}, {focusedDay:'Tuesday'});
   const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
-  await owner.trigger('mouseenter');
+  await hoverCell(owner);
   await wrapper.find('.cell-expanded-list').trigger('scroll');
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
   window.dispatchEvent(new Event('scroll')); await nextTick();
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
-  await owner.trigger('mouseenter');
+  await hoverCell(owner);
   window.dispatchEvent(new Event('resize')); await nextTick();
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
 });
@@ -172,7 +179,7 @@ it('lets the pointer cross into the side preview and dismisses after leaving', a
   await mount({}, {focusedDay:'Tuesday'});
   vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
   const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
-  await owner.trigger('mouseenter');
+  await hoverCell(owner);
   await owner.trigger('mouseleave');
   vi.advanceTimersByTime(80);await nextTick();
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
@@ -190,7 +197,7 @@ it('keeps narrow days clear on hover while retaining explicit preview access', a
   await mount({}, {focusedDay:'Tuesday'});
   const cell = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"]');
   vi.spyOn(cell.element, 'getBoundingClientRect').mockReturnValue({ left: 12, right: window.innerWidth - 12, top: 200, bottom: 280 });
-  await cell.find('.cell-blocks').trigger('mouseenter');
+  await hoverCell(cell.find('.cell-blocks'));
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
   await cell.find('.cell-multi-pick-badge').trigger('click');
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
@@ -201,7 +208,7 @@ it('keeps narrow days clear on hover while retaining explicit preview access', a
 it('keeps the original hour when crossing the gap into a preview beside a later row', async () => {
   const s = await mount();
   const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
-  await owner.trigger('mouseenter');
+  await hoverCell(owner);
   vi.spyOn(wrapper.find('.cell-expanded-list').element, 'getBoundingClientRect')
     .mockReturnValue({ left: 250, right: 670, top: 200, bottom: 640 });
   vi.spyOn(wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="13"]').element, 'getBoundingClientRect')
@@ -240,4 +247,24 @@ it('keeps compact settings discoverable without the old permanent helper', async
   expect(settings.attributes('title')).toContain('layout');
   await settings.trigger('click');
   expect(settings.attributes('aria-expanded')).toBe('true');
+});
+
+it('delays a hover preview and clears it immediately when entering an empty slot', async () => {
+  await mount({}, {focusedDay:'Tuesday'});
+  const owner = wrapper.get('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
+  await owner.trigger('mouseenter');
+  await vi.advanceTimersByTimeAsync(199);
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
+  await wrapper.get('.sched-cell[data-day="Tuesday"][data-hour="15"]').trigger('mouseenter');
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
+});
+it('opens the move dialog when the target local time happens to equal the original UTC clock', async () => {
+  const s = await mount({}, {focusedDay:'Tuesday'});
+  s.openAppointmentMoveConfirm({appointmentId:55, kind:'sevt', durationMs:3600000,
+    startAt:'2026-10-13T11:00:00Z',endAt:'2026-10-13T12:00:00Z'}, {dayName:'Tuesday',hour:11,minute:0});
+  await nextTick();
+  expect(s.appointmentMoveDraft.newStartAt).toBe('2026-10-13T11:00:00');
+  expect(s.showAppointmentMoveModal).toBe(true);
 });

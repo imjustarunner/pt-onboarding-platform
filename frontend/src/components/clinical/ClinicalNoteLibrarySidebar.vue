@@ -204,10 +204,15 @@
                   class="cnl-row"
                   :class="{
                     selected: isSelected(d) || isPreviewed(d),
+                    'linked-note-highlight': matchesHighlightedNote(d),
                     [`cnl-row--${normalizeStatus(d.docStatus)}`]: true
                   }"
                   :data-open="isSelected(d) ? '1' : null"
                   :style="rowStyle(d.docStatus)"
+                  @pointerenter="highlightDraft(d)"
+                  @pointerleave="$emit('highlight-note', null)"
+                  @focusin="highlightDraft(d)"
+                  @focusout="clearDraftHighlight"
                 >
                   <button type="button" class="cnl-row-main" @click="onRowActivate(d)">
                     <span
@@ -340,6 +345,7 @@ import { SOAP_SECTION_DEFS, soapSectionTextFromDraft } from '../../utils/noteAid
 import ClinicalNoteDetailFetcher from './ClinicalNoteDetailFetcher.vue';
 
 const props = defineProps({
+  highlightedNote: { type: Object, default: null },
   allowCreate: { type: Boolean, default: true },
   title: { type: String, default: 'Note Library' },
   newLabel: { type: String, default: 'New Note' },
@@ -363,6 +369,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'new',
+  'highlight-note',
   'select',
   'delete',
   'update:tab',
@@ -375,6 +382,22 @@ const emit = defineEmits([
   'update:expanded'
 ]);
 
+function draftIdentity(row) {
+  return { draftId: row.draftId || row.raw?.draftId, clinicalSessionId: row.raw?.clinicalSessionId || row.raw?.clinical_session_id };
+}
+function matchesHighlightedNote(row) {
+  const note = props.highlightedNote;
+  const draft = draftIdentity(row);
+  return !!note && normalizeStatus(row.docStatus) === DOC_STATUS.STARTED
+    && (!!note.draftId && Number(note.draftId) === Number(draft.draftId)
+      || !!note.clinicalSessionId && Number(note.clinicalSessionId) === Number(draft.clinicalSessionId));
+}
+function highlightDraft(row) {
+  emit('highlight-note', normalizeStatus(row.docStatus) === DOC_STATUS.STARTED ? draftIdentity(row) : null);
+}
+function clearDraftHighlight(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) emit('highlight-note', null);
+}
 const openGroups = reactive({});
 const previewId = ref(null);
 const soapOpenIds = reactive({});
@@ -891,4 +914,5 @@ function onRailStatusClick(key) {
   }
   .cnl--expanded { max-height: none; height: 100%; min-height: 60vh; }
 }
+.cnl-row.linked-note-highlight { outline: 2px solid #2563eb; outline-offset: -2px; background: var(--bg-secondary, #eff6ff); }
 </style>

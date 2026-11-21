@@ -1,3 +1,5 @@
+import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
+import { releaseOfficeReservation } from './officeReservationRelease.service.js';
 import { cancellationNoticePreview } from './cancellationNoticePreview.service.js';
 import { randomUUID, createHash } from 'node:crypto';
 import pool from '../config/database.js';
@@ -108,6 +110,18 @@ export function createDayCancellationService(overrides = {}) {
     getAppointment: id => Appointment.findById(id), participants: id => Appointment.listParticipants(id),
     previewAppointment: previewAppointmentChange, completeAppointment: completeAppointmentChange,
     editPublication: editAvailabilityPublication, cancelMeetings: cancelMeetingOccurrences,
+    releaseRoom: async (item, {actorId, providerId, now}) => {
+      const result = await releaseOfficeReservation({
+        eventId: item.id, officeLocationId: item.source.officeLocationId, scope: 'occurrence',
+        keepAssigned: !!item.source.standingAssignmentId, canManage: true, actorUserId: actorId,
+        reviewedOccurrence: { providerId, standingAssignmentId: item.source.standingAssignmentId, startAt: item.startAt, endAt: item.endAt, now }
+      });
+      OfficeScheduleMaterializer.invalidateOffice(item.source.officeLocationId);
+      void import('./googleCalendar.service.js')
+        .then(({default: GoogleCalendar}) => GoogleCalendar.cancelBookedOfficeEvent({officeEventId: item.id, sendUpdates: 'none'}))
+        .catch(() => {});
+      return result;
+    },
     contacts: (...args) => cancellationRecipients.review(...args),
     roster: args => cancellationSchoolRoster.list(args), rosterReview: cancellationSchoolRoster.review, notifyRoster: cancellationSchoolRoster.send,
     schools: args => cancellationSchoolNotices.list(args), schoolReview: cancellationSchoolNotices.review, notifySchool: cancellationSchoolNotices.send,
@@ -160,6 +174,8 @@ export function createDayCancellationService(overrides = {}) {
         item.facts = { ...plan.facts, followUpAfterAt: null, followUpExcludedAppointmentIds: excludedAppointments,
           notificationRecipients: item.clients.map(c => ({ clientId: c.clientId, mode: c.mode, channels: c.channels, recipients: c.recipients })),
           reviewedCancellation: true };
+        if (plan.scopeMode === 'days' && !plan.schoolId && (!plan.facts.cancelScopes || plan.facts.cancelScopes.includes('office'))
+          && (a.officeEventId || (a.roomId && a.officeLocationId))) item.facts.officeReservationDisposition = 'release';
         if (plan.facts.followUpAction === 'private_slots') {
           if (item.clients.length !== 1) throw fail('Offer replacement times to individual client sessions. Review group sessions separately.');
           if (item.clients[0].mode === 'none') throw fail('Choose a contact for every client receiving replacement times.');
@@ -215,6 +231,26 @@ export function createDayCancellationService(overrides = {}) {
         }
       }
       if (plan.scopeMode === 'sessions' || plan.schoolId) continue;
+      if (!plan.facts.cancelScopes || plan.facts.cancelScopes.includes('office')) {
+        const [reservations] = await db.execute(`SELECT e.id, e.office_location_id, e.standing_assignment_id, e.start_at, e.end_at,
+            l.name AS office_name, r.name AS room_name
+          FROM office_events e JOIN office_locations l ON l.id=e.office_location_id
+          JOIN office_rooms r ON r.id=e.room_id
+          LEFT JOIN office_standing_assignments sa ON sa.id=e.standing_assignment_id
+          WHERE COALESCE(e.booked_provider_id,e.assigned_provider_id)=? AND e.status='BOOKED'
+            AND e.start_at>=? AND e.end_at<=? AND e.start_at>?
+            AND COALESCE(NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.agencyId')) AS UNSIGNED),0),sa.booking_agency_id,l.agency_id)=?
+            AND e.client_id IS NULL AND e.clinical_session_id IS NULL AND e.billing_context_id IS NULL AND e.note_context_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.office_event_id=e.id
+              OR (a.office_event_id IS NULL AND a.room_id=e.room_id AND a.start_at<e.end_at AND a.end_at>e.start_at
+                 AND a.status IN ('draft','scheduled','confirmed','client_confirmed','checked_in','reschedule_requested','cancellation_requested')))
+          ORDER BY e.id`, [plan.providerId, start, end, now, agencyId]);
+        for (const room of reservations) {
+          items.push({ key: 'office_reservation:' + room.id, kind: 'office_reservation', id: Number(room.id), agencyId, timeZone, date,
+            title: [room.office_name, room.room_name].filter(Boolean).join(' · '), startAt: stamp(room.start_at), endAt: stamp(room.end_at),
+            source: { officeLocationId: Number(room.office_location_id), standingAssignmentId: room.standing_assignment_id || null } });
+        }
+      }
       const otherEvents = !plan.facts.cancelScopes || plan.facts.cancelScopes.includes('other');
       if (!otherEvents && plan.facts.absenceSource === 'planned_out') continue;
       if (otherEvents) for (const kind of ['meeting', 'supervision']) {
@@ -376,6 +412,9 @@ export function createDayCancellationService(overrides = {}) {
             const facts = {...(item.facts || { ...plan.facts, followUpAfterAt: plan.scopes.find(s => s.agencyId === item.agencyId)?.end }),...reviewedProof};
             const completed = await (plan.notificationsOnly ? deps.notifyAppointment : deps.completeAppointment)(item.id, facts, plan.notificationsOnly ? actor.id : { actorUserId: actor.id, actorRole: actor.role });
             delivery = plan.notificationsOnly ? completed : completed.notificationDelivery || completed.result?.notificationDelivery;
+          } else if (item.kind === 'office_reservation') {
+            const released = await deps.releaseRoom(item, {actorId: actor.id, providerId: plan.providerId, now: deps.now()});
+            results[item.key] = { status: 'completed', officeReservation: released };
           } else if (item.kind === 'participation') {
             delivery = await deps.updateParticipation(item, actor.id);
           } else if (item.kind === 'school_roster') {
@@ -410,7 +449,7 @@ export function createDayCancellationService(overrides = {}) {
               await deps.editPublication({ agencyId: item.agencyId, providerId: plan.providerId, kind: item.kind, id: item.id, action: 'delete', scope: 'single', occurrenceDate: item.date || plan.date });
             }
           }
-          results[item.key] = { status: 'completed', notificationDelivery: delivery || null };
+          results[item.key] ||= { status: 'completed', notificationDelivery: delivery || null };
         } catch (error) {
           results[item.key] = { status: 'failed', message: error.status ? error.message : 'Could not complete this item. Retry or open the event to review.' };
         }

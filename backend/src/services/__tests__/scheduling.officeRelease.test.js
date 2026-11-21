@@ -60,3 +60,18 @@ it('makes a future unbooking cutoff explicit without reviving an ignored legacy 
  expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('SET active_until_date'), ['2099-07-02', null, '{"bookingLimitsExplicit":true}', '2099-07-03', expect.any(String), 3]);
  expect(conn.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE office_standing'))).toBe(false);
 });
+
+it('applies a reviewed release once and rejects stale ownership', async () => {
+  event.status = 'BOOKED';
+  const reviewedOccurrence = { providerId: 9, startAt: '2099-07-03T23:00:00Z', endAt: '2099-07-04T00:00:00Z',
+    now: new Date('2099-07-02T18:00:00Z') };
+  const request = { ...input, keepAssigned: true, reviewedOccurrence, actorUserId: 101, canManage: true };
+  await releaseOfficeReservation(request);
+  expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_events SET status'), ['RELEASED', 'ASSIGNED_AVAILABLE', 20]);
+  conn.execute.mockClear();
+  event.status = 'RELEASED'; event.slot_state = 'ASSIGNED_AVAILABLE'; event.booked_provider_id = null;
+  await releaseOfficeReservation(request);
+  expect(conn.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
+  event.status = 'BOOKED'; event.booked_provider_id = 88;
+  await expect(releaseOfficeReservation(request)).rejects.toMatchObject({ status: 409 });
+});

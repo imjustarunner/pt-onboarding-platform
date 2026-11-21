@@ -1029,7 +1029,7 @@
           </div>
         </div>
       </div>
-      <ScheduleBookingJobs ref="bookingJobs" :actor-user-id="Number(authStore.user?.id || 0)" @completed="onBackgroundBookingCompleted" />
+      <ScheduleBookingJobs ref="bookingJobs" :actor-user-id="Number(authStore.user?.id || 0)" @completed="onBackgroundBookingCompleted" @write-note="openBookedSessionNote" />
       <div v-for="job in appointmentChange.seriesJobs.value" :key="job.id" class="schedule-cancellation-progress" role="status">
         <div><strong>{{ job.status==='completed' ? 'Recurring visits canceled' : job.status==='failed' ? 'Cancellations need review' : 'Canceling recurring visits' }}</strong><span>{{ job.completed }} / {{ job.count }} completed · {{ job.officeReservationDisposition==='keep' ? 'Keep office reservations' : 'Release associated office time' }}</span><progress v-if="['queued','processing'].includes(job.status)" :value="job.completed" :max="job.count" aria-label="Appointment cancellation progress"></progress></div>
         <button type="button" class="btn btn-secondary btn-sm" @click="appointmentChange.openWizard({appointmentId:job.appointmentId})">View progress</button>
@@ -1121,6 +1121,7 @@
                 >Open in Google Maps ↗</a>
               </template>
               <div v-else-if="agendaItemMeta(item)" class="sched-agenda__meta">{{ agendaItemMeta(item) }}</div>
+              <ScheduleQuickRsvp v-if="showQuickRsvp(item)" :event="item" @saved="onQuickRsvpSaved" />
             </div>
           </li>
         </ul>
@@ -1248,6 +1249,7 @@
                   </div>
                 </div>
               </button>
+              <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
               <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" class="sched-day-comment-shortcut" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
               </div>
               <button
@@ -1378,7 +1380,7 @@
             :data-hour="slot.hour"
             :data-minute="slot.minute"
             @mousedown.left.prevent="slot.minute === 0 && onCellMouseDown(d, slot.hour, $event)"
-            @mouseenter="slot.minute === 0 && onCellMouseEnter(d, slot.hour, $event)"
+            @mouseenter="onScheduleGridCellEnter(d, slot.hour, slot.minute, $event)"
             @click="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
             @dblclick="slot.minute === 0 && onCellDoubleClick(d, slot.hour, $event)"
             role="button"
@@ -1414,7 +1416,7 @@
                 'cell-blocks--multi-pick': cellBlocksNeedPickOnClick(d, slot.hour, slot.minute),
                 'cell-blocks--pick-expanded': isCellPickExpanded(d, slot.hour, slot.minute)
               }"
-              @mouseenter="openCalendarStack($event, d, slot.hour, slot.minute)"
+              @mouseenter="scheduleCalendarStackHover($event, d, slot.hour, slot.minute)"
               @mouseleave="onCalendarStackMouseLeave($event)"
               @keydown.stop
               @keydown.esc="hoveredPickCellKey = ''"
@@ -1599,6 +1601,7 @@
                   class="cell-block-pending-badge"
                   :aria-label="b.pendingRequestCount > 1 ? `${b.pendingRequestCount} pending requests` : 'Pending request'"
                 >{{ b.pendingRequestCount > 1 ? `Req×${b.pendingRequestCount}` : 'Req' }}</span>
+                <ScheduleQuickRsvp v-if="showQuickRsvp(b)" :event="b" @saved="onQuickRsvpSaved" />
                 <!-- Bottom resize handle -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
@@ -1766,7 +1769,7 @@
           </div>
         </div>
 
-        <VirtualSessionBookingConfirmation v-if="virtualSessionBookingResult" :booking="virtualSessionBookingResult" :share-url="virtualSessionShareUrl" :copied="virtualSessionShareCopied" :busy="submitting" :error="modalError" @copy="copyVirtualSessionShareUrl" />
+        <VirtualSessionBookingConfirmation v-if="virtualSessionBookingResult" :booking="virtualSessionBookingResult" :share-url="virtualSessionShareUrl" :copied="virtualSessionShareCopied" :busy="submitting" :error="modalError" @copy="copyVirtualSessionShareUrl" :can-write-note="canWriteBookedNote(virtualSessionBookingResult)" @write-note="openBookedSessionNote(virtualSessionBookingResult.appointments[0])" />
         <template v-else>
         <div v-if="meetingCreatedShare" class="nr-meeting-created" data-testid="meeting-created-share">
           <div class="nr-meeting-created-copy">
@@ -5550,8 +5553,9 @@
       </div>
     </Teleport>
 
+    <Teleport to="body">
     <div v-if="showAppointmentMoveModal" class="modal-backdrop" style="z-index: 10401;" @click.self="closeAppointmentMoveModal">
-      <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="appointment-move-title">
+      <div class="modal cancel-meeting-modal appointment-move-modal" role="dialog" aria-modal="true" aria-labelledby="appointment-move-title">
         <div class="modal-head">
           <div id="appointment-move-title" class="modal-title">Move appointment</div>
           <button class="btn btn-secondary btn-sm cancel-meeting-btn-secondary" type="button" :disabled="appointmentMoveBusy" @click="closeAppointmentMoveModal">
@@ -5590,6 +5594,7 @@
         </div>
       </div>
     </div>
+    </Teleport>
 
     <div v-if="showSeriesEditScopeModal" class="modal-backdrop" style="z-index: 10401;" @click.self="closeSeriesEditScopeModal">
       <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="series-edit-scope-title">
@@ -6036,6 +6041,7 @@ import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentReschedulePanel from './AppointmentReschedulePanel.vue';
+import ScheduleQuickRsvp from './ScheduleQuickRsvp.vue';
 import VirtualSessionBookingConfirmation from './VirtualSessionBookingConfirmation.vue';
 import { mergeSavedAppointmentCalendar } from '../../utils/savedAppointmentCalendar.js';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
@@ -12472,6 +12478,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       isGroupMeeting,
       attendees: Array.isArray(ev?.attendees) ? ev.attendees : [],
       attendeeUserIds: Array.isArray(ev?.attendeeUserIds) ? ev.attendeeUserIds : [],
+      canRsvp: ev.canRsvp === true,
+      myRsvp: ev.myRsvp || null,
+      companyEventId: ev.companyEventId || null,
       timedSlice,
       spanBlock: true,
       // Allow drag gesture for snap-back UX; permission checked on drop.
@@ -12802,6 +12811,20 @@ const isActionCellSelected = (dayName, hour) => {
 const blockKey = (dayName, hour, block) => `${String(dayName || '')}|${Number(hour)}|${String(block?.key || '')}`;
 const isBlockHovered = (dayName, hour, block) => hoveredBlockKey.value === blockKey(dayName, hour, block);
 const hoveredPickCellKey = ref('');
+function showQuickRsvp(block) {
+  return block.canRsvp && !block.peerOnly && !block.isCancelled && !block.meetingCompleted
+    && Number(authStore.user?.id) > 0 && Number(authStore.user?.id) === Number(props.userId)
+    && +parseScheduleInstant(block.startAt) > Date.now();
+}
+function onQuickRsvpSaved({ eventId, companyEventId, response }) {
+  if (rawSummary.value?.scheduleEvents) rawSummary.value = { ...rawSummary.value,
+    scheduleEvents: rawSummary.value.scheduleEvents.map(row => (companyEventId
+      ? Number(row.companyEventId) === Number(companyEventId) : Number(row.id) === Number(eventId))
+      ? { ...row, myRsvp: response } : row) };
+  invalidateScheduleSummaryCacheForUser(props.userId);
+  refreshScheduleSummaryInBackground();
+}
+
 const calendarStackPosition = ref({});
 const calendarStackContext = ref(null);
 const calendarStackItems = computed(() => {
@@ -12809,13 +12832,36 @@ const calendarStackItems = computed(() => {
   return context ? cellBlocks(context.day, context.hour, context.minute, true) : [];
 });
 let calendarStackCloseTimer = null;
+let calendarStackOpenTimer = null;
+function cancelCalendarStackHover() {
+  clearTimeout(calendarStackOpenTimer);
+  calendarStackOpenTimer = null;
+}
+function onScheduleGridCellEnter(day, hour, minute, event) {
+  if (hoveredPickCellKey.value && hoveredPickCellKey.value !== cellPickKey(day, hour, minute)) closeCalendarStack();
+  if (minute === 0) onCellMouseEnter(day, hour, event);
+}
+function scheduleCalendarStackHover(event, day, hour, minute) {
+  const preview = event.currentTarget.querySelector('.cell-expanded-list')?.getBoundingClientRect();
+  if (event.target.closest?.('.cell-expanded-list') || (preview && event.clientX >= preview.left && event.clientX < preview.right
+    && event.clientY >= preview.top && event.clientY < preview.bottom)) {
+    clearCalendarStackClose();
+    return;
+  }
+  closeCalendarStack();
+  if (!cellBlocks(day, hour, minute, true).length || appointmentDragState.value || schedResizeState.value) return;
+  const pointer = { currentTarget:event.currentTarget, clientX:event.clientX, clientY:event.clientY };
+  calendarStackOpenTimer = setTimeout(() => openCalendarStack(pointer, day, hour, minute), 200);
+}
 function clearCalendarStackClose() {
   clearTimeout(calendarStackCloseTimer);
   calendarStackCloseTimer = null;
 }
 function closeCalendarStack() {
+  cancelCalendarStackHover();
   clearCalendarStackClose();
   hoveredPickCellKey.value = '';
+  calendarStackContext.value = null;
 }
 function onCalendarStackViewportChange(event) {
   // Scrolling a long preview itself should not dismiss it.
@@ -12832,6 +12878,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', onCalendarStackViewportChange);
 });
 function openCalendarStack(event, day, hour, minute, explicit = false) {
+  cancelCalendarStackHover();
   clearCalendarStackClose();
   const container = event.currentTarget.closest?.('.cell-blocks') || event.currentTarget;
   const preview = container.querySelector?.('.cell-expanded-list')?.getBoundingClientRect();
@@ -12891,6 +12938,7 @@ async function toggleCalendarStack(event, day, hour, minute) {
   container?.querySelector('.cell-expanded-item')?.focus();
 }
 function onCalendarStackMouseLeave(event) {
+  cancelCalendarStackHover();
   const container = event.currentTarget;
   clearCalendarStackClose();
   // Allow the pointer to cross the small gap to the adjacent preview.
@@ -13071,7 +13119,10 @@ const officeBookingProgress = ref('');
 const scheduleWeather = useScheduleWeather(() => authStore.user?.id || authStore.user?.email, () => weekStart.value);
 const forecastDateForDay = day => addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 const bookingJobs = ref(null);
-const onBackgroundBookingCompleted = () => {
+const onBackgroundBookingCompleted = job => {
+  const appointment = job?.result?.appointment;
+  if (appointment) projectSavedVirtualAppointments({ agencyId: appointment.agencyId, appointments: [appointment], timeZone: appointment.sourceTimezone });
+  window.dispatchEvent(new Event('appointment-schedule-saved'));
   invalidateScheduleSummaryCacheForUser(props.userId);
   refreshScheduleSummaryInBackground();
   if (Number(selectedOfficeLocationId.value) > 0) void loadSelectedOfficeGrid().catch(() => {});
@@ -14394,7 +14445,7 @@ const selectedQuickActionLabel = computed(() => {
   return submitActionLabel.value || t;
 });
 const modalScheduleSubtitle = computed(() => {
-  if (virtualSessionBookingResult.value) return 'Your saved appointment and its session video link.';
+  if (virtualSessionBookingResult.value) return virtualSessionBookingResult.value.historical ? 'Your saved appointment.' : 'Your saved appointment and its session video link.';
   const t = String(requestType.value || '');
   if (t === 'edit_schedule_event') {
     const item = editingScheduleStackItem.value;
@@ -19269,7 +19320,7 @@ const patchScheduleSummaryWithBookedEvent = ({
     agencyId: aId,
     _agencyId: aId,
     kind: String(kind || 'PERSONAL_EVENT').trim().toUpperCase(),
-    title: String(title || '').trim() || 'Virtual session',
+    title: String(title || '').trim() || 'Client session',
     isPrivate: false,
     allDay: false,
     startAt: start,
@@ -22600,6 +22651,31 @@ const projectSavedVirtualAppointments = (booking) => {
   }
 };
 
+const canWriteBookedNote = booking => booking?.historical && !booking.learning && booking.appointments?.length === 1
+  && Number(booking.appointments[0].providerUserId) === Number(authStore.user?.id);
+async function openBookedSessionNote(saved) {
+  if (!saved?.id || Number(saved.providerUserId) !== Number(authStore.user?.id)) return;
+  try {
+    const appointment = saved.clinicalSessionId && saved.participants ? saved
+      : (await api.get('/appointments/' + saved.id, { skipGlobalLoading: true })).data?.appointment;
+    const clientId = appointment?.participants?.find(p => p.role === 'client' && p.isBillingResponsible)?.clientId
+      || appointment?.participants?.find(p => p.role === 'client')?.clientId;
+    if (!clientId || !appointment.clinicalSessionId) throw new Error('The appointment is saved. Its note link is still being prepared.');
+    const query = buildNoteAidQuery({
+      clientId, clinicalSessionId: appointment.clinicalSessionId, appointmentId: appointment.id,
+      agencyId: appointment.agencyId, officeEventId: appointment.officeEventId,
+      dateOfService: toZonedDatetimeLocalValue(appointment.startAt, appointment.sourceTimezone || scheduleMeetingTimeZone()),
+      serviceCode: appointment.serviceCode, launchIntent: 'progress_note'
+    });
+    await router.push({ name: 'ClinicalNoteGenerator', query });
+    closeModal();
+  } catch (error) {
+    const message = error.response?.data?.error?.message || error.message || 'Could not open the session note.';
+    if (virtualSessionBookingResult.value) modalError.value = message;
+    else flashScheduleToast(message);
+  }
+}
+
 const finishVirtualSessionVideoLinks = async () => {
   const booking = virtualSessionBookingResult.value;
   if (!booking || booking.uncertain) return;
@@ -22630,7 +22706,7 @@ const finishVirtualSessionVideoLinks = async () => {
   booking.linked = true;
   virtualSessionShareCopied.value = false;
   invalidateScheduleSummaryCacheForUser(props.userId);
-  await load({ forceRefresh: true });
+  refreshScheduleSummaryInBackground();
   projectSavedVirtualAppointments(booking);
 };
 
@@ -22647,7 +22723,7 @@ const dismissVirtualSessionBooking = async () => {
   const booking = virtualSessionBookingResult.value;
   closeModal(); clearSelectedActionSlots();
   invalidateScheduleSummaryCacheForUser(props.userId);
-  await load({ forceRefresh: true });
+  refreshScheduleSummaryInBackground();
   projectSavedVirtualAppointments(booking);
 };
 
@@ -22772,13 +22848,14 @@ const completePlatformVirtualSessionBooking = async ({
       notificationMode: editorStartedSingleBooking.value ? 'off' : editorNotificationMode.value,
       customReminders: !editorStartedSingleBooking.value && editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
       othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
-    });
+    }, { skipGlobalLoading: true });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
     canonicalBooking = apptRes.data;
     if (!appointmentId) throw new Error('The booking response contained no appointment ID.');
     virtualSessionBookingResult.value = { ...bookingSnapshot, appointments: (canonicalBooking.appointments || [canonicalBooking.appointment]).filter(a => Number(a?.id) > 0),
       recurrenceSeriesId: canonicalBooking.recurrenceSeriesId || null, googleCalendarWarning: canonicalBooking.googleCalendarWarning || '' };
     projectSavedVirtualAppointments(virtualSessionBookingResult.value);
+    window.dispatchEvent(new Event('appointment-schedule-saved'));
   } catch (error) {
     const savedIds = (error.response?.data?.createdAppointmentIds || []).map(Number).filter(id => id > 0);
     if (savedIds.length) {
@@ -23460,10 +23537,11 @@ const submitRequest = async () => {
           isPrivate: false,
           allowLocalOnly: true,
           ...bookingSelection
-        });
+        }, { skipGlobalLoading: true });
         clearSelectedActionSlots();
         ensureScheduleAgencyVisible(agencyId);
-        for (const appointment of scheduleResp.data?.appointments || [scheduleResp.data?.appointment]) {
+        const savedAppointments = (scheduleResp.data?.appointments || [scheduleResp.data?.appointment]).filter(appointment => appointment?.id);
+        for (const appointment of savedAppointments) {
           if (!appointment?.id) continue;
           patchScheduleSummaryWithBookedEvent({
             eventId: appointment.providerScheduleEventId || -Number(appointment.id),
@@ -23473,8 +23551,16 @@ const submitRequest = async () => {
             appointmentContext: appointment
           });
         }
+        window.dispatchEvent(new Event('appointment-schedule-saved'));
         refreshScheduleSummaryInBackground();
-        closeModal();
+        if (savedAppointments.length === 1 && parseScheduleInstant(savedAppointments[0].endAt)?.getTime() <= Date.now()) {
+          const appointment = savedAppointments[0];
+          virtualSessionBookingResult.value = {
+            agencyId, appointments: savedAppointments, historical: true, linked: true, noVideo: true,
+            timeZone, learning: editorIsLearning.value, title: titleParts[0], clientLabel: primarySessionClientLabel.value,
+            whenLabel: toZonedDatetimeLocalValue(appointment.startAt, timeZone).slice(0, 10) + ' · ' + clockRangeLabel(appointment.startAt, appointment.endAt)
+          };
+        } else closeModal();
         return;
       }
 
@@ -23535,6 +23621,8 @@ const submitRequest = async () => {
           refreshInBackground = true;
         } else if (r?.data?.kind === 'auto_booked') {
           ensureScheduleAgencyVisible(Number(r.data.agencyId || editorAgencyId.value || effectiveAgencyId.value));
+          if (r.data.appointment) projectSavedVirtualAppointments({ agencyId: r.data.appointment.agencyId, appointments: [r.data.appointment] });
+          window.dispatchEvent(new Event('appointment-schedule-saved'));
           const count = r.data.appointmentIds?.length || occurrenceCount || 1;
           const reference=r.data.appointmentIds?.[0]?` · Appointment #${r.data.appointmentIds[0]}`:'';
           const resultLabel=r.data.confirmationReason==='retrospective'?'Past tutoring booking recorded':`${count} session${count===1?'':'s'} scheduled`;
@@ -25803,6 +25891,7 @@ const onSessionMoved = async (result) => {
   showAppointmentMoveModal.value = false;
   appointmentMoveDraft.value = null;
   const afterSave = appointmentMoveAfterSave; appointmentMoveAfterSave = null;
+  if (!result.pendingApproval) window.dispatchEvent(new Event('appointment-schedule-saved'));
   if (!result.pendingApproval && afterSave) await afterSave();
   if (result.pendingApproval && afterSave) { closeStackDetailsModal(); closeModal(); }
   flashScheduleToast(result.pendingApproval ? 'Room request submitted. Your original session stays in place until approval.' : 'Session moved.');
@@ -26174,7 +26263,7 @@ const openAppointmentMoveConfirm = (st, target) => {
   const newStartAt = wallDatetimeFromParts(dateYmd, target.hour, target.minute);
   const newEndAt = wallDatetimeEndFromStart(newStartAt, Number(st.durationMs || 0), moveTz);
   if (!newStartAt || !newEndAt) return;
-  const oldNorm = String(st.startAt || '').replace(' ', 'T').slice(0, 16);
+  const oldNorm = toZonedDatetimeLocalValue(st.startAt, moveTz);
   if (oldNorm === newStartAt.slice(0, 16)) return;
   const oldRange = clockRangeLabel(st.startAt, st.endAt);
   const newRange = clockRangeLabel(newStartAt, newEndAt, true);
@@ -26311,13 +26400,17 @@ const confirmAppointmentMove = async () => {
 
 const onAppointmentPointerUp = (e) => {
   const st = appointmentDragState.value;
-  const target = appointmentDragTarget.value;
+  if (st && st.pointerId !== e.pointerId) return;
+  const target = e.type === 'pointerup' && st?.active ? resolveDropFromPoint(e.clientX, e.clientY) : null;
   cleanupAppointmentDragListeners();
   appointmentDragState.value = null;
   appointmentDragTarget.value = null;
   if (!st) return;
-  if (st.moved && st.active && target) {
+  if (st.moved && st.active) {
     suppressNextAppointmentClick = true;
+    setTimeout(() => { suppressNextAppointmentClick = false; }, 0);
+    if (e.type !== 'pointerup') return;
+    if (!target) { flashScheduleToast('Drop the appointment onto a calendar time to move it.'); return; }
     if (!st.canReschedule) {
       // Snap-back: block never moved optimistically; just tell the invitee why.
       flashScheduleToast('Only the host can change the time. Your move was not saved.');
@@ -33745,6 +33838,12 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 .sched-wrap--side-by-side .cell-multi-pick-badge { opacity:0; pointer-events:none; }
 .sched-wrap--side-by-side .cell-blocks:hover .cell-multi-pick-badge,
 .sched-wrap--side-by-side .cell-blocks:focus-within .cell-multi-pick-badge { opacity:1; pointer-events:auto; }
+.appointment-move-modal {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
 </style>
 
 <style scoped>

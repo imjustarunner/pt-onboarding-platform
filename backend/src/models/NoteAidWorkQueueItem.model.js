@@ -2,6 +2,9 @@ import pool from '../config/database.js';
 import { visibleClinicalWork, assertClinicalWorkActive } from '../services/clinicalWorkArchiveRead.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 
+import { utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { SESSION_DOCUMENTATION_LEAD_MS } from '../utils/sessionDocumentationTiming.js';
+
 const STATUSES = new Set(['not_started', 'started', 'completed', 'signed']);
 const TERMINAL_TTL_HOURS = 24;
 
@@ -190,6 +193,33 @@ function rowValuesFromItem(userId, item = {}) {
   };
 }
 
+const documentableAppointmentStatuses = new Set(['scheduled', 'confirmed', 'client_confirmed', 'checked_in', 'completed']);
+
+export function projectWorkQueueSchedule(row, item, now = Date.now()) {
+  const officeOnly = !row.live_appointment_id && String(row.client_key || '').startsWith('booked_session_');
+  const currentStart = row.live_start_at || (officeOnly ? row.live_office_start_at : null);
+  if (!currentStart) return item;
+  const liveStatus = String(row.live_status || '').toLowerCase();
+  if (row.live_appointment_id && !documentableAppointmentStatuses.has(liveStatus)) return null;
+  if (officeOnly && ['cancelled', 'canceled', 'voided', 'released'].includes(String(row.live_office_status || '').toLowerCase())) return null;
+  const scheduledStart = utcMysqlToIso(currentStart);
+  const startMs = Date.parse(scheduledStart);
+  if (!Number.isFinite(startMs) || startMs > now + SESSION_DOCUMENTATION_LEAD_MS) return null;
+  const sourceTimezone = row.live_source_timezone || item.sourceTimezone || 'UTC';
+  const end = row.live_end_at || (officeOnly ? row.live_office_end_at : null);
+  const scheduledEnd = utcMysqlToIso(end);
+  return {
+    ...item,
+    appointmentId: Number(row.live_appointment_id) || item.appointmentId,
+    date: utcDateToZonedYmd(scheduledStart, sourceTimezone),
+    timeLabel: new Date(startMs).toLocaleTimeString('en-US', { timeZone: sourceTimezone, hour: 'numeric', minute: '2-digit' }),
+    sourceTimezone,
+    scheduledStart,
+    scheduledEnd,
+    durationMinutes: scheduledEnd ? Math.round((Date.parse(scheduledEnd) - startMs) / 60000) : item.durationMinutes
+  };
+}
+
 class NoteAidWorkQueueItem {
   static async purgeExpiredTerminal({ hours = TERMINAL_TTL_HOURS } = {}) {
     const h = Math.max(1, Number(hours) || TERMINAL_TTL_HOURS);
@@ -203,15 +233,24 @@ class NoteAidWorkQueueItem {
     return Number(result?.affectedRows || 0);
   }
 
-  static async listForUser(userId, { purgeExpired = false, agencyId = null } = {}) {
+  static async listForUser(userId, { purgeExpired = false, agencyId = null, now = Date.now() } = {}) {
     const uid = safeInt(userId);
     if (!uid) return [];
     if (purgeExpired) {
       await this.purgeExpiredTerminal();
     }
     const [rows] = await pool.execute(
-      `SELECT q.*,d.id AS linked_draft_id
+      `SELECT q.*,d.id AS linked_draft_id,
+         ap.id AS live_appointment_id, ap.start_at AS live_start_at, ap.end_at AS live_end_at,
+         ap.status AS live_status, ap.source_timezone AS live_source_timezone,
+         oe.start_at AS live_office_start_at, oe.end_at AS live_office_end_at, oe.status AS live_office_status
        FROM note_aid_work_queue_items q LEFT JOIN clinical_note_drafts d ON d.id=q.draft_id AND d.user_id=q.user_id
+       LEFT JOIN appointments ap ON ap.id=(
+         SELECT a.id FROM appointments a WHERE a.clinical_session_id=q.clinical_session_id
+           AND a.provider_user_id=q.user_id AND a.agency_id=q.agency_id ORDER BY a.id DESC LIMIT 1
+       )
+       LEFT JOIN office_events oe ON oe.id=q.office_event_id AND ap.id IS NULL
+         AND oe.clinical_session_id=q.clinical_session_id AND COALESCE(oe.booked_provider_id,oe.assigned_provider_id)=q.user_id
        WHERE q.user_id = ? ${agencyId ? "AND q.agency_id = ?" : ""}
        ORDER BY
          CASE q.status
@@ -225,7 +264,7 @@ class NoteAidWorkQueueItem {
          q.id ASC`,
       agencyId ? [uid, agencyId] : [uid]
     );
-    return visibleClinicalWork((rows || []).map(toApiItem).map(row => ({ ...row, archiveResourceType: 'work_queue', id: row.serverId, clientQueueId: row.id })), { db: pool })
+    return visibleClinicalWork((rows || []).map(row => projectWorkQueueSchedule(row, toApiItem(row), now)).filter(Boolean).map(row => ({ ...row, archiveResourceType: 'work_queue', id: row.serverId, clientQueueId: row.id })), { db: pool })
       .then(items => items.map(({ archiveResourceType, clientQueueId, ...row }) => ({ ...row, id: clientQueueId })));
   }
 

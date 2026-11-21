@@ -1,3 +1,4 @@
+import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { withClientSchedulingLock, assertClientNotTerminated } from './clientSchedulingGuard.service.js';
 import Client from '../models/Client.model.js';
 import pool from '../config/database.js';
@@ -105,7 +106,7 @@ async function bookLockedOfficeRequest({ request, context, rooms, office, select
         }
         return true;
       });
-      if (unrelated.some((e) => e.status === 'BOOKED' || Number(e.assigned_provider_id) !== Number(request.requested_provider_id))) { available = false; break; }
+      if (unrelated.some((e) => e.status === 'BOOKED' || (Number(e.assigned_provider_id) !== Number(request.requested_provider_id) && !(appointments.length === 1 && isBorrowableOfficeRelease(e))))) { available = false; break; }
     }
     if (available) { chosen = room; recoverable = roomRecoverable; break; }
   }
@@ -121,7 +122,7 @@ async function bookLockedOfficeRequest({ request, context, rooms, office, select
         officeLocationId: office.id, roomId: chosen.id, startAt: block.startAt, endAt: block.endAt,
         status: 'BOOKED', slotState: 'ASSIGNED_BOOKED', assignedProviderId: a.providerUserId, bookedProviderId: a.providerUserId,
         clientId: request.client_id, source: 'PROVIDER_REQUEST', notes: request.requester_notes,
-        ...selection, sessionContext: bookingContext,
+        ...selection, sessionContext: bookingContext, allowReleasedOffice: appointments.length === 1,
         createdByUserId: actorUserId, approvedByUserId: actorUserId });
       const { ensureAppointmentContext } = await import('./appointmentContext.service.js');
       await ensureAppointmentContext({ officeEventId: event.id, agencyId: context.agencyId, clientId: request.client_id,

@@ -110,9 +110,22 @@ export async function listCommunications(appointmentId) {
   const [receipts] = rows?.length ? await pool.execute('SELECT communication_id,confirmed_at FROM cancellation_email_receipts WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
   const [replyReviews] = rows?.some(row=>row.direction==='inbound') ? await pool.execute('SELECT id,raw_body,status,interpreted_intent FROM appointment_reply_reviews WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
   const [emailReplies] = rows?.some(row=>row.kind==='notification_reply') ? await pool.execute('SELECT communication_id,action_status FROM session_notification_email_replies WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
-  return (rows || []).map((r) => {
-    const raw = typeof r.metadata_json === 'string' ? r.metadata_json : JSON.stringify(r.metadata_json);
-    const metadata = parseJson(maybeDecryptNotePayload(raw), null);
+  const entries = (rows || []).map(row => {
+    const raw = typeof row.metadata_json === 'string' ? row.metadata_json : JSON.stringify(row.metadata_json);
+    return { row, metadata: parseJson(maybeDecryptNotePayload(raw), null) };
+  });
+  const communicationIds = [...new Set(entries.map(({ metadata }) => Number(metadata?.communicationId)).filter(id => id > 0))];
+  const [deliveries] = communicationIds.length ? await pool.execute(
+    'SELECT id,agency_id,delivered_at FROM user_communications WHERE id IN (' + communicationIds.map(() => '?').join(',') + ')',
+    communicationIds
+  ) : [[]];
+  const deliveryById = new Map(deliveries.map(delivery => [Number(delivery.id), delivery]));
+  return entries.map(({ row: r, metadata }) => {
+    const delivery = deliveryById.get(Number(metadata?.communicationId));
+    if (delivery && Number(delivery.agency_id) === Number(r.agency_id) && delivery.delivered_at) {
+      metadata.deliveryStatus = 'delivered';
+      metadata.deliveredAt = delivery.delivered_at;
+    }
     const review = replyReviews.find(review=>Number(review.id)===Number(metadata?.reviewId));
     if(review && metadata) { metadata.body=review.raw_body;metadata.actionStatus=review.status;metadata.deliveryStatus='received'; }
     const emailReply=emailReplies.find(reply=>Number(reply.communication_id)===Number(r.id));

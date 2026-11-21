@@ -92,6 +92,8 @@
         :allow-create="false"
         :drafts="recentDrafts"
         :work-queue-items="workQueueItems"
+        :highlighted-note="highlightedWorkNote"
+        @highlight-note="highlightedWorkNote = $event"
         :signed-sessions="signedNoteSessions"
         :loading="recentLoading"
         :error="recentError"
@@ -192,11 +194,11 @@
         </div>
 
         <TherapyNotesQuickGenerator v-if="therapyNotesWriterOnly && !hasActualSessionContext && !signedNoteViewerId" :agency="{ id: Number(noteAidAgencyId || currentAgencyId), name: agencyLookup[noteAidAgencyId || currentAgencyId] }" />
+        <template v-else-if="showStartPage">
         <NoteAidStartPage
-          v-else-if="showStartPage"
           :heading="demoPresentation?.heading || ''"
           :description="demoPresentation?.description || ''"
-          :therapy-notes-generator-path="!demoPresentation && therapyNotesQuickGeneratorEnabled(agencyStore.currentAgency, agencyNoteAidCatalog.settings) ? therapyNotesQuickGeneratorPath(route.params.organizationSlug) : ''"
+          :therapy-notes-generator-path="!demoPresentation && individualSchedulingEnabled === false && therapyNotesQuickGeneratorEnabled(agencyStore.currentAgency, agencyNoteAidCatalog.settings) ? therapyNotesQuickGeneratorPath(route.params.organizationSlug) : ''"
           :session-linked-only="demoLinkedWorkspace"
           :has-next-in-progress="!!nextInProgressRow"
           :has-next-in-queue="!!nextInQueueItem"
@@ -204,6 +206,12 @@
           @next-in-progress="openNextInProgress"
           @next-in-queue="openNextInQueue"
         />
+        <div v-if="individualSchedulingEnabled && quickWorkspaceAids.length" class="na-workspace-quick-aids" aria-label="Note tools">
+          <button v-for="tool in quickWorkspaceAids" :key="tool.aid.id" type="button" class="na-archive-btn" @click="onLibrarySelect(tool)">
+            {{ tool.aid.id === 'code_decider' ? 'Note Decider' : 'Diagnosis' }}
+          </button>
+        </div>
+        </template>
 
         <section v-else-if="showActualSessionPicker || (needsActualProgressSession && !draftId)" class="na-session-picker" aria-label="Choose an actual session">
           <div class="na-aid-picker-head">
@@ -1410,6 +1418,11 @@
         :allow-add="authStore.user?.role === 'super_admin'"
         v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
         :items="workQueueItems"
+        :filter-user-id="authStore.user?.id"
+        :highlighted-note="highlightedWorkNote"
+        :loading="workQueueLoading && !workQueueItems.length"
+        :error="workQueueLoadError && !workQueueItems.length ? workQueueLoadError : ''"
+        @highlight-note="highlightedWorkNote = $event"
         :active-id="activeWorkQueueItemId"
         :collapsed="workQueueCollapsed"
         :sort-by="workQueueSortBy"
@@ -2160,6 +2173,28 @@ async function onStandalonePlanApplied() {
   await loadRecent();
 }
 const workQueueItems = useNoteAidWorkQueue(() => authStore.user?.id);
+const highlightedWorkNote = ref(null);
+const workQueueLoading = ref(false);
+const workQueueLoadError = ref('');
+let workQueueRequest;
+function loadWorkspaceQueue() {
+  if (workQueueRequest) return workQueueRequest;
+  workQueueLoading.value = true;
+  workQueueLoadError.value = '';
+  workQueueRequest = fetchWorkQueueFromApi(authStore.user?.id).catch(() => {
+    workQueueLoadError.value = 'Could not load My Work. Use Refresh to try again.';
+    return loadWorkQueue(authStore.user?.id);
+  }).finally(() => {
+    workQueueRequest = null;
+    workQueueLoading.value = false;
+  });
+  return workQueueRequest;
+}
+function refreshVisibleWorkQueue() {
+  if (!isEmbedded.value && canUseTool.value && document.visibilityState !== 'hidden') void loadWorkspaceQueue();
+}
+let workQueueTimer;
+
 const workspaceReady = ref(false);
 const showTerminationOutcomes = ref(false);
 const showContactWork = ref(false);
@@ -3206,6 +3241,7 @@ let narrivaModeTouched = false;
 const narrivaConsentConfirmed = ref(false), narrivaModality = ref('');
 const narrivaClientLocationDescription = ref('');
 const therapyNotesWriterOnly = ref(false);
+const individualSchedulingEnabled = ref(null);
 const narrivaGeneratorMappings = ref({}), narrivaMappingsLoaded = ref(false), narrivaMappingError = ref('');
 let narrivaMappingRequest = 0;
 const mappedNarrivaTool = computed(() => resolveNarrivaToolForService({ serviceCode: actualServiceCode.value, underlyingServiceCode: narrivaUnderlyingCode.value, programId: selectedProgramId.value }, narrivaGeneratorMappings.value));
@@ -4368,6 +4404,9 @@ const libraryCategories = computed(() => {
   }
   return orderNoteAidCategoriesForHcbs(filtered, hcbsCategory.value);
 });
+const quickWorkspaceAids = computed(() => libraryCategories.value.flatMap(category => category.aids
+  .filter(aid => ['code_decider', 'diagnosis'].includes(aid.id))
+  .map(aid => ({ aid, categoryId: category.id }))));
 /** Explicit gem/tool from the Aid picker — this is how we reuse the working Gemini Gem prompts in-app. */
 const selectedToolId = computed(() => {
   if (forceAutoSelect.value || selectedAidForcesAutoSelect.value || autoSelectCode.value) {
@@ -5378,6 +5417,7 @@ const loadContext = async () => {
     });
     if(requestId!==contextRequestSequence || agencyId!==currentAgencyId.value)return;
     therapyNotesWriterOnly.value = res?.data?.therapyNotesWriterOnly === true;
+    individualSchedulingEnabled.value = res?.data?.individualSchedulingEnabled === true;
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
     hcbsCategory.value = res?.data?.hcbsCategory ?? null;
@@ -9776,12 +9816,16 @@ onMounted(async () => {
   libraryExpanded.value = false;
   workQueueCollapsed.value = false;
   saveNoteLibraryUiPrefs(authStore.user?.id, { collapsed: false, expanded: false });
-  await loadNoteAidWriterPrefs();
-  await loadNarrivaDefault();
-  await loadClinicalCosignSupervisor();
-  await refreshCosignCapability();
-  if (canSuperviseCosign.value) await loadCosignQueue();
-  await loadNoteReviewWork();
+  const resetQueue = String(route.query?.noteAidReset || '') === '1';
+  const queueFirst = canUseTool.value && !isEmbedded.value && !resetQueue ? loadWorkspaceQueue() : null;
+  if (!isEmbedded.value && !props.demoPresentation) {
+    window.addEventListener('appointment-schedule-saved', refreshVisibleWorkQueue);
+    window.addEventListener('focus', refreshVisibleWorkQueue);
+    workQueueTimer = window.setInterval(refreshVisibleWorkQueue, 30_000);
+  }
+  await Promise.all([loadNoteAidWriterPrefs(), loadNarrivaDefault(), loadClinicalCosignSupervisor()]);
+  void refreshCosignCapability().then(() => { if (canSuperviseCosign.value) return loadCosignQueue(); });
+  void loadNoteReviewWork();
 
   if (String(route.query?.noteAidReset || '') === '1') {
     await clearWorkQueueOnApi(authStore.user?.id).catch(() => clearAllWorkQueues(authStore.user?.id));
@@ -9830,11 +9874,7 @@ onMounted(async () => {
   }
 
   if (canUseTool.value) {
-    // Demo fixtures resolve immediately; seed before recent-note reconciliation so
-    // its empty initial memory snapshot cannot replace the fictional My Work list.
-    if (props.demoPresentation && !isEmbedded.value) {
-      await fetchWorkQueueFromApi(authStore.user?.id).catch(() => {});
-    }
+    if (props.demoPresentation && queueFirst) await queueFirst;
     await bootstrapWorkspace();
     if (!isAuricWell.value) claimUnassignedNoteAidClients().catch(() => {});
     if (isEmbedded.value) {
@@ -9894,13 +9934,7 @@ onMounted(async () => {
         noteWizardStep.value = 2;
       }
     } else {
-      let loaded = [];
-      try {
-        loaded = await fetchWorkQueueFromApi(authStore.user?.id);
-      } catch (e) {
-        console.warn('Work queue load failed:', e?.response?.data?.error?.message || e.message);
-        loaded = loadWorkQueue(authStore.user?.id);
-      }
+      const loaded = await (queueFirst || loadWorkspaceQueue());
       const stashed = consumeNoteAidWorkQueueStash();
       if (stashed?.length) {
         try {
@@ -10279,6 +10313,9 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  window.removeEventListener('appointment-schedule-saved', refreshVisibleWorkQueue);
+  window.removeEventListener('focus', refreshVisibleWorkQueue);
+  window.clearInterval(workQueueTimer);
   bootstrapSeq += 1;
   contextRequestSequence++;payerRequestSequence++;
   if (autosaveTimer) {
@@ -12671,4 +12708,5 @@ a.na-chip--link {
 }
 
 .narriva-narrative-label{display:flex;align-items:center;gap:10px;font-size:18px;color:#173754;margin:0 0 8px}.narriva-narrative-label img{width:30px;height:30px;object-fit:contain}.narriva-privacy-hint{font-size:12px;line-height:1.6;color:#60778c;background:#f1f6fb;border-left:3px solid #c4a04b;padding:10px 12px}.narriva-consent-check{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.5;margin:12px 0}.narriva-modality{display:flex;align-items:center;gap:12px;font-size:13px;margin:12px 0}.narriva-modality select{max-width:220px}.narriva-recording-link{font-size:12px;color:#657e91;line-height:1.6}.narriva-risk-choice{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0 0 35px;font-size:12px}.narriva-risk-choice label{display:flex;align-items:center;gap:6px}.narriva-risk-complete{width:100%}@media(max-width:600px){.narriva-risk-choice{margin-left:0}.narriva-modality{align-items:flex-start;flex-direction:column;gap:5px}}
+.na-workspace-quick-aids { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; padding: 12px; }
 </style>

@@ -6,6 +6,7 @@
  * newer officeSchedule controller so that recurrence logic stays in one place.
  */
 
+import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import {
   normalizeOfficeRequestRecurrence,
   stepDaysForRecurrence,
@@ -111,7 +112,8 @@ export async function loadOfficeSlotInventory(
       LEFT JOIN users u ON u.id=COALESCE(e.booked_provider_id,e.assigned_provider_id)
       WHERE e.room_id IN (${marks}) AND e.start_at<? AND e.end_at>?
       AND (e.status IS NULL OR e.status<>'CANCELLED')
-      AND (e.status='BOOKED' OR e.slot_state IN ('ASSIGNED_BOOKED','COMPANY_HOLD'))`,
+      AND (e.status='BOOKED' OR e.slot_state IN ('ASSIGNED_BOOKED','COMPANY_HOLD')
+        OR (e.status='RELEASED' AND JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.officeCancellationDisposition'))='release'))`,
       [...ids, endAt, startAt]
     ),
     database.execute(
@@ -224,9 +226,8 @@ async function validateOfficeSlotSeries({
             message: 'This office time cannot be resolved in its timezone.'
           }
         };
-      const event = data.events.find(
-        (row) => inRoom(row) && otherProvider(row) && overlaps(row, start, end)
-      );
+      const occupied = data.events.filter(row => inRoom(row) && overlaps(row, start, end));
+      const event = occupied.find(row => otherProvider(row) && !isBorrowableOfficeRelease(row));
       if (event) return conflict(event, date, i, hour);
       const legacy = data.legacy.find(
         (row) => inRoom(row) && otherProvider(row) && overlaps(row, start, end)
@@ -236,6 +237,8 @@ async function validateOfficeSlotSeries({
         (row) => inRoom(row) && otherProvider(row) && Number(row.hour) === hour
       )) {
         if (!isAssignmentActiveOnDate(assignment, date)) continue;
+        if (occupied.some(row => isBorrowableOfficeRelease(row) && Number(row.standing_assignment_id) === Number(assignment.id)
+            && toMysqlUtcDateTime(row.start_at) <= start && toMysqlUtcDateTime(row.end_at) >= end)) continue;
         const plan = data.plans.find(
           (p) => Number(p.standing_assignment_id) === Number(assignment.id)
         );

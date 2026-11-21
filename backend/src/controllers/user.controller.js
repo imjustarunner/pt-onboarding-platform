@@ -5006,6 +5006,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
           if (meetingEventIds.length) {
             const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
             const byEvent = await ProviderScheduleEventAttendee.listDetailsByEventIds(meetingEventIds);
+            const [responses] = await pool.execute(
+              'SELECT event_id,rsvp FROM meeting_participant_preferences WHERE user_id=? AND event_id IN (' + meetingEventIds.map(() => '?').join(',') + ')',
+              [actorId, ...meetingEventIds]
+            );
+            const myResponses = new Map(responses.map(row => [Number(row.event_id), row.rsvp]));
             let byEventGroups = new Map();
             try {
               const ProviderScheduleEventInviteGroup = (await import('../models/ProviderScheduleEventInviteGroup.model.js')).default;
@@ -5032,6 +5037,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
               return {
                 ...e,
                 attendeeUserIds,
+                canRsvp: actorIsInvitee && !cancelled && !e.meetingCompleted && String(e.meetingSubtype || '').toLowerCase() !== 'training',
+                myRsvp: actorIsInvitee ? myResponses.get(eid) || null : null,
                 invitedGroupIds: (byEventGroups.get(eid) || []).map((n) => Number(n)).filter((n) => n > 0),
                 attendees: details.map((d) => {
                   const firstName = String(d.firstName || '').trim();

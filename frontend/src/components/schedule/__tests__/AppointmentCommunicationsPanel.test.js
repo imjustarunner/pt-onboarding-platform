@@ -41,3 +41,17 @@ it('preserves delivery history while withholding comments when clinical access i
  api.get.mockImplementation(async url=>{if(url.includes('secure-session-comments'))throw {response:{status:403}};return {data:{timeline:[row(1,12,'sent')]}};});
  const wrapper=mount(Panel,{props:{appointmentId:5,clientId:21}});await flushPromises();expect(wrapper.text()).toContain('Sent');expect(wrapper.text()).toContain('current clinical access');expect(wrapper.findAll('.communication-comments')).toHaveLength(0);wrapper.unmount();
 });
+
+it('filters actual reminders separately from scheduling activity and displays confirmed delivery',async()=>{
+ api.get.mockResolvedValue({data:{timeline:[
+  {id:'1',direction:'system',kind:'reminder',channel:'in_app',createdAt:'2026-11-21T08:00:00Z',bodyPreview:'Scheduled 1 session notification(s)',metadata:{count:1}},
+  {id:'2',direction:'outbound',kind:'Scheduled reminder',channel:'email',createdAt:'2026-11-21T16:00:00Z',metadata:{deliveryStatus:'delivered',body:'Actual message text',deliveredAt:'2026-11-21T16:00:04Z'}}
+ ]}});
+ const wrapper=mount(Panel,{props:{appointmentId:5}});await flushPromises();
+ expect(wrapper.text()).toContain('View scheduling activity');
+ expect(wrapper.text()).toContain('Delivery confirmed');
+ await wrapper.get('select').setValue('Scheduled reminder');
+ expect(wrapper.findAll('li')).toHaveLength(1);
+ expect(wrapper.get('li').text()).toContain('Actual message text');
+ wrapper.unmount();
+});

@@ -64,7 +64,13 @@ export async function processOwnedOfficeSessionJobs() {
         if (!saved.affectedRows) throw new Error('Booking worker lease changed.');
       } });
       if (!result) throw Object.assign(new Error('Your room reservation changed. Refresh the schedule before booking.'), { status: 409 });
-      const receipt = { ok: true, kind: 'auto_booked', officeEventId: result.officeEventId, appointmentIds: result.appointmentIds, agencyId: input.agencyId };
+      const saved = result.appointment;
+      const appointment = saved && {
+        id: saved.id, agencyId: saved.agencyId, providerUserId: saved.providerUserId, officeEventId: saved.officeEventId,
+        startAt: saved.startAt, endAt: saved.endAt, sourceTimezone: saved.sourceTimezone, clinicalSessionId: saved.clinicalSessionId,
+        modality: saved.modality, businessType: saved.businessType, appointmentStatus: saved.status
+      };
+      const receipt = { ok: true, kind: 'auto_booked', officeEventId: result.officeEventId, appointmentIds: result.appointmentIds, agencyId: input.agencyId, appointment };
       await pool.execute(`UPDATE owned_office_session_jobs SET status='completed',phase='complete',completed_count=total_count,
         result_json=?,input_json=NULL,error_message=NULL,lease_token=NULL,lease_until=NULL WHERE lease_token=?`, [JSON.stringify(receipt), token]);
     } catch (error) {

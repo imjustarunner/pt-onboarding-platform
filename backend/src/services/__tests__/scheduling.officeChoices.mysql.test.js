@@ -2,7 +2,11 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from 'vitest';
 import mysql from 'mysql2/promise';
 import {readFile} from 'node:fs/promises';
-vi.mock('../../config/database.js',()=>({default:{},onTableWrite:()=>{}}));
+const database = vi.hoisted(() => ({}));
+vi.mock('../../config/database.js',()=>({default:database,onTableWrite:()=>{}}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn(async()=>[[]])}}));
+import OfficeEvent from '../../models/OfficeEvent.model.js';
+import { releaseOfficeReservation } from '../officeReservationRelease.service.js';
 import {createAppointmentOfficeDisposition} from '../appointmentOfficeDisposition.service.js';
 import {createAppointmentSeriesCancellation} from '../appointmentSeriesCancellation.service.js';
 import {createGuardianServiceCancellationService} from '../guardianServiceCancellation.service.js';
@@ -13,13 +17,18 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT||process.env.CI!=='true'
   const port=Number(process.env.SCHEDULING_TEST_MYSQL_PORT);if(port===3307)throw new Error('Never use the production proxy port.');
   const config={host:'127.0.0.1',port,user:'root',password:'',dateStrings:true,timezone:'+00:00'};
   admin=await mysql.createConnection(config);await admin.query(`CREATE DATABASE ${name}`);created=true;db=mysql.createPool({...config,database:name,connectionLimit:6});
+  Object.assign(database,{execute:db.execute.bind(db),getConnection:db.getConnection.bind(db)});
   const tables={
    office_locations:'id INT PRIMARY KEY,timezone VARCHAR(60)',
-   office_events:`id INT AUTO_INCREMENT PRIMARY KEY,office_location_id INT,room_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(20),slot_state VARCHAR(30),standing_assignment_id INT,booking_plan_id INT,assigned_provider_id INT,booked_provider_id INT,source VARCHAR(40),recurrence_group_id VARCHAR(80),created_by_user_id INT,client_id INT NULL,clinical_session_id INT NULL,session_context_json JSON,updated_at DATETIME,
+   office_events:`id INT AUTO_INCREMENT PRIMARY KEY,office_location_id INT,room_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(20),slot_state VARCHAR(30),standing_assignment_id INT,booking_plan_id INT,assigned_provider_id INT,booked_provider_id INT,source VARCHAR(40),recurrence_group_id VARCHAR(80),created_by_user_id INT,client_id INT NULL,clinical_session_id INT NULL,billing_context_id INT NULL,note_context_id INT NULL,
+     notes TEXT,appointment_type_code VARCHAR(40),appointment_subtype_code VARCHAR(40),service_code VARCHAR(20),modality VARCHAR(30),approved_by_user_id INT,
+     session_context_json JSON,updated_at DATETIME,
      active_room INT GENERATED ALWAYS AS (IF(status<>'CANCELLED',room_id,NULL)) STORED,active_start DATETIME GENERATED ALWAYS AS (IF(status<>'CANCELLED',start_at,NULL)) STORED,UNIQUE KEY active_slot(active_room,active_start)`,
+   office_standing_assignments:'id INT PRIMARY KEY, office_location_id INT, provider_id INT',
+   users:'id INT PRIMARY KEY, first_name VARCHAR(60), last_name VARCHAR(60)',
    appointments:'id INT PRIMARY KEY,agency_id INT,provider_user_id INT,business_type VARCHAR(30),source VARCHAR(120),start_at DATETIME,end_at DATETIME,status VARCHAR(40),office_event_id INT,office_location_id INT,room_id INT,provider_schedule_event_id INT',
    appointment_participants:'appointment_id INT,client_id INT',provider_schedule_events:'id INT PRIMARY KEY,agency_id INT,provider_id INT,recurrence_series_id VARCHAR(80),recurrence_stopped BOOL',
-   office_booking_plans:'id INT PRIMARY KEY,skipped_dates_json JSON,session_context_json JSON',
+   office_booking_plans:'id INT PRIMARY KEY,skipped_dates_json JSON,session_context_json JSON,standing_assignment_id INT,is_active BOOL,booked_occurrence_count INT,active_until_date DATE',
    appointment_communications:'id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,agency_id INT,direction VARCHAR(20),channel VARCHAR(20),kind VARCHAR(80),body_preview TEXT,metadata_json JSON,created_by_user_id INT',
    appointment_reminders:'appointment_id INT,status VARCHAR(20)',appointment_schedule_notices:'appointment_id INT,status VARCHAR(20),event_type VARCHAR(20)',
    provider_virtual_slot_availability:'source_event_id INT,is_active BOOL,updated_at DATETIME',
@@ -31,7 +40,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT||process.env.CI!=='true'
   await db.query(await readFile(new URL('../../../../database/migrations/1818_guardian_service_cancellations.sql',import.meta.url),'utf8'));
   await db.query('ALTER TABLE guardian_service_cancellations ADD COLUMN team_notified_at DATETIME(3)');
   await db.query("INSERT INTO office_locations VALUES (8,'America/Denver')");
-  await db.query("INSERT INTO office_booking_plans VALUES (30,JSON_ARRAY(),JSON_OBJECT('agencyId',2,'clientId',31))");
+  await db.query("INSERT INTO office_booking_plans (id,skipped_dates_json,session_context_json) VALUES (30,JSON_ARRAY(),JSON_OBJECT('agencyId',2,'clientId',31))");
   await db.query("INSERT INTO office_events (id,office_location_id,room_id,start_at,end_at,status,slot_state,standing_assignment_id,booking_plan_id,assigned_provider_id,booked_provider_id,source,created_by_user_id,client_id,clinical_session_id) VALUES (40,8,10,'2027-01-03 18:00','2027-01-03 19:00','BOOKED','ASSIGNED_BOOKED',5,30,7,7,'SUPPORT',7,31,90)");
   await db.query("INSERT INTO appointments VALUES (1,2,7,'mental_health','reserved_office_session:monthly','2027-01-03 18:00','2027-01-03 19:00','scheduled',40,8,10,NULL),(2,2,7,'mental_health','reserved_office_session:monthly','2027-02-07 18:00','2027-02-07 19:00','scheduled',NULL,8,10,NULL),(90,2,7,'mental_health','different-series','2027-02-07 19:00','2027-02-07 20:00','scheduled',NULL,8,10,NULL)");
   await db.query('INSERT INTO appointment_participants VALUES (1,31),(2,31),(90,32)');
@@ -62,4 +71,20 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT||process.env.CI!=='true'
   await guardian.processPending();expect((await staff.status(user,1,requestId)).status).toBe('queued');
   await staff.processPending();expect(await staff.status(user,1,requestId)).toMatchObject({status:'completed',completed:2});expect((await appointment(90)).status).toBe('scheduled');
  });
+ it('releases a dated office to another provider while retaining its original standing owner', async () => {
+  await db.query("INSERT INTO office_standing_assignments VALUES (6,8,9)");
+  await db.query("INSERT INTO office_booking_plans (id,skipped_dates_json,standing_assignment_id,is_active) VALUES (31,JSON_ARRAY(),6,TRUE)");
+  await db.query("INSERT INTO office_events (id,office_location_id,room_id,start_at,end_at,status,slot_state,standing_assignment_id,booking_plan_id,assigned_provider_id,booked_provider_id) VALUES (80,8,11,'2027-01-04 18:00','2027-01-04 19:00','BOOKED','ASSIGNED_BOOKED',6,31,9,9),(81,8,11,'2027-01-11 18:00','2027-01-11 19:00','BOOKED','ASSIGNED_BOOKED',6,31,9,9)");
+  const startAt = '2027-01-04 18:00:00';
+  const endAt = '2027-01-04 19:00:00';
+  await releaseOfficeReservation({eventId:80,officeLocationId:8,keepAssigned:true,actorUserId:9,
+    reviewedOccurrence:{providerId:9,standingAssignmentId:6,startAt,endAt,now:new Date('2027-01-04T16:00:00Z')}});
+  expect(await OfficeEvent.findById(80)).toMatchObject({status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',standing_assignment_id:6,assigned_provider_id:9,booked_provider_id:null});
+  const borrow = {officeLocationId:8,roomId:11,startAt,endAt,status:'BOOKED',slotState:'ASSIGNED_BOOKED',
+    allowReleasedOffice:true,bookedProviderId:10,createdByUserId:10};
+  await expect(OfficeEvent.createIfRoomOpen(borrow)).resolves.toMatchObject({id:80,standing_assignment_id:6,assigned_provider_id:9,booked_provider_id:10});
+  await expect(OfficeEvent.createIfRoomOpen({...borrow,bookedProviderId:11})).rejects.toMatchObject({status:409});
+  expect(await OfficeEvent.findById(81)).toMatchObject({status:'BOOKED',booked_provider_id:9,booking_plan_id:31});
+ });
+
 });

@@ -1,0 +1,1 @@
+export const SESSION_DOCUMENTATION_LEAD_MS = 5 * 60 * 1000;

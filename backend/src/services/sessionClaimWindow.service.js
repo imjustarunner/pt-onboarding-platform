@@ -3,7 +3,9 @@ import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import {populateLinkedSessionClaim} from './linkedServiceClaimLines.service.js';
 import { utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 
-export const CLAIM_OPEN_LEAD_MS = 5 * 60 * 1000;
+import { SESSION_DOCUMENTATION_LEAD_MS } from '../utils/sessionDocumentationTiming.js';
+
+export const CLAIM_OPEN_LEAD_MS = SESSION_DOCUMENTATION_LEAD_MS;
 export const CLAIM_OPEN_CATCHUP_MS = 12 * 60 * 60 * 1000;
 
 const blockedStatus = new Set(['no_show', 'cancelled', 'canceled', 'voided', 'rescheduled']);

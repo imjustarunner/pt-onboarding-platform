@@ -40,7 +40,7 @@ import {
 import { callPrivateSessionText, createSessionPrivacyContext } from '../services/sessionAiPrivacy.service.js';
 import { buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
 import { assertNarrivaPreGeneration } from '../services/narrivaReview.service.js';
-import { providerConversionPending,providerHasGroupPasswordAccess } from '../services/clientSessionBookingRollout.service.js';
+import { providerConversionPending,providerHasGroupPasswordAccess,rolloutForPractice } from '../services/clientSessionBookingRollout.service.js';
 import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
@@ -500,7 +500,7 @@ export const getClinicalNotesContext = async (req, res, next) => {
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
     const agency = await Agency.findById(agencyId);
-    const featureFlags = parseFlags(agency?.feature_flags);
+    const featureFlags = { clientSessionBookingRollout: rolloutForPractice(agency || {}) };
 
     const careEligibility = await readStaffCareEligibility(req.user.id, agencyId);
     const providerCredentialText = careEligibility.credential;

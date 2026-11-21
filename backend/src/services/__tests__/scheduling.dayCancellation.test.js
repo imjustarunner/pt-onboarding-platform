@@ -12,9 +12,9 @@ import { createDayCancellationService, dayBounds, dayCancellationFacts } from '.
 
 const actor = { id: 9, role: 'provider' };
 const input = { providerId: 9, agencyIds: [2], date: '2026-11-04', clientFacingReason: 'Provider unavailable.', internalReason: 'Private staffing detail.', messagesReviewed: true };
-let service, database, dependencies, record, appointments, weekly, blocks, authorize, appointmentAccess, recipients;
+let service, database, dependencies, record, appointments, weekly, officeReservations, blocks, authorize, appointmentAccess, recipients;
 beforeEach(() => {
-  record = null; blocks = []; weekly = [];
+  record = null; blocks = []; weekly = []; officeReservations = [];
   recipients = [{ clientId: 12, displayName: 'Client One', receivesReminders: true }];
   appointments = [{ id: 1, providerUserId: 9, agencyId: 2, status: 'scheduled', title: 'Session', startAt: '2026-11-04 18:00:00', endAt: '2026-11-04 19:00:00', updatedAt: '2026-10-01 00:00:00' }];
   const execute = vi.fn(async (sql, args = []) => {
@@ -28,6 +28,8 @@ beforeEach(() => {
     if (sql.startsWith('INSERT INTO provider_schedule_events')) { blocks.push(args); return [{ insertId: 100 }]; }
     if (sql.includes('FROM provider_virtual_working_hours')) return [sql.includes('WHERE id=?') ? weekly.filter(r => r.id === args[0]) : weekly];
     if (sql.includes('FROM provider_schedule_events') || sql.includes('FROM supervision_sessions') || sql.includes('FROM provider_virtual_slot_availability') || sql.includes('FROM provider_in_person_slot_availability')) return [[]];
+    if (sql.includes('FROM office_events e JOIN office_locations')) return [officeReservations.filter(room =>
+      room.providerId === args[0] && room.start_at >= args[1] && room.end_at <= args[2] && room.agencyId === args[4])];
     throw new Error(`Unexpected query: ${sql}`);
   });
   const conn = { execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -42,6 +44,7 @@ beforeEach(() => {
     roster: vi.fn(async () => []), rosterReview: vi.fn(), notifyRoster: vi.fn(async () => ({ sent: 1 })),
     schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
     noticePreview: vi.fn(async () => []),
+    releaseRoom: vi.fn(async () => ({ keepAssigned: true })),
     contactFollowUp:vi.fn(async()=>({status:'not_needed',count:0})),
     cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
     plannedOutSaved:vi.fn(async()=>true),ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
@@ -371,4 +374,21 @@ it('confines school cancellation and notices to the selected school and preserve
   expect(appointments[1].status).toBe('scheduled');
   expect(blocks).toEqual([]);expect(dependencies.editPublication).not.toHaveBeenCalled();
   expect(database.execute.mock.calls.some(([sql])=>sql.includes('FROM supervision_sessions') || sql.includes('FROM provider_virtual_working_hours'))).toBe(false);
+});
+
+it('reviews and releases an assigned office occurrence in the selected agency and date only', async () => {
+ const first = { id: 80, providerId: 9, agencyId: 2, office_location_id: 1, standing_assignment_id: 10,
+   office_name: 'Test office', room_name: 'Room 10', start_at: '2026-11-04 21:00:00', end_at: '2026-11-04 22:00:00' };
+ officeReservations = [first, {...first,id:81,agencyId:3}, {...first,id:82,start_at:'2026-11-11 21:00:00',end_at:'2026-11-11 22:00:00'}];
+ const plan = await preview();
+ expect(plan.items.filter(i => i.kind === 'office_reservation')).toMatchObject([{id:80, title:'Test office · Room 10'}]);
+ expect(dependencies.releaseRoom).not.toHaveBeenCalled();
+ await apply(plan);
+ await apply(plan);
+ expect(dependencies.releaseRoom).toHaveBeenCalledExactlyOnceWith(
+   expect.objectContaining({id:80,source:{officeLocationId:1,standingAssignmentId:10}}),
+   expect.objectContaining({actorId:9,providerId:9})
+ );
+ await apply(plan);
+ expect(dependencies.releaseRoom).toHaveBeenCalledOnce();
 });

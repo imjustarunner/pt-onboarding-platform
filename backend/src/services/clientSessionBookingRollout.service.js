@@ -10,7 +10,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status, co
 const empty = () => ({ revision: 0, entries: [] });
 const fullyScheduledPracticeSlugs = new Set(['tisi', 'inner-strength', 'innerstrength', 'theinnerstrengthinstitute',
   'the-inner-strength-institute', 'nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up']);
-function rolloutForPractice(agency) {
+export function rolloutForPractice(agency) {
   const policy = parseFeatureFlags(agency.feature_flags).clientSessionBookingRollout;
   const valid = policy && Array.isArray(policy.entries) ? policy : empty();
   const practiceOpen = fullyScheduledPracticeSlugs.has(String(agency.slug || '').trim().toLowerCase());

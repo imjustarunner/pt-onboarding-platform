@@ -1,3 +1,4 @@
+import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { randomUUID } from 'node:crypto';
 import { roomBlockForSession, sessionWindowInRoom } from '../utils/officeSessionWindow.js';
 import { approvePreciseOfficeSessions } from '../services/preciseOfficeSession.service.js';
@@ -485,13 +486,17 @@ export async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, o
   );
   if (assignRows?.[0]) return false;
 
-  // Assigned office time cannot be borrowed through same-day booking.
+  // A standing assignment remains reserved unless the dated occurrence was explicitly released.
   const wh = weekdayHourInTz(startAt, officeTimeZone || 'America/New_York') || weekdayHourFromSqlDateTime(startAt);
   if (wh) {
     const parsedEnd = parseSlotEndHour(startAt, endAt, officeTimeZone || 'America/New_York');
     for (let hour = Number(wh.hour); hour < (parsedEnd?.endHour || Number(wh.hour) + 1); hour++) {
       const standing = await OfficeStandingAssignment.listActiveAtDate({ officeLocationId, roomId, date: wh.date, hour });
-      if (standing.length) return false;
+      if (standing.length) {
+        const slotStart = mysqlDateTimeForDateHour(wh.date, hour, officeTimeZone);
+        const released = await OfficeEvent.findByRoomAndStart(roomId, slotStart);
+        if (!isBorrowableOfficeRelease(released) || standing.some(owner => Number(owner.id) !== Number(released.standing_assignment_id))) return false;
+      }
     }
 
     // Soft hold: pending office request for this room+weekday+hour blocks kiosk/same-day book.

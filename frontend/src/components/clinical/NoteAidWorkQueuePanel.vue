@@ -73,7 +73,7 @@
         :aria-selected="queueMode === 'notes' ? 'true' : 'false'"
         @click="setQueueMode('notes')"
       >
-        Notes and screenings
+        Notes To Do
       </button>
       <button
         v-if="showCosignMode"
@@ -90,8 +90,8 @@
 
     <template v-if="queueMode === 'notes'">
       <div class="na-wq-legend">
-        <span v-if="pendingCount" class="na-wq-chip na-wq-chip--pending">{{ pendingCount }} Not started</span>
-        <span v-if="startedCount" class="na-wq-chip na-wq-chip--started">{{ startedCount }} In progress</span>
+        <button v-if="pendingCount || statusFilter === DOC_STATUS.NOT_STARTED" type="button" class="na-wq-chip na-wq-chip--pending" :aria-pressed="statusFilter === DOC_STATUS.NOT_STARTED" @click="toggleStatusFilter(DOC_STATUS.NOT_STARTED)">{{ pendingCount }} Not started</button>
+        <button v-if="startedCount || statusFilter === DOC_STATUS.STARTED" type="button" class="na-wq-chip na-wq-chip--started" :aria-pressed="statusFilter === DOC_STATUS.STARTED" @click="toggleStatusFilter(DOC_STATUS.STARTED)">{{ startedCount }} In progress</button>
         <span v-for="status in nonemptyReviewStatuses" :key="status.key" class="na-wq-chip na-wq-chip--review">{{ status.count }} {{ status.label }}</span>
       </div>
 
@@ -123,7 +123,7 @@
       </div>
 
       <div v-if="reviewError" class="na-wq-empty" role="alert">{{ reviewError }} <button type="button" @click="$emit('refresh-review')">Retry</button></div>
-      <ul v-if="reviewItems.length" class="na-wq-list na-wq-review-list" aria-label="Returned notes and feedback">
+      <ul v-if="reviewItems.length && !statusFilter" class="na-wq-list na-wq-review-list" aria-label="Returned notes and feedback">
         <li v-for="item in reviewItems" :key="item.id" class="na-wq-item na-wq-item--review" :class="`na-wq-item--${item.status}`">
           <button type="button" class="na-wq-item-btn" @click="$emit('select-review', item)">
             <div class="na-wq-item-top na-wq-review-heading"><strong>{{ item.clientName || `Note #${item.clinicalNoteId}` }}</strong><span>{{ NOTE_REVIEW_STATUS[item.status] }}</span></div>
@@ -138,8 +138,8 @@
       </ul>
       <div v-if="loading" class="na-wq-empty" role="status">Loading My Work…</div>
       <div v-else-if="error" class="na-wq-empty" role="alert">{{ error }}</div>
-      <div v-else-if="!visibleItems.length && !reviewItems.length" class="na-wq-empty">
-        Session notes that need documentation appear here automatically.
+      <div v-else-if="!visibleItems.length && (!reviewItems.length || statusFilter)" class="na-wq-empty">
+        {{ statusFilter ? 'No notes match this status.' : 'Session notes that need documentation appear here automatically.' }}
       </div>
       <ul v-else-if="visibleItems.length" class="na-wq-list">
         <li
@@ -148,8 +148,12 @@
           class="na-wq-item"
           :class="[
             `na-wq-item--${docStatus(item)}`,
-            { active: item.id === activeId }
+            { active: item.id === activeId, 'linked-note-highlight': matchesHighlightedNote(item) }
           ]"
+          @pointerenter="highlightItem(item)"
+          @pointerleave="$emit('highlight-note', null)"
+          @focusin="highlightItem(item)"
+          @focusout="clearItemHighlight"
         >
           <button type="button" class="na-wq-item-btn" @click="$emit('select', item)">
             <div class="na-wq-item-top">
@@ -261,6 +265,8 @@ const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
 const MODE_KEY = 'noteAidWorkQueueMode';
 
 const props = defineProps({
+  filterUserId: { type: [Number, String], default: null },
+  highlightedNote: { type: Object, default: null },
   reportsUrl: { type: String, default: '' },
   reviewItems: { type: Array, default: () => [] },
   reviewError: { type: String, default: '' },
@@ -287,6 +293,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'add-todo',
+  'highlight-note',
   'open-work',
   'select',
   'select-cosign',
@@ -412,9 +419,37 @@ function toggleSortDir() {
   sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
 }
 
+const statusFilter = ref('');
+const statusFilterKey = computed(() => props.filterUserId ? 'noteAidWorkStatus:' + props.filterUserId : '');
+watch(statusFilterKey, key => {
+  try { statusFilter.value = key ? localStorage.getItem(key) || '' : ''; }
+  catch { statusFilter.value = ''; }
+  if (![DOC_STATUS.NOT_STARTED, DOC_STATUS.STARTED].includes(statusFilter.value)) statusFilter.value = '';
+}, { immediate: true });
+function toggleStatusFilter(status) {
+  statusFilter.value = statusFilter.value === status ? '' : status;
+  if (statusFilterKey.value) {
+    try { localStorage.setItem(statusFilterKey.value, statusFilter.value); } catch { /* storage unavailable */ }
+  }
+}
+function matchesHighlightedNote(item) {
+  const note = props.highlightedNote;
+  return !!note && docStatus(item) === DOC_STATUS.STARTED
+    && (!!note.draftId && Number(note.draftId) === Number(item.draftId)
+      || !!note.clinicalSessionId && Number(note.clinicalSessionId) === Number(item.clinicalSessionId));
+}
+function highlightItem(item) {
+  emit('highlight-note', docStatus(item) === DOC_STATUS.STARTED
+    ? { draftId: item.draftId, clinicalSessionId: item.clinicalSessionId } : null);
+}
+function clearItemHighlight(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) emit('highlight-note', null);
+}
+
+const queueItems = computed(() => filterWorkQueueForRightPanel(props.items));
 const visibleItems = computed(() =>
   sortWorkQueueItems(
-    filterWorkQueueForRightPanel(props.items),
+    queueItems.value.filter(item => !statusFilter.value || docStatus(item) === statusFilter.value),
     localSortField.value,
     localSortDir.value
   )
@@ -448,10 +483,10 @@ const sortedCosignItems = computed(() => {
 watch(() => sortedCosignItems.value.map(item => item.id), ids => emit('cosign-order', ids), { immediate: true });
 
 const pendingCount = computed(
-  () => visibleItems.value.filter((i) => docStatus(i) === DOC_STATUS.NOT_STARTED).length
+  () => queueItems.value.filter((i) => docStatus(i) === DOC_STATUS.NOT_STARTED).length
 );
 const startedCount = computed(
-  () => visibleItems.value.filter((i) => docStatus(i) === DOC_STATUS.STARTED).length
+  () => queueItems.value.filter((i) => docStatus(i) === DOC_STATUS.STARTED).length
 );
 
 watch(
@@ -922,4 +957,7 @@ function removeQueueTitle(item) {
   }
 }
 .na-wq-quick-sign{margin:0 12px 10px;padding:7px 10px;border:1px solid #b9d9c8;border-radius:7px;background:#edf8f1;color:#236743;font:inherit;font-size:12px;cursor:pointer}
+.na-wq-chip[aria-pressed] { font: inherit; cursor: pointer; border: 1px solid transparent; }
+.na-wq-chip[aria-pressed="true"] { border-color: currentColor; }
+.na-wq-item.linked-note-highlight { outline: 2px solid #2563eb; outline-offset: -2px; background: var(--bg-secondary, #eff6ff); }
 </style>

@@ -5,7 +5,7 @@
       <h1>{{ heading || 'No note selected' }}</h1>
       <p v-if="description">{{ description }}</p>
       <p v-else-if="sessionLinkedOnly">This workspace opens drafts and signed notes connected to a scheduled session or billing encounter, along with the client’s treatment plans. Choose an existing item below, or open a session on your schedule and use Quick note to start its draft.</p>
-      <p v-else>Open a session from a client’s to-do list or My Work to document it. Use the temporary Therapy Notes generator for separate notes you need to copy.</p>
+      <p v-else>Open a session from My Work or the client’s to-do list to document it.</p>
     </div>
 
     <router-link v-if="therapyNotesGeneratorPath" :to="therapyNotesGeneratorPath" class="na-start-generator">

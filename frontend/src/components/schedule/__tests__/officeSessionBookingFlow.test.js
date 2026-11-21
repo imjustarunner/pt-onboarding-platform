@@ -377,7 +377,7 @@ it.each([
  expect({enabled:s.editorExternalMeetingsEnabled,agency:s.editorAgencyId,modality:s.editorModality,editing:s.isAppointmentEditMode,mode:s.editorVideoRoomMode}).toEqual({enabled:true,agency:6,modality:'TELEHEALTH',editing:false,mode:businessType==='tutoring'?'external':'unique_session'});expect(s.isQuarterHourRequestType).toBe(true);expect(s.submitActionLabel).toBe(businessType==='tutoring'?'Schedule':'Schedule & link video room');
  await s.submitRequest();await flushPromises();
  expect(s.modalError).toBe('');
- expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:businessType==='tutoring'?'external':'unique_session',participants:[expect.objectContaining({clientId:81})]}));
+ expect(mocks.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({agencyId:6,providerUserId:7,videoRoomMode:businessType==='tutoring'?'external':'unique_session',participants:[expect.objectContaining({clientId:81})]}), {skipGlobalLoading:true});
  if(businessType==='mental_health'){
   expect(mocks.post.mock.calls.filter(([path])=>path.includes('counseling'))).toHaveLength(1);
   expect(s.virtualSessionScheduledSessionKey).toBe('clinical-821');return;

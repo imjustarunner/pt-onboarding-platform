@@ -1,3 +1,4 @@
+import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { activeOfficeProviderSql, inactiveOfficeProvider } from '../utils/officeProviderEligibility.js';
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
@@ -54,6 +55,7 @@ class OfficeEvent {
          e.assigned_provider_id,
          e.booked_provider_id,
          e.client_id,
+         e.clinical_session_id, e.note_context_id, e.billing_context_id, e.standing_assignment_id,
          e.session_context_json,
          CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS provider_name
        FROM office_events e
@@ -208,9 +210,13 @@ class OfficeEvent {
       });
       if (conflicts.length) {
         const requestedProviderId = Number(args.bookedProviderId || args.assignedProviderId || 0) || null;
+        const released = conflicts[0];
+        const borrowingReleased = args.allowReleasedOffice === true && isBorrowableOfficeRelease(released)
+          && normalizeMySqlDateTime(released.start_at) === normalizedStartAt
+          && normalizeMySqlDateTime(released.end_at) === normalizedEndAt;
         const reusable = conflicts.length === 1
           && requestedProviderId
-          && Number(conflicts[0].assigned_provider_id || conflicts[0].booked_provider_id || 0) === requestedProviderId
+          && (borrowingReleased || Number(released.assigned_provider_id || released.booked_provider_id || 0) === requestedProviderId)
           && String(conflicts[0].status || '').toUpperCase() !== 'BOOKED'
           && !['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(String(conflicts[0].slot_state || '').toUpperCase());
         if (reusable) {

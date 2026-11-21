@@ -17,7 +17,7 @@ beforeEach(()=>{
  queue={createIfMissingForUser:vi.fn(async(id,item)=>({...item,serverId:72}))};
  agencyAccess=vi.fn(async()=>{});clientAccess=vi.fn(async()=>({ok:true,client:{agency_id:377,initials:'Test client'}}));
 });
-const run=(actor=user,options={})=>reconcileBookedSessionWork(actor,{db,clinical,queue,agencyAccess,clientAccess,...options});
+const run=(actor=user,options={})=>reconcileBookedSessionWork(actor,{db,clinical,queue,agencyAccess,clientAccess,now:new Date("2026-11-21T18:00:00Z"),...options});
 it('uses saved session code and appointment modality when those appointment labels are blank', () => {
  const item=bookedWorkItem({...appointment,service_code:null,modality:'VIRTUAL'}, {...session,service_code:'90834'}, {full_name:'QA Client'});
  expect(item).toMatchObject({serviceCode:'90834',locationLabel:'Telehealth'});
@@ -25,7 +25,7 @@ it('uses saved session code and appointment modality when those appointment labe
 });
 it('creates documentation work with the exact saved appointment/session and source timezone',async()=>{
  expect(await run()).toEqual([expect.objectContaining({appointmentId:132,clinicalSessionId:214,clientId:2104,date:'2026-09-05',timeLabel:'2:30 PM',noteKind:'intake',serviceCode:'90791',status:'not_started',durationMinutes:60,sourceTimezone:'America/Denver'})]);
- expect(db.execute.mock.calls[0][0]).toContain('a.start_at<=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 2 DAY)');
+ expect(db.execute.mock.calls[0][0]).toContain('a.start_at<=?');
  expect(db.execute.mock.calls[0][0]).toContain('NOT EXISTS');
  expect(clinical.execute.mock.calls[0][0]).toContain('n.provider_signed_at IS NOT NULL');
  expect(clinical.execute.mock.calls[0][1]).toEqual([501,214]);
@@ -46,7 +46,7 @@ it('excludes signed/missing or mismatched session associations',async()=>{
  expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });
 it('enforces agency/client authorization and preview scope',async()=>{
- await run(user,{agencyId:377});expect(db.execute.mock.calls[0][1]).toEqual([501,377]);
+ await run(user,{agencyId:377});expect(db.execute.mock.calls[0][1]).toEqual([501,new Date("2026-11-21T18:05:00Z"),377]);
  queue.createIfMissingForUser.mockClear();agencyAccess.mockRejectedValue(Object.assign(new Error('Denied'),{status:403}));
  expect(await run()).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
  agencyAccess.mockResolvedValue();clientAccess.mockResolvedValue({ok:false});expect(await run()).toEqual([]);
@@ -64,12 +64,14 @@ it('materializes shared-client work only with an explicit active client membersh
  queue.createIfMissingForUser.mockClear();clientAccess.mockResolvedValue({ok:false,client:{agency_id:888}});
  expect(await run(user,{agencyId:377,clientAgencies})).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });
-it('includes today’s scheduled appointment before its end without marking attendance',async()=>{
- appointment.start_at='2026-11-18 00:00:00';appointment.end_at='2026-11-18 01:00:00';
- expect(await run(user,{now:new Date('2026-11-17T19:00:00Z')})).toEqual([expect.objectContaining({date:'2026-11-17',status:'not_started'})]);
- appointment.start_at='2026-11-18 20:00:00';appointment.end_at='2026-11-18 21:00:00';
- queue.createIfMissingForUser.mockClear();expect(await run(user,{now:new Date('2026-11-17T19:00:00Z')})).toEqual([]);
+it('queues a session exactly five minutes before its saved UTC start, including across local midnight', async () => {
+ appointment.start_at='2026-11-18 07:00:00';
+ appointment.end_at='2026-11-18 08:00:00';
+ expect(await run(user,{now:new Date('2026-11-18T06:54:59Z')})).toEqual([]);
  expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
+ expect(await run(user,{now:new Date('2026-11-18T06:55:00Z')})).toEqual([
+  expect.objectContaining({date:'2026-11-18',timeLabel:'12:00 AM',status:'not_started'})
+ ]);
 });
 it('recovers exact legacy office bookings even when no appointments row exists',async()=>{
  const legacy={...session,appointment_id:null,office_event_id:460,service_code:'90837',scheduled_start_at:'2026-11-15 16:00:00',scheduled_end_at:'2026-11-15 17:00:00',source_timezone:'America/Denver'};

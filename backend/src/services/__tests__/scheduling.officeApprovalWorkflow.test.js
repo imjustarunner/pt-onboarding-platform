@@ -361,3 +361,20 @@ describe('current office approval work',()=>{
 });
 
 it('reviews a retrospective tutoring request on its original day without turning it into a recurring reservation',()=>{const result=approvalWindow({source:'booking',serviceCode:'TUTORING',slots:[{startHour:10,endHour:11}],startDate:'2026-11-16',recurrence:'ONCE',occurrenceCount:1},'America/Denver',new Date('2026-11-17T17:00:00Z'));expect(result).toMatchObject({startDate:'2026-11-16',checkedDates:['2026-11-16'],recurrence:'ONCE',occurrenceCount:1});});
+
+it('opens only the explicitly released date to another provider with their own request', () => {
+  const request = { source: 'booking', providerId: 51, recurrence: 'ONCE' };
+  const room = { roomId: 22 };
+  const window = { weekday: 3, startHour: 11, endHour: 12, startDate: '2026-11-04', timezone: 'America/Denver' };
+  const owner = { id: 18, provider_id: 52, room_id: 22, weekday: 3, hour: 11, availability_mode: 'AVAILABLE' };
+  const released = {
+    room_id: 22, standing_assignment_id: 18, start_at: '2026-11-04 18:00:00', end_at: '2026-11-04 19:00:00',
+    status: 'RELEASED', slot_state: 'ASSIGNED_AVAILABLE', session_context_json: { officeCancellationDisposition: 'release' }
+  };
+  const inventory = { assignments: [owner], events: [released] };
+  const now = new Date('2026-11-04T15:00:00Z');
+  expect(approvalAssignmentConflict(request, room, window, inventory, now)).toBeNull();
+  expect(approvalAssignmentConflict(request, room, { ...window, startDate: '2026-11-11' }, inventory, now)).toContain('standing assignment');
+  expect(approvalAssignmentConflict({ ...request, recurrence: 'WEEKLY' }, room, window, inventory, now)).toContain('standing assignment');
+  expect(approvalAssignmentConflict(request, room, window, { ...inventory, events: [{ ...released, booked_provider_id: 53 }] }, now)).toContain('standing assignment');
+});

@@ -106,11 +106,11 @@ async function save() {
 </script>
 
 <style scoped>
-.session-reschedule { display: grid; gap: 12px; }
+.session-reschedule { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .session-reschedule p { margin: 0; }
 label { display: grid; gap: 6px; font-weight: 600; }
-input, select { padding: 10px; border: 1px solid #aebdce; border-radius: 8px; font: inherit; background: white; color: #172b45; }
-button { padding: 10px 16px; border: 0; border-radius: 8px; background: #0e766e; color: white; font: inherit; cursor: pointer; }
+input, select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; padding: 10px; border: 1px solid #aebdce; border-radius: 8px; font: inherit; background: white; color: #172b45; }
+button { box-sizing: border-box; max-width: 100%; min-width: 0; padding: 10px 16px; border: 0; border-radius: 8px; background: #0e766e; color: white; font: inherit; cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }
 [role="alert"] { color: #b42318; }
 </style>

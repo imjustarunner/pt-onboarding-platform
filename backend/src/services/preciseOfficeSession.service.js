@@ -1,3 +1,4 @@
+import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
@@ -78,7 +79,8 @@ export async function approvePreciseOfficeSessions({ request, office, room, cont
         const byStart = new Map(conflicts.map(row => [sql(row.start_at), row]));
         const requestedHours = new Map(window.hours.map(hour => [hour.startAt, hour.endAt]));
         if (byStart.size !== conflicts.length || conflicts.some(row => requestedHours.get(sql(row.start_at)) !== sql(row.end_at)
-          || [row.assigned_provider_id, row.booked_provider_id].some(owner => Number(owner) > 0 && Number(owner) !== providerId)
+          || (!(recurrence === 'ONCE' && isBorrowableOfficeRelease(row))
+            && [row.assigned_provider_id, row.booked_provider_id].some(owner => Number(owner) > 0 && Number(owner) !== providerId))
           || row.client_id || row.clinical_session_id || row.billing_context_id || row.note_context_id || row.has_appointment || row.status_outcome
           || row.slot_state === 'COMPANY_HOLD' || (row.status === 'BOOKED' && !row.booked_provider_id))) {
           throw fail('The selected room is no longer available for every requested hour.');
@@ -93,11 +95,12 @@ export async function approvePreciseOfficeSessions({ request, office, room, cont
           });
           const persistedContext = lead ? { ...context, sessionStartAt: window.session.startAt, sessionEndAt: window.session.endAt, preciseOfficeRequestId: Number(request.id), deferScheduleNotice: true }
             : contextOf(saved);
+          if (isBorrowableOfficeRelease(existing)) persistedContext.officeCancellationDisposition = 'release';
           await conn.execute(`UPDATE office_events SET status='BOOKED', slot_state='ASSIGNED_BOOKED', assigned_provider_id=?,
             booked_provider_id=?, client_id=?, recurrence_group_id=COALESCE(?,recurrence_group_id), session_context_json=?,
             appointment_type_code=COALESCE(?,appointment_type_code), service_code=COALESCE(?,service_code),
             service_location_id=COALESCE(?,service_location_id), modality=COALESCE(?,modality), approved_by_user_id=?, updated_at=CURRENT_TIMESTAMP
-            WHERE id=?`, [providerId, providerId, lead ? clientId : null, lead ? groupId : null, JSON.stringify(persistedContext),
+            WHERE id=?`, [existing?.assigned_provider_id || providerId, providerId, lead ? clientId : null, lead ? groupId : null, JSON.stringify(persistedContext),
             lead ? selection.appointmentTypeCode : null, lead ? selection.serviceCode : null,
             lead ? request.service_location_id || null : null, lead ? selection.modality : null, actorUserId, saved.id]);
           if (lead) firstId = saved.id;

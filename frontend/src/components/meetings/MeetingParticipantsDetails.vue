@@ -1,9 +1,9 @@
 <template>
  <section class="participant-details"><h4>Participants</h4><p v-if="error" class="error">{{ error }}</p>
- <div v-for="person in participants" :key="person.id" class="participant-row"><div><strong>{{ person.name }}</strong><small class="rsvp-badge" :class="`rsvp-${person.rsvp || 'pending'}`">{{ person.rsvp === 'accepted' ? 'Confirmed' : person.rsvp === 'declined' ? 'Declined' : 'Awaiting RSVP' }}{{ person.isHost ? ' · Host' : '' }}</small><small v-if="person.rsvp_decline_reason">Reason: {{person.rsvp_decline_reason}}</small><small v-if="person.compensation">{{ person.compensation }}</small></div>
+ <div v-for="person in participants" :key="person.id" class="participant-row"><div><strong>{{ person.name }}</strong><small class="rsvp-badge" :class="`rsvp-${person.rsvp || 'pending'}`">{{ person.rsvp === 'accepted' ? 'Confirmed' : person.rsvp === 'declined' ? 'Declined' : person.rsvp === 'maybe' ? 'Maybe' : 'Awaiting RSVP' }}{{ person.isHost ? ' · Host' : '' }}</small><small v-if="person.rsvp_decline_reason">Reason: {{person.rsvp_decline_reason}}</small><small v-if="person.compensation">{{ person.compensation }}</small></div>
  <label><input type="checkbox" :checked="!!person.is_required" :disabled="!canEdit || saving" @change="save(person,'is_required',$event.target.checked)" /> Mandatory</label>
  <label><input type="checkbox" :checked="person.isHost || !!person.is_cohost" :disabled="!canEdit || saving || person.isHost" @change="save(person,'is_cohost',$event.target.checked)" /> Co-host</label>
- <label v-if="Number(person.id) === viewerId">My RSVP <select :value="person.rsvp || 'pending'" :disabled="saving" @change="rsvp($event.target.value)"><option value="pending" disabled>Awaiting RSVP</option><option value="accepted">Attending</option><option value="declined">Not attending</option></select></label>
+ <label v-if="Number(person.id) === viewerId">My RSVP <select :value="person.rsvp || 'pending'" :disabled="saving" @change="rsvp($event.target.value)"><option value="pending" disabled>Awaiting RSVP</option><option value="accepted">Attending</option><option value="maybe">Maybe</option><option value="declined">Not attending</option></select></label>
  </div></section>
 </template>
 <script setup>
