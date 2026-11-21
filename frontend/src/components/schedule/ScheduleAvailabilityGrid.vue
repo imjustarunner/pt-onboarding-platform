@@ -16469,7 +16469,7 @@ async function loadEditorClinicalChart() {
   editorChartLoading.value = true;
   try {
     const res = await api.get(`/medical-billing/clients/${clientId}/chart`, {
-      params: { agencyId }
+      params: { agencyId }, skipGlobalLoading: true
     });
     const data = res?.data || {};
     editorChartDiagnoses.value = Array.isArray(data.diagnoses) ? data.diagnoses : [];
@@ -17302,12 +17302,13 @@ const preferDefaultServiceLocation = ({ force = false, preferSchool = true } = {
   editorSchoolOrganizationId.value=Number(hit?.schoolOrganizationId || 0);
 };
 
+let bookingUnitPreviewGeneration = 0;
 const refreshBookingUnitPreview = async () => {
-  bookingUnitPreview.value = '';
-  if (editorIsLearning.value || !showClinicalBookingFields.value || !effectiveAgencyFeatureFlags.value.medicalBillingEnabled) return;
-  const agencyId = Number(effectiveAgencyId.value || 0);
-  let code = normalizeCodeValue(bookingServiceCode.value);
-  if (!agencyId || !code) return;
+  const generation = ++bookingUnitPreviewGeneration;
+  if (!showRequestModal.value || editorIsLearning.value || !showClinicalBookingFields.value || !effectiveAgencyFeatureFlags.value.medicalBillingEnabled) { bookingUnitPreview.value = ''; return; }
+  const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  const code = normalizeCodeValue(bookingServiceCode.value);
+  if (!agencyId || !code) { bookingUnitPreview.value = ''; return; }
   const minutes = modalSessionDurationMinutes.value;
 
   let durationHint = '';
@@ -17333,7 +17334,8 @@ const refreshBookingUnitPreview = async () => {
       agencyId,
       serviceCode: code,
       minutes
-    });
+    }, { skipGlobalLoading: true });
+    if (generation !== bookingUnitPreviewGeneration) return;
     const d = res?.data || {};
     if (
       d.overflowApplied
@@ -17354,7 +17356,7 @@ const refreshBookingUnitPreview = async () => {
     if (Number(d.maxUnitsPerDay || 0) > 0) parts.push(`max ${d.maxUnitsPerDay}/day`);
     bookingUnitPreview.value = parts.join(' · ');
   } catch {
-    bookingUnitPreview.value = durationHint;
+    if (generation === bookingUnitPreviewGeneration) bookingUnitPreview.value = durationHint;
   }
 };
 
@@ -24389,7 +24391,8 @@ watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
     return;
   }
   // Edit shells are not chooser cards — never wipe them back to the action grid.
-  if (APPOINTMENT_EDIT_REQUEST_TYPES.has(current)) return;
+  if (APPOINTMENT_EDIT_REQUEST_TYPES.has(current)
+    || (isSessionBookingRequestType.value && requestTypeChosenByUser.value)) return;
   const ids = new Set(rows.map((row) => String(row?.id || '')).filter(Boolean));
   // Never auto-pick a replacement action — return to the chooser when current is unavailable.
   if (!ids.has(current)) {
@@ -24399,8 +24402,9 @@ watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
 }, { deep: true });
 
 watch(
-  [bookingServiceCode, modalSessionDurationMinutes, effectiveAgencyId, showClinicalBookingFields, showRequestModal],
+  [bookingServiceCode, modalSessionDurationMinutes, editorAgencyId, showClinicalBookingFields, showRequestModal],
   () => {
+    bookingUnitPreviewGeneration++;
     if (bookingUnitPreviewTimer) clearTimeout(bookingUnitPreviewTimer);
     bookingUnitPreviewTimer = setTimeout(() => {
       void refreshBookingUnitPreview();
