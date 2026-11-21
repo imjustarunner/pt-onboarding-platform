@@ -356,14 +356,14 @@
 
       <div v-if="audioProblem" class="vsr__audio-problem" role="alert">
         {{ audioProblem }}
-        <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">Reconnect microphone</button>
-        <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="useBasicMicrophoneAudio">Use basic microphone audio</button>
+        <button type="button" v-if="!interviewMicUnavailable" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">Reconnect microphone</button>
+        <button type="button" v-if="!interviewMicUnavailable" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="useBasicMicrophoneAudio">Use basic microphone audio</button>
       </div>
       <div v-if="blockedAudioCount || playbackError || audioResumeNeeded" class="vsr__audio-problem" role="alert">
         {{ playbackError || (audioResumeNeeded ? 'Back from another app? Tap to resume meeting sound if it is paused.' : 'Your browser has paused meeting sound.') }}
         <button type="button" class="vsr__ctrl" :disabled="playbackBusy" @click="enableMeetingAudio">{{ audioResumeNeeded ? 'Resume meeting sound' : 'Enable meeting sound' }}</button>
       </div>
-      <details v-if="!hideControls && !lobbyMode" class="vsr__audio-settings" @toggle="refreshMicrophones">
+      <details v-if="!hideControls && !lobbyMode && !interviewMicUnavailable" class="vsr__audio-settings" @toggle="refreshMicrophones">
         <summary>Audio settings</summary>
         <label>Microphone
           <select aria-label="Microphone input" :value="selectedMicrophoneId" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @change="changeMicrophone($event.target.value)">
@@ -435,11 +435,11 @@
           class="vsr__ctrl"
           :class="{ 'vsr__ctrl--danger': !publishVideo }"
           :aria-pressed="!publishVideo"
-          :disabled="trainingPolicy && !trainingPolicy.proctor && !trainingPolicy.videoAllowed"
-          :title="publishVideo ? 'Turn camera off' : 'Turn camera on'"
+          :disabled="interviewCameraUnavailable || (trainingPolicy && !trainingPolicy.proctor && !trainingPolicy.videoAllowed)"
+          :title="interviewCameraUnavailable ? 'Check camera access and rejoin the interview' : (publishVideo ? 'Turn camera off' : 'Turn camera on')"
           @click.stop.prevent="toggleCamera"
         >
-          {{ publishVideo ? 'Camera' : 'Cam off' }}
+          {{ interviewCameraUnavailable ? 'Camera unavailable' : (publishVideo ? 'Camera' : 'Cam off') }}
         </button>
         <button
           v-if="!lobbyMode && (effectiveCanShareScreen || sharingScreen)"
@@ -731,6 +731,8 @@ const errorMeta = ref(null);
 // runs audio processing twice on desktop). The main-room publisher acquires it.
 const publishAudio = ref(!props.startMuted && !props.lobbyMode);
 const publishVideo = ref(!props.startVideoOff);
+const interviewMicUnavailable = ref(false);
+const interviewCameraUnavailable = ref(false);
 const automuteNoticeVisible = ref(props.showAutomuteNotice && !!props.startMuted && !props.lobbyMode);
 /** A lobby mic test grants permission and verifies capture without publishing audio. */
 const lobbyMicTested = ref(false);
@@ -2439,6 +2441,22 @@ function isMicAccessError(err) {
     || /microphone|getUserMedia|NotAllowed|NotReadable|Could not start audio|failed to get access to your microphone/i.test(msg);
 }
 
+async function hasInterviewCamera() {
+  try {
+    const devices = await navigator.mediaDevices?.enumerateDevices?.();
+    return devices ? devices.some(device => device.kind === 'videoinput') : true;
+  } catch {
+    return true; // Let Vonage check device availability if enumeration failed.
+  }
+}
+
+function isInterviewCameraError(error) {
+  // The interview captures audio separately, so only camera capture can fail here.
+  return isMicAccessError(error)
+    || ['OT_NO_VALID_CONSTRAINTS', 'OT_NO_DEVICES_FOUND', 'OT_HARDWARE_UNAVAILABLE'].includes(error?.name)
+    || /video and audio was disabled|no video sources|requested device not found/i.test(error?.message || '');
+}
+
 function sanitizeVideoError(err) {
   if (err?.code === 'VIDEO_CONNECTION_WAIT_EXPIRED') return {message:err.message,kind:'timeout'};
   const name = String(err?.name || '');
@@ -2828,9 +2846,13 @@ async function connect() {
       return opts;
     };
 
-    const createPublisher = async (withAudio, captureAudio, track) => {
+    const createPublisher = async (withAudio, captureAudio, track, captureVideo = true) => {
       const options = buildPublisherOpts(withAudio, captureAudio);
       if (props.interviewRoom) options.audioSource = track || null;
+      if (!captureVideo) {
+        options.videoSource = null;
+        options.publishVideo = false;
+      }
       const pub = await attempt.wait(() => new Promise((resolve, reject) => {
         let nextPublisher;
         nextPublisher = OT.initPublisher(
@@ -2877,7 +2899,25 @@ async function connect() {
           }, 'Starting microphone');
         }
         if (!current()) return null;
-        const pub = await createPublisher(withAudio, captureAudio, track);
+        let cameraAvailable = !props.interviewRoom || await attempt.wait(hasInterviewCamera, 'Checking camera');
+        if (!current()) return null;
+        let pub;
+        if (cameraAvailable) {
+          try {
+            pub = await createPublisher(withAudio, captureAudio, track);
+          } catch (error) {
+            if (!props.interviewRoom || !isInterviewCameraError(error)) throw error;
+            cameraAvailable = false;
+          }
+        }
+        if (!current()) return null;
+        if (!cameraAvailable) {
+          interviewCameraUnavailable.value = true;
+          publishVideo.value = false;
+          // With no local sources, keep the connected session as a listener.
+          if (!track) return null;
+          pub = await createPublisher(withAudio, captureAudio, track, false);
+        }
         if (!current()) return null;
         await attempt.wait(() => new Promise((resolve, reject) => {
           connectingSession.publish(pub, (err) => {
@@ -2932,8 +2972,9 @@ async function connect() {
         if (!current()) return;
         publisher = mutedPublisher;
         pendingConnectPublishers.delete(publisher);
+        interviewMicUnavailable.value = props.interviewRoom;
         audioProblem.value = props.interviewRoom
-          ? `Joined without a microphone. ${INTERVIEW_MIC_REJOIN_HINT}`
+          ? `${publisher ? 'Joined without a microphone.' : 'You joined in listen-only mode.'} ${INTERVIEW_MIC_REJOIN_HINT}`
           : 'Joined without a microphone. Check browser permission and your selected input, then unmute.';
       } else {
         throw publishErr;
@@ -2941,7 +2982,7 @@ async function connect() {
     }
     if (pendingUnmuteAfterPublish) {
       pendingUnmuteAfterPublish = false;
-      if (!micLockedByHost.value) {
+      if (!micLockedByHost.value && !interviewMicUnavailable.value) {
         publishAudio.value = true;
         automuteNoticeVisible.value = false;
         try {
@@ -3202,6 +3243,8 @@ function disconnect(emitEvent = true) {
     stopMonitoringMicrophone();
     monitoredAudioTrack = null;
     audioProblem.value = '';
+    interviewCameraUnavailable.value = false;
+    interviewMicUnavailable.value = false;
     clearFloatingReactions();
     resetStagePagination();
     stopScreenShare();
@@ -3275,6 +3318,10 @@ function dismissAutomuteNotice() {
 function dismissAutomuteAndUnmute() {
   automuteNoticeVisible.value = false;
   if (publishAudio.value) return;
+  if (interviewMicUnavailable.value) {
+    showMicHint(INTERVIEW_MIC_REJOIN_HINT);
+    return;
+  }
   if (!publisher) {
     pendingUnmuteAfterPublish = true;
     showMicHint('Unmuting as soon as the room is ready…');
@@ -3546,7 +3593,7 @@ async function toggleMic() {
     showMicHint('Your microphone has been locked by the host.');
     return;
   }
-  if (next && props.interviewRoom && publisher && !publisher.getAudioSource?.()) {
+  if (next && interviewMicUnavailable.value) {
     showMicHint(INTERVIEW_MIC_REJOIN_HINT);
     return;
   }
@@ -3607,6 +3654,7 @@ async function toggleMic() {
 }
 
 function toggleCamera() {
+  if (interviewCameraUnavailable.value) return;
   if (props.trainingPolicy && !props.trainingPolicy.proctor && !props.trainingPolicy.videoAllowed) return;
   const next = !publishVideo.value;
   publishVideo.value = next;

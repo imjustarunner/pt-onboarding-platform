@@ -971,11 +971,16 @@ describe('interview microphone permission lifecycle', () => {
   let getUserMedia;
   let track;
   let stream;
+  let enumerateDevices;
+  let previousMediaDevices;
 
   beforeEach(() => {
     track = { readyState:'live', stop:vi.fn() };
     stream = { getAudioTracks:() => [track], getTracks:() => [track] };
     getUserMedia = vi.fn();
+    enumerateDevices = vi.fn().mockResolvedValue([{ kind: 'audioinput' }]);
+    previousMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { enumerateDevices } });
     const append = document.body.appendChild.bind(document.body);
     vi.spyOn(document.body, 'appendChild').mockImplementation(element => {
       const result = append(element);
@@ -992,6 +997,8 @@ describe('interview microphone permission lifecycle', () => {
     wrapper?.unmount();
     wrapper = null;
     frame?.remove();
+    if (previousMediaDevices) Object.defineProperty(navigator, 'mediaDevices', previousMediaDevices);
+    else delete navigator.mediaDevices;
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
@@ -1030,27 +1037,104 @@ describe('interview microphone permission lifecycle', () => {
     expect(wrapper?.emitted('connected')).toBeUndefined();
   });
 
-  it.each([true, false])('joins with the resolved track or with explicit no-microphone fallback (%s)', async allowed => {
-    if (allowed) getUserMedia.mockResolvedValue(stream);
-    else getUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
-    const pub = { destroy:vi.fn(), on:vi.fn(), getAudioSource:() => allowed ? track : null };
-    videoSdk.initPublisher.mockImplementation((_el, _opts, done) => {
-      videoSdk.session.publish.mockImplementation((_publisher, published) => published(null));
-      done(null);
-      return pub;
+  function acceptPublisher(pub) {
+    videoSdk.session.publish.mockImplementation((_publisher, published) => published(null));
+    return pub;
+  }
+
+  it('publishes and meters the approved microphone on a computer without a camera', async () => {
+    getUserMedia.mockResolvedValue(stream);
+    const pub = {
+      destroy: vi.fn(),
+      on: vi.fn(),
+      getAudioSource: () => track,
+      publishAudio: vi.fn()
+    };
+    videoSdk.initPublisher.mockImplementation((_el, options, done) => {
+      // Without the explicit null, the SDK tries default camera capture.
+      done(options.videoSource === null ? null : new Error('Video and Audio was disabled, you need to enable at least one'));
+      return acceptPublisher(pub);
     });
     await startInterview();
-    expect(videoSdk.initPublisher.mock.calls[0][1]).toMatchObject({audioSource:allowed ? track : null,publishAudio:allowed});
+    expect(videoSdk.initPublisher).toHaveBeenCalledOnce();
+    expect(videoSdk.initPublisher.mock.calls[0][1]).toMatchObject({
+      audioSource: track, publishAudio: true, videoSource: null, publishVideo: false
+    });
+    expect(videoSdk.session.publish).toHaveBeenCalledWith(pub, expect.any(Function));
     expect(wrapper.emitted('connected')).toHaveLength(1);
-    expect(frame.isConnected).toBe(allowed);
-    if (!allowed) {
-      await wrapper.vm.toggleMic();
-      expect(getUserMedia).toHaveBeenCalledOnce();
-      expect(wrapper.text()).toContain('leave and rejoin the interview');
-    }
+    expect(wrapper.text()).toContain('Camera unavailable');
+
+    const inputLevel = pub.on.mock.calls.find(([event]) => event === 'audioLevelUpdated')[1];
+    inputLevel({ audioLevel: 0.5 });
+    await flushPromises();
+    expect(wrapper.get('meter[aria-label="Microphone input level"]').element.value).toBe(0.5);
+    await wrapper.vm.toggleMic();
+    expect(pub.publishAudio).toHaveBeenLastCalledWith(false);
+    await wrapper.vm.toggleMic();
+    expect(pub.publishAudio).toHaveBeenLastCalledWith(true);
+    expect(getUserMedia).toHaveBeenCalledOnce();
+
     wrapper.vm.disconnect(false);
     expect(frame.isConnected).toBe(false);
-    if (allowed) expect(track.stop).toHaveBeenCalled();
+    expect(track.stop).toHaveBeenCalled();
+  });
+
+  it('joins as a listener when the mic is denied with no camera available', async () => {
+    getUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    await startInterview();
+    expect(videoSdk.initPublisher).not.toHaveBeenCalled();
+    expect(videoSdk.session.publish).not.toHaveBeenCalled();
+    expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
+    expect(wrapper.emitted('connected')).toHaveLength(1);
+    expect(frame.isConnected).toBe(false);
+    expect(wrapper.text()).toContain('You joined in listen-only mode.');
+    expect(wrapper.text()).toContain('leave and rejoin the interview');
+    expect(wrapper.videoDOM.find('.vsr__error-actions').exists()).toBe(false);
+    await wrapper.vm.toggleMic();
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    wrapper.vm.disconnect(false);
+    expect(videoSdk.session.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('retains the same mic track when a listed camera fails to start', async () => {
+    getUserMedia.mockResolvedValue(stream);
+    enumerateDevices.mockResolvedValue([{ kind: 'videoinput' }]);
+    const first = { destroy: vi.fn() };
+    const pub = { destroy: vi.fn(), on: vi.fn(), getAudioSource: () => track };
+    videoSdk.initPublisher
+      .mockImplementationOnce((_el, _options, done) => {
+        done(Object.assign(new Error('Video and Audio was disabled, you need to enable at least one'), { name: 'OT_NO_VALID_CONSTRAINTS' }));
+        return first;
+      })
+      .mockImplementationOnce((_el, _options, done) => {
+        done(null);
+        return acceptPublisher(pub);
+      });
+
+    await startInterview();
+    expect(videoSdk.initPublisher.mock.calls[0][1]).toMatchObject({ audioSource: track, publishVideo: true });
+    expect(videoSdk.initPublisher.mock.calls[1][1]).toMatchObject({ audioSource: track, videoSource: null, publishVideo: false });
+    expect(first.destroy).toHaveBeenCalledOnce();
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(track.stop).not.toHaveBeenCalled();
+    expect(videoSdk.session.publish).toHaveBeenCalledWith(pub, expect.any(Function));
+    expect(wrapper.emitted('connected')).toHaveLength(1);
+  });
+
+  it('can publish video when the mic is denied but the camera is available', async () => {
+    getUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    enumerateDevices.mockResolvedValue([{ kind: 'videoinput' }]);
+    const pub = { destroy: vi.fn(), on: vi.fn(), getAudioSource: () => null };
+    videoSdk.initPublisher.mockImplementation((_el, _options, done) => {
+      done(null);
+      return acceptPublisher(pub);
+    });
+    await startInterview();
+    expect(videoSdk.initPublisher.mock.calls[0][1]).toMatchObject({ audioSource: null, publishAudio: false, publishVideo: true });
+    expect(videoSdk.session.publish).toHaveBeenCalledWith(pub, expect.any(Function));
+    expect(wrapper.emitted('connected')).toHaveLength(1);
+    expect(wrapper.text()).toContain('Joined without a microphone.');
+    expect(wrapper.text()).toContain('leave and rejoin the interview');
   });
 });
 
