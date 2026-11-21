@@ -229,7 +229,7 @@
                 v-for="c in sortedCombinedClientsList"
                 :key="c.id"
                 :class="{ 'is-terminated': isTerminatedClient(c) }"
-                :style="c.agencyPrimaryColor ? { boxShadow: `inset 3px 0 0 ${c.agencyPrimaryColor}`, background: `${c.agencyPrimaryColor}12` } : null"
+                :style="c.agencyPrimaryColor ? { '--pct-row-accent': c.agencyPrimaryColor } : null"
               >
                 <td>
                   <div class="pct-client-cell">
@@ -1675,14 +1675,14 @@ watch(skillBuildersOnlyFilter, async () => {
 
 .provider-clients-tab {
   --pct-green: #166534;
-  --pct-border: #e5e7eb;
-  --pct-muted: #6b7280;
+  --pct-border: var(--border, #e5e7eb);
+  --pct-muted: var(--text-secondary, #6b7280);
   display: grid;
   gap: 20px;
   min-width: 0;
   max-width: 100%;
   font-family: var(--font-body, 'Inter', system-ui, sans-serif);
-  color: #111827;
+  color: var(--text-primary, #111827);
 }
 
 .pct-cat-nav {
@@ -1713,7 +1713,7 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 
 .pct-cat-tab:hover {
-  color: #374151;
+  color: var(--text-secondary, #374151);
 }
 
 .pct-cat-tab.is-active {
@@ -1771,7 +1771,7 @@ watch(skillBuildersOnlyFilter, async () => {
   font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #111827;
+  color: var(--text-primary, #111827);
 }
 
 .pct-page-subtitle {
@@ -1788,7 +1788,7 @@ watch(skillBuildersOnlyFilter, async () => {
   align-items: flex-end;
   gap: 12px;
   padding: 14px 16px;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid var(--pct-border);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -1804,18 +1804,18 @@ watch(skillBuildersOnlyFilter, async () => {
 .pct-field__label {
   font-size: 12px;
   font-weight: 700;
-  color: #374151;
+  color: var(--text-secondary, #374151);
 }
 
 .pct-control {
   border: 1px solid var(--pct-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-card, #fff);
   padding: 0 12px;
   min-width: 180px;
   min-height: 42px;
   font-size: 14px;
-  color: #111827;
+  color: var(--text-primary, #111827);
 }
 
 .pct-check {
@@ -1825,7 +1825,7 @@ watch(skillBuildersOnlyFilter, async () => {
   min-height: 42px;
   padding: 0 4px;
   font-size: 14px;
-  color: #374151;
+  color: var(--text-secondary, #374151);
   cursor: pointer;
   user-select: none;
 }
@@ -1875,13 +1875,13 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 
 .pct-btn--ghost {
-  background: #fff;
-  color: #374151;
+  background: var(--bg-card, #fff);
+  color: var(--text-secondary, #374151);
   border-color: var(--pct-border);
 }
 
 .pct-btn--ghost:hover:not(:disabled) {
-  background: #f9fafb;
+  background: var(--bg-muted, #f9fafb);
 }
 
 .pct-columns-control {
@@ -1893,7 +1893,7 @@ watch(skillBuildersOnlyFilter, async () => {
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid var(--pct-border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
@@ -1906,7 +1906,7 @@ watch(skillBuildersOnlyFilter, async () => {
   gap: 8px;
   align-items: center;
   font-size: 13px;
-  color: #111827;
+  color: var(--text-primary, #111827);
   padding: 4px 0;
   cursor: pointer;
 }
@@ -1962,7 +1962,7 @@ watch(skillBuildersOnlyFilter, async () => {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 12px 14px;
-  background: #fff;
+  background: var(--bg-card, #fff);
 }
 .new-block-head {
   display: flex;
@@ -1993,7 +1993,7 @@ watch(skillBuildersOnlyFilter, async () => {
 .office-clients-table {
   width: 100%;
   border-collapse: collapse;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid var(--border);
   border-radius: 10px;
 }
@@ -2039,7 +2039,7 @@ watch(skillBuildersOnlyFilter, async () => {
   height: 18px;
   border-radius: 4px;
   object-fit: contain;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid #e2e8f0;
 }
 .pct-agency-dot {
@@ -2079,7 +2079,7 @@ watch(skillBuildersOnlyFilter, async () => {
 .pct-profile-loading-card {
   padding: 16px 22px;
   border-radius: 12px;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid var(--border, #e2e8f0);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
   font-weight: 600;
@@ -2125,4 +2125,20 @@ watch(skillBuildersOnlyFilter, async () => {
     width: 100%;
   }
 }
+
+.office-clients-table tbody tr {
+  background-color: color-mix(in srgb, var(--bg-card, #fff) 93%, var(--pct-row-accent, transparent));
+  box-shadow: inset 3px 0 0 var(--pct-row-accent, transparent);
+}
+[data-theme='dark'] .provider-clients-tab .pct-cat-tab.is-active {
+  color: #a7e8bd;
+  border-color: #7bc89a;
+}
+[data-theme='dark'] .provider-clients-tab .pct-inline-link { color: #8bd9e6; }
+[data-theme='dark'] .office-clients-table tr.is-terminated td { color: #ffaba6; }
+[data-theme='dark'] .pct-acceptance {
+  background: #172c42;
+  border-color: #3e5d78;
+}
+[data-theme='dark'] .pct-acceptance strong { color: #bedbff; }
 </style>

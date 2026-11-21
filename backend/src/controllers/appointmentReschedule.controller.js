@@ -43,7 +43,7 @@ export async function rescheduleAppointment(req, res, next) {
       const zone = office?.timezone || plan.timeZone;
       req.params = { officeId: String(appointment.officeLocationId), eventId: String(appointment.officeEventId) };
       req.body = { startAt: utcToZonedMysqlWall(plan.startAt, zone), endAt: utcToZonedMysqlWall(plan.endAt, zone),
-        roomId: room.id, scope, reuseOwnReservations: true, requestRoom: room.needsRequest === true, reason: String(req.body.reason || '') };
+        roomId: room.id, scope, moveClientSeries: scope === 'future', reuseOwnReservations: true, requestRoom: room.needsRequest === true, reason: String(req.body.reason || '') };
       return rescheduleOfficeEvent(req, res, next);
     }
     if (appointment.providerScheduleEventId) {

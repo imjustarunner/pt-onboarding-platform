@@ -1,4 +1,5 @@
-import { recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
+import { appointmentHasStarted } from '../utils/appointmentVideoPolicy.js';
+import { bookingNoticePreferenceFacts, recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { randomUUID } from 'node:crypto';
 import { tutoringSessionPriceBilling, canSetTutoringSessionPrice } from '../services/tutoringSessionPrice.service.js';
@@ -170,6 +171,7 @@ export const createAppointmentHandler = async (req, res, next) => {
       for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
         const appointment = await createAppointment({
           deferScheduleNotice: !!recurrenceSeriesId,
+          sendBookingNotice: req.body?.sendBookingNotice !== false,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
           learningSubjectKey:req.body?.learningSubjectKey ?? null,
@@ -236,20 +238,23 @@ export const createAppointmentHandler = async (req, res, next) => {
               await linkProviderScheduleEvent(appointment.id, saved.id);
               appointment.providerScheduleEventId = Number(saved.id);
               // Calendar mirroring is optional; the local appointment remains authoritative.
-              try {
-                const mirrored = await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
-                  subjectEmail: provider?.email, summary: appointment.title || 'Session',
-                  description: req.body?.notes || null, startAt: occurrence.startAt, endAt: occurrence.endAt,
-                  timeZone: req.body?.timeZone || 'America/Denver'
-                });
-                if (mirrored.ok && mirrored.googleEventId) {
-                  await pool.execute('UPDATE provider_schedule_events SET google_event_id = ?, google_html_link = ? WHERE id = ?',
-                    [mirrored.googleEventId, mirrored.htmlLink || null, saved.id]);
-                } else if (!mirrored.skipped) {
+              if (!appointmentHasStarted(appointment.startAt)) {
+                try {
+                  const mirrored = await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
+                    subjectEmail: provider?.email, summary: appointment.title || 'Session',
+                    description: req.body?.notes || null, startAt: occurrence.startAt, endAt: occurrence.endAt,
+                    timeZone: req.body?.timeZone || 'America/Denver',
+                    sendUpdates: 'none', disableReminders: appointment.notificationMode === 'off'
+                  });
+                  if (mirrored.ok && mirrored.googleEventId) {
+                    await pool.execute('UPDATE provider_schedule_events SET google_event_id = ?, google_html_link = ? WHERE id = ?',
+                      [mirrored.googleEventId, mirrored.htmlLink || null, saved.id]);
+                  } else if (!mirrored.skipped) {
+                    calendarWarnings.push(`Session ${appointment.id} saved locally; Google Calendar was not synchronized.`);
+                  }
+                } catch {
                   calendarWarnings.push(`Session ${appointment.id} saved locally; Google Calendar was not synchronized.`);
                 }
-              } catch {
-                calendarWarnings.push(`Session ${appointment.id} saved locally; Google Calendar was not synchronized.`);
               }
             }
           } catch (pseErr) {
@@ -272,7 +277,10 @@ export const createAppointmentHandler = async (req, res, next) => {
       }
     }
     if (recurrenceSeriesId) {
-      const facts = recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments);
+      const facts = {
+        ...recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments),
+        ...bookingNoticePreferenceFacts(req.body?.sendBookingNotice)
+      };
       const { appointmentScheduleNotices } = await import('../services/appointmentScheduleNotice.service.js');
       const { scheduleSessionNotifications } = await import('../services/sessionNotification.service.js');
       for (const appointment of createdAppointments) {

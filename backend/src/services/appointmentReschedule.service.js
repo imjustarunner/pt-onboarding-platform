@@ -23,11 +23,17 @@ export function createAppointmentRescheduleService({ appointments = Appointment,
     await assertMovable(appointment);
     const event = appointment.providerScheduleEventId ? await events.findById(appointment.providerScheduleEventId) : null;
     const office = appointment.officeEventId ? await offices.findById(appointment.officeEventId) : null;
+    const inPerson = String(appointment.modality).toUpperCase() === 'IN_PERSON';
+    const officeContext = typeof office?.session_context_json === 'string' ? JSON.parse(office.session_context_json) : office?.session_context_json;
+    const ownedSeries = !officeContext?.appointmentMoveDetached && officeContext?.reservedSessionBookingFrequency !== 'ONCE'
+      && /^reserved_office_session:[a-f0-9]{32}$/.test(appointment.source || '');
+    const officeSeries = !!(office?.booking_plan_id || (!office?.standing_assignment_id && office?.recurrence_group_id) || ownedSeries);
+    const calendarSeries = !!event?.recurrence_series_id;
     return { appointmentId: appointment.id, timeZone: appointment.sourceTimezone || 'America/Denver',
       startAt: parseUtcDate(appointment.startAt).toISOString(), endAt: parseUtcDate(appointment.endAt).toISOString(),
-      inPerson: String(appointment.modality).toUpperCase() === 'IN_PERSON',
-      hasSeries: !!(event?.recurrence_series_id || office?.standing_assignment_id || office?.booking_plan_id),
-      canMoveSeries: !!(event?.recurrence_series_id || office?.standing_assignment_id) };
+      inPerson,
+      hasSeries: calendarSeries || officeSeries,
+      canMoveSeries: inPerson ? !!office && (calendarSeries || officeSeries) : calendarSeries };
   }
 
   async function options(appointment, input) {

@@ -7049,8 +7049,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       rowsToUpdate = await ProviderScheduleEvent.listActiveSeriesFromPoint({
         recurrenceSeriesId: seriesId,
         providerId: hostProviderId,
-        fromStartAt: target.start_at || null,
-        fromStartDate: target.start_date || null
+        fromStartAt: req.appointmentReschedule?.originalStartAt || target.start_at || null,
+        fromStartDate: target.start_date || null,
+        appointmentSeries: !!req.appointmentReschedule
       });
       if (!rowsToUpdate.length) rowsToUpdate = [target];
     }

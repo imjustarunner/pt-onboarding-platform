@@ -119,7 +119,7 @@ async function ensureLockedAppointmentContext({
       modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
       serviceLocationId: actualServiceLocationId,
       learningSubjectKey:bookingContext.learningSubjectKey ?? null, tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
-      serviceCode: event.service_code, notificationMode: bookingContext.notificationMode, customReminders: bookingContext.customReminders, notes: bookingContext.schedulingNotes,
+      serviceCode: event.service_code, notificationMode: bookingContext.notificationMode, customReminders: bookingContext.customReminders, sendBookingNotice: bookingContext.sendBookingNotice, notes: bookingContext.schedulingNotes,
       clinicalSessionId, actorUserId, billing: bookingContext.billing || null, strict: true, preserveParticipants: !!boundAppointment });
     if (clinicalSessionId && ['self_pay_only', 'package'].includes(canonical?.billing?.settlementMode)) {
       await clinicalPool.execute("UPDATE clinical_sessions SET claim_blocked_reason = 'SELF_PAY_ONLY: Insurance claims are disabled for this appointment' WHERE id = ? AND agency_id = ?", [clinicalSessionId, resolvedAgencyId]);

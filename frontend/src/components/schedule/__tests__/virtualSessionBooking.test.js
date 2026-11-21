@@ -93,8 +93,8 @@ it('blocks a school appointment if its default school location cannot be prepare
 });
 
 it('offers only the appointment-linked office room when scheduling virtual counseling, including old personal-room defaults', () => {
-  wrapper = mount(Header, { props: { showModality: true, modality: 'TELEHEALTH', videoRoomMode: 'my_room' } });
-  expect(wrapper.text()).toContain('Each recurring session gets its own room');
+  wrapper = mount(Header, { props: { showModality: true, modality: 'TELEHEALTH', videoRoomMode: 'my_room', recurrenceFrequency: 'WEEKLY' } });
+  expect(wrapper.text()).toContain('Each upcoming recurring session gets its own room');
   expect(wrapper.text()).not.toContain('personal link'); expect(wrapper.find('option[value="my_room"]').exists()).toBe(false);
 });
 
@@ -177,4 +177,56 @@ it.each(['provider','provider_plus','clinical_practice_assistant','admin','suppo
   expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({providerUserId:7,timeZone:'America/Denver',startAt:'2026-11-19T17:00:00',videoRoomMode:'unique_session'}));
   expect(s.cellBlocks('Thursday',17,0).some(block => block.appointmentId === 41)).toBe(true);
   expect(countCreates()).toBe(1);
+});
+
+it('records a past virtual appointment quietly and closes its saved receipt', async () => {
+  const s = await editor();
+  s.modalDay = 'Monday';
+  await flushPromises();
+  expect(s.editorHistoricalBooking).toBe(true);
+  const saved = { ...appointment, startAt: '2026-11-17 00:00:00', endAt: '2026-11-17 01:00:00',
+    videoRoomMode: 'none', notificationMode: 'off' };
+  m.post.mockResolvedValueOnce({ data: { appointment: saved, appointments: [saved] } });
+  await s.submitRequest();
+  expect(s.modalError).toBe('');
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
+    startAt: '2026-11-16T17:00:00', sendBookingNotice: false, notificationMode: 'off', videoRoomMode: 'none'
+  }));
+  expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment'))).toHaveLength(0);
+  expect(wrapper.get('[data-testid="virtual-session-booked"]').text()).toContain('Past session recorded');
+  await wrapper.findAll('button').find(button => button.text() === 'Done').trigger('click');
+  expect(window.confirm).not.toHaveBeenCalled();
+});
+
+it('preserves future series preferences when the first occurrence is in the past', async () => {
+  const s = await editor();
+  s.modalDay = 'Monday';
+  s.scheduleEventRecurrence = 'WEEKLY';
+  s.editorRecurrenceOccurrenceCount = 2;
+  await flushPromises();
+  expect(s.editorSeriesStartsInPast).toBe(true);
+  expect(s.editorHistoricalBooking).toBe(false);
+  const past = { ...appointment, startAt: '2026-11-17 00:00:00', endAt: '2026-11-17 01:00:00', videoRoomMode: 'none' };
+  const future = { ...appointment, id: 42, providerScheduleEventId: 62, startAt: '2026-11-24 00:00:00', endAt: '2026-11-24 01:00:00' };
+  m.post.mockResolvedValueOnce({ data: { appointment: past, appointments: [past, future], recurrenceSeriesId: 'series-1' } });
+  await s.submitRequest();
+  expect(s.modalError).toBe('');
+  expect(m.post.mock.calls[0][1]).toMatchObject({
+    recurrence: 'WEEKLY', occurrenceCount: 2, sendBookingNotice: true, notificationMode: 'default', videoRoomMode: 'unique_session'
+  });
+  expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment')).map(([, body]) => body.appointmentId)).toEqual([42]);
+});
+
+it('keeps confirmation, reminders, and video choices independent for an upcoming session', async () => {
+  const s = await editor();
+  s.editorBookingNotice = false;
+  s.editorNotificationMode = 'off';
+  s.editorVideoRoomMode = 'none';
+  await s.submitRequest();
+  expect(s.modalError).toBe('');
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
+    sendBookingNotice: false, notificationMode: 'off', videoRoomMode: 'none'
+  }));
+  expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment'))).toHaveLength(0);
+  expect(wrapper.text()).toContain('Session scheduled');
 });

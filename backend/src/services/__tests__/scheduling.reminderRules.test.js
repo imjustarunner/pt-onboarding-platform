@@ -48,3 +48,11 @@ it('recomputes the saved custom timing when the appointment moves',async()=>{
  const row=m.execute.mock.calls.find(([sql,args])=>sql.includes('INSERT INTO appointment_reminders')&&args[4]==='appointment_custom:extra');
  expect(row[1][11]).toBe('2080-12-03 21:00:00');
 });
+
+it('turns off automatic delivery and clears pending reminders even when organization rules exist', async () => {
+  m.appointment.mockResolvedValue({ id: 68, agencyId: 377, startAt: '2080-12-03 22:00:00', notificationMode: 'off' });
+  expect((await buildDeliveryPlan(68)).deliveries).toEqual([]);
+  await scheduleSessionNotifications(68, { replace: true });
+  expect(m.execute.mock.calls.some(([sql]) => sql.includes('UPDATE appointment_reminders'))).toBe(true);
+  expect(m.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO appointment_reminders'))).toBe(false);
+});

@@ -36,6 +36,7 @@
       @update:videoRoomMode="emit('update:videoRoomMode', $event)"
       @update:externalMeetingUrl="emit('update:externalMeetingUrl',$event)"
       @update:includeGoogleDialIn="emit('update:includeGoogleDialIn',$event)"
+      @update:bookingNotice="emit('update:bookingNotice', $event)"
       @update:notificationMode="emit('update:notificationMode', $event)"
       @update:customReminders="emit('update:customReminders', $event)"
       @update:schedulingNotes="emit('update:schedulingNotes', $event)"
@@ -246,6 +247,12 @@ const props = defineProps({
   videoRoomMode: { type: String, default: 'unique_session' },
   externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
   includeGoogleDialIn:Boolean,googleDialInStatus:{type:String,default:''},
+  historicalBooking: Boolean,
+  seriesStarted: Boolean,
+  bookingNotice: { type: Boolean, default: true },
+  showBookingNotice: Boolean,
+  appointmentStartMs: Number,
+  appointmentTimeZone: String,
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
   customReminders: { type: Array, default: () => [] },
@@ -295,6 +302,7 @@ const emit = defineEmits([
   'update:externalMeetingUrl',
   'update:includeGoogleDialIn',
   'update:notificationMode',
+  'update:bookingNotice',
   'update:customReminders',
   'update:schedulingNotes',
   'update:othersPresentNames'
@@ -385,6 +393,12 @@ const headerProps = computed(() => ({
   videoRoomMode: props.videoRoomMode,
   externalMeetingsEnabled:props.externalMeetingsEnabled,externalMeetingUrl:props.externalMeetingUrl,serviceCodeMessage:props.serviceCodeMessage,
   includeGoogleDialIn:props.includeGoogleDialIn,googleDialInStatus:props.googleDialInStatus,
+  historicalBooking: props.historicalBooking,
+  seriesStarted: props.seriesStarted,
+  bookingNotice: props.bookingNotice,
+  showBookingNotice: props.showBookingNotice,
+  appointmentStartMs: props.appointmentStartMs,
+  appointmentTimeZone: props.appointmentTimeZone,
   showNotifications: props.showNotifications,
   notificationMode: props.notificationMode,
   customReminders: props.customReminders,

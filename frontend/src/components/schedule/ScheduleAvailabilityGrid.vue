@@ -2060,14 +2060,20 @@
           :force-expand-group-clients="editorForceExpandGroupClients"
           :modality-pos-warning="editorIsLearning ? '' : editorModalityPosWarning"
           :book-session-layout="editorUseBookSessionLayout"
-          :video-room-mode="editorVideoRoomMode"
+          :video-room-mode="isAppointmentEditMode || isScheduleEventEditMode ? editorVideoRoomMode : editorBookingVideoMode"
+          :historical-booking="editorHistoricalBooking"
+          :series-started="editorSeriesStartsInPast && isSessionBookingRequestType && !isScheduleEventEditMode && !isAppointmentEditMode"
+          :booking-notice="editorBookingNotice"
+          :show-booking-notice="isSessionBookingRequestType && !isScheduleEventEditMode && !isAppointmentEditMode"
+          :appointment-start-ms="editorAppointmentStartMs"
+          :appointment-time-zone="scheduleMeetingTimeZone()"
           :external-meetings-enabled="editorExternalMeetingsEnabled"
           :external-meeting-url="editorExternalMeetingUrl"
           :include-google-dial-in="editorIncludeGoogleDialIn"
           :google-dial-in-status="editorGoogleDialInStatus"
           :service-code-message="bookingMetadataError || (!bookingMetadataLoading && !bookingPrimaryServiceCodeOptions.length ? 'No service codes are available for this provider, agency and client. Review provider care access, credentials and service assignments.' : '')"
           :show-notifications="editorUseBookSessionLayout"
-          :notification-mode="editorNotificationMode"
+          :notification-mode="editorStartedSingleBooking ? 'off' : editorNotificationMode"
           :custom-reminders="editorCustomReminders"
           :show-scheduling-notes="editorUseBookSessionLayout"
           :scheduling-notes="requestNotes"
@@ -2100,6 +2106,7 @@
           @update:recurrenceUntilDate="editorRecurrenceUntilDate = $event"
           @update:recurrenceWeekdays="editorRecurrenceWeekdays = $event"
           @update:videoRoomMode="editorVideoRoomMode = $event"
+          @update:bookingNotice="editorBookingNotice = $event"
           @update:externalMeetingUrl="editorExternalMeetingUrl=$event"
           @update:includeGoogleDialIn="editorIncludeGoogleDialIn=$event"
           @update:notificationMode="editorNotificationMode = $event"
@@ -4871,6 +4878,15 @@
           <button class="btn btn-secondary nr-btn-cancel" type="button" @click="requestCloseModal">
             {{ editingOpenSlot && editorIsOpenSlot ? 'Close' : (virtualSessionShareUrl || virtualSessionScheduledSessionKey.startsWith('external-appointment:')) && isVirtualTelehealthSession ? 'Done' : 'Cancel' }}
           </button>
+          <p v-if="isSessionBookingRequestType && !isScheduleEventEditMode && !isAppointmentEditMode" class="nr-booking-delivery-summary">
+            <template v-if="editorHistoricalBooking">Past session · No booking confirmation, reminders, or video room.</template>
+            <template v-else-if="editorStartedSingleBooking">Session has started · No booking confirmation or reminders.</template>
+            <template v-else>
+              {{ editorBookingNotice ? 'Booking confirmation on' : 'Booking confirmation off' }}
+              · {{ editorNotificationMode === 'off' ? 'Reminders off' : 'Reminders on' }}
+              <template v-if="editorModality === 'TELEHEALTH'"> · {{ editorVideoRoomMode === 'none' ? 'Video off' : editorVideoRoomMode === 'external' ? 'External meeting' : 'Video link' }}</template>
+            </template>
+          </p>
           <button
             class="btn nr-btn-submit"
             type="button"
@@ -14295,6 +14311,8 @@ const submitActionLabel = computed(() => {
     unbook_slot: 'Clear booking; keep office time'
   };
   const t = String(requestType.value || '');
+  if (editorHistoricalBooking.value) return 'Record past session';
+  if (isVirtualTelehealthSession.value && editorVideoRoomMode.value === 'none') return 'Schedule without video';
   if (isVirtualTelehealthSession.value && editorVideoRoomMode.value === 'external') {
     return virtualSessionScheduledSessionKey.value.startsWith('external-appointment:')
       ? (virtualSessionShareUrl.value ? 'Open external meeting' : 'Done') : 'Schedule';
@@ -14508,6 +14526,7 @@ const editorExternalMeetingsEnabled=computed(()=>{
  return nonSso&&[agency?.slug,agency?.portal_url,agency?.portalUrl,Number(agencyStore.currentAgency?.id)===id?route.params?.organizationSlug:null].some(value=>['nlu','nextlevelup','nextleveluplcc','next-level-up'].includes(String(value||'').toLowerCase()));
 });
 const editorNotificationMode = ref('default');
+const editorBookingNotice = ref(true);
 const editorCustomReminders = ref([]);
 const editorManualReminderChannels = ref([]);
 const editorReminderBlockedReason = ref('');
@@ -14587,6 +14606,7 @@ const editorShowVirtual = computed(() => {
   return false;
 });
 const editorVirtualLink = computed(() => {
+  if (editorIsClinical.value && editorVideoRoomMode.value === 'none') return '';
   if(editorIsClinical.value && editorVideoRoomMode.value==='external')return editorExternalMeetingUrl.value;
   // Strict type isolation — never show another session type's join URL.
   if (editorIsSupervision.value) {
@@ -14763,6 +14783,24 @@ const editorEndTime = computed(() => {
   const h = Number(modalEndHour.value || 0);
   const m = Number(modalEndMinute.value || 0);
   return `${String(h===24?0:h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+});
+const editorAppointmentStartMs = computed(() => Date.parse(wallDatetimeLocalToSummaryIso(
+  `${editorDateYmd.value}T${editorStartTime.value}:00`, scheduleMeetingTimeZone()
+) || ''));
+const editorSeriesStartsInPast = computed(() => editorAppointmentStartMs.value <= joinPromptNowMs.value);
+const editorStartedSingleBooking = computed(() =>
+  isSessionBookingRequestType.value && !isScheduleEventEditMode.value && !isAppointmentEditMode.value &&
+  editorSeriesStartsInPast.value && editorRecurrenceFrequency.value === 'ONCE'
+);
+const editorHistoricalBooking = computed(() => {
+  if (!editorStartedSingleBooking.value) return false;
+  const endDate = Number(modalEndHour.value) === 24 ? addDaysYmd(editorDateYmd.value, 1) : editorDateYmd.value;
+  const endAt = wallDatetimeLocalToSummaryIso(`${endDate}T${editorEndTime.value}:00`, scheduleMeetingTimeZone());
+  return Date.parse(endAt || '') <= joinPromptNowMs.value;
+});
+const editorBookingVideoMode = computed(() => {
+  if (editorHistoricalBooking.value || editorVideoRoomMode.value === 'none') return 'none';
+  return editorIsLearning.value ? editorVideoRoomMode.value : 'unique_session';
 });
 const editorAgencyId = computed(() => {
   if (isScheduleEventEditMode.value) return Number(scheduleEventEditForm.value.agencyId || 0);
@@ -16634,6 +16672,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorExternalMeetingUrl.value=String(defaults.externalMeetingUrl||'');
   editorIncludeGoogleDialIn.value=defaults.includeGoogleDialIn===true;editorGoogleDialInStatus.value='';
   editorNotificationMode.value = String(defaults.notificationMode || 'default');
+  editorBookingNotice.value = true;
   editorCustomReminders.value = Array.isArray(defaults.customReminders) ? defaults.customReminders.map(row => ({ ...row })) : [];
   editorOthersPresentNames.value = String(defaults.othersPresentNames || '');
   const modality = String(defaults.modality || '').trim().toUpperCase()
@@ -17179,11 +17218,12 @@ const normalizeBookingSelectionPayload = () => {
     tutoringSessionPrice: tutoringSessionPricePayload(),
     ...(editorTutoringSubjectApplicable.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value&&((virtualSessionSelectedClientIds.value||[]).length===1||Number(primarySessionClientId.value)>0)?{learningSubjectKey:editorTutoringSubject.value}:{}),
     status: 'scheduled',
-    videoRoomMode: editorIsLearning.value ? String(editorVideoRoomMode.value || 'unique_session') : 'unique_session',
-    externalMeetingUrl:editorIsLearning.value&&editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:null,
+    videoRoomMode: editorBookingVideoMode.value,
+    externalMeetingUrl:!editorHistoricalBooking.value&&editorIsLearning.value&&editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:null,
     includeGoogleDialIn:editorIncludeGoogleDialIn.value,
-    notificationMode: String(editorNotificationMode.value || 'default'),
-    customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
+    sendBookingNotice: !editorStartedSingleBooking.value && editorBookingNotice.value,
+    notificationMode: editorStartedSingleBooking.value ? 'off' : editorNotificationMode.value,
+    customReminders: !editorStartedSingleBooking.value && editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
     othersPresentNames: String(editorOthersPresentNames.value || '').trim() || null,
     notes: String(requestNotes.value || '').trim() || null
   };
@@ -22444,7 +22484,15 @@ const projectSavedVirtualAppointments = (booking) => {
 const finishVirtualSessionVideoLinks = async () => {
   const booking = virtualSessionBookingResult.value;
   if (!booking || booking.uncertain) return;
-  for (const appointment of booking.appointments) {
+  const videoAppointments = booking.appointments.filter(appointment => appointment.videoRoomMode !== 'none' && !booking.skipVideo);
+  booking.noVideo = !videoAppointments.length;
+  if (booking.noVideo && booking.appointments.length) {
+    booking.historical = booking.appointments.every(appointment => {
+      const end = parseScheduleInstant(appointment.endAt);
+      return end && Number(end) <= Date.now();
+    });
+  }
+  for (const appointment of videoAppointments) {
     if (booking.videoRooms[appointment.id]) continue;
     if (booking.learning || ['learning', 'tutoring'].includes(appointment.businessType)) {
       const external = appointment.videoRoomMode === 'external' || booking.externalMeeting;
@@ -22457,7 +22505,7 @@ const finishVirtualSessionVideoLinks = async () => {
     if (!(data?.session?.publicId || data?.session?.id) || !data?.sharePath) throw new Error('The appointment is saved, but its video link is not ready. Retry video links; do not schedule it again.');
     booking.videoRooms[appointment.id] = data;
   }
-  const first = booking.videoRooms[booking.appointments[0]?.id];
+  const first = booking.videoRooms[videoAppointments[0]?.id];
   virtualSessionScheduledSessionKey.value = String(first?.session?.publicId || first?.session?.id || '');
   virtualSessionShareUrl.value = first?.shareUrl !== undefined ? first.shareUrl : buildVirtualSessionShareUrl(first?.sharePath || '');
   booking.linked = true;
@@ -22538,7 +22586,7 @@ const completePlatformVirtualSessionBooking = async ({
     ? `Others present: ${String(editorOthersPresentNames.value || editorClinicalParticipantsDetail.value).trim()}`
     : '';
   const descriptionParts = [
-    String(requestNotes.value || '').trim() || (editorIsLearning.value ? 'Virtual tutoring session.' : 'Platform counseling video session.'),
+    String(requestNotes.value || '').trim() || (editorIsLearning.value ? 'Virtual tutoring session.' : 'Virtual counseling session.'),
     isGroup ? 'Group Participants' : `Client id: ${clientId}`,
     participantsModeNote,
     othersNote,
@@ -22567,10 +22615,11 @@ const completePlatformVirtualSessionBooking = async ({
     });
   }
 
-  if (alsoBookOffice && officeId && !officeBookingValid.value) throw new Error('Choose a valid office booking window.');
+  if (alsoBookOffice && officeId && !editorHistoricalBooking.value && !officeBookingValid.value) throw new Error('Choose a valid office booking window.');
   const bookingSnapshot = { agencyId, providerId: uid, clientLabel, title: titleWithNotes, learning: editorIsLearning.value, externalMeeting: editorIsLearning.value && editorVideoRoomMode.value === 'external', timeZone: scheduleMeetingTimeZone(),
     whenLabel: `${dateYmd} · ${pad2(hour)}:${pad2(startMinute)}–${pad2(endHour)}:${pad2(endMinute)} (${scheduleMeetingTimeZone()})`,
-    guardianUserId: firstGuardianUserId, videoRooms: {}, officeRequestError: '', partial: false, uncertain: false };
+    guardianUserId: firstGuardianUserId, skipVideo: editorHistoricalBooking.value || editorVideoRoomMode.value === 'none',
+    historical: editorHistoricalBooking.value, videoRooms: {}, officeRequestError: '', partial: false, uncertain: false };
   let appointmentId = null;
   let canonicalBooking = null;
   // Canonical appointment so reminders / service / clinical tools attach.
@@ -22597,11 +22646,12 @@ const completePlatformVirtualSessionBooking = async ({
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
       participants,
       status: 'scheduled',
-      videoRoomMode: editorIsLearning.value ? String(editorVideoRoomMode.value || 'unique_session') : 'unique_session',
-      externalMeetingUrl:editorIsLearning.value&&editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:undefined,
+      videoRoomMode: editorBookingVideoMode.value,
+      externalMeetingUrl:!editorHistoricalBooking.value&&editorIsLearning.value&&editorVideoRoomMode.value==='external'?editorExternalMeetingUrl.value.trim()||null:undefined,
       includeGoogleDialIn:editorIncludeGoogleDialIn.value,
-      notificationMode: String(editorNotificationMode.value || 'default'),
-      customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
+      sendBookingNotice: !editorStartedSingleBooking.value && editorBookingNotice.value,
+      notificationMode: editorStartedSingleBooking.value ? 'off' : editorNotificationMode.value,
+      customReminders: !editorStartedSingleBooking.value && editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
       othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
     });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
@@ -22623,7 +22673,7 @@ const completePlatformVirtualSessionBooking = async ({
     throw new Error(savedIds.length ? 'Some appointments were saved before calendar linking failed. Review the saved sessions; do not schedule them again.' : virtualSessionBookingResult.value?.uncertain ? 'The booking response was interrupted. Refresh your schedule before trying again.' : error?.response?.data?.error?.message || 'Could not create the session appointment.');
   }
 
-  if (alsoBookOffice && officeId) {
+  if (alsoBookOffice && officeId && !bookingSnapshot.historical) {
     try {
     if (!officeBookingValid.value) throw new Error('Choose a valid office booking window.');
     if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
@@ -23300,7 +23350,7 @@ const submitRequest = async () => {
         return;
       }
 
-      // A virtual client session always gets its own appointment-linked room.
+      // Save the appointment first. Only upcoming sessions with video enabled need a room.
       if (isVirtualIndividual) {
         if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) throw new Error(bookingClassificationInvalidReason.value);
         await completePlatformVirtualSessionBooking({ dayName: dn, hour: h, startMinute, endHour: endH, endMinute,
@@ -32065,6 +32115,7 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
   justify-content: space-between;
   align-items: center;
 }
+.nr-booking-delivery-summary { flex: 1 1 100%; margin: 0; color: var(--text-secondary, #526578); font-size: 13px; }
 .nr-footer--sticky {
   position: sticky;
   bottom: 0;
@@ -33591,4 +33642,34 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 
 <style scoped>
 .schedule-cancellation-progress{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 16px;margin:10px 0;border:1px solid rgba(116,162,180,.3);border-radius:14px;background:color-mix(in srgb,var(--bg-card,#fff) 80%,#e3f2f6);color:var(--text-primary,#264455)}.schedule-cancellation-progress>div{display:grid;gap:5px;flex:1}.schedule-cancellation-progress span{font-size:12px;color:var(--text-secondary,#60788a)}.schedule-cancellation-progress progress{width:100%;max-width:450px;height:6px;accent-color:#287b6b}.schedule-cancellation-progress button{flex-shrink:0}
+
+[data-theme='dark'] .sched-command__bar,
+[data-theme='dark'] .sched-command__settings,
+[data-theme='dark'] .sched-command__view-menu,
+[data-theme='dark'] .sched-command__outline,
+[data-theme='dark'] .sched-command__filter {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme='dark'] .sched-command__title-text,
+[data-theme='dark'] .sched-command__range,
+[data-theme='dark'] .sched-command__view-menu-item { color: var(--text-primary); }
+[data-theme='dark'] .sched-command__today-label,
+[data-theme='dark'] .sched-all-day-label { color: var(--text-secondary); }
+[data-theme='dark'] .sched-command__rule { background: var(--border); }
+[data-theme='dark'] .sched-command__view-menu-item:hover,
+[data-theme='dark'] .sched-command__view-menu-item.on,
+[data-theme='dark'] .sched-command__filter:hover,
+[data-theme='dark'] .sched-command__filter.on,
+[data-theme='dark'] .sched-command__title-btn--menu:hover,
+[data-theme='dark'] .sched-command__settings:hover,
+[data-theme='dark'] .sched-command__settings.on,
+[data-theme='dark'] .sched-command__outline:hover,
+[data-theme='dark'] .sched-command__outline.on { background: var(--bg-muted); color: var(--text-primary); }
+[data-theme='dark'] .sched-all-day-label,
+[data-theme='dark'] .sched-all-day-cell { background: var(--bg-card); }
+[data-theme='dark'] .sched-all-day-cell.sched-cell-today {
+  background: color-mix(in srgb, var(--bg-card) 82%, #7058bb);
+}
 </style>

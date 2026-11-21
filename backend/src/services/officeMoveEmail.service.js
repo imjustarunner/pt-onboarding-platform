@@ -72,7 +72,7 @@ export async function queueOfficeMoveReceipt(
     frequencyLabel:
       scope === "occurrence"
         ? "This occurrence only · the recurring schedule stays unchanged"
-        : "All upcoming occurrences of this office time",
+        : scope === "client_series" ? "The selected session and its following sessions" : "All upcoming occurrences of this office time",
     slots: [
       {
         startHour: Number(local.slice(11, 13)),

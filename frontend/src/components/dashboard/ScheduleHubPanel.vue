@@ -202,10 +202,10 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 
 .sched-hub {
   --hub-green: #166534;
-  --hub-border: #e5e7eb;
-  --hub-muted: #6b7280;
+  --hub-border: var(--border, #e5e7eb);
+  --hub-muted: var(--text-secondary, #6b7280);
   font-family: var(--font-body, 'Inter', system-ui, sans-serif);
-  color: #111827;
+  color: var(--text-primary, #111827);
 }
 
 .sched-hub__header {
@@ -269,7 +269,7 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 .sched-hub__title-text {
   font-size: 1.15rem;
   font-weight: 800;
-  color: #111827;
+  color: var(--text-primary, #111827);
   letter-spacing: -0.01em;
 }
 
@@ -426,5 +426,31 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 
 .sched-hub--platform .sched-hub__title-text {
   color: #0f172a;
+}
+
+[data-theme='dark'] .sched-hub {
+  --hub-green: #a7e8bd;
+}
+[data-theme='dark'] .sched-hub__title-text,
+[data-theme='dark'] .sched-hub__view-menu-item,
+[data-theme='dark'] .sched-hub__utility-row :deep(.schedule-view-as-label) {
+  color: var(--text-primary);
+}
+[data-theme='dark'] .sched-hub__view-menu,
+[data-theme='dark'] .sched-hub__settings-tools .sched-hub__header-actions :deep(.btn),
+[data-theme='dark'] .sched-hub__utility-row :deep(.person-search-select > .input),
+[data-theme='dark'] .sched-hub__utility-row :deep(.schedule-header-view-as > button),
+[data-theme='dark'] .sched-hub__utility-row :deep(.team-schedule-picker > button) {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+[data-theme='dark'] .sched-hub__view-menu-item:hover,
+[data-theme='dark'] .sched-hub__view-menu-item.on,
+[data-theme='dark'] .sched-hub__title-btn--menu:hover { background: var(--bg-muted); }
+[data-theme='dark'] .sched-hub__context--other {
+  background: #342719;
+  color: #ffdb91;
+  border-color: #725c35;
 }
 </style>

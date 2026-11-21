@@ -2736,7 +2736,8 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       }
     }
 
-    const customReminders = normalizeCustomSessionReminders(req.body?.customReminders || []);
+    const customReminders = req.body?.notificationMode === 'off' ? [] : normalizeCustomSessionReminders(req.body?.customReminders || []);
+    const sendBookingNotice = req.body?.sendBookingNotice !== false;
     const notificationMode = customReminders.length ? 'customizable' : req.body?.notificationMode || 'default';
     const individualPrice = await tutoringSessionPriceBilling({ actor:req.user, agencyId:policyAgencyId, providerId:requestedProviderId,
       tenantServiceId:req.body?.tenantServiceId, packageEntitlementId:req.body?.packageEntitlementId, price:req.body?.tutoringSessionPrice });
@@ -2748,7 +2749,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
       tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
       appointmentId: req.body?.appointmentId, appointmentSeriesId: req.body?.appointmentSeriesId,
-      notificationMode, customReminders, billing: individualPrice };
+      notificationMode, customReminders, sendBookingNotice, billing: individualPrice };
     const ownedBooking = await (req.body?.asyncOwnedSession === true ? queueOwnedOfficeSession : bookSessionInOwnedOffice)(ownedInput);
     if (ownedBooking) return res.status(ownedBooking.kind === 'booking_job' ? 202 : 201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
     const immediateBooking=await bookImmediateTutoringOffice({...ownedInput,request:req});
@@ -2758,7 +2759,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     // Every new room request uses the same allocator and pending hold. Legacy
     // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
-      sessionContext: { learningSubjectKey:req.body?.learningSubjectKey ?? null, appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, schedulingNotes: notes,
+      sessionContext: { learningSubjectKey:req.body?.learningSubjectKey ?? null, appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, sendBookingNotice, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
         ...(individualPrice ? {billing:individualPrice} : {}) },
       requestType: 'PROVIDER_REQUEST',

@@ -1,3 +1,5 @@
+import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
+import { shiftedAppointmentWindow } from '../utils/appointmentSeriesMove.js';
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { pendingOfficeWindows,overlappingRequest } from '../services/officeRoomAllocation.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
@@ -11,7 +13,7 @@ import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpiry.service.js';
 import { officeBookingUntil, officeBookingCount } from '../utils/officeBookingLimits.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
-import { moveOfficeSessionSeries, moveOfficeSessionOccurrence } from '../services/officeSessionMove.service.js';
+import { moveOfficeSessionSeries, moveOfficeSessionOccurrence, officeSeriesFromAppointment } from '../services/officeSessionMove.service.js';
 import { clientScheduleInstantToUtcMysql, utcMysqlToZonedWallMysql, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
 import { scheduleSessionNotifications } from '../services/sessionNotification.service.js';
 import Appointment from '../models/Appointment.model.js';
@@ -2583,6 +2585,44 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
     const startWall = utcMysqlToZonedWallMysql(startAt, timeZone);
     const endWall = utcMysqlToZonedWallMysql(endAt, timeZone);
     assertRoomBookingStart(startAt,timeZone);
+    if (req.body.scope === 'future' && req.body.moveClientSeries === true) {
+      const { anchor, events } = await officeSeriesFromAppointment(event.id);
+      const expectedEventIds = req.officeMoveApprovalId && Array.isArray(req.body.expectedOfficeEventIds)
+        ? req.body.expectedOfficeEventIds : events.map(row => Number(row.id));
+      const plan = { originalStartAt: anchor.session_start_at, startAt, endAt, timeZone };
+      const weeks = new Set(events.map(row => {
+        const window = shiftedAppointmentWindow(row.session_start_at, plan);
+        const ymd = utcToZonedMysqlWall(window.startAt, timeZone).slice(0, 10);
+        if (!withinOfficeRecordWindow(ymd, timeZone)) throw Object.assign(new Error('The moved series must fit within the next year.'), { status: 400 });
+        return OfficeScheduleMaterializer.startOfWeekMonday(ymd);
+      }));
+      const requestMove = async () => {
+        const body = { ...req.body, expectedOfficeEventIds: expectedEventIds };
+        const sources = events.map(row => ({ id: row.id, room_id: row.room_id, start_at: row.start_at, end_at: row.end_at,
+          status: row.status, booked_provider_id: row.booked_provider_id, assigned_provider_id: row.assigned_provider_id }));
+        const request = await OfficeBookingRequest.create({ requestType: 'MOVE_OCCURRENCE', officeLocationId, roomId: newRoomId,
+          requestedProviderId: providerId, startAt, endAt,
+          requesterNotes: JSON.stringify({ eventId: event.id, body, sources,
+            summary: `Move this session and ${events.length - 1} following sessions starting ${startWall}. Current reservations stay in place until approval.` }) });
+        return res.status(202).json({ ok: true, pendingApproval: true, request });
+      };
+      if (req.body.requestRoom === true && !req.officeMoveApprovalId) return await requestMove();
+      for (const week of weeks) {
+        await OfficeScheduleMaterializer.materializeWeek({ officeLocationId, weekStartRaw: week,
+          createdByUserId: req.user.id, useExactWeekStart: true });
+      }
+      let movedEventIds;
+      try {
+        movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone,
+          futureAppointments: true, expectedEventIds, requireOwnReservation: !canManageSchedule(req.user.role),
+          actorUserId: req.user.id, reason: String(req.body.reason || '').trim(), approvalRequestId: req.officeMoveApprovalId || null });
+      } catch (error) {
+        if (error.code === 'OFFICE_MOVE_NEEDS_RESERVATION' && !req.officeMoveApprovalId) return await requestMove();
+        throw error;
+      }
+      OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+      return res.json({ ok: true, movedEventIds, warnings: await refreshMovedOfficeNotifications(movedEventIds) });
+    }
     if (req.body.scope === 'future') {
       if (!event.standing_assignment_id) return res.status(409).json({ error: { message: 'This occurrence is independent of an office series; move only this session' } });
       const oldStart = event.start_at instanceof Date ? event.start_at : new Date(`${String(event.start_at).replace(' ', 'T')}Z`);

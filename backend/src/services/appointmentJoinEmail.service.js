@@ -7,7 +7,7 @@ import {currentGoogleConference,googleDialInContent} from './googleMeetingConfer
 const active=appointment=>['VIRTUAL','TELEHEALTH','VIDEO','ONLINE'].includes(String(appointment.modality||'').toUpperCase())&&['scheduled','confirmed','client_confirmed','in_progress'].includes(appointment.status);
 const esc=value=>String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export async function appointmentGoogleConference(appointment,{db=pool,conference=currentGoogleConference}={}) {
- if(!active(appointment)||appointment.videoRoomMode==='external'||!appointment.providerScheduleEventId)return {status:'not_available',phones:[]};
+ if(!active(appointment)||['external', 'none'].includes(appointment.videoRoomMode)||!appointment.providerScheduleEventId)return {status:'not_available',phones:[]};
  try{
  const [[event]]=await db.execute('SELECT google_event_id,google_meet_link FROM provider_schedule_events WHERE id=? AND agency_id=? AND provider_id=?',[appointment.providerScheduleEventId,appointment.agencyId,appointment.providerUserId]);
  if(!event?.google_event_id||!event.google_meet_link)return {status:'not_available',phones:[]};
@@ -19,7 +19,7 @@ export async function appointmentGoogleConference(appointment,{db=pool,conferenc
 // service permissions as portal Join. Contacts and billing-only accounts never
 // receive a room link or its telephone credentials from this renderer.
 export async function appointmentJoinEmail({appointment,clientId,to,context},dependencies={}) {
- if(!active(appointment))return null;
+ if(!active(appointment)||appointment.videoRoomMode==='none')return null;
  const d={db:pool,authorize:authorizedAppointmentClient,join:guardianAppointmentJoin,conference:appointmentGoogleConference,...dependencies};
  try{
   const [[recipient]]=await d.db.execute(`SELECT u.id FROM users u JOIN client_guardians g ON g.guardian_user_id=u.id AND g.client_id=?

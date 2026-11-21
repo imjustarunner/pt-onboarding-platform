@@ -1,12 +1,14 @@
 <template>
   <section class="virtual-booked" data-testid="virtual-session-booked" aria-live="polite">
-    <h3>{{ booking.uncertain ? 'Check booking status' : booking.partial ? 'Booking needs review' : 'Session scheduled' }}</h3>
+    <h3>{{ booking.uncertain ? 'Check booking status' : booking.partial ? 'Booking needs review' : booking.historical ? 'Past session recorded' : 'Session scheduled' }}</h3>
     <p v-if="booking.uncertain">The booking response was interrupted. Refresh your schedule before trying again; an appointment may already have been saved.</p>
     <template v-else>
       <p><strong>{{ booking.clientLabel }}</strong> · {{ booking.whenLabel }}</p>
       <p>{{ booking.appointments.length }} {{ booking.appointments.length === 1 ? 'appointment is' : 'appointments are' }} saved on your schedule.</p>
       <p v-if="booking.partial">Part of this booking needs review. Keep these saved appointments; do not schedule the same sessions again.</p>
-      <p v-if="busy" role="status">Finishing the session’s video links…</p>
+      <p v-if="booking.historical">No booking confirmation, reminders, or video room were created.</p>
+      <p v-else-if="booking.noVideo">No video room was created.</p>
+      <p v-else-if="busy" role="status">Finishing the session’s video links…</p>
       <p v-else-if="!shareUrl && !booking.externalMeeting">The appointment is saved. Its video link is not ready yet. Retry links to continue with these same appointments.</p>
       <p v-if="booking.externalMeeting && !shareUrl">The session uses an external meeting. You can add its link to the appointment later.</p>
       <label v-if="shareUrl">Client video link<input :value="shareUrl" readonly aria-label="Client video link" /></label>

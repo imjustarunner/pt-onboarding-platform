@@ -451,7 +451,8 @@ async function affiliatedRecipientAllowsChannel(appt, clientId, contact, channel
  */
 export async function buildDeliveryPlan(appointmentId, options = {}) {
   const appointment = await Appointment.findById(appointmentId);
-  if (!appointment || appointment.productOrigin === 'auricwell_ehr') return { appointment, deliveries: [] };
+  if (!appointment || appointment.productOrigin === 'auricwell_ehr'
+    || (!options.manual && appointment.notificationMode === 'off')) return { appointment, deliveries: [] };
   const participants = await Appointment.listParticipants(appointmentId);
   const clientId = participants.find(p => p.clientId)?.clientId;
   if (!clientId) return buildRecipientDeliveryPlan(appointmentId, null, null, null, options);
@@ -618,7 +619,7 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
 async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = true } = {}) {
   const plan = await buildDeliveryPlan(appointmentId);
   if (!plan.appointment) return [];
-  if (replace) await cancelPendingReminders(appointmentId, { preserveManual: sessionRsvpState(plan.appointment)!=='declined' });
+  if (replace) await cancelPendingReminders(appointmentId, { preserveManual: plan.appointment.notificationMode !== 'off' && sessionRsvpState(plan.appointment) !== 'declined' });
   if (!plan.start) return [];
   const [storedRows] = await pool.execute('SELECT * FROM appointment_reminders WHERE appointment_id=?', [appointmentId]);
   const existing = Array.isArray(storedRows) ? storedRows : [];
@@ -638,7 +639,7 @@ async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = t
       if (!window || Date.now() >= +window.deadline) continue;
       if (+when < Date.now()) when = new Date(Date.now() + 30 * 1000);
     }
-    if (when.getTime() <= Date.now() - 60 * 1000 && d.kind !== 'confirmation') continue;
+    if (+when <= Date.now()) continue;
     const scheduledFor = toMysqlDateTime(when);
     if (existing.some(row => row.status !== 'canceled' && row.channel === (d.channel === 'in_app' ? 'email' : d.channel)
       && String(row.kind || '').includes(':in_app') === (d.channel === 'in_app')
@@ -915,6 +916,12 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         [row.id]
       );
       results.skipped += 1;
+      continue;
+    }
+
+    if (appt.notificationMode === 'off' && row.rule_key !== 'manual_extra') {
+      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='appointment_reminders_off' WHERE id=?", [row.id]);
+      results.skipped++;
       continue;
     }
 

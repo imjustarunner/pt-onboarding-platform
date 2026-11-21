@@ -74,6 +74,7 @@ async function linkedSession(ctx,db=pool,lock=false) {
  return row||null;
 }
 function requireOpen(ctx) {
+ if(ctx.appointment.videoRoomMode==='none')throw fail(409,'This appointment has no video room.');
  if(!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(ctx.appointment.modality).toUpperCase()))throw fail(409,'This is an in-person appointment. Open its learning workspace from your calendar.');
  if (ctx.appointment.status==='completed') throw fail(410,'This tutoring session has ended.');
  const window=bookedTutoringWindow(ctx.appointment);
@@ -86,12 +87,12 @@ function requireOpen(ctx) {
 }
 async function lockAppointment(ctx,db) {
  await assertClinicalWorkActive({id:ctx.appointment.id,archiveResourceType:'appointment'},{db,currentRead:true});
- const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id,start_at,end_at,modality,service_code,business_type FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
+ const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id,start_at,end_at,modality,service_code,business_type,video_room_mode FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
  if (!current || Number(current.provider_user_id)!==Number(ctx.appointment.providerUserId)||Number(current.agency_id)!==Number(ctx.appointment.agencyId)) throw fail(409,'The tutor assignment changed. Reopen the appointment.');
  if((current.start_at&&utcMysqlToIso(current.start_at)!==utcMysqlToIso(ctx.appointment.startAt))||(current.end_at&&utcMysqlToIso(current.end_at)!==utcMysqlToIso(ctx.appointment.endAt)))throw fail(409,'This appointment was rescheduled. Reopen the current booking from your calendar.');
  if(current.service_code&&current.service_code!=='TUTORING')throw fail(409,'This appointment service changed. Reopen the current booking.');
  if(current.modality&&current.modality!==ctx.appointment.modality)throw fail(409,'This appointment format changed. Reopen the current booking.');
- ctx.appointment={...ctx.appointment,status:current.status};
+ ctx.appointment={...ctx.appointment,status:current.status,videoRoomMode:current.video_room_mode ?? ctx.appointment.videoRoomMode};
 }
 const audit=(ctx,session,action,details,db)=>clinicalAudit({kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,role:ctx.host?'provider':'client',actor:ctx.actor,req:ctx.req},action,{appointmentId:ctx.appointment.id,...details},db);
 async function prepareSession(ctx,db,{workspaceOnly=false}={}){
@@ -114,7 +115,7 @@ export async function tutoringRoomStatus(ctx) {
   providerId:ctx.appointment.providerUserId,studentName:ctx.studentName||null,host:ctx.host,
   title:appointmentServiceLabel(ctx.appointment),modality:ctx.appointment.modality,
   timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),
-  ...window,available:window.available&&!closed,status,displayStatus,closed,sessionId:session?.id||null,
+  ...window,available:window.available&&!closed&&ctx.appointment.videoRoomMode!=='none',status,displayStatus,closed,sessionId:session?.id||null,
   startedAt:utcMysqlToIso(session?.actual_started_at),endedAt:utcMysqlToIso(session?.actual_ended_at),
   branding:await buildPublicFormBrandingForAgencyId(ctx.appointment.agencyId,{enrollmentChannel:'tutoring'})};
  if(!ctx.host&&session?.actual_ended_at&&['ended','completed'].includes(status)) {

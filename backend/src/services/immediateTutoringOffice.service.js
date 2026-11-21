@@ -1,3 +1,4 @@
+import { bookingNoticePreferenceFacts } from '../utils/recurringBookingNotice.js';
 import {createHash,randomUUID} from 'node:crypto';
 import pool from '../config/database.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
@@ -63,7 +64,7 @@ export async function bookImmediateTutoringOffice(input){
    if(!appointment)appointment=await createAppointment({agencyId:input.agencyId,providerUserId:input.providerId,startAt:start.replace(' ','T')+'Z',endAt:end.replace(' ','T')+'Z',timeZone:tz,officeEventId:event.id,officeLocationId:input.office.id,roomId:event.room_id,modality:'IN_PERSON',serviceCode:'TUTORING',tenantServiceId:input.tenantServiceId,serviceLocationId:input.serviceLocationId,packageEntitlementId:input.packageEntitlementId||null,title:input.title||'General tutoring',notes:input.notes,source:'immediate_tutoring:'+key.slice(0,32),createdByUserId:input.actorUserId,learningSubjectKey:input.learningSubjectKey ?? null,billing:context.billing||null,notificationMode:input.notificationMode||'default',customReminders:input.customReminders||[],participants:[{role:'client',clientId:input.clientId,isBillingResponsible:true,receivesReminders:true}],ensureContext:false,deferScheduleNotice:true});
    if(!context.immediateBookingComplete){
     if(reason!=='retrospective')await scheduleSessionNotifications(appointment.id,{replace:true});
-    await appointmentScheduleNotices.queue(appointment.id,{eventType:'created',actorUserId:input.actorUserId,facts:{retrospectiveBooking:reason==='retrospective',officeConfirmation:'automatic'}});
+    await appointmentScheduleNotices.queue(appointment.id,{eventType:'created',actorUserId:input.actorUserId,facts:{retrospectiveBooking:reason==='retrospective',officeConfirmation:'automatic', ...bookingNoticePreferenceFacts(input.sendBookingNotice)}});
     const req=input.request;
     await appendSecurityEvidence({requestId:req?.evidenceContext?.requestId||randomUUID(),phase:'learning',method:req?.method||'POST',route:'/scheduling/office-booking',...(req?networkEvidence(req):{clientIp:null,ipSource:'system',peerIp:null}),userId:input.actorUserId,role:req?.user?.role||'system',sessionRef:sessionReference(req?.user?.sessionId),action:'tutoring_office_auto_booked',outcome:'succeeded',details:{agencyId:input.agencyId,clientId:input.clientId,providerId:input.providerId,officeEventId:event.id,appointmentId:appointment.id,automaticConfirmation:true,confirmationReason:reason,reviewerUserId:null,scheduledStartAt:start,recordedAt:context.recordedAt}});
     await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(session_context_json,'$.immediateBookingComplete',TRUE,'$.appointmentId',?) WHERE id=?",[appointment.id,event.id]);

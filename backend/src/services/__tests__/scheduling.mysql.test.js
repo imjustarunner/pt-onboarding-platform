@@ -1,3 +1,4 @@
+import ProviderScheduleEvent from '../../models/ProviderScheduleEvent.model.js';
 /** Opt-in tests for a disposable localhost MySQL container; never uses backend/.env. */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import mysql from 'mysql2/promise';
@@ -103,7 +104,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
         ADD COLUMN active_guard_end_at DATETIME GENERATED ALWAYS AS (CASE WHEN status<>'CANCELLED' THEN end_at ELSE NULL END) VIRTUAL,
         ADD UNIQUE KEY uniq_office_events_active_room_slot (active_guard_room_id,active_guard_start_at,active_guard_end_at)`,
       `ALTER TABLE appointments ADD COLUMN clinical_session_id INT, ADD COLUMN cancellation_reason VARCHAR(500), ADD COLUMN canceled_at DATETIME, ADD COLUMN canceled_by_user_id INT`,
-      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
+      `ALTER TABLE appointments ADD COLUMN notes TEXT, ADD COLUMN source VARCHAR(64), ADD COLUMN modality VARCHAR(32), ADD COLUMN service_code VARCHAR(32), ADD COLUMN tenant_service_id INT, ADD COLUMN office_location_id INT, ADD COLUMN business_type VARCHAR(64)`,
       `ALTER TABLE appointment_billing ADD COLUMN responsible_client_id INT, ADD COLUMN package_entitlement_id INT, ADD COLUMN notes VARCHAR(500)`,
       `CREATE TABLE appointment_participants (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,client_id INT,role VARCHAR(32) DEFAULT 'client',is_billing_responsible BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE appointment_reminders (id INT AUTO_INCREMENT PRIMARY KEY,appointment_id INT,recipient_participant_id INT,status VARCHAR(32))`,
@@ -254,6 +255,18 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(entitlement.sessions_remaining).toBe(6); expect(entitlement.free_rebooks_remaining).toBe(0);
     const [[count]] = await pool.query('SELECT COUNT(*) AS n FROM practitioner_session_credit_ledger'); expect(count.n).toBe(1);
   });
+  it('uses saved appointment dates to select the following members of a virtual series', async () => {
+    await pool.query("UPDATE provider_schedule_events SET recurrence_series_id='weekly' WHERE id=40");
+    await pool.query(`INSERT INTO provider_schedule_events (id, provider_id, recurrence_series_id, start_at, end_at, status)
+      VALUES (41,9,'weekly','2099-01-11 17:00:00','2099-01-11 18:00:00','ACTIVE'),
+             (42,9,'weekly','2099-01-19 17:00:00','2099-01-19 18:00:00','ACTIVE'),
+             (43,9,NULL,'2099-01-26 17:00:00','2099-01-26 18:00:00','ACTIVE')`);
+    await pool.query(`INSERT INTO appointments (id, agency_id, provider_user_id, provider_schedule_event_id, start_at, end_at, status, modality)
+      VALUES (11,1,9,41,'2099-01-12 17:00:00','2099-01-12 18:00:00','scheduled','TELEHEALTH')`);
+    const rows = await ProviderScheduleEvent.listActiveSeriesFromPoint({ recurrenceSeriesId: 'weekly',
+      providerId: 9, fromStartAt: '2099-01-12 17:00:00', appointmentSeries: true });
+    expect(rows.map(row => row.id)).toEqual([41, 42]);
+  });
   it('moves the same session across all three records and records the original plan exception', async () => {
     await pool.query("UPDATE office_events SET recurrence_group_id='original-series' WHERE id=20");
     await pool.query("UPDATE provider_schedule_events SET recurrence_series_id='original-series',recurrence_frequency='WEEKLY',recurrence_policy='FINITE',recurrence_index=0 WHERE id=40");
@@ -271,6 +284,38 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(appointment.start_at.toISOString()).toBe('2099-01-06T17:00:00.000Z');
     expect(session.scheduled_start_at.toISOString()).toBe(appointment.start_at.toISOString());
     expect(plan.skipped_dates_json).toEqual(['2099-01-05']);
+  });
+  it('detaches week two and moves only the selected and following appointments of this client', async () => {
+    await pool.query("UPDATE appointments SET modality='IN_PERSON' WHERE id=10");
+    const weeks = ['12', '19', '26'];
+    for (const [index, day] of weeks.entries()) {
+      const start = `2099-01-${day} 17:00:00`;
+      const end = `2099-01-${day} 18:00:00`;
+      await pool.execute(`INSERT INTO office_events (id, office_location_id, room_id, start_at, end_at, status, standing_assignment_id, booking_plan_id, booked_provider_id, client_id)
+        VALUES (?,2,4,?,?,'BOOKED',7,3,9,8)`, [21 + index, start, end]);
+      await pool.execute(`INSERT INTO appointments (id, agency_id, provider_user_id, office_event_id, room_id, start_at, end_at, status, modality)
+        VALUES (?,1,9,?,4,?,?,'scheduled','IN_PERSON')`, [11 + index, 21 + index, start, end]);
+    }
+    await pool.query(`INSERT INTO office_events (id, office_location_id, room_id, start_at, end_at, status, standing_assignment_id, booking_plan_id, booked_provider_id, client_id)
+      VALUES (24,2,4,'2099-02-02 17:00:00','2099-02-02 18:00:00','BOOKED',7,3,9,8),
+             (25,2,4,'2099-02-09 17:00:00','2099-02-09 18:00:00','BOOKED',7,3,9,11)`);
+    await pool.query(`INSERT INTO appointments (id, agency_id, provider_user_id, office_event_id, room_id, start_at, end_at, status, modality)
+      VALUES (14,1,9,24,4,'2099-02-02 17:00:00','2099-02-02 18:00:00','scheduled','IN_PERSON'),
+             (15,1,9,25,4,'2099-02-09 17:00:00','2099-02-09 18:00:00','scheduled','IN_PERSON')`);
+    const move = (eventId, day, futureAppointments = false) => moveOfficeSessionOccurrence({
+      eventId, newRoomId: 5, startAt: `${day} 17:00:00`, endAt: `${day} 18:00:00`,
+      timeZone: 'America/Denver', actorUserId: 9, futureAppointments
+    });
+    await move(21, '2099-01-28');
+    expect(new Set(await move(22, '2099-01-20', true))).toEqual(new Set([22, 23, 24]));
+    const [rows] = await pool.query('SELECT start_at FROM appointments ORDER BY id');
+    expect(rows.map(row => row.start_at.toISOString())).toEqual([
+      '2099-01-05T17:00:00.000Z', '2099-01-28T17:00:00.000Z', '2099-01-20T17:00:00.000Z',
+      '2099-01-27T17:00:00.000Z', '2099-02-03T17:00:00.000Z', '2099-02-09T17:00:00.000Z'
+    ]);
+    const [moved] = await pool.query('SELECT recurrence_group_id FROM office_events WHERE id IN (22,23,24)');
+    expect(moved[0].recurrence_group_id).toBeTruthy();
+    expect(new Set(moved.map(row => row.recurrence_group_id)).size).toBe(1);
   });
   it('rolls back every main record when the target room is occupied', async () => {
     await pool.query(`INSERT INTO office_events (id, room_id, start_at, end_at, status, booked_provider_id) VALUES (21, 5, '2099-01-06 17:30:00', '2099-01-06 18:30:00', 'BOOKED', 11)`);

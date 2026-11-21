@@ -28,8 +28,8 @@ const LIVE_STATUSES = new Set([
   'voided'
 ]);
 
-const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room','external']);
-const NOTIFICATION_MODES = new Set(['default', 'customizable', 'in_app']);
+const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room', 'external', 'none']);
+const NOTIFICATION_MODES = new Set(['default', 'customizable', 'in_app', 'off']);
 
 function parseJsonSafe(raw, fallback = null) {
   if (raw == null) return fallback;

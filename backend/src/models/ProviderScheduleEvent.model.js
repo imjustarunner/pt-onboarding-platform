@@ -531,13 +531,17 @@ class ProviderScheduleEvent {
     recurrenceSeriesId,
     providerId,
     fromStartAt = null,
-    fromStartDate = null
+    fromStartDate = null,
+    appointmentSeries = false
   }) {
     const sid = String(recurrenceSeriesId || '').trim();
     const pid = Number(providerId || 0);
     if (!sid || !pid) return [];
     const hasStartAt = !!String(fromStartAt || '').trim();
     const hasStartDate = !!String(fromStartDate || '').trim();
+    const start = appointmentSeries ? `COALESCE((
+      SELECT a.start_at FROM appointments a WHERE a.provider_schedule_event_id = provider_schedule_events.id LIMIT 1
+    ), start_at)` : 'start_at';
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_schedule_events
@@ -545,12 +549,12 @@ class ProviderScheduleEvent {
          AND provider_id = ?
          AND (UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED' OR recurrence_horizon_held=1)
          AND (
-           (? = 1 AND start_at IS NOT NULL AND start_at >= ?)
+           (? = 1 AND ${start} >= ?)
            OR
            (? = 1 AND all_day = 1 AND start_date IS NOT NULL AND start_date >= ?)
          )
        ORDER BY
-         CASE WHEN all_day = 1 THEN CONCAT(start_date, ' 00:00:00') ELSE start_at END ASC,
+         CASE WHEN all_day = 1 THEN CONCAT(start_date, ' 00:00:00') ELSE ${start} END ASC,
          id ASC`,
       [sid, pid, hasStartAt ? 1 : 0, fromStartAt || null, hasStartDate ? 1 : 0, fromStartDate || null]
     );

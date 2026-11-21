@@ -29,3 +29,16 @@ it('keeps partial recurring bookings quiet when a later calendar link fails',asy
  m.event.mockRejectedValueOnce(Error('Calendar facet unavailable'));const res=response();await createAppointmentHandler(request(),res,vi.fn());
  expect(res.status).toHaveBeenCalledWith(500);expect(m.queue).not.toHaveBeenCalled();expect(m.create.mock.calls[0][0].deferScheduleNotice).toBe(true);
 });
+
+it('carries the booking-confirmation choice through a fully saved series independently of reminders', async () => {
+ const req = request();
+ req.body.sendBookingNotice = false;
+ req.body.notificationMode = 'default';
+ const res = response();
+ await createAppointmentHandler(req, res, vi.fn());
+ expect(res.status).toHaveBeenCalledWith(201);
+ expect(m.create.mock.calls.every(([args]) => args.sendBookingNotice === false && args.notificationMode === 'default')).toBe(true);
+ expect(m.queue).toHaveBeenCalledTimes(3);
+ expect(m.queue.mock.calls.every(([, options]) => options.facts.notificationMode === 'none')).toBe(true);
+ expect(m.reminders).toHaveBeenCalledTimes(3);
+});

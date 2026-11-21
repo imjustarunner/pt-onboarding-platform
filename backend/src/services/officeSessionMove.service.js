@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { shiftedAppointmentWindow } from '../utils/appointmentSeriesMove.js';
 import { pendingOfficeWindows,overlappingRequest } from './officeRoomAllocation.service.js';
 import { mysqlDateTimeForDateHour, utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { queueOfficeMoveReceipt } from './officeMoveEmail.service.js';
@@ -14,75 +16,132 @@ import { utcDateToZonedParts, clientScheduleInstantToUtcMysql, dateToMysqlUtcDat
 const fail = (message) => Object.assign(new Error(message), { status: 409 });
 const utc = (value) => value instanceof Date ? value : new Date(`${String(value).replace(' ', 'T').replace(/Z$/, '')}Z`);
 
-export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt, endAt, timeZone, requireOwnReservation = false, actorUserId, reason = '', approvalRequestId = null }) {
+export async function officeSeriesFromAppointment(eventId, db = pool, { lock = false } = {}) {
+  const [[anchor]] = await db.execute(`SELECT e.booking_plan_id, e.recurrence_group_id, e.standing_assignment_id, e.office_location_id, e.client_id,
+    JSON_EXTRACT(e.session_context_json, '$.appointmentMoveDetached') AS detached, a.source AS appointment_source, a.start_at AS session_start_at, a.end_at AS session_end_at, a.provider_user_id, a.agency_id, p.recurrence_series_id
+    FROM office_events e JOIN appointments a ON a.office_event_id = e.id
+    LEFT JOIN provider_schedule_events p ON p.id = a.provider_schedule_event_id
+    WHERE e.id = ? AND a.modality = 'IN_PERSON' LIMIT 1${lock ? ' FOR UPDATE' : ''}`, [eventId]);
+  if (!anchor) throw fail('This office occurrence needs a linked appointment.');
+  const reservedBooking = !anchor.detached && /^reserved_office_session:[a-f0-9]{32}$/.test(anchor.appointment_source || '');
+  const group = !anchor.standing_assignment_id && anchor.recurrence_group_id ? ['e.recurrence_group_id', anchor.recurrence_group_id]
+    : reservedBooking ? ['a.source', anchor.appointment_source]
+    : anchor.recurrence_series_id ? ['p.recurrence_series_id', anchor.recurrence_series_id]
+    : anchor.booking_plan_id ? ['e.booking_plan_id', anchor.booking_plan_id] : null;
+  if (!group) throw fail('This session is independent of a client series. Move just this session.');
+  const [events] = await db.execute(`SELECT e.*, a.start_at AS session_start_at
+    FROM office_events e JOIN appointments a ON a.office_event_id = e.id
+    LEFT JOIN provider_schedule_events p ON p.id = a.provider_schedule_event_id
+    WHERE ${group[0]} = ? AND e.office_location_id = ? AND a.provider_user_id = ? AND a.agency_id = ?
+      AND a.start_at >= ? AND a.status IN ('scheduled', 'confirmed')
+      AND a.modality = 'IN_PERSON' AND e.client_id <=> ? AND e.status IN ('BOOKED', 'RELEASED')
+      ${reservedBooking && group[0] === 'a.source' ? "AND JSON_EXTRACT(e.session_context_json, '$.appointmentMoveDetached') IS NULL" : ''}
+    ORDER BY a.start_at, e.id${lock ? ' FOR UPDATE' : ''}`,
+    [group[1], anchor.office_location_id, anchor.provider_user_id, anchor.agency_id, anchor.session_start_at, anchor.client_id ?? null]);
+  if (!events.some(event => Number(event.id) === Number(eventId))) throw fail('This session changed. Reopen its appointment before moving the series.');
+  return { anchor, events };
+}
+
+export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt, endAt, timeZone, requireOwnReservation = false,
+  actorUserId, reason = '', approvalRequestId = null, futureAppointments = false, expectedEventIds = null }) {
   if (!(utc(startAt).getTime() > Date.now()) || !(utc(endAt) > utc(startAt))) throw fail('Choose a valid future session time');
   const conn = await pool.getConnection();
+  let moves;
   try {
     await conn.beginTransaction();
     if (approvalRequestId) await lockMoveApproval(conn, approvalRequestId);
-    const [[event]] = await conn.execute('SELECT * FROM office_events WHERE id = ? FOR UPDATE', [eventId]);
-    if (!event || !['BOOKED', 'RELEASED'].includes(event.status)) throw fail('Only active office reservations can be moved');
-    if (['COMPLETED', 'NO_SHOW', 'CANCELLED', 'CANCELED'].includes(String(event.status_outcome || '').toUpperCase())) throw fail('Completed and canceled sessions cannot be moved');
-    const [appointments] = await conn.execute('SELECT id, status FROM appointments WHERE office_event_id = ? FOR UPDATE', [eventId]);
-    if (appointments.some((a) => !['scheduled', 'confirmed'].includes(a.status))) throw fail('Completed and canceled sessions cannot be moved');
-    const [notes] = await clinicalPool.execute(`SELECT n.id FROM clinical_notes n JOIN clinical_sessions s ON s.id = n.clinical_session_id
-      WHERE s.office_event_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL LIMIT 1`, [eventId]);
-    if (notes.length) throw fail('A signed note is attached to this session. Preserve that record and book a new session.');
-    const providerId = Number(event.booked_provider_id || event.assigned_provider_id);
-    const held=await pendingOfficeWindows(conn,{officeId:event.office_location_id,timeZone});
-    const localStart=utcToZonedMysqlWall(startAt,timeZone), localEnd=utcToZonedMysqlWall(endAt,timeZone);
-    if(held.some(p=>p.roomId===Number(newRoomId) && overlappingRequest({startDate:localStart.slice(0,10),startHour:Number(localStart.slice(11,13))+Number(localStart.slice(14,16))/60,endHour:Number(localEnd.slice(11,13))+Number(localEnd.slice(14,16))/60,recurrence:'ONCE'},p))) throw fail('The target office is held by a pending request. Resolve that request first.');
-    const [roomConflicts] = await conn.execute(`SELECT e.*, EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) AS has_appointment
-      FROM office_events e WHERE room_id = ? AND start_at < ? AND end_at > ?
-      AND (status IS NULL OR status <> 'CANCELLED') AND e.id <> ? FOR UPDATE`, [newRoomId, endAt, startAt, eventId]);
-    const ownAvailability = roomConflicts.filter(e => isOwnEmptyReservation(e, providerId));
-    if (roomConflicts.length !== ownAvailability.length) throw fail('This office is occupied or assigned to another provider. Request an available office before moving the session.');
-    if (requireOwnReservation && !ownReservationsCover(ownAvailability, providerId, startAt, endAt)) throw fail('Your room reservation changed. Check the available rooms again.');
-    const [providerConflicts] = await conn.execute(`SELECT id FROM appointments WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
-      AND status IN ('scheduled', 'confirmed') AND (office_event_id IS NULL OR office_event_id <> ?) LIMIT 1 FOR UPDATE`, [providerId, endAt, startAt, eventId]);
-    if (providerConflicts.length) throw fail('The provider already has a session at that time');
-    const [calendarConflicts] = await conn.execute(`SELECT p.id FROM provider_schedule_events p LEFT JOIN appointments a ON a.provider_schedule_event_id = p.id
-      WHERE p.provider_id = ? AND p.start_at < ? AND p.end_at > ? AND p.status = 'ACTIVE'
-      AND (a.office_event_id IS NULL OR a.office_event_id <> ?) LIMIT 1 FOR UPDATE`, [providerId, endAt, startAt, eventId]);
-    if (calendarConflicts.length) throw fail('The provider has a calendar event at that time');
-    for (const available of ownAvailability) {
-      // Keep the unused edges of a longer room reservation available.
-      for (const [from, to] of [[available.start_at, startAt], [endAt, available.end_at]]) {
-        if (utc(from) >= utc(to)) continue;
-        await conn.execute(`INSERT INTO office_events (office_location_id, room_id, start_at, end_at, status, slot_state, assigned_provider_id, booked_provider_id, source, created_by_user_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [event.office_location_id, newRoomId, from, to, available.status, available.slot_state || null,
-          available.assigned_provider_id || null, available.booked_provider_id || null, available.source || null, actorUserId]);
+    let detachedGroupId = null;
+    if (futureAppointments) {
+      const { anchor, events } = await officeSeriesFromAppointment(eventId, conn, { lock: true });
+      if (expectedEventIds && (expectedEventIds.length !== events.length
+        || events.some(event => !expectedEventIds.includes(Number(event.id))))) {
+        throw fail('The series changed after this room request. Submit a new move request.');
       }
-      await conn.execute("UPDATE office_events SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [available.id]);
+      detachedGroupId = anchor.booking_plan_id || anchor.standing_assignment_id ? randomUUID() : (anchor.recurrence_group_id || randomUUID());
+      const plan = { originalStartAt: anchor.session_start_at, startAt, endAt, timeZone };
+      moves = events.map(event => ({ event, ...shiftedAppointmentWindow(event.session_start_at, plan) }));
+      if (moves.some(move => utc(move.startAt).getTime() <= Date.now())) throw fail('This move would place a session in the past.');
+      if (utc(startAt) > utc(anchor.session_start_at)) moves.reverse();
+    } else {
+      const [[event]] = await conn.execute('SELECT * FROM office_events WHERE id = ? FOR UPDATE', [eventId]);
+      if (!event) throw fail('Office session not found.');
+      moves = [{ event, startAt, endAt }];
     }
-    if (event.booking_plan_id) {
-      const [[plan]] = await conn.execute('SELECT skipped_dates_json FROM office_booking_plans WHERE id = ? FOR UPDATE', [event.booking_plan_id]);
-      const skips = typeof plan?.skipped_dates_json === 'string' ? JSON.parse(plan.skipped_dates_json) : (plan?.skipped_dates_json || []);
-      const p = utcDateToZonedParts(utc(event.start_at), timeZone);
-      const originalDate = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
-      await conn.execute('UPDATE office_booking_plans SET skipped_dates_json = ? WHERE id = ?', [JSON.stringify([...new Set([...skips, originalDate])]), event.booking_plan_id]);
+    const source = moves.find(move => Number(move.event.id) === Number(eventId)).event;
+    const held = await pendingOfficeWindows(conn, { officeId: source.office_location_id, timeZone });
+    for (const move of moves) {
+      await moveOfficeOccurrenceInTransaction(conn, { ...move, newRoomId, timeZone, held, requireOwnReservation, actorUserId, detachedGroupId });
     }
-    await conn.execute("UPDATE office_events SET room_id = ?, start_at = ?, end_at = ?, standing_assignment_id = NULL, booking_plan_id = NULL, recurrence_group_id = NULL, assigned_provider_id = ?, google_sync_status = 'PENDING', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [newRoomId, startAt, endAt, providerId, eventId]);
-    if (event.standing_assignment_id && (Number(newRoomId) !== Number(event.room_id) || utc(startAt).getTime() !== utc(event.start_at).getTime())) {
-      await conn.execute(`INSERT INTO office_events (office_location_id, room_id, start_at, end_at, status, standing_assignment_id, assigned_provider_id, created_by_user_id)
-        VALUES (?, ?, ?, ?, 'CANCELLED', ?, ?, ?)`, [event.office_location_id, event.room_id, event.start_at, event.end_at, event.standing_assignment_id, providerId, actorUserId]);
-    }
-    for (const table of ['provider_virtual_slot_availability', 'provider_in_person_slot_availability']) {
-      const ids = [eventId, ...ownAvailability.map(row => row.id)];
-      await conn.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id IN (${ids.map(() => '?').join(',')})`, ids);
-    }
-    await conn.execute(`UPDATE provider_schedule_events p JOIN appointments a ON a.provider_schedule_event_id = p.id
-      SET p.start_at = ?, p.end_at = ?, p.recurrence_series_id = NULL, p.recurrence_frequency = NULL, p.recurrence_policy = NULL, p.recurrence_index = NULL, p.updated_at = CURRENT_TIMESTAMP WHERE a.office_event_id = ?`, [startAt, endAt, eventId]);
-    await conn.execute(`UPDATE appointments SET room_id = ?, start_at = ?, end_at = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE office_event_id = ?`, [newRoomId, startAt, endAt, actorUserId, eventId]);
     if (approvalRequestId) await conn.execute("UPDATE office_booking_requests SET status = 'APPROVED', decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?", [actorUserId, approvalRequestId]);
-    await queueOfficeMoveReceipt(conn, { source:event,newRoomId,startAt,endAt,scope:'occurrence',timeZone,reason,actorUserId });
+    await queueOfficeMoveReceipt(conn, { source, newRoomId, startAt, endAt, scope: futureAppointments ? 'client_series' : 'occurrence', timeZone, reason, actorUserId });
     await conn.commit();
   } catch (error) {
     await conn.rollback();
     throw error;
   } finally { conn.release(); }
-  await synchronizeMovedOfficeSessions([{ event: { id: eventId }, startAt, endAt }]);
-  return [Number(eventId)];
+  await synchronizeMovedOfficeSessions(moves);
+  return moves.map(move => Number(move.event.id));
+}
+
+async function moveOfficeOccurrenceInTransaction(conn, { event, newRoomId, startAt, endAt, timeZone, held,
+  requireOwnReservation, actorUserId, detachedGroupId }) {
+  const eventId = Number(event.id);
+  if (!event || !['BOOKED', 'RELEASED'].includes(event.status)) throw fail('Only active office reservations can be moved');
+  if (['COMPLETED', 'NO_SHOW', 'CANCELLED', 'CANCELED'].includes(String(event.status_outcome || '').toUpperCase())) throw fail('Completed and canceled sessions cannot be moved');
+  const [appointments] = await conn.execute('SELECT id, status FROM appointments WHERE office_event_id = ? FOR UPDATE', [eventId]);
+  if (appointments.some((a) => !['scheduled', 'confirmed'].includes(a.status))) throw fail('Completed and canceled sessions cannot be moved');
+  const [notes] = await clinicalPool.execute(`SELECT n.id FROM clinical_notes n JOIN clinical_sessions s ON s.id = n.clinical_session_id
+    WHERE s.office_event_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL LIMIT 1`, [eventId]);
+  if (notes.length) throw fail('A signed note is attached to this session. Preserve that record and book a new session.');
+  const providerId = Number(event.booked_provider_id || event.assigned_provider_id);
+  const localStart=utcToZonedMysqlWall(startAt,timeZone), localEnd=utcToZonedMysqlWall(endAt,timeZone);
+  if(held.some(p=>p.roomId===Number(newRoomId) && overlappingRequest({startDate:localStart.slice(0,10),startHour:Number(localStart.slice(11,13))+Number(localStart.slice(14,16))/60,endHour:Number(localEnd.slice(11,13))+Number(localEnd.slice(14,16))/60,recurrence:'ONCE'},p))) throw fail('The target office is held by a pending request. Resolve that request first.');
+  const [roomConflicts] = await conn.execute(`SELECT e.*, EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) AS has_appointment
+    FROM office_events e WHERE room_id = ? AND start_at < ? AND end_at > ?
+    AND (status IS NULL OR status <> 'CANCELLED') AND e.id <> ? FOR UPDATE`, [newRoomId, endAt, startAt, eventId]);
+  const ownAvailability = roomConflicts.filter(e => isOwnEmptyReservation(e, providerId));
+  if (roomConflicts.length !== ownAvailability.length) throw fail('This office is occupied or assigned to another provider. Request an available office before moving the session.');
+  if (requireOwnReservation && !ownReservationsCover(ownAvailability, providerId, startAt, endAt)) throw Object.assign(fail('Your room reservation changed. Check the available rooms again.'), { code: 'OFFICE_MOVE_NEEDS_RESERVATION' });
+  const [providerConflicts] = await conn.execute(`SELECT id FROM appointments WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
+    AND status IN ('scheduled', 'confirmed') AND (office_event_id IS NULL OR office_event_id <> ?) LIMIT 1 FOR UPDATE`, [providerId, endAt, startAt, eventId]);
+  if (providerConflicts.length) throw fail('The provider already has a session at that time');
+  const [calendarConflicts] = await conn.execute(`SELECT p.id FROM provider_schedule_events p LEFT JOIN appointments a ON a.provider_schedule_event_id = p.id
+    WHERE p.provider_id = ? AND p.start_at < ? AND p.end_at > ? AND p.status = 'ACTIVE'
+    AND (a.office_event_id IS NULL OR a.office_event_id <> ?) LIMIT 1 FOR UPDATE`, [providerId, endAt, startAt, eventId]);
+  if (calendarConflicts.length) throw fail('The provider has a calendar event at that time');
+  for (const available of ownAvailability) {
+    // Keep the unused edges of a longer room reservation available.
+    for (const [from, to] of [[available.start_at, startAt], [endAt, available.end_at]]) {
+      if (utc(from) >= utc(to)) continue;
+      await conn.execute(`INSERT INTO office_events (office_location_id, room_id, start_at, end_at, status, slot_state, assigned_provider_id, booked_provider_id, source, created_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [event.office_location_id, newRoomId, from, to, available.status, available.slot_state || null,
+        available.assigned_provider_id || null, available.booked_provider_id || null, available.source || null, actorUserId]);
+    }
+    await conn.execute("UPDATE office_events SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [available.id]);
+  }
+  if (event.booking_plan_id) {
+    const [[plan]] = await conn.execute('SELECT skipped_dates_json FROM office_booking_plans WHERE id = ? FOR UPDATE', [event.booking_plan_id]);
+    const skips = typeof plan?.skipped_dates_json === 'string' ? JSON.parse(plan.skipped_dates_json) : (plan?.skipped_dates_json || []);
+    const p = utcDateToZonedParts(utc(event.start_at), timeZone);
+    const originalDate = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+    await conn.execute('UPDATE office_booking_plans SET skipped_dates_json = ? WHERE id = ?', [JSON.stringify([...new Set([...skips, originalDate])]), event.booking_plan_id]);
+  }
+  await conn.execute(`UPDATE office_events SET room_id = ?, start_at = ?, end_at = ?, standing_assignment_id = NULL, booking_plan_id = NULL,
+    recurrence_group_id = ?, assigned_provider_id = ?, google_sync_status = 'PENDING', updated_at = CURRENT_TIMESTAMP,
+    session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.appointmentMoveDetached', TRUE)
+    WHERE id = ?`, [newRoomId, startAt, endAt, detachedGroupId, providerId, eventId]);
+  if (event.standing_assignment_id && (Number(newRoomId) !== Number(event.room_id) || utc(startAt).getTime() !== utc(event.start_at).getTime())) {
+    await conn.execute(`INSERT INTO office_events (office_location_id, room_id, start_at, end_at, status, standing_assignment_id, assigned_provider_id, created_by_user_id)
+      VALUES (?, ?, ?, ?, 'CANCELLED', ?, ?, ?)`, [event.office_location_id, event.room_id, event.start_at, event.end_at, event.standing_assignment_id, providerId, actorUserId]);
+  }
+  for (const table of ['provider_virtual_slot_availability', 'provider_in_person_slot_availability']) {
+    const ids = [eventId, ...ownAvailability.map(row => row.id)];
+    await conn.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id IN (${ids.map(() => '?').join(',')})`, ids);
+  }
+  const detachCalendarSeries = detachedGroupId ? '' : ', p.recurrence_series_id = NULL, p.recurrence_frequency = NULL, p.recurrence_policy = NULL, p.recurrence_index = NULL';
+  await conn.execute(`UPDATE provider_schedule_events p JOIN appointments a ON a.provider_schedule_event_id = p.id
+    SET p.start_at = ?, p.end_at = ?${detachCalendarSeries}, p.updated_at = CURRENT_TIMESTAMP WHERE a.office_event_id = ?`, [startAt, endAt, eventId]);
+  await conn.execute(`UPDATE appointments SET room_id = ?, start_at = ?, end_at = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE office_event_id = ?`, [newRoomId, startAt, endAt, actorUserId, eventId]);
 }
 
 async function synchronizeMovedOfficeSessions(moves) {

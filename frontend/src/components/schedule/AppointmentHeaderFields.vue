@@ -101,6 +101,12 @@
       </div>
     </section>
 
+    <p v-if="seriesStarted" class="ahf-past-date" role="status">
+      {{ recurrenceFrequency === 'ONCE'
+        ? (historicalBooking ? 'You’re booking an appointment in the past.' : 'This appointment’s start time is in the past.')
+        : 'This recurring series starts in the past. Past occurrences will be recorded silently.' }}
+    </p>
+
     <!-- Section 2: Session type & location -->
     <section v-if="showModality || showLocation || showOfficeRequestCta || officeRequestActive" class="ahf-section">
       <header class="ahf-section-head">
@@ -133,9 +139,18 @@
         </div>
 
         <div v-if="showModality && modality === 'TELEHEALTH'" class="ahf-field ahf-field--grow">
-          <template v-if="!['tutoring', 'learning'].includes(appointmentType)">
-          <span class="ahf-label">Virtual session room</span>
-          <span>A new office video room is linked to this appointment. Each recurring session gets its own room.</span>
+          <template v-if="historicalBooking">
+            <span class="ahf-label">Virtual session room</span>
+            <span>No video room will be created for a past session.</span>
+          </template>
+          <template v-else-if="!['tutoring', 'learning'].includes(appointmentType)">
+            <label class="ahf-label" for="appointment-video-room">Virtual session room</label>
+            <select id="appointment-video-room" class="ahf-input" :value="videoRoomMode" :disabled="disabled"
+              @change="emit('update:videoRoomMode', $event.target.value)">
+              <option value="unique_session">Create an office video room</option>
+              <option value="none">No video room</option>
+            </select>
+            <p v-if="videoRoomMode !== 'none' && recurrenceFrequency !== 'ONCE'" class="ahf-hint">Each upcoming recurring session gets its own room.</p>
           </template>
           <template v-else>
           <span class="ahf-label">Virtual meeting option</span>
@@ -145,18 +160,19 @@
             :disabled="disabled"
             @change="emit('update:videoRoomMode', String($event.target.value || 'unique_session'))"
           >
-            <template v-if="externalMeetingsEnabled"><option v-if="videoRoomMode!=='external'" :value="videoRoomMode">Existing session link</option><option value="external">Use external link</option></template>
+            <option value="none">No video room</option>
+            <template v-if="externalMeetingsEnabled"><option v-if="!['external', 'none'].includes(videoRoomMode)" :value="videoRoomMode">Existing session link</option><option value="external">Use external link</option></template>
             <template v-else><option v-if="videoRoomMode==='external'" value="external" disabled>Previously saved external meeting</option><option value="unique_session">Unique link for this session</option><option v-if="appointmentType!=='tutoring' && appointmentType!=='learning'" value="my_room">Use my room (personal link)</option></template>
           </select>
           <label v-if="externalMeetingsEnabled && videoRoomMode==='external'">External meeting URL (optional)<input class="ahf-input" type="url" maxlength="2048" placeholder="https://…" :value="externalMeetingUrl" :disabled="disabled" @input="emit('update:externalMeetingUrl',$event.target.value)" /></label>
           <p v-if="videoRoomMode==='external'" class="ahf-hint">The meeting is arranged externally. Add its link now or update the appointment later.</p>
           </template>
-          <label v-if="googleDialInStatus==='available' || includeGoogleDialIn"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (!includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include Google Meet phone instructions in emails and reminders</label>
+          <label v-if="videoRoomMode !== 'none' && (googleDialInStatus === 'available' || includeGoogleDialIn)"><input type="checkbox" :checked="includeGoogleDialIn" :disabled="disabled || (!includeGoogleDialIn && googleDialInStatus!=='available')" @change="emit('update:includeGoogleDialIn',$event.target.checked)" /> Include Google Meet phone instructions in emails and reminders</label>
           <p v-if="googleDialInStatus==='not_verified'" class="ahf-hint">Google Meet phone details could not be verified. Phone instructions will be omitted until Google provides them.</p>
         </div>
 
         <p
-          v-if="showModality && modality === 'TELEHEALTH' && (!['tutoring', 'learning'].includes(appointmentType) || !['my_room', 'external'].includes(videoRoomMode))"
+          v-if="showModality && modality === 'TELEHEALTH' && !historicalBooking && videoRoomMode !== 'none' && (!['tutoring', 'learning'].includes(appointmentType) || !['my_room', 'external'].includes(videoRoomMode))"
           class="ahf-info-banner"
           role="status"
         >
@@ -568,9 +584,21 @@
         <span class="ahf-section-icon" aria-hidden="true">🔔</span>
         <h4 class="ahf-section-title">Notifications</h4>
       </header>
+      <p v-if="seriesStarted && recurrenceFrequency === 'ONCE'" role="status">This session will be added to your schedule. No booking email, text, or reminders will be sent.</p>
+      <template v-else>
+        <p v-if="showBookingNotice && seriesStarted && recurrenceFrequency !== 'ONCE'">Past occurrences are recorded silently. The choices below apply to upcoming sessions.</p>
+        <label v-if="showBookingNotice" class="ahf-booking-notice">
+          <input type="checkbox" :checked="bookingNotice" :disabled="disabled" @change="emit('update:bookingNotice', $event.target.checked)" />
+          Send a booking confirmation
+        </label>
+        <p v-if="showBookingNotice">{{ bookingNotice
+          ? 'A booking confirmation will be queued for eligible recipients. A series gets one confirmation with the next upcoming session.'
+          : 'No booking confirmation will be sent. Reminders follow the choice below.' }}</p>
       <AppointmentReminderSettings :learning="learning" :mode="notificationMode" :rules="customReminders" :agency-id="agencyId" :busy="disabled" :show-save="false"
-        :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel"
+        :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" :appointment-start-ms="appointmentStartMs" :appointment-time-zone="appointmentTimeZone"
+        :show-timing-preview="showBookingNotice && !seriesStarted"
         @update:mode="emit('update:notificationMode',$event)" @update:rules="emit('update:customReminders',$event)" />
+      </template>
     </section>
 
     <!-- Section 5: Notes -->
@@ -712,6 +740,12 @@ const props = defineProps({
   videoRoomMode: { type: String, default: 'unique_session' },
   externalMeetingsEnabled:Boolean,externalMeetingUrl:{type:String,default:''},serviceCodeMessage:{type:String,default:''},
   includeGoogleDialIn:Boolean,googleDialInStatus:{type:String,default:''},
+  historicalBooking: Boolean,
+  seriesStarted: Boolean,
+  bookingNotice: { type: Boolean, default: true },
+  showBookingNotice: Boolean,
+  appointmentStartMs: Number,
+  appointmentTimeZone: String,
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
   customReminders: { type: Array, default: () => [] },
@@ -749,6 +783,7 @@ const emit = defineEmits([
   'update:externalMeetingUrl',
   'update:includeGoogleDialIn',
   'update:notificationMode',
+  'update:bookingNotice',
   'update:customReminders',
   'update:schedulingNotes',
   'update:othersPresentNames',
@@ -1541,4 +1576,5 @@ function nudgeEnd(deltaMin) {
 }
 .ahf-field--repeats { min-width: 160px; }
 .ahf-recurrence-extra { margin-top: 4px; }
+.ahf-past-date { margin: 0; color: var(--text-secondary, #526578); font-size: 13px; }
 </style>

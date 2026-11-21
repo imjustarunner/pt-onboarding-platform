@@ -5685,7 +5685,7 @@ h1 {
 }
 .card-content.card-content-schedule,
 .card-content.card-content--schedule-hub {
-  background: #f3f4f6;
+  background: var(--bg-alt, #f3f4f6);
   border: none;
   box-shadow: none;
   padding: 20px 24px 28px;
@@ -5766,8 +5766,8 @@ h1 {
 .sched-hub-mode-toolbar {
   margin-top: 0;
   margin-bottom: 12px;
-  background: #f9fafb;
-  border-color: #e5e7eb;
+  background: var(--bg-card, #f9fafb);
+  border-color: var(--border, #e5e7eb);
 }
 
 .my-schedule-stage[data-schedule-force-light="1"] {

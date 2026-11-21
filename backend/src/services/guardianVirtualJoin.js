@@ -4,6 +4,7 @@ import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 import {serviceMatchesAppointment} from './clientServiceEnrollment.service.js';
 import {validExternalMeetingUrl} from './appointmentExternalMeeting.service.js';
 export function guardianVirtualJoin(row) {
+  if (row.videoRoomMode === 'none') return null;
   if (!['VIRTUAL', 'TELEHEALTH', 'VIDEO', 'ONLINE'].includes(String(row.modality || '').toUpperCase())) return null;
   if (!['scheduled', 'confirmed', 'client_confirmed', 'in_progress'].includes(row.status)) return null;
   if(row.videoRoomMode==='external'){try{return validExternalMeetingUrl(row.externalMeetingUrl);}catch{return null;}}
@@ -14,6 +15,7 @@ export function guardianVirtualJoin(row) {
 }
 
 export async function guardianAppointmentJoin(row,client,db,{includeFutureDestination=false,now=Date.now()}={}) {
+  if (row.videoRoomMode === 'none') return null;
   const learning=['learning','tutoring'].includes(String(row.businessType||row.business_type||client.client_type).toLowerCase());
   if(learning&&!includeFutureDestination){const start=+parseUtcDate(row.startAt),end=+parseUtcDate(row.endAt);if(!start||!end||now<start-1800000||now>end+1800000)return null;}
   let permissions=client.permissions_json||{};

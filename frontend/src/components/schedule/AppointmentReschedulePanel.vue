@@ -9,11 +9,11 @@
         <select v-model="scope" :disabled="busy || saved">
           <option value="" disabled>Choose which sessions to move</option>
           <option value="single">Just this session — make it one time</option>
-          <option v-if="info.canMoveSeries" value="future">{{ info.inPerson ? 'All upcoming sessions in this office series' : 'This and all future sessions' }}</option>
+          <option v-if="info.canMoveSeries" value="future">This and all future sessions</option>
         </select>
       </label>
       <p v-if="scope === 'single' && info.hasSeries">The other recurring sessions keep their usual times.</p>
-      <p v-if="scope === 'future' && info.inPerson">Moves the recurring office slot and its upcoming sessions. To move a past occurrence, choose just this session.</p>
+      <p v-if="scope === 'future' && info.inPerson">The selected room will be used for the sessions you move. If a reservation is needed, you can request it here.</p>
       <p v-if="checking" role="status">Checking the new time and rooms…</p>
       <template v-if="checked && info.inPerson">
         <label>Office room
@@ -23,9 +23,9 @@
         </label>
         <p v-if="!checked.rooms.length">No rooms are available at that time. Choose another time.</p>
         <p v-else-if="needsRequest">This submits a room request. Your current session stays in place until approval.</p>
-        <p v-else>Your reserved room will be used for this session.</p>
+        <p v-else>Your reserved room will be used for {{ scope === 'future' ? 'the selected time. We’ll also check each following date' : 'this session' }}.</p>
       </template>
-      <p v-if="result" role="status">{{ result.pendingApproval ? 'Room request submitted. The original session stays in place until approval.' : 'Session moved.' }}</p>
+      <p v-if="result" role="status">{{ result.pendingApproval ? 'Room request submitted. The original session stays in place until approval.' : scope === 'future' ? 'Sessions moved.' : 'Session moved.' }}</p>
       <button v-else type="button" :disabled="busy || checking || !checked || !scope || (info.inPerson && !roomId) || uncertain" @click="save">
         {{ busy ? 'Saving…' : needsRequest ? 'Request room and move' : 'Move session' }}
       </button>

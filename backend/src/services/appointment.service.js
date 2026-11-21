@@ -1,3 +1,4 @@
+import { bookingNoticePreferenceFacts } from '../utils/recurringBookingNotice.js';
 import {resolveTutoringBookingContext} from './tutoringBookingContext.service.js';
 import {validateExternalMeeting} from './appointmentExternalMeeting.service.js';
 import { filterBookingServicesForClient, assertAppointmentServiceContext } from './clientServiceContext.service.js';
@@ -14,7 +15,7 @@ import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.servic
 import {isProBonoFunding,isProBonoServiceCode,proBonoClientBilling} from '../utils/clinicalFundingPolicy.js';
 import {reconcileClinicalAfterHours,savedOfficeBookingTimezone} from './clinicalAfterHours.service.js';
 import pool from '../config/database.js';
-import { appointmentVideoRoomMode } from '../utils/appointmentVideoPolicy.js';
+import { appointmentHasStarted, appointmentVideoRoomMode } from '../utils/appointmentVideoPolicy.js';
 import { clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
@@ -199,23 +200,28 @@ async function createLockedAppointment({
   serviceLocationId = null,
   replacementOfferId = null,
   resumeReplacementAppointmentId = null,
-  deferScheduleNotice = false
+  deferScheduleNotice = false,
+  sendBookingNotice = true
 } = {}) {
-  customReminders = normalizeCustomSessionReminders(customReminders);
-  if(typeof includeGoogleDialIn!=='boolean')throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'),{status:400});
-  externalMeetingUrl=await validateExternalMeeting({agencyId,providerUserId,videoRoomMode,externalMeetingUrl,modality});
-  if (customReminders.length) notificationMode = 'customizable';
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
-  await validateCustomReminderChannels(aid, customReminders);
-
-  if(officeEventId)timeZone=await savedOfficeBookingTimezone(officeEventId,aid);
+  if (officeEventId) timeZone = await savedOfficeBookingTimezone(officeEventId, aid);
   const start = toMysqlDateTime(startAt, timeZone);
   const end = toMysqlDateTime(endAt, timeZone);
   if (!start || !end) throw Object.assign(new Error('startAt and endAt are required'), { status: 400 });
-  if (!(new Date(start).getTime() < new Date(end).getTime())) {
-    throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
+  if (start >= end) throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
+
+  if (typeof includeGoogleDialIn !== 'boolean') throw Object.assign(new Error('Choose whether Google Meet phone instructions should be included.'), { status: 400 });
+  if (appointmentHasStarted(start)) notificationMode = 'off';
+  if (appointmentHasStarted(end)) {
+    videoRoomMode = 'none';
+    externalMeetingUrl = null;
   }
+  if (videoRoomMode === 'none') includeGoogleDialIn = false;
+  customReminders = notificationMode === 'off' ? [] : normalizeCustomSessionReminders(customReminders);
+  if (customReminders.length) notificationMode = 'customizable';
+  await validateCustomReminderChannels(aid, customReminders);
+  externalMeetingUrl = await validateExternalMeeting({ agencyId, providerUserId, videoRoomMode, externalMeetingUrl, modality });
   let resuming = null;
   if (resumeReplacementAppointmentId) {
     resuming = await Appointment.findById(resumeReplacementAppointmentId);
@@ -449,7 +455,8 @@ async function createLockedAppointment({
     try { await ensureAppointmentClinicalLink(appt.id, createdByUserId); }
     catch (error) { error.appointmentId = appt.id; throw error; }
   }
-  if (!deferScheduleNotice) await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appt.id, { eventType: 'created', actorUserId: createdByUserId });
+  if (!deferScheduleNotice) await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appt.id, { eventType: 'created', actorUserId: createdByUserId,
+    facts: bookingNoticePreferenceFacts(sendBookingNotice) });
   return getAppointmentBundle(appt.id);
 }
 
@@ -460,7 +467,7 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
   });
 }
 async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false, allowPendingNoShow = false } = {}) {
-  if (patch.customReminders !== undefined) patch.customReminders = normalizeCustomSessionReminders(patch.customReminders);
+  if (patch.customReminders !== undefined) patch.customReminders = patch.notificationMode === 'off' ? [] : normalizeCustomSessionReminders(patch.customReminders);
   const existing = await Appointment.findById(appointmentId);
   if (existing && patch.customReminders !== undefined) {
     if (patch.customReminders.length && patch.notificationMode !== 'default') patch.notificationMode = 'customizable';
@@ -652,8 +659,10 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   } else {
     await Appointment.update(appointmentId, updatePatch);
   }
-  if (patch.customReminders !== undefined || patch.notificationMode === 'default') await saveAppointmentNotificationRules(appointmentId, existing.agencyId, patch.notificationMode === 'default' ? [] : patch.customReminders, actorUserId);
-  if (existing.officeEventId && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),'$.notificationMode',?,'$.customReminders',CAST(? AS JSON)) WHERE id=? AND client_id IN (SELECT client_id FROM appointment_participants WHERE appointment_id=?)", [patch.notificationMode || existing.notificationMode, JSON.stringify(patch.notificationMode === 'default' ? [] : patch.customReminders || await readAppointmentNotificationRules(appointmentId, existing.agencyId)), existing.officeEventId, appointmentId]);
+  if (patch.customReminders !== undefined || ['default', 'off'].includes(patch.notificationMode)) {
+    await saveAppointmentNotificationRules(appointmentId, existing.agencyId, ['default', 'off'].includes(patch.notificationMode) ? [] : patch.customReminders, actorUserId);
+  }
+  if (existing.officeEventId && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),'$.notificationMode',?,'$.customReminders',CAST(? AS JSON)) WHERE id=? AND client_id IN (SELECT client_id FROM appointment_participants WHERE appointment_id=?)", [patch.notificationMode || existing.notificationMode, JSON.stringify(['default', 'off'].includes(patch.notificationMode) ? [] : patch.customReminders || await readAppointmentNotificationRules(appointmentId, existing.agencyId)), existing.officeEventId, appointmentId]);
   if(reconcileHours&&policySourceTimezone&&policySourceTimezone!==persistedSourceTimezone)await pool.execute('UPDATE appointments SET source_timezone=? WHERE id=? AND agency_id=?',[policySourceTimezone,appointmentId,existing.agencyId]);
 
   if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {
@@ -881,7 +890,7 @@ export async function upsertAppointmentForOfficeBook({
   packageEntitlementId = null,
   strict = false,
   preserveParticipants = false,
-  notificationMode, customReminders, notes, billing = null
+  notificationMode, customReminders, notes, billing = null, sendBookingNotice = true
 } = {}) {
   let linkageLock;
   let linkageLockName;
@@ -944,7 +953,7 @@ export async function upsertAppointmentForOfficeBook({
       ensureContext: false,
       source: 'office_book',
       title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Session'),
-      notificationMode, customReminders, notes, billing,
+      notificationMode, customReminders, notes, billing, sendBookingNotice,
       createdByUserId: actorUserId,
       participants
     });

@@ -9,3 +9,9 @@ export function recurringBookingNoticeFacts(bookingId, appointments, now = new D
 }
 export const isLaterRecurringBooking = (appointmentId, facts) => !!facts?.recurringBooking
   && Number(facts.recurringBooking.nextAppointmentId || 0) !== Number(appointmentId);
+
+export function bookingNoticePreferenceFacts(sendBookingNotice) {
+  return sendBookingNotice === false
+    ? { notificationMode: 'none', suppressionReason: 'Booking notice turned off.' }
+    : {};
+}
