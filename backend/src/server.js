@@ -50,6 +50,7 @@ import accountSecurityRoutes from './routes/accountSecurity.routes.js';
 import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import employmentNoticeRoutes from './routes/employmentNotice.routes.js';
+import codexAssistantMailRoutes from './routes/codexAssistantMail.routes.js';
 import { issueSignInNoticeKey, NOTICE_REQUIRED } from './services/employmentNotice.service.js';
 import { verifyClubManagerEmail } from './controllers/auth.controller.js';
 import { listClubs } from './controllers/summitStats.controller.js';
@@ -455,12 +456,14 @@ app.use('/api/auricwell-sms', (await import('./routes/notifyreWebhook.routes.js'
 app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({ limit: '36mb' }));
 app.use('/api/noteworthy', express.json({ limit: '128kb' }));
 app.use('/api/plotline', express.json({ limit: '64kb' }));
+app.use('/api/codex-assistant/mail', express.json({ limit: '24kb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Audit metadata before public clinical entry points; never record request bodies.
 app.use(securityEvidenceMiddleware);
 app.use('/api/employment-notice', employmentNoticeRoutes);
+app.use('/api/codex-assistant/mail', codexAssistantMailRoutes);
 app.use(assistantGlobalBoundary);
 // Preserve the existing preview boundary on every public clinical entry point.
 app.use('/api', auricwellPreviewBoundary);
