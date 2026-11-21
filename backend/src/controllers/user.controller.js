@@ -7802,6 +7802,50 @@ function virtualSessionClientDisplayName(row = {}) {
   return id > 0 ? `Client ${id}` : 'Client';
 }
 
+async function listScheduleRosterGuardians(clients) {
+  const clientIds = clients.map(client => Number(client.id)).filter(id => id > 0);
+  if (!clientIds.length) return [];
+  const placeholders = clientIds.map(() => '?').join(',');
+  try {
+    const [guardianRows] = await pool.execute(
+      `SELECT
+         cg.client_id,
+         cg.guardian_user_id,
+         cg.relationship_type,
+         gu.first_name,
+         gu.last_name,
+         gu.email
+       FROM client_guardians cg
+       JOIN users gu ON gu.id = cg.guardian_user_id
+       WHERE cg.client_id IN (${placeholders})
+         AND (gu.is_active IS NULL OR gu.is_active = TRUE)
+         AND (gu.is_archived IS NULL OR gu.is_archived = FALSE)
+       ORDER BY gu.last_name ASC, gu.first_name ASC, cg.guardian_user_id ASC`,
+      clientIds
+    );
+    const clientNameById = new Map(clients.map(client => [Number(client.id), client.displayName]));
+    return (guardianRows || []).map((r) => {
+      const userIdNum = Number(r.guardian_user_id || 0);
+      const clientId = Number(r.client_id || 0);
+      const first = String(r.first_name || '').trim();
+      const last = String(r.last_name || '').trim();
+      const name = `${first} ${last}`.trim() || String(r.email || '').trim() || `Guardian ${userIdNum}`;
+      return {
+        userId: userIdNum,
+        clientId,
+        clientName: clientNameById.get(clientId) || null,
+        firstName: first || null,
+        lastName: last || null,
+        email: String(r.email || '').trim().toLowerCase() || null,
+        displayName: name,
+        relationshipType: String(r.relationship_type || 'guardian').trim().toLowerCase()
+      };
+    }).filter((g) => g.userId > 0 && g.clientId > 0);
+  } catch {
+    return [];
+  }
+}
+
 /** Clients (and optional guardians) eligible for individual virtual session attendees. */
 export const listUserVirtualSessionClients = async (req, res, next) => {
   try {
@@ -7835,12 +7879,13 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
 
+    const includeGuardians = String(req.query?.includeGuardians || '').trim().toLowerCase() === 'true';
     if (String(req.query?.serviceType || '') === 'tutoring') {
       const { tutoringWorkspace } = await import('../services/tutoringWorkspace.service.js');
       const roster = await tutoringWorkspace.students({ ...req.user, id: userId }, agencyId);
-      return res.json({ clients: roster.students.map(student => ({ ...student, clientType: 'learning', schools: [] })), guardians: [] });
+      const clients = roster.students.map(student => ({ ...student, clientType: 'learning', schools: [] }));
+      return res.json({ clients, guardians: includeGuardians ? await listScheduleRosterGuardians(clients) : [] });
     }
-    const includeGuardians = String(req.query?.includeGuardians || '').trim().toLowerCase() === 'true';
     // Booking on behalf of a provider uses that provider's assigned caseload for every role.
     const [clientRows] = await pool.execute(
       `SELECT DISTINCT c.id, c.full_name, c.initials, c.identifier_code, c.client_type,
@@ -7914,50 +7959,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
       }
     }
 
-    let guardians = [];
-    if (includeGuardians && clients.length) {
-      const clientIds = clients.map((c) => c.id);
-      const placeholders = clientIds.map(() => '?').join(',');
-      try {
-        const [guardianRows] = await pool.execute(
-          `SELECT
-             cg.client_id,
-             cg.guardian_user_id,
-             cg.relationship_type,
-             gu.first_name,
-             gu.last_name,
-             gu.email
-           FROM client_guardians cg
-           JOIN users gu ON gu.id = cg.guardian_user_id
-           WHERE cg.client_id IN (${placeholders})
-             AND (gu.is_active IS NULL OR gu.is_active = TRUE)
-             AND (gu.is_archived IS NULL OR gu.is_archived = FALSE)
-           ORDER BY gu.last_name ASC, gu.first_name ASC, cg.guardian_user_id ASC`,
-          clientIds
-        );
-        const clientNameById = new Map(clients.map((c) => [c.id, c.displayName]));
-        guardians = (guardianRows || []).map((r) => {
-          const userIdNum = Number(r.guardian_user_id || 0);
-          const clientId = Number(r.client_id || 0);
-          const first = String(r.first_name || '').trim();
-          const last = String(r.last_name || '').trim();
-          const name = `${first} ${last}`.trim() || String(r.email || '').trim() || `Guardian ${userIdNum}`;
-          return {
-            userId: userIdNum,
-            clientId,
-            clientName: clientNameById.get(clientId) || null,
-            firstName: first || null,
-            lastName: last || null,
-            email: String(r.email || '').trim().toLowerCase() || null,
-            displayName: name,
-            relationshipType: String(r.relationship_type || 'guardian').trim().toLowerCase()
-          };
-        }).filter((g) => g.userId > 0 && g.clientId > 0);
-      } catch {
-        guardians = [];
-      }
-    }
-
+    const guardians = includeGuardians ? await listScheduleRosterGuardians(clients) : [];
     return res.json({
       ok: true,
       agencyId,

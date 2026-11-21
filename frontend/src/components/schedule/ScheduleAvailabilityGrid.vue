@@ -1943,12 +1943,14 @@
           <router-link v-if="editorInfoClientId" class="nlu-button nlu-button--secondary" :to="scheduleOrgTo(`/students/${editorInfoClientId}`)">Open student learning record</router-link>
         </section>
         <p v-if="editorSchoolOverlapNames.length" role="alert" class="nr-warn">These virtual hours overlap your assignment at {{editorSchoolOverlapNames.join(', ')}}. You can save them; assigned school hours remain reserved, and existing sessions stay protected. Request an hours change if you intend to see other clients then.</p>
-        <section v-if="(editorIsLearning || (editorIsClinical && mixedSessionServices)) && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice tutoring-booking-details" aria-label="Session booking details">
-          <h3>Session details</h3>
-          <label v-if="mixedSessionServices">This session is for<select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select></label>
+        <section v-if="editorIsClinical && (editorIsLearning || mixedSessionServices) && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice tutoring-booking-details" aria-label="Session booking details">
+          <label v-if="mixedSessionServices">Session type
+            <select :value="editorPracticeCategory" @change="onEditorAppointmentType($event.target.value)">
+              <option v-for="option in editorBookServiceChoices" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
           <template v-if="editorIsLearning">
-          <p v-if="!mixedSessionServices">This session is for <strong>Tutoring</strong>.</p>
-          <label v-if="editorHeaderServiceOptions.length>1">Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
+          <label v-if="editorHeaderServiceOptions.length>1">Tutoring service<select :value="editorTenantServiceId" @change="onEditorTenantServiceId($event.target.value)" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
           <label v-if="editorTutoringSubjectApplicable">Subject<select v-model="editorTutoringSubject"><option value="general">General</option><option v-for="subject in editorTutoringSubjects" :key="subject.key" :value="subject.key">{{subject.label}}</option></select></label>
           <label>Session credits<select v-model="editorPackageEntitlementId" :disabled="editorServicesLoading"><option :value="0">Use assigned service rate / no package</option><option v-for="entitlement in editorPackageEntitlements" :key="entitlement.id" :value="Number(entitlement.id)">{{ entitlement.packageName || `Package #${entitlement.packageId}` }} — {{ entitlement.sessionsRemaining }} available</option></select></label>
           <p v-if="!editorServicesLoading && !editorPackageEntitlements.length" class="muted">No eligible package credits for this selection. The provider’s assigned service rate applies.</p>
@@ -2071,7 +2073,7 @@
           :external-meeting-url="editorExternalMeetingUrl"
           :include-google-dial-in="editorIncludeGoogleDialIn"
           :google-dial-in-status="editorGoogleDialInStatus"
-          :service-code-message="bookingMetadataError || (!bookingMetadataLoading && !bookingPrimaryServiceCodeOptions.length ? 'No service codes are available for this provider, agency and client. Review provider care access, credentials and service assignments.' : '')"
+          :service-code-message="bookingServiceSelectionIssue || bookingMetadataError || (!bookingMetadataLoading && !bookingPrimaryServiceCodeOptions.length ? 'No service codes are available for this selection.' : '')"
           :show-notifications="editorUseBookSessionLayout"
           :notification-mode="editorStartedSingleBooking ? 'off' : editorNotificationMode"
           :custom-reminders="editorCustomReminders"
@@ -2157,7 +2159,7 @@
               <select
                 v-model.number="scheduleEventEditForm.clientId"
                 class="ahf-input"
-                :disabled="virtualSessionClientsLoading"
+                :disabled="virtualSessionClientsLoading && !virtualSessionClients.length"
               >
                 <option :value="0">{{ virtualSessionClientsLoading ? (editorIsLearning ? 'Loading students…' : 'Loading clients…') : 'Select a client…' }}</option>
                 <option
@@ -2187,7 +2189,7 @@
               <select
                 class="ahf-input"
                 :value="primarySessionClientId || 0"
-                :disabled="virtualSessionClientsLoading"
+                :disabled="virtualSessionClientsLoading && !virtualSessionClients.length"
                 @change="onEditorClinicalClientChange"
               >
                 <option :value="0">
@@ -2287,6 +2289,16 @@
               <option value="Client Only">{{editorIsLearning?'Student only':'Client Only'}}</option>
               <option value="Client and Others">{{editorIsLearning?'Student and parent or guardian':'Client and Others'}}</option>
               <option value="Others (client not present)">{{editorIsLearning?'Other attendees (explain below)':'Others (client not present)'}}</option>
+            </select>
+          </template>
+
+          <template #other-attendees>
+            <select v-if="editorLinkedGuardians.length" class="ahf-input" aria-label="Add a linked guardian"
+              :value="''" :disabled="submitting || scheduleEventSaving" @change="addEditorLinkedGuardian">
+              <option value="">Add a linked guardian…</option>
+              <option v-for="person in editorLinkedGuardians" :key="person.userId" :value="person.displayName">
+                {{ person.displayName }} · {{ person.relationshipType || 'guardian' }}
+              </option>
             </select>
           </template>
 
@@ -9419,7 +9431,13 @@ const editorServiceChoices=computed(()=>{
  if(['life_coach','consultant'].includes(kind))return [{value:kind==='life_coach'?'coaching':'consulting',label:kind==='life_coach'?'Coaching':'Consulting'}];
  return [...(workspace.canTutor||manager?[{value:'tutoring',label:'Tutoring'}]:[]),...(workspace.canClinical||manager?[{value:'counseling',label:'Counseling'}]:[]),...(workspace.canChildcare||manager?[{value:'childcare',label:'Childcare'}]:[])];
 });
-const mixedSessionServices=computed(()=>editorServiceChoices.value.filter(s=>s.value!=='childcare').length>1);
+const bookingProviderBusinessTypes = ref(null);
+const bookingAccessReason = ref('');
+const editorBookServiceChoices = computed(() => editorTypeOptions.value.filter(option =>
+  option.value !== 'tutoring' || bookingProviderBusinessTypes.value?.includes('tutoring')
+).filter(option => option.value !== 'mental_health' || !bookingProviderBusinessTypes.value?.includes('tutoring')
+  || bookingProviderBusinessTypes.value.includes('mental_health')));
+const mixedSessionServices = computed(() => editorBookServiceChoices.value.length > 1);
 function openChildcareFromCalendar(){void router.push(scheduleOrgTo('/childcare'));}
 const clientSessionBookingEnabled = ref(false);
 const clientSessionBookingAgencyId = computed(() => Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0));
@@ -9432,7 +9450,19 @@ const refreshClientSessionBookingAccess = async () => {
   try {
     const staffAgencyScope = (['admin','super_admin'].includes(authStore.user?.role) || (Number(agencyId)===2 && authStore.user?.role==='support'))
       && Number(providerUserId)===Number(authStore.user?.id);
-    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId,businessType:tutoringWorkspaceOnly.value?'tutoring':'any',...(staffAgencyScope?{scope:'agency'}:{})},skipGlobalLoading:true});
+    const bookingAccessConfig = {
+      params: { agencyId, providerUserId, businessType: tutoringWorkspaceOnly.value ? 'tutoring' : 'any' }, skipGlobalLoading: true
+    };
+    const providerAccess = await api.get('/appointments/booking-access', bookingAccessConfig);
+    if (generation !== bookingAccessGeneration) return false;
+    const access = providerAccess.data || {};
+    bookingProviderBusinessTypes.value = Array.isArray(access.availableBusinessTypes) ? access.availableBusinessTypes
+      : tutoringWorkspaceOnly.value && access.enabled ? ['tutoring'] : null;
+    bookingAccessReason.value = access.reason || '';
+    const choosingAction = !showRequestModal.value || !CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value);
+    const result = staffAgencyScope && choosingAction && !tutoringWorkspaceOnly.value
+      ? await api.get('/appointments/booking-access', { ...bookingAccessConfig, params: { ...bookingAccessConfig.params, scope: 'agency' } })
+      : providerAccess;
     if (generation !== bookingAccessGeneration) return false;
     clientSessionBookingEnabled.value = result.data?.enabled === true;
     return clientSessionBookingEnabled.value;
@@ -9444,6 +9474,8 @@ const refreshClientSessionBookingAccess = async () => {
 watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly], () => {
   // Revoke the previous provider/agency capability synchronously, before another click.
   clientSessionBookingEnabled.value = false;
+  bookingProviderBusinessTypes.value = null;
+  bookingAccessReason.value = '';
   void refreshClientSessionBookingAccess();
 }, {immediate:true, flush:'sync'});
 onMounted(() => window.addEventListener('focus', refreshClientSessionBookingAccess));
@@ -13492,17 +13524,17 @@ function onModalStartTimeInput(hhmm) {
   if (!m) return;
   const prevStart = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
   const prevEnd = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0);
-  const dur = Math.max(15, prevEnd - prevStart);
+  const dur = Math.max(1, prevEnd - prevStart);
   let hh = Math.max(0, Math.min(23, Number(m[1]) || 0));
-  let mm = snapQuarterMinute(Number(m[2]) || 0);
+  const mm = Number(m[2]);
   let startMins = hh * 60 + mm;
   let endMins = startMins + dur;
-  if (endMins >= 24 * 60) endMins = (24 * 60) - 15;
+  endMins = Math.min(endMins, 24 * 60);
   modalHour.value = hh;
   modalStartHour.value = hh;
   modalStartMinute.value = mm;
   modalEndHour.value = Math.floor(endMins / 60);
-  modalEndMinute.value = snapQuarterMinute(endMins % 60);
+  modalEndMinute.value = endMins % 60;
   onChooserWhenChanged();
 }
 
@@ -13510,14 +13542,12 @@ function onModalEndTimeInput(hhmm) {
   const raw = String(hhmm || '').trim();
   const m = raw.match(/^(\d{1,2}):(\d{2})/);
   if (!m) return;
-  const startMins = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
   let hh = Math.max(0, Math.min(23, Number(m[1]) || 0));
-  let mm = snapQuarterMinute(Number(m[2]) || 0);
-  let endMins = hh * 60 + mm;
-  if (endMins < startMins + 15) endMins = startMins + 15;
-  if (endMins >= 24 * 60) endMins = (24 * 60) - 15;
+  const mm = Number(m[2]);
+  let endMins = hh === 0 && mm === 0 ? 1440 : hh * 60 + mm;
+  endMins = Math.min(endMins, 24 * 60);
   modalEndHour.value = Math.floor(endMins / 60);
-  modalEndMinute.value = snapQuarterMinute(endMins % 60);
+  modalEndMinute.value = endMins % 60;
   onChooserWhenChanged();
 }
 
@@ -13531,19 +13561,18 @@ function nudgeModalStart(deltaMin) {
   if (nextEnd >= 24 * 60) nextEnd = (24 * 60) - 15;
   modalHour.value = Math.floor(next / 60);
   modalStartHour.value = modalHour.value;
-  modalStartMinute.value = snapQuarterMinute(next % 60);
+  modalStartMinute.value = next % 60;
   modalEndHour.value = Math.floor(nextEnd / 60);
-  modalEndMinute.value = snapQuarterMinute(nextEnd % 60);
+  modalEndMinute.value = nextEnd % 60;
   onChooserWhenChanged();
 }
 
 function nudgeModalEnd(deltaMin) {
   const startMins = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
   let endMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0) + Number(deltaMin || 0);
-  if (endMins < startMins + 15) endMins = startMins + 15;
-  if (endMins >= 24 * 60) endMins = (24 * 60) - 15;
+  endMins = Math.min(endMins, 24 * 60);
   modalEndHour.value = Math.floor(endMins / 60);
-  modalEndMinute.value = snapQuarterMinute(endMins % 60);
+  modalEndMinute.value = endMins % 60;
   onChooserWhenChanged();
 }
 
@@ -14139,7 +14168,7 @@ const onChooserWhenChanged = () => {
   let end = Number(modalEndHour.value || 0);
   modalHour.value = start;
   modalStartHour.value = start;
-  if (!Number.isFinite(end) || end * 60 + Number(modalEndMinute.value || 0) <= start * 60 + Number(modalStartMinute.value || 0)) {
+  if (!modalChooserTimeEditable.value && !isSessionBookingRequestType.value && (!Number.isFinite(end) || end * 60 + Number(modalEndMinute.value || 0) <= start * 60 + Number(modalStartMinute.value || 0))) {
     end = Math.min(start + 1, Number(gridMaxHour.value || 22));
     modalEndHour.value = end;
   }
@@ -15133,6 +15162,8 @@ function onScrollToGroupClients() {
 }
 
 function onEditorTenantServiceId(id) {
+  const service = editorTenantServices.value.find(row => Number(row.id) === Number(id));
+  if (applyEditorServiceDuration(service) === false) return;
   editorTenantServiceId.value = Number(id || 0);
 }
 
@@ -15716,7 +15747,8 @@ function onEditorDateYmd(ymd) {
   }
 }
 function onEditorStartTime(t) {
-  const [hh, mm] = String(t || '00:00').split(':').map((n) => Number(n));
+  if (!/^\d{2}:\d{2}$/.test(t)) return;
+  const [hh, mm] = t.split(':').map(Number);
   const nextHm = `${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
   if (isScheduleEventEditMode.value) {
     const ymd = editorDateYmd.value;
@@ -15741,18 +15773,19 @@ function onEditorStartTime(t) {
   const prevEndMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0);
   let dur = prevEndMins - prevStartMins;
   if (!(dur > 0)) dur = 60;
-  const startMm = Number.isFinite(mm) ? snapQuarterMinute(mm) : 0;
+  const startMm = isSessionBookingRequestType.value ? mm : snapQuarterMinute(mm);
   const nextStartMins = (Number.isFinite(hh) ? hh : 0) * 60 + startMm;
-  const nextEndMins = nextStartMins + dur;
+  const nextEndMins = Math.min(1440, nextStartMins + dur);
   modalHour.value = hh;
   modalStartHour.value = hh;
   modalStartMinute.value = startMm;
   modalEndHour.value = Math.floor(nextEndMins / 60);
-  modalEndMinute.value = snapQuarterMinute(nextEndMins % 60);
+  modalEndMinute.value = isSessionBookingRequestType.value ? nextEndMins % 60 : snapQuarterMinute(nextEndMins % 60);
   onChooserWhenChanged?.();
 }
 function onEditorEndTime(t) {
-  const [rawHour, mm] = String(t || '00:00').split(':').map((n) => Number(n));
+  if (!/^\d{2}:\d{2}$/.test(t)) return;
+  const [rawHour, mm] = t.split(':').map(Number);
   const hh=rawHour===0 && (Number(editorStartTime.value.slice(0,2))>0 || Number(editorStartTime.value.slice(3,5))>0) && Number(mm)===0?24:rawHour;
   if (isScheduleEventEditMode.value) {
     const ymd = hh===24?addDaysYmd(editorDateYmd.value,1):editorDateYmd.value;
@@ -15765,7 +15798,7 @@ function onEditorEndTime(t) {
     return;
   }
   modalEndHour.value = hh;
-  modalEndMinute.value = Number.isFinite(mm) ? snapQuarterMinute(mm) : 0;
+  modalEndMinute.value = isSessionBookingRequestType.value ? mm : snapQuarterMinute(mm);
   onChooserWhenChanged?.();
 }
 
@@ -16147,9 +16180,9 @@ async function loadEditorOpenRoomsForWindow() {
       ...(occurrenceCount ? { occurrenceCount } : {})
     };
     // Prefer staff endpoint; fall back to admin path for older servers.
-    let resp = await api.get('/office-schedule/available-rooms-for-slot', { params }).catch(() => null);
+    let resp = await api.get('/office-schedule/available-rooms-for-slot', { params, skipGlobalLoading: true }).catch(() => null);
     if (!resp) {
-      resp = await api.get('/office-schedule/admin/available-rooms-for-slot', { params }).catch(() => null);
+      resp = await api.get('/office-schedule/admin/available-rooms-for-slot', { params, skipGlobalLoading: true }).catch(() => null);
     }
     if(request!==editorRoomsRequest)return;
     const rooms = Array.isArray(resp?.data?.rooms) ? resp.data.rooms : [];
@@ -16220,7 +16253,9 @@ function onEditorClinicalClientChange(event) {
   }
 }
 
+let editorPracticeCategoryRequest = 0;
 async function loadEditorPracticeCategories() {
+  const request = ++editorPracticeCategoryRequest;
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   const providerId = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
   if (!aid || !providerId || !editorIsClinical.value) {
@@ -16229,7 +16264,8 @@ async function loadEditorPracticeCategories() {
   }
   try {
     const r = await api.get(`/users/${providerId}/agencies/${aid}/practice-categories`, { skipGlobalLoading: true });
-    // API returns resolved effective categories (defaults ∪ grants − revokes ∩ allowed).
+    if (request !== editorPracticeCategoryRequest) return;
+    // API returns effective practice categories for this provider.
     const selected = Array.isArray(r.data?.categories) ? r.data.categories : [];
     const allowed = Array.isArray(r.data?.allowedCategories) ? r.data.allowedCategories : [];
     let codes = selected
@@ -16246,12 +16282,20 @@ async function loadEditorPracticeCategories() {
       editorPracticeCategory.value = editorPracticeCategories.value[0] || '';
     }
   } catch {
+    if (request !== editorPracticeCategoryRequest) return;
     editorPracticeCategories.value = tutoringWorkspaceOnly.value ? [] : ['mental_health'];
     if (tutoringWorkspaceOnly.value) editorPracticeCategory.value = '';
     else if (!editorPracticeCategory.value) editorPracticeCategory.value = 'mental_health';
   }
 }
 
+watch(editorBookServiceChoices, (choices) => {
+  if (!showRequestModal.value || !editorIsClinical.value || isAppointmentEditMode.value || isScheduleEventEditMode.value) return;
+  if (!choices.some(choice => choice.value === editorPracticeCategory.value)) {
+    if (choices.length) editorPracticeCategory.value = choices[0].value;
+    else if (editorPracticeCategory.value === 'tutoring' && !tutoringWorkspaceOnly.value) editorPracticeCategory.value = '';
+  }
+});
 let editorServicesRequest=0;
 let editorOptionsIdentity='';
 async function loadEditorTenantServices() {
@@ -16781,7 +16825,7 @@ async function loadEditorOfficeLocations() {
     // Prefer already-loaded schedule offices; otherwise fetch the same /offices catalog.
     let rows = Array.isArray(officeLocations.value) ? officeLocations.value.slice() : [];
     if (!rows.length) {
-      const r = await api.get('/offices').catch(() => null);
+      const r = await api.get('/offices', { skipGlobalLoading: true }).catch(() => null);
       rows = Array.isArray(r?.data) ? r.data : [];
       if (rows.length && !officeLocations.value.length) {
         officeLocations.value = rows.map((row) => ({
@@ -16839,10 +16883,6 @@ watch(editorTenantServiceId, (id) => {
   if(editorHydratingAppointment.value)return;
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(id));
   if (!svc) return;
-  const mins = Number(svc.defaultDurationMinutes || svc.default_duration_minutes || 0);
-  if (mins > 0 && !isAppointmentEditMode.value && !isScheduleEventEditMode.value) {
-    applyEditorServiceDuration(svc);
-  }
   const code = normalizeCodeValue(svc.serviceCode || svc.service_code);
   if (code && editorIsClinical.value) {
     bookingServiceCode.value = code;
@@ -17067,6 +17107,7 @@ const bookingServiceCodeOptions = computed(() => {
       code,
       label,
       minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
+      maxDurationMinutes: Number(row?.maxDurationMinutes || 0) || null,
       defaultDurationMinutes: Number(row?.defaultDurationMinutes || 0) || null,
       sessionMode: row?.sessionMode || 'either',
       unitMinutes: Number(row?.unitMinutes || 0) || null,
@@ -17146,12 +17187,31 @@ const modalSessionDurationMinutes = computed(() => {
   const mins = (endH * 60 + endM) - (startH * 60 + startM);
   return Number.isFinite(mins) && mins > 0 ? mins : 60;
 });
+const bookingServiceSelectionIssue = computed(() => {
+  const code = normalizeCodeValue(bookingServiceCode.value);
+  if (!code || editorIsLearning.value) return '';
+  const option = bookingPrimaryServiceCodeOptions.value.find(row => row.code === code);
+  if (!option && !bookingMetadataLoading.value && bookingCatalogLoaded.value && !isAppointmentEditMode.value && !isScheduleEventEditMode.value) {
+    return `${code} is unavailable for this client and appointment. Choose an eligible service code.`;
+  }
+  const [startHour, startMinute] = editorStartTime.value.split(':').map(Number);
+  const [endHour, endMinute] = editorEndTime.value.split(':').map(Number);
+  const endAtMidnight = !endHour && !endMinute && startHour * 60 + startMinute > 0;
+  const minutes = (endAtMidnight ? 1440 : endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+  if (!(minutes > 0)) return '';
+  const min = option?.minDurationMinutes || { '90832': 16, '90834': 38, '90837': 53 }[code];
+  const max = option?.maxDurationMinutes || { '90832': 37, '90834': 52 }[code];
+  if (min && minutes < min) return `${code} requires at least ${min} minutes. This session is ${minutes} minutes. Choose a different code or adjust the time.`;
+  if (max && minutes > max) return `${code} allows up to ${max} minutes. This session is ${minutes} minutes. Choose a different code or adjust the time.`;
+  return '';
+});
 const bookingClassificationInvalidReason = computed(() => {
   if (!showClinicalBookingFields.value || editorIsLearning.value) return '';
   if (!isSessionBookingRequestType.value) return '';
   if (!normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this session.';
   }
+  if (bookingServiceSelectionIssue.value) return bookingServiceSelectionIssue.value;
   const locId = Number(bookingServiceLocationId.value || editorServiceLocationId.value || 0);
   const isSchoolSynthetic = locId < 0
     || !!(editorClientSchoolLocationOptions.value || []).find((s) => Number(s.id) === locId);
@@ -17298,6 +17358,7 @@ const refreshBookingUnitPreview = async () => {
   }
 };
 
+const bookingCatalogLoaded = ref(false);
 let bookingMetadataRequest = 0;
 let bookingCatalogContextKey = '';
 const loadBookingMetadataForProvider = async () => {
@@ -17326,12 +17387,16 @@ const loadBookingMetadataForProvider = async () => {
       bookingServiceLocationId.value = 0;
       editorServiceLocationId.value = 0;
     }
+    const nextCategory = params.businessType || '';
+    if (previousScope !== nextScope || bookingCatalogContextKey.split(':')[2] !== nextCategory) {
+      resetBookingMetadataState();
+      bookingCatalogLoaded.value = false;
+    }
     bookingCatalogContextKey = contextKey;
-    resetBookingMetadataState();
   }
   bookingLocationsLoading.value = !bookingMetadata.value.serviceLocations.length;
   bookingLocationsError.value = '';
-  void loadBookingCatalog('/office-schedule/booking-locations', params).then(data => {
+  void loadBookingCatalog('/office-schedule/booking-locations', { providerId, agencyId: params.agencyId }).then(data => {
     if (requestId !== bookingMetadataRequest) return;
     bookingMetadata.value = { ...bookingMetadata.value, serviceLocations: data.serviceLocations || bookingMetadata.value.serviceLocations };
     preferDefaultServiceLocation();
@@ -17341,24 +17406,26 @@ const loadBookingMetadataForProvider = async () => {
   try {
     bookingMetadataLoading.value = true;
     bookingMetadataError.value = '';
-    bookingMetadata.value={...bookingMetadata.value,serviceCodes:[]};
     const data = await loadBookingCatalog('/office-schedule/booking-metadata', params);
     if(requestId!==bookingMetadataRequest)return;
     const clientIds=isScheduleEventEditMode.value ? [editorInfoClientId.value].filter(Boolean) : [...virtualSessionSelectedClientIdSet.value];
-    const eligibility=await Promise.all(clientIds.map(clientId=>api.get('/medical-billing/service-code-eligibility',{params:{agencyId:Number(editorAgencyId.value || effectiveAgencyId.value),clientId,providerId,dateOfService:editorDateYmd.value}})));
+    const eligibility=await Promise.all(clientIds.map(clientId=>api.get('/medical-billing/service-code-eligibility',{params:{agencyId:Number(editorAgencyId.value || effectiveAgencyId.value),clientId,providerId,dateOfService:editorDateYmd.value},skipGlobalLoading:true})));
     let codes=Array.isArray(data?.serviceCodes)?data.serviceCodes:[];
-    for(const result of eligibility){const allowed=new Set(result.data.serviceCodes || []);codes=codes.filter(item=>allowed.has(typeof item==='string'?item:String(item.code || item.service_code || item.serviceCode || '')));}
+    for (const result of eligibility) {
+      const allowed = new Set((result.data.serviceCodes || []).map(normalizeCodeValue));
+      codes = codes.filter(item => allowed.has(normalizeCodeValue(typeof item === 'string' ? item : item.code || item.service_code || item.serviceCode)));
+    }
     if (requestId !== bookingMetadataRequest) return;
-    if(eligibility.length && bookingServiceCode.value && !codes.some(item=>(typeof item==='string'?item:item.code)===bookingServiceCode.value))bookingServiceCode.value='';
     bookingMeetingPolicy.value=data?.meetingPolicy?{...data.meetingPolicy,agencyId:params.agencyId}:null;
     const careEnabled = params.businessType === 'tutoring' ? (data?.careEligibility?.canProvideTutoring || data?.careEligibility?.canProvideCare) : data?.careEligibility?.canProvideCare;
     bookingMetadataError.value=[data?.careEligibility && !careEnabled?data.careEligibility.reason:null,...eligibility.map(result=>result.data.message)].filter(Boolean).join(' ');
     bookingMetadata.value = {
       appointmentTypes: Array.isArray(data?.appointmentTypes) ? data.appointmentTypes : [],
       appointmentSubtypes: Array.isArray(data?.appointmentSubtypes) ? data.appointmentSubtypes : [],
-      serviceCodes: codes,
+      serviceCodes: codes.map(item => typeof item === 'string' ? { code: item } : item),
       serviceLocations: bookingMetadata.value.serviceLocations.length ? bookingMetadata.value.serviceLocations : data.serviceLocations || []
     };
+    bookingCatalogLoaded.value = true;
     if (bookingMetadata.value.serviceLocations.length) {
       bookingLocationsError.value = '';
       bookingLocationsLoading.value = false;
@@ -17377,7 +17444,6 @@ const loadBookingMetadataForProvider = async () => {
     }
   } catch (e) {
     if (requestId !== bookingMetadataRequest) return;
-    bookingMetadata.value = { ...bookingMetadata.value, appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
     bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
   } finally {
     if (requestId === bookingMetadataRequest) bookingMetadataLoading.value = false;
@@ -18926,22 +18992,26 @@ const bookingPrimaryServiceCodeOptions = computed(() => {
     return mode === 'individual';
   });
 });
-watch(bookingPrimaryServiceCodeOptions, (opts) => {
-  if (bookingMetadataLoading.value || !(opts || []).length) return;
-  if (Number(editorAppointmentId.value || 0)>0) return; // Saved appointments retain their historical service during asynchronous catalog refreshes.
-  if (bookingMetadataLoading.value) return;
-  const code = String(bookingServiceCode.value || '').trim().toUpperCase();
-  if (!code) return;
-  if (!(opts || []).some((o) => String(o.code || '').toUpperCase() === code)) {
-    bookingServiceCode.value = '';
-  }
-});
 const primarySessionClientLabel = computed(() => {
   const id = Number(primarySessionClientId.value || 0);
   if (!id) return '';
   const row = (virtualSessionClients.value || []).find((c) => Number(c?.id || 0) === id);
   return String(row?.displayName || `Client ${id}`).trim();
 });
+const editorLinkedGuardians = computed(() => {
+  const clientId = Number(scheduleEventEditForm.value?.clientId || primarySessionClientId.value || editorInfoClientId.value);
+  if (!clientId) return [];
+  const names = new Set(editorOthersPresentNames.value.split(',').map(name => name.trim().toLowerCase()));
+  return virtualSessionGuardians.value.filter(person => Number(person.clientId) === clientId
+    && person.displayName && !names.has(person.displayName.toLowerCase()));
+});
+function addEditorLinkedGuardian(event) {
+  const name = event.target.value;
+  if (editorLinkedGuardians.value.some(person => person.displayName === name)) {
+    editorOthersPresentNames.value = [editorOthersPresentNames.value.trim(), name].filter(Boolean).join(', ').slice(0, 500);
+  }
+  event.target.value = '';
+}
 const virtualSessionGuardianKey = (guardian) => `${Number(guardian?.userId || 0)}:${Number(guardian?.clientId || 0)}`;
 const virtualSessionClientRoleLabel = (client) => {
   const type = String(client?.clientType || '').trim();
@@ -19242,14 +19312,13 @@ const refreshScheduleSummaryInBackground = () => {
 };
 
 watch([virtualSessionSelectedClientIds, editorPracticeCategory], () => {
-  if (showRequestModal.value && editorIsClinical.value && !editorHydratingAppointment.value) void loadBookingMetadataForProvider();
   if (showRequestModal.value && editorIsClinical.value && !editorHydratingAppointment.value) void loadEditorTenantServices();
 }, { deep: true });
 
 let virtualRosterRequest=0;
+let virtualRosterContext='';
 const loadVirtualSessionClients = async (agencyIdOverride = null) => {
   const rosterRequest=++virtualRosterRequest;
-  virtualSessionClients.value=[]; virtualSessionGuardians.value=[];
   const uid = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
   const agencyId = Number(
     agencyIdOverride
@@ -19258,6 +19327,12 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
     || effectiveAgencyId.value
     || 0
   );
+  const context = [uid, agencyId, editorIsLearning.value].join(':');
+  if (virtualRosterContext !== context) {
+    virtualRosterContext = context;
+    virtualSessionClients.value = [];
+    virtualSessionGuardians.value = [];
+  }
   if (!uid || !agencyId || (mixedSessionServices.value && !editorPracticeCategory.value)) {
     virtualSessionClients.value = [];
     virtualSessionGuardians.value = [];
@@ -19270,7 +19345,8 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
         agencyId,
         serviceType: editorIsLearning.value ? 'tutoring' : undefined,
         includeGuardians: virtualSessionIncludeGuardians.value ? 'true' : 'false'
-      }
+      },
+      skipGlobalLoading: true
     });
     if(rosterRequest!==virtualRosterRequest)return;
     virtualSessionClients.value = Array.isArray(r?.data?.clients) ? r.data.clients : [];
@@ -19281,8 +19357,7 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
     virtualSessionGuardians.value = Array.isArray(r?.data?.guardians) ? r.data.guardians : [];
   } catch {
     if(rosterRequest!==virtualRosterRequest)return;
-    virtualSessionClients.value = [];
-    virtualSessionGuardians.value = [];
+    // A failed inline refresh leaves the already loaded roster available.
   } finally {
     if(rosterRequest===virtualRosterRequest)virtualSessionClientsLoading.value = false;
   }
@@ -19681,8 +19756,7 @@ const endHourOptions = computed(() => {
 });
 
 const ensureModalEndTimeValid = () => {
-  const exactClinicalMinutes=showAppointmentEditorShell.value && editorIsClinical.value && isSessionBookingRequestType.value;
-  const validMinute=value=>Number.isInteger(value) && value>=0 && value<60;
+  if (modalChooserTimeEditable.value || isSessionBookingRequestType.value) return;
   const maxEnd = modalGridMaxEnd.value;
   if (useModalQuarterHourTime.value) {
     const allowed = startHourOptions.value;
@@ -19698,14 +19772,14 @@ const ensureModalEndTimeValid = () => {
 
   // Clinical service defaults can use exact minutes. Other grid actions retain quarter-hour entry.
   const rawStartMinute = Number(modalStartMinute.value || 0);
-  const normalizedStartMinute = (exactClinicalMinutes && validMinute(rawStartMinute)) || quarterMinuteOptions.includes(rawStartMinute)
+  const normalizedStartMinute = quarterMinuteOptions.includes(rawStartMinute)
     ? rawStartMinute
     : snapQuarterMinute(rawStartMinute);
   modalStartMinute.value = normalizedStartMinute;
 
   const allowedEndMinutes = endMinuteOptions.value;
   let endMinute = Number(modalEndMinute.value || 0);
-  if (!(exactClinicalMinutes && validMinute(endMinute)) && !allowedEndMinutes.includes(endMinute)) {
+  if (!allowedEndMinutes.includes(endMinute)) {
     endMinute = allowedEndMinutes.includes(snapQuarterMinute(endMinute))
       ? snapQuarterMinute(endMinute)
       : (allowedEndMinutes[0] ?? 0);
@@ -21944,9 +22018,9 @@ const submitOfficeAssign = async () => {
   }
 };
 
-const onQuickActionSelect = (act) => {
+const onQuickActionSelect = async (act) => {
   const id = String(act?.id || '');
-  if (CLIENT_SESSION_CREATE_ACTIONS.has(id) && !clientSessionBookingEnabled.value) return;
+  if (CLIENT_SESSION_CREATE_ACTIONS.has(id) && !clientSessionBookingEnabled.value && !(await refreshClientSessionBookingAccess())) return;
   if (act?.disabledReason) return;
   recordSlotActionUsage(id);
   requestTypeChosenByUser.value = true;
@@ -22729,7 +22803,7 @@ const submitRequest = async () => {
   if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
   bookingSubmitAttempted.value = true;
   if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !clientSessionBookingEnabled.value) {
-    modalError.value = 'Client session booking is coming soon for this provider. Your practice will enable it when their transition is ready.';
+    modalError.value = bookingAccessReason.value || 'Client session booking is coming soon for this provider. Ask your practice administrator about their rollout.';
     return;
   }
   if (actionRequiresAgency.value && !effectiveAgencyId.value) {
@@ -22770,7 +22844,7 @@ const submitRequest = async () => {
     let needsOfficeRefresh = false;
 
     const dn = modalDay.value;
-    const h = Number(effectiveModalStartHour.value || modalHour.value);
+    const h = Number(effectiveModalStartHour.value ?? modalHour.value);
     const endH = Number(modalEndHour.value);
     const startMinute = canUseQuarterHourInput.value ? Number(modalStartMinute.value || 0) : 0;
     const endMinute = canUseQuarterHourInput.value ? Number(modalEndMinute.value || 0) : 0;
@@ -23299,7 +23373,7 @@ const submitRequest = async () => {
         if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
           throw new Error(bookingClassificationInvalidReason.value);
         }
-        const agencyId = Number(effectiveAgencyId.value || 0);
+        const agencyId = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
         if (!agencyId) throw new Error('Select an agency for this session.');
         const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
         const startAt = `${dateYmd}T${pad2(h)}:${pad2(startMinute)}:00`;
@@ -23376,14 +23450,14 @@ const submitRequest = async () => {
           weekdays: editorRecurrenceWeekdays.value
         }).length))
         : null;
-      const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
-        dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
-        hour: h
-      }];
+      const selected = sortedSelectedActionSlots();
+      const targets = selected.length > 1 ? selected : [{ dateYmd: editorDateYmd.value, hour: h }];
       await withdrawEditorPriorOfficeRequests();
       for (const t of targets) {
-        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:${pad2(startMinute)}:00`;
-        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h) + (endH - h))}:${pad2(endMinute)}:00`;
+        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour ?? h))}:${pad2(startMinute)}:00`;
+        const adjustedEndHour = Number(t.hour ?? h) + (endH - h);
+        const endDay = adjustedEndHour === 24 ? addDaysYmd(t.dateYmd, 1) : t.dateYmd;
+        const endAt = `${endDay}T${pad2(adjustedEndHour === 24 ? 0 : adjustedEndHour)}:${pad2(endMinute)}:00`;
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
         const r = await postOfficeBooking({
@@ -24161,11 +24235,11 @@ watch(meetingIncludeAllAgencies, (includingAllAgencies) => {
   void loadMeetingCandidates();
 });
 
-watch([bookingModality, linkPlatformVideoRoom, virtualSessionIncludeGuardians], () => {
-  if (String(requestType.value || '') !== 'individual_session' || !showRequestModal.value) return;
-  if (!linkPlatformVideoRoom.value) {
-    resetVirtualSessionShareState();
-  }
+watch(linkPlatformVideoRoom, (linked) => {
+  if (!linked && showRequestModal.value && isSessionBookingRequestType.value) resetVirtualSessionShareState();
+});
+watch(virtualSessionIncludeGuardians, () => {
+  if (!showRequestModal.value || !editorIsClinical.value) return;
   if (!virtualSessionIncludeGuardians.value) {
     virtualSessionSelectedGuardianKeys.value = [];
   }
@@ -24175,7 +24249,7 @@ watch([bookingModality, linkPlatformVideoRoom, virtualSessionIncludeGuardians], 
 watch([showRequestModal, requestType, effectiveAgencyId, scheduleActorUserId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
   if (String(type || '') === 'individual_session') {
-    const currentAgencyId = Number(agencyId || editorAgencyId.value || selectedActionAgencyId.value || 0);
+    const currentAgencyId = Number(editorAgencyId.value || agencyId || 0);
     const previousAgencyId = Number(prevAgencyId || 0);
     const openedOrTypeChanged = !prevOpen || String(prevType || '') !== 'individual_session';
     const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
@@ -28219,7 +28293,7 @@ watch(()=>props.spanMode,value=>{
   scheduleSpanMode.value=value;
   if(isDayOrAgendaSpan.value)ensureSingleDayFocus();else focusedDays.value=[];
 },{immediate:true});
-watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIdSet.value].sort().join(','),editorDateYmd],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
+watch([editorInfoClientId,()=>[...virtualSessionSelectedClientIdSet.value].sort().join(','),editorDateYmd, editorPracticeCategory],()=>{if(showRequestModal.value)loadBookingMetadataForProvider();});
 watch(bookingTimezoneIana, (zone, previous) => {
   if (zone === previous) return;
   invalidateScheduleSummaryCacheForUser(props.userId);
@@ -28235,7 +28309,10 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 </script>
 
 <style scoped>
-.tutoring-booking-details{padding:18px 20px;margin:12px 0;background:var(--bg-primary,#fff);border:1px solid var(--border,#dce4ea);border-radius:12px;display:grid;gap:12px}.tutoring-booking-details h3{margin:0;font-size:1rem}.tutoring-booking-details>label{display:grid;gap:6px;font-weight:600}.tutoring-booking-details select{font:inherit;color:inherit;min-height:44px;max-width:100%;width:100%;padding:9px 12px;background:var(--bg-primary,#fff);border:1px solid var(--border,#ccd8e3);border-radius:8px}.tutoring-booking-details p{margin:0;line-height:1.5}
+.tutoring-booking-details{padding:8px 14px;margin:4px 0;background:var(--bg-card,#fff);display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.tutoring-booking-details>label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.82rem;font-weight:600}
+.tutoring-booking-details select{font:inherit;color:inherit;min-height:34px;max-width:100%;padding:4px 8px;border:1px solid var(--border,#ccd8e3);border-radius:8px}
+.tutoring-booking-details p{margin:0;line-height:1.5}
 
 .schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
 
@@ -33671,5 +33748,24 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 [data-theme='dark'] .sched-all-day-cell { background: var(--bg-card); }
 [data-theme='dark'] .sched-all-day-cell.sched-cell-today {
   background: color-mix(in srgb, var(--bg-card) 82%, #7058bb);
+}
+</style>
+
+<style scoped>
+.modal-backdrop.modal-backdrop--request {
+  background: rgba(15, 23, 42, .56);
+  backdrop-filter: none;
+  overscroll-behavior: contain;
+}
+.modal-backdrop--request :deep(.modal--request),
+.modal-backdrop--request :deep(.nr-footer),
+.modal-backdrop--request :deep(.aes-foot) {
+  backdrop-filter: none;
+  background: var(--bg-card, #fff);
+}
+.modal-backdrop--request :deep(.aes),
+.modal-backdrop--request :deep(.nr-chooser) {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 </style>

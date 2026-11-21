@@ -119,3 +119,13 @@ it('blocks legacy enabled ITSCO SSO-only identities without a conversion row whi
  await expect(saveClientSessionBookingRollout({agencyId:2,actorUserId:5,input})).rejects.toThrow('Individual account conversion');
  expect(await clientSessionBookingAccess(2,12,undefined,{actorUserId:5})).toMatchObject({enabled:true,staffScheduling:true,providerSelfSchedulingEnabled:false});
 });
+
+it.each(['tisi', 'nlu'])('opens %s for eligible providers while honoring individual rollout pauses', async slug => {
+  const entries = [{ providerUserId: 13, enabled: false }];
+  m.execute.mockResolvedValue([[{ slug, feature_flags: { clientSessionBookingRollout: { revision: 1, enabledForAllProviders: false, entries } } }]]);
+  m.care.mockResolvedValue({ canProvideCare: true });
+  expect((await clientSessionBookingAccess(7, 12)).enabled).toBe(true);
+  expect((await clientSessionBookingAccess(7, 13)).enabled).toBe(false);
+  m.care.mockResolvedValue({ canProvideCare: false, reason: 'Care access is off' });
+  expect(await clientSessionBookingAccess(7, 12)).toMatchObject({ enabled: false, reason: 'Care access is off' });
+});

@@ -1,3 +1,4 @@
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { requireClientServiceKind } from './clientServiceContext.service.js';
 import {requireTestingEligibility,approvedTestingCodeAssignments} from './testingEligibility.service.js';
 import {requiresTestingRole,testingServiceDefinition} from '../content/testingServicePolicy.js';
@@ -389,12 +390,12 @@ export async function validateSchedulingSelection({
       || FALLBACK_MIN_DURATION_BY_CODE.get(normalizedServiceCode)
       || null;
     const maxDurationMinutes = Number(policyRule?.maxMinutes || 0) || Number(durationRule?.maxDurationMinutes || 0) || null;
-    if (minDurationMinutes && scheduledStartAt && scheduledEndAt) {
-      const start = new Date(scheduledStartAt);
-      const end = new Date(scheduledEndAt);
-      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+    if ((minDurationMinutes || maxDurationMinutes) && scheduledStartAt && scheduledEndAt) {
+      const start = parseUtcDate(scheduledStartAt);
+      const end = parseUtcDate(scheduledEndAt);
+      if (start && end) {
         const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
-        if (minutes < minDurationMinutes) {
+        if (minDurationMinutes && minutes < minDurationMinutes) {
           const err = new Error(
             `${normalizedServiceCode} requires at least ${minDurationMinutes} minutes; received ${minutes} minutes`
           );

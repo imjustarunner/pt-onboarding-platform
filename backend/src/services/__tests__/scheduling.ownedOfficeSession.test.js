@@ -81,3 +81,12 @@ it('carries one stable next-session confirmation policy after the full recurring
 });
 
 it('leaves an immediate office booking retry with its original handler instead of treating it as a standing reservation',async()=>{events[0].client_id=81;events[0].session_context_json={immediateBookingKey:'retained-immediate-key'};await expect(bookSessionInOwnedOffice({...input,serviceCode:'TUTORING',recurrence:'ONCE',occurrenceCount:1})).resolves.toBeNull();expect(m.create).not.toHaveBeenCalled();});
+
+it('schedules 32 exact minutes inside an existing whole-hour room reservation across the series', async () => {
+  await bookSessionInOwnedOffice({ ...input, serviceCode: '90832', startAt: '2026-11-26 22:07:00', endAt: '2026-11-26 22:39:00' });
+  expect(m.create.mock.calls.map(([row]) => [row.startAt, row.endAt])).toEqual([
+    ['2026-11-26T22:07:00Z', '2026-11-26T22:39:00Z'], ['2026-12-10T22:07:00Z', '2026-12-10T22:39:00Z']
+  ]);
+  expect(events.map(row => [row.start_at.slice(11), row.end_at.slice(11)])).toEqual([['22:00:00', '23:00:00'], ['22:00:00', '23:00:00']]);
+  expect(events[0].session_context_json).toMatchObject({ sessionStartAt: '2026-11-26 22:07:00', sessionEndAt: '2026-11-26 22:39:00' });
+});

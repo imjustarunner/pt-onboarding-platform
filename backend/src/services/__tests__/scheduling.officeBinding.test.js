@@ -31,7 +31,7 @@ describe('room approval binds an existing appointment', () => {
     expect(Appointment.update).toHaveBeenCalledWith(10, { officeEventId: 20, officeLocationId: 3, roomId: 4 });
   });
   it('rejects a room from a different session time', async () => {
-    await expect(bind({ event: { ...event, end_at: '2099-01-05 18:00:00' } })).rejects.toThrow('same start and end');
+    await expect(bind({ event: { ...event, end_at: '2099-01-05 18:00:00' } })).rejects.toThrow('cover the saved session time');
     expect(Appointment.update).not.toHaveBeenCalled();
   });
   it('rejects a client or package mismatch', async () => {
@@ -61,7 +61,10 @@ describe('room approval binds an existing appointment', () => {
   it('keeps the requested 45-minute duration when approving a room', async () => {
     await bookOfficeForAppointmentRequest({ request: { id: 6, requested_provider_id: 9, client_id: 8 }, context,
       rooms: [{ id: 4 }], office: { id: 3 }, selection: {}, actorUserId: 9 });
-    expect(OfficeEvent.createIfRoomOpen).toHaveBeenCalledWith(expect.objectContaining({ startAt: appointment.startAt, endAt: appointment.endAt }));
+    expect(OfficeEvent.createIfRoomOpen).toHaveBeenCalledWith(expect.objectContaining({
+      startAt: appointment.startAt, endAt: '2099-01-05 18:00:00',
+      sessionContext: expect.objectContaining({ sessionStartAt: appointment.startAt, sessionEndAt: appointment.endAt })
+    }));
   });
   it('recovers an office event saved before an interrupted appointment binding', async () => {
     OfficeEvent.findActiveRoomConflicts.mockResolvedValue([{ ...event, status: 'BOOKED', client_id: 8,

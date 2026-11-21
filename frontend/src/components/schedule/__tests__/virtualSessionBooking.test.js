@@ -48,8 +48,8 @@ async function schoolClientEditor({ synthetic = false } = {}) {
   ];
   const clients = [{ id: 8, displayName: 'School client', schools: [{ schoolOrganizationId: 30, name: 'Assigned school' }] }];
   m.get.mockImplementation(async (url, ...args) => url.includes('virtual-session-clients') ? { data: { clients } } : /booking-(metadata|locations)/.test(url)
-    ? { data: { serviceLocations, serviceCodes: [{ code: '90837' }] } }
-    : url.includes('service-code-eligibility') ? { data: { serviceCodes: ['90837'] } } : base(url, ...args));
+    ? { data: { serviceLocations, serviceCodes: [{ code: '90837' }, { code: '90832' }] } }
+    : url.includes('service-code-eligibility') ? { data: { serviceCodes: ['90837', '90832'] } } : base(url, ...args));
   const s = await editor();
   s.virtualSessionClients = clients;
   s.editorModality = 'IN_PERSON';
@@ -229,4 +229,83 @@ it('keeps confirmation, reminders, and video choices independent for an upcoming
   }));
   expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment'))).toHaveLength(0);
   expect(wrapper.text()).toContain('Session scheduled');
+});
+
+it('saves typed minute times for a recurring school session', async () => {
+  const s = await schoolClientEditor();
+  s.bookingServiceCode = '90832';
+  s.onEditorStartTime('17:07');
+  s.onEditorEndTime('17:39');
+  s.editorRecurrenceFrequency = 'WEEKLY';
+  s.editorRecurrenceOccurrenceCount = 3;
+  await flushPromises();
+  expect(s.editorStartTime).toBe('17:07');
+  expect(s.editorEndTime).toBe('17:39');
+  await s.submitRequest();
+  expect(s.modalError).toBe('');
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
+    startAt: '2026-11-19T17:07:00', endAt: '2026-11-19T17:39:00', recurrence: 'WEEKLY', occurrenceCount: 3, modality: 'IN_PERSON'
+  }));
+});
+
+it('shows the duration conflict while keeping the selected psychotherapy code and typed minutes', async () => {
+  const base = m.get.getMockImplementation();
+  m.get.mockImplementation((url, ...args) => url.includes('service-code-eligibility') ? Promise.resolve({ data: { serviceCodes: ['90837'] } })
+    : url.includes('/booking-metadata') ? Promise.resolve({ data: { serviceCodes: [{ code: '90837' }] } }) : base(url, ...args));
+  const s = await editor();
+  s.bookingServiceCode = '90837';
+  s.onEditorEndTime('17:34');
+  await flushPromises();
+  expect(s.bookingServiceCode).toBe('90837');
+  expect(s.editorEndTime).toBe('17:34');
+  expect(s.bookingServiceSelectionIssue).toContain('90837 requires at least 53 minutes. This session is 34 minutes.');
+});
+
+it('keeps 90791 visible during client verification and looks up eligibility without a global overlay', async () => {
+  const base = m.get.getMockImplementation();
+  let verify;
+  const eligibility = new Promise(resolve => { verify = resolve; });
+  m.get.mockImplementation((url, ...args) => url.includes('service-code-eligibility') ? eligibility
+    : url.includes('/booking-metadata') ? Promise.resolve({ data: { serviceCodes: [{ code: '90791', defaultDurationMinutes: 60 }] } }) : base(url, ...args));
+  const s = await editor();
+  s.bookingServiceCode = '90791';
+  s.onEditorEndTime('17:32');
+  s.virtualSessionSelectedClientIds = [9];
+  await flushPromises();
+  expect(s.bookingServiceCode).toBe('90791');
+  expect(s.editorEndTime).toBe('17:32');
+  expect(m.get).toHaveBeenCalledWith('/medical-billing/service-code-eligibility', expect.objectContaining({ skipGlobalLoading: true }));
+  verify({ data: { serviceCodes: ['90791'] } });
+  await flushPromises();
+  expect(s.bookingServiceCode).toBe('90791');
+  expect(s.bookingServiceSelectionIssue).toBe('');
+  expect(s.editorEndTime).toBe('17:32');
+});
+
+it('adds a guardian from the selected account and preserves a written name', async () => {
+  const s = await editor();
+  s.editorClinicalParticipantsMode = 'Client and Others';
+  await flushPromises();
+  s.editorOthersPresentNames = 'Family friend';
+  s.virtualSessionGuardians = [
+    { userId: 14, clientId: 8, displayName: 'Linked Parent' },
+    { userId: 15, clientId: 9, displayName: 'Unrelated Parent' }
+  ];
+  expect(s.editorLinkedGuardians.map(person => person.userId)).toEqual([14]);
+  s.addEditorLinkedGuardian({ target: { value: 'Linked Parent' } });
+  await s.submitRequest();
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ othersPresentNames: 'Family friend, Linked Parent' }));
+});
+
+it('offers tutoring only for the selected provider’s authorized services in this agency', async () => {
+  const s = await editor({ mode: 'admin' });
+  s.editorPracticeCategories = ['mental_health', 'tutoring'];
+  s.bookingProviderBusinessTypes = ['mental_health'];
+  await flushPromises();
+  expect(s.editorBookServiceChoices.map(row => row.value)).toEqual(['mental_health']);
+  expect(s.mixedSessionServices).toBe(false);
+  s.bookingProviderBusinessTypes = ['mental_health', 'tutoring'];
+  await flushPromises();
+  expect(s.editorBookServiceChoices.map(row => row.value)).toEqual(['mental_health', 'tutoring']);
+  expect(s.mixedSessionServices).toBe(true);
 });

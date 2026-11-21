@@ -199,7 +199,7 @@ export async function allocateOfficeRoom(db, input) {
       !start ||
       !end ||
       (!input.exactAppointmentWindow && (start.slice(14, 19) !== "00:00" || end.slice(14, 19) !== "00:00")) ||
-      (input.exactAppointmentWindow && (Number(start.slice(14,16))%15!==0 || Number(end.slice(14,16))%15!==0 || start.slice(17)!=="00" || end.slice(17)!=="00")) ||
+      (input.exactAppointmentWindow && (start.slice(17)!=="00" || end.slice(17)!=="00")) ||
       (end.slice(0, 10) !== start.slice(0, 10) &&
         !(
           end.slice(0, 10) === addDaysYmd(start.slice(0, 10), 1) &&

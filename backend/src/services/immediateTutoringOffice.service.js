@@ -32,6 +32,7 @@ export async function bookImmediateTutoringOffice(input){
  const reason=immediateTutoringOfficeReason(input);if(!reason)return null;
  if(reason==='retrospective'&&!input.roomId)throw fail('Choose the office room used for this past session before recording it.');
  const tz=input.office.timezone||'America/Denver',key=immediateTutoringOfficeKey(input),start=sql(input.startAt),end=sql(input.endAt);
+ const roomStart=input.roomBlock?.startAt||start,roomEnd=input.roomBlock?.endAt||end;
  await OfficeScheduleMaterializer.materializeWeek({officeLocationId:input.office.id,weekStartRaw:utcToZonedMysqlWall(input.startAt,tz).slice(0,10),createdByUserId:input.actorUserId});
  return withClientSchedulingLock([input.clientId],async()=>{
   await assertAppointmentClients(input.agencyId,[{clientId:input.clientId}]);
@@ -42,16 +43,16 @@ export async function bookImmediateTutoringOffice(input){
    if(prior){event=prior;appointment=await Appointment.findByOfficeEventId(event.id);}
    else{
     await assertAppointmentWindowAvailable(db,{agencyId:input.agencyId,providerUserId:input.providerId,startAt:start,endAt:end,status:'scheduled',sourceTimezone:tz});
-    const allocation=await allocateOfficeRoom(db,{officeId:input.office.id,providerId:input.providerId,roomId:input.roomId||null,roomType:'tutoring',startAt:start,endAt:end,recurrence:'ONCE',occurrenceCount:1,exactAppointmentWindow:true});
-    event=await OfficeEvent.withRoomSlotLock({roomId:allocation.roomId,startAt:start,endAt:end},async conn=>{
-     const [rows]=await conn.execute("SELECT * FROM office_events WHERE room_id=? AND start_at<? AND end_at>? AND status<>'CANCELLED' FOR UPDATE",[allocation.roomId,end,start]);
+    const allocation=await allocateOfficeRoom(db,{officeId:input.office.id,providerId:input.providerId,roomId:input.roomId||null,roomType:'tutoring',startAt:roomStart,endAt:roomEnd,recurrence:'ONCE',occurrenceCount:1,exactAppointmentWindow:!input.roomBlock});
+    event=await OfficeEvent.withRoomSlotLock({roomId:allocation.roomId,startAt:roomStart,endAt:roomEnd},async conn=>{
+     const [rows]=await conn.execute("SELECT * FROM office_events WHERE room_id=? AND start_at<? AND end_at>? AND status<>'CANCELLED' FOR UPDATE",[allocation.roomId,roomEnd,roomStart]);
      if(rows.some(row=>!available(row)))throw fail('This office is already assigned or booked for part of that time. Choose another available room.');
-     const context={agencyId:input.agencyId,clientId:input.clientId,immediateBookingKey:key,automaticConfirmation:true,confirmationReason:reason,recordedAt:new Date().toISOString(),requestedByUserId:input.actorUserId,reviewerUserId:null,tenantServiceId:input.tenantServiceId||null,packageEntitlementId:input.packageEntitlementId||null,billing:input.billing||null,learningSubjectKey:input.learningSubjectKey??null};
+     const context={agencyId:input.agencyId,clientId:input.clientId,immediateBookingKey:key,...(roomStart!==start||roomEnd!==end?{sessionStartAt:start,sessionEndAt:end}:{}),automaticConfirmation:true,confirmationReason:reason,recordedAt:new Date().toISOString(),requestedByUserId:input.actorUserId,reviewerUserId:null,tenantServiceId:input.tenantServiceId||null,packageEntitlementId:input.packageEntitlementId||null,billing:input.billing||null,learningSubjectKey:input.learningSubjectKey??null};
      for(const row of rows){
       await conn.execute("UPDATE office_events SET status='CANCELLED' WHERE id=?",[row.id]);
-      for(const [from,to] of [[sql(row.start_at),start],[end,sql(row.end_at)]])if(from<to)await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:from,endAt:to,status:'AVAILABLE',slotState:'UNASSIGNED_AVAILABLE',source:'PROVIDER_REQUEST',notes:row.notes||null,createdByUserId:input.actorUserId,executor:conn});
+      for(const [from,to] of [[sql(row.start_at),roomStart],[roomEnd,sql(row.end_at)]])if(from<to)await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:from,endAt:to,status:'AVAILABLE',slotState:'UNASSIGNED_AVAILABLE',source:'PROVIDER_REQUEST',notes:row.notes||null,createdByUserId:input.actorUserId,executor:conn});
      }
-     const created=await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:start,endAt:end,status:'BOOKED',slotState:'ASSIGNED_BOOKED',assignedProviderId:input.providerId,bookedProviderId:input.providerId,clientId:input.clientId,source:'PROVIDER_REQUEST',appointmentTypeCode:'SESSION',serviceCode:'TUTORING',modality:'IN_PERSON',notes:input.notes||null,createdByUserId:input.actorUserId,approvedByUserId:null,executor:conn});
+     const created=await OfficeEvent.create({officeLocationId:input.office.id,roomId:allocation.roomId,startAt:roomStart,endAt:roomEnd,status:'BOOKED',slotState:'ASSIGNED_BOOKED',assignedProviderId:input.providerId,bookedProviderId:input.providerId,clientId:input.clientId,source:'PROVIDER_REQUEST',appointmentTypeCode:'SESSION',serviceCode:'TUTORING',modality:'IN_PERSON',notes:input.notes||null,createdByUserId:input.actorUserId,approvedByUserId:null,executor:conn});
      // OfficeEvent.create returns the persisted row, not its insert ID. Keep
      // the room transaction and canonical appointment bound to that exact row.
      const id=Number(created?.id);
@@ -61,7 +62,7 @@ export async function bookImmediateTutoringOffice(input){
     });
    }
    const context=parse(event.session_context_json);
-   if(!appointment)appointment=await createAppointment({agencyId:input.agencyId,providerUserId:input.providerId,startAt:start.replace(' ','T')+'Z',endAt:end.replace(' ','T')+'Z',timeZone:tz,officeEventId:event.id,officeLocationId:input.office.id,roomId:event.room_id,modality:'IN_PERSON',serviceCode:'TUTORING',tenantServiceId:input.tenantServiceId,serviceLocationId:input.serviceLocationId,packageEntitlementId:input.packageEntitlementId||null,title:input.title||'General tutoring',notes:input.notes,source:'immediate_tutoring:'+key.slice(0,32),createdByUserId:input.actorUserId,learningSubjectKey:input.learningSubjectKey ?? null,billing:context.billing||null,notificationMode:input.notificationMode||'default',customReminders:input.customReminders||[],participants:[{role:'client',clientId:input.clientId,isBillingResponsible:true,receivesReminders:true}],ensureContext:false,deferScheduleNotice:true});
+   if(!appointment)appointment=await createAppointment({agencyId:input.agencyId,providerUserId:input.providerId,startAt:start.replace(' ','T')+'Z',endAt:end.replace(' ','T')+'Z',timeZone:tz,officeEventId:event.id,officeLocationId:input.office.id,roomId:event.room_id,modality:'IN_PERSON',serviceCode:'TUTORING',tenantServiceId:input.tenantServiceId,serviceLocationId:input.serviceLocationId,packageEntitlementId:input.packageEntitlementId||null,title:input.title||'General tutoring',notes:input.notes,othersPresentNames:input.othersPresentNames,source:'immediate_tutoring:'+key.slice(0,32),createdByUserId:input.actorUserId,learningSubjectKey:input.learningSubjectKey ?? null,billing:context.billing||null,notificationMode:input.notificationMode||'default',customReminders:input.customReminders||[],participants:[{role:'client',clientId:input.clientId,isBillingResponsible:true,receivesReminders:true}],ensureContext:false,deferScheduleNotice:true});
    if(!context.immediateBookingComplete){
     if(reason!=='retrospective')await scheduleSessionNotifications(appointment.id,{replace:true});
     await appointmentScheduleNotices.queue(appointment.id,{eventType:'created',actorUserId:input.actorUserId,facts:{retrospectiveBooking:reason==='retrospective',officeConfirmation:'automatic', ...bookingNoticePreferenceFacts(input.sendBookingNotice)}});

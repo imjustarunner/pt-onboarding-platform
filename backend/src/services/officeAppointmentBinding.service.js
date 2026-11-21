@@ -5,6 +5,8 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import Appointment from '../models/Appointment.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
+import { roomBlockForSession } from '../utils/officeSessionWindow.js';
+import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 
 const instant = (value) => value instanceof Date ? value.getTime() : Date.parse(String(value).replace(' ', 'T').replace(/Z?$/, 'Z'));
 const fail = (message) => Object.assign(new Error(message), { status: 409 });
@@ -33,7 +35,11 @@ export async function bindOfficeEventToAppointment({ event, context, agencyId, c
         || Number(appointment.providerUserId) !== Number(event.booked_provider_id || event.assigned_provider_id)
         || !participants.some((p) => Number(p.clientId) === Number(clientId))
         || Number(appointment.packageEntitlementId || 0) !== Number(context.packageEntitlementId || 0)) throw fail('The office request does not match this appointment, provider, client, or package');
-    if (instant(appointment.startAt) !== instant(event.start_at) || instant(appointment.endAt) !== instant(event.end_at)) throw fail('The room and session must have the same start and end time');
+    const start = instant(appointment.startAt), end = instant(appointment.endAt);
+    const matchesRoom = start === instant(event.start_at) && end === instant(event.end_at);
+    const matchesRequestedSession = start === instant(context.sessionStartAt) && end === instant(context.sessionEndAt)
+      && start >= instant(event.start_at) && end <= instant(event.end_at);
+    if (!matchesRoom && !matchesRequestedSession) throw fail('The room reservation must cover the saved session time');
     if (appointment.officeEventId && Number(appointment.officeEventId) !== Number(event.id)) throw fail('This session already has an office reservation');
     if (!appointment.officeEventId) {
       if (!['scheduled', 'confirmed'].includes(appointment.status)) throw fail('Only upcoming appointments can acquire an office reservation');
@@ -72,13 +78,19 @@ async function bookLockedOfficeRequest({ request, context, rooms, office, select
         || !participants.some((p) => Number(p.clientId) === Number(request.client_id)) || !['scheduled', 'confirmed'].includes(a.status)) throw fail('The requested sessions must belong to this provider, client, and agency');
     await OfficeScheduleMaterializer.materializeWeek({ officeLocationId: office.id, weekStartRaw: a.startAt instanceof Date ? a.startAt.toISOString().slice(0, 10) : String(a.startAt).slice(0, 10), createdByUserId: actorUserId, force: true });
   }
+  const roomBlocks = new Map(appointments.map(a => {
+    const startAt = utcMysqlToIso(a.startAt).slice(0, 19).replace('T', ' ');
+    const endAt = utcMysqlToIso(a.endAt).slice(0, 19).replace('T', ' ');
+    return [a.id, { ...roomBlockForSession(startAt, endAt, office.timezone || 'America/Denver'), sessionStartAt: startAt, sessionEndAt: endAt }];
+  }));
   let chosen;
   let recoverable = new Map();
   for (const room of rooms) {
     let available = true;
     const roomRecoverable = new Map();
     for (const a of appointments) {
-      const conflicts = await OfficeEvent.findActiveRoomConflicts({ roomId: room.id, startAt: a.startAt, endAt: a.endAt, excludeEventId: a.officeEventId });
+      const block = roomBlocks.get(a.id);
+      const conflicts = await OfficeEvent.findActiveRoomConflicts({ roomId: room.id, startAt: block.startAt, endAt: block.endAt, excludeEventId: a.officeEventId });
       if (a.officeEventId) {
         const old = await OfficeEvent.findById(a.officeEventId);
         if (Number(old?.room_id) !== Number(room.id)) { available = false; break; }
@@ -102,15 +114,18 @@ async function bookLockedOfficeRequest({ request, context, rooms, office, select
   try {
     for (const a of appointments) {
       const linkedId = a.officeEventId || recoverable.get(a.id);
+      const block = roomBlocks.get(a.id);
+      const bookingContext = { ...context, appointmentId: a.id, appointmentSeriesId: null, officeRequestId: request.id,
+        sessionStartAt: block.sessionStartAt, sessionEndAt: block.sessionEndAt };
       const event = linkedId ? await OfficeEvent.findById(linkedId) : await OfficeEvent.createIfRoomOpen({
-        officeLocationId: office.id, roomId: chosen.id, startAt: a.startAt, endAt: a.endAt,
+        officeLocationId: office.id, roomId: chosen.id, startAt: block.startAt, endAt: block.endAt,
         status: 'BOOKED', slotState: 'ASSIGNED_BOOKED', assignedProviderId: a.providerUserId, bookedProviderId: a.providerUserId,
         clientId: request.client_id, source: 'PROVIDER_REQUEST', notes: request.requester_notes,
-        ...selection, sessionContext: { ...context, appointmentId: a.id, appointmentSeriesId: null, officeRequestId: request.id },
+        ...selection, sessionContext: bookingContext,
         createdByUserId: actorUserId, approvedByUserId: actorUserId });
       const { ensureAppointmentContext } = await import('./appointmentContext.service.js');
       await ensureAppointmentContext({ officeEventId: event.id, agencyId: context.agencyId, clientId: request.client_id,
-        sessionContext: { ...context, appointmentId: a.id, appointmentSeriesId: null }, actorUserId });
+        sessionContext: bookingContext, actorUserId });
       await Appointment.update(a.id, { officeBookingRequestId: request.id });
       linkedEventIds.push(Number(event.id));
     }

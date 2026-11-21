@@ -109,18 +109,21 @@ async function ensureLockedAppointmentContext({
   }
   const boundAppointment = await bindOfficeEventToAppointment({ event, context: bookingContext,
     agencyId: resolvedAgencyId, clientId: resolvedClientId });
+  const startAt = boundAppointment?.startAt || bookingContext.sessionStartAt || event.start_at;
+  const endAt = boundAppointment?.endAt || bookingContext.sessionEndAt || event.end_at;
   let actualServiceLocationId = parseIntId(event.service_location_id);
   const syncCanonicalAppointment = async (clinicalSessionId = null) => {
     if (!syncAppointment) return;
     const { upsertAppointmentForOfficeBook } = await import('./appointment.service.js');
     const canonical = await upsertAppointmentForOfficeBook({ agencyId: resolvedAgencyId, officeEventId: eid,
       providerUserId: parseIntId(event.booked_provider_id) || parseIntId(event.assigned_provider_id),
-      clientId: resolvedClientId, startAt: event.start_at, endAt: event.end_at,
+      clientId: resolvedClientId, startAt, endAt,
       modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
       serviceLocationId: actualServiceLocationId,
       learningSubjectKey:bookingContext.learningSubjectKey ?? null, tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
       serviceCode: event.service_code, notificationMode: bookingContext.notificationMode, customReminders: bookingContext.customReminders, sendBookingNotice: bookingContext.sendBookingNotice, notes: bookingContext.schedulingNotes,
-      clinicalSessionId, actorUserId, billing: bookingContext.billing || null, strict: true, preserveParticipants: !!boundAppointment });
+      clinicalSessionId, actorUserId, billing: bookingContext.billing || null, strict: true, preserveParticipants: !!boundAppointment,
+      othersPresentNames: bookingContext.othersPresentNames, deferScheduleNotice: bookingContext.deferScheduleNotice === true });
     if (clinicalSessionId && ['self_pay_only', 'package'].includes(canonical?.billing?.settlementMode)) {
       await clinicalPool.execute("UPDATE clinical_sessions SET claim_blocked_reason = 'SELF_PAY_ONLY: Insurance claims are disabled for this appointment' WHERE id = ? AND agency_id = ?", [clinicalSessionId, resolvedAgencyId]);
     }
@@ -160,8 +163,8 @@ async function ensureLockedAppointmentContext({
       officeEventId: eid,
       providerUserId: parseIntId(event.booked_provider_id) || parseIntId(event.assigned_provider_id) || null,
       sourceTimezone: normalizeTimezone(office?.timezone || sourceTimezone),
-      scheduledStartAt: event.start_at || null,
-      scheduledEndAt: event.end_at || null,
+      scheduledStartAt: startAt || null,
+      scheduledEndAt: endAt || null,
       metadataJson: null,
       createdByUserId: parseIntId(actorUserId)
     });
@@ -182,8 +185,8 @@ async function ensureLockedAppointmentContext({
   // Apply service code / location / units onto the encounter when medical codes exist.
   try {
     const serviceCode = String(event.service_code || '').trim().toUpperCase() || null;
-    const startMs = event.start_at ? parseUtcDate(event.start_at)?.getTime() : 0;
-    const endMs = event.end_at ? parseUtcDate(event.end_at)?.getTime() : 0;
+    const startMs = startAt ? parseUtcDate(startAt)?.getTime() : 0;
+    const endMs = endAt ? parseUtcDate(endAt)?.getTime() : 0;
     const durationMinutes =
       startMs && endMs && endMs > startMs ? Math.round((endMs - startMs) / 60000) : null;
     const officeLocationId = parseIntId(event.office_location_id);

@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { roomBlockForSession, sessionWindowInRoom } from '../utils/officeSessionWindow.js';
+import { approvePreciseOfficeSessions } from '../services/preciseOfficeSession.service.js';
 import { assertAppointmentClients } from '../services/appointmentClinicalLink.service.js';
 import { clinicalCodesForClientContext } from '../services/clientServiceContext.service.js';
 import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
@@ -2743,24 +2746,28 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       tenantServiceId:req.body?.tenantServiceId, packageEntitlementId:req.body?.packageEntitlementId, price:req.body?.tutoringSessionPrice });
     if (individualPrice && (!clientId || req.body?.appointmentId || req.body?.appointmentSeriesId))
       return res.status(400).json({error:{message:'Set an individual price only while booking a new student session.'}});
+    const roomBlock = clientId ? roomBlockForSession(startAt, endAt, loc.timezone || 'America/Denver') : { startAt, endAt };
     const ownedInput = { learningSubjectKey:req.body?.learningSubjectKey ?? null, office: loc, roomId: room?.id || null,
       providerId: requestedProviderId, actorUserId: req.user.id, agencyId: policyAgencyId, clientId,
       startAt, endAt, recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1,
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
       tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
       appointmentId: req.body?.appointmentId, appointmentSeriesId: req.body?.appointmentSeriesId,
-      notificationMode, customReminders, sendBookingNotice, billing: individualPrice };
+      notificationMode, customReminders, sendBookingNotice, billing: individualPrice, othersPresentNames: String(req.body?.othersPresentNames || '').trim().slice(0, 500) || null };
     const ownedBooking = await (req.body?.asyncOwnedSession === true ? queueOwnedOfficeSession : bookSessionInOwnedOffice)(ownedInput);
     if (ownedBooking) return res.status(ownedBooking.kind === 'booking_job' ? 202 : 201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
-    const immediateBooking=await bookImmediateTutoringOffice({...ownedInput,request:req});
+    const immediateBooking=await bookImmediateTutoringOffice({...ownedInput,request:req,roomBlock});
     if(immediateBooking)return res.status(201).json(await schedulingResponseForUser(req.user,policyAgencyId,immediateBooking));
     await validateCustomReminderChannels(policyAgencyId, customReminders);
 
+    const preciseSession = clientId && (roomBlock.startAt !== startAt || roomBlock.endAt !== endAt);
     // Every new room request uses the same allocator and pending hold. Legacy
     // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
       sessionContext: { learningSubjectKey:req.body?.learningSubjectKey ?? null, appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, sendBookingNotice, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
+        othersPresentNames: String(req.body?.othersPresentNames || '').trim().slice(0, 500) || null,
+        ...(preciseSession ? { sessionOffsets: roomBlock.offsets, officeSessionSeriesId: bookedOccurrenceCount > 1 ? randomUUID() : null } : {}),
         ...(individualPrice ? {billing:individualPrice} : {}) },
       requestType: 'PROVIDER_REQUEST',
       roomType: validatedSelection.serviceCode === 'TUTORING' ? 'tutoring' : (req.body?.roomType || 'counseling'),
@@ -2768,8 +2775,8 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       roomId: room?.id || null,
       requestedProviderId,
       clientId,
-      startAt,
-      endAt,
+      startAt: roomBlock.startAt,
+      endAt: roomBlock.endAt,
       recurrence: normalizedRecurrence,
       bookedOccurrenceCount,
       appointmentTypeCode: validatedSelection.appointmentTypeCode,
@@ -3167,6 +3174,8 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
     const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProvider.id, officeLocationId: loc.id, agencyId: parseJsonSafely(reqRow.session_context_json)?.agencyId || reqRow.agency_id });
+    const preciseContext = parseJsonSafely(reqRow.session_context_json) || {};
+    const requestedSession = sessionWindowInRoom(reqRow.start_at, reqRow.end_at, preciseContext.sessionOffsets, loc.timezone || 'America/Denver');
     const officeSelection = await resolveOfficeClientSelection({appointmentTypeCode:reqRow.appointment_type_code,
       appointmentSubtypeCode:reqRow.appointment_subtype_code,serviceCode:reqRow.service_code,modality:reqRow.modality},
       policyAgencyId, Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0), reqRow.client_id);
@@ -3186,8 +3195,8 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
         serviceCode: officeSelection.serviceCode,
         tenantServiceId: Number(parseJsonSafely(reqRow.session_context_json)?.tenantServiceId || 0) || null,
         modality: reqRow.modality,
-        scheduledStartAt: reqRow.start_at,
-        scheduledEndAt: reqRow.end_at
+        scheduledStartAt: requestedSession.startAt,
+        scheduledEndAt: requestedSession.endAt
       })),
       addonServiceCodes: (() => {
         try {
@@ -3254,6 +3263,14 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     }
     if (!chosen) {
       return res.status(409).json({ error: { message: 'No open room is available for that time.' } });
+    }
+
+    if (preciseContext.sessionOffsets && reqRow.client_id) {
+      const linkedEventIds = await approvePreciseOfficeSessions({ request: reqRow, office: loc, room: chosen, context: preciseContext,
+        selection: validatedSelection, recurrence: normalizedRecurrence, actorUserId: req.user.id });
+      const updatedRequest = await OfficeBookingRequest.markDecided({ requestId: reqRow.id, status: 'APPROVED', decidedByUserId: req.user.id,
+        approverComment: req.body?.approverComment || null });
+      return res.json({ ok: true, request: updatedRequest, linkedEventIds, event: await OfficeEvent.findById(linkedEventIds[0]) });
     }
 
     const wh = weekdayHourInTz(reqRow.start_at, tz) || weekdayHourFromSqlDateTime(reqRow.start_at);

@@ -97,7 +97,10 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
   const [officeBookings] = await db.execute(`SELECT id FROM office_events
     WHERE (booked_provider_id = ? OR assigned_provider_id = ?) AND client_id IS NOT NULL
       AND status = 'BOOKED' AND start_at < ? AND end_at > ?
-      AND (? IS NULL OR id <> ?) LIMIT 1`,
+      AND (? IS NULL OR id <> ?)
+      AND (JSON_EXTRACT(session_context_json,'$.sessionStartAt') IS NULL
+        OR NOT EXISTS (SELECT 1 FROM appointments linked WHERE linked.office_event_id=office_events.id))
+      LIMIT 1`,
     [row.providerUserId,row.providerUserId,row.endAt,row.startAt,row.officeEventId || null,row.officeEventId || null]);
   if (officeBookings.length) throw await fail(db, row, 'a client room reservation');
   const excludedSupervisionIds = (row.excludeSupervisionIds || []).map(Number).filter(id => Number.isSafeInteger(id) && id > 0);

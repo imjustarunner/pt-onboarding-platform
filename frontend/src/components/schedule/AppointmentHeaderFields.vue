@@ -372,7 +372,7 @@
         <span class="ahf-section-icon" aria-hidden="true">👥</span>
         <h4 class="ahf-section-title">{{ showVirtualOptions ? 'Participants' : learning ? 'Tutoring & student' : 'Service & clients' }}</h4>
       </header>
-      <div class="ahf-details ahf-details--section">
+      <div class="ahf-details ahf-details--section ahf-service-client-fields">
         <div v-if="showType && typeOptions.length > 1" class="ahf-field">
           <span class="ahf-label">Type</span>
           <select
@@ -417,6 +417,7 @@
             @change="emit('update:primaryServiceCode', String($event.target.value || ''))"
           >
             <option value="">Select service code…</option>
+            <option v-if="primaryServiceCode && !primaryServiceCodeOptions.some(option => option.code === primaryServiceCode)" :value="primaryServiceCode">{{ primaryServiceCode }}</option>
             <option
               v-for="opt in visiblePrimaryServiceCodeOptions"
               :key="`ahf-psc-${opt.code}`"
@@ -428,7 +429,7 @@
             <ServiceInformation presentation="button" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
           </div>
           <button v-if="hasMorePrimaryServices" type="button" class="ahf-more-services" :aria-expanded="moreServices" :disabled="disabled" @click="moreServices=!moreServices">{{ moreServices?'Show common services':'Looking for more services?' }}</button>
-          <p v-if="selectedServiceDuration" class="ahf-hint">Default booking duration: {{ selectedServiceDuration }} minutes. Choosing a service updates the end time; you can adjust it.</p>
+          <p v-if="selectedServiceDuration" class="ahf-hint">Default duration · {{ selectedServiceDuration }} min</p>
           <p v-if="serviceCodeMessage" class="ahf-hint" role="status">{{serviceCodeMessage}}</p>
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
@@ -454,16 +455,20 @@
         </div>
 
         <div v-if="showOthersPresent" class="ahf-field ahf-field--full">
-          <span class="ahf-label">Others present (names)</span>
+          <span class="ahf-label">Others attending</span>
+          <div class="ahf-other-attendees">
+          <slot name="other-attendees" />
           <input
             class="ahf-input"
             type="text"
             maxlength="500"
             :value="othersPresentNames"
             :disabled="disabled"
-            placeholder="Type names of others attending (e.g. mother, guardian)…"
+            aria-label="Other attendees’ names"
+            placeholder="Enter names…"
             @input="emit('update:othersPresentNames', String($event.target.value || ''))"
           />
+          </div>
         </div>
 
         <div v-if="showGroupClientsButton && !showGroupClients" class="ahf-field ahf-field--action">
@@ -1577,4 +1582,20 @@ function nudgeEnd(deltaMin) {
 .ahf-field--repeats { min-width: 160px; }
 .ahf-recurrence-extra { margin-top: 4px; }
 .ahf-past-date { margin: 0; color: var(--text-secondary, #526578); font-size: 13px; }
+</style>
+
+<style scoped>
+.ahf--book .ahf-section { padding: 10px 12px; gap: 8px; }
+.ahf--book .ahf-service-client-fields { align-items: flex-start; }
+.ahf--book .ahf-service-client-fields > .ahf-field { gap: 5px; }
+.ahf--book .ahf-field--client { min-width: min(160px, 100%); }
+.ahf--book .ahf-service-client-fields :deep(.ahf-input) {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font: 600 .875rem/1.3 var(--font-body, system-ui, sans-serif);
+}
+.ahf-other-attendees { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
 </style>

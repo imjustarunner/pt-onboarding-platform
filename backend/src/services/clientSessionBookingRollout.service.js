@@ -8,6 +8,14 @@ import { staffCareEligibility, readStaffCareEligibility } from './staffCareEligi
 export const SESSION_BOOKING_COMING_SOON = 'Client session booking is coming soon for this provider. A practice administrator must enable their transition from TherapyNotes.';
 const fail = (status, message) => Object.assign(new Error(message), { status, code: 'CLIENT_SESSION_BOOKING_NOT_ENABLED' });
 const empty = () => ({ revision: 0, entries: [] });
+const fullyScheduledPracticeSlugs = new Set(['tisi', 'inner-strength', 'innerstrength', 'theinnerstrengthinstitute',
+  'the-inner-strength-institute', 'nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up']);
+function rolloutForPractice(agency) {
+  const policy = parseFeatureFlags(agency.feature_flags).clientSessionBookingRollout;
+  const valid = policy && Array.isArray(policy.entries) ? policy : empty();
+  const practiceOpen = fullyScheduledPracticeSlugs.has(String(agency.slug || '').trim().toLowerCase());
+  return practiceOpen ? { ...valid, enabledForAllProviders: true } : valid;
+}
 const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0;
 export async function providerConversionPending(agencyId,providerUserId,db=pool){
  if(Number(agencyId)!==2)return null;
@@ -26,10 +34,9 @@ export function evaluateClientSessionBooking(policy, providerUserId) {
   return { enabled, reason: enabled ? null : SESSION_BOOKING_COMING_SOON, revision: Number(policy?.revision || 0) };
 }
 export async function readClientSessionBookingRollout(agencyId, db = pool) {
-  const [[agency]] = await db.execute('SELECT feature_flags FROM agencies WHERE id = ?', [agencyId]);
+  const [[agency]] = await db.execute('SELECT feature_flags, slug FROM agencies WHERE id = ?', [agencyId]);
   if (!agency) throw fail(404, 'Practice not found.');
-  const policy = parseFeatureFlags(agency.feature_flags).clientSessionBookingRollout;
-  return policy && Array.isArray(policy.entries) ? policy : empty();
+  return rolloutForPractice(agency);
 }
 export async function canStaffScheduleBeforeProviderActivation(agencyId, providerUserId, actorUserId, db = pool) {
   if (Number(agencyId) !== 2 || !id(actorUserId) || Number(actorUserId) === Number(providerUserId)) return false;
@@ -49,7 +56,7 @@ export async function clientSessionBookingAccess(agencyId, providerUserId, db = 
       clientSessionBookingAccess(agencyId,providerUserId,db,{businessType:'tutoring',actorUserId})
     ]);
     const availableBusinessTypes=[...(clinical.enabled?['mental_health']:[]),...(tutoring.enabled?['tutoring']:[])];
-    return {enabled:availableBusinessTypes.length>0,availableBusinessTypes,reason:availableBusinessTypes.length?null:'No assigned service is currently available for scheduling in this organization.'};
+    return {enabled:availableBusinessTypes.length>0,availableBusinessTypes,reason:availableBusinessTypes.length?null:clinical.reason || tutoring.reason};
   }
   if (businessType === 'tutoring') {
     const offered = await readProviderServices(providerUserId, agencyId, db);
@@ -100,10 +107,10 @@ export async function saveClientSessionBookingRollout({ agencyId, actorUserId, i
   const db = await dbPool.getConnection();
   try {
     await db.beginTransaction();
-    const [[agency]] = await db.execute('SELECT feature_flags FROM agencies WHERE id = ? FOR UPDATE', [agencyId]);
+    const [[agency]] = await db.execute('SELECT feature_flags, slug FROM agencies WHERE id = ? FOR UPDATE', [agencyId]);
     if (!agency) throw fail(404, 'Practice not found.');
     const flags = parseFeatureFlags(agency.feature_flags);
-    const current = flags.clientSessionBookingRollout || empty();
+    const current = rolloutForPractice(agency);
     if (Number(input.revision) !== Number(current.revision)) throw fail(409, 'The rollout changed. Refresh before saving.');
     const providers = await sessionBookingProviders(agencyId, db);
     if (providerUserIds.some(providerId => !providers.some(provider => provider.id === providerId)))

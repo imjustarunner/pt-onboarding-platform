@@ -592,12 +592,18 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       patch.addonServiceCodes=resolved.addonServiceCodes;clinicalContextChanged=true;
     }
   }
-  if (currentBilling?.settlementMode !== 'self_pay_only' && (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)) {
+  const nextStartAt = patch.startAt != null ? toMysqlDateTime(patch.startAt, sourceZoneForEdit) : existing.startAt;
+  const nextEndAt = patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt;
+  const durationChanged = moved && (+parseUtcDate(nextEndAt) - +parseUtcDate(nextStartAt)
+    !== +parseUtcDate(existing.endAt) - +parseUtcDate(existing.startAt));
+  if (currentBilling?.settlementMode !== 'self_pay_only' && (durationChanged || patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)) {
     const provider = await User.findById(patch.providerUserId || existing.providerUserId);
-    const codes = [patch.serviceCode ?? existing.serviceCode, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(value=>value&&value!=='99051'&&!isProBonoServiceCode(value));
+    const primary = patch.serviceCode ?? existing.serviceCode;
+    const codes = [primary, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(value=>value&&value!=='99051'&&!isProBonoServiceCode(value));
     for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, providerId: provider.id, userRole: provider.role,
       providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
-      modality: patch.modality || existing.modality });
+      modality: patch.modality || existing.modality,
+      ...(code === primary && (durationChanged || patch.serviceCode !== undefined) ? { scheduledStartAt: nextStartAt, scheduledEndAt: nextEndAt } : {}) });
   }
   if(clinicalContextChanged || moved) {
     const participants=patch.participants||await Appointment.listParticipants(appointmentId);
@@ -627,8 +633,8 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await Appointment.upsertBilling(appointmentId, { ...currentBilling, ...patch.billing });
   }
 
-  const startAt = patch.startAt != null ? toMysqlDateTime(patch.startAt, sourceZoneForEdit) : existing.startAt;
-  const endAt = patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt;
+  const startAt = nextStartAt;
+  const endAt = nextEndAt;
   const prevStatus = String(existing.status || '').toLowerCase();
   const updatePatch = {
     ...patch,
@@ -890,7 +896,7 @@ export async function upsertAppointmentForOfficeBook({
   packageEntitlementId = null,
   strict = false,
   preserveParticipants = false,
-  notificationMode, customReminders, notes, billing = null, sendBookingNotice = true
+  notificationMode, customReminders, notes, billing = null, sendBookingNotice = true, othersPresentNames, deferScheduleNotice = false
 } = {}) {
   let linkageLock;
   let linkageLockName;
@@ -953,7 +959,7 @@ export async function upsertAppointmentForOfficeBook({
       ensureContext: false,
       source: 'office_book',
       title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Session'),
-      notificationMode, customReminders, notes, billing, sendBookingNotice,
+      notificationMode, customReminders, notes, billing, sendBookingNotice, othersPresentNames, deferScheduleNotice,
       createdByUserId: actorUserId,
       participants
     });

@@ -16,6 +16,7 @@ import { normalizeCustomSessionReminders, validateCustomReminderChannels } from 
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
 import { clientScheduleInstantToUtcMysql, utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
+import { roomBlockForSession } from '../utils/officeSessionWindow.js';
 
 const sqlTime = value => value instanceof Date ? value.toISOString().slice(0, 19).replace('T', ' ') : String(value || '').replace('T', ' ').replace(/Z$/, '').slice(0, 19);
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
@@ -63,9 +64,13 @@ export async function bookSessionInOwnedOffice(input) {
     // Generate only missing reservation weeks, before taking the room writer's lock.
     await progress('preparing');
     for (const [index, occurrence] of occurrences.entries()) {
-      if (!await reservationFor(pool, input, occurrence)) await OfficeScheduleMaterializer.materializeWeek({
-        officeLocationId: input.office.id, weekStartRaw: occurrence.date, createdByUserId: input.actorUserId,
-        reservationWindow: { ...occurrence, roomId: input.roomId } });
+      if (!await reservationFor(pool, input, occurrence)) {
+        const block = roomBlockForSession(occurrence.startAt, occurrence.endAt, timeZone);
+        await OfficeScheduleMaterializer.materializeWeek({
+          officeLocationId: input.office.id, weekStartRaw: occurrence.date, createdByUserId: input.actorUserId,
+          reservationWindow: { date: occurrence.date, startAt: block.startAt, endAt: block.endAt, roomId: input.roomId }
+        });
+      }
       await progress('preparing', index + 1);
     }
     const db = await pool.getConnection();
@@ -88,9 +93,6 @@ export async function bookSessionInOwnedOffice(input) {
       for (const occurrence of occurrences) {
         const event = await reservationFor(db, input, occurrence);
         if (!owned(event, input.providerId)) throw fail(`Your room reservation does not cover ${occurrence.date}. Choose dates and times reserved to you.`, { blockedDate: occurrence.date });
-        if (sqlTime(event.start_at) !== occurrence.startAt || sqlTime(event.end_at) !== occurrence.endAt) {
-          throw fail(`The session on ${occurrence.date} must match the selected reservation’s time. Select the matching office slot.`, { blockedDate: occurrence.date });
-        }
         const context = parse(event.session_context_json);
         const appointment = await Appointment.findByOfficeEventId(event.id);
         const resume = context.reservedSessionBookingKey === key || appointment?.source === bookingSource;
@@ -120,14 +122,17 @@ export async function bookSessionInOwnedOffice(input) {
         }
         const context = { ...row.context, agencyId: input.agencyId, clientId: input.clientId, bookingSource: 'reserved_office_session',
           reservedSessionBookingKey: key, reservedSessionBookingFrequency: input.recurrence || 'ONCE', schedulingNotes: input.notes || null, notificationMode: input.notificationMode || 'default', customReminders,
-          tenantServiceId: input.tenantServiceId || null, packageEntitlementId: input.packageEntitlementId || null };
+          tenantServiceId: input.tenantServiceId || null, packageEntitlementId: input.packageEntitlementId || null,
+          ...(sqlTime(event.start_at) !== occurrence.startAt || sqlTime(event.end_at) !== occurrence.endAt
+            ? { sessionStartAt: occurrence.startAt, sessionEndAt: occurrence.endAt } : {}),
+          othersPresentNames: input.othersPresentNames || null };
         let appointment = row.appointment;
         if (!appointment) appointment = await createAppointment({ agencyId: input.agencyId, providerUserId: input.providerId,
           startAt: `${occurrence.startAt.replace(' ', 'T')}Z`, endAt: `${occurrence.endAt.replace(' ', 'T')}Z`, timeZone,
           officeEventId: event.id, officeLocationId: input.office.id, roomId: input.roomId,
           modality: input.modality, serviceCode: input.serviceCode, serviceLocationId: input.serviceLocationId,
           addonServiceCodes: input.addonServiceCodes || [], tenantServiceId: input.tenantServiceId, packageEntitlementId: input.packageEntitlementId,
-          title: 'Client session', notes: input.notes, notificationMode: input.notificationMode || 'default', customReminders,
+          title: 'Client session', notes: input.notes, othersPresentNames: input.othersPresentNames, notificationMode: input.notificationMode || 'default', customReminders,
           source: bookingSource, createdByUserId: input.actorUserId, learningSubjectKey:input.learningSubjectKey ?? null, billing: input.billing || null,
           participants: [{ role: 'client', clientId: input.clientId, isBillingResponsible: true, receivesReminders: true }],
           ensureContext: false, deferScheduleNotice: true });
