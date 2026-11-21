@@ -61,15 +61,28 @@ it('requires client selection when a guardian has more than one child', async ()
 });
 describe('two guardian account limit', () => {
   beforeEach(() => { vi.spyOn(ClientGuardian, 'hasRelationshipTypeColumn').mockResolvedValue(true); });
+  function mockActiveGuardians(ids) {
+    db.execute.mockImplementation(async sql => {
+      if (sql.startsWith('SELECT id FROM clients')) return [[{ id: 4 }]];
+      if (sql.includes('SELECT guardian_user_id FROM client_guardians')) {
+        return [ids.map(guardian_user_id => ({ guardian_user_id }))];
+      }
+      if (sql.includes('INSERT INTO client_guardians')) return [{}];
+      return [[]];
+    });
+  }
+
   it('locks the client row and refuses a third enabled guardian', async () => {
-    db.execute.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ guardian_user_id: 9 }, { guardian_user_id: 10 }]]);
+    mockActiveGuardians([9, 10]);
     await expect(ClientGuardian.upsertLink({ clientId: 4, guardianUserId: 12, accessEnabled: true })).rejects.toMatchObject({ status: 409 });
     expect(db.execute.mock.calls[0][0]).toContain('FOR UPDATE'); expect(db.rollback).toHaveBeenCalled(); expect(db.commit).not.toHaveBeenCalled();
   });
   it('allows a second guardian and excludes the updated account from the count', async () => {
-    db.execute.mockResolvedValueOnce([[{ id: 4 }]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ guardian_user_id: 9 }]]).mockResolvedValueOnce([{}]);
+    mockActiveGuardians([9]);
     await ClientGuardian.upsertLink({ clientId: 4, guardianUserId: 10, accessEnabled: true });
-    expect(db.execute.mock.calls[2][1]).toEqual([4, 10]); expect(db.commit).toHaveBeenCalled();
+    const count = db.execute.mock.calls.find(([sql]) => sql.includes('SELECT guardian_user_id FROM client_guardians'));
+    expect(count?.[1]).toEqual([4, 10]);
+    expect(db.commit).toHaveBeenCalled();
   });
 });
 it('rejects a revoked actor with stale old membership without adding anyone to that history', async () => {
