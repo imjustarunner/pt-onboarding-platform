@@ -23422,9 +23422,14 @@ const submitRequest = async () => {
         if (!agencyId) throw new Error('Select an agency for this session.');
         const dateYmd = editorDateYmd.value;
         const timeZone = scheduleMeetingTimeZone();
-        const startAt = wallDatetimeLocalToSummaryIso(wallDatetimeFromParts(dateYmd, h, startMinute), timeZone);
-        const endAt = wallDatetimeLocalToSummaryIso(wallDatetimeFromParts(endH === 24 ? addDaysYmd(dateYmd, 1) : dateYmd, endH === 24 ? 0 : endH, endMinute), timeZone);
-        if (!startAt || !endAt) throw new Error('Choose a valid date and time for the school session.');
+        const wallStartAt = wallDatetimeFromParts(dateYmd, h, startMinute);
+        const wallEndAt = wallDatetimeFromParts(endH === 24 ? addDaysYmd(dateYmd, 1) : dateYmd, endH === 24 ? 0 : endH, endMinute);
+        const startAt = wallDatetimeLocalToSummaryIso(wallStartAt, timeZone);
+        const endAt = wallDatetimeLocalToSummaryIso(wallEndAt, timeZone);
+        if (toZonedDatetimeLocalValue(startAt, timeZone) !== wallStartAt.slice(0, 16)
+          || toZonedDatetimeLocalValue(endAt, timeZone) !== wallEndAt.slice(0, 16) || endAt <= startAt) {
+          throw new Error('Choose a valid start and end time for the school session.');
+        }
         const bookingSelection = normalizeBookingSelectionPayload();
         const titleParts = ['School session'];
         if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);

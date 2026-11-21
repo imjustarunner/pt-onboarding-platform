@@ -248,6 +248,17 @@ it('saves typed minute times for a recurring school session', async () => {
   }));
 });
 
+it('flags a nonexistent school session time when the local clock springs forward', async () => {
+  const s = await schoolClientEditor();
+  s.onEditorDateYmd('2027-03-14');
+  s.onEditorStartTime('02:15');
+  s.onEditorEndTime('03:15');
+  await flushPromises();
+  await s.submitRequest();
+  expect(s.modalError).toContain('valid start and end time');
+  expect(countCreates()).toBe(0);
+});
+
 it('keeps the reserved office when the chosen client has an assigned school', async () => {
   const s = await schoolClientEditor();
   const base = m.get.getMockImplementation();
