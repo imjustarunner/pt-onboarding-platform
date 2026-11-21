@@ -1,5 +1,6 @@
 import { previewProviderDayNote, sendProviderDayNote, markProviderSchoolDayClosed } from '../controllers/providerScheduleDay.controller.js';
 import { requireAccountAdministrator, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
+import { updateMyPersonalEmail } from '../controllers/myPersonalEmail.controller.js';
 import { getMyAccountAccess, revealMyAccountTempPassword } from '../controllers/myAccountAccess.controller.js';
 import express from 'express';
 import { checkUserLoginHelp, sendUserLoginHelp } from '../controllers/loginHelp.controller.js';
@@ -84,6 +85,7 @@ import {
 const router = express.Router();
 
 router.get('/me', authenticate, getCurrentUser);
+router.put('/me/personal-email', authenticate, updateMyPersonalEmail);
 router.get('/me/account-access', authenticate, getMyAccountAccess);
 router.post('/me/account-access/systems/:systemKey/reveal-temp-password', authenticate, revealMyAccountTempPassword);
 router.delete('/me', authenticate, deleteMe);

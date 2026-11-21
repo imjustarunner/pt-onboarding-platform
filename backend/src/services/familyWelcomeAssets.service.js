@@ -3,6 +3,7 @@ import path from 'path';
 import pool from '../config/database.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { buildIntroductionPdf } from './familyIntroductionPdf.js';
+import { redactStaffPrivateAddresses } from '../utils/staffContactAddress.js';
 import { portalProfilePath } from './familyIntroduction.logic.js';
 
 function readLogo(logoPath) {
@@ -28,9 +29,9 @@ export function providerProfileUrl(agency, provider) {
   return buildPublicAppUrl(agency, `provider/${provider.id}`);
 }
 
-export async function buildProviderIntroductionPdf({ agencyId, providerUserId, schoolId }) {
+export async function buildProviderIntroductionPdf({ agencyId, providerUserId, schoolId, mailDomain = null }) {
   const [[provider]] = await pool.execute(
-    'SELECT id, first_name, last_name, provider_school_info_blurb FROM users WHERE id = ? LIMIT 1',
+    'SELECT id, first_name, last_name, provider_school_info_blurb, email, personal_email, work_email FROM users WHERE id = ? LIMIT 1',
     [providerUserId]
   );
   const [[school]] = await pool.execute('SELECT id, name, logo_path FROM agencies WHERE id = ? LIMIT 1', [schoolId]);
@@ -55,7 +56,7 @@ export async function buildProviderIntroductionPdf({ agencyId, providerUserId, s
     schoolName: school?.name || 'Your school',
     staffNames: (staff || []).map((row) => row.name).filter((name) => name && name.trim()),
     providerName: [provider?.first_name, provider?.last_name].filter(Boolean).join(' ') || 'Your provider',
-    blurb: provider?.provider_school_info_blurb || '',
+    blurb: redactStaffPrivateAddresses(provider?.provider_school_info_blurb, provider, mailDomain),
     supervisorName: supervisor?.name || '',
     logoBytes: readLogo(school?.logo_path)
   });

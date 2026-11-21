@@ -7,12 +7,13 @@ import { assertDepartmentalGroupAccess, groupKeyForIdentity } from './department
 import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 
 /** Keep conversation ownership separate from the address used on the wire. */
-export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
+export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMessagesRoute = false, optional = false }) {
   let selected = inbox;
   if (!selected) {
     const { findPersonalInbox } = await import('./personalMailbox.service.js');
     selected = await findPersonalInbox({ agencyId, userId });
   }
+  if (!selected && optional) return null;
   if (!selected?.sender_identity_id || selected.is_active === 0 || Number(selected.agency_id) !== Number(agencyId)) {
     throw Object.assign(new Error('Select a configured work mailbox for this agency'), { status: 400 });
   }
@@ -43,6 +44,12 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
       throw Object.assign(new Error('The QA messages sender is unavailable.'), { status: 400 });
     }
     return { ...sender, inbox: selected, routing: 'shared_team' };
+  }
+  if (messages && keepMessagesRoute) {
+    if (!/^messages@[^@\s]+$/i.test(identity.from_email)) {
+      throw Object.assign(new Error('The agency Messages sender is unavailable.'), { status: 400 });
+    }
+    return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: identity.from_email, displayName: identity.display_name, routing: 'shared_team' };
   }
   if ((managedDomain(agency) || flags.googleSsoEnabled === true) && (personal || messages)) {
     // Even when messages@ was selected explicitly, use the actor's own mailbox

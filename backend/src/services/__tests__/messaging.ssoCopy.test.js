@@ -15,7 +15,7 @@ beforeEach(() => {
 it('copies the verified SSO mailbox as BCC and keeps the parent as the only To recipient', async () => {
   const bcc = await withSsoSenderCopy(input);
   expect(bcc).toBe('halle@itsco.health');
-  expect(resolveEmailSendMailbox).toHaveBeenCalledWith({ agencyId: 2, userId: 567 });
+  expect(resolveEmailSendMailbox).toHaveBeenCalledWith({ agencyId: 2, userId: 567, optional: true });
   const mime = buildMimeMessage({ to: input.to, bcc, from: input.identity.from_email, replyTo: input.identity.from_email, subject: 'Update', text: 'Hello' });
   expect(mime).toContain('To: parent@example.test\r\n');
   expect(mime).toContain('Bcc: halle@itsco.health\r\n');
@@ -44,4 +44,12 @@ it.each([{ source: 'auto' }, { generatedByUserId: null }, { identity: { ...input
 it('does not guess a copy address if account verification fails', async () => {
   resolveEmailSendMailbox.mockRejectedValue(new Error('Directory unavailable'));
   await expect(withSsoSenderCopy(input)).rejects.toThrow('Directory unavailable');
+});
+
+it('omits a private or unavailable copy while continuing the work-address send', async () => {
+  const user = await User.findById(567);
+  User.findById.mockResolvedValue({ ...user, personal_email: 'halle@itsco.health' });
+  expect(await withSsoSenderCopy(input)).toBeNull();
+  resolveEmailSendMailbox.mockResolvedValue(null);
+  expect(await withSsoSenderCopy(input)).toBeNull();
 });

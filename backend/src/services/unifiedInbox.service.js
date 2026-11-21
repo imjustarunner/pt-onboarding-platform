@@ -417,6 +417,16 @@ function normalizeAddressList(list) {
   return dedupeAddressList(raw);
 }
 
+async function resolveConversationSendMailbox(conv, inbox, userId) {
+  let keepMessagesRoute = false;
+  if (Number(conv.owner_user_id) === Number(userId) && ['messages', 'messages_at_tenant'].includes(inbox?.identity_key)) {
+    const [[link]] = await pool.execute(`SELECT 1 FROM communication_links
+      WHERE conversation_id=? AND entity_type='client' AND label='Automated school contact plan' LIMIT 1`, [conv.id]);
+    keepMessagesRoute = !!link;
+  }
+  return resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox, keepMessagesRoute });
+}
+
 export async function replyToConversation(conversationId, payload, { userId } = {}) {
   const conv = await CommunicationConversation.findById(conversationId);
   if (!conv) throw new Error('Conversation not found');
@@ -556,7 +566,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   }
 
   const subjectBase = payload.subject || conv.subject || '';
-  const senderMailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id, userId, inbox });
+  const senderMailbox = await resolveConversationSendMailbox(conv, inbox, userId);
   let subject = subjectBase;
   if (mode === 'forward' && !/^fwd:/i.test(subject)) subject = `Fwd: ${subjectBase}`;
   else if (mode !== 'forward' && !/^re:/i.test(subject)) subject = `Re: ${subjectBase}`;
@@ -698,7 +708,7 @@ async function deliverOutboundEmail({
   schoolContactDraft = null
 }) {
   if (conv.support_ticket_id) throw supportEmailError('Send this reply from the linked support ticket so its shared sender and history are preserved.', 409);
-  let mailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox });
+  let mailbox = await resolveConversationSendMailbox(conv, inbox, userId);
   if(personalReminderId) {
     const {personalReplySendMailbox}=await import('./personalThreadReminder.service.js');
     mailbox=await personalReplySendMailbox({reminderId:personalReminderId,conversationId:conv.id,inbox,userId,to,cc,bcc});

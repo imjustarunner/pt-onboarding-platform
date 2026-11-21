@@ -9973,7 +9973,7 @@ export const getAccountInfo = async (req, res, next) => {
       languagesSpoken: user.languages_spoken ?? null,
       psychologyTodayUrl: user.psychology_today_url ?? null,
       providerStartDate: toYmdDateOnly(user.provider_start_date),
-      personalEmail: personalEmail || user.personal_email || null,
+      personalEmail: user.personal_email || personalEmail || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
       personalPhone: user.personal_phone || null,
       workPhone: user.work_phone || null,

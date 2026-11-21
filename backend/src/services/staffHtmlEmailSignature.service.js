@@ -418,7 +418,7 @@ export async function resolveStaffSignatureContext({
   let userRows;
   try {
     [userRows] = await pool.execute(
-      `SELECT id, first_name, last_name, preferred_name, email, work_email, title, credential,
+      `SELECT id, first_name, last_name, preferred_name, email, work_email, personal_email, title, credential,
               work_phone, work_phone_extension, profile_photo_path,
               email_signature_path, email_signature_enabled, role
        FROM users WHERE id = ? LIMIT 1`,
@@ -426,7 +426,7 @@ export async function resolveStaffSignatureContext({
     );
   } catch {
     [userRows] = await pool.execute(
-      `SELECT id, first_name, last_name, preferred_name, email, work_email, title, credential,
+      `SELECT id, first_name, last_name, preferred_name, email, work_email, personal_email, title, credential,
               work_phone, work_phone_extension, profile_photo_path,
               email_signature_path, role
        FROM users WHERE id = ? LIMIT 1`,
@@ -481,12 +481,14 @@ export async function resolveStaffSignatureContext({
     logoUrl = staffHtmlAsset('itsco-main-logo.png', { cacheKey: '6' });
   }
 
-  const email = await resolveTenantStaffContactEmail(
+  const contactAddress = await resolveTenantStaffContactEmail(
     uid,
     agency?.id || aid,
-    u.work_email || u.email || '',
+    u.work_email || '',
     u.email || ''
   );
+  const email = String(contactAddress || '').trim().toLowerCase() === String(u.personal_email || '').trim().toLowerCase()
+    ? '' : contactAddress;
   const enabled =
     u.email_signature_enabled === undefined || u.email_signature_enabled === null
       ? true

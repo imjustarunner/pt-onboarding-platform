@@ -309,8 +309,19 @@
             </span>
           </div>
           <div class="info-item">
-            <label>Personal Email:</label>
-            <span>{{ accountInfo.personalEmail || 'Not provided' }}</span>
+            <label>Personal email</label>
+            <span v-if="!editingPersonalEmail">{{ accountInfo.personalEmail || 'Not provided' }}</span>
+            <button v-if="canEditPersonalEmail && !editingPersonalEmail" type="button" class="btn btn-secondary btn-compact" @click="editPersonalEmail">Edit personal email</button>
+            <form v-if="editingPersonalEmail" class="personal-email-form" @submit.prevent="savePersonalEmail">
+              <input v-model.trim="personalEmailDraft" type="email" required maxlength="255" autocomplete="email" aria-label="Personal email address" />
+              <div class="personal-email-actions">
+                <button class="btn btn-primary btn-compact" type="submit" :disabled="savingPersonalEmail">{{ savingPersonalEmail ? 'Saving…' : 'Save email' }}</button>
+                <button class="btn btn-secondary btn-compact" type="button" :disabled="savingPersonalEmail" @click="editingPersonalEmail = false">Cancel</button>
+              </div>
+            </form>
+            <p v-if="canEditPersonalEmail" class="hint">Private account contact. Families reply through your work messaging address.</p>
+            <p v-if="personalEmailError && editingPersonalEmail" role="alert" class="error">{{ personalEmailError }}</p>
+            <p v-if="personalEmailSaved" role="status">Personal email saved.</p>
           </div>
           <div class="info-item">
             <label>Personal Phone Number:</label>
@@ -1574,6 +1585,42 @@ const psychologyTodayError = ref('');
 
 // SSTC editable personal info
 const editingPersonalInfo = ref(false);
+const canEditPersonalEmail = computed(() => {
+  const user = authStore.user;
+  return !!user?.id && !user.demoMode && !user.switchedFromUserId &&
+    (['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'clinical_practice_assistant',
+      'intern', 'intern_plus', 'supervisor', 'schedule_manager', 'facilitator', 'tutor'].includes(user.role) ||
+      user.has_provider_access === true || Number(user.has_provider_access) === 1);
+});
+const editingPersonalEmail = ref(false);
+const personalEmailDraft = ref('');
+const savingPersonalEmail = ref(false);
+const personalEmailError = ref('');
+const personalEmailSaved = ref(false);
+
+function editPersonalEmail() {
+  personalEmailDraft.value = accountInfo.value.personalEmail || '';
+  personalEmailError.value = '';
+  personalEmailSaved.value = false;
+  editingPersonalEmail.value = true;
+}
+
+async function savePersonalEmail() {
+  if (savingPersonalEmail.value) return;
+  savingPersonalEmail.value = true;
+  personalEmailError.value = '';
+  try {
+    const { data } = await api.put('/users/me/personal-email', { personalEmail: personalEmailDraft.value });
+    accountInfo.value.personalEmail = data.personalEmail;
+    editingPersonalEmail.value = false;
+    personalEmailSaved.value = true;
+  } catch (error) {
+    personalEmailError.value = error.response?.data?.error?.message || 'Could not save your personal email. Try again.';
+  } finally {
+    savingPersonalEmail.value = false;
+  }
+}
+
 const savingPersonalInfo = ref(false);
 const personalInfoError = ref('');
 const personalInfoForm = ref({ username: '', phoneNumber: '', preferredName: '', title: '' });
@@ -2488,6 +2535,9 @@ onMounted(() => {
   color: var(--text-primary);
 }
 
+.personal-email-form { display: grid; gap: 8px; }
+.personal-email-form input { width: 100%; }
+.personal-email-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .account-info-content {
   background: white;
   border-radius: 12px;

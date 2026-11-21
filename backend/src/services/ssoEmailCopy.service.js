@@ -1,4 +1,5 @@
 import { resolveEmailSendMailbox } from './emailSendMailbox.service.js';
+import { tenantStaffWorkAddress } from '../utils/staffContactAddress.js';
 import User from '../models/User.model.js';
 import { activeMessageStaff } from './messageReminderRecipient.service.js';
 
@@ -13,10 +14,11 @@ export async function withSsoSenderCopy({ identity, generatedByUserId, source, t
   const user = await User.findById(generatedByUserId);
   const enabled = value => value === true || value === 1 || value === '1';
   if (!user || !activeMessageStaff(user) || enabled(user.sso_password_override) || enabled(user.login_is_group_email)) return bcc;
-  const mailbox = await resolveEmailSendMailbox({ agencyId: identity.agency_id, userId: generatedByUserId });
-  if (mailbox.routing !== 'workspace_user' || mailbox.fromEmail?.toLowerCase() !== identity.from_email?.toLowerCase()) return bcc;
-  const copy = String(mailbox.inbox?.from_email || '').trim().toLowerCase();
-  if (!/^[^\s<>@,;]+@[^\s<>@,;]+$/.test(copy)) throw new Error('The SSO sender copy address is unavailable');
+  const mailbox = await resolveEmailSendMailbox({ agencyId: identity.agency_id, userId: generatedByUserId, optional: true });
+  if (mailbox?.routing !== 'workspace_user' || mailbox.fromEmail?.toLowerCase() !== identity.from_email?.toLowerCase()) return bcc;
+  const domain = String(identity.from_email || '').toLowerCase().split('@')[1];
+  const copy = tenantStaffWorkAddress({ work_mailbox_email: mailbox.inbox?.from_email, personal_email: user.personal_email }, domain);
+  if (!copy) return bcc;
   if ([...addresses(to), ...addresses(cc), ...addresses(bcc)].includes(copy)) return bcc;
   return [header(bcc), copy].filter(Boolean).join(', ');
 }

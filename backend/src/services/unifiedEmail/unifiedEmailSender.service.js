@@ -1063,6 +1063,17 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  if (['school_contact_plan', 'school_contact_example'].includes(templateType)) {
+    const from = String(identity.from_email || '').toLowerCase();
+    const reply = String(replyToOverride || '').trim().toLowerCase();
+    if (!/^messages@[^@\s]+$/.test(from) || !/^messages\+[a-f0-9]{36}@[^@\s]+$/.test(reply) ||
+        reply.split('@')[1] !== from.split('@')[1] || !['messages', 'messages_at_tenant'].includes(identity.identity_key)) {
+      throw Object.assign(new Error('Family Welcome email requires a conversation reply address. Recreate the send with current routing.'), {
+        status: 409, code: 'SCHOOL_CONTACT_REPLY_ROUTE_REQUIRED'
+      });
+    }
+  }
+
   const checkManualRecipients = source === 'manual' && !!identity.agency_id;
   await guardSessionCommentNotice({ templateType, userId, agencyId:identity.agency_id, to, cc, bcc, communicationId:existingCommunicationId });
   await assertPeopleOperationsSubmissionRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});

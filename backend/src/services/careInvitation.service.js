@@ -66,11 +66,17 @@ export async function createCareInvitation(input,actorUserId) {
    [requestKey,data.agencyId,link.id,data.providerId,actorUserId,data.email,data.modality,data.officeId,assignment?.id||null,
     data.startAt?new Date(data.startAt).toISOString().slice(0,19).replace('T',' '):null,data.timeZone,data.frequency,count,data.serviceCode]);
   const id=insert.insertId,url=`https://auricwell.com/intake/${link.public_key}`;
-  const [[personal]]=await pool.execute('SELECT reply_to,from_email FROM email_sender_identities WHERE agency_id=? AND identity_key=? AND is_active=1 LIMIT 1',[data.agencyId,`personal_${data.providerId}`]);
+  const [[personal]] = await pool.execute(`SELECT sender.from_email FROM email_sender_identities sender
+    JOIN communication_inboxes inbox ON inbox.sender_identity_id=sender.id AND inbox.agency_id=sender.agency_id
+      AND inbox.kind='personal' AND inbox.is_active=1 AND LOWER(inbox.from_email)=LOWER(sender.from_email)
+    JOIN users provider ON provider.id=inbox.owner_user_id
+    WHERE sender.agency_id=? AND sender.identity_key=CONCAT('personal_',provider.id) AND provider.id=?
+      AND sender.is_active=1 AND LOWER(TRIM(sender.from_email))<>LOWER(TRIM(COALESCE(provider.personal_email,'')))
+    LIMIT 1`, [data.agencyId, data.providerId]);
   const content=careInvitationEmail({...data,agencyName:agency.name,providerName:provider.name,url});
   try {
    const result=await EmailService.sendEmail({...content,to:data.email,fromAddress:sender.from_email,fromName:`AuricWell · ${agency.name}`,
-    replyTo:personal?.reply_to||personal?.from_email||sender.reply_to||sender.from_email,source:'manual',usedFallbackSender:false,
+    replyTo:personal?.from_email||sender.reply_to||sender.from_email,source:'manual',usedFallbackSender:false,
     agencyId:data.agencyId,generatedByUserId:actorUserId,templateType:'care_invitation',linkUrl:url});
    const status=result.id&&!result.redirected?'invited':result.pendingApproval||result.queued?'pending_delivery':'delivery_review';
    await pool.execute('UPDATE care_invitations SET status=?,communication_id=? WHERE id=?',[status,result.communicationId||null,id]);

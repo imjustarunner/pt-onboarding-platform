@@ -14,7 +14,7 @@ beforeEach(()=>{vi.clearAllMocks();prior=null;m.sender.mockResolvedValue({from_e
  if(sql.includes('FROM agencies'))return [[{id:377,name:'Inner Strength',feature_flags:{insuranceVerificationTasks:{enabled:true,taskListId:20}}}]];
  if(sql.includes('CONCAT_WS'))return [[{id:501,name:'Michael Mendez'}]];
  if(sql.includes('SELECT id FROM intake_links'))return [[{id:271}]];
- if(sql.includes('email_sender_identities'))return [[{from_email:'michael@innerstrengthin.com'}]];
+ if(sql.includes('email_sender_identities'))return [[{from_email:'michael@innerstrengthin.com',reply_to:'private@example.test'}]];
  if(sql.startsWith('INSERT INTO care_invitations'))return [{insertId:8}];
  return [{affectedRows:1}];
 });});
