@@ -29,7 +29,8 @@ describe('provider booking rollout',()=>{
 it('shows the sign-in readiness gap and a real account-review link without pretending to provision identities',async()=>{
  const w=mount(ClientSessionBookingRollout,{props:{agencyId:2}});await flushPromises();
  expect(w.text()).toContain('does not create a Google Group or change Google sign-in');
- expect(w.text()).toContain('support and administrators can book on behalf');
+ expect(w.text()).toContain('support and administrators can book for eligible providers before the transition');
+ expect(w.text()).toContain('Superadmins with an active care assignment can also book their own sessions');
  expect(w.find('.rollout-provider a').attributes('href')).toBe('/admin/users/1?tab=account&section=workspace-security');
  expect(api.put).not.toHaveBeenCalled();w.unmount();
 });
