@@ -24,7 +24,8 @@ beforeAll(async () => {
     'CREATE TABLE clinical_claims(id INT PRIMARY KEY,agency_id INT,client_id INT,clinical_session_id INT,parent_claim_id INT,claim_lifecycle VARCHAR(40),claim_status VARCHAR(40),claimmd_submitted_at DATETIME,claimmd_claim_id VARCHAR(100),claimmd_connection_id VARCHAR(100),billing_revision INT,updated_at DATETIME,is_legal_hold INT DEFAULT 0,metadata_json JSON,amount_cents INT)',
     'CREATE TABLE clinical_claim_sessions(agency_id INT,clinical_session_id INT,clinical_claim_id INT)',
     'CREATE TABLE clinical_notes(id INT PRIMARY KEY,agency_id INT,clinical_session_id INT,is_legal_hold INT DEFAULT 0,provider_signed_at DATETIME,updated_at DATETIME,note_payload TEXT)',
-    'CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,clinical_session_id INT,office_event_id INT,provider_schedule_event_id INT,updated_at DATETIME)',
+    "CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,clinical_session_id INT,office_event_id INT,provider_schedule_event_id INT,updated_at DATETIME,provider_user_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(50) DEFAULT 'scheduled',source_timezone VARCHAR(64) DEFAULT 'America/Denver')",
+    'CREATE TABLE office_events(id INT PRIMARY KEY,clinical_session_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(30),booked_provider_id INT,assigned_provider_id INT)',
     'CREATE TABLE clinical_note_drafts(id INT PRIMARY KEY,user_id INT,agency_id INT,clinical_session_id INT,client_id INT,office_event_id INT,updated_at DATETIME,input_text TEXT,output_json LONGTEXT,created_at DATETIME DEFAULT \'2000-01-01 00:00:00\')',
     'CREATE TABLE claimmd_claim_events(id INT PRIMARY KEY,agency_id INT,clinical_claim_id INT,event_type VARCHAR(80))',
     'CREATE TABLE claimmd_payment_postings(id INT PRIMARY KEY,agency_id INT,clinical_claim_id INT)',
@@ -40,7 +41,7 @@ beforeAll(async () => {
   await db.execute("INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id,claim_lifecycle,claim_status,billing_revision,updated_at,metadata_json,amount_cents) VALUES (30,2,3,10,'draft','PENDING',1,'2026-11-01 20:00:00',JSON_OBJECT('originalEvidence','retained'),12500)");
   await db.execute('INSERT INTO clinical_claim_sessions VALUES (2,10,30)');
   await db.execute("INSERT INTO clinical_notes VALUES (60,2,10,0,'2026-11-01 20:00:00','2026-11-01 20:00:00','Original signed test note stays intact')");
-  await db.execute("INSERT INTO appointments VALUES (20,2,10,11,21,'2026-11-01 20:00:00'),(22,2,11,11,23,'2026-11-01 20:00:00')");
+  await db.execute("INSERT INTO appointments (id,agency_id,clinical_session_id,office_event_id,provider_schedule_event_id,updated_at,provider_user_id,start_at,end_at) VALUES (20,2,10,11,21,'2026-11-01 20:00:00',4,'2026-11-01 18:00:00','2026-11-01 19:00:00'),(22,2,11,11,23,'2026-11-01 20:00:00',4,'2026-11-01 19:00:00','2026-11-01 20:00:00')");
   await db.execute("INSERT INTO clinical_note_drafts(id,user_id,agency_id,clinical_session_id,updated_at,input_text,output_json) VALUES (40,4,2,10,'2026-11-01 20:00:00','Original authored test text','{\"sections\":{\"note\":\"retained\"}}')");
   await db.execute("INSERT INTO note_aid_work_queue_items(id,user_id,agency_id,client_id,clinical_session_id,draft_id,client_key,status,payload_enc,completed_at) VALUES (50,4,2,3,10,40,'archived_test','completed','{}','2020-01-01'),(51,4,2,3,99,NULL,'real_work','not_started','{}',NULL)");
 }, 30000);

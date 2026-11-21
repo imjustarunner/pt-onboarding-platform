@@ -7910,6 +7910,7 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
          ) OR EXISTS (
            SELECT 1 FROM client_service_enrollments cse
            WHERE cse.client_id = c.id AND cse.agency_id = ? AND cse.provider_user_id = ? AND cse.is_active = TRUE
+             AND COALESCE(cse.service_kind, '') <> 'tutoring'
          ))
        ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
       [agencyId, agencyId, userId, userId, agencyId, userId]

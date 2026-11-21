@@ -83,7 +83,7 @@ it('prepares a default synthetic school location before saving the school appoin
   m.post.mockImplementation(async (url, body) => url.includes('ensure-school') ? { data: { item: { id: 53 } } } : base(url, body));
   await s.submitRequest(); await flushPromises();
   expect(s.modalError).toBe('');
-  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ serviceLocationId: 53, modality: 'IN_PERSON' }));
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ serviceLocationId: 53, modality: 'IN_PERSON' }), { skipGlobalLoading: true });
 });
 
 it('blocks a school appointment if its default school location cannot be prepared', async () => {
@@ -102,7 +102,7 @@ it('saves one appointment, creates its own room, and keeps a clear saved confirm
   const s = await editor(); s.editorVideoRoomMode = 'my_room';
   await s.submitRequest(); await flushPromises();
   expect(s.modalError).toBe(''); expect(countCreates()).toBe(1);
-  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ videoRoomMode: 'unique_session', startAt: '2026-11-19T17:00:00' }));
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ videoRoomMode: 'unique_session', startAt: '2026-11-19T17:00:00' }), { skipGlobalLoading: true });
   expect(m.get.mock.calls.some(([url]) => url === '/my-room/me')).toBe(false);
   expect(wrapper.get('[data-testid="virtual-session-booked"]').text()).toContain('Session scheduled');
   expect(wrapper.find('[data-testid="appointment-workspace"]').exists()).toBe(false);
@@ -174,7 +174,7 @@ it.each(['provider','provider_plus','clinical_practice_assistant','admin','suppo
   const s = await editor({ mode: role === 'provider' ? 'self' : 'admin' });
   await s.submitRequest(); await flushPromises();
   expect(s.modalError).toBe('');
-  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({providerUserId:7,timeZone:'America/Denver',startAt:'2026-11-19T17:00:00',videoRoomMode:'unique_session'}));
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({providerUserId:7,timeZone:'America/Denver',startAt:'2026-11-19T17:00:00',videoRoomMode:'unique_session'}), { skipGlobalLoading: true });
   expect(s.cellBlocks('Thursday',17,0).some(block => block.appointmentId === 41)).toBe(true);
   expect(countCreates()).toBe(1);
 });
@@ -191,7 +191,7 @@ it('records a past virtual appointment quietly and closes its saved receipt', as
   expect(s.modalError).toBe('');
   expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
     startAt: '2026-11-16T17:00:00', sendBookingNotice: false, notificationMode: 'off', videoRoomMode: 'none'
-  }));
+  }), { skipGlobalLoading: true });
   expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment'))).toHaveLength(0);
   expect(wrapper.get('[data-testid="virtual-session-booked"]').text()).toContain('Past session recorded');
   await wrapper.findAll('button').find(button => button.text() === 'Done').trigger('click');
@@ -226,7 +226,7 @@ it('keeps confirmation, reminders, and video choices independent for an upcoming
   expect(s.modalError).toBe('');
   expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
     sendBookingNotice: false, notificationMode: 'off', videoRoomMode: 'none'
-  }));
+  }), { skipGlobalLoading: true });
   expect(m.post.mock.calls.filter(([url]) => url.includes('/from-appointment'))).toHaveLength(0);
   expect(wrapper.text()).toContain('Session scheduled');
 });
@@ -245,7 +245,7 @@ it('saves typed minute times for a recurring school session', async () => {
   expect(s.modalError).toBe('');
   expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({
     startAt: '2026-11-20T00:07:00.000Z', endAt: '2026-11-20T00:39:00.000Z', recurrence: 'WEEKLY', occurrenceCount: 3, modality: 'IN_PERSON'
-  }));
+  }), { skipGlobalLoading: true });
 });
 
 it('flags a nonexistent school session time when the local clock springs forward', async () => {
@@ -333,7 +333,7 @@ it('adds a guardian from the selected account and preserves a written name', asy
   expect(s.editorLinkedGuardians.map(person => person.userId)).toEqual([14]);
   s.addEditorLinkedGuardian({ target: { value: 'Linked Parent' } });
   await s.submitRequest();
-  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ othersPresentNames: 'Family friend, Linked Parent' }));
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ othersPresentNames: 'Family friend, Linked Parent' }), { skipGlobalLoading: true });
 });
 
 it('offers tutoring only for the selected provider’s authorized services in this agency', async () => {
