@@ -75,7 +75,7 @@ async function getProviderAffiliationContext(providerUserId) {
            THEN 'school' ELSE 'agency' END) AS organization_type
      FROM agencies a
      JOIN user_agencies ua ON ua.agency_id = a.id
-     WHERE ua.user_id = ?`,
+     WHERE ua.user_id = ? AND COALESCE(ua.is_active, 1) = 1`,
     [providerUserId]
   );
   const directList = Array.isArray(directRows) ? directRows : [];

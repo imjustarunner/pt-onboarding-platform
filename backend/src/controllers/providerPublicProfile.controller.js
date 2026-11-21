@@ -123,6 +123,44 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
   }
 };
 
+export const upsertUserProviderSchoolBiography = async (req, res, next) => {
+  try {
+    const userId = parseIntSafe(req.params.id);
+    const schoolId = parseIntSafe(req.body?.schoolId);
+    if (!userId || userId < 1 || !schoolId || schoolId < 1) return res.status(400).json({ error: { message: 'A user and affiliated school are required.' } });
+    if (Object.keys(req.body || {}).some(key => !['schoolId', 'schoolBlurb'].includes(key))
+      || !Object.hasOwn(req.body || {}, 'schoolBlurb')
+      || (req.body.schoolBlurb !== null && typeof req.body.schoolBlurb !== 'string')
+      || String(req.body.schoolBlurb || '').length > 4000) {
+      return res.status(400).json({ error: { message: 'Only the school biography may be saved here, up to 4,000 characters.' } });
+    }
+    const isSelf = Number(req.user?.id) === userId;
+    if (!isSelf && !canManageProfile(req.user?.role)) return res.status(403).json({ error: { message: 'You may edit only your own biography.' } });
+    if (!isSelf && req.user?.role !== 'super_admin') {
+      const agencies = await User.getAgencies(req.user.id);
+      if (!(agencies || []).some(agency => Number(agency.id) === schoolId)) return res.status(403).json({ error: { message: 'Access to this school is required.' } });
+    }
+    // Check direct school membership or an active provider assignment. Agency-wide
+    // administrative access by itself is not a school affiliation for the target.
+    const [affiliations] = await pool.execute(
+      `SELECT s.id FROM agencies s WHERE s.id = ? AND COALESCE(s.is_archived, 0) = 0
+       AND (LOWER(TRIM(COALESCE(s.organization_type, ''))) = 'school'
+         OR (TRIM(COALESCE(s.organization_type, '')) = '' AND EXISTS (
+           SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id = s.id AND oa.is_active = TRUE)))
+       AND (EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id = ? AND ua.agency_id = s.id AND COALESCE(ua.is_active, 1) = 1)
+         OR EXISTS (SELECT 1 FROM provider_school_assignments psa WHERE psa.provider_user_id = ? AND psa.school_organization_id = s.id AND psa.is_active = TRUE))
+       LIMIT 1`, [schoolId, userId, userId]
+    );
+    if (!affiliations.length) return res.status(403).json({ error: { message: 'An active school affiliation is required to edit the school biography.' } });
+    const schoolBlurb = String(req.body.schoolBlurb || '').trim();
+    const updated = await User.update(userId, { providerSchoolInfoBlurb: schoolBlurb || null });
+    if (!updated) return res.status(404).json({ error: { message: 'Provider not found.' } });
+    res.json({ ok: true, userId, schoolId, schoolBlurb });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAgencyProviderPortalSettings = async (req, res, next) => {
   try {
     const agencyId = parseIntSafe(req.params.agencyId);

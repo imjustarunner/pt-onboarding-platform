@@ -522,7 +522,7 @@
                 icon="globe"
                 title="Public Provider Profile"
                 subtitle="Agency Finder card details visible to the public."
-                :can-edit="canEditUser"
+                :can-edit="biographyPermissions.canEditPublic"
                 :editing="editingProviderPublicProfile"
                 :saving="providerPublicProfileSaving"
                 edit-label="Edit"
@@ -544,7 +544,7 @@
                         rows="4"
                         maxlength="4000"
                         placeholder="Tell clients about your approach, experience, and who you work with."
-                        :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
+                        :disabled="!biographyPermissions.canEditPublic || providerPublicProfileSaving || !editingProviderPublicProfile"
                       />
                       <span class="acct-blurb-count">{{ (providerPublicBlurb || '').length }} / 4,000 characters</span>
                       <div v-for="(label, key) in {languages:'Languages spoken',locations:'Public service locations (city or practice name)',sessionFormats:'In-person / virtual (In person / Telehealth)'}" :key="key" style="margin-top:16px">
@@ -2075,7 +2075,7 @@
                     </label>
                   </div>
 
-                  <div class="aff-blurb card">
+                  <div v-if="activeAffiliationOrgType === 'school' && biographyPermissions.hasSchool" class="aff-blurb card">
                     <div
                       class="aff-blurb-head"
                       @click="providerSchoolBlurbExpanded = !providerSchoolBlurbExpanded"
@@ -2090,7 +2090,7 @@
                           class="btn btn-primary btn-sm"
                           type="button"
                           @click="saveProviderSchoolBlurb"
-                          :disabled="!canEditUser || providerSchoolBlurbSaving"
+                          :disabled="!biographyPermissions.canEditSchool || providerSchoolBlurbSaving"
                         >
                           {{ providerSchoolBlurbSaving ? 'Saving…' : 'Save' }}
                         </button>
@@ -2101,10 +2101,11 @@
                       <textarea
                         v-model="providerSchoolBlurb"
                         rows="3"
+                        maxlength="4000"
                         placeholder="Short blurb shown in the school portal provider profile."
-                        :disabled="!canEditUser || providerSchoolBlurbSaving"
+                        :disabled="!biographyPermissions.canEditSchool || providerSchoolBlurbSaving"
                       />
-                      <small class="form-help">Shown under “Provider info” for all schools. Keep this non-PHI.</small>
+                      <small class="form-help">Shown for all your affiliated schools. Leave blank to use your website biography. Keep this non-PHI.</small>
                     </div>
                   </div>
 
@@ -2768,6 +2769,7 @@ import { VALID_EMPLOYEE_STATUSES, RESTRICTED_ROLE_STATUSES } from '../../utils/s
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useProfileOverview } from '../../composables/useProfileOverview.js';
 import UserOverviewTab from '../../components/admin/UserOverviewTab.vue';
+import { providerBiographyPermissions, saveSchoolBiography } from '../../utils/providerBiography.js';
 import AcceptedInsuranceBadges from '../../components/admin/AcceptedInsuranceBadges.vue';
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
@@ -4100,6 +4102,7 @@ const canRequireSkillBuilderConfirmNextLogin = computed(() => {
 const schoolAffiliationsLoading = ref(false);
 const schoolAffiliationsError = ref('');
 const schoolAffiliations = ref([]);
+const biographyPermissions = computed(() => providerBiographyPermissions(authStore.user, userId.value, schoolAffiliations.value));
 const selectedSchoolAffiliationId = ref('');
 const affiliationsForActiveTab = computed(() => {
   const type = activeAffiliationOrgType.value;
@@ -4387,12 +4390,12 @@ const syncProviderSchoolBlurbFromUser = () => {
 };
 
 const saveProviderSchoolBlurb = async () => {
-  if (!userId.value) return;
+  if (!userId.value || !biographyPermissions.value.canEditSchool) return;
   try {
     providerSchoolBlurbSaving.value = true;
     providerSchoolBlurbError.value = '';
-    await api.put(`/users/${userId.value}`, {
-      providerSchoolInfoBlurb: providerSchoolBlurb.value || null
+    await saveSchoolBiography(api, {
+      userId: userId.value, schoolId: Number(selectedSchoolAffiliationId.value), schoolBlurb: providerSchoolBlurb.value
     });
     await fetchUser();
     syncProviderSchoolBlurbFromUser();

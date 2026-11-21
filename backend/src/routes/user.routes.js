@@ -34,6 +34,7 @@ import {
   putUserClinicalFocus,
   getUserProviderPublicProfile,
   upsertUserProviderPublicProfile,
+  upsertUserProviderSchoolBiography,
   getAgencyProviderPortalSettings,
   upsertAgencyProviderPortalSettings
 } from '../controllers/providerPublicProfile.controller.js';
@@ -144,6 +145,7 @@ router.get('/:id/provider-clinical-focus', authenticate, getUserClinicalFocus);
 router.put('/:id/provider-clinical-focus', authenticate, putUserClinicalFocus);
 router.get('/:id/provider-public-profile', authenticate, getUserProviderPublicProfile);
 router.put('/:id/provider-public-profile', authenticate, upsertUserProviderPublicProfile);
+router.put('/:id/provider-school-biography', authenticate, upsertUserProviderSchoolBiography);
 router.get('/:userId/agencies/:agencyId/practice-categories', authenticate, getUserAgencyPracticeCategories);
 router.put('/:userId/agencies/:agencyId/practice-categories', authenticate, putUserAgencyPracticeCategories);
 router.post('/:userId/agencies/:agencyId/practice-categories/:category', authenticate, postUserAgencyPracticeCategory);

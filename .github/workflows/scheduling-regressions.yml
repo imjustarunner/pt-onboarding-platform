@@ -345,6 +345,7 @@ jobs:
         working-directory: frontend
         run: >-
           npm test --
+          src/utils/__tests__/providerBiography.test.js
           src/components/admin/__tests__/ClientSessionBookingRollout.test.js
           src/components/meetings/__tests__/DashboardInvitationToasts.test.js
           src/components/provider/__tests__/ProviderEnrollmentWaitlist.test.js
