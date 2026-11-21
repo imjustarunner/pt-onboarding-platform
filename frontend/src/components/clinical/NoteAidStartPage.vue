@@ -8,14 +8,6 @@
       <p v-else>Open a session from My Work or the client’s to-do list to document it.</p>
     </div>
 
-    <router-link v-if="therapyNotesGeneratorPath" :to="therapyNotesGeneratorPath" class="na-start-generator">
-      <span class="na-start-generator__badge">Temporary · Copy into TherapyNotes</span>
-      <strong>THERAPY NOTES AI NOTE GENERATOR</strong>
-      <span>Choose a generator → type or dictate → generate → quick copy</span>
-      <small>Save unlinked notes by client name and date of service to copy again later.</small>
-      <b>Open Therapy Notes generator →</b>
-    </router-link>
-
     <div class="na-start-actions">
       <button v-if="!sessionLinkedOnly" type="button" class="na-start-btn na-start-btn--primary" @click="$emit('create')">
         <span class="na-start-btn-icon" aria-hidden="true">+</span>
@@ -93,7 +85,6 @@
 defineProps({
   heading: { type: String, default: '' },
   description: { type: String, default: '' },
-  therapyNotesGeneratorPath: { type: String, default: '' },
   sessionLinkedOnly: { type: Boolean, default: false },
   hasNextInProgress: { type: Boolean, default: false },
   hasNextInQueue: { type: Boolean, default: false }
@@ -103,11 +94,6 @@ defineEmits(['create', 'next-in-progress', 'next-in-queue']);
 </script>
 
 <style scoped>
-.na-start-generator{box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;padding:30px 24px;border:2px solid #b48a36;border-radius:16px;background:#fffaf0;color:#203d56;text-decoration:none;text-align:center;box-shadow:0 8px 24px rgba(104,77,18,.08)}
-.na-start-generator:hover{border-color:#8c641a;background:#fff6df}.na-start-generator:focus-visible{outline:3px solid #2369a3;outline-offset:4px}
-.na-start-generator strong{font-size:1.3rem;line-height:1.4}.na-start-generator>span:not(.na-start-generator__badge){font-size:.95rem;line-height:1.5}
-.na-start-generator__badge{font-size:.75rem;font-weight:700;color:#806022}.na-start-generator small{font-size:.85rem;color:#52677b;line-height:1.5}
-.na-start-generator b{display:block;padding:12px 20px;background:#2367a4;color:white;border-radius:8px;font-size:.9rem}
 .na-start {
   max-width: 920px;
   margin: 0 auto;

@@ -1,5 +1,3 @@
-// Mirrors frontend/src/config/therapyNotesQuickGenerator.js.
-import { ITSCO_AGENCY_ID, NLU_AGENCY_ID } from '../config/sessionRecordingAccess.js';
 import { CLINICAL_NOTE_AGENT_TOOLS } from '../config/clinicalNoteAgentTools.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
@@ -30,12 +28,9 @@ export function assertQuickCopyStaff(user) {
 }
 
 export function therapyNotesQuickGeneratorEnabled(agency, settings = []) {
-  const slug = String(agency?.slug || '').trim().toLowerCase();
-  const supported = [ITSCO_AGENCY_ID, NLU_AGENCY_ID].includes(Number(agency?.id))
-    || (slug ? ['itsco', 'nlu'].includes(slug)
-      : /^(itsco|next level up(?:,? llc)?|nlu)$/i.test(String(agency?.name || '').trim()));
+  if (!agency) return false;
   const setting = settings.find(row => (row.catalog_aid_id || row.catalogAidId) === THERAPY_NOTES_QUICK_COPY_ID);
-  return supported && (!setting || [true, 1, '1'].includes(setting.enabled));
+  return !setting || [true, 1, '1'].includes(setting.enabled);
 }
 
 export function assertQuickCopyHasNoChartContext(body) {

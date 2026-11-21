@@ -162,6 +162,29 @@ describe('separate saved Therapy Notes generator', () => {
     expect(ClinicalNoteDraft.create).toHaveBeenCalledTimes(1);expect(ClinicalNoteDraft.updateForUser).toHaveBeenCalledWith(expect.objectContaining({draftId:42,userId:501}));
   });
 
+  it.each([
+    { id: 6, slug: 'nlu' },
+    { id: 19, slug: 'another-practice' }
+  ])('opens the writer for an authorized provider in $slug after scheduling is enabled', async agency => {
+    User.getAgencies.mockResolvedValueOnce([agency]);
+    Agency.findById.mockResolvedValueOnce({
+      ...agency,
+      feature_flags: { clientSessionBookingRollout: { entries: [{ providerUserId: 501, enabled: true }] } }
+    });
+    const req = request(), res = response();
+    req.user.role = 'provider';
+    req.body.agencyId = agency.id;
+    await getTherapyNotesQuickCopyCatalog(req, res, vi.fn());
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+
+  it('requires the requested organization to exist', async () => {
+    Agency.findById.mockResolvedValueOnce(null);
+    const res = response();
+    await getTherapyNotesQuickCopyCatalog(request(), res, vi.fn());
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
   it('enforces the disable switch before invoking AI or reading note content', async () => {
     NoteAidAgencyCatalog.listSettings.mockResolvedValue([{ catalog_aid_id: THERAPY_NOTES_QUICK_COPY_ID, enabled: 0 }]);
     const res = response();await generateTherapyNotesQuickCopy(request(), res, vi.fn());

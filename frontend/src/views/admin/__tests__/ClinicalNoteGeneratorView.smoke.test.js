@@ -47,10 +47,14 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     vi.mocked(api.get).mockReset().mockResolvedValue({ data: {} });
   });
 
-  async function workspace(aid = 'psychotherapy', { realFrame = false, realWriterChooser = false, preserveSelection = false, query = {}, demoPresentation = null } = {}) {
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/note-aid', component: View }] });
-    await router.push({ path: '/note-aid', query });
-    const wrapper = shallowMount(View, { props: { demoPresentation }, global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' }, NarrivaModeChooser: realWriterChooser ? false : true } } });
+  async function workspace(aid = 'psychotherapy', { realFrame = false, realWriterChooser = false, preserveSelection = false, query = {}, demoPresentation = null, organizationSlug = '' } = {}) {
+    const prefix = organizationSlug ? '/:organizationSlug' : '';
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: `${prefix}/note-aid`, component: View },
+      { path: `${prefix}/therapy-notes-generator`, component: { template: '<div />' } }
+    ] });
+    await router.push({ path: `${organizationSlug ? `/${organizationSlug}` : ''}/note-aid`, query });
+    const wrapper = shallowMount(View, { props: { demoPresentation }, global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' }, NarrivaModeChooser: realWriterChooser ? false : true, RouterLink: false } } });
     await flushPromises();
     const state = wrapper.vm.$.setupState;
     state.derivedTier = 'intern_plus';
@@ -62,20 +66,40 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     return { wrapper, state, router };
   }
 
-  it('routes the temporary central generator entry away from the clinical editor and honors its disable switch', async () => {
-    const { wrapper, state } = await workspace('');
+  function mockWriterAccess({ enabled = true, individualSchedulingEnabled = true } = {}) {
+    vi.mocked(api.get).mockImplementation(async (url) => ({
+      data: url === '/clinical-notes/context' ? {
+        therapyNotesQuickCopyEnabled: enabled, individualSchedulingEnabled
+      } : {}
+    }));
+  }
+
+  it.each([['nlu', true], ['', false]])('opens the writer from the toolbar for %s with scheduling enabled=%s', async (organizationSlug, individualSchedulingEnabled) => {
+    mockWriterAccess({ individualSchedulingEnabled });
+    const { wrapper, router } = await workspace('', { organizationSlug });
     try {
-      expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).props('therapyNotesGeneratorPath')).toBe('/therapy-notes-generator');
+      const path = `${organizationSlug ? `/${organizationSlug}` : ''}/therapy-notes-generator`;
+      const link = wrapper.get(`.na-topbar-actions a[href="${path}"]`);
+      expect(link.text()).toBe('Therapy Notes AI Writer');
+      expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).exists()).toBe(true);
       expect(wrapper.findComponent({ name: 'TherapyNotesQuickGenerator' }).exists()).toBe(false);
-      state.agencyNoteAidCatalog = { settings: [{ catalog_aid_id: 'temporary_therapy_notes_quick_copy', enabled: 0 }], assignments: [], customAids: [] };
-      await nextTick();
-      expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).props('therapyNotesGeneratorPath')).toBe('');
+      await link.trigger('click');
+      await flushPromises();
+      expect(router.currentRoute.value.path).toBe(path);
     } finally { wrapper.unmount(); }
   });
 
-  it('keeps the temporary generator entry out of the demonstration workspace', async () => {
+  it('honors disabled writer access in the toolbar', async () => {
+    mockWriterAccess({ enabled: false });
+    const { wrapper } = await workspace('');
+    try { expect(wrapper.find('.na-topbar-actions a[href="/therapy-notes-generator"]').exists()).toBe(false); }
+    finally { wrapper.unmount(); }
+  });
+
+  it('keeps the writer button out of the demonstration workspace', async () => {
+    mockWriterAccess();
     const { wrapper } = await workspace('', { demoPresentation: { heading: 'Example workspace' } });
-    try { expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).props('therapyNotesGeneratorPath')).toBe(''); }
+    try { expect(wrapper.find('.na-topbar-actions a[href="/therapy-notes-generator"]').exists()).toBe(false); }
     finally { wrapper.unmount(); }
   });
 

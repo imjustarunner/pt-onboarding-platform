@@ -2,11 +2,11 @@
   <ClinicalWorkspaceFrame immersive hide-header :tenant-id="agencyStore.currentAgency?.id">
   <div class="tng-page auricwell-surface">
     <header class="tng-page__header">
-      <div class="tng-page__brand"><img :src="AURICWELL_MARK_URL" alt="" /><div><strong>AuricWell</strong><h1>THERAPY NOTES AI NOTE GENERATOR</h1></div></div>
+      <div class="tng-page__brand"><img :src="AURICWELL_MARK_URL" alt="" /><div><strong>AuricWell</strong><h1>{{ THERAPY_NOTES_QUICK_COPY_TITLE }}</h1></div></div>
       <div class="tng-page__nav"><span class="tng-page__tenant">{{ agencyStore.currentAgency?.name || 'Note Workspace' }}</span><router-link :to="workspacePath">← Note Workspace</router-link></div>
     </header>
-    <TherapyNotesQuickGenerator v-if="agencyStore.currentAgency && supportsTherapyNotesQuickGenerator(agencyStore.currentAgency)" ref="generator" :key="agencyStore.currentAgency.id" :agency="agencyStore.currentAgency" />
-    <p v-else class="tng-page__empty">Select ITSCO or NLU to use the temporary Therapy Notes generator.</p>
+    <TherapyNotesQuickGenerator v-if="agencyStore.currentAgency?.id" ref="generator" :key="agencyStore.currentAgency.id" :agency="agencyStore.currentAgency" />
+    <p v-else class="tng-page__empty">Select an organization to use the Therapy Notes AI Writer.</p>
   </div>
   </ClinicalWorkspaceFrame>
 </template>
@@ -15,7 +15,7 @@ import { computed, ref } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import TherapyNotesQuickGenerator from '../components/clinical/TherapyNotesQuickGenerator.vue';
-import { supportsTherapyNotesQuickGenerator } from '../config/therapyNotesQuickGenerator.js';
+import { THERAPY_NOTES_QUICK_COPY_TITLE } from '../config/therapyNotesQuickGenerator.js';
 import ClinicalWorkspaceFrame from '../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { AURICWELL_MARK_URL } from '../constants/auricwellBrand.js';
 const agencyStore = useAgencyStore(), route = useRoute();

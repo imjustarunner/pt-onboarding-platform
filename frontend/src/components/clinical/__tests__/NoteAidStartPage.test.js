@@ -2,24 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import NoteAidStartPage from '../NoteAidStartPage.vue';
 
-const mountStart = props => mount(NoteAidStartPage, { props, global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } });
-
-describe('Note Workspace temporary generator entry', () => {
-  it('places the prominent central generator link before the existing workspace actions', () => {
-    const wrapper = mountStart({ therapyNotesGeneratorPath: '/nlu/therapy-notes-generator' });
-    const entry = wrapper.find('.na-start-generator');
-    expect(entry.attributes('href')).toBe('/nlu/therapy-notes-generator');
-    expect(entry.text()).toContain('THERAPY NOTES AI NOTE GENERATOR');
-    expect(wrapper.html().indexOf('na-start-generator')).toBeLessThan(wrapper.html().indexOf('na-start-actions'));
-    expect(wrapper.findAll('.na-start-actions button')).toHaveLength(3);
-    expect(wrapper.text()).toContain('Choose a session to document');
-    wrapper.unmount();
-  });
-
-  it('removes only the temporary link when it is disabled', () => {
-    const wrapper = mountStart({ therapyNotesGeneratorPath: '' });
-    expect(wrapper.find('.na-start-generator').exists()).toBe(false);
-    expect(wrapper.findAll('.na-start-actions button')).toHaveLength(3);
-    wrapper.unmount();
+describe('Note Workspace start page', () => {
+  it('keeps session documentation and the two queue actions available', async () => {
+    const wrapper = mount(NoteAidStartPage, { props: { hasNextInProgress: true, hasNextInQueue: true } });
+    try {
+      const [create, inProgress, queued] = wrapper.findAll('.na-start-actions button');
+      expect(create.text()).toContain('Choose a session to document');
+      await create.trigger('click');
+      await inProgress.trigger('click');
+      await queued.trigger('click');
+      expect(wrapper.emitted('create')).toHaveLength(1);
+      expect(wrapper.emitted('next-in-progress')).toHaveLength(1);
+      expect(wrapper.emitted('next-in-queue')).toHaveLength(1);
+    } finally { wrapper.unmount(); }
   });
 });

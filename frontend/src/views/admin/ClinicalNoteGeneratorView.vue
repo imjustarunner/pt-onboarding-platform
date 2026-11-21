@@ -14,6 +14,9 @@
       <div class="na-topbar-actions">
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/dashboard')">My Dashboard</router-link>
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/tasks')">Tasks</router-link>
+      <router-link v-if="therapyNotesWriterPath" class="na-archive-btn na-nav-link" :to="therapyNotesWriterPath">
+        {{ THERAPY_NOTES_QUICK_COPY_TITLE }}
+      </router-link>
       <div class="na-topbar-counts" aria-live="polite">
         <span v-if="workQueueTodoCount"><strong>{{ workQueueTodoCount }}</strong> to do</span>
         <span v-if="(workQueueTodoCount) && inProgressDraftCount" class="na-topbar-counts__sep" aria-hidden="true">·</span>
@@ -198,7 +201,6 @@
         <NoteAidStartPage
           :heading="demoPresentation?.heading || ''"
           :description="demoPresentation?.description || ''"
-          :therapy-notes-generator-path="!demoPresentation && individualSchedulingEnabled === false && therapyNotesQuickGeneratorEnabled(agencyStore.currentAgency, agencyNoteAidCatalog.settings) ? therapyNotesQuickGeneratorPath(route.params.organizationSlug) : ''"
           :session-linked-only="demoLinkedWorkspace"
           :has-next-in-progress="!!nextInProgressRow"
           :has-next-in-queue="!!nextInQueueItem"
@@ -1568,7 +1570,7 @@
 
 <script setup>
 import {progressContextSections} from '../../utils/narrivaProgressContext.js';
-import { therapyNotesQuickGeneratorEnabled, therapyNotesQuickGeneratorPath } from '../../config/therapyNotesQuickGenerator.js';
+import { THERAPY_NOTES_QUICK_COPY_TITLE, therapyNotesQuickGeneratorPath } from '../../config/therapyNotesQuickGenerator.js';
 import ClinicalNoteSupervisorReview from '../../components/clinical/ClinicalNoteSupervisorReview.vue';
 import ClientAlertDialog from '../../components/clients/ClientAlertDialog.vue';
 import ClinicalNoteReviewRequests from '../../components/clinical/ClinicalNoteReviewRequests.vue';
@@ -3240,7 +3242,15 @@ const narrivaPreferenceSaving = ref(false), narrivaPreferenceError = ref('');
 let narrivaModeTouched = false;
 const narrivaConsentConfirmed = ref(false), narrivaModality = ref('');
 const narrivaClientLocationDescription = ref('');
-const therapyNotesWriterOnly = ref(false);
+const therapyNotesWriterPolicy = ref(null);
+const therapyNotesWriterAvailable = computed(() => (
+  canUseTool.value && therapyNotesWriterPolicy.value?.agencyId === currentAgencyId.value
+));
+const therapyNotesWriterOnly = computed(() => therapyNotesWriterAvailable.value && therapyNotesWriterPolicy.value?.writerOnly);
+const therapyNotesWriterPath = computed(() => {
+  if (props.demoPresentation || demoLinkedWorkspace.value || !therapyNotesWriterAvailable.value) return '';
+  return therapyNotesQuickGeneratorPath(route.params.organizationSlug);
+});
 const individualSchedulingEnabled = ref(null);
 const narrivaGeneratorMappings = ref({}), narrivaMappingsLoaded = ref(false), narrivaMappingError = ref('');
 let narrivaMappingRequest = 0;
@@ -5416,7 +5426,9 @@ const loadContext = async () => {
       timeout: 15000
     });
     if(requestId!==contextRequestSequence || agencyId!==currentAgencyId.value)return;
-    therapyNotesWriterOnly.value = res?.data?.therapyNotesWriterOnly === true;
+    therapyNotesWriterPolicy.value = res?.data?.therapyNotesQuickCopyEnabled === true
+      ? { agencyId, writerOnly: res.data.therapyNotesWriterOnly === true }
+      : null;
     individualSchedulingEnabled.value = res?.data?.individualSchedulingEnabled === true;
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
@@ -5429,7 +5441,8 @@ const loadContext = async () => {
     await refreshPayerServiceChoices();
     await loadNarrivaGeneratorMappings();
   } catch (e) {
-    if(requestId!==contextRequestSequence)return;
+    if(requestId!==contextRequestSequence || agencyId!==currentAgencyId.value)return;
+    therapyNotesWriterPolicy.value = null;
     contextError.value = e.response?.data?.error?.message || 'Failed to load user context';
     providerCredentialText.value = '';
     derivedTier.value = 'unknown';
@@ -10243,11 +10256,9 @@ watch([canUseTool, isRecordSessionIntent], ([enabled, recordIntent]) => {
 });
 
 watch(currentAgencyId, async (next, prev) => {
-  // Ignore initial assignment and null flickers during agency store refresh.
-  if (!next || prev == null) return;
-  if (String(next) === String(prev)) return;
-  // Keep the open note; only refresh the multi-tenant library for the new workspace context.
-  await loadRecent();
+  if (!next || String(next) === String(prev)) return;
+  // Keep the open note while reloading access and the library for the new organization.
+  await Promise.all([loadContext(), loadRecent()]);
 });
 
 watch(clinicalNoteGeneratorEnabled, async (enabled, wasEnabled) => {
