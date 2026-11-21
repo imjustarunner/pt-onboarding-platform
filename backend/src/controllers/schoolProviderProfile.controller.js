@@ -1,6 +1,7 @@
 import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
 import { fillPublicProviderBlurbs } from '../services/schoolProviderBlurb.service.js';
+import { fillAgencyProviderContactEmails } from '../services/schoolProviderContact.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClientSchoolStaffRoiAccess, {
@@ -382,6 +383,9 @@ export const getProviderSchoolProfile = async (req, res, next) => {
     }
 
     const activeAgencyId = await getActiveAgencyIdForSchool(schoolId);
+    const [providerContact] = await fillAgencyProviderContactEmails([
+      { provider_user_id: u.id, email: u.email }
+    ], activeAgencyId);
     let tenantContactPhone = null;
     let tenantContactPhoneExtension = null;
     if (activeAgencyId) {
@@ -522,7 +526,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       provider_user_id: u.id,
       first_name: u.first_name || null,
       last_name: u.last_name || null,
-      email: u.email || null,
+      email: providerContact.email || null,
       title: u.title || null,
       credential: credential ? String(credential) : null,
       service_focus: u.service_focus || null,

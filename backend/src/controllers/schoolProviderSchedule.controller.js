@@ -1,6 +1,7 @@
 import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
 import { fillPublicProviderBlurbs } from '../services/schoolProviderBlurb.service.js';
+import { fillAgencyProviderContactEmails } from '../services/schoolProviderContact.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
@@ -639,6 +640,11 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
 
     const providers = Array.from(byProvider.values());
     await fillPublicProviderBlurbs(providers);
+    if (providers.length) {
+      const agencyId = (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolId))
+        || (await AgencySchool.getActiveAgencyIdForSchool(schoolId));
+      await fillAgencyProviderContactEmails(providers, agencyId);
+    }
     if (access.supervisorLimited) {
       const superviseeIds = new Set(await getSupervisorSuperviseeIds(req.user?.id, null));
       return res.json(providers.filter((p) => superviseeIds.has(Number(p.provider_user_id))));
