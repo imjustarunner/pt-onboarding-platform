@@ -1,5 +1,5 @@
 import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
-import { isDemoExchangeListing, isDemoExchangeClient } from '../services/clientExchangeDemo.service.js';
+import { isDemoExchangeListing } from '../services/clientExchangeDemo.service.js';
 import { exchangeStaffRole, exchangeNavigationCounts } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { createExchangeReferral } from '../services/clientExchangeReferral.service.js';
@@ -360,7 +360,8 @@ export async function listRecentlyReferredClients(req, res, next) {
     }
     const windowDays = safeInt(req.query.windowDays) || 30;
     const clients = await ClientExchange.listPendingAcceptanceClients({ agencyId, windowDays });
-    const visible=canViewDemoExchange(req.user.role)?clients:(await Promise.all(clients.map(async c=>await isDemoExchangeClient({clientId:c.client_id||c.id,agencyId})?null:c))).filter(Boolean);
+    const demo = canViewDemoExchange(req.user.role) ? String(req.query.demo || 'exclude') : 'exclude';
+    const visible = clients.filter(client => demo === 'all' || client.isDemo === (demo === 'only'));
     res.json({ clients:visible });
   } catch (e) {
     next(e);
@@ -381,7 +382,8 @@ export async function listPendingOfficeClients(req, res, next) {
       return res.status(403).json({ error: { message: 'Support/admin access required' } });
     }
     const clients = await ClientExchange.listPendingOfficeClients({ agencyId, includeSchool: req.query.includeSchool === 'true' || req.query.includeSchool === '1' });
-    const visible=canViewDemoExchange(req.user.role)?clients:(await Promise.all(clients.map(async c=>await isDemoExchangeClient({clientId:c.client_id||c.id,agencyId})?null:c))).filter(Boolean);
+    const demo = canViewDemoExchange(req.user.role) ? String(req.query.demo || 'exclude') : 'exclude';
+    const visible = clients.filter(client => demo === 'all' || client.isDemo === (demo === 'only'));
     res.json({ clients:visible });
   } catch (e) {
     next(e);

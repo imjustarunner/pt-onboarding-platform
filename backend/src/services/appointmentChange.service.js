@@ -1,3 +1,4 @@
+import { buildTutoringMissedNotice } from './tutoringMissedNotice.js';
 import { futureAppointment } from './scheduleNoticeMessage.service.js';
 import {noShowReviewTiming,noShowDeclarationNarrative} from '../utils/noShowReviewTiming.js';
 import {declareAppointmentNoShow} from './appointmentNoShowReview.service.js';
@@ -23,7 +24,7 @@ import {
   updateAppointment
 } from './appointment.service.js';
 import { applyMissedSessionPolicy } from './practitionerPackage.service.js';
-import { cancellationClientDetails, notifyAppointmentCancellation } from './appointmentCancellationNotification.service.js';
+import { buildCancellationNotification, cancellationClientDetails, notifyAppointmentCancellation } from './appointmentCancellationNotification.service.js';
 import { cancellationFollowUp } from './cancellationFollowUp.service.js';
 import { reserveCancellationSchoolSupport } from './appointmentSchoolSupport.service.js';
 
@@ -602,6 +603,19 @@ export function assembleAppointmentChangeNarrative({
   return sentences.filter(Boolean).join(' ');
 }
 
+function noShowDocumentation(facts) {
+  const reasons = facts.reasonKnown === true ? (facts.reasons || []).map(reason =>
+    reason === 'other' ? String(facts.reasonOther || '').trim() : REASON_LABELS[reason]
+  ).filter(Boolean) : [];
+  return {
+    reasonKnown: facts.reasonKnown,
+    reason: reasons.join(', '),
+    outreach: (facts.outreach || []).filter(key => key !== 'not_required').map(key => OUTREACH_PHRASES[key]).filter(Boolean),
+    clientFacingReason: facts.clientFacingReason,
+    additionalComments: facts.additionalComments
+  };
+}
+
 export async function previewAppointmentChange(appointmentId, facts = {}, { actorUserId = null, actorRole = 'staff', cancellationAt = null } = {}) {
   const bundle = await getAppointmentBundle(appointmentId, { includeTimeline: false });
   if (!bundle) throw Object.assign(new Error('Appointment not found'), { status: 404 });
@@ -770,6 +784,15 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     } catch { /* ignore */ }
   }
 
+  const noShowTiming = eventType === 'no_show' ? noShowReviewTiming(bundle, new Date(), evaluation.policy || {}) : null;
+  let clientNotice = null;
+  if (noShowTiming) {
+    const noticeFacts = { ...facts, followUpAction: 'none' };
+    const notice = buildCancellationNotification({ ...bundle, cancellationFeeCents: 0 }, noticeFacts);
+    clientNotice = ['learning', 'tutoring'].includes(bundle.businessType)
+      ? buildTutoringMissedNotice(bundle, '[Secure portal link]', { clientMessage: notice.clientFacingReason })
+      : { subject: notice.subject, text: notice.bodyText };
+  }
   return {
     appointment: {
       id: bundle.id,
@@ -781,7 +804,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       title: bundle.title,
       serviceCode: bundle.serviceCode,
       businessType: bundle.businessType,
-      noShowTiming: eventType==='no_show'?noShowReviewTiming(bundle,new Date(),evaluation.policy||{}):null,
+      noShowTiming,
       providerUserId: bundle.providerUserId,
       providerName,
       clientId,
@@ -789,7 +812,8 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       clinicalSessionId: bundle.clinicalSessionId || null,
       displayWhen: formatApptWhen(bundle.startAt, bundle.sourceTimezone)
     },
-    noShowReviewNarrative:eventType==='no_show'?noShowDeclarationNarrative(bundle,noShowReviewTiming(bundle,new Date(),evaluation.policy||{})):null,
+    noShowReviewNarrative: noShowTiming ? noShowDeclarationNarrative(bundle, noShowTiming, noShowDocumentation(facts)) : null,
+    clientNotice: clientNotice ? { subject: clientNotice.subject, body: clientNotice.text } : null,
     eventType,
     classification,
     isLate: !!isLate,
@@ -835,7 +859,7 @@ async function applyAppointmentChange(
     const appointment=await Appointment.findById(appointmentId);
     const review=await declareAppointmentNoShow(appointment,facts,preview,actorUserId);
     await cancelPendingReminders(appointmentId);
-    const narrative=noShowDeclarationNarrative(appointment,review,facts.additionalComments);
+    const narrative=noShowDeclarationNarrative(appointment, review, noShowDocumentation(facts));
     return {ok:true,appointment:await getAppointmentBundle(appointmentId),noShowReview:review,settlement:null,strike:null,billingArtifacts:null,narrative};
   }
   const clientId = preview.appointment.clientId;
@@ -858,7 +882,9 @@ async function applyAppointmentChange(
         : ['client', 'caregiver'].includes(facts.initiator) ? 'canceled_by_client'
           : ['agency', 'facility_school'].includes(facts.initiator) ? 'canceled_by_organization' : 'canceled_by_provider';
   resultBundle = await updateAppointment(appointmentId, {
-    status, cancellationReason: ['canceled', 'rescheduled'].includes(eventType) ? facts.clientFacingReason : facts.reasonOther || (facts.reasons || []).join(', ') || eventType,
+    status, cancellationReason: ['canceled', 'rescheduled', 'no_show'].includes(eventType)
+      ? String(facts.clientFacingReason || '').trim() || null
+      : facts.reasonOther || (facts.reasons || []).join(', ') || eventType,
     cancellationFeeCents: noConsequence ? 0 : Number(preview.consequence.feeCents || 0),
     canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '), canceledByUserId: actorUserId,
     cancellationRecommendationJson: { workflow: 'appointment_change', preview, facts }
@@ -1020,7 +1046,7 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
   // decisions keep their original facts on retry and are never retroactively released.
   const newNoShow = facts.eventType === 'no_show' && ['draft','scheduled','confirmed','client_confirmed','checked_in'].includes(original?.status);
   facts = { ...facts, reviewedAttendanceOutcome: newNoShow, noShowReviewActive:newNoShow };
-  if (newNoShow) facts = { ...facts, notificationMode:'send', clientFacingReason: `This appointment was recorded as missed. Contact your ${original?.businessType==='tutoring'?'tutoring team':'provider or support team'} if this needs to be corrected.`, followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
+  if (newNoShow) facts = { ...facts, notificationMode:'send', followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
   if (original && !futureAppointment(original,parseUtcDate(actor.cancellationAt)||new Date()) && facts.eventType !== 'no_show') facts = { ...facts, officeReservationDisposition:null,notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
   if(original?.businessType==='tutoring'&&facts.eventType==='no_show'){facts={...facts,outreach:facts.outreach?.length?facts.outreach:['not_required'],reasonKnown:typeof facts.reasonKnown==='boolean'?facts.reasonKnown:false};}
   validateAppointmentChangeFacts(facts, actor);

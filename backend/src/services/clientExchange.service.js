@@ -1,4 +1,5 @@
 import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
+import { hasClientDemoIdentity } from '../utils/clientExchangeDemo.js';
 import { isDemoExchangeClient, viewerMayOpenDemoExchange } from './clientExchangeDemo.service.js';
 import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
@@ -500,6 +501,25 @@ export async function resolveRequest(options) {
  * within the acceptance window (not yet posted to exchange or marked current).
  * Uses office_client_assignment_events for accurate tracking.
  */
+// Only pending enrollment lifecycle states can be in this queue, even when a
+// current chart is missing its provider. Keep both legacy and configured status.
+const awaitingEnrollment = `c.status IN ('PENDING_REVIEW', 'PACKET', 'SCREENER')
+         AND NOT EXISTS (SELECT 1 FROM client_statuses cs WHERE cs.id = c.client_status_id
+           AND LOWER(cs.status_key) IN ('current', 'active', 'active_services', 'terminated', 'declined', 'on_hold'))`;
+const demoEnrollmentGuardian = `EXISTS (
+       SELECT 1 FROM client_guardians cg JOIN users g ON g.id = cg.guardian_user_id
+       WHERE cg.client_id = c.id AND (
+         LOWER(TRIM(COALESCE(g.email, ''))) REGEXP '@(.*[.])?example([.]com)?$'
+         OR LOWER(TRIM(COALESCE(g.personal_email, ''))) REGEXP '@(.*[.])?example([.]com)?$'
+         OR LOWER(TRIM(COALESCE(g.work_email, ''))) REGEXP '@(.*[.])?example([.]com)?$')
+      ) AS demo_guardian_email`;
+function enrollmentIsDemo(row) {
+  return Number(row.is_demo) === 1 || Number(row.created_via_dev_fill) === 1
+    || Number(row.demo_guardian_email) === 1
+    || hasClientDemoIdentity(row)
+    || hasClientDemoIdentity(parseJsonColumn(row.intake_preferences_json))
+    || hasClientDemoIdentity(parseJsonColumn(row.adaptive_intake_meta_json));
+}
 export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }) {
   const aid = Number(agencyId);
   if (!aid) return [];
@@ -512,23 +532,35 @@ export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }
          e.exchanged_at, e.marked_current_at, e.exchange_listing_id,
          c.initials, c.full_name, c.identifier_code, c.client_type, c.status AS client_status,
          c.contact_phone, c.source, c.intake_preferences_json, c.adaptive_intake_meta_json,
+         c.email, c.is_demo, c.created_via_dev_fill, c.organization_id, org.name AS organization_name,
+         org.organization_type, a.name AS agency_name, ${demoEnrollmentGuardian},
          u.first_name AS provider_first, u.last_name AS provider_last
        FROM office_client_assignment_events e
        INNER JOIN clients c ON c.id = e.client_id
        INNER JOIN users u ON u.id = e.provider_user_id
        LEFT JOIN users assigner ON assigner.id=e.assigned_by_user_id
+       LEFT JOIN agencies org ON org.id=c.organization_id
+       LEFT JOIN agencies a ON a.id=c.agency_id
        WHERE e.agency_id = ?
+         AND c.agency_id = e.agency_id
+         AND c.provider_id = e.provider_user_id
          AND e.ended_at IS NULL
          AND e.exchanged_at IS NULL
          AND e.marked_current_at IS NULL
          AND e.assigned_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-         AND c.status NOT IN ('ARCHIVED')
+         AND ${awaitingEnrollment}
        ORDER BY e.assigned_at DESC`,
       [aid, windowDays]
     );
     return (rows || []).map((row) => ({
       id: Number(row.client_id),
       eventId: Number(row.event_id),
+      agencyId: aid,
+      agencyName: row.agency_name,
+      organizationId: Number(row.organization_id) || null,
+      organizationName: row.organization_name,
+      organizationType: row.organization_type,
+      isDemo: enrollmentIsDemo(row),
       initials: row.initials,
       fullName: row.full_name,
       identifierCode: row.identifier_code,
@@ -557,7 +589,7 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
   const baseWhere = `WHERE c.agency_id = ?
        AND c.client_type IN (${typePlaceholders})
        AND c.provider_id IS NULL
-       AND c.status NOT IN ('ARCHIVED')
+       AND ${awaitingEnrollment}
      ORDER BY c.created_at DESC`;
   let rows;
   try {
@@ -565,7 +597,7 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
               c.adaptive_intake_meta_json, c.created_at, c.date_of_birth,
-              c.created_via_dev_fill, c.is_demo, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name
+              c.created_via_dev_fill, c.is_demo, c.email, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name, ${demoEnrollmentGuardian}
        FROM clients c LEFT JOIN agencies org ON org.id=c.organization_id LEFT JOIN agencies a ON a.id=c.agency_id
        ${baseWhere}`,
       [aid, ...clientTypes]
@@ -576,7 +608,7 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
     const [r] = await pool.execute(
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
-              c.created_at, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name
+              c.created_at, c.email, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name, ${demoEnrollmentGuardian}
        FROM clients c LEFT JOIN agencies org ON org.id=c.organization_id LEFT JOIN agencies a ON a.id=c.agency_id
        ${baseWhere}`,
       // date_of_birth may not exist in older schema, handled via adaptiveMeta fallback
@@ -588,7 +620,7 @@ export async function listPendingOfficeClients({ agencyId, includeSchool = false
     id: Number(row.id),
     agencyId: Number(row.agency_id) || aid, agencyName:row.agency_name || null,
     organizationId:Number(row.organization_id) || null, organizationName:row.organization_name || null, organizationType:row.organization_type || null,
-    isDemo: Number(row.is_demo) === 1,
+    isDemo: enrollmentIsDemo(row),
     initials: row.initials,
     fullName: row.full_name,
     identifierCode: row.identifier_code,

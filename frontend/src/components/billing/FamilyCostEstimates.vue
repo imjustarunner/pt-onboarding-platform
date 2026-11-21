@@ -1,7 +1,9 @@
 <template>
-  <section v-if="estimates.length || error" class="cost-estimates">
+  <section v-if="agencyId" class="cost-estimates">
     <h3>Cost estimates</h3>
-    <p>View, save or print your estimates. Acknowledging receipt is optional and does not authorize a payment.</p>
+    <p>If you are uninsured or choose to pay without using insurance, you can request a Good Faith Estimate before care. Contact your care team to request one.</p>
+    <a href="https://www.cms.gov/initiatives/your-patient-rights/medical-bill-rights/know-your-rights/without-insurance" target="_blank" rel="noopener noreferrer">Good Faith Estimate rights</a>
+    <p v-if="estimates.length">View, save or print your estimates. Acknowledging receipt is optional.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <article v-for="item in estimates" :key="item.id" class="estimate-card">
       <strong>{{ item.title }} · {{ item.clientName }}</strong>

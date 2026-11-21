@@ -79,7 +79,9 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
     ? `A ${noShow ? 'missed-appointment' : 'cancellation'} fee of ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(feeCents / 100)} was recorded. Review your balance and any payment arrangement in your portal.` : '';
   const paragraphs = [
     noShow ? `Our records show the appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} on ${when} (${appointment.sourceTimezone || 'America/Denver'}) was missed. Contact your ${learning?'learning team':'care team'} if this needs to be corrected.` : moved ? `Your appointment has moved from ${when} (${appointment.sourceTimezone || 'America/Denver'}) to ${appointmentTimeLabel(resolved.replacement.startAt, resolved.replacement.sourceTimezone || appointment.sourceTimezone)} (${resolved.replacement.sourceTimezone || appointment.sourceTimezone || 'America/Denver'}). The previous time is no longer scheduled.` : `Your appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} scheduled for ${when} (${appointment.sourceTimezone || 'America/Denver'}) has been canceled.`,
-    ...(!noShow ? [`Reason: ${details.clientFacingReason}`] : []),
+    ...(noShow
+      ? (details.clientFacingReason ? [details.clientFacingReason] : [])
+      : [`Reason: ${details.clientFacingReason}`]),
     moved ? 'Please sign in to see your updated appointment and any other schedule changes.'
       : `${followUpText}${['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(details.followUpAction) ? '' : ` ${nextText}`} Please sign in to see any updates to your appointments.`,
     ...(details.followUpMessage ? [details.followUpMessage] : []),

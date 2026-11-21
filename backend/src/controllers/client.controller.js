@@ -1,3 +1,4 @@
+import { attachCaseloadIdentities } from '../services/clientChartIdentity.service.js';
 import { isOfficeRootOrganization, supportsAgencyOfficeClients } from '../utils/clientOfficeOrganization.js';
 import { supportsDirectorySort } from '../utils/clientDirectoryPage.js';
 import { generatedClientInitials } from '../../../frontend/src/navigation/clientInitials.js';
@@ -863,6 +864,7 @@ export const getClients = async (req, res, next) => {
 
     if (String(req.query.includeServiceContext || '') === '1') {
       out = await attachRosterServiceContexts(out, { agencyIds, providerId: options.provider_id || null });
+      if (options.provider_id) out = await attachCaseloadIdentities(out);
     }
 
     const summaryTone = String(req.query.summary_tone || '');

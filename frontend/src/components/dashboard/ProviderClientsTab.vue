@@ -244,6 +244,13 @@
                     >
                       {{ formatOfficeClientLabel(c) }}
                     </button>
+                  <button
+                    v-for="chart in c.linkedCaseloadCharts"
+                    :key="chart.id"
+                    type="button"
+                    class="pct-client-link"
+                    @click="openClientProfile(chart)"
+                  >{{ chart.agency_name || chart.agencyName || 'Chart ' + chart.id }}</button>
                   </div>
                 </td>
                 <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
@@ -389,6 +396,13 @@
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
+                  <button
+                    v-for="chart in c.linkedCaseloadCharts"
+                    :key="chart.id"
+                    type="button"
+                    class="pct-client-link"
+                    @click="openClientProfile(chart)"
+                  >{{ chart.agency_name || chart.agencyName || 'Chart ' + chart.id }}</button>
                 </td>
                 <td>{{ rosterServiceLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
@@ -769,6 +783,29 @@ const isPendingStatus = (status) => {
   return s === 'pending' || s === 'packet' || s === 'prospective' || s === 'waitlist' || s === 'screener';
 };
 
+function collapseLinkedCaseloadRows(rows) {
+  const groups = new Map();
+  for (const chart of rows) {
+    const key = chart.caseload_identity || `chart:${chart.id}`;
+    const first = groups.get(key);
+    if (!first) {
+      groups.set(key, { ...chart, linkedCaseloadCharts: [] });
+      continue;
+    }
+    if (first.setting && chart.setting && first.setting !== chart.setting) {
+      first.setting = 'In School & Office';
+    }
+    for (const field of ['schoolName', 'agency_name']) {
+      const values = [first[field], chart[field]].flatMap(value => String(value || '').split(' · '));
+      first[field] = [...new Set(values.filter(value => value && value !== '—'))].join(' · ') || first[field];
+    }
+    first.linkedCaseloadCharts.push(chart);
+    first.agencyBrands = [...new Map([...first.agencyBrands || [], ...chart.agencyBrands || []]
+      .map(brand => [brand.agencyId, brand])).values()];
+  }
+  return [...groups.values()];
+}
+
 const isTerminatedClient = (c) =>
   String(c?.client_status_key || c?.status || '').toLowerCase() === 'terminated';
 
@@ -824,12 +861,12 @@ const schoolBillingTableClients = computed(() =>
   currentSchoolBillingClients.value.filter((c) => !isOnSchoolRoster(c?.id) || !schools.value.length)
 );
 
-const currentOfficeClients = computed(() =>
+const officeChartRows = computed(() =>
   filterActiveAssignedClients(mergedAssignedClients.value).filter((c) => isPosOfficeClient(c))
 );
+const currentOfficeClients = computed(() => collapseLinkedCaseloadRows(officeChartRows.value));
 
 const combinedClientsList = computed(() => {
-  const rows = [];
   const byId = new Map();
 
   for (const c of currentSchoolBillingClients.value || []) {
@@ -843,7 +880,7 @@ const combinedClientsList = computed(() => {
     });
   }
 
-  for (const c of currentOfficeClients.value || []) {
+  for (const c of officeChartRows.value) {
     const id = Number(c?.id);
     if (!id) continue;
     const existing = byId.get(id);
@@ -878,8 +915,7 @@ const combinedClientsList = computed(() => {
     });
   }
 
-  for (const c of byId.values()) rows.push(c);
-  return rows;
+  return collapseLinkedCaseloadRows([...byId.values()]);
 });
 
 const hasProgramColumn = computed(() => combinedClientsList.value.some(client => rosterOrganizationLabel(client) !== '—'));
@@ -1210,7 +1246,12 @@ async function openClientProfile(client, navList = null) {
   profileClient.value = rosterSnap ? { ...rosterSnap, id } : { id };
   profileLoading.value = false;
   try {
-    const r = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
+    const chartAgency = Number(client?.agency_id || 0);
+    const r = await api.get(`/clients/${id}`, {
+      ...(chartAgency ? { headers: { 'X-Agency-Id': String(chartAgency) } } : {}),
+      skipGlobalLoading: true
+    });
+    if (Number(profileClient.value?.id) !== id) return;
     const full = r.data ? { ...r.data } : null;
     if (full && rosterSnap) {
       full.organization_id = full.organization_id || rosterSnap.organization_id;
@@ -1224,6 +1265,7 @@ async function openClientProfile(client, navList = null) {
     }
     if (full) profileClient.value = full;
   } catch (e) {
+    if (Number(profileClient.value?.id) !== id) return;
     window.alert(e.response?.data?.error?.message || e.message || 'Failed to load client');
   }
 }
@@ -1490,11 +1532,11 @@ const loadAllRosters = async () => {
       for (const c of rows || []) {
         const id = c?.id;
         if (!id || byId.has(id)) continue;
-        byId.set(id, {
+        byId.set(id, decorateClientAgency({
           ...c,
           organization_id: c.organization_id ?? Number(school.schoolOrganizationId),
           organization_name: c.organization_name ?? school.name,
-        });
+        }, c.agency_id || school.caseloadAgencyId));
       }
     }
     allClients.value = Array.from(byId.values());

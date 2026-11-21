@@ -15,3 +15,21 @@ export function filterEnrollments(clients, {source='',organization='',setting=''
     && (!setting || enrollmentCareSetting(client) === setting)
     && (demo === 'all' || (demo === 'only' ? enrollmentIsDemo(client) : !enrollmentIsDemo(client))));
 }
+
+
+// Limit concurrent requests when the directory covers multiple authorized agencies.
+export async function loadEnrollmentRows(api, endpoint, agencyIds, demo, params = {}) {
+  const rows = [];
+  let incomplete = false;
+  const ids = [...new Set(agencyIds)].filter(Boolean);
+  for (let i = 0; i < ids.length; i += 5) {
+    const results = await Promise.allSettled(ids.slice(i, i + 5).map(agencyId => api.get(endpoint, {
+      params: { ...params, agencyId, demo }, headers: { 'X-Agency-Id': String(agencyId) }, skipGlobalLoading: true
+    })));
+    for (const result of results) {
+      if (result.status === 'fulfilled') rows.push(...(result.value.data?.clients || []));
+      else incomplete = true;
+    }
+  }
+  return { rows, incomplete };
+}

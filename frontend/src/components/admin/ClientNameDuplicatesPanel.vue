@@ -4,11 +4,11 @@
       <div>
         <h2 class="cnd-title">Possible name duplicates</h2>
         <p class="cnd-sub">
-          Compare possible matches before merging or linking charts.
+          Select the charts you want to compare before merging or linking them.
         </p>
       </div>
       <div class="cnd-merge-controls">
-        <label>Agency
+        <label v-if="directoryAgency === undefined">Agency
           <select v-model="agencyFilter" :disabled="merging">
             <option :value="null">All agencies</option>
             <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
@@ -36,7 +36,7 @@
         <table class="cnd-table">
           <thead>
             <tr>
-              <th>Name</th>
+              <th>Compare</th><th>Name</th>
               <th>Initials</th>
               <th>Agency</th>
               <th>School / program</th>
@@ -48,6 +48,16 @@
           </thead>
           <tbody>
             <tr v-for="member in group.members" :key="member.id">
+              <td>
+                <input
+                  v-if="String(member.status).toUpperCase() !== 'ARCHIVED'"
+                  type="checkbox"
+                  :aria-label="`Compare chart ${member.id}`"
+                  :checked="selectedCharts(group).includes(member)"
+                  :disabled="merging || mergeBusy"
+                  @change="chooseChart(group, member, $event.target.checked)"
+                />
+              </td>
               <td>{{ member.full_name || '—' }}</td>
               <td>{{ member.initials || '—' }}</td>
               <td>{{ member.agency_name || '—' }}</td>
@@ -62,8 +72,8 @@
           </tbody>
         </table>
         <div class="cnd-merge-controls">
-          <label v-if="!isCrossAgency(group)">Keep current record <select v-model="keepByGroup[group.key]" :disabled="merging || mergeBusy" @change="cancelMerge"><option v-for="member in group.members" :key="member.id" :value="member.id">{{ member.organization_name || 'Office' }} · {{ member.provider_name || member.full_name }} · {{ member.client_status_label || member.status }}</option></select></label>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="merging || mergeBusy || group.members.some(m => String(m.status).toUpperCase() === 'ARCHIVED')" @click="reviewMerge(group)">{{ isCrossAgency(group) ? 'Review chart link' : 'Review merge' }}</button>
+          <label v-if="!isCrossAgency(group)">Keep current record <select v-model="keepByGroup[group.key]" :disabled="merging || mergeBusy" @change="cancelMerge"><option v-for="member in selectedCharts(group)" :key="member.id" :value="member.id">{{ member.organization_name || 'Office' }} · {{ member.provider_name || member.full_name }} · {{ member.client_status_label || member.status }}</option></select></label>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="merging || mergeBusy || selectedCharts(group).length < 2" @click="reviewMerge(group)">{{ isCrossAgency(group) ? 'Review chart link' : 'Review merge' }}</button>
         </div>
         <section v-if="mergeGroupKey === group.key" class="cnd-merge-review" aria-label="Review client merge">
           <p v-if="mergeBusy" role="status">Loading comparison…</p>
@@ -98,6 +108,8 @@ const emit = defineEmits(['open-client', 'merged']);
 
 const groups = ref([]);
 const agencies = ref([]);
+const props = defineProps({ directoryAgency: String });
+const scopedAgency = computed(() => props.directoryAgency === 'all' ? null : (props.directoryAgency || agencyFilter.value));
 const agencyFilter = ref(null);
 const keepByGroup = reactive({}), fieldChoices = reactive({});
 const keepCurrentGuardianAccess=ref(false);
@@ -105,12 +117,24 @@ const mergeGroupKey = ref(null), mergePreview = ref(null), mergeError = ref(''),
 const priorPrograms = computed(() => [...new Map((mergePreview.value?.affiliations || []).filter(row => ['program','clinical'].includes(String(row.organization_type).toLowerCase()) && !(Number(row.client_id) === Number(mergePreview.value?.keep.id) && Number(row.is_primary) === 1)).map(row => [Number(row.organization_id),row])).values()]);
 function fieldSource(field) { return fieldChoices[field.key] || (JSON.stringify(field.chosenValue) === JSON.stringify(field.keepValue) ? mergePreview.value.keep.id : field.otherValues.find(row => JSON.stringify(row.value) === JSON.stringify(field.chosenValue))?.id) || mergePreview.value.keep.id; }
 function displayValue(value) { return value === null || value === undefined || value === '' ? 'Not recorded' : String(value); }
-function isCrossAgency(group) { return new Set(group.members.map(member => member.agency_id).filter(Boolean)).size > 1; }
+const checkedCharts = reactive({});
+const selectedCharts = group => group.members.filter(member => String(member.status).toUpperCase() !== 'ARCHIVED'
+  && (checkedCharts[group.key] || []).includes(Number(member.id)));
+function isCrossAgency(group) {
+  return new Set(selectedCharts(group).map(member => Number(member.agency_id))).size > 1;
+}
+function chooseChart(group, member, checked) {
+  const ids = selectedCharts(group).map(row => Number(row.id)).filter(id => id !== Number(member.id));
+  if (checked) ids.push(Number(member.id));
+  checkedCharts[group.key] = ids;
+  if (!ids.includes(Number(keepByGroup[group.key]))) keepByGroup[group.key] = ids[0] || null;
+  cancelMerge();
+}
 function cancelMerge() { mergeGroupKey.value=null;mergePreview.value=null;mergeError.value='';identityConfirmed.value=false; }
 async function reviewMerge(group, reset=true) {
   mergeGroupKey.value=group.key;mergeBusy.value=true;mergeError.value='';
   if(reset){keepCurrentGuardianAccess.value=false;mergePreview.value=null;identityConfirmed.value=false;completedOrganizationIds.value=[];Object.keys(fieldChoices).forEach(key => delete fieldChoices[key]);}
-  try { const {data}=await api.post('/clients/merge/preview',{keepId:Number(keepByGroup[group.key]),sourceIds:group.members.map(row => Number(row.id)).filter(id => id!==Number(keepByGroup[group.key])),fieldChoices:{...fieldChoices}},{skipGlobalLoading:true});mergePreview.value=data; }
+  try { const {data}=await api.post('/clients/merge/preview',{keepId:Number(keepByGroup[group.key]),sourceIds:selectedCharts(group).map(row => Number(row.id)).filter(id => id!==Number(keepByGroup[group.key])),fieldChoices:{...fieldChoices}},{skipGlobalLoading:true});mergePreview.value=data; }
   catch(e){mergeError.value=e.response?.data?.error?.message || 'Unable to load the merge comparison.';}
   finally{mergeBusy.value=false;}
 }
@@ -162,13 +186,17 @@ async function loadGroups() {
   error.value = '';
   try {
     const res = await api.get('/clients/name-duplicates', {
-      params: { ...(agencyFilter.value ? { agencyId: agencyFilter.value } : {}), includeArchived: includeArchived.value },
+      params: { ...(scopedAgency.value ? { agencyId: scopedAgency.value } : {}), includeArchived: includeArchived.value },
       skipGlobalLoading: true
     });
     if (currentScan !== scan) return;
     agencies.value = res.data?.agencies || [];
     groups.value = Array.isArray(res.data?.groups) ? res.data.groups : [];
-    for(const group of groups.value){keepByGroup[group.key]=group.members.find(row => row.provider_name && !String(row.organization_name || '').toLowerCase().includes('summer'))?.id || group.members[0]?.id;}
+    for (const group of groups.value) {
+      const active = group.members.filter(row => String(row.status).toUpperCase() !== 'ARCHIVED');
+      checkedCharts[group.key] = active.length === 2 ? active.map(row => Number(row.id)) : [];
+      keepByGroup[group.key] = active.find(row => row.provider_name)?.id || active[0]?.id;
+    }
   } catch (e) {
     if (currentScan !== scan) return;
     groups.value = [];
@@ -178,7 +206,7 @@ async function loadGroups() {
   }
 }
 
-watch([agencyFilter, includeArchived], () => { cancelMerge(); return loadGroups(); }, { immediate: true });
+watch([scopedAgency, includeArchived], () => { cancelMerge(); return loadGroups(); }, { immediate: true });
 
 defineExpose({ loadGroups, groups });
 </script>

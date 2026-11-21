@@ -8,6 +8,41 @@
       <dl v-if="financialAccess"><div><dt>Service date</dt><dd>{{ serviceDateLabel || 'Not recorded' }}</dd></div><div><dt>Provider</dt><dd>{{ providerName || 'Not recorded' }}</dd></div><div><dt>Client</dt><dd>{{ clientName || 'Linked appointment client' }}</dd></div><div><dt>Service location</dt><dd>{{ locationLabel || modalityLabel || 'Needs confirmation' }}</dd></div><div><dt>Time</dt><dd>{{ timeRangeLabel || 'Not recorded' }}</dd></div></dl>
     </section>
     <ClientPaymentSetupSummary v-if="data" class="abp-card" :setup="data.paymentSetup || null" />
+    <section v-if="data && clientId" class="abp-card" aria-label="Weekend billing preference">
+      <h3>Weekend add-on (99051)</h3>
+      <button v-if="!afterHoursOpen" type="button" class="btn btn-secondary btn-sm" @click="openAfterHours">
+        Set client’s self-pay preference
+      </button>
+      <template v-else>
+        <p>Billing reviews the payer terms and client agreement before assessing a weekend charge.</p>
+        <p v-if="afterHoursBusy" role="status">Loading or saving preference…</p>
+        <p v-if="afterHoursError" role="alert">{{ afterHoursError }}</p>
+        <p v-if="afterHoursSaved" role="status">{{ afterHoursSaved }}</p>
+        <form v-if="afterHours" class="abp-after-hours" @submit.prevent="saveAfterHours">
+          <p v-if="!afterHours.eligible">{{ afterHours.reason }}</p>
+          <label>Client preference
+            <select v-model="afterHoursMode" :disabled="afterHoursBusy" @change="afterHoursAttested = false">
+              <option value="off">Off</option>
+              <option value="weekend_self_pay" :disabled="!afterHours.eligible">Weekend self-pay</option>
+              <option value="after_insurance_denial" :disabled="!afterHours.eligible">Consider self-pay after insurance denial</option>
+            </select>
+          </label>
+          <template v-if="afterHoursMode !== 'off'">
+            <label>Proposed amount per visit ($)
+              <input v-model.number="afterHoursAmount" type="number" min="0.01" max="10000000" step="0.01" required @input="afterHoursAttested = false" />
+            </label>
+            <label class="abp-attestation">
+              <input v-model="afterHoursAttested" type="checkbox" required />
+              I explained the amount and when it could apply, and the client or authorized guardian confirmed they understood.
+            </label>
+          </template>
+          <button type="submit" class="btn btn-primary btn-sm"
+            :disabled="afterHoursBusy || (afterHoursMode !== 'off' && (!afterHours.eligible || !afterHoursAttested))">
+            Save preference for billing review
+          </button>
+        </form>
+      </template>
+    </section>
     <template v-if="financialAccess">
     <section v-for="(claim, index) in progress" :key="claim.claimId || index" class="abp-card" aria-label="Claim progress">
       <div class="abp-heading"><h3>{{ claim.payerSequence === 2 ? 'Secondary claim progress' : 'Claim progress' }}</h3><span class="abp-badge" :class="claim.status">{{ claim.label }}</span></div>
@@ -38,6 +73,68 @@ const props = defineProps({
 });
 const emit=defineEmits(['open-claim','open-note']);
 const data=ref(null),loading=ref(false),error=ref(''); let request=0;
+const afterHoursOpen = ref(false);
+const afterHours = ref(null);
+const afterHoursMode = ref('off');
+const afterHoursAmount = ref(15);
+const afterHoursAttested = ref(false);
+const afterHoursError = ref('');
+const afterHoursSaved = ref('');
+const afterHoursBusy = ref(false);
+let afterHoursRequest = 0;
+const afterHoursEndpoint = () => `/clients/${props.clientId}/after-hours-self-pay`;
+const afterHoursParams = () => ({ params: { agencyId: Number(props.agencyId) }, skipGlobalLoading: true });
+
+function showAfterHours(data) {
+  afterHours.value = data;
+  afterHoursMode.value = data.mode;
+  afterHoursAmount.value = data.amountCents / 100;
+  afterHoursAttested.value = false;
+}
+async function openAfterHours() {
+  afterHoursOpen.value = true;
+  const own = ++afterHoursRequest;
+  afterHoursBusy.value = true;
+  afterHoursError.value = '';
+  try {
+    const { data } = await api.get(afterHoursEndpoint(), afterHoursParams());
+    if (own === afterHoursRequest) showAfterHours(data);
+  } catch (error) {
+    if (own === afterHoursRequest) afterHoursError.value = error.response?.data?.error?.message || 'The preference could not be loaded.';
+  } finally {
+    if (own === afterHoursRequest) afterHoursBusy.value = false;
+  }
+}
+async function saveAfterHours() {
+  if (afterHoursBusy.value) return;
+  const own = ++afterHoursRequest;
+  afterHoursBusy.value = true;
+  afterHoursError.value = '';
+  afterHoursSaved.value = '';
+  try {
+    const { data } = await api.put(afterHoursEndpoint(), {
+      mode: afterHoursMode.value,
+      amountCents: Math.round(afterHoursAmount.value * 100),
+      attested: afterHoursAttested.value
+    }, afterHoursParams());
+    if (own !== afterHoursRequest) return;
+    showAfterHours(data);
+    afterHoursSaved.value = data.mode === 'off' ? 'Weekend self-pay preference turned off.' : 'Preference saved for billing review.';
+  } catch (error) {
+    if (own === afterHoursRequest) afterHoursError.value = error.response?.data?.error?.message || 'The preference could not be saved.';
+  } finally {
+    if (own === afterHoursRequest) afterHoursBusy.value = false;
+  }
+}
+watch(() => [props.agencyId, props.clientId], () => {
+  afterHoursRequest++;
+  afterHoursOpen.value = false;
+  afterHours.value = null;
+  afterHoursError.value = '';
+  afterHoursSaved.value = '';
+  afterHoursBusy.value = false;
+});
+
 const financialAccess=computed(()=>props.canViewFinancials && data.value?.financialAccess===true);
 const steps=['Note needed / draft','Ready to submit','Submitted','Accepted','Payment recorded'];
 const progress=computed(()=>data.value?.progress || [{status:'open',label:props.clinicalSessionId ? 'Status not yet loaded' : 'Planned — save session to track progress',step:0,actions:[]}]);
@@ -55,9 +152,20 @@ async function load(){
   finally {if(id===request)loading.value=false;}
 }
 watch(()=>[props.agencyId,props.clientId,props.clinicalSessionId,props.canViewFinancials],load,{immediate:true});
-onBeforeUnmount(()=>{request++;});
+onBeforeUnmount(()=>{request++;afterHoursRequest++;});
 </script>
 <style scoped>
+.abp-after-hours { display: grid; gap: 12px; max-width: 30rem; }
+.abp-after-hours label { display: grid; gap: 4px; }
+.abp-after-hours .abp-attestation { display: flex; align-items: start; gap: 8px; }
+.abp-after-hours input:not([type=checkbox]), .abp-after-hours select {
+  padding: 8px;
+  border: 1px solid var(--border-color, #bccbd9);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  color: inherit;
+}
+
 .abp{display:grid;gap:16px;color:var(--text-primary,#172b4d)}
 .abp-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.abp h2,.abp h3{margin:0 0 8px}.abp p{margin:8px 0}.abp-card{border:1px solid var(--border-color,#dce5ed);border-radius:14px;padding:20px;background:var(--bg-primary,#fff)}.abp-overview{display:grid;grid-template-columns:1fr 1fr;gap:24px}.abp-label{display:block;margin-bottom:12px;color:var(--text-secondary,#586a80)}.abp-overview strong{display:block;font-size:1.1rem}.abp dl{margin:0}.abp dl div{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid #edf1f5}.abp dt,.abp-muted,.abp small{color:var(--text-secondary,#586a80)}.abp dd{margin:0;text-align:right}.abp-progress{display:flex;list-style:none;padding:16px 0;margin:0}.abp-progress li{flex:1;text-align:center;position:relative;font-size:.82rem;color:#63738a}.abp-progress li span{display:grid;place-items:center;position:relative;z-index:1;border-radius:50%;width:32px;height:32px;margin:0 auto 8px;background:#e7edf3}.abp-progress li:not(:last-child):after{content:'';height:3px;background:#e7edf3;position:absolute;left:50%;right:-50%;top:15px}.abp-progress .reached span{background:var(--primary-color,#1677bc);color:white}.abp-badge{background:#fff3d9;color:#895400;padding:7px 12px;border-radius:20px;font-weight:600;font-size:.85rem}.abp-badge.rejected,.abp-badge.denied,.abp-error{color:#b42332;background:#fff0f1}.abp-badge.paid{background:#dff6ed;color:#086c47}.abp-actions{padding-left:20px;line-height:1.7}.abp table{width:100%;border-collapse:collapse;text-align:left}.abp th,.abp td{padding:12px 8px;border-bottom:1px solid #e7edf3}.abp th{background:#f3f7fb;font-size:.85rem}.abp-error{padding:12px;border-radius:8px}@media(max-width:650px){.abp-overview{grid-template-columns:1fr}.abp-card{padding:14px}.abp-progress li{font-size:.7rem}.abp table{font-size:.8rem}}
 </style>

@@ -55,6 +55,21 @@
       </div>
     </div>
 
+    <div v-if="canChooseListAgency" class="filter-group cm-filter-row">
+        <select
+          v-if="canChooseListAgency"
+          v-model="platformTenantFilter"
+          @change="handlePlatformTenantChange"
+          class="filter-select"
+          aria-label="Agency"
+        >
+          <option value="">All authorized agencies</option>
+          <option v-for="tenant in availableTenantFilters" :key="tenant.id" :value="String(tenant.id)">
+            {{ tenant.name }}
+          </option>
+        </select>
+    </div>
+
     <!-- View mode tabs -->
     <div class="cm-view-tabs">
       <button
@@ -99,16 +114,22 @@
 
     <!-- Inline Intakes view -->
     <div v-if="cmViewMode === 'intakes'" class="cm-inline-panel">
-      <OfficeIntakeQueuePanel />
+      <OfficeIntakeQueuePanel
+        :agency-ids="directoryAgencyIds"
+        :demo="devFillFilter || 'all'"
+        @update:demo="devFillFilter = $event === 'all' ? '' : $event"
+        @count="pendingIntakeCount = $event"
+      />
     </div>
 
     <!-- Inline Exchange view -->
     <div v-else-if="cmViewMode === 'exchange'" class="cm-inline-panel cm-inline-panel--exchange">
-      <ClientExchangePanel />
+      <ClientExchangePanel :directory-agency="canChooseListAgency ? platformTenantFilter || 'all' : undefined" />
     </div>
 
     <div v-else-if="cmViewMode === 'duplicates'" class="cm-inline-panel">
       <ClientNameDuplicatesPanel
+        :directory-agency="canChooseListAgency ? platformTenantFilter || 'all' : undefined"
         @open-client="openClientDetail"
         @merged="fetchClients(); loadSideCounts()"
       />
@@ -182,18 +203,6 @@
       </div>
 
       <div class="filter-group cm-filter-row">
-        <select
-          v-if="canChooseListAgency"
-          v-model="platformTenantFilter"
-          @change="handlePlatformTenantChange"
-          class="filter-select"
-          aria-label="Agency"
-        >
-          <option value="">All authorized agencies</option>
-          <option v-for="tenant in availableTenantFilters" :key="tenant.id" :value="String(tenant.id)">
-            {{ tenant.name }}
-          </option>
-        </select>
         <!-- Per-agency custom statuses when a tenant is scoped -->
         <select v-if="clientStatuses.length > 0" v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
           <option value="">All Client Statuses</option>
@@ -1336,6 +1345,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
+import { loadEnrollmentRows } from '../../utils/enrollmentPresentation.js';
 import OfficeIntakeQueuePanel from '../../components/admin/OfficeIntakeQueuePanel.vue';
 import ClientExchangePanel from '../../components/clientExchange/ClientExchangePanel.vue';
 import ClientNameDuplicatesPanel from '../../components/admin/ClientNameDuplicatesPanel.vue';
@@ -1420,35 +1430,32 @@ async function onDirectoryAssignmentUpdated() {
   await fetchClients({ background: true });
 }
 
+let sideCountVersion = 0;
 async function loadSideCounts() {
-  const aid = agencyStore.currentAgency?.value?.id || agencyStore.currentAgency?.id;
-  if (!aid) return;
-  try {
-    const [intakeRes, exchangeRes, dupeRes] = await Promise.all([
-      api.get('/client-exchange/pending-office-clients', { params: { agencyId: aid, includeSchool: 'true' }, skipGlobalLoading: true }),
-      api.get('/client-exchange/listings', { params: { agencyId: aid }, skipGlobalLoading: true }),
-      canBackofficeEdit.value
-        ? api.get('/clients/name-duplicates', { skipGlobalLoading: true })
-        : Promise.resolve({ data: { groups: [] } })
-    ]);
-    pendingIntakeCount.value = (intakeRes.data?.clients || []).length;
-    exchangeListingCount.value = (exchangeRes.data?.listings || []).filter((l) => l.status === 'open' || l.status === 'requested').length;
-    const groups = Array.isArray(dupeRes.data?.groups) ? dupeRes.data.groups : [];
-    nameDuplicateGroupCount.value = groups.length;
-    const ids = new Set();
-    for (const group of groups) {
-      for (const member of group.members || []) {
-        if (member?.id) ids.add(Number(member.id));
-      }
-    }
-    nameDuplicateClientIds.value = ids;
-  } catch {
-    pendingIntakeCount.value = 0;
-    exchangeListingCount.value = 0;
-    nameDuplicateGroupCount.value = 0;
-    nameDuplicateClientIds.value = new Set();
-  }
+  const version = ++sideCountVersion;
+  const selectedAgency = effectiveAgencyScopeId.value;
+  const agencyIds = directoryAgencyIds.value;
+  const demo = devFillFilter.value || 'all';
+  const [intake, exchange, duplicates] = await Promise.allSettled([
+    cmViewMode.value === 'intakes'
+      ? Promise.resolve(null)
+      : loadEnrollmentRows(api, '/client-exchange/pending-office-clients', agencyIds, demo, { includeSchool: 'true' }),
+    activeAgencyId.value ? api.get('/client-exchange/listings', {
+      params: { agencyId: selectedAgency || activeAgencyId.value }, skipGlobalLoading: true
+    }) : Promise.resolve(null),
+    canBackofficeEdit.value ? api.get('/clients/name-duplicates', {
+      params: selectedAgency ? { agencyId: selectedAgency } : {}, skipGlobalLoading: true
+    }) : Promise.resolve(null)
+  ]);
+  if (version !== sideCountVersion) return;
+  if (cmViewMode.value !== 'intakes') pendingIntakeCount.value = intake.value?.rows?.length || 0;
+  exchangeListingCount.value = (exchange.value?.data?.listings || [])
+    .filter(listing => ['open', 'requested'].includes(listing.status)).length;
+  const groups = duplicates.value?.data?.groups || [];
+  nameDuplicateGroupCount.value = groups.length;
+  nameDuplicateClientIds.value = new Set(groups.flatMap(group => (group.members || []).map(member => Number(member.id))));
 }
+
 const serverSummary = ref(null);
 const parsedSearch = ref({ freeText: '' });
 
@@ -2104,15 +2111,15 @@ const activeAgencyId = computed(() => {
   );
   return firstAgency?.id || null;
 });
-const canChooseListAgency=computed(()=>isSuperAdmin.value);
+const canChooseListAgency = computed(() => isSuperAdmin.value
+  || (canBackofficeEdit.value && allTenantFilters.value.length > 1));
+const directoryAgencyIds = computed(() => effectiveAgencyScopeId.value
+  ? [effectiveAgencyScopeId.value] : availableTenantFilters.value.map(tenant => Number(tenant.id)));
 const usingServerPagination = computed(() => true);
 
 const effectiveAgencyScopeId = computed(() => {
-  if (!canChooseListAgency.value && activeAgencyId.value) return Number(activeAgencyId.value);
-  const platformTenantId = Number(platformTenantFilter.value || 0);
-  if (platformTenantId > 0) return platformTenantId;
-  if (activeAgencyId.value) return Number(activeAgencyId.value);
-  return null;
+  if (canChooseListAgency.value) return Number(platformTenantFilter.value) || null;
+  return Number(activeAgencyId.value) || null;
 });
 
 const allTenantFilters = computed(() => {
@@ -3092,7 +3099,6 @@ const handlePlatformTenantChange = async () => {
   providerFilter.value = '';
   clientStatusFilter.value = '';
   workflowStatusFilter.value = '';
-  devFillFilter.value = '';
   schoolSearchQuery.value = '';
   schoolSearchOpen.value = false;
   currentPage.value = 1;
@@ -3486,6 +3492,7 @@ onMounted(async () => {
     lastClientRequestParams = savedWorkspace.requestParams;
     await nextTick();
     workspaceReady.value = true;
+    loadSideCounts();
     fetchClients({ background: true });
     await openClientFromQuery();
     if (route.query?.new === '1') await openCreateClientModal();
@@ -3599,6 +3606,10 @@ watch(() => activeAgencyId.value, (newId, oldId) => {
   fetchClientStatuses();
   fetchProviders();
   fetchClients();
+});
+
+watch([() => directoryAgencyIds.value.join(','), devFillFilter, cmViewMode], () => {
+  if (workspaceReady.value) loadSideCounts();
 });
 
 watch(() => pageSize.value, (newSize, oldSize) => {

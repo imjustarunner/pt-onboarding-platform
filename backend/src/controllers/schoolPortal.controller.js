@@ -1,3 +1,4 @@
+import { attachCaseloadIdentities } from '../services/clientChartIdentity.service.js';
 import {schoolPaperProcessingNotificationFeed} from '../services/schoolPaperProcessingNotificationFeed.service.js';
 import { paperPacketReviewPending, paperPacketReviewPendingSql } from '../utils/paperPacketReviewPending.js';
 import { schoolIntakeNotificationFeed } from '../services/schoolIntakeNotificationFeed.service.js';
@@ -2301,7 +2302,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       }));
     }
 
-    res.json(restrictedClients);
+    res.json(await attachCaseloadIdentities(restrictedClients));
   } catch (e) {
     next(e);
   }

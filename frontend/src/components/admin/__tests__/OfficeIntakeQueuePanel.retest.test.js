@@ -8,6 +8,26 @@ vi.mock('../../../composables/useClientDisplayMode', () => ({ useClientDisplayMo
 import Panel from '../OfficeIntakeQueuePanel.vue';
 
 describe('new enrollment saved preferences', () => {
+  it('keeps demos off by default and updates the badge when the demo filter changes', async () => {
+    const live = { id: 1, agencyId: 450, fullName: 'Live enrollment', clientType: 'clinical' };
+    const demo = { id: 2, agencyId: 450, fullName: 'QA enrollment', clientType: 'clinical', isDemo: true };
+    m.get.mockImplementation(async (url, { params } = {}) => ({
+      data: {
+        clients: url.endsWith('pending-office-clients')
+          ? params.demo === 'all' ? [live, demo] : [live]
+          : []
+      }
+    }));
+    const wrapper = mount(Panel, { global: { stubs: { QuickPostClientToExchange: true, ClientDisplayModeToggle: true, RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.findAll('.oiq-card')).toHaveLength(1);
+    expect(wrapper.emitted('count').at(-1)).toEqual([1]);
+    await wrapper.get('[aria-label="Enrollment demos"]').setValue('all');
+    await flushPromises();
+    expect(wrapper.findAll('.oiq-card')).toHaveLength(2);
+    expect(wrapper.emitted('count').at(-1)).toEqual([2]);
+    wrapper.unmount();
+  });
   it.each([
     [{ serviceSubject: 'dependent' }, 'Child / dependent'],
     [{ serviceSubject: 'representative' }, 'Adult represented'],

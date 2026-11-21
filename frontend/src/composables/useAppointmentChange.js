@@ -103,7 +103,7 @@ export function useAppointmentChange({identity}={}) {
 
   const localNarrative = computed(() => {
     if (workflow.value?.status === 'completed') return workflow.value.narrative;
-    if(facts.eventType==='no_show'&&preview.value?.noShowReviewNarrative)return preview.value.noShowReviewNarrative+(String(facts.additionalComments||'').trim()?` Additional comments: ${String(facts.additionalComments).trim()}`:'');
+    if(facts.eventType==='no_show'&&preview.value?.noShowReviewNarrative)return preview.value.noShowReviewNarrative;
     if (preview.value?.narrative) return preview.value.narrative;
     return assembleLocalNarrative({
       eventType: facts.eventType,

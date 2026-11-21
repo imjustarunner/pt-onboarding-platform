@@ -4,14 +4,18 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { isNestedOrganizationType } from '../utils/organizationTypes.js';
 
-export function useClientExchangeAgency({ allowAll = false } = {}) {
+export function useClientExchangeAgency({ allowAll = false, directoryAgency = () => undefined } = {}) {
   const auth = useAuthStore();
   const canBrowseAll = computed(() => allowAll && ['super_admin','admin','support','staff'].includes(auth.user?.role));
   const store = useAgencyStore();
   const route = useRoute();
-  const selected = ref(canBrowseAll.value ? 'all' : '');
+  const savedSelection = ref(canBrowseAll.value ? 'all' : '');
   const key = `exchange-agency-v2:${auth.user?.id || 'anon'}`;
-  if (allowAll) { try { selected.value=localStorage.getItem(key) || selected.value; } catch {} watch(selected,value=>{try{localStorage.setItem(key,value);}catch{}}); }
+  if (allowAll) { try { savedSelection.value=localStorage.getItem(key) || savedSelection.value; } catch {} watch(savedSelection,value=>{try{localStorage.setItem(key,value);}catch{}}); }
+  const selected = computed({
+    get: () => directoryAgency() ?? savedSelection.value,
+    set: value => { savedSelection.value = value; }
+  });
   const agencies = computed(() => {
     const rows = [...(store.userAgencies || []), ...(store.agencies || []), store.currentAgency].filter(Boolean);
     return [...new Map(rows.filter(a => !isNestedOrganizationType(a.organization_type || a.organizationType)).map(a => [Number(a.id), a])).values()];

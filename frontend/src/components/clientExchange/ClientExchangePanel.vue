@@ -27,7 +27,7 @@
       </p><button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" @click="exchangeHelpOpen=false">Got it — collapse</button>
     </details>
 
-    <label v-if="agencies.length > 1 || !agencyId">
+    <label v-if="directoryAgency === undefined && (agencies.length > 1 || !agencyId)">
       Agency
       <select :value="selectedAgency === 'all' ? 'all' : agencyId || ''" @change="selectedAgency = $event.target.value">
         <option v-if="canBrowseAll" value="all">All authorized agencies</option>
@@ -363,8 +363,9 @@ import NewReferralModal from './NewReferralModal.vue';
 
 const showNewReferral = ref(false);
 
+const props = defineProps({ directoryAgency: String });
 const route = useRoute();
-const { agencyId, agencies, selected: selectedAgency, canBrowseAll, browseAgencyIds } = useClientExchangeAgency({allowAll:true});
+const { agencyId, agencies, selected: selectedAgency, canBrowseAll, browseAgencyIds } = useClientExchangeAgency({allowAll:true, directoryAgency: () => props.directoryAgency});
 const authStore = useAuthStore();
 
 const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);

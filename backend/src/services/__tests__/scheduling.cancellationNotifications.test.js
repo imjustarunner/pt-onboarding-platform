@@ -143,10 +143,11 @@ it('defaults to the next appointment with a portal update instruction, without a
 describe('actual outcome fee disclosure', () => {
   it('describes a missed visit and only the fee saved on the appointment, without exposing reasons or invented insurance totals', async () => {
     const message = buildCancellationNotification({ ...(await appointments.findById()), status: 'no_show', cancellationFeeCents: 10000 },
-      { eventType: 'no_show', followUpAction: 'none', reviewedAttendanceOutcome: true, additionalComments: 'PRIVATE explanation', assessedFeeCents: 99999 });
+      { eventType: 'no_show', followUpAction: 'none', reviewedAttendanceOutcome: true, clientFacingReason: 'Please call us to reschedule.', additionalComments: 'PRIVATE explanation', assessedFeeCents: 99999 });
     expect(message.subject).toBe('Your missed appointment'); expect(message.text).toContain('was missed');
     expect(message.text).toContain('$100.00'); expect(message.text).not.toContain('$999.99');
     expect(message.text).not.toContain('has been canceled'); expect(message.text).not.toContain('PRIVATE');
+    expect(message.text).toContain('Please call us to reschedule.');
   });
   it('includes an actually recorded late fee, and does not infer one from signed facts or policy defaults', async () => {
     expect(buildCancellationNotification({ ...(await appointments.findById()), cancellationFeeCents: 8000 }, facts).text).toContain('$80.00');

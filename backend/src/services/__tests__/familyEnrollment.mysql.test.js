@@ -14,7 +14,8 @@ vi.mock('../../config/clinicalDatabase.js', () => ({ default: { getConnection: a
  return state.pool.getConnection();
 } } }));
 import { mergeClients } from '../identityHygiene.service.js';
-import { clientDuplicateReviewAgencies, linkClientChartIdentity, listLinkedClientCharts, reviewClientChartIdentity } from '../clientChartIdentity.service.js';
+import { attachCaseloadIdentities, clientDuplicateReviewAgencies, linkClientChartIdentity, listLinkedClientCharts, reviewClientChartIdentity } from '../clientChartIdentity.service.js';
+import { listPendingAcceptanceClients, listPendingOfficeClients } from '../clientExchange.service.js';
 import { findNameDuplicateGroups } from '../clientNameDuplicate.service.js';
 import User from '../../models/User.model.js';
 import { enrollmentOptions } from '../guardianEnrollmentStart.service.js';
@@ -64,11 +65,22 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   `);
   await state.pool.query(await readFile(new URL('../../../../database/migrations/1823_sequential_client_identifiers.sql',import.meta.url),'utf8'));
   await state.pool.query(await readFile(new URL('../../../../database/migrations/1858_client_chart_identity_members.sql',import.meta.url),'utf8'));
+  await state.pool.query(`
+    ALTER TABLE clients ADD source VARCHAR(64), ADD client_type VARCHAR(32), ADD submission_date DATE,
+      ADD created_at DATETIME DEFAULT CURRENT_TIMESTAMP, ADD email VARCHAR(255),
+      ADD is_demo INT DEFAULT 0, ADD created_via_dev_fill INT DEFAULT 0,
+      ADD adaptive_intake_meta_json JSON, ADD intake_preferences_json JSON;
+    ALTER TABLE users ADD email VARCHAR(255), ADD personal_email VARCHAR(255), ADD work_email VARCHAR(255);
+    CREATE TABLE office_client_assignment_events (id INT PRIMARY KEY, agency_id INT, client_id INT,
+      provider_user_id INT, assigned_by_user_id INT, assigned_at DATETIME, exchanged_at DATETIME,
+      marked_current_at DATETIME, ended_at DATETIME, exchange_listing_id INT);
+    INSERT INTO client_statuses VALUES (1, 'Current', 'current');
+  `);
  });
  beforeEach(async () => {
   state.clinicalUnavailable = false;
   await state.pool.query("UPDATE client_identifier_sequences SET last_number=99999 WHERE sequence_key='client'");
-  for (const table of ['client_organization_assignments','client_contact_affiliations','agency_contacts','clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history','clinical_notes']) await state.pool.query(`DELETE FROM ${table}`);
+  for (const table of ['office_client_assignment_events','client_organization_assignments','client_contact_affiliations','agency_contacts','clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history','clinical_notes']) await state.pool.query(`DELETE FROM ${table}`);
   await state.pool.query(`
    INSERT INTO clients (id,agency_id,full_name,date_of_birth,status,identifier_code) VALUES (1,450,'Synthetic Child','2015-01-01','PACKET','100001'),(2,450,'Synthetic Child','2015-01-01','PACKET','100002');
    INSERT INTO client_guardians (client_id,guardian_user_id,relationship_type,access_enabled,permissions_json) VALUES (1,8,'guardian',1,'{}'),(2,8,'guardian',1,'{}'),(2,9,'guardian',1,'{}');
@@ -110,6 +122,61 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   expect(documents).toEqual([{ client_id: 2 }]);
   const [events] = await state.pool.query('SELECT client_id,changed_by_user_id FROM client_status_history ORDER BY client_id');
   expect(events).toEqual([{ client_id: 1, changed_by_user_id: 40 }, { client_id: 2, changed_by_user_id: 40 }]);
+ });
+ it('requires all existing linked charts before combining identity sets', async () => {
+  await state.pool.query(`
+    UPDATE clients SET agency_id = 2 WHERE id = 2;
+    INSERT INTO clients (id, agency_id, status) VALUES (3,450,'PACKET'),(4,2,'PACKET');
+  `);
+  const actor = { id: 40, role: 'super_admin' };
+  for (const [first, second] of [[1, 2], [3, 4]]) {
+   await linkClientChartIdentity({ review: await reviewClientChartIdentity(actor, first, [second]), actorUserId: actor.id });
+  }
+  await expect(reviewClientChartIdentity(actor, 1, [3, 4])).rejects.toMatchObject({ status: 409 });
+  await linkClientChartIdentity({ review: await reviewClientChartIdentity(actor, 1, [2, 3, 4]), actorUserId: actor.id });
+  const assigned = await attachCaseloadIdentities([{ id: 1 }, { id: 4 }, { id: 99 }]);
+  expect(assigned[0].caseload_identity).toBeTruthy();
+  expect(assigned[1].caseload_identity).toBe(assigned[0].caseload_identity);
+  expect(assigned[2]).toEqual({ id: 99 });
+  const [[audit]] = await state.pool.query("SELECT COUNT(*) AS total FROM client_status_history WHERE field_changed='linked_client_identity' AND from_value IS NOT NULL");
+  expect(audit.total).toBe(2);
+ });
+ it('only queues pending enrollments, classifies demos, and clears active or accepted records', async () => {
+  await state.pool.query(`
+    UPDATE clients SET client_type='clinical', source='PUBLIC_OFFICE_INTAKE' WHERE id IN (1,2);
+    UPDATE clients SET is_demo=1 WHERE id=2;
+    INSERT INTO clients (id, agency_id, client_type, status, client_status_id, provider_id) VALUES
+      (3,450,'clinical','PENDING_REVIEW',1,NULL),
+      (4,450,'school','PACKET',NULL,8),
+      (5,450,'school','ACTIVE',NULL,8),
+      (6,2,'clinical','PENDING_REVIEW',NULL,NULL),
+      (7,450,'clinical','PACKET',NULL,8);
+    INSERT INTO office_client_assignment_events (id, agency_id, client_id, provider_user_id, assigned_at, marked_current_at) VALUES
+      (1,450,4,8,NOW(),NULL), (2,450,5,8,NOW(),NULL), (3,450,7,8,NOW(),NOW());
+  `);
+  const queue = await listPendingOfficeClients({ agencyId: 450, includeSchool: true });
+  expect(queue.map(({ id, isDemo }) => ({ id, isDemo })).sort((a,b) => a.id-b.id))
+    .toEqual([{ id: 1, isDemo: false }, { id: 2, isDemo: true }]);
+  const referred = await listPendingAcceptanceClients({ agencyId: 450 });
+  expect(referred.map(row => row.id)).toEqual([4]);
+ });
+ it('seeds only the requested agencies with inactive 90837 fee terms', async () => {
+  await state.pool.query(`
+    ALTER TABLE agencies ADD portal_url VARCHAR(255);
+    INSERT INTO agencies (id, name, slug) VALUES (31,'ITSCO','itsco'),(32,'NLU','nlu'),(33,'Inner Strength','tisi');
+    CREATE TABLE booking_cancellation_policies (agency_id INT, name VARCHAR(200), description TEXT, scope_level VARCHAR(30),
+      business_type VARCHAR(40), service_code VARCHAR(15), notice_hours INT, late_fee_cents INT,
+      no_show_fee_cents INT, is_active INT);
+  `);
+  const migration = await readFile(new URL('../../../../database/migrations/1859_counseling_attendance_policy_drafts.sql', import.meta.url), 'utf8');
+  await state.pool.query(migration);
+  await state.pool.query(migration);
+  const [rows] = await state.pool.query('SELECT agency_id, is_active, service_code, late_fee_cents, no_show_fee_cents FROM booking_cancellation_policies ORDER BY agency_id');
+  expect(rows).toEqual([31,32,33].map(agency_id => ({
+    agency_id, is_active: 0, service_code: '90837', late_fee_cents: 8000, no_show_fee_cents: 10000
+  })));
+  await state.pool.query(await readFile(new URL('../../../../database/migrations/1860_client_after_hours_self_pay_requests.sql', import.meta.url), 'utf8'));
+  await state.pool.query('DROP TABLE client_after_hours_self_pay_requests, booking_cancellation_policies');
  });
  it('reserves distinct sequential six-digit numbers concurrently and skips existing legacy identifiers',async()=>{
   const codes=await Promise.all(Array.from({length:20},()=>generateUniqueSixDigitClientCode({agencyId:450},state.pool)));

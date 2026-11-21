@@ -47,6 +47,22 @@ beforeEach(() => {
   runSignedAppointmentChange.mockImplementation(async (id, facts, who, { previewChange, applyChange }) => applyChange(id, facts, who, await previewChange(id, facts, who)));
 });
 describe('appointment change consequences and completion', () => {
+  it('keeps the reviewed no-show reason in the signed note and the optional message in the notice', async () => {
+    const facts = {
+      eventType: 'no_show', initiator: 'client', reasonKnown: true, reasons: ['transportation'],
+      outreach: ['left_voicemail'], additionalComments: 'Private chart detail',
+      clientFacingReason: 'Please contact the office.', signatureConfirmed: true, expiredNoShowConfirmed: true
+    };
+    const preview = await previewAppointmentChange(1, facts, actor);
+    expect(preview.noShowReviewNarrative).toContain('Reason documented: a transportation issue.');
+    expect(preview.noShowReviewNarrative).toContain('left a voicemail');
+    expect(preview.clientNotice.body).toContain(facts.clientFacingReason);
+    expect(preview.clientNotice.body).not.toContain(facts.additionalComments);
+    await completeAppointmentChange(1, facts, actor);
+    expect(runSignedAppointmentChange).toHaveBeenCalledWith(1, expect.objectContaining({
+      clientFacingReason: facts.clientFacingReason
+    }), actor, expect.anything());
+  });
   it.each(['canceled','no_show'])('does not assess a new automatic client fee for a pro bono %s',async eventType=>{
     appointment.serviceCode='PRO-BONO SERVICE';
     evaluateCancel.mockResolvedValue({allowed:true,isLate:true,withinNotice:false,recommendedFeeCents:0,fundingDisposition:'pro_bono',recommendedPackageAction:'release',policy:{noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000}});

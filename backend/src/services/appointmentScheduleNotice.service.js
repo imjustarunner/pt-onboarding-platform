@@ -283,7 +283,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         if(entries.length===1&&entries[0].payload.eventType==='no_show'&&['tutoring','learning'].includes(entries[0].appointment.businessType)){const appointment=entries[0].appointment;const names=await d.missedNoticeNames({clientId:seed.client_id,providerId:seed.provider_id,recipientId:providerCopy?null:target?.userId}).catch(error=>{
             console.warn('[schedule-notice] missed-session greeting unavailable',seed.id,error.code||'lookup_failed');
             return {};
-          });const url=providerCopy?providerTutoringOutcomeUrl(portalUrl,appointment.id):portalUrl;recipientMessage=buildTutoringMissedNotice(appointment,url,{...names,providerCopy});}
+          });const url=providerCopy?providerTutoringOutcomeUrl(portalUrl,appointment.id):portalUrl;recipientMessage=buildTutoringMissedNotice(appointment,url,{...names,providerCopy,clientMessage:entries[0].cancellation?.clientFacingReason});}
         const signedLetter = entries[0]?.payload?.facts?.reviewedMessage?.[target?.role === 'client' ? 'client' : target?.role === 'guardian' ? 'guardian' : ''];
         if (signedLetter?.text) recipientMessage = { ...recipientMessage, subject: signedLetter.subject || recipientMessage.subject, text: signedLetter.text,
           html: `<p>${String(signedLetter.text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])).replaceAll('\n', '<br>')}</p>` };

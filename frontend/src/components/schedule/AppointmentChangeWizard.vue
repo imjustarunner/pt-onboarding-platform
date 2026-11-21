@@ -121,10 +121,10 @@
                     @click="change.toggleOutreach(o.id)"
                   >{{ o.label }}</button>
                 </div>
-                <h4 class="acw-h4">Reason known?</h4>
+                <h4 class="acw-h4">Do you know why the client missed the appointment? (required)</h4>
                 <div class="acw-chips">
-                  <button type="button" class="acw-chip" :class="{ on: change.facts.reasonKnown === false }" @click="change.facts.reasonKnown = false; change.facts.reasons = []">No</button>
-                  <button type="button" class="acw-chip" :class="{ on: change.facts.reasonKnown === true }" @click="change.facts.reasonKnown = true">Yes</button>
+                  <button type="button" class="acw-chip" :class="{ on: change.facts.reasonKnown === false }" @click="change.facts.reasonKnown = false; change.facts.reasons = []">Reason unknown</button>
+                  <button type="button" class="acw-chip" :class="{ on: change.facts.reasonKnown === true }" @click="change.facts.reasonKnown = true">Reason known</button>
                 </div>
                 <template v-if="change.facts.reasonKnown">
                   <h4 class="acw-h4">Why?</h4>
@@ -193,8 +193,8 @@
                 </label>
                 <p class="muted">Keep private details in the internal note. The reason below is saved with the cancellation and can be seen by the client.</p>
                 <label class="acw-field">
-                  <span>{{ change.facts.eventType === 'no_show' ? 'Message to share with the client' : 'Reason to share with the client (required)' }}</span>
-                  <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500" placeholder="Your provider is unavailable due to illness." />
+                  <span>{{ change.facts.eventType === 'no_show' ? 'Add a message to the client notice (optional)' : 'Reason to share with the client (required)' }}</span>
+                  <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500"  :placeholder="change.facts.eventType === 'no_show' ? 'Please call the office if you need help rescheduling.' : 'Your provider is unavailable due to illness.'" />
                 </label>
                 <label v-if="change.facts.eventType !== 'no_show' && change.facts.cancellationScope!=='future'" class="acw-field">
                   <span>Next step</span>
@@ -303,7 +303,7 @@
 
               <div v-if="change.preview.value?.evaluation?.policyName" class="acw-info" data-attendance-policy>
                 <strong>{{ change.preview.value.evaluation.policyName }}</strong>
-                <p>Notice: {{ change.preview.value.evaluation.noticeHours }} hours · Late cancellation: {{ money(change.preview.value.evaluation.lateFeeCents) }} · No-show: {{ money(change.preview.value.evaluation.noShowFeeCents) }}.</p>
+                <p>Notice window {{ change.preview.value.evaluation.noticeHours }} hours<template v-if="change.preview.value.evaluation.lateFeeCents != null"> · Late cancellation {{ money(change.preview.value.evaluation.lateFeeCents) }} · No-show {{ money(change.preview.value.evaluation.noShowFeeCents) }}</template></p>
                 <p>Recorded policy terms; the signed agreement is not verified here.</p>
               </div>
               <div v-if="!isLearning" class="acw-info" style="margin-top:0;">
@@ -379,7 +379,7 @@
                   </div>
                 </template>
                 <template v-else-if="change.preview.value?.waiverOptions?.showFeeActions || change.preview.value?.waiverOptions?.showPackageActions">
-                  <h4 class="acw-h4">{{ change.preview.value?.canWaive ? 'Waive consequence?' : 'Recommend waiver?' }}</h4>
+                  <h4 class="acw-h4">{{ change.preview.value?.canWaive ? 'Waive consequence?' : 'Request a waiver?' }}</h4>
                   <div class="acw-chips">
                     <button type="button" class="acw-chip" :class="{ on: change.facts.waiver.action === 'no' }" @click="change.facts.waiver.action = 'no'">No</button>
                     <button
@@ -387,7 +387,7 @@
                       class="acw-chip"
                       :class="{ on: change.facts.waiver.action === (change.preview.value?.canWaive ? 'waive' : 'recommend') }"
                       @click="change.facts.waiver.action = change.preview.value?.canWaive ? 'waive' : 'recommend'"
-                    >{{ change.preview.value?.canWaive ? 'Yes — waive' : 'Yes — recommend waiver' }}</button>
+                    >{{ change.preview.value?.canWaive ? 'Yes — waive' : 'Request waiver for review' }}</button>
                   </div>
                   <div v-if="change.facts.waiver.action !== 'no'" class="acw-chips" style="margin-top:8px;">
                     <button
@@ -399,6 +399,10 @@
                       @click="change.facts.waiver.reason = r.id"
                     >{{ r.label }}</button>
                   </div>
+                  <label v-if="change.facts.waiver.action !== 'no'" class="acw-field">
+                    <span>Additional context for reviewer (optional)</span>
+                    <textarea v-model="change.facts.waiver.comment" class="acw-textarea" maxlength="1000" rows="2" />
+                  </label>
                 </template>
               </div>
             </div>
@@ -435,6 +439,12 @@
                 <details v-for="visit in change.preview.value.seriesChange.appointments" :key="visit.id" class="acw-series-note"><summary>{{ visit.when }} · {{ cancellationClassification(visit.classification) }}<template v-if="visit.feeCents != null"> · {{ money(visit.feeCents) }}</template></summary><p>{{ visit.narrative }}</p></details>
               </div>
               <label v-if="change.workflow.value?.status !== 'completed'" class="acw-signature"><input v-model="change.signatureConfirmed.value" type="checkbox" :disabled="change.saving.value" /><span>{{ change.preview.value?.seriesChange ? 'I reviewed the affected dates and every cancellation note, and confirm my signature.' : 'I reviewed this note and confirm my signature.' }}</span></label>
+              <div v-if="change.facts.eventType === 'no_show' && change.preview.value?.clientNotice" class="acw-client-notice">
+                <h4 class="acw-h4">Client email preview</h4>
+                <strong>{{ change.preview.value.clientNotice.subject }}</strong>
+                <p class="acw-message-body">{{ change.preview.value.clientNotice.body }}</p>
+                <p class="muted">The notice is queued when the undo window ends. The final email uses the recipient’s portal link and includes any recorded fee where applicable. Text messages direct recipients to the secure portal.</p>
+              </div>
               <div v-if="['canceled', 'rescheduled'].includes(change.facts.eventType) && change.facts.clientFacingReason" class="acw-client-notice">
                 <h4 class="acw-h4">{{ change.facts.notificationMode === 'none' ? 'Cancellation recorded — no email or text will be sent' : 'Client message to review' }}</h4>
                 <p v-if="change.facts.eventType === 'rescheduled'">Your appointment has moved. The message will include its verified new date and time.</p><p v-else>Your appointment scheduled for {{ change.context.whenLabel || change.preview.value?.appointment?.displayWhen }} has been canceled.</p>
@@ -633,7 +643,6 @@ watch(
     if (v === 'no_show') {
       props.change.facts.initiator = 'client';
       props.change.facts.followUpAction = 'none'; props.change.facts.offeredSlots = [];
-      if (!props.change.facts.clientFacingReason) props.change.facts.clientFacingReason = `This appointment was recorded as missed. Contact your ${isLearning.value?'tutoring team':'care team'} if this needs to be corrected.`;
     }
     if (v && v !== 'rescheduled' && props.change.step.value >= 2) await props.change.refreshPreview();
   }
@@ -678,6 +687,7 @@ async function onSign() {
 </script>
 
 <style scoped>
+.acw-message-body { white-space: pre-wrap; }
 .acw-offer-slots{max-height:240px;overflow:auto;border-block:1px solid #dce4ee;margin:10px 0}.acw-offers{padding:12px;background:#f0f7ff;border-radius:8px}
 .acw-client-notice { margin-top: 18px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; }
 .acw-client-notice legend { font-weight: 700; }

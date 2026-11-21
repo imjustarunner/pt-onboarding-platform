@@ -5,7 +5,7 @@
       <div class="oiq-header-copy">
         <AuricWellBrand context="Enrollment review" /><h1 class="oiq-title">New Enrollments</h1>
         <p class="oiq-subtitle">
-          Incoming office, school, and program enrollments awaiting provider assignment.
+          New requests for office, school, or program services. Once a provider accepts the enrollment and marks it current, it leaves this queue.
         </p>
       </div>
       <div class="oiq-header-actions">
@@ -19,18 +19,18 @@
     <!-- Stats row -->
     <div class="oiq-stats-row">
       <div class="oiq-stat-card">
-        <div class="oiq-stat-value">{{ clients.length }}</div>
+        <div class="oiq-stat-value">{{ filtered.length }}</div>
         <div class="oiq-stat-label">Awaiting assignment</div>
       </div>
       <div class="oiq-stat-card oiq-stat-card--green">
         <div class="oiq-stat-value">{{ recentCount }}</div>
         <div class="oiq-stat-label">Last 7 days</div>
       </div>
-      <div v-if="acceptance?.agency" class="oiq-stat-card">
+      <div v-if="acceptance?.agency && demoFilter === 'exclude'" class="oiq-stat-card">
         <div class="oiq-stat-value">{{ acceptance.agency.acceptanceLabel }}</div>
         <div class="oiq-stat-label">Provider acceptance rate</div>
       </div>
-      <div v-if="acceptance?.agency" class="oiq-stat-card">
+      <div v-if="acceptance?.agency && demoFilter === 'exclude'" class="oiq-stat-card">
         <div class="oiq-stat-value">{{ acceptance.agency.assignedCount || 0 }}</div>
         <div class="oiq-stat-label">Assigned to providers</div>
       </div>
@@ -110,7 +110,7 @@
     <!-- Error / empty -->
     <div v-if="error" class="oiq-banner oiq-banner--warn">{{ error }}</div>
     <div v-else-if="!loading && filtered.length === 0" class="oiq-empty">
-      <span>{{ searchQuery ? 'No results for your search.' : 'No pending office clients right now.' }}</span>
+      <span>{{ searchQuery ? 'No results for your search.' : 'No enrollments are awaiting assignment.' }}</span>
     </div>
 
     <!-- Two-column layout: list + detail panel -->
@@ -127,7 +127,7 @@
           }"
           @click="select(c)"
         >
-          <QuickPostClientToExchange :client="{ ...c, agencyId }" />
+          <QuickPostClientToExchange :client="c" />
           <div class="oiq-card-top">
             <div class="oiq-card-initials" :style="initialsStyle(c)">{{ getAvatarLetters(c) }}</div>
 
@@ -150,7 +150,7 @@
                     title="Created via Dev Fill (test/fake intake)"
                   >Dev Fill</span>
                   <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
-                  <span class="oiq-pill oiq-pill--pathway">{{ enrollmentSourceLabel(c.source) }}</span><span class="oiq-pill oiq-pill--type">{{ enrollmentCareSetting(c) }}<template v-if="c.organizationName"> · {{ c.organizationName }}</template></span>
+                  <span class="oiq-pill oiq-pill--pathway">{{ enrollmentSourceLabel(c.source) }}</span><span class="oiq-pill oiq-pill--type">{{ enrollmentCareSetting(c) }}<template v-if="scopedAgencyIds.length > 1 && c.agencyName"> · {{ c.agencyName }}</template><template v-if="c.organizationName"> · {{ c.organizationName }}</template></span>
                   <span
                     v-if="needsClinicalReview(c)"
                     class="oiq-pill oiq-pill--clinical-hold"
@@ -346,7 +346,7 @@
 
         <!-- Assign + actions -->
         <section class="oiq-section oiq-section--assign">
-          <QuickPostClientToExchange :client="{ ...selected, agencyId }" />
+          <QuickPostClientToExchange :client="selected" />
           <div class="oiq-section-title">Assign to provider</div>
           <div class="oiq-assign-row">
             <select v-model="assignSelections[selected.id]" class="oiq-select">
@@ -404,7 +404,7 @@
         </section>
 
         <!-- Provider acceptance -->
-        <div v-if="acceptance?.agency" class="oiq-section oiq-section--acceptance">
+        <div v-if="acceptance?.agency && demoFilter === 'exclude'" class="oiq-section oiq-section--acceptance">
           <div class="oiq-section-title">Agency referral acceptance</div>
           <div class="oiq-accept-stats">
             <div><span>Referred</span><strong>{{ acceptance.agency.assignedCount || 0 }}</strong></div>
@@ -425,8 +425,8 @@
 import LearningEnrollmentSummary from '../learning/LearningEnrollmentSummary.vue';
 import AuricWellBrand from '../auricwell/AuricWellBrand.vue';
 import '../../styles/auricwellClients.css';
-import {enrollmentSourceLabel,enrollmentCareSetting,filterEnrollments} from '../../utils/enrollmentPresentation.js';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import {enrollmentSourceLabel,enrollmentCareSetting,filterEnrollments,loadEnrollmentRows} from '../../utils/enrollmentPresentation.js';
+import { computed, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode';
@@ -443,6 +443,8 @@ import { exchangeScheduleLines, scheduleFromIntake } from '../../utils/clientExc
 
 const { getClientLabel, getAvatarLetters } = useClientDisplayMode();
 
+const props = defineProps({ agencyIds: Array, demo: String });
+const emit = defineEmits(['update:demo', 'count']);
 const agencyStore = useAgencyStore();
 const route = useRoute();
 
@@ -451,10 +453,13 @@ const agencyId = computed(() => {
   return a?.id || null;
 });
 
+const scopedAgencyIds = computed(() => props.agencyIds ?? (agencyId.value ? [agencyId.value] : []));
+const singleAgencyId = computed(() => scopedAgencyIds.value.length === 1 ? scopedAgencyIds.value[0] : null);
 const loading = ref(false);
 const error = ref('');
 const clients = ref([]);
-const recentlyReferred = ref([]);
+const referredRows = ref([]);
+const recentlyReferred = computed(() => filterEnrollments(referredRows.value, enrollmentFilters.value));
 const providerOptions = ref([]);
 const assignSelections = reactive({});
 const assigningId = ref(null);
@@ -473,17 +478,30 @@ const searchQuery = ref('');
 const sortField = ref('createdAt');
 const sortAsc = ref(false);
 const filterType = ref('');
-const sourceFilter=ref(''), organizationFilter=ref(''), settingFilter=ref(''), demoFilter=ref('exclude');
-const sourceOptions=computed(()=>[...new Set(clients.value.map(client=>client.source).filter(Boolean))].sort());
-const organizationOptions=computed(()=>[...new Map(clients.value.filter(client=>client.organizationId).map(client=>[client.organizationId,{id:client.organizationId,name:client.organizationName || `Organization ${client.organizationId}`}])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
+const sourceFilter = ref(''), organizationFilter = ref(''), settingFilter = ref('');
+const standaloneDemo = ref('exclude');
+const demoFilter = computed({
+  get: () => props.demo ?? standaloneDemo.value,
+  set(value) {
+    standaloneDemo.value = value;
+    emit('update:demo', value);
+  }
+});
+const enrollmentFilters = computed(() => ({
+  source: sourceFilter.value, organization: organizationFilter.value, setting: settingFilter.value, demo: demoFilter.value
+}));
+const sourceOptions=computed(()=>[...new Set([...clients.value, ...referredRows.value].map(client=>client.source).filter(Boolean))].sort());
+const organizationOptions=computed(()=>[...new Map([...clients.value, ...referredRows.value].filter(client=>client.organizationId).map(client=>[client.organizationId,{id:client.organizationId,name:client.organizationName || `Organization ${client.organizationId}`}])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
 const showReferred = ref(false);
 
-const selected = computed(() => clients.value.find((c) => c.id === selectedId.value) || null);
+const selected = computed(() => filtered.value.find((c) => c.id === selectedId.value) || null);
 
 const orgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 
 function clientProfilePath(c) {
-  return orgSlug.value ? `/${orgSlug.value}/admin/clients/${c.id}` : `/admin/clients/${c.id}`;
+  const scopedSlug = (agencyStore.userAgencies || []).find(agency => Number(agency.id) === Number(c.agencyId))?.slug;
+  const slug = scopedSlug || (Number(c.agencyId) === Number(agencyId.value) ? orgSlug.value : '');
+  return slug ? `/${slug}/admin/clients/${c.id}` : `/admin/clients/${c.id}`;
 }
 
 function select(c) {
@@ -492,7 +510,7 @@ function select(c) {
 
 const recentCount = computed(() => {
   const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return clients.value.filter((c) => new Date(c.createdAt).getTime() > cutoff).length;
+  return filtered.value.filter((c) => new Date(c.createdAt).getTime() > cutoff).length;
 });
 
 function formatDate(v) {
@@ -609,7 +627,7 @@ function matchesSearch(c) {
 }
 
 const filtered = computed(() => {
-  let list = filterEnrollments(clients.value,{source:sourceFilter.value,organization:organizationFilter.value,setting:settingFilter.value,demo:demoFilter.value});
+  let list = filterEnrollments(clients.value, enrollmentFilters.value);
   if (filterType.value) list = list.filter((c) => c.clientType === filterType.value);
   if (searchTokens.value.length) list = list.filter(matchesSearch);
   list = [...list].sort((a, b) => {
@@ -629,58 +647,45 @@ const filtered = computed(() => {
   return list;
 });
 
-async function loadProviders() {
+let providerRequest = 0;
+async function loadProviders(agency) {
+  const version = ++providerRequest;
+  providerOptions.value = [];
+  if (!agency) return;
   try {
-    const res = await api.get('/users',{skipGlobalLoading:true});
-    const all = res.data || [];
-    providerOptions.value = all
-      .filter((u) => ['provider', 'provider_plus'].includes(String(u.role || '').toLowerCase()))
+    const { data } = await api.get('/client-exchange/providers', {
+      params: { agencyId: agency }, headers: { 'X-Agency-Id': String(agency) }, skipGlobalLoading: true
+    });
+    if (version !== providerRequest) return;
+    providerOptions.value = (data.providers || [])
       .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
   } catch {
-    providerOptions.value = [];
+    // Keep assignment unavailable until this agency's provider list can be loaded.
   }
 }
 
-async function loadAcceptance() {
-  if (!agencyId.value) return;
-  try {
-    const res = await api.get('/client-exchange/acceptance-metrics', {
-      params: { agencyId: agencyId.value },
-      skipGlobalLoading: true
-    });
-    acceptance.value = res.data || null;
-  } catch {
-    acceptance.value = null;
-  }
-}
-
-async function load() {
-  if (!agencyId.value) return;
+let queueRequest = 0;
+async function loadAll() {
+  const version = ++queueRequest;
+  const ids = scopedAgencyIds.value;
   loading.value = true;
   error.value = '';
-  try {
-    const res = await api.get('/client-exchange/pending-office-clients', { params: { agencyId: agencyId.value, includeSchool:'true' }, skipGlobalLoading:true });
-    clients.value = res.data?.clients || [];
-    // Do not auto-select; user clicks to open detail
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending clients';
-  } finally {
-    loading.value = false;
+  const singleAgency = singleAgencyId.value;
+  const [newEnrollments, referred, metrics] = await Promise.allSettled([
+    loadEnrollmentRows(api, '/client-exchange/pending-office-clients', ids, demoFilter.value, { includeSchool: 'true' }),
+    loadEnrollmentRows(api, '/client-exchange/recently-referred', ids, demoFilter.value),
+    singleAgency ? api.get('/client-exchange/acceptance-metrics', {
+      params: { agencyId: singleAgency }, headers: { 'X-Agency-Id': String(singleAgency) }, skipGlobalLoading: true
+    }) : Promise.resolve(null)
+  ]);
+  if (version !== queueRequest) return;
+  clients.value = newEnrollments.value?.rows || [];
+  referredRows.value = referred.value?.rows || [];
+  acceptance.value = metrics.value?.data || null;
+  if (newEnrollments.value?.incomplete || referred.value?.incomplete || newEnrollments.status === 'rejected' || referred.status === 'rejected') {
+    error.value = 'Some enrollment data could not be loaded. Refresh to try again.';
   }
-}
-
-async function loadRecentlyReferred() {
-  if (!agencyId.value) return;
-  try {
-    const res = await api.get('/client-exchange/recently-referred', { params: { agencyId: agencyId.value }, skipGlobalLoading:true });
-    recentlyReferred.value = res.data?.clients || [];
-  } catch {
-    recentlyReferred.value = [];
-  }
-}
-
-async function loadAll() {
-  await Promise.all([load(), loadAcceptance(), loadRecentlyReferred()]);
+  loading.value = false;
 }
 
 async function assign(client) {
@@ -692,7 +697,7 @@ async function assign(client) {
     await api.put(`/clients/${client.id}/provider`, {
       provider_id: Number(providerId),
       ...(clientAlert ? { client_alert: clientAlert } : {})
-    });
+    }, { headers: { 'X-Agency-Id': String(client.agencyId || agencyId.value) } });
     alertDrafts[client.id] = '';
     await loadAll();
     selectedId.value = null;
@@ -704,14 +709,14 @@ async function assign(client) {
 }
 
 async function convertToFull(client, sendEmail = true) {
-  if (!agencyId.value) return;
+  if (!client.agencyId) return;
   convertingId.value = client.id;
   error.value = '';
   conversionMessages[client.id] = '';
   try {
     const res = await api.post('/client-exchange/adaptive-convert', {
       clientId: client.id,
-      agencyId: agencyId.value,
+      agencyId: client.agencyId,
       sendEmail: !!sendEmail
     });
     const path = res.data?.inviteUrl || res.data?.intakeUrlPath;
@@ -741,7 +746,7 @@ async function loadContactNotes(clientId) {
   if (!clientId) return;
   notesLoadingId.value = clientId;
   try {
-    const { data } = await api.get(`/clients/${clientId}/notes`);
+    const { data } = await api.get(`/clients/${clientId}/notes`, { headers: { 'X-Agency-Id': String(selected.value?.agencyId || agencyId.value) } });
     notesByClient[clientId] = Array.isArray(data) ? data : (data?.notes || []);
   } catch {
     notesByClient[clientId] = notesByClient[clientId] || [];
@@ -761,7 +766,7 @@ async function saveContactNote(client) {
       is_internal_only: true,
       category: 'administrative',
       urgency: 'low'
-    });
+    }, { headers: { 'X-Agency-Id': String(client.agencyId || agencyId.value) } });
     noteDrafts[client.id] = '';
     await loadContactNotes(client.id);
   } catch (e) {
@@ -771,13 +776,21 @@ async function saveContactNote(client) {
   }
 }
 
+watch(() => selected.value?.agencyId || (selected.value ? singleAgencyId.value : null), loadProviders);
 watch(selectedId, (id) => {
   if (id && !notesByClient[id]) loadContactNotes(id);
 });
 
-onMounted(() => {
+watch(() => scopedAgencyIds.value.join(','), () => {
+  clients.value = [];
+  referredRows.value = [];
+  selectedId.value = null;
+  organizationFilter.value = '';
   loadAll();
-  loadProviders();
+}, { immediate: true });
+watch(demoFilter, loadAll);
+watch([filtered, loading], ([rows, busy]) => {
+  if (!busy) emit('count', rows.length);
 });
 </script>
 
