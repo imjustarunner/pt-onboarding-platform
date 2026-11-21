@@ -99,3 +99,21 @@ export function estimateDisclosure(snapshot) {
     'Keep a copy of this estimate. You may request a copy from the care team. The cost estimate is retained with your client record.'
   ];
 }
+
+
+// Items such as an add-on, a billing fee or a 15-minute unit are not visits.
+const counselingVisitCodes = new Set(['90791', '90832', '90834', '90837', '90839', '90846', '90847', '90853']);
+const estimateDateDisplay = new Intl.DateTimeFormat('en-US', {
+  month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'
+});
+export function estimatePresentation(snapshot) {
+  const count = snapshot.lines.reduce((total, line) =>
+    total + (counselingVisitCodes.has(line.serviceCode) ? line.quantity : 0), 0);
+  const summaryLabel = count === 6 ? 'Six-session expense' : count ? `${count}-session expense` : 'Estimated cost of care';
+  const formatDate = value => estimateDateDisplay.format(new Date(`${value}T00:00:00Z`));
+  return {
+    summaryLabel,
+    servicePeriod: `${formatDate(snapshot.startDate)} – ${formatDate(snapshot.endDate)}`,
+    disclosures: estimateDisclosure(snapshot)
+  };
+}

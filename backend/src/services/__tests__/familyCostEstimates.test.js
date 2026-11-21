@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ESTIMATE_DEFAULTS, ESTIMATE_ACKNOWLEDGMENT, buildCostEstimate, costEstimateReadiness, estimateDisclosure, estimateWindow, insuredPlanningCost } from '../costEstimatePolicy.js';
+import { ESTIMATE_DEFAULTS, ESTIMATE_ACKNOWLEDGMENT, buildCostEstimate, costEstimateReadiness, estimateDisclosure, estimatePresentation, estimateWindow, insuredPlanningCost } from '../costEstimatePolicy.js';
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), transaction: vi.fn(), billingLink: vi.fn(), access: vi.fn(), insurance: vi.fn(), audit: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
@@ -32,6 +32,16 @@ describe('individualized estimates', () => {
     const result = fixture(); expect(result.startDate).toBe('2026-10-21'); expect(result.endDate).toBe('2026-12-01'); expect(result.totalCents).toBe(60000); expect(result.missing).toEqual([]);
     expect(estimateDisclosure(result).join(' ')).toContain('does not limit treatment or insurance coverage');
   });
+  it('labels six sessions separately from additional service units and uses the recorded rates', () => {
+    const result = fixture({ lines: [
+      { serviceCode: '90837', description: 'Extended psychotherapy', amountCents: 12000, quantity: 6, approved: true },
+      { serviceCode: '99051', description: 'After-hours charge', amountCents: 1500, quantity: 2, approved: true }
+    ] });
+    expect(estimatePresentation(result)).toMatchObject({ summaryLabel: 'Six-session expense', servicePeriod: 'Oct 21, 2026 – Dec 1, 2026' });
+    expect(result.lines.map(line => line.totalCents)).toEqual([72000, 3000]);
+    expect(result.totalCents).toBe(75000);
+    expect(estimatePresentation(fixture({ lines: [{ ...result.lines[0], quantity: 4 }] })).summaryLabel).toBe('4-session expense');
+  });
   it('allows a tailored recurring plan up to 52 weeks and rejects longer estimates', () => { expect(estimateWindow('2026-01-01', 52).endDate).toBe('2026-12-30'); expect(() => estimateWindow('2026-01-01', 53)).toThrow(); });
   it('rejects Medicaid and Medicaid-secondary patient-pay estimates', () => { expect(() => fixture({ medicaid: true })).toThrow('Medicaid'); });
   it('requires a commercial self-pay election when insurance exists', () => { expect(() => fixture({ hasCoverage: true })).toThrow('elected'); expect(fixture({ hasCoverage: true, selfPayElection: true }).totalCents).toBe(60000); });
@@ -58,5 +68,18 @@ describe('tenant and document protection', () => {
   it('makes a repeated acknowledgment idempotent', async () => { const snapshot = fixture(); mocks.execute.mockResolvedValue([[stored(snapshot, { status: 'acknowledged' })]]); await expect(acknowledgeCostEstimate({ agencyId: 2, estimateId: 12, userId: 10, accepted: true, signatureName: 'Demo Guardian', snapshotHash: digest(snapshot) })).resolves.toEqual({ acknowledged: true, existing: true }); expect(mocks.execute.mock.calls.every(([sql]) => !sql.startsWith('UPDATE'))).toBe(true); });
   it('holds issuance when current coverage differs from the stored estimate', async () => { const snapshot = { ...fixture(), insuranceFingerprint: digest(null) }; mocks.execute.mockResolvedValue([[stored(snapshot, { status: 'draft' })]]); mocks.insurance.mockResolvedValue({ primary: { memberId: 'new-commercial' } }); await expect(issueCostEstimate({ agencyId: 2, estimateId: 12, actorUserId: 4 })).rejects.toThrow('Coverage changed'); });
   it('rejects stale price edits and never mutates existing claim or collection prices', async () => { mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ revision: 3 }]]); await expect(saveCostEstimateRate({ agencyId: 2, actorUserId: 4, serviceCode: '90837', description: 'Individual session', amountCents: 10000, approved: true, revision: 2, reason: 'Fee review' })).rejects.toMatchObject({ status: 409 }); expect(mocks.execute.mock.calls.every(([sql]) => !sql.startsWith('INSERT'))).toBe(true); });
-  it('renders a downloadable PDF without requiring acknowledgment first', async () => { const bytes = await renderCostEstimatePdf({ id: 12, status: 'issued', snapshot: fixture() }); expect(bytes.subarray(0, 4).toString()).toBe('%PDF'); const pdf = await PDFDocument.load(bytes); expect(pdf.getPageCount()).toBeGreaterThan(0); });
+  it('paginates longer estimates without altering their saved totals', async () => {
+    const lines = Array.from({ length: 25 }, (_, i) => ({
+      serviceCode: `TEST${i}`, description: 'Expected service detail. '.repeat(10), quantity: 1,
+      amountCents: 1000, approved: true
+    }));
+    const snapshot = fixture({ lines });
+    const original = digest(snapshot);
+    const pdf = await PDFDocument.load(await renderCostEstimatePdf({ status: 'draft', snapshot }));
+    expect(pdf.getPageCount()).toBeGreaterThan(1);
+    expect(snapshot.totalCents).toBe(25000);
+    expect(digest(snapshot)).toBe(original);
+  });
+  it('renders a downloadable PDF without requiring acknowledgment first', async () => { const bytes = await renderCostEstimatePdf({ id: 12, status: 'issued', snapshot: fixture() }); expect(bytes.subarray(0, 4).toString()).toBe('%PDF'); const pdf = await PDFDocument.load(bytes); expect(pdf.getPageCount()).toBe(1);
+    expect(pdf.getTitle()).toBe('Good Faith Estimate'); });
 });

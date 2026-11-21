@@ -1,6 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import pool from '../config/database.js';
 import { positiveId, billingError, requireBillingLink, auditBilling } from './familyBillingPolicy.service.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
@@ -10,7 +8,7 @@ import { readClientInsurance } from './clientInsurance.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import { getClaimMdBillingProfile, listClaimMdBillingProfiles } from './claimMdBillingProfile.service.js';
 import { getPrimaryClinicalDiagnosis } from './clinicalDiagnosisAttach.service.js';
-import { ESTIMATE_DEFAULTS, ESTIMATE_ACKNOWLEDGMENT, buildCostEstimate, estimateDisclosure, estimateMoney } from './costEstimatePolicy.js';
+import { ESTIMATE_DEFAULTS, ESTIMATE_ACKNOWLEDGMENT, buildCostEstimate, estimateMoney } from './costEstimatePolicy.js';
 
 const context = (agencyId, clientId) => `cost-estimate:${agencyId}:${clientId}`;
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -138,43 +136,4 @@ export async function acknowledgeCostEstimate({ agencyId, estimateId, userId, sn
     return { acknowledged: true };
   });
 }
-export async function renderCostEstimatePdf(item) {
-  const snapshot = item.snapshot || item;
-  const pdf = await PDFDocument.create(), normal = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  // Embed local brand assets: no external image requests carrying document data.
-  let portalLogo = null, agencyLogo = null;
-  try { portalLogo = await pdf.embedPng(await fs.readFile(new URL('../assets/auricwell/logo.png', import.meta.url))); } catch { /* Text branding remains legible without optional assets. */ }
-  const agencyLogoPath = String(snapshot.agency.slug || '').toLowerCase() === 'itsco' ? '../assets/providerActionPdf/itsco-logo.png' : ['nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up'].includes(String(snapshot.agency.slug || '').toLowerCase()) ? '../assets/costEstimates/nlu-logo.png' : null;
-  if (agencyLogoPath) try { agencyLogo = await pdf.embedPng(await fs.readFile(new URL(agencyLogoPath, import.meta.url))); } catch { /* Agency name is always included. */ }
-  let page, y;
-  const drawLogo = (image, x, maxWidth) => { const scale = Math.min(maxWidth / image.width, 38 / image.height); page.drawImage(image, { x, y: 748, width: image.width * scale, height: image.height * scale }); };
-  const addPage = () => { page = pdf.addPage([612, 792]); page.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(1, 1, 1) }); page.drawRectangle({ x: 40, y: 739, width: 532, height: 2, color: rgb(.13, .30, .42) }); if (portalLogo) { drawLogo(portalLogo, 40, 150); page.drawText('AuricWell', { x: 86, y: 760, font: bold, size: 15, color: rgb(.13, .30, .42) }); } else page.drawText('AuricWell', { x: 40, y: 760, font: bold, size: 15, color: rgb(.13, .30, .42) }); if (agencyLogo) drawLogo(agencyLogo, 405, 167); y = 715; };
-  addPage();
-  const draw = (value, heading = false) => {
-    const font = heading ? bold : normal, size = heading ? 13 : 10;
-    let line = '';
-    for (const word of String(value ?? '').replace(/[^\x20-\x7e\n]/g, ' ').split(/\s+/)) {
-      if (font.widthOfTextAtSize(`${line} ${word}`, size) > 532 && line) { if (y < 48) addPage(); page.drawText(line, { x: 40, y, size, font }); y -= 15; line = word; } else line += (line ? ' ' : '') + word;
-    }
-    if (y < 48) addPage(); page.drawText(line, { x: 40, y, size, font }); y -= heading ? 24 : 21;
-  };
-  const money = cents => cents == null ? 'Price review required' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
-  draw(snapshot.agency.name, true);
-  draw(snapshot.title, true);
-  if (!item.status || item.status === 'draft') draw('DRAFT - not yet issued. Review the required information before sharing.', true);
-  draw(`Client: ${snapshot.patient.name} | Date of birth: ${snapshot.patient.dateOfBirth}`);
-  draw(`Assigned provider: ${snapshot.provider.name} | NPI: ${snapshot.provider.npi || 'Review required'}`);
-  draw(`Billing organization: ${snapshot.agency.name} | NPI: ${snapshot.agency.npi || 'Review required'} | Tax ID: ${snapshot.agency.taxId || 'Review required'}`);
-  draw(`Service location: ${snapshot.location.address || 'Review required'}`);
-  draw(`Period: ${snapshot.startDate} through ${snapshot.endDate} | ${snapshot.frequency}`);
-  draw(`Diagnosis: ${snapshot.diagnosisCodes?.join(', ') || snapshot.diagnosisReason || 'Review required'}`);
-  draw('Expected services', true);
-  for (const line of snapshot.lines) draw(`${line.serviceCode} | ${line.description} | ${line.quantity} ${line.unitLabel}${line.quantity === 1 ? '' : 's'} at ${money(line.amountCents)} | ${money(line.totalCents)}`);
-  draw(`Total estimated cost without insurance: ${money(snapshot.totalCents)}`, true);
-  if (snapshot.separatelyScheduled?.length) { draw('Separately scheduled services', true); draw('Ask billing for a separate estimate when these services are scheduled or upon request.'); snapshot.separatelyScheduled.forEach(line => draw(line)); }
-  estimateDisclosure(snapshot).forEach(line => draw(line));
-  if (item.acknowledgment) { draw('Receipt acknowledged', true); draw(`${item.acknowledgment.signatureName} | ${item.acknowledgment.signedAt}`); draw(ESTIMATE_ACKNOWLEDGMENT); }
-  else draw('You can view, save and print this estimate without signing. Receipt acknowledgment is optional.');
-  for (const [index, p] of pdf.getPages().entries()) p.drawText(`Private client document | ${item.id ? `Estimate ${item.id} | ` : ''}Page ${index + 1}`, { x: 40, y: 24, size: 8, font: normal, color: rgb(.4, .4, .4) });
-  return Buffer.from(await pdf.save());
-}
+export { renderCostEstimatePdf } from './costEstimatePdf.js';

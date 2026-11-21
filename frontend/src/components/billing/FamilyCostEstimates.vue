@@ -10,10 +10,8 @@
       <p>{{ item.startDate }} – {{ item.endDate }} · {{ money(item.totalCents) }}</p>
       <div class="actions"><button :disabled="busy" @click="download(item)">Download estimate</button><button :disabled="busy" @click="review(item)">Review estimate</button></div>
       <div v-if="selected?.id === item.id" class="estimate-detail">
-        <p>Provider: {{ selected.snapshot.provider.name }}</p>
-        <p>{{ selected.snapshot.frequency }}. This period does not limit treatment or insurance coverage.</p>
-        <ul><li v-for="line in selected.snapshot.lines" :key="line.serviceCode">{{ line.description }}: {{ line.quantity }} × {{ money(line.amountCents) }} = {{ money(line.totalCents) }}</li></ul>
-        <p v-if="selected.acknowledgedAt" role="status">Receipt acknowledged. Your signed copy is available using Download estimate.</p>
+        <CostEstimatePreview :item="selected" />
+        <p v-if="selected.acknowledgedAt" role="status">Receipt acknowledged. The acknowledgment is included when you download the estimate.</p>
         <form v-else-if="selected.status === 'issued'" @submit.prevent="acknowledge">
           <label>Your name<input v-model="signatureName" autocomplete="name" maxlength="255" required /></label>
           <label class="check"><input v-model="accepted" type="checkbox" required />{{ selected.acknowledgmentText }}</label>
@@ -25,6 +23,7 @@
 </template>
 <script setup>
 import { ref, watch } from 'vue';
+import CostEstimatePreview from './CostEstimatePreview.vue';
 import api from '../../services/api.js';
 const props = defineProps({ agencyId: { type: Number, required: true }, clientId: { type: Number, default: null } });
 const estimates = ref([]), selected = ref(null), signatureName = ref(''), accepted = ref(false), busy = ref(false), error = ref('');
