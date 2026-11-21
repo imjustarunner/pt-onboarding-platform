@@ -7,5 +7,5 @@ it('reveals additional eligible services while retaining the selected service an
  expect(select().findAll('option').map(o=>o.attributes('value'))).toEqual(['','90837']);
  await wrapper.get('.ahf-more-services').trigger('click');expect(wrapper.get('.ahf-more-services').attributes('aria-expanded')).toBe('true');
  await select().setValue('90832');expect(wrapper.emitted('update:primaryServiceCode').at(-1)).toEqual(['90832']);
- await wrapper.setProps({primaryServiceCode:'90832'});await wrapper.get('.ahf-more-services').trigger('click');expect(select().findAll('option').map(o=>o.attributes('value'))).toContain('90832');expect(wrapper.text()).toContain('Default booking duration: 30 minutes');wrapper.unmount();
+ await wrapper.setProps({primaryServiceCode:'90832'});await wrapper.get('.ahf-more-services').trigger('click');expect(select().findAll('option').map(o=>o.attributes('value'))).toContain('90832');expect(wrapper.text()).toContain('Default duration · 30 min');wrapper.unmount();
 });
