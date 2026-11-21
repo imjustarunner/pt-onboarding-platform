@@ -5,6 +5,7 @@ vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(async()=>[
 vi.mock('../hubPeopleAccess.service.js',()=>({canAccessHubClient:vi.fn(async()=>false)}));
 import pool from '../../config/database.js';
 import Client from '../../models/Client.model.js';
+import User from '../../models/User.model.js';
 import { getClients } from '../../controllers/client.controller.js';
 import { listUserVirtualSessionClients } from '../../controllers/user.controller.js';
 import { providerHasAssignedClientAccess } from '../clientRecordAccess.service.js';
@@ -25,6 +26,7 @@ CREATE TABLE paperwork_statuses(id INTEGER,label TEXT,status_key TEXT);
 CREATE TABLE insurance_types(id INTEGER,label TEXT,insurance_key TEXT);
 CREATE TABLE paperwork_delivery_methods(id INTEGER,label TEXT,method_key TEXT);
 CREATE TABLE user_agencies(user_id INTEGER,agency_id INTEGER,is_active INTEGER);
+CREATE TABLE client_chart_identity_members(client_id INTEGER PRIMARY KEY,identity_id TEXT NOT NULL);
 CREATE TABLE client_agency_assignments(client_id INTEGER,agency_id INTEGER,is_active INTEGER);
 CREATE TABLE client_service_enrollments(id INTEGER,client_id INTEGER,agency_id INTEGER,provider_user_id INTEGER,service_kind TEXT,is_active INTEGER,service_status TEXT,organization_id INTEGER,label TEXT);
 CREATE TABLE client_provider_assignments(client_id INTEGER,provider_user_id INTEGER,is_active INTEGER);
@@ -74,6 +76,19 @@ it('keeps a service-only client in the actual provider Clients endpoint, includi
  await getClients(req,res,next);expect(next).not.toHaveBeenCalled();
  expect(ids(res.json.mock.calls[0][0])).toEqual([1,2,6]);
  expect(res.json.mock.calls[0][0].find(row=>row.id===2).service_contexts).toEqual(expect.arrayContaining([expect.objectContaining({service_kind:'counseling',agency_id:2})]));
+});
+it('marks linked charts across the provider’s visible caseload without adding clients outside that caseload', async () => {
+  User.getAgencies.mockResolvedValueOnce([{ id: 2 }, { id: 3 }]);
+  extraSeed = "INSERT INTO client_chart_identity_members VALUES(2,'shared-chart'),(5,'shared-chart'),(7,'shared-chart');";
+
+  const req = { query: { provider_id: '8', includeServiceContext: '1' }, user: { id: 8, role: 'provider' } };
+  const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }, next = vi.fn();
+  await getClients(req, res, next);
+
+  expect(next).not.toHaveBeenCalled();
+  const rows = res.json.mock.calls[0][0];
+  expect(ids(rows)).toEqual([1, 2, 5, 6, 8]);
+  expect(ids(rows.filter(row => row.caseload_identity === 'shared-chart'))).toEqual([2, 5]);
 });
 it('opens the assigned counseling chart while a tutoring-only or ended service does not grant clinical chart access',async()=>{
  expect(await providerHasAssignedClientAccess({userId:8,clientId:2,client:{id:2,agency_id:2}})).toBe(true);
