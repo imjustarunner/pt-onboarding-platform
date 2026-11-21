@@ -5,6 +5,7 @@ import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { workspaceMailboxType } from './workspaceMailboxType.service.js';
 import { assertDepartmentalGroupAccess, groupKeyForIdentity } from './departmentalGroupAccess.service.js';
 import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
+import { normalizeStaffContactAddress } from '../utils/staffContactAddress.js';
 
 /** Keep conversation ownership separate from the address used on the wire. */
 export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMessagesRoute = false, optional = false }) {
@@ -45,21 +46,33 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
     }
     return { ...sender, inbox: selected, routing: 'shared_team' };
   }
-  if (messages && keepMessagesRoute) {
+  const actor = personal || messages ? await User.findById(userId) : null;
+  const flag = value => [true, 1, '1'].includes(value);
+  const groupLogin = flag(actor?.sso_password_override) || flag(actor?.login_is_group_email);
+  const ssoEnabled = !!managedDomain(agency) || flags.googleSsoEnabled === true;
+  if (messages && keepMessagesRoute && ssoEnabled && !groupLogin) {
     if (!/^messages@[^@\s]+$/i.test(identity.from_email)) {
       throw Object.assign(new Error('The agency Messages sender is unavailable.'), { status: 400 });
     }
     return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: identity.from_email, displayName: identity.display_name, routing: 'shared_team' };
   }
-  if ((managedDomain(agency) || flags.googleSsoEnabled === true) && (personal || messages)) {
+  if (personal || (messages && (groupLogin || ssoEnabled))) {
     // Even when messages@ was selected explicitly, use the actor's own mailbox
     // to choose routing. Never move their private conversation to a shared inbox.
     const ownInbox = personal ? selected : await (await import('./personalMailbox.service.js')).findPersonalInbox({ agencyId, userId });
     if (!ownInbox?.from_email || Number(ownInbox.owner_user_id) !== Number(userId)) {
       throw Object.assign(new Error('Configure your work mailbox before sending email.'), { status: 400 });
     }
-    const type = await workspaceMailboxType(ownInbox.from_email);
-    if (type === 'user') {
+    const workAddress = normalizeStaffContactAddress(ownInbox.from_email);
+    if (!actor || !workAddress || workAddress === normalizeStaffContactAddress(actor.personal_email)) {
+      throw Object.assign(new Error('Configure a verified work mailbox before sending email.'), { status: 400 });
+    }
+    const type = await workspaceMailboxType(workAddress);
+    if (!ssoEnabled || groupLogin) {
+      if (type !== 'group') {
+        throw Object.assign(new Error('Configure your work group email before sending email.'), { status: 400 });
+      }
+    } else if (type === 'user') {
       const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
       const sender = await resolveMessagesSendMailbox(agencyId);
       if (Number(sender.identity?.agency_id) !== Number(agencyId) || Number(sender.identity?.is_active) === 0) {

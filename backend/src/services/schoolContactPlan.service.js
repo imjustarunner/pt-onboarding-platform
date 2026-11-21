@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import Conversation from '../models/CommunicationConversation.model.js';
 import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
+import { canImportPersonalMailboxEmail } from './personalMailboxImportPolicy.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { normalizeStaffContactAddress, redactStaffPrivateAddresses, tenantStaffWorkAddress } from '../utils/staffContactAddress.js';
@@ -45,24 +46,45 @@ function linkedEmailHtml(text, profileUrl) {
 }
 
 export function schoolContactRouting(provider, from = '', agency = {}) {
-  const policyRequiresSso = parse(agency.feature_flags).googleSsoEnabled === true || !!managedDomain(agency);
+  const managed = managedDomain(agency);
+  const policyRequiresSso = parse(agency.feature_flags).googleSsoEnabled === true || !!managed;
   const isSso = policyRequiresSso && !flag(provider.sso_password_override) && !flag(provider.login_is_group_email);
   const candidate = normalizeStaffContactAddress(from);
   const messages = candidate.startsWith('messages@') && candidate !== normalizeStaffContactAddress(provider.personal_email) ? candidate : '';
-  const domain = messages.split('@')[1];
+  const domain = managed || messages.split('@')[1];
+  const workGroup = tenantStaffWorkAddress({ work_mailbox_email: provider.work_mailbox_email, personal_email: provider.personal_email }, domain);
+  const sender = isSso ? messages : workGroup;
   return {
     isSso,
-    from: messages,
-    providerEmail: tenantStaffWorkAddress(provider, domain),
-    replyTo: messages,
+    from: sender,
+    providerEmail: isSso ? tenantStaffWorkAddress(provider, domain) : workGroup,
+    replyTo: sender,
     replyTracking: 'in_app',
-    replyTrackingNote: 'Family replies go to your client conversation in Messages. If a work mail address is configured, you receive a copy there.'
+    replyTrackingNote: isSso
+      ? 'Family replies go to your client conversation in Messages. If a work mail address is configured, you receive a copy there.'
+      : 'Family replies go to your work group email and appear in your inbox in Messages.'
   };
 }
+
+const setupMessage = routing => routing.isSso
+  ? 'Your agency’s Messages mailbox needs support setup.'
+  : 'Your work group email needs support setup.';
 
 async function configuredMessagesAddress(agencyId) {
   const [[identity]] = await pool.execute("SELECT from_email FROM email_sender_identities WHERE agency_id=? AND identity_key IN ('messages','messages_at_tenant') AND is_active=1 ORDER BY identity_key LIMIT 1", [agencyId]);
   return identity?.from_email || '';
+}
+
+async function resolveSchoolContactWorkMailbox(ctx, address) {
+  const [[mailbox]] = await pool.execute(`SELECT i.id,i.sender_identity_id FROM communication_inboxes i
+    JOIN email_sender_identities esi ON esi.id=i.sender_identity_id AND esi.agency_id=i.agency_id
+      AND esi.is_active=1 AND esi.identity_key=CONCAT('personal_',i.owner_user_id) AND LOWER(esi.from_email)=LOWER(i.from_email)
+    WHERE i.agency_id=? AND i.owner_user_id=? AND i.kind='personal' AND i.is_active=1 AND LOWER(i.from_email)=?
+    ORDER BY i.id LIMIT 1`, [ctx.agencyId, ctx.userId, address]);
+  if (!mailbox || !await canImportPersonalMailboxEmail({ from_email: address })) {
+    throw fail('Your verified work group email is required for Family Welcome.', 409);
+  }
+  return { identity: { id: mailbox.sender_identity_id }, inbox: mailbox };
 }
 
 export async function getContactPlanContext({ agencyId, userId, requireEligible = true }) {
@@ -126,7 +148,7 @@ function planDto(ctx, plan = {}, from) {
   const domain = routing.from.split('@')[1];
   return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: isSchoolContactDemoAgency(ctx.agency), rolloutPhase: isSchoolContactDemoAgency(ctx.agency) ? 'qa' : isAssignedSchoolRollout(ctx.agency) ? 'assigned_school_providers' : 'phase_1', mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
     featureName: FAMILY_WELCOME_NAME, agencySlug: ctx.agency.slug, includePdf: plan.include_pdf === undefined || plan.include_pdf === null ? true : flag(plan.include_pdf),
-    welcomeSeen: !!plan.welcome_seen_at, canEnable: !!routing.from, setupNotice: routing.from ? null : 'Your messaging email needs support setup before you turn this on. You can still review your messages and save Off.', profileUrl, agencyName: ctx.agency.name, previewValues: { profile_link: profileUrl, agency_name: ctx.agency.name },
+    welcomeSeen: !!plan.welcome_seen_at, canEnable: !!routing.from, setupNotice: routing.from ? null : `${setupMessage(routing)} You can still review your messages and save Off.`, profileUrl, agencyName: ctx.agency.name, previewValues: { profile_link: profileUrl, agency_name: ctx.agency.name },
     recommendedTemplates:{template:DEFAULT_SCHOOL_CONTACT_TEMPLATE,secondTemplate:DEFAULT_SECOND_CONTACT_TEMPLATE,finalTemplate:DEFAULT_FINAL_CONTACT_TEMPLATE,smsTemplate:DEFAULT_CONTACT_SMS_TEMPLATE},
     template, secondTemplate:plan.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE, finalTemplate:plan.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE, smsTemplate:plan.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE,
     smsAfterDays:2, emailAfterDays:4, staleAfterHours:48, providerNoticeAfterDays:6, reminderEveryHours:48,
@@ -149,7 +171,10 @@ export async function saveSchoolContactPlan(input, body = {}) {
   const [[existing]] = await pool.execute('SELECT * FROM school_provider_contact_plans WHERE agency_id=? AND provider_user_id=?', [ctx.agencyId, ctx.userId]);
   const status = body.status ?? existing?.status ?? 'unconfigured';
   if (!['declined', 'enabled'].includes(status)) throw fail('Choose whether to enable help with initial contact.');
-  if (status === 'enabled' && !schoolContactRouting(ctx.provider, await configuredMessagesAddress(ctx.agencyId), ctx.agency).from) throw fail('Your messaging email needs support setup before you turn Family Welcome on.',409);
+  if (status === 'enabled') {
+    const routing = schoolContactRouting(ctx.provider, await configuredMessagesAddress(ctx.agencyId), ctx.agency);
+    if (!routing.from) throw fail(setupMessage(routing), 409);
+  }
   if ((ctx.mandatory || flag(existing?.required_by_admin)) && status !== 'enabled') throw fail('Your organization requires an initial contact plan.', 409);
   const template = validateSchoolContactTemplate(body.template ?? existing?.template);
   const second = validateSchoolContactTemplate(body.secondTemplate ?? existing?.second_template ?? DEFAULT_SECOND_CONTACT_TEMPLATE);
@@ -175,7 +200,7 @@ export async function buildFamilyWelcomePdfPreview(input, schoolId = null) {
   const ctx = await getContactPlanContext(input);
   const school = schoolId == null ? ctx.schools[0] : ctx.schools.find(s => Number(s.id) === Number(schoolId));
   if (!school) throw fail('Choose one of your assigned schools for the PDF.',403);
-  const from = await configuredMessagesAddress(ctx.agencyId);
+  const { from } = schoolContactRouting(ctx.provider, await configuredMessagesAddress(ctx.agencyId), ctx.agency);
   return buildProviderIntroductionPdf({ agencyId: ctx.agencyId, providerUserId: ctx.userId, schoolId: school.id, mailDomain: from.split('@')[1] });
 }
 
@@ -185,11 +210,16 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   if (example) await loadPreviewSchoolDays(ctx);
   const exampleSchool = example ? (schoolId == null ? ctx.schools[0] : ctx.schools.find(s => Number(s.id) === Number(schoolId))) : null;
   if (example && !exampleSchool) throw fail('Choose one of your assigned schools for the example.', 403);
-  const mailbox = await resolveMessagesSendMailbox(ctx.agencyId);
-  const from = email(mailbox.fromEmail || mailbox.identity?.from_email);
-  if (!mailbox.identity?.id || Number(mailbox.identity.agency_id) !== ctx.agencyId || !/^messages@[^\s<>]+$/.test(from) || !mailbox.inbox?.id) throw fail('The messages mailbox is not configured.', 409);
-  const routing = schoolContactRouting(ctx.provider, from, ctx.agency);
-  if (!routing.from) throw fail('The agency Messages mailbox needs setup before sending.', 409);
+  const routing = schoolContactRouting(ctx.provider, await configuredMessagesAddress(ctx.agencyId), ctx.agency);
+  if (!routing.from) throw fail(setupMessage(routing), 409);
+  const { from } = routing;
+  const mailbox = routing.isSso
+    ? await resolveMessagesSendMailbox(ctx.agencyId)
+    : await resolveSchoolContactWorkMailbox(ctx, from);
+  if (routing.isSso && (!mailbox.identity?.id || Number(mailbox.identity.agency_id) !== ctx.agencyId
+      || email(mailbox.fromEmail || mailbox.identity?.from_email) !== from || !mailbox.inbox?.id)) {
+    throw fail(setupMessage(routing), 409);
+  }
   const recipient = example ? (isSchoolContactDemoAgency(ctx.agency) ? SCHOOL_CONTACT_TEST_INBOX : routing.providerEmail) : email(to);
   if (example && !recipient) throw fail('Set up your work email to receive a Family Welcome example.', 409);
   if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(recipient)) throw fail('A valid guardian email is required.');
@@ -224,19 +254,24 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   if (conversationId) {
     conversation = await Conversation.findById(conversationId);
     if (Number(conversation?.agency_id) !== ctx.agencyId || Number(conversation?.owner_user_id) !== ctx.userId) throw fail('Contact conversation not found.', 404);
-  } else conversation = await Conversation.create({ agencyId: ctx.agencyId, inboxId: mailbox.inbox.id, channel: 'email', subject: example ? `[Example] ${title}` : title, ownerUserId: ctx.userId, status: 'waiting_on_them' });
+  }
+  if (!conversation || Number(conversation.inbox_id) !== Number(mailbox.inbox.id)) {
+    conversation = await Conversation.create({ agencyId: ctx.agencyId, inboxId: mailbox.inbox.id, channel: 'email', subject: example ? `[Example] ${title}` : title, ownerUserId: ctx.userId, status: 'waiting_on_them' });
+  }
   if (!example) {
     await Conversation.upsertLink(conversation.id, 'client', Number(clientId), 'Automated school contact plan');
     await Conversation.upsertLink(conversation.id, 'school', Number(schoolId), schoolName || 'School contact plan');
     await Conversation.upsertParticipant(conversation.id, { kind: 'email', email: recipient, isPrimary: true });
   }
-  // The sender stays the agency mailbox for both authentication modes. The
-  // reply token points to the provider-owned client conversation.
-  const token = randomBytes(18).toString('hex');
-  const replyTo = from.replace('@', `+${token}@`);
-  await pool.execute(`INSERT INTO hub_email_reply_tokens (token_hash,agency_id,conversation_id,person_key,created_by_user_id,expires_at)
-    VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 180 DAY))`, [createHash('sha256').update(token).digest('hex'), ctx.agencyId, conversation.id, null, ctx.userId]);
-  const copyAddress = routing.providerEmail && routing.providerEmail !== recipient ? routing.providerEmail : null;
+  let replyTo = routing.replyTo;
+  if (routing.isSso) {
+    // Messages is shared. Its reply token keeps the thread with this provider.
+    const token = randomBytes(18).toString('hex');
+    replyTo = from.replace('@', `+${token}@`);
+    await pool.execute(`INSERT INTO hub_email_reply_tokens (token_hash,agency_id,conversation_id,person_key,created_by_user_id,expires_at)
+      VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 180 DAY))`, [createHash('sha256').update(token).digest('hex'), ctx.agencyId, conversation.id, null, ctx.userId]);
+  }
+  const copyAddress = routing.isSso && routing.providerEmail && routing.providerEmail !== recipient ? routing.providerEmail : null;
   const html = linkedEmailHtml(text, profileUrl);
   const stableMessageId = workflowId && stepKey && /^[a-z0-9_]+$/i.test(String(stepKey))
     ? `<school-contact-${Number(workflowId)}-${stepKey}@itsco.health>` : null;

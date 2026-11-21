@@ -77,7 +77,8 @@ async function observeReplies(workflow) {
   if (!workflow.initial_sent_at) return workflow;
   const [[provider]] = await pool.execute(`SELECT MAX(replied_at) AS replied_at FROM (
       SELECT COALESCE(sent_at,created_at) AS replied_at FROM communication_messages
-      WHERE conversation_id=? AND author_user_id=? AND direction='outbound' AND send_status IN ('sent','delivered')
+      WHERE (conversation_id=? OR conversation_id IN (SELECT conversation_id FROM school_contact_workflow_steps WHERE workflow_id=? AND channel='email' AND status='sent'))
+        AND author_user_id=? AND direction='outbound' AND send_status IN ('sent','delivered')
         AND COALESCE(is_auto_reply,0)=0 AND COALESCE(is_internal_note,0)=0
         AND JSON_EXTRACT(from_json,'$.schoolContactAutomation') IS NULL AND COALESCE(sent_at,created_at)>?
       UNION ALL SELECT created_at FROM message_logs WHERE agency_id=? AND client_id=? AND user_id=? AND direction='OUTBOUND'
@@ -86,16 +87,17 @@ async function observeReplies(workflow) {
         AND COALESCE(JSON_EXTRACT(metadata,'$.schoolContactWorkflowId'),0)=0
         AND COALESCE(JSON_EXTRACT(metadata,'$.autoReply'),FALSE)=FALSE
         AND COALESCE(JSON_EXTRACT(metadata,'$.vacationReply'),FALSE)=FALSE
-    ) replies`, [workflow.conversation_id, workflow.provider_user_id, workflow.initial_sent_at, workflow.agency_id, workflow.client_id, workflow.provider_user_id, workflow.initial_sent_at, String(workflow.id)]);
+    ) replies`, [workflow.conversation_id, workflow.id, workflow.provider_user_id, workflow.initial_sent_at, workflow.agency_id, workflow.client_id, workflow.provider_user_id, workflow.initial_sent_at, String(workflow.id)]);
   // Use the existing linked-guardian evidence, excluding receipts, auto-replies,
   // another clinician's conversation, and notes that merely say "contacted".
   const [[parent]] = await pool.execute(`SELECT MIN(e.occurred_at) AS replied_at FROM client_parent_contact_events e
     LEFT JOIN communication_messages em ON e.source_type='email' AND em.id=e.source_id
     LEFT JOIN message_logs sm ON e.source_type='sms' AND sm.id=e.source_id
     WHERE e.agency_id=? AND e.client_id=? AND e.author_user_id=? AND e.successful=1 AND e.direction='inbound' AND e.occurred_at>=?
-      AND ((e.source_type='email' AND em.conversation_id=?) OR (e.source_type='sms' AND sm.sms_thread_key IN
+      AND ((e.source_type='email' AND (em.conversation_id=? OR em.conversation_id IN
+        (SELECT conversation_id FROM school_contact_workflow_steps WHERE workflow_id=? AND channel='email' AND status='sent'))) OR (e.source_type='sms' AND sm.sms_thread_key IN
         (SELECT sms_thread_key FROM message_logs WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.schoolContactWorkflowId'))=?)))`,
-  [workflow.agency_id, workflow.client_id, workflow.provider_user_id, provider?.replied_at || workflow.initial_sent_at, workflow.conversation_id, String(workflow.id)]);
+  [workflow.agency_id, workflow.client_id, workflow.provider_user_id, provider?.replied_at || workflow.initial_sent_at, workflow.conversation_id, workflow.id, String(workflow.id)]);
   if (!parent?.replied_at && !provider?.replied_at) return workflow;
   const providerReply = parent?.replied_at ? null : provider?.replied_at || null;
   await pool.execute('UPDATE school_contact_workflows SET parent_reply_at=?,provider_replied_at=? WHERE id=?', [parent?.replied_at || workflow.parent_reply_at || null, providerReply, workflow.id]);
@@ -111,7 +113,7 @@ async function runStep(workflow, key, send) {
     const [[existing]] = await pool.execute('SELECT * FROM school_contact_workflow_steps WHERE workflow_id=? AND step_key=?', [workflow.id, key]);
     if (['sent','skipped'].includes(existing?.status)) {
       const [[message]] = key === 'initial_email' && existing.message_id ? await pool.execute('SELECT conversation_id FROM communication_messages WHERE id=?', [existing.message_id]) : [[null]];
-      return { sent: existing.status === 'sent', skipped: existing.status === 'skipped', reason: existing.detail, messageId: existing.message_id, conversationId: message?.conversation_id, completedAt: existing.completed_at };
+      return { sent: existing.status === 'sent', skipped: existing.status === 'skipped', reason: existing.detail, messageId: existing.message_id, conversationId: existing.conversation_id || message?.conversation_id, channel: existing.channel, completedAt: existing.completed_at };
     }
     const [retry] = key === 'initial_email' && existing?.status === 'pending' && existing.detail === INITIAL_RETRY_DETAIL
       ? await pool.execute("UPDATE school_contact_workflow_steps SET status='sending',started_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_id=? AND status='pending' AND detail=?",[existing.id,workflow.id,INITIAL_RETRY_DETAIL])
@@ -300,7 +302,7 @@ async function processWorkflow(workflow, now, qa = null) {
   const sendEmail=()=>sendSchoolContactEmail({agencyId:workflow.agency_id,providerUserId:workflow.provider_user_id,clientId:workflow.client_id,schoolId:workflow.school_id,
     to:guardian.email,parentName:values.parent_name,schoolName:values.school_name,serviceDay:values.service_day,
     template:action==='initial_email'?preferredSchoolContactTemplate(workflow.template):action==='second_contact'?(workflow.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE):(workflow.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE),
-    subject:SCHOOL_CONTACT_SUBJECTS[action],conversationId:workflow.conversation_id,workflowId:workflow.id,stepKey:action,beforeDelivery,
+    subject:SCHOOL_CONTACT_SUBJECTS[action],conversationId:workflow.latest_email_conversation_id || workflow.conversation_id,workflowId:workflow.id,stepKey:action,beforeDelivery,
     qaAcceleration:qa?{elapsedHours:qa.elapsedHours,actorUserId:qa.actorUserId,actualTriggeredAt:qa.actualTriggeredAt}:null});
   const result=await runStep(workflow,action,async()=>{
     if(beforeDelivery)await beforeDelivery();
@@ -320,11 +322,13 @@ async function processWorkflow(workflow, now, qa = null) {
   if(action==='second_contact') await pool.execute("UPDATE school_contact_workflows SET second_contact_at=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,workflow.id]);
   if(action==='final_contact') await pool.execute("UPDATE school_contact_workflows SET final_contact_at=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,workflow.id]);
   if(action!=='initial_email' && result.channel!=='sms') await pool.execute(`INSERT IGNORE INTO client_parent_contact_attempts (client_id,agency_id,source_type,conversation_key,first_source_id,occurred_at)
-    VALUES (?,?,'email',?,?,?)`,[workflow.client_id,workflow.agency_id,`${workflow.conversation_id}:school-${action}:${workflow.id}`,result.messageId,result.completedAt]);
+    VALUES (?,?,'email',?,?,?)`,[workflow.client_id,workflow.agency_id,`${result.conversationId || workflow.conversation_id}:school-${action}:${workflow.id}`,result.messageId,result.completedAt]);
   return qa?{action:result.sent?'sent':result.skipped?'skipped':'evaluated',stepKey:action,messageId:result.messageId||null}:undefined;
 }
 
 const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_after_days,p.email_after_days,p.stale_after_hours,p.second_template,p.final_template,p.sms_template,p.decided_at AS current_plan_decided_at,s.name AS school_name,
+      (SELECT st.conversation_id FROM school_contact_workflow_steps st WHERE st.workflow_id=w.id AND st.channel='email'
+        AND st.status='sent' AND st.conversation_id IS NOT NULL ORDER BY st.completed_at DESC,st.id DESC LIMIT 1) AS latest_email_conversation_id,
       EXISTS(SELECT 1 FROM school_contact_workflow_steps retry_step WHERE retry_step.workflow_id=w.id AND retry_step.step_key='initial_email'
         AND retry_step.status='pending' AND retry_step.detail='provider_retry:EMAIL_SENDER_UNVERIFIED') AS initial_retry_queued,
       c.session_sms_opt_in,c.first_service_at,COALESCE(a.service_day,c.service_day) AS service_day,

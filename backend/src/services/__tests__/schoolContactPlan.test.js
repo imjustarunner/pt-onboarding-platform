@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ execute: vi.fn(), mailbox: vi.fn(), send: vi.fn(), create: vi.fn(), add: vi.fn(), updateMessage: vi.fn(), update: vi.fn(), link: vi.fn(), participant: vi.fn(), find: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), mailbox: vi.fn(), send: vi.fn(), create: vi.fn(), add: vi.fn(), updateMessage: vi.fn(), update: vi.fn(), link: vi.fn(), participant: vi.fn(), find: vi.fn(), isGroup: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../familyWelcomeAssets.service.js', () => ({ providerProfileUrl: (_agency, owner) => `https://app.example/auricwell-qa-demo/provider/${owner.id}`, buildProviderIntroductionPdf: vi.fn(async () => Buffer.from('%PDF-1.7')), introductionPdfAttachment: pdf => ({ filename: 'School introduction.pdf', contentType: 'application/pdf', contentBase64: pdf.toString('base64') }) }));
+vi.mock('../personalMailboxImportPolicy.service.js', () => ({ canImportPersonalMailboxEmail: m.isGroup }));
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: m.mailbox }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: { create: m.create, addMessage: m.add, updateMessage: m.updateMessage, update: m.update, upsertLink: m.link, upsertParticipant: m.participant, findById: m.find } }));
@@ -33,9 +34,11 @@ beforeEach(() => {
     if (sql.startsWith('SELECT plan_decided_at FROM school_contact_workflows')) return [[{ plan_decided_at: '2026-10-30T15:00:00Z' }]];
     if (sql.startsWith('SELECT include_pdf')) return [[plan ? { include_pdf: plan.include_pdf ?? 1 } : undefined].filter(Boolean)];
     if (sql.startsWith('SELECT from_email')) return [[{ from_email: 'messages@itsco.health' }]];
+    if (sql.startsWith('SELECT i.id,i.sender_identity_id')) return [[{ id: 123, sender_identity_id: 456 }]];
     if (sql.startsWith('SELECT c.id')) return [[{ id: 999 }]];
     return [{ affectedRows: 1 }];
   });
+  m.isGroup.mockResolvedValue(true);
   m.mailbox.mockResolvedValue({ identity: { id: 1116, agency_id: 450, from_email: 'messages@itsco.health' }, inbox: { id: 223914 }, fromEmail: 'messages@itsco.health' });
   m.create.mockResolvedValue({ id: 800 }); m.add.mockResolvedValue(801); m.updateMessage.mockResolvedValue({}); m.update.mockResolvedValue({});
   m.send.mockResolvedValue({ id: 'gmail-1', internetMessageId: '<sent@itsco.health>', threadId: 'gmail-thread' });
@@ -110,37 +113,56 @@ it('records logical guardian contact and provider BCC while sandboxing the real 
   expect(m.link).toHaveBeenCalledWith(800, 'client', 999, 'Automated school contact plan');
   expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'testing@itsco.health', cc: null, bcc: 'testing@itsco.health', internetMessageIdOverride: '<school-contact-3-initial_email@itsco.health>' }));
 });
-it('routes family replies to the app for both password and SSO accounts', () => {
-  const from = 'messages@itsco.health';
-  for (const sso_password_override of [0, 1]) {
-    expect(schoolContactRouting({ ...provider, sso_password_override }, from, agency)).toMatchObject({
-      isSso: !sso_password_override, providerEmail: provider.work_mailbox_email, replyTo: from, replyTracking: 'in_app'
+it('selects the agency Messages sender for SSO and the owned work group for a password account', () => {
+  const messages = 'messages@itsco.health';
+  expect(schoolContactRouting(provider, messages, agency)).toMatchObject({
+    isSso: true, providerEmail: provider.work_mailbox_email, from: messages, replyTo: messages
+  });
+  for (const authMode of [{ sso_password_override: 1 }, { login_is_group_email: 1 }]) {
+    expect(schoolContactRouting({ ...provider, ...authMode }, messages, agency)).toMatchObject({
+      isSso: false, providerEmail: provider.work_mailbox_email, from: provider.work_mailbox_email, replyTo: provider.work_mailbox_email
     });
   }
-  expect(schoolContactRouting({ ...provider, work_mailbox_email: provider.personal_email }, from, agency)).toMatchObject({
-    providerEmail: '', replyTo: from, replyTracking: 'in_app'
-  });
 });
 
-it('does not expose a non-SSO provider’s login or personal address in live outreach with no work inbox', async () => {
+it('uses the provider-owned group sender and app inbox for non-SSO family outreach', async () => {
   const original = m.execute.getMockImplementation();
-  const live = { ...agency, id: 2, slug: 'itsco', feature_flags: { schoolContactPlanPilot: { enabled: true, providerIds: [1433] } } };
-  m.execute.mockImplementation(async (sql,args) => sql.startsWith('SELECT id,name,slug') ? [[live]]
-    : sql.startsWith('SELECT u.id') ? [[{ ...provider, sso_password_override: 1, work_mailbox_email: provider.personal_email }]]
-    : original(sql,args));
-  m.mailbox.mockResolvedValue({ identity: { id: 1116, agency_id: 2 }, inbox: { id: 223914 }, fromEmail: 'messages@itsco.health' });
+  const live = { ...agency, id: 2, slug: 'itsco', feature_flags: { googleSsoEnabled: true, schoolContactPlanPilot: { enabled: true, providerIds: [1433] } } };
+  m.execute.mockImplementation(async (sql, args) => sql.startsWith('SELECT id,name,slug') ? [[live]]
+    : sql.startsWith('SELECT u.id') ? [[{ ...provider, sso_password_override: 1 }]]
+    : original(sql, args));
+  m.find.mockResolvedValue({ id: 79, agency_id: 2, owner_user_id: 1433, inbox_id: 223914 });
   await sendSchoolContactEmail({
     agencyId: 2, providerUserId: 1433, clientId: 999, schoolId: 451, to: 'family@synthetic.test',
-    body: `Please reach me at ${provider.personal_email} or ${provider.email}.`, includePdf: false
+    conversationId: 79, body: `Please reach me at ${provider.personal_email} or ${provider.email}.`, includePdf: false
   });
-  expect(m.send).toHaveBeenCalledOnce();
+  expect(m.isGroup).toHaveBeenCalledWith({ from_email: provider.work_mailbox_email });
+  expect(m.mailbox).not.toHaveBeenCalled();
+  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ inboxId: 123, ownerUserId: 1433 }));
+  expect(m.add).toHaveBeenCalledWith(expect.objectContaining({
+    conversationId: 800, from: { email: provider.work_mailbox_email, name: 'Avery Demo', replyTo: provider.work_mailbox_email }
+  }));
+  expect(m.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    senderIdentityId: 456, to: 'family@synthetic.test', replyToOverride: provider.work_mailbox_email, cc: null, bcc: null
+  }));
   const envelope = m.send.mock.calls[0][0];
-  expect(envelope).toMatchObject({ to: 'family@synthetic.test', replyToOverride: expect.stringMatching(/^messages\+[a-f0-9]{36}@itsco.health$/), cc: null, bcc: null });
   expect(JSON.stringify(envelope)).not.toContain(provider.personal_email);
   expect(JSON.stringify(envelope)).not.toContain(provider.email);
-  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO hub_email_reply_tokens'),
-    [expect.stringMatching(/^[a-f0-9]{64}$/), 2, 800, null, 1433]);
-  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: 1433 }));
+  expect(m.execute.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO hub_email_reply_tokens'))).toBe(false);
+});
+
+it('holds non-SSO delivery when there is no verified work group', async () => {
+  const original = m.execute.getMockImplementation();
+  for (const work_mailbox_email of [provider.personal_email, provider.work_mailbox_email]) {
+    m.execute.mockImplementation(async (sql, args) => sql.startsWith('SELECT u.id')
+      ? [[{ ...provider, sso_password_override: 1, work_mailbox_email }]] : original(sql, args));
+    m.isGroup.mockResolvedValue(false);
+    await expect(sendSchoolContactEmail({
+      agencyId: 450, providerUserId: 1433, clientId: 999, schoolId: 451, to: 'family@synthetic.test', includePdf: false
+    })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/work group/i) });
+  }
+  expect(m.send).not.toHaveBeenCalled();
+  expect(m.create).not.toHaveBeenCalled();
 });
 it('does not mark queued or failed delivery as contact', async () => {
   m.send.mockResolvedValue({ queued: true });

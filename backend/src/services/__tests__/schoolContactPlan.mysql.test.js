@@ -54,7 +54,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
   it('executes all migrations and persists authored templates while enforcing the fixed48/96hour timeline', async () => {
     const input = { agencyId: 450, userId: 1433 };
     const state = await getSchoolContactPlan(input);
-    expect(state).toMatchObject({ eligible: true, status: 'unconfigured', routing: { isSso: false, replyTo: 'messages@itsco.health' } });
+    expect(state).toMatchObject({ eligible: true, status: 'unconfigured', routing: { isSso: false, replyTo: 'qaproviderauricwell@itsco.health' } });
     expect(state.preview.body).toContain('Avery Demo');
     expect(await getSchoolContactPlan({ agencyId: 451, userId: 1433 })).toMatchObject({ eligible: true, agencyId: 450 });
     expect(await saveSchoolContactPlan(input, { status: 'declined' })).toMatchObject({ status: 'declined' });
@@ -86,7 +86,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     await connection.execute("UPDATE agencies SET feature_flags=JSON_OBJECT('googleSsoEnabled',true) WHERE id=450");
     expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'messages@itsco.health' } });
     await connection.execute('UPDATE users SET sso_password_override=1 WHERE id=1433');
-    expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: false, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'messages@itsco.health' } });
+    expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: false, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'qaproviderauricwell@itsco.health' } });
   });
   it('keeps two providers authored wording, names and school scopes separate in actual SQL', async()=>{
     await connection.execute("INSERT INTO agencies(id,name,slug,feature_flags,organization_type) VALUES(452,'Pine School','qa-pine',JSON_OBJECT(),'school')");

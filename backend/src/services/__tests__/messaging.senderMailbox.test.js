@@ -1,6 +1,6 @@
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { findById: vi.fn() } }));
-vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
+vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn(), findById: vi.fn() } }));
 vi.mock('../../models/CommunicationInbox.model.js', () => ({ default: {} }));
 vi.mock('../workspaceMailboxType.service.js', () => ({ workspaceMailboxType: vi.fn() }));
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: vi.fn() }));
@@ -12,7 +12,7 @@ import Identity from '../../models/EmailSenderIdentity.model.js';
 import User from '../../models/User.model.js';
 import { resolveEmailSendMailbox } from '../emailSendMailbox.service.js';
 const inbox = { id: 10, agency_id: 2, kind: 'personal', owner_user_id: 5, sender_identity_id: 7, from_email: 'staff@itsco.health' };
-beforeEach(() => { vi.resetAllMocks(); User.getAgencies.mockResolvedValue([{ id: 2 }]); Identity.findById.mockResolvedValue({ id: 7, agency_id: 2, from_email: inbox.from_email, is_active: 1 }); });
+beforeEach(() => { vi.resetAllMocks(); User.findById.mockResolvedValue({ id: 5 }); workspaceMailboxType.mockResolvedValue('group'); User.getAgencies.mockResolvedValue([{ id: 2 }]); Identity.findById.mockResolvedValue({ id: 7, agency_id: 2, from_email: inbox.from_email, is_active: 1 }); });
 it('sends from the selected Group identity and routes replies back to it', async () => {
   expect(await resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox })).toMatchObject({ fromEmail: 'staff@itsco.health', replyTo: 'staff@itsco.health', identity: { id: 7 } });
 });
@@ -63,4 +63,17 @@ it('keeps Group users on their own sender even if messages was selected', async 
   findPersonalInbox.mockResolvedValue(inbox);
   Identity.findById.mockImplementation(async id => id === 8 ? { id: 8, agency_id: 2, from_email: 'messages@itsco.health', identity_key: 'messages' } : { id: 7, agency_id: 2, from_email: inbox.from_email });
   expect(await resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox: { id: 99, agency_id: 2, sender_identity_id: 8, from_email: 'messages@itsco.health', kind: 'shared' } })).toMatchObject({ inbox: { id: 10 }, fromEmail: inbox.from_email, replyTo: inbox.from_email });
+});
+
+it('blocks private addresses before looking up send-as credentials', async () => {
+  User.findById.mockResolvedValue({ id: 5, personal_email: inbox.from_email });
+  await expect(resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox })).rejects.toMatchObject({ status: 400 });
+  expect(workspaceMailboxType).not.toHaveBeenCalled();
+});
+it('does not route non-SSO messages through the tenant sender or through a direct Workspace user mailbox', async () => {
+  User.getAgencies.mockResolvedValue([managedAgency]);
+  User.findById.mockResolvedValue({ id: 5, sso_password_override: 1 });
+  workspaceMailboxType.mockResolvedValue('user');
+  await expect(resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox })).rejects.toMatchObject({ status: 400 });
+  expect(resolveMessagesSendMailbox).not.toHaveBeenCalled();
 });
