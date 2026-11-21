@@ -105,7 +105,7 @@
                   <section v-for="group in selectionGroups" :key="group.key">
                     <h5>{{ group.label }}</h5><div v-for="item in group.items" :key="item.id" class="pick-row">
                       <label><input v-if="item.assignable !== false && (clinicalMode!=='release' || group.key!=='records')" type="checkbox" :checked="isSelected(item)" @change="toggleItem(item,$event.target.checked)" /> {{ item.title }}</label>
-                      <small v-if="item.assignable === false" class="status-tag">Coming soon</small>
+                      <small v-if="item.assignable === false" class="status-tag">{{ item.availabilityLabel || 'Coming soon' }}</small>
                       <button v-else type="button" class="text-action" @click="previewItems=[item]">Preview</button>
                       <button v-if="!recipientGuardianId && ['foundation','records'].includes(group.key)" type="button" class="text-action" @click="clinical.prepare(item)">{{ group.key==='records'?'Open':'Prepare' }}</button>
                     </div>
@@ -219,7 +219,7 @@ const typedForms = computed(() => [
 ]);
 const updateChoices=computed(()=>[
   ...catalog.documents.map(d=>({group:'documents',id:d.id,title:d.name})),
-  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title,assignable:a.assignable})),
+  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title,assignable:a.assignable,availabilityLabel:a.availabilityLabel})),
   ...catalog.portalSteps.map(s=>({group:'portalSteps',id:s.key,title:s.title,detail:s.detail}))
 ]);
 const selectedItems=computed(()=>[...typedForms.value.filter(isSelected),...updateChoices.value.filter(isSelected),...clinicalSelection.value]);

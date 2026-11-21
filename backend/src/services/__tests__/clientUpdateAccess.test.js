@@ -59,3 +59,15 @@ it('renders the existing-recipient email without creating an assignment or attem
   expect(m.execute.mock.calls.filter(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toEqual([]);
   expect(m.send).not.toHaveBeenCalled();
 });
+
+
+it('identifies available clinical assessments separately from family assignment',async()=>{
+  m.execute.mockResolvedValueOnce([[]]);
+  const {assessments}=await listUpdateCatalog(2);
+  const measure=key=>assessments.find(item=>item.family===key);
+  for(const key of ['gad-7','phq-9','phq-a']){
+    expect(measure(key)).toMatchObject({assignable:false,availabilityLabel:'Available in Outcome Measures'});
+  }
+  expect(measure('cssrs-screener')).toMatchObject({assignable:false,availabilityLabel:'Available in Clinical Forms'});
+  expect(measure('life_balance')).toMatchObject({assignable:true});
+});

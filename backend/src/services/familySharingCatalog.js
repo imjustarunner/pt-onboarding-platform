@@ -12,9 +12,11 @@ export function canAssignFamilyAssessment(key) {
 export function familyAssessmentChoices() {
   return [
     ...ASSESSMENT_FAMILIES.map(({ family, title }) => ({ family, title, assignable: canAssignFamilyAssessment(family) })),
-    ...outcomeMeasures.map(({ id, title }) => ({ family: id, title: title || id, assignable: false })),
-    { family: 'psc-17', title: 'PSC-17 · Parent / guardian report', assignable: false },
-    { family: 'cssrs-screener', title: 'C-SSRS · Suicide ideation screener', assignable: false }
+    ...outcomeMeasures.map(({ id, title }) => ({
+      family: id, title: title || id, assignable: false, availabilityLabel: 'Available in Outcome Measures'
+    })),
+    { family: 'psc-17', title: 'PSC-17 · Parent / guardian report', assignable: false, availabilityLabel: 'Available in enrollment' },
+    { family: 'cssrs-screener', title: 'C-SSRS · Suicide ideation screener', assignable: false, availabilityLabel: 'Available in Clinical Forms' }
   ];
 }
 
