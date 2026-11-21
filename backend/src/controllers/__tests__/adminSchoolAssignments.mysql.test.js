@@ -9,6 +9,7 @@ vi.mock('../../services/schoolPortalDaySync.service.js', () => ({ syncSchoolPort
 vi.mock('../../services/d11Compliance.service.js', () => ({ enqueueD11ComplianceEnsure: vi.fn() }));
 import { listProviderAffiliations } from '../providerSelfAffiliations.controller.js';
 import { PROVIDER_ROLE_SQL } from '../../services/clientAssignmentScope.service.js';
+import { filterAdministrativeCareCandidates } from '../../services/staffCareEligibility.service.js';
 
 const response = () => {
   const res = { json: vi.fn(), status: vi.fn() };
@@ -21,9 +22,10 @@ describe.skipIf(!recoveryMysqlEnabled)('administrator school assignments — iso
   beforeAll(async () => {
     fixture = await isolatedWorkflowMysql('admin_school_assignment'); db = fixture.db;
     for (const sql of [
-      `CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),email VARCHAR(120),role VARCHAR(40),has_provider_access TINYINT DEFAULT 0,is_active TINYINT DEFAULT 1,is_archived TINYINT DEFAULT 0,status VARCHAR(40) DEFAULT 'ACTIVE',is_demo TINYINT DEFAULT 0,sees_clients TINYINT DEFAULT 1,provider_accepting_new_clients TINYINT DEFAULT 1,provider_school_info_blurb TEXT,psychology_today_url VARCHAR(255))`,
+      `CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),email VARCHAR(120),role VARCHAR(40),credential VARCHAR(100),has_provider_access TINYINT DEFAULT 0,is_active TINYINT DEFAULT 1,is_archived TINYINT DEFAULT 0,status VARCHAR(40) DEFAULT 'ACTIVE',is_demo TINYINT DEFAULT 0,sees_clients TINYINT DEFAULT 1,provider_accepting_new_clients TINYINT DEFAULT 1,provider_school_info_blurb TEXT,psychology_today_url VARCHAR(255))`,
       `CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),slug VARCHAR(80),organization_type VARCHAR(30) NULL)`,
-      `CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active TINYINT DEFAULT 1)`,
+      `CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active TINYINT DEFAULT 1,agency_role VARCHAR(40))`,
+      `CREATE TABLE provider_public_profiles(user_id INT PRIMARY KEY,public_details_json JSON)`,
       `CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active TINYINT DEFAULT 1)`,
       `CREATE TABLE provider_school_assignments(provider_user_id INT,school_organization_id INT,is_active TINYINT DEFAULT 1)`,
       `CREATE TABLE provider_school_profiles(provider_user_id INT,school_organization_id INT,school_info_blurb TEXT)`
@@ -49,8 +51,8 @@ describe.skipIf(!recoveryMysqlEnabled)('administrator school assignments — iso
     const schedulingStart = schedulingSource.indexOf('export const listProvidersForScheduling =');
     const schedulingEnd = schedulingSource.indexOf('\nexport const listProviderSchoolAssignments =', schedulingStart);
     const code = schedulingSource.slice(schedulingStart, schedulingEnd).replace('export const ', 'const ');
-    scheduling = new Function('pool', 'parseAgencyId', 'PROVIDER_ROLE_SQL', `${code};return listProvidersForScheduling;`)
-      ({ execute: (...args) => db.execute(...args) }, (req) => Number(req.query.agencyId), PROVIDER_ROLE_SQL);
+    scheduling = new Function('pool', 'parseAgencyId', 'PROVIDER_ROLE_SQL', 'filterAdministrativeCareCandidates', `${code};return listProvidersForScheduling;`)
+      ({ execute: (...args) => db.execute(...args) }, (req) => Number(req.query.agencyId), PROVIDER_ROLE_SQL, filterAdministrativeCareCandidates);
   });
   beforeEach(async () => {
     await db.query('DELETE FROM user_agencies'); await db.query('DELETE FROM provider_school_assignments');
@@ -89,14 +91,19 @@ describe.skipIf(!recoveryMysqlEnabled)('administrator school assignments — iso
     expect(next).not.toHaveBeenCalled();
     expect(res.json.mock.calls[0][0].map((row) => row.id).sort()).toEqual([1,2,3,5]);
   });
-  it('keeps the separate clinical-provider gate and explicit sees-clients choice intact', async () => {
+  it('includes care-enabled administrators while preserving the explicit sees-clients choice', async () => {
     const res = response(), next = vi.fn();
     await scheduling({ query: { agencyId: '2', activeProvidersOnly: 'true', clientAssignmentsOnly: 'true' } }, res, next);
     expect(next).not.toHaveBeenCalled();
-    expect(res.json.mock.calls[0][0].map((row) => row.id).sort()).toEqual([1,5]);
+    expect(res.json.mock.calls[0][0].map((row) => row.id).sort()).toEqual([1,2,3,5]);
     await db.query('UPDATE users SET sees_clients=0 WHERE id=1');
     const active = response();
     await scheduling({ query: { agencyId: '2', activeProvidersOnly: 'true' } }, active, next);
-    expect(active.json.mock.calls[0][0].map((row) => row.id).sort()).toEqual([5]);
+    expect(active.json.mock.calls[0][0].map((row) => row.id).sort()).toEqual([2,3,5]);
+    await db.query('UPDATE users SET sees_clients=0 WHERE id IN (2,3)');
+    const disabled = response();
+    await scheduling({ query: { agencyId: '2', activeProvidersOnly: 'true', clientAssignmentsOnly: 'true' } }, disabled, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(disabled.json.mock.calls[0][0].map((row) => row.id).sort()).toEqual([5]);
   });
 });
