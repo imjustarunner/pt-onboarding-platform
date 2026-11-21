@@ -130,7 +130,7 @@ it('carries the reserved office, room, biweekly cadence and billing location int
     agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51,
     notificationMode:'customizable',customReminders:[expect.objectContaining({id:'extra',offsetMinutes:60,message:'Arrive early'})],
     officeLocationId: 8, roomId: 10, recurrence: 'BIWEEKLY', bookedOccurrenceCount: 7,
-    startAt: '2026-11-26T15:00:00', endAt: '2026-11-26T16:00:00'
+    startAt: '2026-11-26T22:00:00.000Z', endAt: '2026-11-26T23:00:00.000Z'
   }));
 });
 
@@ -407,4 +407,65 @@ it('does not offer external links for the scheduled SSO provider when booking st
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:6},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
  s.weekStart='2026-11-23';s.selectedActionAgencyId=6;s.modalDay='Thursday';s.modalHour=15;s.modalEndHour=16;s.modalContext={agencyId:6,dateYmd:'2026-11-26',hour:15};s.showRequestModal=true;await flushPromises();
  s.onQuickActionSelect({id:'individual_session'});await flushPromises();expect(s.editorExternalMeetingsEnabled).toBe(false);expect(s.editorVideoRoomMode).toBe('unique_session');
+});
+
+it('preserves a manually entered 36-minute intake when choosing its service and renders its exact calendar span', async () => {
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: true, RouterLink: true } } });
+  await flushPromises();
+  const s = wrapper.vm.$.setupState;
+  s.weekStart = '2026-11-23';
+  s.modalDay = 'Thursday';
+  s.modalHour = 15;
+  s.modalStartHour = 15;
+  s.modalEndHour = 16;
+  s.requestType = 'individual_session';
+  await flushPromises();
+  s.onEditorStartTime('15:07');
+  s.onEditorEndTime('15:43');
+  s.applyEditorServiceDuration({ serviceCode: '90791', defaultDurationMinutes: 60 });
+  await nextTick();
+  expect(s.editorStartTime).toBe('15:07');
+  expect(s.editorEndTime).toBe('15:43');
+
+  s.showQuarterDetail = false;
+  s.summary = { weekStart: '2026-11-23', scheduleEvents: [{ id: 70, appointmentId: 71, clientId: 81,
+    kind: 'PERSONAL_EVENT', startAt: '2026-11-26T22:07:00Z', endAt: '2026-11-26T22:43:00Z' },
+    { id: 78, appointmentId: 79, clientId: 89,
+      kind: 'PERSONAL_EVENT', startAt: '2026-11-26T23:05:00Z', endAt: '2026-11-26T23:17:00Z' }] };
+  await nextTick();
+  expect(s.cellBlocks('Thursday', 15, 0).find(block => block.appointmentId === 71)?.timedSlice?.heightPct).toBe(60);
+  expect(s.cellBlocks('Thursday', 16, 0).find(block => block.appointmentId === 79)?.timedSlice?.heightPct).toBe(20);
+});
+
+it('adds a private personal event during an office reservation without editing the room', async () => {
+  wrapper = shallowMount(Grid, { props: { userId: 7, agencyId: 2 }, global: { stubs: { Teleport: true, RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } } });
+  await flushPromises();
+  const s = wrapper.vm.$.setupState;
+  s.weekStart = '2026-11-23';
+  s.modalDay = 'Thursday';
+  s.modalHour = 8;
+  s.modalStartHour = 8;
+  s.modalEndHour = 9;
+  s.modalContext = { agencyId: 2, dateYmd: '2026-11-26', hour: 8, officeEventId: 10,
+    officeLocationId: 8, roomId: 20, assignedProviderId: 7, slotState: 'ASSIGNED_BOOKED' };
+  s.modalActionSource = 'office_block';
+  s.showRequestModal = true;
+  await nextTick();
+  const action = wrapper.find('.nr-personal-event');
+  expect(action.exists()).toBe(true);
+  await action.trigger('click');
+  await flushPromises();
+  expect(s.requestType).toBe('personal_event');
+  expect(s.scheduleEventAgencyScope).toBe(0);
+  s.scheduleEventTitle = 'Personal reminder';
+  s.onModalStartTimeInput('08:07');
+  s.onModalEndTimeInput('08:19');
+  await nextTick();
+  await s.submitRequest();
+  expect(s.modalError).toBe('');
+  expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/users/7/schedule-events', expect.objectContaining({
+    agencyId: null, kind: 'PERSONAL_EVENT', title: 'Personal reminder', isPrivate: true,
+    startAt: '2026-11-26T08:07:00', endAt: '2026-11-26T08:19:00', timeZone: 'America/Denver'
+  }));
+  expect(mocks.patch).not.toHaveBeenCalled();
 });

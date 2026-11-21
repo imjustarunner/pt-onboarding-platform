@@ -8,3 +8,11 @@ it('replaces an outbound send log with its actual delivery row while retaining r
  const rows=sessionCommunicationTimeline([{id:4,status:'sent',channel:'email',sentAt:'2026-11-13 20:00:00'}],[{id:9,reminderId:4,direction:'outbound',bodyPreview:'Friendly reminder',metadata:{recipient:'parent@example.test'}},{id:10,reminderId:4,direction:'inbound',kind:'notification_reply',metadata:{body:'Thanks!'}}]);
  expect(rows).toHaveLength(2);expect(rows[0]).toMatchObject({category:'notifications',bodyPreview:'Friendly reminder',metadata:{deliveryStatus:'sent',recipient:'parent@example.test'}});expect(rows[1]).toMatchObject({category:'replies',metadata:{body:'Thanks!'}});
 });
+
+it('keeps a confirmed delivery receipt when the reminder job recorded the handoff as sent', () => {
+  const [row] = sessionCommunicationTimeline(
+    [{ id: 4, status: 'sent', channel: 'email', sentAt: '2026-11-21 16:00:00' }],
+    [{ reminderId: 4, direction: 'outbound', metadata: { deliveryStatus: 'delivered', deliveredAt: '2026-11-21 16:00:03' } }]
+  );
+  expect(row.metadata).toMatchObject({ deliveryStatus: 'delivered', deliveredAt: '2026-11-21 16:00:03' });
+});

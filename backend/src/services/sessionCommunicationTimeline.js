@@ -16,7 +16,8 @@ export function sessionCommunicationTimeline(reminders = [], communications = []
   const remindersById = new Map(reminders.map(row => [Number(row.id), row]));
   const deliveries = reminders.map(row => {
     const log = communications.find(item => Number(item.reminderId) === Number(row.id) && item.direction === 'outbound');
-    const metadata = { ...(log?.metadata || {}), deliveryStatus: row.status, scheduledFor: row.scheduledFor,
+    const deliveryStatus = log?.metadata?.deliveryStatus === 'delivered' && row.status === 'sent' ? 'delivered' : row.status;
+    const metadata = { ...(log?.metadata || {}), deliveryStatus, scheduledFor: row.scheduledFor,
       sentAt: row.sentAt || null, reason: row.errorMessage || reasonLabel(row.skipReason) };
     return { id: `reminder-${row.id}`, reminderId: row.id, category: 'notifications', direction: 'outbound',
       channel: String(row.kind || '').includes(':in_app') ? 'in_app' : row.channel,

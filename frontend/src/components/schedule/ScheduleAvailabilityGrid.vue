@@ -2764,6 +2764,7 @@
             <span class="nr-info-label">Selected office reservation</span>
             <strong>{{ selectedOfficeReservationDateLabel }} · {{ selectedOfficeReservationTimeLabel }}</strong>
             <span>{{ selectedOfficeReservationPlaceLabel }} · {{ bookingTimezoneLabel }}</span>
+            <button v-if="showActionChooser && personalCalendarAction" class="btn btn-secondary btn-sm nr-personal-event" type="button" @click="onQuickActionSelect(personalCalendarAction)">Add personal event</button>
             <span class="nr-reservation-scope">{{ bookingMoveScope === 'occurrence' ? 'Editing this date only — the recurring reservation stays in place.' : 'Editing this reservation and its upcoming dates.' }}</span>
           </div>
           <div class="nr-info-bar nr-info-bar--edit">
@@ -2843,7 +2844,7 @@
                     <input
                       class="nr-info-select nr-info-select--clock"
                       type="time"
-                      step="900"
+                      :step="keepsExactScheduleMinutes ? 60 : 900"
                       :value="modalStartTimeValue"
                       title="Start"
                       @change="onModalStartTimeInput($event.target.value)"
@@ -2858,7 +2859,7 @@
                     <input
                       class="nr-info-select nr-info-select--clock"
                       type="time"
-                      step="900"
+                      :step="keepsExactScheduleMinutes ? 60 : 900"
                       :value="modalEndTimeValue"
                       title="End"
                       @change="onModalEndTimeInput($event.target.value)"
@@ -2904,7 +2905,7 @@
                 <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
               </template>
             </div>
-            <div class="nr-info-cell nr-info-cell--tenant">
+            <div v-if="requestType !== 'personal_event'" class="nr-info-cell nr-info-cell--tenant">
               <span class="nr-info-label">Agency</span>
               <div class="nr-tenant-stack">
                 <div class="nr-tenant-row">
@@ -2919,7 +2920,7 @@
                     class="nr-info-select"
                     @change="onScheduleEventEditAgencyChange"
                   >
-                    <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
+                    <option :value="0">{{ isPersonalCalendarItem(editingScheduleStackItem) ? 'All agencies (show as Busy)' : scheduleEventOrgNoneLabel }}</option>
                     <option v-for="opt in scheduleEventOrgOptions" :key="`nr-edit-org-${opt.id}`" :value="Number(opt.id)">
                       {{ opt.label }}
                     </option>
@@ -3190,7 +3191,7 @@
             />
 
             <label class="sched-toggle" style="margin-top: 12px;">
-              <input type="checkbox" v-model="scheduleEventEditForm.isPrivate" />
+              <input type="checkbox" :checked="editingAllAgenciesPersonal || scheduleEventEditForm.isPrivate" :disabled="editingAllAgenciesPersonal" @change="scheduleEventEditForm.isPrivate = $event.target.checked" />
               <span>Private on calendar</span>
             </label>
           </template>
@@ -4204,7 +4205,7 @@
 
             <div v-if="showScheduleEventOrgPicker" style="margin-top: 10px;">
               <label class="lbl">Organization</label>
-              <select v-model.number="scheduleEventAgencyScope" class="input">
+              <select v-model.number="scheduleEventAgencyScope" class="input" aria-label="Organization">
                 <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
                 <option
                   v-for="opt in scheduleEventOrgOptions"
@@ -4286,7 +4287,7 @@
               This blocks the full calendar day (midnight to midnight).
             </div>
             <label class="sched-toggle" style="margin-top: 6px;">
-              <input type="checkbox" v-model="scheduleEventPrivate" />
+              <input type="checkbox" :checked="allAgenciesPersonalBusy || scheduleEventPrivate" :disabled="allAgenciesPersonalBusy" @change="scheduleEventPrivate = $event.target.checked" />
               <span>Private (others only see Busy)</span>
             </label>
             <label
@@ -5271,7 +5272,7 @@
                     <div class="nr-info-cell">
                       <span class="nr-info-label">Organization</span>
                       <select v-model.number="scheduleEventEditForm.agencyId" class="nr-info-select" @change="onScheduleEventEditAgencyChange">
-                        <option :value="0">{{ scheduleEventOrgNoneLabel }}</option>
+                        <option :value="0">{{ isPersonalCalendarItem(item) ? 'All agencies (show as Busy)' : scheduleEventOrgNoneLabel }}</option>
                         <option v-for="opt in scheduleEventOrgOptions" :key="`edit-org-${opt.id}`" :value="Number(opt.id)">
                           {{ opt.label }}
                         </option>
@@ -5375,7 +5376,7 @@
                   </template>
 
                   <label class="sched-toggle" style="margin-top: 10px;">
-                    <input type="checkbox" v-model="scheduleEventEditForm.isPrivate" />
+                    <input type="checkbox" :checked="(isPersonalCalendarItem(item) && !scheduleEventEditForm.agencyId) || scheduleEventEditForm.isPrivate" :disabled="isPersonalCalendarItem(item) && !scheduleEventEditForm.agencyId" @change="scheduleEventEditForm.isPrivate = $event.target.checked" />
                     <span>Private on calendar</span>
                   </label>
                   <div class="nr-appt-edit-actions">
@@ -11318,7 +11319,7 @@ const appointmentSpanSlice = (startRaw, endRaw, dayName, hour, minute = 0, wallI
   if (Number.isNaN(cellStart.getTime())) return null;
   const cellMs = stepMins * 60 * 1000;
   const topPct = Math.max(0, ((s.getTime() - cellStart.getTime()) / cellMs) * 100);
-  const heightPct = Math.max(14, ((e.getTime() - s.getTime()) / cellMs) * 100);
+  const heightPct = ((e.getTime() - s.getTime()) / cellMs) * 100;
   return { topPct, heightPct };
 };
 const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
@@ -11546,6 +11547,7 @@ const meetingWhoLabelForGrid = (ev, typePrefix) => {
 const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = false } = {}) => {
   const raw = String(ev?.title || '').trim() || 'Event';
   const eventKind = String(ev?.kind || '').trim().toUpperCase();
+  if (eventKind === 'PERSONAL_EVENT' && ev?.isPrivate && raw === 'Busy') return 'Busy';
   if (eventKind === 'FALL_CHECKIN_PRESLOT') {
     return runningAppointmentLabel({
       segmentClass,
@@ -12222,19 +12224,19 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
         roomId
       });
     } else if (st === 'ASSIGNED_AVAILABLE') {
-      const assignedLabel = colorBlocksByTenant.value
-        ? `Assigned · ${roomShort}`
-        : roomShort || 'Office';
+      const blocked = top?.officeGapBlocked === true;
+      const assignedLabel = blocked ? `Blocked · ${roomShort}`
+        : (colorBlocksByTenant.value ? `Assigned · ${roomShort}` : roomShort || 'Office');
       blocks.push({
         key: `office-assigned-${blockKeySuffix}`,
         kind: 'oa',
         isOfficeBlock: true,
         officeStatus: 'reserved',
-        officeStatusLabel: 'Office reserved',
+        officeStatusLabel: blocked ? 'Blocked between sessions' : 'Assigned available',
         officeEmpty: true,
         officeRoomLabel,
         shortLabel: `${buildingPrefix}${assignedLabel}${intakeSuffix}`,
-        title: officeTitle(dayName, hour, top),
+        title: blocked ? `Blocked between sessions · ${officeTitle(dayName, hour, top)}` : officeTitle(dayName, hour, top),
         buildingId,
         agencyId,
         roomId
@@ -13109,6 +13111,7 @@ const modalStartHour = ref(7);
 const modalEndHour = ref(8);
 const modalStartMinute = ref(0);
 const modalEndMinute = ref(0);
+const bookingEndTimeEdited = ref(false);
 const requestType = ref(''); // selected action in request modal
 const requestTypeChosenByUser = ref(false);
 const modalActionSource = ref('general'); // general | plus_or_blank | office_block | other_block
@@ -13335,6 +13338,7 @@ const isScheduleEventAllDayUi = computed(() => {
   return isScheduleEventRequestType.value && !!scheduleEventAllDay.value;
 });
 const quarterMinuteOptions = [0, 15, 30, 45];
+const keepsExactScheduleMinutes = computed(() => ['personal_event', 'individual_session', 'group_session'].includes(requestType.value) || modalChooserTimeEditable.value);
 const isQuarterHourRequestType = computed(() => {
   const t = String(requestType.value || '');
   // office_request_only uses AppointmentHeaderFields type=time; without this, a watch
@@ -13601,6 +13605,7 @@ function onModalEndTimeInput(hhmm) {
   if (!m) return;
   let hh = Math.max(0, Math.min(23, Number(m[1]) || 0));
   const mm = Number(m[2]);
+  bookingEndTimeEdited.value = true;
   let endMins = hh === 0 && mm === 0 ? 1440 : hh * 60 + mm;
   endMins = Math.min(endMins, 24 * 60);
   modalEndHour.value = Math.floor(endMins / 60);
@@ -13625,6 +13630,7 @@ function nudgeModalStart(deltaMin) {
 }
 
 function nudgeModalEnd(deltaMin) {
+  bookingEndTimeEdited.value = true;
   const startMins = Number(effectiveModalStartHour.value || 0) * 60 + Number(modalStartMinute.value || 0);
   let endMins = Number(modalEndHour.value || 0) * 60 + Number(modalEndMinute.value || 0) + Number(deltaMin || 0);
   endMins = Math.min(endMins, 24 * 60);
@@ -13928,6 +13934,7 @@ const availableQuickActions = computed(() => {
 });
 
 const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
+  'personal_event',
   'slot_details',
   'supervision',
   'forfeit_slot',
@@ -13950,6 +13957,7 @@ const OFFICE_LAYOUT_ONLY_ACTIONS = new Set([
 
 /** Clicking an office block on the week grid — curated, no note writing. */
 const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
+  'personal_event',
   'supervision',
   'forfeit_slot',
   'extend_assignment',
@@ -13970,6 +13978,7 @@ const OFFICE_BLOCK_ONLY_ACTIONS = new Set([
 
 /** Empty reserved office (ASSIGNED_AVAILABLE): session, meeting, open booking, virtual set. */
 const EMPTY_OFFICE_ACTIONS = new Set([
+  'personal_event',
   'individual_session',
   'group_session',
   'agency_meeting',
@@ -14079,6 +14088,7 @@ const visibleQuickActions = computed(() => {
   return sortQuickActionsSmart(filtered);
 });
 
+const personalCalendarAction = computed(() => visibleQuickActions.value.find(action => action.id === 'personal_event'));
 const primaryActionCount = computed(() => tutoringWorkspaceOnly.value ? 4 : 7);
 const ownSlotForfeitAction = computed(() => {
   const ctx = modalContext.value || {};
@@ -14340,14 +14350,17 @@ const scheduleEventOrgOptions = computed(() => {
   }
   return Array.from(byId.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
 });
+const allAgenciesPersonalBusy = computed(() => requestType.value === 'personal_event' && !scheduleEventAgencyScope.value);
 const scheduleEventOrgNoneLabel = computed(() => (
+  requestType.value === 'personal_event' ? 'All agencies (show as Busy)' :
   (scheduleEventOrgOptions.value || []).length > 1
-    ? 'All / none (not tied to one organization)'
+    ? 'All agencies'
     : 'None (not tied to an organization)'
 ));
 const scheduleEventOrgHelpText = computed(() => {
+  if (allAgenciesPersonalBusy.value) return "People who can view your schedule in your agencies see only Busy. You see this event’s details.";
   if ((scheduleEventOrgOptions.value || []).length > 1) {
-    return 'Pick a tenant to color-code this event, or All/none so it stays visible across every organization filter.';
+    return 'Choose one organization or share the time with all of your agencies.';
   }
   return 'Optional — leave as None if this personal event is not tenant-specific.';
 });
@@ -15270,7 +15283,7 @@ function onEditorPrimaryServiceCode(value) {
 function applyEditorServiceDuration(service) {
   if(editorIsLearning.value || String(service?.businessType||service?.business_type||'').toLowerCase()==='tutoring')return;
   const minutes = Number(service?.defaultDurationMinutes || service?.default_duration_minutes || 0);
-  if (editorHydratingAppointment.value || !Number.isInteger(minutes) || minutes < 5 || minutes > 480) return;
+  if (editorHydratingAppointment.value || bookingEndTimeEdited.value || !Number.isInteger(minutes) || minutes < 5 || minutes > 480) return;
   const [hour, minute] = String(editorStartTime.value || '').split(':').map(Number);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
   const end = hour * 60 + minute + minutes;
@@ -15886,6 +15899,7 @@ function onEditorEndTime(t) {
     supvEndIsoLocal.value = `${ymd}T${String(hh).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`;
     return;
   }
+  bookingEndTimeEdited.value = true;
   modalEndHour.value = hh;
   modalEndMinute.value = isSessionBookingRequestType.value ? mm : snapQuarterMinute(mm);
   onChooserWhenChanged?.();
@@ -19855,7 +19869,7 @@ const endHourOptions = computed(() => {
 });
 
 const ensureModalEndTimeValid = () => {
-  if (modalChooserTimeEditable.value || isSessionBookingRequestType.value) return;
+  if (keepsExactScheduleMinutes.value) return;
   const maxEnd = modalGridMaxEnd.value;
   if (useModalQuarterHourTime.value) {
     const allowed = startHourOptions.value;
@@ -20085,6 +20099,7 @@ const openSlotActionModal = async ({
   sourceOpenSlot = null
 } = {}) => {
   if (!canBookFromGrid.value) return;
+  bookingEndTimeEdited.value = false;
   editingOpenSlot.value = sourceOpenSlot;
   modalActionSource.value = String(actionSource || 'general');
   modalDay.value = String(dayName);
@@ -21447,14 +21462,20 @@ const cellBlockStyle = (b) => {
     style.top = `${b.timedSlice.topPct}%`;
     style.height = `${hp}%`;
     style.flex = 'none';
-    style.minHeight = '18px';
+    style.minHeight = '0';
+    style.boxSizing = 'border-box';
+    style.marginTop = '0';
+    if (hp < 30) {
+      style.padding = '0 4px';
+      style.overflow = 'hidden';
+    }
     // Draggable event types (supv/sevt) float above non-draggable office/peer blocks
     // so users can always grab them even when they overlap.
     if (['supv', 'sevt'].includes(kind) && (Number(b?.eventId || 0) > 0 || Number(b?.appointmentId || 0) > 0)) {
       style.zIndex = (Number(style.zIndex) || 3) + 5;
     }
     style.alignItems = 'flex-start';
-    style.paddingTop = '4px';
+    style.paddingTop = hp < 30 ? '0' : '4px';
     // Fewer lines on short blocks so text stays inside the colored fill.
     style['--block-line-clamp'] = (dayViewColTotal > 1 && dayViewCol > 0) || laneCols > 2
       ? (hp >= 180 ? '5' : hp >= 100 ? '3' : '2')
@@ -22523,7 +22544,7 @@ const mergeSelectedSlotsByDay = ({ dayName, startHour, endHour, useModalRange = 
     useModalRange
     && Number.isFinite(modalStart)
     && Number.isFinite(modalEnd)
-    && modalEnd > modalStart
+    && modalEnd >= modalStart
   ) {
     const dates = selected.length
       ? Array.from(new Set(selected.map((x) => String(x.dateYmd || fallbackDate).slice(0, 10))))
@@ -23109,7 +23130,7 @@ const submitRequest = async () => {
         title = reasonLabel;
         scheduleEventTitle.value = reasonLabel;
       }
-      const isPrivate = !!scheduleEventPrivate.value;
+      const isPrivate = allAgenciesPersonalBusy.value || scheduleEventPrivate.value;
       const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
         ? teamMeetingTimeZone()
         : null;
@@ -23237,7 +23258,7 @@ const submitRequest = async () => {
           const dates = scheduleEventOccurrenceDates(String(row.dateYmd).slice(0, 10), recurrence, occurrenceCount);
           for (const dateYmd of dates) {
             const startAt = `${String(dateYmd).slice(0, 10)}T${pad2(Number(row.startHour))}:${pad2(startMinute)}:00`;
-            const endAt = `${String(dateYmd).slice(0, 10)}T${pad2(Number(row.endHour))}:${pad2(endMinute)}:00`;
+            const endAt = wallDatetimeFromParts(Number(row.endHour) === 24 ? addDaysYmd(dateYmd, 1) : dateYmd, Number(row.endHour) === 24 ? 0 : row.endHour, endMinute);
             // eslint-disable-next-line no-await-in-loop
             const resp = await api.post(`/users/${uid}/schedule-events`, {
               agencyId: eventAgencyId,
@@ -23249,6 +23270,7 @@ const submitRequest = async () => {
               endAt,
               reasonCode,
               isPrivate,
+              timeZone: meetingTimeZone || scheduleMeetingTimeZone(),
               ...recurrenceFields(),
               focusSessionEnabled: eventKind === 'SCHEDULE_HOLD' ? !!scheduleHoldFocusSession.value : undefined,
               ...(isMeetingAction
@@ -23599,10 +23621,17 @@ const submitRequest = async () => {
       const targets = selected.length > 1 ? selected : [{ dateYmd: editorDateYmd.value, hour: h }];
       await withdrawEditorPriorOfficeRequests();
       for (const t of targets) {
-        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour ?? h))}:${pad2(startMinute)}:00`;
+        const timeZone = scheduleMeetingTimeZone();
+        const wallStartAt = wallDatetimeFromParts(t.dateYmd, Number(t.hour ?? h), startMinute);
         const adjustedEndHour = Number(t.hour ?? h) + (endH - h);
         const endDay = adjustedEndHour === 24 ? addDaysYmd(t.dateYmd, 1) : t.dateYmd;
-        const endAt = `${endDay}T${pad2(adjustedEndHour === 24 ? 0 : adjustedEndHour)}:${pad2(endMinute)}:00`;
+        const wallEndAt = wallDatetimeFromParts(endDay, adjustedEndHour === 24 ? 0 : adjustedEndHour, endMinute);
+        const startAt = wallDatetimeLocalToSummaryIso(wallStartAt, timeZone);
+        const endAt = wallDatetimeLocalToSummaryIso(wallEndAt, timeZone);
+        if (!startAt || !endAt || endAt <= startAt || toZonedDatetimeLocalValue(startAt, timeZone) !== wallStartAt.slice(0, 16)
+          || toZonedDatetimeLocalValue(endAt, timeZone) !== wallEndAt.slice(0, 16)) {
+          throw new Error('Choose a valid start and end time for the session.');
+        }
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
         const r = await postOfficeBooking({
@@ -24255,7 +24284,9 @@ watch(requestType, (t) => {
       const opts = scheduleEventOrgOptions.value || [];
       const current = Number(scheduleEventAgencyScope.value || 0);
       const validIds = new Set(opts.map((row) => Number(row?.id || 0)).filter((n) => n > 0));
-      if (current > 0 && validIds.has(current)) {
+      if (t === 'personal_event') {
+        scheduleEventAgencyScope.value = 0;
+      } else if (current > 0 && validIds.has(current)) {
         // keep prior choice
       } else if (opts.length === 1) {
         // Single-tenant accounts default to that org; multi-tenant defaults to all/none.
@@ -26687,6 +26718,8 @@ const scheduleEventEditForm = ref({
   clientId: 0,
   isPrivate: false
 });
+const isPersonalCalendarItem = item => item?.eventKind === 'PERSONAL_EVENT' && !item.appointmentId && !parseClientIdFromScheduleEvent(item);
+const editingAllAgenciesPersonal = computed(() => isPersonalCalendarItem(editingScheduleStackItem.value) && !scheduleEventEditForm.value.agencyId);
 const scheduleClientAlertId = computed(() => {
   if (showRequestModal.value && isScheduleEventEditMode.value) {
     return Number(scheduleEventEditForm.value.clientId || 0) || 0;
@@ -27015,10 +27048,10 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       title = `Virtual session · ${scheduleEventClientDisplayName(clientId)}`;
     }
   }
-  const saveAgencyId = Number(scheduleEventEditForm.value.agencyId || 0)
-    || Number(editorAgencyId.value || 0)
-    || Number(effectiveAgencyId.value || 0)
-    || null;
+  const isPersonalEvent = isPersonalCalendarItem(item) && !clientId;
+  const selectedAgencyId = Number(scheduleEventEditForm.value.agencyId || 0) || null;
+  const saveAgencyId = isPersonalEvent ? selectedAgencyId : (selectedAgencyId || Number(editorAgencyId.value || effectiveAgencyId.value || 0) || null);
+  const isPrivate = (isPersonalEvent && !saveAgencyId) || scheduleEventEditForm.value.isPrivate;
   if (canFullEdit && isMeeting && !saveAgencyId) {
     scheduleEventEditError.value = 'Select a tenant before saving meeting participants.';
     return;
@@ -27087,7 +27120,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       const saveFields = async () => {
         try {
           await api.patch(`/appointments/${canonicalAppointmentId}`, clinicalPatch, { skipGlobalLoading: true });
-          if (eid > 0) await api.patch(`/users/${uid}/schedule-events/${eid}`, { title, description, isPrivate: !!scheduleEventEditForm.value.isPrivate }, { skipGlobalLoading: true });
+          if (eid > 0) await api.patch(`/users/${uid}/schedule-events/${eid}`, { title, description, isPrivate }, { skipGlobalLoading: true });
           scheduleEventEditId.value = 0; closeStackDetailsModal(); closeModal();
         } catch (e) { modalError.value = e.response?.data?.error?.message || 'Could not save these session edits. Reopen the session to review.'; }
       };
@@ -27119,7 +27152,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
               }
             : {}),
           ...(agencyChanged ? { agencyId: saveAgencyId } : {}),
-          isPrivate: !!scheduleEventEditForm.value.isPrivate,
+          isPrivate,
           allDay: false,
           clientId,
           ...(scope ? { scope } : {}),
@@ -27179,7 +27212,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         || wallEndAt,
       wallTimeZone: saveTimeZone,
       agencyId: saveAgencyId,
-      isPrivate: !!scheduleEventEditForm.value.isPrivate,
+      isPrivate,
       attendeeUserIds: isMeeting ? savedAttendeeIds : null,
       ...(isMeeting ? {meetingSettings: meetingSettings.value, meetingSubtype: meetingSubtype.value} : {}),
       waitingRoomEnabled: isMeeting
@@ -28483,6 +28516,7 @@ watch(editorClientSchoolLocationOptions, (schools, previous) => {
 
 .nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
 .nr-selected-reservation strong { font-size: 17px; }
+.nr-personal-event { align-self: flex-start; margin-top: 6px; }
 .nr-reservation-scope { font-size: 13px; color: #4c617b; }
 
 .schedule-service-code-control{display:flex;align-items:center;gap:8px;min-width:0}.schedule-service-code-control>select{flex:1;min-width:0;width:0}

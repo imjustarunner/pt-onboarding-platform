@@ -1,3 +1,4 @@
+import { officeSessionGapSql } from '../utils/officeSessionGap.js';
 import {attachAgencyAffiliationMetadata as attachAffiliationMeta} from '../services/agencyAffiliationMetadata.service.js';
 import {missingAppointmentOutcomeEvents} from '../utils/appointmentOutcomeCalendar.js';
 import {canonicalAppointmentWindow,appointmentEventOverlapsWindow,canonicalCalendarMoveWindows} from '../utils/canonicalAppointmentWindow.js';
@@ -81,7 +82,8 @@ import {
   projectTeamCalendar,
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary,
-  publicScheduleReasonCode
+  publicScheduleReasonCode,
+  redactPrivatePersonalCalendarEvent
 } from '../services/scheduleSummaryPrivacy.service.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { assertRecurringWindow } from '../utils/recurringWindow.js';
@@ -4385,6 +4387,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.clinical_session_id,
            e.note_context_id,
            e.billing_context_id,
+           ${officeSessionGapSql()} AS office_gap_blocked,
            EXISTS(SELECT 1 FROM appointments a WHERE (a.office_event_id=e.id OR (a.room_id=e.room_id AND a.provider_user_id=e.booked_provider_id AND a.start_at>=e.start_at AND a.end_at<=e.end_at)) AND a.status IN ('scheduled','confirmed','client_confirmed','completed')) AS has_appointment,
            EXISTS(
              SELECT 1
@@ -4439,7 +4442,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           .filter(Boolean)
           .join(' ') || null;
         return {
-        displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
+        displayStatus: Number(r.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
         // Use the booking tenant, not the building owner or whichever tenant was fetched first.
@@ -4465,6 +4468,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         buildingTimezone: String(r.building_timezone || r.timezone || '').trim() || null,
         status: r.status,
         slotState: normalizedSlotState,
+        officeGapBlocked: Number(r.office_gap_blocked) === 1,
         appointmentType: String(r.appointment_type_code || '').trim().toUpperCase() || defaultAppointmentTypeForSlot({ status: r.status, slotState: normalizedSlotState }),
         appointmentSubtype: String(r.appointment_subtype_code || '').trim().toUpperCase() || null,
         serviceCode: String(r.service_code || '').trim().toUpperCase() || null,
@@ -6009,6 +6013,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const invitedCompanyEvents = await acceptedCompanyEventCalendar({ userId: providerId, agencyId, from: windowStart, to: windowEnd, includeAllAgencies });
     scheduleEvents.push(...invitedCompanyEvents.map(event => companyEventScheduleVisibility(event, isSelf)));
 
+    if (!isSelf) scheduleEvents = scheduleEvents.map(redactPrivatePersonalCalendarEvent);
+
     let fullPayload = {
       ok: true,
       detailLevel: 'full',
@@ -6159,7 +6165,6 @@ export const createUserScheduleEvent = async (req, res, next) => {
         });
       }
     }
-    const isPrivate = req.body?.isPrivate === true;
     const focusSessionEnabled = req.body?.focusSessionEnabled === true || req.body?.focus_session_enabled === true;
 
     const allDay = req.body?.allDay === true;
@@ -6196,6 +6201,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const isAgencyOptionalEvent = ['PERSONAL_EVENT', 'SCHEDULE_HOLD'].includes(kind);
     const requestedAgencyId = Number(req.body?.agencyId || 0);
     const agencyId = requestedAgencyId > 0 ? requestedAgencyId : null;
+    const allAgenciesPersonalBusy = kind === 'PERSONAL_EVENT' && !agencyId && !Number(req.body?.clientId);
+    const isPrivate = allAgenciesPersonalBusy || req.body?.isPrivate === true;
     if (!isAgencyOptionalEvent && !agencyId) {
       return res.status(400).json({ error: { message: 'agencyId is required' } });
     }
@@ -7105,13 +7112,16 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         occEndDate = null;
       }
 
+      const nextAgencyId = isPrimary && req.body?.agencyId !== undefined ? Number(req.body.agencyId) : Number(occ.agency_id);
+      const nextClientId = isPrimary && req.body?.clientId !== undefined ? Number(req.body.clientId) : Number(occ.client_id);
+      const allAgenciesPersonalBusy = kind === 'PERSONAL_EVENT' && !nextAgencyId && !nextClientId && !req.appointmentReschedule;
       // eslint-disable-next-line no-await-in-loop
       const rowUpdated = await ProviderScheduleEvent.updateForProvider({
         eventId: occId,
         providerId: hostProviderId,
         title: isPrimary ? title : undefined,
         description: isPrimary && req.body?.description !== undefined ? req.body.description : undefined,
-        isPrivate: isPrimary && req.body?.isPrivate !== undefined ? req.body.isPrivate === true : undefined,
+        isPrivate: allAgenciesPersonalBusy ? true : (isPrimary && req.body?.isPrivate !== undefined ? req.body.isPrivate === true : undefined),
         allDay: occAllDay,
         startAt: occStartAt,
         endAt: occEndAt,

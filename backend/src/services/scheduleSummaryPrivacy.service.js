@@ -525,6 +525,13 @@ export function toBusyOnlyScheduleSummary(payload = {}) {
   };
 }
 
+export function redactPrivatePersonalCalendarEvent(event) {
+  if (!event.isPrivate || event.kind !== 'PERSONAL_EVENT' || event.appointmentId || event.clientId) return event;
+  const { id, agencyId, providerId, startAt, endAt, startDate, endDate, allDay, timeZone, status, isCancelled } = event;
+  return { id, agencyId, providerId, startAt, endAt, startDate, endDate, allDay, timeZone, status, isCancelled,
+    kind: 'PERSONAL_EVENT', title: 'Busy', isPrivate: true, canEdit: false, canReschedule: false };
+}
+
 const teamCalendarFields = ['scheduleEvents', 'officeEvents', 'supervisionSessions', 'schoolAssignments',
   'officeRequests', 'schoolRequests', 'virtualWorkingHours'];
 const nonOccupyingStatuses = new Set(['cancelled', 'canceled', 'canceled_by_provider', 'canceled_by_client',

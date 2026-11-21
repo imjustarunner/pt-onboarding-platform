@@ -1,4 +1,5 @@
-import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
+import { officeSessionGapSql } from '../utils/officeSessionGap.js';
+import { isAvailableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { activeOfficeProviderSql, inactiveOfficeProvider } from '../utils/officeProviderEligibility.js';
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
@@ -57,6 +58,7 @@ class OfficeEvent {
          e.client_id,
          e.clinical_session_id, e.note_context_id, e.billing_context_id, e.standing_assignment_id,
          e.session_context_json,
+         ${officeSessionGapSql()} AS office_gap_blocked,
          CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS provider_name
        FROM office_events e
        LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
@@ -211,7 +213,7 @@ class OfficeEvent {
       if (conflicts.length) {
         const requestedProviderId = Number(args.bookedProviderId || args.assignedProviderId || 0) || null;
         const released = conflicts[0];
-        const borrowingReleased = args.allowReleasedOffice === true && isBorrowableOfficeRelease(released)
+        const borrowingReleased = args.allowReleasedOffice === true && isAvailableOfficeRelease(released)
           && normalizeMySqlDateTime(released.start_at) === normalizedStartAt
           && normalizeMySqlDateTime(released.end_at) === normalizedEndAt;
         const reusable = conflicts.length === 1
@@ -323,6 +325,7 @@ class OfficeEvent {
     const [rows] = await pool.execute(
       `SELECT
          e.*,
+         ${officeSessionGapSql()} AS office_gap_blocked,
          r.name AS room_name,
          r.room_number AS room_number,
          r.label AS room_label,
@@ -354,8 +357,8 @@ class OfficeEvent {
   static async findByRoomAndStart(roomId, startAt, executor = pool) {
     const normalizedStartAt = normalizeMySqlDateTime(startAt);
     const [rows] = await executor.execute(
-      `SELECT *
-       FROM office_events
+      `SELECT e.*, ${officeSessionGapSql()} AS office_gap_blocked
+       FROM office_events e
        WHERE room_id = ?
          AND start_at = ?
        ORDER BY CASE WHEN UPPER(COALESCE(status, '')) = 'CANCELLED' THEN 1 ELSE 0 END ASC, id DESC

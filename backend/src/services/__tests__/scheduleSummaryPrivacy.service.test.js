@@ -5,10 +5,26 @@ import {
   resolveScheduleDetailLevel,
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary,
-  toPeerAvailabilitySummary, projectTeamCalendar, canViewPeerSchedule, canIncludeAllScheduleAgencies, publicScheduleReasonCode
+  toPeerAvailabilitySummary, projectTeamCalendar, canViewPeerSchedule, canIncludeAllScheduleAgencies, publicScheduleReasonCode, redactPrivatePersonalCalendarEvent
 } from '../scheduleSummaryPrivacy.service.js';
 
 describe('scheduleSummaryPrivacy', () => {
+  it('keeps a cross-agency private personal event occupied without sending details or links to coworkers', () => {
+    const event = { id: 4, providerId: 49, agencyId: null, isPrivate: true, kind: 'PERSONAL_EVENT',
+      startAt: '2026-11-21T15:12:00.000Z', endAt: '2026-11-21T15:24:00.000Z', title: 'Private reminder',
+      description: 'Personal details', reasonCode: 'PERSONAL', htmlLink: 'https://example.test/event',
+      canEdit: true, canReschedule: true };
+    const safe = redactPrivatePersonalCalendarEvent(event);
+    expect(safe).toMatchObject({ title: 'Busy', canEdit: false, canReschedule: false });
+    for (const field of ['description', 'reasonCode', 'htmlLink']) expect(safe).not.toHaveProperty(field);
+    for (const agencyId of [1, 2]) {
+      const projected = projectTeamCalendar({ scheduleEvents: [safe] }, {
+        detailLevel: 'availability', allowedDetailAgencies: [agencyId], timeZone: 'America/Denver'
+      });
+      expect(projected.busyBlocks).toEqual([{ title: 'Busy', activityType: 'busy', startAt: event.startAt, endAt: event.endAt }]);
+    }
+  });
+
   it('hides internal agenda retry identities while preserving normal schedule reasons', () => {
     expect(publicScheduleReasonCode('AW_AGENDA:101:ABCDEF0123456789ABCDEF0123456789')).toBeNull();
     expect(publicScheduleReasonCode(' aw_agenda:101:internal ')).toBeNull();

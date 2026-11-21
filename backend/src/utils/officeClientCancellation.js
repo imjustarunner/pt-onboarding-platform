@@ -13,6 +13,9 @@ export function isBorrowableOfficeRelease(event) {
     && !event.billing_context_id && !event.note_context_id
     && eventContext(event)?.officeCancellationDisposition === 'release';
 }
+export function isAvailableOfficeRelease(event) {
+  return isBorrowableOfficeRelease(event) && !Number(event.office_gap_blocked);
+}
 export function isDetachedOfficeReservation(event) {
   const context = eventContext(event);
   return !event.client_id&&!event.clinical_session_id&&event.status!=='CANCELLED'&&['keep','release'].includes(context?.officeCancellationDisposition);

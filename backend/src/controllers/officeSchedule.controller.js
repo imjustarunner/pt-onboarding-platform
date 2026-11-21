@@ -1,4 +1,4 @@
-import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
+import { isAvailableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { randomUUID } from 'node:crypto';
 import { roomBlockForSession, sessionWindowInRoom } from '../utils/officeSessionWindow.js';
 import { approvePreciseOfficeSessions } from '../services/preciseOfficeSession.service.js';
@@ -495,7 +495,7 @@ export async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, o
       if (standing.length) {
         const slotStart = mysqlDateTimeForDateHour(wh.date, hour, officeTimeZone);
         const released = await OfficeEvent.findByRoomAndStart(roomId, slotStart);
-        if (!isBorrowableOfficeRelease(released) || standing.some(owner => Number(owner.id) !== Number(released.standing_assignment_id))) return false;
+        if (!isAvailableOfficeRelease(released) || standing.some(owner => Number(owner.id) !== Number(released.standing_assignment_id))) return false;
       }
     }
 
@@ -1468,7 +1468,8 @@ export const getWeeklyGrid = async (req, res, next) => {
               date,
               hour,
               state,
-              displayStatus: toDisplayStatus({ status: e.status, slotState: st }),
+              officeGapBlocked: Number(e.office_gap_blocked) === 1,
+              displayStatus: Number(e.office_gap_blocked) === 1 ? 'BLOCKED' : toDisplayStatus({ status: e.status, slotState: st }),
               eventId: e.id,
               bookingAgencyId: officeBookingAgencyId(e),
               learningSessionId: learningByOfficeEventId.get(Number(e.id)) || null,

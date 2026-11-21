@@ -1,4 +1,5 @@
-import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
+import { officeSessionGapSql } from '../utils/officeSessionGap.js';
+import { isAvailableOfficeRelease, isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
@@ -73,13 +74,13 @@ export async function approvePreciseOfficeSessions({ request, office, room, cont
       const startAt = window.hours[0].startAt;
       const endAt = window.hours.at(-1).endAt;
       return OfficeEvent.withRoomSlotLock({ roomId: room.id, startAt, endAt }, async conn => {
-        const [conflicts] = await conn.execute(`SELECT e.*, EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) AS has_appointment
+        const [conflicts] = await conn.execute(`SELECT e.*, ${officeSessionGapSql()} AS office_gap_blocked, EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id) AS has_appointment
           FROM office_events e WHERE room_id=? AND start_at<? AND end_at>? AND (e.status IS NULL OR e.status<>'CANCELLED') FOR UPDATE`,
         [room.id, endAt, startAt]);
         const byStart = new Map(conflicts.map(row => [sql(row.start_at), row]));
         const requestedHours = new Map(window.hours.map(hour => [hour.startAt, hour.endAt]));
         if (byStart.size !== conflicts.length || conflicts.some(row => requestedHours.get(sql(row.start_at)) !== sql(row.end_at)
-          || (!(recurrence === 'ONCE' && isBorrowableOfficeRelease(row))
+          || (!(recurrence === 'ONCE' && isAvailableOfficeRelease(row))
             && [row.assigned_provider_id, row.booked_provider_id].some(owner => Number(owner) > 0 && Number(owner) !== providerId))
           || row.client_id || row.clinical_session_id || row.billing_context_id || row.note_context_id || row.has_appointment || row.status_outcome
           || row.slot_state === 'COMPANY_HOLD' || (row.status === 'BOOKED' && !row.booked_provider_id))) {

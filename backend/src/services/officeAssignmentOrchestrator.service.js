@@ -7,7 +7,7 @@
  * admin assign, and one-time bookings share one source of truth.
  */
 
-import { isBorrowableOfficeRelease } from '../utils/officeClientCancellation.js';
+import { isAvailableOfficeRelease } from '../utils/officeClientCancellation.js';
 import pool from '../config/database.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
@@ -201,7 +201,7 @@ async function assignOneTimeOfficeBlock({
     const slotStartAt = mysqlDateTimeForDateHour(date, h, officeTz);
     const slotEndAt = mysqlDateTimeForDateHour(date, h + 1, officeTz);
     const released = markBooked && await OfficeEvent.findByRoomAndStart(roomId, slotStartAt);
-    if (isBorrowableOfficeRelease(released)) {
+    if (isAvailableOfficeRelease(released)) {
       const event = await OfficeEvent.createIfRoomOpen({
         officeLocationId, roomId, startAt: slotStartAt, endAt: slotEndAt,
         status: 'BOOKED', slotState: 'ASSIGNED_BOOKED', bookedProviderId: providerId,

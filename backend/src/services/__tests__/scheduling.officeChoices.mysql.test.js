@@ -87,4 +87,34 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT||process.env.CI!=='true'
   expect(await OfficeEvent.findById(81)).toMatchObject({status:'BOOKED',booked_provider_id:9,booking_plan_id:31});
  });
 
+ it('blocks up to two assigned hours between sessions and releases the gap after either endpoint is canceled', async () => {
+  const startAt = '2027-01-18 18:00:00';
+  const endAt = '2027-01-18 19:00:00';
+  await db.execute(`INSERT INTO office_events
+    (id, office_location_id, room_id, start_at, end_at, status, slot_state, assigned_provider_id, standing_assignment_id, session_context_json)
+    VALUES (82,8,11,?,?,'RELEASED','ASSIGNED_AVAILABLE',9,6,JSON_OBJECT('officeCancellationDisposition','release'))`, [startAt, endAt]);
+  await db.query(`INSERT INTO appointments (id,agency_id,provider_user_id,room_id,start_at,end_at,status) VALUES
+    (91,2,9,11,'2027-01-18 17:00','2027-01-18 18:00','scheduled'),
+    (92,3,9,11,'2027-01-18 19:00','2027-01-18 20:00','confirmed')`);
+  const blocked = async () => Number((await OfficeEvent.findByRoomAndStart(11, startAt)).office_gap_blocked);
+  const borrow = {officeLocationId:8, roomId:11, startAt, endAt, status:'BOOKED', slotState:'ASSIGNED_BOOKED',
+    allowReleasedOffice:true, bookedProviderId:10, createdByUserId:10};
+  expect(await blocked()).toBe(1);
+  await expect(OfficeEvent.createIfRoomOpen(borrow)).rejects.toMatchObject({status:409});
+  await db.query("UPDATE appointments SET status='canceled_by_provider' WHERE id=91");
+  expect(await blocked()).toBe(0);
+  await db.query("UPDATE appointments SET status='scheduled' WHERE id=91");
+  await db.query("UPDATE appointments SET status='canceled_by_client' WHERE id=92");
+  expect(await blocked()).toBe(0);
+  await db.query("UPDATE appointments SET status='confirmed', room_id=12 WHERE id=92");
+  expect(await blocked()).toBe(0);
+  await db.query("UPDATE appointments SET room_id=11, provider_user_id=10 WHERE id=92");
+  expect(await blocked()).toBe(0);
+  await db.query("UPDATE appointments SET provider_user_id=9, start_at='2027-01-18 20:00', end_at='2027-01-18 21:00' WHERE id=92");
+  expect(await blocked()).toBe(1);
+  await db.query("UPDATE appointments SET start_at='2027-01-18 20:01' WHERE id=92");
+  expect(await blocked()).toBe(0);
+  await expect(OfficeEvent.createIfRoomOpen(borrow)).resolves.toMatchObject({id:82, assigned_provider_id:9, booked_provider_id:10});
+ });
+
 });

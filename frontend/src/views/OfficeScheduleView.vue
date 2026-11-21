@@ -43,6 +43,7 @@
         <div class="legend-item"><span class="dot open"></span> Open</div>
         <div class="legend-item"><span class="dot requested"></span> Requested (pending)</div>
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned</div>
+        <div class="legend-item"><span class="dot office_gap_blocked"></span> Blocked between sessions</div>
         <div class="legend-item"><span class="dot assigned_temporary"></span> Temporary hold</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Booked</div>
         <div class="legend-item"><span class="dot company_hold"></span> Company hold</div>
@@ -284,6 +285,7 @@
                 slotClass(room.id, d, h),
                 {
                   selected: isSlotSelected(room.id, d, h),
+                  office_gap_blocked: getSlot(room.id, d, h)?.officeGapBlocked,
                   'own-provider': isOwnProviderSlot(room.id, d, h),
                   today: isTodayDate(d),
                   'ics-gap': showIcsGaps && slotHasIcsGap(room.id, d, h)
@@ -319,7 +321,7 @@
         <button class="modal-close" aria-label="Close office details" @click="closeModal">×</button>
         <div v-if="error" class="error-box" style="margin-bottom: 10px;">{{ error }}</div>
         <div class="muted" style="margin-bottom: 10px;">
-          {{ modalSlot ? `${modalSlot.date} ${formatHour(reservationStartHour)}–${formatHour(reservationEndHour)} · ${reservationEndHour - reservationStartHour} hour${reservationEndHour - reservationStartHour === 1 ? '' : 's'} — ${slotStateLabel(modalSlot.state)}` : '' }}
+          {{ modalSlot ? `${modalSlot.date} ${formatHour(reservationStartHour)}–${formatHour(reservationEndHour)} · ${reservationEndHour - reservationStartHour} hour${reservationEndHour - reservationStartHour === 1 ? '' : 's'} — ${modalSlot.officeGapBlocked ? 'Blocked between sessions' : slotStateLabel(modalSlot.state)}` : '' }}
           <template v-if="officeTimezoneLabel"> · {{ officeTimezoneLabel }}</template>
         </div>
         <div class="recurrence-summary" v-if="modalSlot" aria-live="polite">
@@ -814,6 +816,7 @@ const slotInitials = (roomId, date, hour) => {
 const slotDisplayLabel = (roomId, date, hour) => {
   const s = getSlot(roomId, date, hour);
   if (!s) return '';
+  if (s.officeGapBlocked) return 'Blocked';
   if (String(s?.state || '') === 'company_hold') {
     return String(s?.holdTitle || 'Company hold').trim();
   }
@@ -846,7 +849,7 @@ const slotTitle = (roomId, date, hour) => {
   const icsLabel = showIcsGaps.value && slotHasIcsGap(roomId, date, hour)
     ? ` • ${icsGapTitle(roomId, date, hour)}`
     : '';
-  return `${date} ${formatHour(hour)} — ${stateLabel(state)}${state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}${icsLabel}`;
+  return `${date} ${formatHour(hour)} — ${s.officeGapBlocked ? 'Blocked between sessions' : stateLabel(state)}${state === 'company_hold' ? '' : (providerLabel ? ` • ${providerLabel}` : '')}${inPersonLabel}${virtualLabel}${ownLabel}${icsLabel}`;
 };
 
 const slotHasIcsGap = (roomId, date, hour) => {
@@ -2780,6 +2783,7 @@ input[type='date'] {
 .dot.open { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.16); }
 .dot.requested { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22); }
 .dot.company_hold { background: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18); }
+.dot.office_gap_blocked { background: #a16207; }
 .dot.assigned_available { background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18); }
 .dot.assigned_temporary { background: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
 .dot.assigned_booked { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16); }
@@ -3106,6 +3110,7 @@ input[type='date'] {
   border-color: rgba(99, 102, 241, 0.42);
   color: #312e81;
 }
+.slot.assigned_available.office_gap_blocked { background: color-mix(in srgb, #eab308 22%, var(--bg-card, #fff)); }
 .slot.assigned_available {
   background: linear-gradient(165deg, rgba(255, 247, 220, 0.92), rgba(253, 230, 138, 0.44));
   border-color: rgba(245, 158, 11, 0.5);

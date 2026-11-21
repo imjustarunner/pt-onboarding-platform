@@ -18,7 +18,7 @@ function scheduler(type = 'agency_meeting') {
     computed, watch, editorPracticeCategory:ref(''),tutoringWorkspaceOnly:ref(false),
     requestType: ref(type), gridMinHour: ref(7), gridMaxHour: ref(22),
     modalHour: ref(18), modalStartHour: ref(18), modalStartMinute: ref(0),
-    modalEndHour: ref(19), modalEndMinute: ref(0),
+    modalEndHour: ref(19), modalEndMinute: ref(0), bookingEndTimeEdited: ref(false),
     useModalQuarterHourTime: ref(true), canUseQuarterHourInput: ref(true),
     disableEndTimeInput: ref(false),
     isScheduleEventEditMode: ref(false), isSupervisionEditMode: ref(false),
@@ -29,6 +29,7 @@ function scheduler(type = 'agency_meeting') {
   };
   const create = new Function(...Object.keys(state), `
     const quarterMinuteOptions = [0, 15, 30, 45];
+    ${section('const keepsExactScheduleMinutes =', 'const isQuarterHourRequestType =')}
     ${section('const snapQuarterMinute =', 'const modalStartTimeValue =')}
     ${section('const endMinuteOptions =', 'const modalTimeRangeLabel =')}
     ${section('const startHourOptions =', 'const isWeekdayName =')}

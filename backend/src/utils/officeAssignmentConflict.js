@@ -1,5 +1,5 @@
 import { isExpiredTemporaryAssignment } from "./officeMoveConflict.js";
-import { isBorrowableOfficeRelease } from "./officeClientCancellation.js";
+import { isAvailableOfficeRelease } from "./officeClientCancellation.js";
 import { mysqlDateTimeForDateHour, toMysqlUtcDateTime, utcToZonedMysqlWall } from "./officeEventDateTime.util.js";
 // Standing rows reserve a physical weekday/hour even when no booking event has
 // been generated. Match the writer's ownership rules before offering a room.
@@ -22,7 +22,7 @@ export function approvalAssignmentConflict(
   if (!owners.length) return null;
   if (request.recurrence === "ONCE" && request.source !== "intake") {
     const date = window.checkedDates?.[0] || window.startDate;
-    const releases = (inventory?.events || []).filter(event => Number(event.room_id) === Number(room.roomId) && isBorrowableOfficeRelease(event));
+    const releases = (inventory?.events || []).filter(event => Number(event.room_id) === Number(room.roomId) && isAvailableOfficeRelease(event));
     if (date && owners.every(owner => releases.some(event =>
       Number(event.standing_assignment_id) === Number(owner.id)
       && toMysqlUtcDateTime(event.start_at) === mysqlDateTimeForDateHour(date, owner.hour, window.timezone)
