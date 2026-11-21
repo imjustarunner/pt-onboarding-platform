@@ -53,13 +53,7 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
   const actor = personal || messages ? await User.findById(userId) : null;
   const flag = value => [true, 1, '1'].includes(value);
   const groupLogin = flag(actor?.sso_password_override) || flag(actor?.login_is_group_email);
-  const ssoEnabled = !!managedDomain(agency) || flags.googleSsoEnabled === true;
-  if (messages && keepMessagesRoute && ssoEnabled && !groupLogin) {
-    if (!/^messages@[^@\s]+$/i.test(identity.from_email)) {
-      throw Object.assign(new Error('The agency Messages sender is unavailable.'), { status: 400 });
-    }
-    return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: identity.from_email, displayName: identity.display_name, routing: 'shared_team' };
-  }
+  const ssoEnabled = flags.googleSsoEnabled !== false && (!!managedDomain(agency) || flags.googleSsoEnabled === true);
   if (personal || (messages && (groupLogin || ssoEnabled || appointmentRoute))) {
     // Even when messages@ was selected explicitly, use the actor's own mailbox
     // to choose routing. Never move their private conversation to a shared inbox.
@@ -77,7 +71,13 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
         throw Object.assign(new Error('Configure your work group email before sending email.'), { status: 400 });
       }
     }
-    const useAppointmentReply = appointmentRoute && ['group', 'user'].includes(type);
+    if (messages && keepMessagesRoute && ssoEnabled && !groupLogin && type === 'user') {
+      if (!/^messages@[^@\s]+$/i.test(identity.from_email)) {
+        throw Object.assign(new Error('The agency Messages sender is unavailable.'), { status: 400 });
+      }
+      return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: identity.from_email, displayName: identity.display_name, routing: 'shared_team' };
+    }
+    const useAppointmentReply = appointmentRoute && ssoEnabled && !groupLogin && type === 'user';
     if (useAppointmentReply || (ssoEnabled && !groupLogin && type === 'user')) {
       const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
       const sender = await resolveMessagesSendMailbox(agencyId);
@@ -85,11 +85,8 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox, keepMes
         || (useAppointmentReply && !/^messages@itsco\.health$/i.test(sender.fromEmail))) {
         throw Object.assign(new Error('The tenant messages sender is unavailable.'), { status: 400 });
       }
-      return { ...sender, inbox: ownInbox, replyTo: useAppointmentReply ? workAddress : sender.fromEmail,
+      return { ...sender, inbox: ownInbox, replyTo: sender.fromEmail,
         displayName: ownInbox.display_name || identity.display_name, routing: useAppointmentReply ? 'appointment_email' : 'workspace_user' };
-    }
-    if (appointmentRoute) {
-      throw Object.assign(new Error('Configure your verified ITSCO work address to receive replies.'), { status: 400 });
     }
     if (!personal) return resolveEmailSendMailbox({ agencyId, userId, inbox: ownInbox });
   }
