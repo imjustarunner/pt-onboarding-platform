@@ -68,7 +68,10 @@ async function load({resetReview=false,keepNotice=false,background=false}={}){
  }
  try{
   const {data}=await api.get(base(),{params:{agencyId:props.agencyId,serviceDate:reviewDate.value},skipGlobalLoading:true});
-  if(g!==generation)return;evidence.value=data;hasCoverageData.value=true;coverageReady.value=true;
+  if(g!==generation)return;
+  const newEvidence=hasCoverageData.value&&evidence.value.reviewToken&&data.reviewToken&&evidence.value.reviewToken!==data.reviewToken;
+  if(newEvidence&&!resetReview){for(const item of attestations)draft.value[item.key]=false;draft.value.status='unresolved';notice.value='New coverage evidence arrived. Review it and confirm the checks again; your typed reference has been kept.';}
+  evidence.value=data;hasCoverageData.value=true;coverageReady.value=true;
   if(data.syntheticQaReviewAvailable===true&&(changed||resetReview))draft.value.source='synthetic_qa';
   if(data.syntheticQaReviewAvailable!==true&&draft.value.source==='synthetic_qa')draft.value=blank();
   poll();

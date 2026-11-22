@@ -128,3 +128,8 @@ it('shows automatic queue status and prevents duplicate manual checks while it i
  api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'Office',practice_npi:'1306688650'}]}:{checks:[],blockers:[],automaticEligibility:{status:'pending',message:'Automatic Claim.MD verification is queued.'}}}));
  const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();expect(w.text()).toContain('Automatic Claim.MD verification is queued');await w.vm.$.setupState.check('primary');expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+it('requires fresh confirmations for new evidence while retaining the typed reference and form',async()=>{
+ let reads=0;api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[],reviewToken:++reads===1?'old-evidence':'new-evidence'}}));
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();const form=w.get('form').element;await w.get('textarea').setValue('Retain dated portal reference');w.vm.$.setupState.draft.primaryChecked=true;w.vm.$.setupState.draft.status='verified';
+ await w.vm.refresh();await flushPromises();expect(w.get('form').element).toBe(form);expect(w.get('textarea').element.value).toBe('Retain dated portal reference');expect(w.vm.$.setupState.draft.primaryChecked).toBe(false);expect(w.vm.$.setupState.draft.status).toBe('unresolved');expect(w.text()).toContain('New coverage evidence arrived');w.unmount();
+});
