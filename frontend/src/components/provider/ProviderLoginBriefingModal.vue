@@ -86,7 +86,7 @@
                       </button>
                     </template>
                     <p v-else-if="section.key === 'calendar'" class="card-empty">Nothing scheduled on your calendar today.</p>
-                    <p v-else class="card-empty">{{ section.emptyLabel || 'Nothing needs your attention here.' }}</p>
+                    <p v-else class="card-empty">{{ section.emptyLabel || (section.count > 0 ? `${section.count} ${section.countLabel}. ${section.action} to review.` : 'Nothing needs your attention here.') }}</p>
                     <button class="card-link" type="button" @click="navigate(section.to)">
                       {{ section.action }} <span aria-hidden="true">→</span>
                     </button>

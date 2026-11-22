@@ -87,3 +87,8 @@ it('shows the signing queue for providers with supervisor privileges', async () 
   expect(wrapper.text()).toContain('Notes to sign');
   expect(api.get.mock.calls.some(([url]) => url === '/me/notes-to-sign/count')).toBe(true);
 });
+
+it('does not show an all-clear when notification previews are unavailable but the count is positive',async()=>{
+ api.get.mockImplementation(async url=>({data:url==='/notifications/counts'?{2:4}:[]}));await mount();
+ expect(wrapper.text()).toContain('4 new. View all notifications to review.');
+});
