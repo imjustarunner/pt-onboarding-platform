@@ -19,6 +19,7 @@
           aria-labelledby="privileged-briefing-title"
           @keydown.esc.stop="panel ? goBack() : dismiss()"
         >
+          <div class="briefing-content">
           <div class="briefing-brand-rail" aria-hidden="true">
             <div class="brand-logo-stack">
               <div
@@ -127,6 +128,7 @@
                       <button class="card-link" type="button" @click="navigate(section.to)">{{ section.action }} <Maximize2 :size="15" aria-hidden="true" /></button>
                     </div>
                   </article>
+                  <BriefingSecurityCard :user-id="userId" :to="`${prefix}/account-security`" @navigate="navigate" />
                 </div>
 
                 <div v-else class="all-clear-card">
@@ -179,10 +181,7 @@
                   <span aria-hidden="true">→</span>
                 </button>
 
-                <section class="security-card">
-                  <span aria-hidden="true">♢</span>
-                  <div><strong>Security tip</strong><p>If you see an unfamiliar active session or account activity, sign out and reset your password.</p></div>
-                </section>
+
               </aside>
             </div>
           </template>
@@ -233,6 +232,7 @@
               </button>
             </div>
           </footer>
+          </div>
         </section>
       </div>
     </Transition>
@@ -240,6 +240,7 @@
 </template>
 
 <script setup>
+import BriefingSecurityCard from '../dashboard/BriefingSecurityCard.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import DashboardMeetings from '../meetings/DashboardMeetings.vue';
 import BriefingItemDetails from './BriefingItemDetails.vue';
@@ -1201,3 +1202,5 @@ onBeforeUnmount(() => {
   .briefing-spinner { animation: none; }
 }
 </style>
+
+<style scoped>.briefing-content{position:relative;isolation:isolate;min-height:100%}.briefing-brand-rail{bottom:0}</style>

@@ -14,12 +14,13 @@ on:
       - 'scripts/provision-mfa-secret*'
       - '.dockerignore'
       - 'scripts/build-backend-image*'
+      - 'scripts/check-production-release*.mjs'
       - '.github/workflows/deploy-backend.yml'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 concurrency:
-  group: deploy-onboarding-backend-${{ github.ref }}
+  group: deploy-onboarding-backend-production
   cancel-in-progress: false
 
 env:
@@ -38,6 +39,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check public school demo and homepage navigation
         run: node --test scripts/check-school-demo-release.test.mjs
@@ -89,6 +92,11 @@ jobs:
           gcloud --version
           gcloud config set project "${{ secrets.GCP_PROJECT_ID }}"
           gcloud projects describe "${{ secrets.GCP_PROJECT_ID }}" --format='value(projectNumber)'
+
+      - name: Verify current production source is included
+        run: |
+          node --test scripts/check-production-release.test.mjs
+          node scripts/check-production-release.mjs "$GITHUB_SHA"
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
@@ -602,6 +610,7 @@ jobs:
             echo "❌ App never reached loaded phase after ~5 minutes. Failing deploy."
             exit 1
           fi
+          node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" \
             --to-revisions="${CANDIDATE_REVISION}=100"
           echo "Candidate readiness passed; promoted ${CANDIDATE_REVISION}."

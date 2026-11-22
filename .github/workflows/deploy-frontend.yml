@@ -11,11 +11,12 @@ on:
       - 'backend/**'
       - 'database/clinical_migrations/**'
       - 'scripts/check-school-demo-release.test.mjs'
+      - 'scripts/check-production-release*.mjs'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 concurrency:
-  group: deploy-onboarding-frontend-${{ github.ref }}
+  group: deploy-onboarding-frontend-production
   cancel-in-progress: false
 
 env:
@@ -34,6 +35,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check public school demo and homepage navigation
         run: node --test scripts/check-school-demo-release.test.mjs
@@ -88,6 +91,11 @@ jobs:
           gcloud config set project "${{ secrets.GCP_PROJECT_ID }}"
           gcloud projects describe "${{ secrets.GCP_PROJECT_ID }}" --format='value(projectNumber)'
 
+      - name: Verify current production source is included
+        run: |
+          node --test scripts/check-production-release.test.mjs
+          node scripts/check-production-release.mjs "$GITHUB_SHA"
+
       - name: Configure Docker for Artifact Registry
         run: |
           set -euo pipefail
@@ -117,8 +125,14 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          set -euo pipefail
+          CANDIDATE_SUFFIX="g${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}"
+          CANDIDATE_REVISION="${SERVICE_NAME}-${CANDIDATE_SUFFIX}"
+          node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
+            --no-traffic \
+            --revision-suffix "$CANDIDATE_SUFFIX" \
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
@@ -129,10 +143,11 @@ jobs:
             --max-instances=10 \
             --min-instances=0
 
-          # If traffic was pinned to an older revision, explicitly promote the latest revision.
+          # Verify again after the build; a concurrent release must never be overwritten.
+          node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run services update-traffic $SERVICE_NAME \
             --region $REGION \
-            --to-latest
+            --to-revisions="${CANDIDATE_REVISION}=100"
 
       - name: Protect production image from registry cleanup
         run: |

@@ -3801,7 +3801,7 @@ async function exitToAgencyWorkspace(section='dashboard') {
  if(agencyExitBusy.value)return;
  agencyExitBusy.value=true;agencyExitError.value='';
  try {
-  await transferSchoolAgencySession({agencies:agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [],parentId:Number(affiliatedAgencyId.value || cardIconOrg.value?.id),section,role:authStore.user?.role},{api,router});
+  await transferSchoolAgencySession({agencies:agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [],parentId:Number(affiliatedAgencyId.value || cardIconOrg.value?.id),section,role:authStore.user?.role,userId:authStore.user?.id},{api,router});
  } catch(e){agencyExitError.value=e.response?.data?.error?.message||e.message||'Your agency workspace could not be opened. Sign in with your agency account.';}
  finally{agencyExitBusy.value=false;}
 }

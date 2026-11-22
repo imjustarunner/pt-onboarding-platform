@@ -15,6 +15,7 @@
           aria-labelledby="provider-briefing-title"
           @keydown.esc="dismiss"
         >
+          <div class="briefing-content">
           <div class="briefing-brand-rail" aria-hidden="true">
             <div class="brand-logo-stack">
               <div class="brand-logo-wrap" :title="tenantAgency?.name">
@@ -58,7 +59,7 @@
                     :class="`briefing-card--${section.tone}`"
                   >
                     <header class="card-header">
-                      <span class="card-icon" aria-hidden="true"><img v-if="section.iconUrl" :src="section.iconUrl" alt="" style="width:100%;height:100%;object-fit:contain" /><span v-else>{{ section.icon }}</span></span>
+                      <span class="card-icon" aria-hidden="true"><component :is="sectionIcon(section.key)" :size="28" /></span>
                       <div>
                         <div class="card-kicker">{{ section.title }}</div>
                         <div v-if="section.key !== 'calendar' || (!calendarLoading && !calendarError)" class="card-count"><strong>{{ section.count }}</strong> {{ section.countLabel }}</div>
@@ -90,6 +91,9 @@
                       {{ section.action }} <span aria-hidden="true">→</span>
                     </button>
                   </article>
+                  <BriefingSecurityCard :user-id="userId" :to="`${prefix}/account-security`" @navigate="navigate" />
+                  <article v-if="urgentCount" class="briefing-card briefing-card--red"><h2 class="card-kicker">Needs attention</h2><p>{{urgentCount}} overdue or urgent items</p><button class="card-link" type="button" @click="navigate(urgentDestination)">Review urgent items</button></article>
+                  <article v-if="payPeriodLabel" class="briefing-card"><h2 class="card-kicker">Pay period</h2><strong>{{payPeriodLabel}}</strong><p v-if="tierLabel">{{tierLabel}}</p></article>
                 </div>
 
                 <div v-else-if="!loading && !partialFailure && !hasCalendarSection" class="all-clear-card">
@@ -107,24 +111,7 @@
                 </div>
               </div>
 
-              <aside class="briefing-side">
-                <button v-if="urgentCount" class="urgent-card" type="button" @click="navigate(urgentDestination)">
-                  <span class="urgent-icon" aria-hidden="true">△</span>
-                  <span><small>Needs attention</small><strong>{{ urgentCount }}</strong> overdue or urgent items</span>
-                  <span aria-hidden="true">→</span>
-                </button>
 
-                <section v-if="payPeriodLabel" class="pay-card">
-                  <div class="side-kicker">Pay period</div>
-                  <strong>{{ payPeriodLabel }}</strong>
-                  <small v-if="tierLabel">{{ tierLabel }}</small>
-                </section>
-
-                <section class="security-card">
-                  <span aria-hidden="true">♢</span>
-                  <div><strong>Security tip</strong><p>If you see unfamiliar account activity, sign out and reset your password.</p></div>
-                </section>
-              </aside>
             </div>
 
           <footer class="briefing-footer">
@@ -136,6 +123,7 @@
               <span aria-hidden="true">&#x25A3;</span> Enter Dashboard
             </button>
           </footer>
+          </div>
         </section>
       </div>
     </Transition>
@@ -143,6 +131,10 @@
 </template>
 
 <script setup>
+import { Calendar, Bell, MessageCircle, ClipboardList, Users, FileText, LifeBuoy, RotateCw, ShieldCheck } from '@lucide/vue';
+import BriefingSecurityCard from '../dashboard/BriefingSecurityCard.vue';
+import { isSupervisor } from '../../utils/helpers.js';
+import { providerAgendaSummary } from '../../utils/providerAgenda.js';
 import { DOC_STATUS, deriveWorkQueueDocStatus } from '../../utils/noteAidDocumentationStatus.js';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import DashboardCardStatus from '../dashboard/DashboardCardStatus.vue';
@@ -294,12 +286,9 @@ const prefix = computed(() => briefingPathPrefix({
   routeSlug: router.currentRoute.value.params?.organizationSlug
 }));
 
-const sections = computed(() => providerBriefingDisplaySections(briefing.value).map(section => ({
-  ...section,
-  iconUrl: brandingStore.getDashboardCardIconUrl({ calendar:'my_schedule', tasks:'momentum_list',
-    notifications:'notifications', messages:'chats', clientUpdates:'clients', notesToSign:'documents',
-    documentation:'clinical_note_generator', overdueNotes:'clinical_note_generator', supervision:'supervision', yearUpdate:'my', tickets:'communications' }[section.key], tenantAgency.value)
-})));
+const canReviewNotes = computed(() => isSupervisor(authStore.user));
+const sections = computed(() => providerBriefingDisplaySections(briefing.value).filter(section => section.key !== 'notesToSign' || canReviewNotes.value));
+const sectionIcon = key => ({calendar:Calendar,notifications:Bell,messages:MessageCircle,tasks:ClipboardList,clientUpdates:Users,documentation:FileText,notesToSign:FileText,tickets:LifeBuoy,supervision:Users,yearUpdate:RotateCw,overdueNotes:FileText}[key] || ShieldCheck);
 const hasCalendarSection = computed(() => !!briefing.value.calendar);
 
 const urgentCount = computed(() => {
@@ -407,7 +396,8 @@ function scheduleItemLabel(item) {
   return 'Scheduled event';
 }
 
-function todayScheduleItems(data) {
+function todayScheduleItems(raw) {
+  const data = providerAgendaSummary(raw);
   const rows = [
     ...(data?.officeEvents || []),
     ...(data?.scheduleEvents || []),
@@ -421,7 +411,7 @@ function todayScheduleItems(data) {
       return {
         id: `calendar-${item.id || index}`,
         label: scheduleItemLabel(item),
-        meta: formatTime(startsAt),
+        meta: [formatTime(startsAt), item.locationLabel].filter(Boolean).join(' · '),
         sortAt: Number.isFinite(date.getTime()) ? date.getTime() : 0
       };
     })
@@ -459,8 +449,8 @@ function mergeTodayAgendaItems(scheduleData, supervisionPrompts = []) {
     .sort((a, b) => a.sortAt - b.sortAt);
 }
 
-function baseSection({ title, icon, tone, count, countLabel, items, action, to }) {
-  return { title, icon, tone, count: Number(count || 0), countLabel, items: items || [], action, to };
+function baseSection({ title, icon, tone, count, countLabel, items, action, to, emptyLabel }) {
+  return { title, icon, tone, count: Number(count || 0), countLabel, items: items || [], action, to, emptyLabel };
 }
 
 function mapNotificationItems(rows = []) {
@@ -558,7 +548,7 @@ async function loadBriefing() {
     const secondaryRequest = Promise.all([
       safeRequest(api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
       scheduleRequest,
-      safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
+      canReviewNotes.value ? safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }) : {count:0},
       safeRequest(api.get('/clinical-notes/work-queue', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), null),
       safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),
       safeRequest(api.get('/supervision/my-prompts', {
@@ -637,6 +627,7 @@ async function loadBriefing() {
           tone: 'blue',
           count: messageCount,
           countLabel: 'unread',
+          emptyLabel: `${messageCount} unread message${messageCount===1?'':'s'}. Open messages to review them.`,
           items: (messageData?.priority || []).slice(0, 3).map((item) => ({
             id: item.id,
             label: item.label || 'Conversation',
@@ -795,7 +786,7 @@ async function loadBriefing() {
         ['notifications', 'Notifications', '♢', 'View all notifications', 'notifications', 'No unread notifications.'],
         ['messages', 'Messages', '◌', 'View all messages', 'messages', 'No unread messages.'],
         ['tasks', 'My work', '☷', 'View all tasks', 'tasks', 'No open assigned tasks.'],
-        ['notesToSign', 'Notes to sign', '✎', 'Open notes to sign', 'notes-to-sign', 'No notes awaiting your signature.']
+        ...(canReviewNotes.value ? [['notesToSign', 'Notes to sign', '✎', 'Open notes to sign', 'notes-to-sign', 'No notes awaiting your signature.']] : [])
       ]) {
         if (!briefing.value[key]) briefing.value[key] = { ...baseSection({ title, icon, tone:'green', count:0,
           countLabel:'pending', items:[], action, to:`${pathPrefix}/${to}` }), emptyLabel };
@@ -1027,4 +1018,8 @@ onBeforeUnmount(() => {
   .briefing-fade-enter-active, .briefing-fade-leave-active, .briefing-fade-enter-active .briefing-modal, .briefing-fade-leave-active .briefing-modal { transition: none; }
   .briefing-spinner { animation: none; }
 }
+</style>
+
+<style scoped>
+.briefing-content{position:relative;isolation:isolate;min-height:100%}.briefing-brand-rail{bottom:0}.briefing-layout{grid-template-columns:minmax(0,1fr)}.card-icon{flex:0 0 48px;overflow:hidden;padding:6px;box-sizing:border-box}.card-icon :deep(svg){width:28px;height:28px}.briefing-card :deep(h2){margin:0}
 </style>

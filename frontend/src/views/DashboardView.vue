@@ -55,6 +55,10 @@
           <span v-if="tierHelpPinned || tierHelpHovered" id="dashboard-tier-help" class="tier-status-help" role="status">{{ tierBadgeHelp }}</span>
         </span>
       </div>
+      <ProfileContentSearch v-if="!previewMode" class="dashboard-header-search" data-tour="dash-search"
+        :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
+        :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope" label="Search My Dashboard"
+        input-id="dashboard-profile-search" keyboard-shortcut @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
       <DashboardMeetings v-if="isOnboardingComplete && !isSchoolStaff" compact />
       <button
         v-if="showShareClubWithStaffButton"
@@ -69,9 +73,7 @@
     <ProviderSchoolsPrograms v-if="!previewMode && !isClubContext && isOnboardingComplete && ['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(authStore.user?.role)" compact :agency-id="currentAgencyId" :user-id="authStore.user?.id" @open="router.push({query:{...route.query,tab:'schools_programs'}})" />
 
 
-    <ProfileContentSearch data-tour="dash-search" v-if="!previewMode && !(isOnboardingComplete && !isClubContext && activeTab === 'overview')" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
-      :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope" label="Search My Dashboard" input-id="dashboard-profile-search"
-      @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
+
 
     <!-- My SSTC Clubs lives in AgencySelector (portal strip) — do not duplicate here. -->
 
@@ -543,12 +545,7 @@
               @book-schedule="onOverviewBookSchedule"
               @book-virtual="onOverviewBookVirtual"
             >
-              <template #search>
-                <ProfileContentSearch data-tour="dash-search" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
-                  :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope"
-                  label="Search My Dashboard" input-id="overview-profile-search" keyboard-shortcut
-                  @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
-              </template>
+
             </DashboardOverviewHome>
           </div>
 
@@ -8011,4 +8008,9 @@ h1 {
 @media (max-width: 1100px) {
   .schedule-header-view-as { flex-wrap: wrap; flex-basis: 100%; }
 }
+</style>
+
+<style scoped>
+.dashboard-header-user{gap:16px;flex-wrap:wrap}.dashboard-header-search{flex:1 1 320px;max-width:640px;margin:0 0 0 12px}.dashboard-header-search :deep(.search-label){font-size:14px}
+@media(max-width:700px){.dashboard-header-search{order:3;flex-basis:100%;max-width:none;margin:0}}
 </style>

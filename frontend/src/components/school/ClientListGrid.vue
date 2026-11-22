@@ -142,7 +142,7 @@
                 <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true"></span>
                 <span class="unread-legend-text">Ticket answered</span>
               </div>
-              <div v-if="showAssignedColumn" class="unread-legend-item">
+              <div v-if="showAssignmentRecency" class="unread-legend-item">
                 <span class="newly-assigned-badge newly-assigned-badge-legend" aria-hidden="true">New</span>
                 <span class="unread-legend-text">Assigned in last 7 days</span>
               </div>
@@ -258,7 +258,7 @@
               Sessions FY
               <span class="sort-indicator" v-if="sortKey === 'psychotherapy_total'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th v-if="showRowActions" class="actions-col">Actions</th>
+            <th v-if="showRowActions" class="actions-col roster-actions-col">Actions</th>
             <th
               v-if="showAssignedColumn"
               class="sortable"
@@ -519,7 +519,7 @@
                 {{ psychotherapyCell(client).total ?? '—' }}
               </span>
             </td>
-            <td v-if="showRowActions" class="actions-col">
+            <td v-if="showRowActions" class="actions-col roster-actions-col">
               <div class="roster-row-actions">
                 <button
                   type="button"
@@ -999,7 +999,8 @@ const providerMilestonesLabel = (client) => {
   return `${contact} · ${intake} · ${first}`;
 };
 const showTerminateButton = computed(() => props.rosterScope === 'provider');
-const showAssignedColumn = computed(() => props.rosterScope === 'provider');
+const showAssignmentRecency = computed(() => props.rosterScope === 'provider');
+const showAssignedColumn = computed(() => props.rosterScope === 'provider' && !isProviderUser.value);
 /** Only show school column when the roster spans multiple schools (e.g. All schools view). */
 const showSchoolColumn = computed(() => {
   if (props.rosterScope !== 'provider') return false;
@@ -3352,8 +3353,8 @@ onMounted(() => {
 }
 
 .roster-row-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
 }
@@ -3527,4 +3528,8 @@ onMounted(() => {
 .provider-milestones { display: flex; flex-wrap: wrap; gap: 4px; font-size: 10px; color: var(--text-secondary); }
 .provider-milestones span { padding: 2px 5px; background: var(--bg-alt); border-radius: 4px; white-space: nowrap; }
 .roi-expired-badge { font-size: 11px; color: #92400e; background: #fef3c7; border-radius: 4px; padding: 2px 5px; }
+</style>
+
+<style scoped>
+.clients-table .roster-actions-col{width:1%;min-width:240px;white-space:nowrap}.roster-row-actions{flex-direction:row}.roster-row-actions .roster-action-btn{flex:0 0 auto;white-space:nowrap}
 </style>

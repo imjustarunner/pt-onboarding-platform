@@ -2040,7 +2040,7 @@
 
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <AppReminderControls v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isImmersiveJoinRoute && !route.meta?.publicMarketingHub" :user-id="user.id" />
-        <ProviderAvailabilityNotice v-if="!appRemindersSnoozed && isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
+        <ProviderAvailabilityNotice :user-id="user?.id" v-if="!appRemindersSnoozed && isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
         <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry && route.name !== 'SchoolCareBridgeOperations'" style="margin: 10px auto" />
         <MeetingRouteHost :can-minimize="isAuthenticated" />
         <TenantLegalFooter v-if="route.meta?.publicMarketingHub" />

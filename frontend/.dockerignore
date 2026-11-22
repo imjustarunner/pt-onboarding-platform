@@ -38,3 +38,6 @@ README.md
 
 # Source maps (optional, can include for debugging)
 *.map
+
+# Keep the production provider regression suite available to the image builder.
+!src/**/__tests__/*.test.js

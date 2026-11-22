@@ -79,3 +79,12 @@ describe('school roster', () => {
     wrapper.unmount();
   });
 });
+
+it('keeps provider roster actions together and omits the redundant Assigned column',()=>{
+ useAuthStore().user={id:7,role:'provider'};
+ const wrapper=roster({rosterScope:'provider',clientsOverride:[active]});
+ expect(wrapper.findAll('th').some(h=>h.text()==='Assigned')).toBe(false);
+ expect(wrapper.find('.roster-row-actions').text()).toContain('Comments');
+ expect(wrapper.find('.roster-row-actions').text()).toContain('Profile');
+ wrapper.unmount();
+});

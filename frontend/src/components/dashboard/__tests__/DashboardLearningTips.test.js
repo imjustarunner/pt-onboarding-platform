@@ -24,3 +24,11 @@ it('automatically suggests visible features during the first sixty days',async()
 it('never presents provider tutorials to a guardian',async()=>{
  mountTip('client_guardian','2026-10-01T00:00:00Z');await hover();await vi.advanceTimersByTimeAsync(100000);expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
+
+it('snoozes automatic and hover tips through the rest of today and resumes tomorrow',async()=>{
+ mountTip('staff','2026-10-01T00:00:00Z');await vi.advanceTimersByTimeAsync(5000);
+ const snooze=[...document.querySelectorAll('.tip-actions button')].find(b=>b.textContent==='Snooze today');
+ expect(snooze).toBeTruthy();snooze.click();await nextTick();expect(document.querySelector('[role="dialog"]')).toBeNull();
+ wrapper.unmount();mountTip('staff','2026-10-01T00:00:00Z');await hover();await vi.advanceTimersByTimeAsync(5000);expect(document.querySelector('[role="dialog"]')).toBeNull();
+ vi.setSystemTime(new Date('2026-10-26T12:00:00Z'));await vi.advanceTimersByTimeAsync(60000);await hover();expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+});

@@ -6,7 +6,7 @@ import Notice from '../ProviderAvailabilityNotice.vue';
 let wrapper;
 const reminder={providerId:9,agencyId:2,agencyName:'ITSCO',format:'VIRTUAL',checkedAt:'2026-10-14T12:00:00Z'};
 const render=()=>wrapper=mount(Notice,{global:{stubs:{RouterLink:{props:['to'],template:'<a><slot/></a>'}}}});
-beforeEach(()=>{vi.resetAllMocks();vi.useFakeTimers();api.get.mockResolvedValue({data:{reminders:[reminder]}});});
+beforeEach(()=>{localStorage.clear();vi.resetAllMocks();vi.useFakeTimers();api.get.mockResolvedValue({data:{reminders:[reminder]}});});
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 it('describes conflict-free openings and the check window rather than claiming no hours were published',async()=>{
  render();await flushPromises();expect(wrapper.text()).toContain('no bookable virtual new-client openings found in the next four schedule weeks');
@@ -40,4 +40,13 @@ it('snoozes the selected reminder for seven days',async()=>{
  render();await flushPromises();api.post.mockResolvedValue({data:{ok:true}});api.get.mockResolvedValue({data:{reminders:[]}});
  await wrapper.findAll('button').find(b=>b.text()==='Snooze 7 days').trigger('click');await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/availability/providers/9/public-settings/snooze',{agencyId:2,format:'VIRTUAL'},{skipGlobalLoading:true});expect(wrapper.find('aside').exists()).toBe(false);
+});
+
+it('collapses without dismissing a reminder and preserves that choice per user',async()=>{
+ render();await wrapper.setProps({userId:7});await flushPromises();
+ const toggle=wrapper.get('[aria-controls="availability-notice-content"]');
+ await toggle.trigger('click');expect(toggle.attributes('aria-expanded')).toBe('false');
+ expect(wrapper.get('#availability-notice-content').isVisible()).toBe(false);expect(api.post).not.toHaveBeenCalled();
+ wrapper.unmount();render();await wrapper.setProps({userId:7});await flushPromises();expect(wrapper.get('[aria-controls="availability-notice-content"]').attributes('aria-expanded')).toBe('false');
+ await wrapper.setProps({userId:8});expect(wrapper.get('[aria-controls="availability-notice-content"]').attributes('aria-expanded')).toBe('true');
 });

@@ -19,15 +19,17 @@
       <div v-else-if="active.demo === 'fullscreen'" class="tip-demo tip-demo--fullscreen" aria-label="Example: expand the calendar, then exit full screen"><div>⛶ My Schedule<small>Mon · Tue · Wed · Thu · Fri</small><small>Exit full screen · Esc</small></div></div>
       <div v-else-if="active.demo === 'colors'" class="tip-demo" aria-label="Example color key"><div>🔵 Client session</div><div>🟣 Supervision</div><div>🟠 Office assigned</div></div>
       <div v-else-if="active.demo === 'library'" class="tip-demo" aria-label="Example: Library quick links"><div>▤ Library</div><div class="tip-result">↳ Workplace Handbook<br />↳ My Files<br />↳ Favorites</div></div>
-      <div class="tip-actions"><button type="button" @click="dismiss(false)">Dismiss for now</button><button type="button" class="tip-understand" @click="dismiss(true)">I understand</button></div>
+      <div class="tip-actions"><button type="button" @click="dismiss(false)">Dismiss for now</button><button type="button" @click="snoozeToday">Snooze today</button><button type="button" class="tip-understand" @click="dismiss(true)">I understand</button></div>
     </aside>
   </Teleport>
 </template>
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useAppReminderSnooze } from '../../composables/useAppReminderSnooze.js';
 import { dashboardLearningTips, learningTipsEligible, learningWindowOpen } from '../../tutorial/dashboardLearningTips.js';
 
 const props = defineProps({ user: Object, cards: { type: Array, default: () => [] }, enabled: Boolean });
+const { snoozed, snoozeToday } = useAppReminderSnooze(computed(() => props.user?.id));
 const active = ref(null), bubble = ref(null), position = ref({}), understood = ref([]);
 const portal = ref('body');
 const temporary = new Set();
@@ -37,7 +39,7 @@ const tips = computed(() => [...dashboardLearningTips, ...props.cards.map(card =
   id: `section-${card.id}`, selector: `[data-tour="dash-rail-card-${card.id}"]`, title: card.label,
   description: card.description || `Open ${card.label} from your dashboard navigation.`
 }))]);
-const eligible = computed(() => props.enabled && learningTipsEligible(props.user));
+const eligible = computed(() => props.enabled && !snoozed.value && learningTipsEligible(props.user));
 function save() { try { localStorage.setItem(key.value, JSON.stringify({ firstSeen, understood: understood.value })); } catch { /* Optional preferences. */ } }
 function reset() {
   dismiss(false); temporary.clear(); understood.value = []; firstSeen = Date.now();

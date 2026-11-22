@@ -1,5 +1,9 @@
 <template>
  <aside v-if="reminders.length" class="opening-notice" aria-label="Availability reminders">
+  <header class="opening-heading"><strong>{{groups.length===1 ? groups[0].agencyName+' · ' : ''}}New-client availability</strong>
+   <button type="button" :aria-expanded="!collapsed" aria-controls="availability-notice-content" @click="toggleCollapsed">{{collapsed ? 'Expand' : 'Collapse'}}</button>
+  </header>
+  <div v-show="!collapsed" id="availability-notice-content">
   <section v-for="group in groups" :key="group.agencyId" class="opening-agency">
    <strong>{{group.agencyName}}: no bookable {{group.formats}} new-client openings found in the next four schedule weeks.</strong>
    <p>Typical availability and pending room requests do not publish appointment openings. For in-person openings, reserve a room, then offer that reserved hour in Set Availability.</p>
@@ -19,12 +23,17 @@
   <p>Published hours may still be occupied by appointments, school assignments, or schedule blocks.</p>
   </div>
   <p v-if="error" role="alert">{{error}}</p>
+  </div>
  </aside>
 </template>
 <script setup>
 import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
-import {computed,ref,onMounted,onUnmounted} from 'vue';
+import {computed,ref,watch,onMounted,onUnmounted} from 'vue';
 import api from '../../services/api';
+const props=defineProps({userId:[Number,String]});
+const collapsed=ref(false);
+watch(()=>props.userId,id=>{try{collapsed.value=Boolean(id)&&localStorage.getItem(`pt.availabilityNotice.collapsed:${id}`)==='1';}catch{collapsed.value=false;}},{immediate:true});
+function toggleCollapsed(){collapsed.value=!collapsed.value;try{if(props.userId)localStorage.setItem(`pt.availabilityNotice.collapsed:${props.userId}`,collapsed.value?'1':'0');}catch{/* This view still collapses. */}}
 const reminders=ref([]),busy=ref(false),error=ref(''),detailsOpen=ref(false);let timer,active=true,pending;
 const groups=computed(()=>{
  const byAgency=new Map();
@@ -43,7 +52,7 @@ useSessionPolling(load);
 onMounted(()=>{load();timer=setInterval(load,60000);window.addEventListener('focus',load);});onUnmounted(()=>{active=false;clearInterval(timer);window.removeEventListener('focus',load);});
 </script>
 <style scoped>
-.opening-notice{padding:18px 20px;margin:12px 20px 18px;border:1px solid #c89934;background:#fff7df;color:#563c12;border-radius:12px;font:inherit;line-height:1.6}
+.opening-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.opening-notice{padding:18px 20px;margin:12px 20px 18px;border:1px solid #c89934;background:#fff7df;color:#563c12;border-radius:12px;font:inherit;line-height:1.6}
 .opening-agency+.opening-agency{border-top:1px solid #e5d3a3;margin-top:14px;padding-top:14px}
 .opening-notice strong{display:block}.opening-notice p{margin:8px 0}.opening-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}
 .opening-notice a{color:#365b35;text-decoration:underline;font-weight:600}.opening-notice button{border:1px solid #947e40;border-radius:6px;background:#fff;color:#563c12;padding:9px 14px;font:inherit;cursor:pointer}.opening-notice button:disabled{opacity:.6;cursor:wait}.opening-notice :focus-visible{outline:3px solid #365b35;outline-offset:3px}

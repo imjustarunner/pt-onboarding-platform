@@ -1,8 +1,18 @@
-import {expect,it,vi} from 'vitest';
+import {beforeEach,expect,it,vi} from 'vitest';
 import {transferSchoolAgencySession} from '../schoolAgencyWorkspace';
-const input={agencies:[{id:450,portal_url:'auricwell-qa-demo',organization_type:'agency'}],parentId:450,role:'provider'};
-const context=(hostname='schoolcarebridge.org')=>({api:{post:vi.fn(async()=>({data:{handoffToken:'opaque-once-only'}}))},router:{push:vi.fn()},location:{hostname,assign:vi.fn()}});
-it('opens the full agency origin with a one-time handoff, not another school route',async()=>{const c=context();await transferSchoolAgencySession(input,c);expect(c.api.post).toHaveBeenCalledWith('/auth/brand-switch/handoff',{agencyId:450,targetHost:'app.itsco.health'},expect.any(Object));expect(c.location.assign).toHaveBeenCalledWith('https://app.itsco.health/auricwell-qa-demo/dashboard?bs=opaque-once-only');expect(c.router.push).not.toHaveBeenCalled();});
-it('retains the same-origin agency session without requesting another handoff',async()=>{const c=context('app.itsco.health');await transferSchoolAgencySession(input,c);expect(c.router.push).toHaveBeenCalledWith('/auricwell-qa-demo/dashboard');expect(c.api.post).not.toHaveBeenCalled();});
-it('keeps a failed transfer in the source portal with a clear recovery message',async()=>{const c=context();c.api.post.mockResolvedValue({data:{}});await expect(transferSchoolAgencySession(input,c)).rejects.toThrow('Sign in with your agency account');expect(c.location.assign).not.toHaveBeenCalled();});
-it('does not infer an agency membership from a school link',async()=>{const c=context();await expect(transferSchoolAgencySession({...input,parentId:6},c)).rejects.toThrow('no linked agency');expect(c.api.post).not.toHaveBeenCalled();});
+import {readChosenOrganizationId} from '../../utils/workingOrganization';
+const input={agencies:[{id:450,portal_url:'auricwell-qa-demo',organization_type:'agency'}],parentId:450,role:'provider',userId:7};
+const context=(hostname='schoolcarebridge.org')=>({api:{post:vi.fn()},router:{push:vi.fn()},location:{origin:`https://${hostname}`,hostname,assign:vi.fn()}});
+beforeEach(()=>{localStorage.clear();sessionStorage.clear();});
+it.each(['schoolcarebridge.org','app.itsco.health'])('keeps the existing session on %s and bypasses school route aliases',async host=>{
+ const c=context(host);await transferSchoolAgencySession(input,c);
+ expect(c.location.assign).toHaveBeenCalledWith(`https://${host}/auricwell-qa-demo/dashboard`);
+ expect(c.api.post).not.toHaveBeenCalled();expect(c.router.push).not.toHaveBeenCalled();
+ expect(readChosenOrganizationId(7)).toBe(450);
+});
+it('does not infer a full agency membership from a school link',async()=>{
+ const c=context();await expect(transferSchoolAgencySession({...input,parentId:6},c)).rejects.toThrow('No full agency');expect(c.location.assign).not.toHaveBeenCalled();
+});
+it('does not send school-only members into a clinical workspace',async()=>{
+ const c=context();await expect(transferSchoolAgencySession({...input,agencies:[{...input.agencies[0],feature_flags:{schoolCareBridgeOnly:true}}]},c)).rejects.toThrow('No full agency');expect(c.location.assign).not.toHaveBeenCalled();
+});

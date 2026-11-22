@@ -11,9 +11,9 @@ vi.mock('../../../services/api', () => ({ default: { get: vi.fn() } }));
 let wrapper;
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
 afterEach(() => wrapper?.unmount());
-async function mount() {
+async function mount(user = {}) {
   const pinia = createPinia(); setActivePinia(pinia);
-  useAuthStore().user = { id: 7, role: 'provider', firstName: 'Test' };
+  useAuthStore().user = { id: 7, role: 'provider', firstName: 'Test', ...user };
   const agency = { id: 2, slug: 'itsco', name: 'ITSCO', organization_type: 'agency' };
   const store = useAgencyStore(); store.userAgencies = [agency]; store.agencies = [agency]; store.currentAgency = agency;
   vi.spyOn(store, 'setCurrentAgency').mockImplementation(() => {});
@@ -70,6 +70,20 @@ it('shows the main work areas and live counts', async () => {
     url === '/notifications/counts' ? {2:4} : []
   }));
   await mount();
-  for(const text of ['Assigned tasks','Notes to complete','Example Client','Notes to sign','Missed messages','Notifications']) expect(wrapper.text()).toContain(text);
+  for(const text of ['Assigned tasks','Notes to complete','Example Client','Missed messages','Notifications']) expect(wrapper.text()).toContain(text);
   expect(wrapper.get('.briefing-layout').element.closest('template')).toBeNull();
+});
+
+it('omits the supervisor signing queue for ordinary providers and shows honest unread message text', async () => {
+  api.get.mockResolvedValue({data:{cards:{unread:4},priority:[]}});
+  await mount();
+  expect(wrapper.text()).not.toContain('Notes to sign');
+  expect(api.get.mock.calls.some(([url]) => url === '/me/notes-to-sign/count')).toBe(false);
+  expect(wrapper.text()).toContain('4 unread messages. Open messages to review them.');
+});
+it('shows the signing queue for providers with supervisor privileges', async () => {
+  api.get.mockResolvedValue({data:{count:2}});
+  await mount({has_supervisor_privileges:true});
+  expect(wrapper.text()).toContain('Notes to sign');
+  expect(api.get.mock.calls.some(([url]) => url === '/me/notes-to-sign/count')).toBe(true);
 });

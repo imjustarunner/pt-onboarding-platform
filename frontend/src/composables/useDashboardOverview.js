@@ -2,6 +2,7 @@
  * useDashboardOverview — parallel fetch for My Dashboard Overview landing.
  * Composes existing endpoints (no aggregator API).
  */
+import { providerAgendaSummary } from '../utils/providerAgenda.js';
 import { getScheduleSummaryResponse } from '../utils/scheduleSummaryRequests';
 import { computed, ref, reactive, watch, onScopeDispose } from 'vue';
 import api from '../services/api';
@@ -123,7 +124,7 @@ export function useDashboardOverview(opts = {}) {
   });
 
   const todayScheduleItems = computed(() => {
-    const s = scheduleSummary.value || {};
+    const s = providerAgendaSummary(scheduleSummary.value || {});
     const ymd = todayYmd.value;
     const now = Date.now();
     const viewerId = Number(resolve(opts.userId) || 0);
@@ -137,8 +138,8 @@ export function useDashboardOverview(opts = {}) {
       items.push({
         id: `office-${e.id || startMs}`,
         kind: 'office',
-        title: room || 'Office appointment',
-        subtitle: e.displayStatus || 'Office',
+        title: e.isClientSession ? e.title : room || 'Office reservation',
+        subtitle: e.isClientSession ? ['Client session',room].filter(Boolean).join(' · ') : e.displayStatus || 'Office reservation',
         startMs,
         endMs,
         timeLabel: formatTimeRange(startMs, endMs),
@@ -156,7 +157,7 @@ export function useDashboardOverview(opts = {}) {
       const schoolName = String(e.schoolName || fallCheckinSchoolFromTitle(e.title) || '').trim();
       const modality = fallCheckinModalityFromTitle(e.title);
       let title = e.title || e.kind || 'Scheduled event';
-      let subtitle = e.location || e.subtitle || '';
+      let subtitle = e.locationLabel || e.location || e.subtitle || '';
       if (isPreslot) {
         title = 'Open visit slot';
         subtitle = 'Open until a school books';
