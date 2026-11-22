@@ -19,3 +19,10 @@ it.each([['school', true], ['clinical', false], ['office', false]])('uses the re
   expect(html.includes('School coordination through SchoolCareBridge')).toBe(school);
   expect(html).toContain('read-secure-message-button.png');
 });
+
+it('preserves Auricwell links for a clinical client even if the email caller supplies a learning hint',async()=>{
+ const context=await clientEmailContext({agencyId:450,client:{id:42,agency_id:450,client_type:'learning'},learning:true,clinical:false});
+ expect(context.clinical).toBe(true);
+ expect(context.learning).toBe(false);
+ expect(context.portal.clinical_portal).toBe(true);
+});

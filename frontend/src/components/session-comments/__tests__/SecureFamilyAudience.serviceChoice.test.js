@@ -5,3 +5,10 @@ it('asks for the service when an account has several active services and sends t
  const api={post:vi.fn().mockRejectedValueOnce({response:{data:{error:{code:'FAMILY_SHARED_CONTEXT_REQUIRED',message:'Choose the service.',services:[{id:20,label:'Counseling',providerUserId:7},{id:21,label:'Tutoring',providerUserId:8}]}}}}).mockResolvedValue({data:{shared:true,agencyId:2,threadId:50,participants:[{id:7,name:'Provider'},{id:9,name:'Guardian'}]}}),get:vi.fn(async()=>({data:{acknowledged:true,version:'2026-11-11'}}))};
  const wrapper=mount(Audience,{props:{agencyId:2,clientId:31,personKey:'client:31@2',meId:7,required:true},global:{provide:{secureSessionCommentsApi:api}}});await flushPromises();expect(wrapper.vm.canSend).toBe(false);await wrapper.get('select').setValue(20);await flushPromises();expect(api.post).toHaveBeenLastCalledWith('/messages/hub/ensure-thread',expect.objectContaining({serviceId:20}),{skipGlobalLoading:true});expect(wrapper.vm.recipientUserIds).toEqual([9]);expect(wrapper.vm.canSend).toBe(true);wrapper.unmount();
 });
+
+it('blocks personal composition when the reviewed audience contains an additional guardian',async()=>{
+  const api={post:vi.fn(async()=>({data:{shared:true,threadId:5,participants:[
+    {id:1,role:'provider'},{id:2,role:'client'},{id:3,role:'guardian'}]}})),get:vi.fn(async()=>({data:{}}))};
+  const w=mount(Audience,{props:{agencyId:7,clientId:8,personKey:'client:8@7',meId:1,personalUserId:2,required:true},global:{provide:{secureSessionCommentsApi:api}}});
+  await flushPromises();expect(w.vm.canSend).toBe(false);expect(await w.vm.prepareSend()).toBe(false);w.unmount();
+});

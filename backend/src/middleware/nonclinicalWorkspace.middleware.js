@@ -7,6 +7,9 @@ export const nonclinicalProtectedPath=path=>{
  return /^\/api\/clients\/[1-9][0-9]*(?:\/?$|\/(?:intake-note|clinical-responses|notes|daily-notes|insurance-card|agency-intake|paper-packet-documents|paper-packet-processing)(?:\/|$))/.test(value);
 };
 export async function assertNonclinicalWorkspaceBoundary(req,{context=tutoringWorkspace.context}={}){
+ if (req.user?.role === 'tutor' && nonclinicalProtectedPath(req.originalUrl||req.path)) {
+   throw Object.assign(new Error('Clinical records require a clinical role in this agency.'),{status:403,code:'NONCLINICAL_WORKSPACE'});
+ }
  if(!nonclinicalProtectedPath(req.originalUrl||req.path)||!['provider','provider_plus','intern','intern_plus','staff','facilitator','clinical_practice_assistant','supervisor'].includes(req.user?.role))return;
  const agencyId=Number(req.user?.scopedAgencyId||req.query?.agencyId||req.body?.agencyId||req.headers?.['x-agency-id']||req.user?.agencyId||req.user?.agency_id);
  if(!Number.isSafeInteger(agencyId)||agencyId<=0)return; // Source controllers resolve unscoped resource IDs themselves.

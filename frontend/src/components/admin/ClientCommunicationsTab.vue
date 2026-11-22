@@ -49,7 +49,7 @@
     <template v-if="agencyRecord">
     <SecureSessionCommentHistory v-if="canUseSessionComments(viewerRole)" :client-id="clientId" :family="familyViewer" />
     <ClientSecureMessageRecords :client-id="clientId" />
-    <SchoolAbsenceRecords :client-id="clientId" />
+    <SchoolAbsenceRecords v-if="organizationId" :client-id="clientId" />
     <ClientNotificationHistory :client-id="clientId" />
 
     <section v-if="intakeCommPrefsLoading" class="intake-comm-prefs muted">Loading intake communication preferences…</section>

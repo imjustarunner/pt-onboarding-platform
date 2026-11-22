@@ -34,3 +34,22 @@ it('keeps an unauthorized email-thread link closed without trying a different cl
  m.route.query={threadId:'375',secure:'1'};const previous=m.get.getMockImplementation();m.get.mockImplementation(async(path,...rest)=>{if(path==='/chat/threads/375/meta')throw {response:{data:{error:{message:'Access denied'}}}};return previous(path,...rest);});
  const state=await open();expect(state.selected).toBeNull();expect(state.error).toContain('Access denied');expect(m.replace).not.toHaveBeenCalled();expect(m.post.mock.calls.some(([path])=>/send|invite/.test(path))).toBe(false);
 });
+
+it('keeps a personal chart action closed when only a guardian can receive secure messages',async()=>{
+  m.route.query.secureRecipient='client';
+  const original=m.get.getMockImplementation();
+  m.get.mockImplementation((url,...args)=>url==='/messages/hub/people/client%3A2542%40450'
+    ? Promise.resolve({data:{person:{...person(2542),userId:null,clientMessaging:{clientId:2542,guardians:[{personKey:'user:20@450',userId:20,methods:[{id:'secure',available:true}]}]}}}})
+    : original(url,...args));
+  const state=await open();
+  expect(state.selected).toBeNull();
+  expect(state.error).toContain('no active personal messaging account');
+  expect(m.get.mock.calls.some(([url])=>url.includes('user%3A20'))).toBe(false);
+});
+
+it('addresses a client picked from the Clients list to their own portal',async()=>{
+  const state=await open();
+  state.listFilter='clients';
+  await state.openPeopleRow({...person(2543),clientMessaging:{talkingToUserId:20}});
+  expect(m.push).toHaveBeenCalledWith({path:'/auricwell-qa-demo/messages',query:{view:'hub',channel:'secure',secureRecipient:'client',secureClientId:'2543',agencyId:'450'}});
+});

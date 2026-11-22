@@ -79,7 +79,7 @@ it('shows office counseling once and hides an empty school/program column',async
  api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'clinical',organization_name:'Counseling and Psychotherapy',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Counseling and Psychotherapy',organization_type:'clinical'}]}]:[]}));
  await render('tab=clients&clients=all');
  expect(wrapper.findAll('th').some(th=>th.text().includes('School / program'))).toBe(false);
- expect(wrapper.text()).toContain('Counseling · Practice A');expect(wrapper.text()).not.toContain('Counseling and Psychotherapy');
+ expect(wrapper.text()).toContain('Clinical · Practice A');expect(wrapper.text()).not.toContain('Counseling and Psychotherapy');
 });
 it('keeps the school/program column when a client actually has a named program',async()=>{
  api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'program',organization_name:'Student Support',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Student Support',organization_type:'program'}]}]:[]}));
@@ -103,4 +103,13 @@ it('shows assigned clients while school and billing details are still loading', 
     for (const resolve of pending) resolve({ data: [] });
     await flushPromises();
   }
+});
+
+it('counts an assigned Clinical and School client in both settings and once in All Clients',async()=>{
+  api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'MIXED',status:'ACTIVE',
+    organization_type:'clinical',organization_name:'Office Counseling',roster_organization_types:['school']}]:[]}));
+  await render('tab=clients&clients=all');
+  expect(wrapper.vm.currentSchoolBillingClients.map(row=>row.id)).toEqual([220]);
+  expect(wrapper.vm.currentOfficeClients.map(row=>row.id)).toEqual([220]);
+  expect(wrapper.vm.combinedClientsList.map(row=>row.id)).toEqual([220]);
 });

@@ -1,3 +1,4 @@
+import { assertClinicalInsuranceService } from '../services/clientServiceContext.service.js';
 import pool from '../config/database.js';
 import AgencyBusinessType, { BUSINESS_TYPE_CODES } from './AgencyBusinessType.model.js';
 
@@ -72,6 +73,7 @@ class TenantService {
     if (!MODALITIES.has(modality)) {
       throw Object.assign(new Error('Invalid modality'), { status: 400 });
     }
+    assertClinicalInsuranceService(businessType, body.billingMethod || body.billing_method);
     const rawCode = body.serviceCode ?? body.service_code;
     const serviceCode = rawCode != null && String(rawCode).trim()
       ? String(rawCode).trim().toUpperCase().slice(0, 32)

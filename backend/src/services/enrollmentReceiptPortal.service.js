@@ -1,12 +1,12 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { passwordRecoveryRequiresSupport } from './passwordRecoveryPolicy.service.js';
-import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
+import { clientPortalInviteUrl, intakePortalForClients } from './clientPortalContext.service.js';
 
 // Called only for a new receipt. No separate recovery email is generated.
 export async function enrollmentReceiptPortalAction({ submission, agency, to, enrollmentChannel, schoolOrganizationId }, { db = null, users = User } = {}) {
   if (!submission.guardian_user_id || !submission.client_id) return {};
-  const portal = intakeClientPortal(agency, { channel: enrollmentChannel, school: !!schoolOrganizationId });
+  const portal = await intakePortalForClients(agency, { clients:[{id:submission.client_id}], channel: enrollmentChannel, school: !!schoolOrganizationId });
   const login = { portalLoginUrl: clientPortalInviteUrl({ portal, existingAccount: true }), needsPasswordSetup: false };
   // Different sibling submissions may finalize together; reuse the same valid
   // link instead of making the first receipt unusable when the next one sends.

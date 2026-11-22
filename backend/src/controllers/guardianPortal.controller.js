@@ -8,6 +8,11 @@ import Agency from '../models/Agency.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
+import { programParticipation } from '../services/programParticipation.service.js';
+import { readChartTypes } from '../services/clientChartTypes.service.js';
+import { guardianServiceRestrictions } from '../utils/guardianServiceRestrictions.js';
+import { requireResponsiblePayer } from '../services/familyBillingPolicy.service.js';
+import { listClassRegistrationCredits } from '../services/registrationPayments.service.js';
 import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.service.js';
 import {
   enrollClientsInCompanyEvent,
@@ -243,8 +248,8 @@ export const getGuardianPortalOverview = async (req, res, next) => {
          INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id AND sg.agency_id = c.agency_id
          INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = c.agency_id
          LEFT JOIN agencies sch ON sch.id = sg.organization_id
-         WHERE c.id IN (${ph})
-           AND c.skills = TRUE
+         WHERE c.id IN (${ph}) AND COALESCE(ce.is_active,1)=1
+           AND (c.skills = TRUE OR EXISTS (SELECT 1 FROM company_event_clients em WHERE em.company_event_id=ce.id AND em.client_id=c.id AND em.agency_id=c.agency_id AND em.is_active=1))
          ORDER BY ce.ends_at DESC, ce.starts_at DESC`,
         linkedClientIds
       );
@@ -297,7 +302,7 @@ export const getGuardianPortalOverview = async (req, res, next) => {
          INNER JOIN agencies ag ON ag.id = ce.agency_id
          LEFT JOIN agencies prog ON prog.id = ce.organization_id
          INNER JOIN clients c ON c.id = cec.client_id
-         WHERE cec.client_id IN (${ph})
+         WHERE COALESCE(ce.is_active,1)=1 AND cec.client_id IN (${ph})
            AND cec.is_active = 1
            AND sg.id IS NULL
          ORDER BY ce.starts_at ASC`,
@@ -386,7 +391,7 @@ async function assertGuardianSkillBuilderEventAccess(guardianUserId, eventId) {
      FROM company_events ce
      INNER JOIN skills_groups sg ON sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
      INNER JOIN skills_group_clients sgc ON sgc.skills_group_id = sg.id
-     INNER JOIN clients c ON c.id = sgc.client_id AND c.agency_id = ce.agency_id AND c.skills = TRUE
+     INNER JOIN clients c ON c.id = sgc.client_id AND c.agency_id = ce.agency_id AND (c.skills = TRUE OR EXISTS (SELECT 1 FROM company_event_clients em WHERE em.company_event_id=ce.id AND em.client_id=c.id AND em.agency_id=c.agency_id AND em.is_active=1))
      LEFT JOIN agencies sch ON sch.id = sg.organization_id
      WHERE ce.id = ?
      LIMIT 1`,
@@ -398,7 +403,8 @@ async function assertGuardianSkillBuilderEventAccess(guardianUserId, eventId) {
   const [kidRows] = await pool.execute(
     `SELECT DISTINCT c.id AS client_id, c.initials
      FROM skills_group_clients sgc
-     JOIN clients c ON c.id = sgc.client_id AND c.skills = TRUE
+     JOIN skills_groups g ON g.id=sgc.skills_group_id
+     JOIN clients c ON c.id = sgc.client_id AND (c.skills = TRUE OR EXISTS (SELECT 1 FROM company_event_clients em WHERE em.company_event_id=g.company_event_id AND em.client_id=c.id AND em.agency_id=c.agency_id AND em.is_active=1))
      WHERE sgc.skills_group_id = ?
        AND c.id IN (${[...allowedClientIds].map(() => '?').join(',')})`,
     [base.skills_group_id, ...allowedClientIds]
@@ -482,8 +488,8 @@ export const listGuardianSkillBuilderEvents = async (req, res, next) => {
        INNER JOIN skills_groups sg ON sg.id = sgc.skills_group_id AND sg.agency_id = c.agency_id
        INNER JOIN company_events ce ON ce.id = sg.company_event_id AND ce.agency_id = c.agency_id
        LEFT JOIN agencies sch ON sch.id = sg.organization_id
-       WHERE c.id IN (${ph})
-         AND c.skills = TRUE
+       WHERE c.id IN (${ph}) AND COALESCE(ce.is_active,1)=1
+         AND (c.skills = TRUE OR EXISTS (SELECT 1 FROM company_event_clients em WHERE em.company_event_id=ce.id AND em.client_id=c.id AND em.agency_id=c.agency_id AND em.is_active=1))
          ${agencyClause}
        ORDER BY ce.ends_at DESC, ce.starts_at DESC`,
       params
@@ -1084,26 +1090,45 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
       return res.json({ ok: true, previewMode: 'superadmin', items });
     }
 
-    let agencyIds = [];
-    if (agencyId) {
-      if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
-        return res.status(403).json({ error: { message: 'No linked dependents for this agency' } });
-      }
-      agencyIds = [agencyId];
-    } else {
-      const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid, requiredClinicalScope: 'session_frequency' });
-      agencyIds = [...new Set((linked || []).map((c) => Number(c?.agency_id)).filter((n) => n > 0))];
-      if (!agencyIds.length) return res.json({ ok: true, items: [] });
-    }
-
+    const linked = await visibleRegistrationLinks(uid);
+    const agencyIds = agencyId ? [agencyId] : [...new Set(linked.map(link => Number(link.agency_id)))];
     const combined = [];
     for (const aid of agencyIds) {
+      const clients = [];
+      for (const link of linked.filter(link => Number(link.agency_id) === aid)) {
+        try {
+          await guardianServiceContext({userId:uid,clientId:link.client_id,agencyId:aid,scope:'session_frequency'});
+          clients.push(link);
+        } catch (error) { if (error.status!==403) throw error; }
+      }
+      if (!clients.length) continue;
       const rows = await fetchRegistrationCatalogItems(aid);
-      for (const row of rows || []) {
-        combined.push({
-          ...row,
-          agencyId: aid
-        });
+      const types = new Map();
+      const credits = new Map();
+      for (const client of clients) {
+        const id = Number(client.client_id);
+        if (rows.some(row => row.registrationAudience !== 'any')) {
+          types.set(id, (await readChartTypes(id, aid, pool, {checkContact:false})).types);
+        }
+        if (rows.some(row => row.kind === 'learning_class' && row.priceCents > 0)) {
+          try {
+            await requireResponsiblePayer(uid, id, aid);
+            credits.set(id, await listClassRegistrationCredits(aid, id, uid));
+          } catch (error) { if (error.status !== 403) throw error; }
+        }
+      }
+      for (const row of rows) {
+        const eligible = clients.filter(link => registrationLinkAllows(link, aid, row.registrationAudience)
+          && (row.registrationAudience === 'any' || types.get(Number(link.client_id))?.includes(row.registrationAudience)));
+        if (!eligible.length) continue;
+        const eligibleClientIds = eligible.map(link => Number(link.client_id));
+        const classCredits = {};
+        for (const id of eligibleClientIds) {
+          if (row.kind === 'learning_class' && row.cashEligible && row.priceCents>0) classCredits[id] = (credits.get(id) || []).filter(c => Number(c.classId) === row.id);
+        }
+        const completedFormClientIds=await clientsWithCompletedRegistrationForm(row.linkedIntakeId,eligibleClientIds);
+        const participants=eligible.map(c=>({clientId:Number(c.client_id),fullName:c.full_name || c.initials || 'Participant'}));
+        combined.push({...row, agencyId:aid, eligibleClientIds, participants, completedFormClientIds, classCredits});
       }
     }
 
@@ -1122,18 +1147,67 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
   }
 };
 
-async function assertGuardianLinkedToClients(guardianUserId, clientIds) {
-  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId, requiredClinicalScope: 'session_frequency' });
-  const allowed = new Set((linked || []).map((c) => Number(c.client_id)));
+async function visibleRegistrationLinks(guardianUserId) {
+  // guardianServiceContext checks the service-specific grant. Learning access can coexist with a separate clinical relationship.
+  const links = await ClientGuardian.listClientsForGuardian({guardianUserId});
+  return links.filter(link => !ClientGuardian.isNoView(link.permissions_json) && !isGuardianPortalLocked(link, link.date_of_birth));
+}
+
+function registrationLinkAllows(link, agencyId, audience) {
+  if (Number(link.agency_id) !== Number(agencyId)) return false;
+  const restriction = guardianServiceRestrictions(link);
+  if (!restriction) return true;
+  if (!restriction.agencyIds.includes(agencyId) || !restriction.kinds.length) return false;
+  return audience === 'any' || restriction.kinds.includes(audience === 'learning' ? 'tutoring' : 'counseling');
+}
+
+async function clientsWithCompletedRegistrationForm(intakeId,clientIds) {
+  if (!intakeId || !clientIds.length) return [];
+  const [rows]=await pool.execute(`SELECT DISTINCT sc.client_id FROM intake_submission_clients sc
+    JOIN intake_submissions s ON s.id=sc.intake_submission_id WHERE s.intake_link_id=? AND s.status='submitted'
+    AND sc.client_id IN (${clientIds.map(()=>'?').join(',')})`,[intakeId,...clientIds]);
+  return rows.map(row=>Number(row.client_id));
+}
+
+async function assertGuardianLinkedToClients(guardianUserId, clientIds, agencyId, kind, offeringId) {
+  const catalog = await fetchRegistrationCatalogItems(agencyId, kind==='company_event' ? {lockedCompanyEventId:offeringId} : {});
+  const offering = catalog.find(row => row.kind===kind && Number(row.id)===offeringId);
+  if (!offering) return false;
+  if (offering.linkedIntakeId) {
+    const completed=await clientsWithCompletedRegistrationForm(offering.linkedIntakeId,clientIds);
+    if (!clientIds.every(id=>completed.includes(id))) throw Object.assign(new Error('Complete this event’s registration form for each participant first.'),{status:409});
+  }
+  const links = await visibleRegistrationLinks(guardianUserId);
   for (const id of clientIds) {
-    if (!allowed.has(Number(id))) return false;
+    if (!links.some(link => Number(link.client_id)===id && registrationLinkAllows(link,agencyId,offering.registrationAudience))) return false;
+    const care=await guardianServiceContext({userId:guardianUserId,clientId:id,agencyId,scope:'session_frequency'});
+    if (care.authorizedServices && offering.registrationAudience!=='any' &&
+        !care.authorizedServices.some(s=>s.service_kind===(offering.registrationAudience==='learning'?'tutoring':'counseling'))) return false;
   }
   return true;
+}
+
+export async function guardianProgramParticipation(req,res,next) {
+  try {
+    const agencyId=parsePositiveInt(req.query.agencyId), clientId=parsePositiveInt(req.params.clientId);
+    const link=(await visibleRegistrationLinks(req.user.id)).find(c=>Number(c.client_id)===clientId && Number(c.agency_id)===agencyId);
+    if (!link) return res.status(403).json({error:{message:'This profile is unavailable.'}});
+    const {services}=await guardianServiceContext({userId:req.user.id,clientId,agencyId,scope:'session_frequency',allowEndedServices:true});
+    const restriction=guardianServiceRestrictions(link);
+    const rows=(await programParticipation(clientId,agencyId)).filter(row=>{
+      const audience=Number(row.medicaid_eligible) ? 'clinical' : row.audience;
+      if (!restriction) return true;
+      return ['clinical','learning'].includes(audience) && registrationLinkAllows(link,agencyId,audience) &&
+        services.some(s=>s.service_kind===(audience==='clinical'?'counseling':'tutoring'));
+    });
+    res.set('Cache-Control','private, no-store').json(rows);
+  } catch (error) { next(error); }
 }
 
 /** POST /api/guardian-portal/registration/company-events/:eventId/enroll */
 export const guardianEnrollCompanyEvent = async (req, res, next) => {
   try {
+    if (req.guardianPreviewMode) return res.status(403).json({error:{message:'Registration is available from the signed-in family account.'}});
     const uid = req.user?.id;
     const eventId = parsePositiveInt(req.params.eventId);
     const agencyId = parsePositiveInt(req.body?.agencyId);
@@ -1145,7 +1219,7 @@ export const guardianEnrollCompanyEvent = async (req, res, next) => {
     if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
       return res.status(403).json({ error: { message: 'Not allowed for this agency' } });
     }
-    if (!(await assertGuardianLinkedToClients(uid, clientIds))) {
+    if (!(await assertGuardianLinkedToClients(uid, clientIds, agencyId, 'company_event', eventId))) {
       return res.status(403).json({ error: { message: 'One or more clients are not linked to your account' } });
     }
 
@@ -1153,6 +1227,9 @@ export const guardianEnrollCompanyEvent = async (req, res, next) => {
       agencyId,
       eventId,
       clientIds,
+      actorUserId: uid,
+      allowCheckout: true,
+      expectedPriceCents:req.body?.expectedPriceCents,
       payerType
     });
     if (!enrollment.ok && enrollment.error) {
@@ -1163,7 +1240,7 @@ export const guardianEnrollCompanyEvent = async (req, res, next) => {
 
     try {
       const okClientIds = (enrollment.results || [])
-        .filter((r) => r?.ok)
+        .filter((r) => r?.ok && !r.orderStatus)
         .map((r) => Number(r.clientId))
         .filter((n) => Number.isFinite(n) && n > 0);
       if (okClientIds.length) {
@@ -1191,6 +1268,7 @@ export const guardianEnrollCompanyEvent = async (req, res, next) => {
 /** POST /api/guardian-portal/registration/learning-classes/:classId/enroll */
 export const guardianEnrollLearningClass = async (req, res, next) => {
   try {
+    if (req.guardianPreviewMode) return res.status(403).json({error:{message:'Registration is available from the signed-in family account.'}});
     const uid = req.user?.id;
     const classId = parsePositiveInt(req.params.classId);
     const agencyId = parsePositiveInt(req.body?.agencyId);
@@ -1202,7 +1280,7 @@ export const guardianEnrollLearningClass = async (req, res, next) => {
     if (!(await assertGuardianHasAgencyAccess(uid, agencyId))) {
       return res.status(403).json({ error: { message: 'Not allowed for this agency' } });
     }
-    if (!(await assertGuardianLinkedToClients(uid, clientIds))) {
+    if (!(await assertGuardianLinkedToClients(uid, clientIds, agencyId, 'learning_class', classId))) {
       return res.status(403).json({ error: { message: 'One or more clients are not linked to your account' } });
     }
 
@@ -1238,13 +1316,15 @@ export const guardianEnrollLearningClass = async (req, res, next) => {
         continue;
       }
       try {
-        await LearningProgramClass.addClientMember({
+        const order = await LearningProgramClass.addClientMember({
+          agencyId, portalRegistration: true, payerType, allowCheckout:true, expectedPriceCents:req.body?.expectedPriceCents,
+          creditId: req.body?.classCredits?.[clientId] || null,
           classId,
           clientId,
           membershipStatus: 'active',
           actorUserId: uid
         });
-        results.push({ clientId, ok: true });
+        results.push({ clientId, ok: true, ...order });
       } catch (err) {
         results.push({ clientId, ok: false, error: err?.message || 'Enroll failed' });
       }
@@ -1432,7 +1512,7 @@ export const listGuardianCompanyEvents = async (req, res, next) => {
        INNER JOIN agencies ag ON ag.id = ce.agency_id
        LEFT JOIN agencies prog ON prog.id = ce.organization_id
        INNER JOIN clients c ON c.id = cec.client_id
-       WHERE cec.client_id IN (${ph})
+       WHERE COALESCE(ce.is_active,1)=1 AND cec.client_id IN (${ph})
          AND cec.is_active = 1
          AND sg.id IS NULL
        ORDER BY ce.starts_at ASC`,

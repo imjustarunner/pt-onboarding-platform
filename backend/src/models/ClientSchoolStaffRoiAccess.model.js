@@ -222,7 +222,7 @@ class ClientSchoolStaffRoiAccess {
     }));
   }
 
-  static async listSchoolStaffRosterForClient({ clientId, schoolOrganizationId, roiExpiresAt = null, db = pool }) {
+  static async listSchoolStaffRosterForClient({ clientId, schoolOrganizationId, roiExpiresAt = null, guardianConsent, db = pool }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
     if (!cid || !sid) return [];
@@ -270,7 +270,7 @@ class ClientSchoolStaffRoiAccess {
          LEFT JOIN users gb ON gb.id = a.granted_by_user_id
          LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
          LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
-         WHERE ua.agency_id = ?
+         WHERE ua.agency_id = ? AND ua.is_active=1
            AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
            AND ${STATUS_NOT_ARCHIVED}
@@ -324,7 +324,7 @@ class ClientSchoolStaffRoiAccess {
          LEFT JOIN users gb ON gb.id = a.granted_by_user_id
          LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
          LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
-         WHERE ua.agency_id = ?
+         WHERE ua.agency_id = ? AND ua.is_active=1
            AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
            AND ${STATUS_NOT_ARCHIVED}
@@ -334,7 +334,7 @@ class ClientSchoolStaffRoiAccess {
       rows = Array.isArray(result) ? result : [];
     }
 
-    const consent = await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid, db });
+    const consent = guardianConsent ?? await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid, db });
     return (rows || []).map((row) => {
       row.guardian_consent = consent.find(item => item.schoolStaffUserId === Number(row.school_staff_user_id));
       const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt, { schoolStaffInOrg: true });

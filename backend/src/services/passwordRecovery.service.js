@@ -176,7 +176,7 @@ async function buildMessage({ user, agency, organization, orgSlug, token, loginE
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
   );
-  if(enrollment){const portal=intakeClientPortal(agency,{channel:enrollment.channel,school:!!enrollment.schoolOrganizationId});if(portal.clinical_portal)resetLink=clientPortalAppUrl(portal,`reset-password/${encodeURIComponent(token)}`);}
+  if(enrollment){const portal=typeof enrollment.clinicalPortal==='boolean' ? {...agency,clinical_portal:enrollment.clinicalPortal} : intakeClientPortal(agency,{channel:enrollment.channel,school:!!enrollment.schoolOrganizationId});if(portal.clinical_portal)resetLink=clientPortalAppUrl(portal,`reset-password/${encodeURIComponent(token)}`);}
   if (['client_guardian','guardian','client'].includes(user?.role)) return familyRecoveryMessage({locale:enrollment?.locale,firstSet,resetLink,loginEmail,expiresInHours});
   const reminder = loginReminderLines(loginEmail);
   let subject = firstSet ? 'Set your password' : 'Reset your password';

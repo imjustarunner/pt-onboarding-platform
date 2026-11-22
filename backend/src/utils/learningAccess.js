@@ -1,3 +1,4 @@
+import { readProviderServices } from '../services/providerServiceOfferings.service.js';
 import {clientAgencyMembership,guardianServiceContext} from '../services/clientServiceEnrollment.service.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -12,10 +13,11 @@ const ROLE_ALLOWLIST_BY_AGENCY = new Set([
   'provider_plus',
   'clinical_practice_assistant',
   'intern',
-  'intern_plus'
+  'intern_plus',
+  'tutor'
 ]);
 
-export async function assertLearningClientAccess(req, clientId, resourceAgencyId = null) {
+export async function assertLearningClientAccess(req, clientId, resourceAgencyId = null, subject = null, {assignedStudent = false} = {}) {
   const cid = Number.parseInt(clientId, 10);
   if (!Number.isInteger(cid) || cid <= 0) {
     const err = new Error('Invalid studentId');
@@ -65,10 +67,16 @@ export async function assertLearningClientAccess(req, clientId, resourceAgencyId
     err.status = 403;
     throw err;
   }
-  if(['provider','provider_plus','intern','intern_plus'].includes(role)){
+  if(['provider','provider_plus','intern','intern_plus','tutor'].includes(role)){
+    if (role === 'tutor') {
+      if (!assignedStudent && !subject) throw Object.assign(new Error('Choose an assigned learning subject.'),{status:403});
+      const offerings = await readProviderServices(req.user.id,agencyId);
+      if (!offerings.services.some(s => s.serviceType === 'tutoring' && s.offered)) throw Object.assign(new Error('Learning is not enabled for this tutor in this agency.'),{status:403});
+    }
     const [[assigned]]=await pool.execute(`SELECT 1 FROM client_service_enrollments
       WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind='tutoring' AND is_active=1
       UNION SELECT 1 FROM student_subjects WHERE client_id=? AND agency_id=? AND primary_tutor_user_id=? AND status NOT IN ('completed','discharged','archived') LIMIT 1`,[cid,agencyId,req.user.id,cid,agencyId,req.user.id]);
+    if (role === 'tutor' && subject && Number(subject.primary_tutor_user_id) !== Number(req.user.id)) throw Object.assign(new Error('This subject belongs to a different tutor.'),{status:403});
     if(!assigned)throw Object.assign(new Error('Assigned tutoring access is required for this student.'),{status:403});
   }
 

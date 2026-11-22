@@ -1,3 +1,4 @@
+import { canProvideTutoring } from '../utils/providerServiceOfferings.js';
 import { utcMysqlToZonedWallMysql,clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { listClientServices } from './clientServiceEnrollment.service.js';
 import { guardianServiceAllowed } from '../utils/guardianServiceRestrictions.js';
@@ -53,7 +54,7 @@ export async function guardianBookingOptions(input) {
   for(const provider of providers) {
     if (learning) {
       const offered = await readProviderServices(provider.id, agency.id);
-      if (!offered.careEligibility.canProvideCare || !offered.services.some(s=>s.serviceType==='tutoring'&&s.offered&&s.onlineScheduling)) continue;
+      if (!canProvideTutoring(offered.careEligibility) || !offered.services.some(s=>s.serviceType==='tutoring'&&s.offered&&s.onlineScheduling)) continue;
       const [[profile]]=await pool.execute("SELECT COALESCE(payment_policy, 'POST_SESSION') AS payment_policy FROM provider_tutoring_profiles WHERE agency_id=? AND user_id=?",[agency.id,provider.id]);
       if (profile?.payment_policy !== 'POST_SESSION') continue;
     }
@@ -69,7 +70,7 @@ export async function guardianBookingOptions(input) {
       const quote=await resolveSelfPayQuote({agencyId:agency.id,providerId:provider.id,service,modality:modality==='VIRTUAL'?'TELEHEALTH':modality,learningFormat:learning?(modality==='VIRTUAL'?'virtual':'in-person'):undefined,durationMinutes:service.defaultDurationMinutes});
       if(!policy||quote?.amountCents==null)continue;
       const eligiblePackages=packages.filter(pkg=>{
-        if(pkg.status!=='ACTIVE'||pkg.paymentStatus!=='PAID'||Number(pkg.sessionsRemaining)<1
+        if(pkg.learningProgramClassId || (pkg.businessType && pkg.businessType!==service.businessType) || pkg.status!=='ACTIVE'||pkg.paymentStatus!=='PAID'||Number(pkg.sessionsRemaining)<1
           || (pkg.purchaserUserId && Number(pkg.purchaserUserId)!==Number(input.userId))
           || (pkg.allowedTenantServiceIds?.length&&!pkg.allowedTenantServiceIds.map(Number).includes(Number(service.id))))return false;
         if(pkg.pricingSnapshot?.mode==='provider-discount'&&Number(pkg.pricingSnapshot.minutes)!==Number(service.defaultDurationMinutes))return false;

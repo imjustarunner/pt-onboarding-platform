@@ -6,8 +6,12 @@ export function assignmentOfficesForAgency(offices, agencyId) {
   return offices.filter(office => active(office) &&
     (Number(office.agency_id) === Number(agencyId) || (office.agencyIds || []).some(id => Number(id) === Number(agencyId))));
 }
-export function primaryAssignmentProvider(client, services = []) {
+export function primaryAssignmentProvider(client, services = [], serviceKind = null) {
   const current = services.filter(service => active(service) && !['discontinued','completed','terminated','canceled'].includes(service.service_status));
+  if (serviceKind) {
+    const matching = current.filter(row => row.service_kind === serviceKind && Number(row.provider_user_id) > 0);
+    return Number((matching.find(primary) || matching[0])?.provider_user_id || 0);
+  }
   const counseling = current.filter(service => service.service_kind === 'counseling');
   const service = counseling.find(primary) || counseling[0] || current.find(primary) || current[0];
   return service ? Number(service.provider_user_id || 0) : services.length ? 0 : Number(client?.provider_id || 0);

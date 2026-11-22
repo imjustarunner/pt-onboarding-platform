@@ -1,3 +1,4 @@
+import { registrationAudience, registrationPriceCents } from '../services/registrationServiceAudience.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -711,6 +712,8 @@ export const createLearningProgramClass = async (req, res, next) => {
           : (req.body.season_settings_json && typeof req.body.season_settings_json === 'object' ? req.body.season_settings_json : {})
       ),
       deliveryMode: String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
+      registrationAudience: registrationAudience(req.body),
+      registrationPriceCents: registrationPriceCents(req.body.registrationPriceCents ?? 0),
       registrationEligible: asBool(req.body.registrationEligible ?? req.body.registration_eligible, false),
       medicaidEligible: asBool(req.body.medicaidEligible ?? req.body.medicaid_eligible, false),
       cashEligible: asBool(req.body.cashEligible ?? req.body.cash_eligible, false),
@@ -802,6 +805,14 @@ export const updateLearningProgramClass = async (req, res, next) => {
         ? (String(req.body.deliveryMode || req.body.delivery_mode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group')
         : undefined
     };
+    if (req.body.registrationAudience !== undefined || req.body.medicaidEligible !== undefined) {
+      patch.registrationAudience = registrationAudience({registrationAudience:req.body.registrationAudience ?? current.registration_audience,
+        medicaidEligible:req.body.medicaidEligible ?? current.medicaid_eligible});
+    }
+    if (req.body.registrationPriceCents !== undefined) patch.registrationPriceCents = registrationPriceCents(req.body.registrationPriceCents);
+    for (const key of ['registrationEligible','medicaidEligible','cashEligible']) {
+      if (req.body[key] !== undefined) patch[key] = asBool(req.body[key],false);
+    }
     const nextClass = await LearningProgramClass.update(classId, patch);
     return res.json({ class: withSeasonSettingsDefaults(nextClass) });
   } catch (e) {
@@ -852,6 +863,8 @@ export const duplicateLearningProgramClass = async (req, res, next) => {
       seasonAnnouncementText: source.season_announcement_text || null,
       seasonSettingsJson: source.season_settings_json || null,
       deliveryMode: source.delivery_mode || 'group',
+      registrationAudience: registrationAudience(source),
+      registrationPriceCents: Number(source.registration_price_cents || 0),
       registrationEligible: !!(source.registration_eligible === 1 || source.registration_eligible === true),
       medicaidEligible: !!(source.medicaid_eligible === 1 || source.medicaid_eligible === true),
       cashEligible: !!(source.cash_eligible === 1 || source.cash_eligible === true),

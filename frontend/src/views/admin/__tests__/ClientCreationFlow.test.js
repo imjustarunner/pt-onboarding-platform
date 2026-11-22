@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { shallowMount, flushPromises } from '@vue/test-utils';
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), agency: null }));
 vi.mock('../../../services/api', () => ({ default: mocks }));
-vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'support' } }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'staff' } }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => mocks.agency }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { organizationSlug: 'itsco' }, query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('../../../composables/useClientDisplayMode.js', () => ({ useClientDisplayMode: () => ({ getClientLabel: () => 'Synthetic client', clientLabelMode: 'initials' }) }));

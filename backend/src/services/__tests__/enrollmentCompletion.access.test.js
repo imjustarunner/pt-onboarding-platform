@@ -1,3 +1,4 @@
+vi.mock('../clientChartTypes.service.js',()=>({readChartTypes:vi.fn(async()=>({types:[]}))}));
 import { it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:async()=>({execute:async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]],release:vi.fn()})},onTableWrite:vi.fn()}));
 vi.mock('../passwordRecovery.service.js',()=>({requestPasswordRecoveryEmail:vi.fn()}));

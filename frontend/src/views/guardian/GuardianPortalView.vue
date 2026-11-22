@@ -1,6 +1,6 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
-  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand" :brand-name="loading ? 'Loading your portal…' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="ft(portalAccountLabel)" :test-environment="isQaPortal" :logo-url="loading ? '' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="'help'" @navigate="navigatePortal">
+  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand && !schoolWorkspaceActive" :brand-name="loading ? 'Loading your portal…' : schoolWorkspaceActive ? 'SchoolCareBridge' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="ft(portalAccountLabel)" :test-environment="isQaPortal" :logo-url="loading ? '' : schoolWorkspaceActive ? '/assets/schoolcarebridge/wordmark.svg' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="schoolWorkspaceActive ? '#176b50' : auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="'help'" @navigate="navigatePortal">
     <template #context>
       <PortalMessageAlert v-if="!isSuperadminPreview && authStore.user?.id" :key="authStore.user.id" :spanish="familyLocale==='es'" @open="navigatePortal('family_messages')" />
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
@@ -62,6 +62,7 @@
                 <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Open Tasks & documents to review any pending enrollment, or ask the office about your access.') }}</p>
                 <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">{{ ft("School:") }} {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
                 <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{displayOrganization(context.agency_name)}} · {{ft(service.label)}}<small>{{service.provider_name || ft(service.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{displayOrganization(context.agency_name)}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
+                <button v-if="profileSchool(person)" type="button" class="school-connection-link" @click="chooseFamilyProfile(person.client_id,'schoolcarebridge',person.agency_id)"><img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />{{ profileSchool(person).name }} →</button>
               </article></div>
             </section>
 
@@ -94,6 +95,7 @@
                 <div class="panel-title">{{ ft("Upcoming registrations") }}</div>
                 <div class="panel-subtitle">{{ ft("Choose from programs available to your family.") }}</div>
               </div>
+              <ProgramParticipation v-if="!isSuperadminPreview" guardian :client-id="Number(selectedChildId)" :agency-id="Number(selectedChildAgencyId)" :refresh-key="programHistoryRevision" />
               <div class="reg-catalog-head">
                 <div>
                   <div class="reg-catalog-title">{{ ft("Open events and enrollments") }}</div>
@@ -105,12 +107,17 @@
                   {{ regCatalogLoading ? ft("Loading…") : ft("Refresh") }}
                 </button>
               </div>
+              <p v-if="registrationNotice" role="status">{{ registrationNotice }}</p>
               <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
               <ul v-else-if="regCatalogItems.length" class="reg-catalog-list">
                 <li v-for="item in regCatalogItems" :key="`panel-${item.kind}-${item.id}`" class="reg-catalog-row">
                   <div class="reg-catalog-meta">
                     <div class="reg-catalog-item-title">{{ item.title }}</div>
                     <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
+                    <div v-if="item.unitCents || item.priceCents" class="muted small">
+                      <template v-if="item.priceMode==='per_session'">${{ (item.unitCents/100).toFixed(2) }} per session · {{ item.sessionCount }} scheduled</template>
+                      <span v-if="item.priceCents"> ${{ (item.priceCents/100).toFixed(2) }} registration total</span>
+                    </div>
                     <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
                       {{ registrationPayerLine(item) }}
                     </div>
@@ -119,7 +126,7 @@
                     </div>
                   </div>
                   <div class="reg-catalog-actions">
-                    <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">{{ ft("Register") }}</button>
+                    <button type="button" class="btn btn-primary btn-sm" :disabled="isSuperadminPreview" @click="openRegistrationEnroll(item)">{{ ft("Register") }}</button>
                   </div>
                 </li>
               </ul>
@@ -545,16 +552,23 @@
           <p v-if="registrationEnrollTarget" class="muted" style="margin-top:0;">
             <strong>{{ registrationEnrollTarget.title }}</strong>
             · {{ registrationEnrollTarget ? registrationKindLabel(registrationEnrollTarget.kind) : '' }}
+            <span v-if="registrationEnrollTarget.priceCents"> · ${{ (registrationEnrollTarget.priceCents/100).toFixed(2) }} per participant</span>
           </p>
+          <a v-if="registrationEnrollTarget?.linkedIntakePublicKey" :href="buildPublicIntakeUrl(registrationEnrollTarget.linkedIntakePublicKey)">Complete the registration form for another participant</a>
           <div v-if="registrationEnrollError" class="error" style="font-size: 13px; margin-bottom: 10px;">{{ registrationEnrollError }}</div>
-          <p v-if="!registrationEnrollDependents.length" class="hint">{{ ft("No dependents linked for this agency. Ask your organization to link a child or use intake to add one.") }}</p>
+          <p v-if="!registrationEnrollDependents.length" class="hint">{{ ft("No eligible participants for this registration.") }}</p>
           <template v-else>
             <div class="form-group" style="margin-bottom: 12px;">
-              <div class="lbl">{{ ft("Select child(ren)") }}</div>
+              <div class="lbl">{{ ft("Select participants") }}</div>
               <div v-for="d in registrationEnrollDependents" :key="d.clientId" class="reg-enroll-check">
                 <label>
                   <input v-model="registrationEnrollSelected" type="checkbox" :value="d.clientId" />
                   {{ d.fullName || d.initials || `Client #${d.clientId}` }}
+                </label>
+                <label v-if="registrationEnrollSelected.includes(d.clientId) && registrationEnrollPayerType==='cash' && registrationEnrollTarget?.classCredits?.[d.clientId]?.length">
+                  Payment <select v-model="registrationCredits[d.clientId]"><option :value="undefined">Pay registration fee</option>
+                    <option v-for="credit in registrationEnrollTarget.classCredits[d.clientId]" :key="credit.id" :value="credit.id">{{ credit.name }} · use one class credit ({{ credit.remaining }} available)</option>
+                  </select>
                 </label>
               </div>
             </div>
@@ -619,6 +633,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useGuardianStore } from '../../store/guardian';
 import { useRoute, useRouter } from 'vue-router';
+import ProgramParticipation from '../../components/ProgramParticipation.vue';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
@@ -699,6 +714,9 @@ const genError = ref('');
 const regCatalogItems = ref([]);
 const regCatalogLoading = ref(false);
 const regCatalogError = ref('');
+const registrationNotice = ref('');
+const programHistoryRevision = ref(0);
+const registrationCredits = ref({});
 const registrationEnrollOpen = ref(false);
 const registrationEnrollTarget = ref(null);
 const registrationEnrollDependents = ref([]);
@@ -837,7 +855,11 @@ const selectedChildAgencyId = computed(() => {
   return Number(portalAgency.value?.id || 0) || null;
 });
 
-const schoolAffiliations = computed(() => {const profile=allFamilyProfiles.value.find(p=>Number(p.client_id)===Number(selectedChildId.value));if(Number(profile?.agency_id)!==Number(currentAgencyId.value)&&!selectedService.value?.organization_id)return [];return (selectedChild.value?.school_affiliations||[]).filter(s=>!selectedService.value?.organization_id||Number(s.organization_id)===Number(selectedService.value.organization_id));});
+const schoolAffiliations = computed(() => {
+  const profile = allFamilyProfiles.value.find(person => Number(person.client_id) === Number(selectedChildId.value));
+  if (!familyProfileHasRecordAccess(profile)) return [];
+  return selectedChild.value?.school_affiliations || [];
+});
 const hasSchoolAffiliations = computed(() => schoolAffiliations.value.length > 0);
 const selectedSchoolId = ref(null);
 const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(s.organization_id) === Number(selectedSchoolId.value)) || schoolAffiliations.value[0] || null);
@@ -850,7 +872,7 @@ const learningOnlySelectedProfile = computed(() => selectedService.value
   : familyProfilesLearningOnly(selectedChild.value ? [selectedChild.value] : allFamilyProfiles.value));
 const learningOnlyPortalContext = computed(() => ['family','family_billing','family_messages','account','assistance','enroll'].includes(activePanel.value) ? familyProfilesLearningOnly(allFamilyProfiles.value) : learningOnlySelectedProfile.value);
 const guardianWorkspaceMode = ref('clinical');
-const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge');
+const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge' && hasSchoolAffiliations.value && selectedChildRecordAccess.value);
 function openAuricWellPanel(panel) { navigatePortal(panel); }
 watch(selectedChildId, () => { pendingEnrollmentState.value = { loaded: false, pending: false }; selectedSchoolId.value = null; migrationState.value = null; onboardingBillingNotice.value = false; });
 
@@ -939,7 +961,11 @@ const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family port
 const selectedFirstName = computed(() => String(selectedChild.value?.full_name || '').split(' — ')[0].trim().split(/\s+/)[0] || 'Client');
 const selectedPrograms = computed(() => programs.value.filter(p => [Number(selectedChild.value?.agency_id),Number(selectedChild.value?.organization_id)].includes(Number(p.id))));
 function displayOrganization(name) {return isQaPortal.value?String(name||'').replace(/\s*[—-]\s*DEMO$/i,''):name;}
-function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:displayOrganization(school.name),logo:school.logo_url} : person?.organization_type==='school' ? {name:displayOrganization(person.organization_name),logo:person.organization_logo_url} : null; }
+function profileSchool(person) {
+  if (!familyProfileHasRecordAccess(person)) return null;
+  const school = person?.school_affiliations?.find(item => item.status === 'current');
+  return school ? {name:displayOrganization(school.name), logo:school.logo_url} : null;
+}
 const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => familyProfileHasRecordAccess(person) && profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
 const selectedSchoolRelease = computed(() => schoolReleasePeople.value.find(person => Number(person.clientId) === Number(selectedChildId.value)) || null);
 function openSchoolRelease(clientId) {
@@ -1481,7 +1507,7 @@ const fetchRegistrationCatalog = async () => {
       },
       skipGlobalLoading: true
     });
-    regCatalogItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+    regCatalogItems.value = (resp.data?.items || []).filter(item => !selectedChildId.value || !item.eligibleClientIds || item.eligibleClientIds.includes(Number(selectedChildId.value)));
   } catch (err) {
     regCatalogError.value = err.response?.data?.error?.message || 'Could not load registration catalog';
     regCatalogItems.value = [];
@@ -1491,7 +1517,7 @@ const fetchRegistrationCatalog = async () => {
 };
 
 const openRegistrationEnroll = async (item) => {
-  if (item?.kind === 'company_event') {
+  if (item?.kind === 'company_event' && !item.completedFormClientIds?.length) {
     const key = String(item?.linkedIntakePublicKey || '').trim();
     if (key) {
       const url = buildPublicIntakeUrl(key);
@@ -1502,20 +1528,15 @@ const openRegistrationEnroll = async (item) => {
     }
   }
   registrationEnrollTarget.value = item;
+  registrationCredits.value = {};
+  registrationNotice.value = '';
   registrationEnrollSelected.value = [];
   registrationEnrollPayerType.value = '';
   registrationEnrollError.value = '';
   const aid = Number(item?.agencyId || dashboardAgencyId.value || 0);
   if (!aid) return;
-  try {
-    const resp = await api.get('/guardian-portal/dependents', {
-      params: { agencyId: aid, ...previewParams.value },
-      skipGlobalLoading: true
-    });
-    registrationEnrollDependents.value = Array.isArray(resp.data?.dependents) ? resp.data.dependents : [];
-  } catch {
-    registrationEnrollDependents.value = [];
-  }
+  registrationEnrollDependents.value = (item.participants || []).filter(d =>
+    !item.linkedIntakeId || item.completedFormClientIds?.includes(Number(d.clientId)));
   if (item?.medicaidEligible && !item?.cashEligible) registrationEnrollPayerType.value = 'medicaid';
   else if (!item?.medicaidEligible && item?.cashEligible) registrationEnrollPayerType.value = 'cash';
   registrationEnrollOpen.value = true;
@@ -1542,6 +1563,8 @@ const submitRegistrationEnroll = async () => {
     const body = {
       agencyId: aid,
       clientIds: ids,
+      expectedPriceCents: target.priceCents,
+      classCredits: registrationEnrollPayerType.value === 'cash' ? registrationCredits.value : {},
       ...(registrationEnrollPayerType.value ? { payerType: registrationEnrollPayerType.value } : {})
     };
     let resp;
@@ -1554,12 +1577,17 @@ const submitRegistrationEnroll = async () => {
       return;
     }
     const results = Array.isArray(resp.data?.results) ? resp.data.results : [];
+    programHistoryRevision.value++;
+    const orders = results.filter(r => r.orderStatus);
+    registrationNotice.value = orders.length ? orders.map(r => r.orderStatus === 'open' ? 'Registration awaits payment in Billing.' :
+      r.orderStatus === 'paid' ? 'Payment recorded. Registration is being confirmed.' : 'The registration balance is awaiting billing review.').filter((v,i,a) => i===a.indexOf(v)).join(' ') : '';
     const failed = results.filter((r) => !r.ok);
     if (failed.length) {
-      registrationEnrollError.value = failed.map((r) => r.error || 'Failed').join('; ');
+      registrationEnrollError.value = registrationNotice.value + ' ' + failed.map((r) => r.error || 'Failed').join('; ');
       return;
     }
     closeRegistrationEnroll();
+    if (orders.some(r => r.orderStatus==='open') && orders.every(r=>Number(r.clientId)===Number(selectedChildId.value))) navigatePortal('billing');
     await fetchRegistrationCatalog();
     await fetchSkillBuilderEvents();
     if (target.kind === 'company_event') await fetchGenEvents();
@@ -1978,6 +2006,8 @@ watch(
 </script>
 
 <style scoped>
+.school-connection-link {display:flex;align-items:center;gap:10px;flex-wrap:wrap}.school-connection-link img {width:100px;height:auto}
+
 .family-language{display:flex;justify-content:flex-end;align-items:center;gap:8px;font-size:13px}.family-language select{padding:6px;border:1px solid #c7d6e6;border-radius:6px;background:white}
 .family-service-links{display:grid;gap:8px}.family-service-links small{display:block;font-weight:400;margin-top:4px}
 

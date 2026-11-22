@@ -1,3 +1,4 @@
+import { registrationAudience, eventRegistrationPrice, registrationSessionCountSql } from './registrationServiceAudience.service.js';
 import pool from '../config/database.js';
 
 /** Learning classes use agencies.id as organization_id; include parent agency and affiliated org rows. */
@@ -33,9 +34,9 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
     if (lockedId) {
       const [evRows] = await pool.execute(
         `SELECT ce.id, ce.title, ce.description, ce.starts_at, ce.ends_at,
-                ce.registration_eligible, ce.medicaid_eligible, ce.cash_eligible,
+                ${registrationSessionCountSql} AS remaining_sessions, ce.registration_audience, ce.program_cost_billing_mode, ce.program_cost_dollars, ce.per_session_cost_dollars, ce.registration_eligible, ce.medicaid_eligible, ce.cash_eligible,
                 ce.snacks_available, ce.snack_options_json, ce.meals_available, ce.meal_options_json,
-                linked_form.title AS linked_form_title,
+                linked_form.id AS linked_form_id, linked_form.title AS linked_form_title,
                 linked_form.public_key AS linked_form_public_key,
                 linked_form.form_type AS linked_form_type
          FROM company_events ce
@@ -52,7 +53,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
            AND ce.id = ?
            AND (ce.is_active = 1 OR ce.is_active IS NULL)
            AND ce.registration_eligible = 1
-           AND (ce.ends_at IS NULL OR ce.ends_at >= NOW())
+           AND (ce.ends_at IS NULL OR ce.ends_at >= NOW() OR ${registrationSessionCountSql}>0)
          LIMIT 1`,
         [aid, lockedId]
       );
@@ -60,6 +61,8 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
       for (const r of evRows || []) {
         items.push({
           kind: 'company_event',
+          registrationAudience: registrationAudience(r),
+          ...eventRegistrationPrice(r),
           id: Number(r.id),
           title: r.title || `Event ${r.id}`,
           summary: r.description ? String(r.description).slice(0, 240) : '',
@@ -73,6 +76,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           snackOptions: parseJsonArr(r.snack_options_json),
           mealsAvailable: !!(r.meals_available === 1 || r.meals_available === true),
           mealOptions: parseJsonArr(r.meal_options_json),
+          linkedIntakeId: Number(r.linked_form_id) || null,
           linkedIntakeTitle: r.linked_form_title ? String(r.linked_form_title).trim() || null : null,
           linkedIntakePublicKey: r.linked_form_public_key ? String(r.linked_form_public_key).trim() || null : null,
           linkedIntakeFormType: r.linked_form_type ? String(r.linked_form_type).trim().toLowerCase() || null : null
@@ -81,9 +85,9 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
     } else {
       const [evRows] = await pool.execute(
         `SELECT ce.id, ce.title, ce.description, ce.starts_at, ce.ends_at,
-                ce.registration_eligible, ce.medicaid_eligible, ce.cash_eligible,
+                ${registrationSessionCountSql} AS remaining_sessions, ce.registration_audience, ce.program_cost_billing_mode, ce.program_cost_dollars, ce.per_session_cost_dollars, ce.registration_eligible, ce.medicaid_eligible, ce.cash_eligible,
                 ce.snacks_available, ce.snack_options_json, ce.meals_available, ce.meal_options_json,
-                linked_form.title AS linked_form_title,
+                linked_form.id AS linked_form_id, linked_form.title AS linked_form_title,
                 linked_form.public_key AS linked_form_public_key,
                 linked_form.form_type AS linked_form_type
          FROM company_events ce
@@ -99,7 +103,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
          WHERE ce.agency_id = ?
            AND (ce.is_active = 1 OR ce.is_active IS NULL)
            AND ce.registration_eligible = 1
-           AND (ce.ends_at IS NULL OR ce.ends_at >= NOW())
+           AND (ce.ends_at IS NULL OR ce.ends_at >= NOW() OR ${registrationSessionCountSql}>0)
          ORDER BY ce.starts_at ASC
          LIMIT 200`,
         [aid]
@@ -108,6 +112,8 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
       for (const r of evRows || []) {
         items.push({
           kind: 'company_event',
+          registrationAudience: registrationAudience(r),
+          ...eventRegistrationPrice(r),
           id: Number(r.id),
           title: r.title || `Event ${r.id}`,
           summary: r.description ? String(r.description).slice(0, 240) : '',
@@ -117,6 +123,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
           snackOptions: parseJsonArr2(r.snack_options_json),
           mealsAvailable: !!(r.meals_available === 1 || r.meals_available === true),
           mealOptions: parseJsonArr2(r.meal_options_json),
+          linkedIntakeId: Number(r.linked_form_id) || null,
           linkedIntakeTitle: r.linked_form_title ? String(r.linked_form_title).trim() || null : null,
           linkedIntakePublicKey: r.linked_form_public_key ? String(r.linked_form_public_key).trim() || null : null,
           linkedIntakeFormType: r.linked_form_type ? String(r.linked_form_type).trim().toLowerCase() || null : null,
@@ -147,7 +154,7 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
       const [classRows] = await pool.execute(
         `SELECT c.id, c.class_name, c.description, c.starts_at, c.ends_at,
                 c.enrollment_opens_at, c.enrollment_closes_at,
-                c.registration_eligible, c.medicaid_eligible, c.cash_eligible, c.delivery_mode
+                c.registration_audience, c.registration_price_cents, c.registration_eligible, c.medicaid_eligible, c.cash_eligible, c.delivery_mode
          FROM learning_program_classes c
          WHERE c.organization_id IN (${ph})
            AND c.registration_eligible = 1
@@ -163,6 +170,8 @@ export async function fetchRegistrationCatalogItems(agencyId, options = {}) {
       for (const r of classRows || []) {
         items.push({
           kind: 'learning_class',
+          registrationAudience: registrationAudience(r),
+          priceCents: Number(r.registration_price_cents || 0),
           id: Number(r.id),
           title: r.class_name || `Class ${r.id}`,
           summary: r.description ? String(r.description).slice(0, 240) : '',

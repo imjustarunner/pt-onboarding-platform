@@ -1,3 +1,5 @@
+vi.mock('../providerServiceOfferings.service.js',()=>({readProviderServices:vi.fn()}));
+import {readProviderServices} from '../providerServiceOfferings.service.js';
 import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listClientsForGuardian:vi.fn(),isNoView:p=>!!p?.noView}}));
@@ -28,4 +30,13 @@ it('revoked appointment permission or agency membership denies the visit',async(
  await expect(assertLearningSessionAccess({user:{id:7,role:'client_guardian'}},10)).rejects.toHaveProperty('status',403);
  ClientGuardian.listClientsForGuardian.mockResolvedValue([{client_id:40,permissions_json:{}}]);clientAgencyMembership.mockResolvedValue(false);
  expect(await getGuardianJoinInfoForClassAndSession(7,5,10)).toBeNull();
+});
+
+it('lets only the assigned eligible tutor moderate their individual learning visit',async()=>{
+ LearningClassSession.findById.mockResolvedValue({id:10,learning_class_id:5,mode:'individual',provider_user_id:7});
+ readProviderServices.mockResolvedValue({services:[{serviceType:'tutoring',offered:true}]});
+ await expect(assertLearningSessionAccess({user:{id:7,role:'tutor'}},10)).resolves.toMatchObject({canModerate:true,canManage:false});
+ await expect(assertLearningSessionAccess({user:{id:8,role:'tutor'}},10)).rejects.toMatchObject({status:403});
+ readProviderServices.mockResolvedValue({services:[]});
+ await expect(assertLearningSessionAccess({user:{id:7,role:'tutor'}},10)).rejects.toMatchObject({status:403});
 });

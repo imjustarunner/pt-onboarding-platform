@@ -1,3 +1,4 @@
+vi.mock('../clientChartTypes.service.js',()=>({readChartTypes:vi.fn(async()=>({types:[]}))}));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default:{}, onTableWrite:vi.fn() }));
 vi.mock('../../models/User.model.js', () => ({ default:{} }));

@@ -1,12 +1,14 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({agency:vi.fn(),access:vi.fn(),memberships:vi.fn(),eligibility:vi.fn(),session:vi.fn(),officeSession:vi.fn()}));
+const m=vi.hoisted(()=>({providerIssue:vi.fn(),context:vi.fn(),agency:vi.fn(),access:vi.fn(),memberships:vi.fn(),eligibility:vi.fn(),session:vi.fn(),officeSession:vi.fn()}));
+vi.mock('../../services/providerServiceOfferings.service.js',()=>({clinicalProviderIssue:m.providerIssue}));
+vi.mock('../../services/clientServiceContext.service.js',()=>({clinicalBookingContextIssue:m.context}));
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.agency}}));
 vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecordAccess:m.access}));
 vi.mock('../../utils/noteAidClientAgency.js',()=>({listClientAgencyMembershipIds:m.memberships}));
 vi.mock('../../services/clientPayerServiceEligibility.service.js',()=>({clientPayerServiceEligibility:m.eligibility}));
 vi.mock('../../models/clinical/ClinicalSession.model.js',()=>({default:{findById:m.session,findByOfficeEventAndClient:m.officeSession}}));
 import {getClientServiceCodeEligibility} from '../clientServiceCodeEligibility.controller.js';
-beforeEach(()=>{vi.clearAllMocks();m.access.mockResolvedValue({ok:true});m.memberships.mockResolvedValue([2]);m.eligibility.mockResolvedValue({serviceCodes:['90837'],program:'commercial'});});
+beforeEach(()=>{vi.clearAllMocks();m.context.mockResolvedValue('');m.providerIssue.mockResolvedValue('');m.access.mockResolvedValue({ok:true});m.memberships.mockResolvedValue([2]);m.eligibility.mockResolvedValue({serviceCodes:['90837'],program:'commercial'});});
 const request=()=>({user:{id:8,role:'provider'},query:{agencyId:'2',clientId:'3',dateOfService:'2026-11-16'}});
 async function call(req){const res={set:vi.fn().mockReturnThis(),json:vi.fn()},next=vi.fn();await getClientServiceCodeEligibility(req,res,next);return{res,next};}
 it('returns only choices for an authorized client and scoped provider',async()=>{const {res,next}=await call(request());expect(next).not.toHaveBeenCalled();expect(m.eligibility).toHaveBeenCalledWith({agencyId:2,clientId:3,providerUserId:8,dateOfService:'2026-11-16'});expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(res.json).toHaveBeenCalledWith({serviceCodes:['90837'],program:'commercial',agencyId:2});});
@@ -34,4 +36,21 @@ it('does not use a session to bypass access to its actual agency',async()=>{
  m.memberships.mockResolvedValue([7]);m.session.mockResolvedValue(session);m.agency.mockImplementation(async({agencyId})=>{if(agencyId===7)throw Object.assign(new Error('Denied'),{status:403});});
  const req=request();req.query.clinicalSessionId=90;
  expect((await call(req)).next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.eligibility).not.toHaveBeenCalled();
+});
+
+it('omits clinical codes for a new learning-only visit before looking up payer policy',async()=>{
+ m.context.mockResolvedValueOnce('Choose a clinical assignment.');
+ const {res,next}=await call(request());
+ expect(next).not.toHaveBeenCalled();
+ expect(m.context).toHaveBeenCalledWith({agencyId:2,clientIds:[3],providerId:8});
+ expect(m.eligibility).not.toHaveBeenCalled();
+ expect(res.json).toHaveBeenCalledWith({serviceCodes:[],agencyId:2,message:'Choose a clinical assignment.'});
+});
+
+it('also requires the selected provider to offer Clinical for a new visit',async()=>{
+ m.providerIssue.mockResolvedValueOnce('Learning only.');
+ const {res}=await call(request());
+ expect(m.providerIssue).toHaveBeenCalledWith(2,8);
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({serviceCodes:[]}));
+ expect(m.eligibility).not.toHaveBeenCalled();
 });

@@ -1,4 +1,4 @@
-import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
+import { clientPortalInviteUrl, intakePortalForClients } from './clientPortalContext.service.js';
 import { schoolRoiCalendarDates } from '../utils/schoolRoiCalendarDate.js';
 import { deferEnrollmentGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
@@ -100,7 +100,7 @@ const resolveAgencyId = async (organizationId) => {
 };
 
 async function buildGuardianIntakeAccess(agency,guardian,link,clients,hours) {
-  const portal=intakeClientPortal(agency,{clients,channel:link.master_channel,school:link.scope_type==='school'});
+  const portal=await intakePortalForClients(agency,{clients,channel:link.master_channel,school:link.scope_type==='school'});
   if(guardian.password_hash)return clientPortalInviteUrl({portal,existingAccount:true});
   const saved=guardian.passwordless_token_purpose==='setup'&&new Date(guardian.passwordless_token_expires_at).getTime()>Date.now()?guardian.passwordless_token:null;
   const token=saved||(await User.generatePasswordlessToken(guardian.id,hours,'setup')).token;

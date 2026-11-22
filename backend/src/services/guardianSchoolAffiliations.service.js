@@ -1,20 +1,28 @@
 import pool from '../config/database.js';
+import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
+import { sqlUnicodeEq } from '../utils/mysqlCollation.js';
+import { guardianServiceAllowed } from '../utils/guardianServiceRestrictions.js';
 import {loadGuardianRoiConsentForClients} from './schoolRoiGuardianConsent.service.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import { portalProfilePath } from './familyIntroduction.logic.js';
 
 // Display context only: an affiliation never grants school staff or guardian access.
 // Call with the already-authorized, guardian-safe overview rows, never request IDs.
-export async function attachGuardianSchoolAffiliations(clients = [], { guardianUserId, providerClientIds = [], documentClientIds = [], loadConsent = loadGuardianRoiConsentForClients } = {}) {
-  const visible = clients.filter(c => !c.no_view && (!c.guardian_portal_locked || c.relationship_type === 'self'));
+export async function attachGuardianSchoolAffiliations(clients = [], { guardianUserId, providerClientIds = [], documentClientIds = [], loadConsent = loadGuardianRoiConsentForClients,
+  loadStaffRoster = args => ClientSchoolStaffRoiAccess.listSchoolStaffRosterForClient(args) } = {}) {
+  const visible = clients.filter(c => !c.no_view && !c.permissions_json?.relationshipRevoked && !c.permissions_json?.billingOnly
+    && guardianServiceAllowed(c, { agency_id:c.agency_id, service_kind:'counseling' }) && (!c.guardian_portal_locked || c.relationship_type === 'self'));
   const ids = visible.map(c => Number(c.client_id)).filter(id => id > 0);
   if (!ids.length) return clients.map(c => ({ ...c, school_affiliations: [] }));
   const [rows] = await pool.execute(
     `SELECT coa.client_id, coa.organization_id, a.name, a.logo_url,a.logo_path,
-            coa.is_active, coa.is_primary
+            (coa.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AS is_active, coa.is_primary
      FROM client_organization_assignments coa
+     JOIN clients c ON c.id=coa.client_id
      JOIN agencies a ON a.id = coa.organization_id AND a.organization_type = 'school'
      WHERE coa.client_id IN (${ids.map(() => '?').join(',')})
+       AND (c.organization_id=a.id OR EXISTS (SELECT 1 FROM organization_affiliations oa WHERE oa.agency_id=c.agency_id AND oa.organization_id=a.id)
+         OR EXISTS (SELECT 1 FROM agency_schools sc WHERE sc.agency_id=c.agency_id AND sc.school_organization_id=a.id))
      ORDER BY coa.is_active DESC, coa.is_primary DESC, a.name`, ids
   );
   const byClient = new Map(ids.map(id => [id, []]));
@@ -31,7 +39,7 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
     // Legacy primary schools remain visible; an explicit inactive record wins.
     if (schools && client.organization_type === 'school' && !schools.some(s => s.organization_id === Number(client.organization_id))) {
       schools.unshift({ organization_id: Number(client.organization_id), name: client.organization_name,
-        logo_url: client.organization_logo_url || null, status: 'current', is_primary: true });
+        logo_url: client.organization_logo_url || null, status: Number(client.organization_active ?? 1) ? 'current' : 'former', is_primary: true });
     }
     return { ...client, school_affiliations: schools || [] };
   });
@@ -44,7 +52,7 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
                          (SELECT DATE_FORMAT(s.start_time, '%h:%i %p') FROM soft_schedule_slots s
                            WHERE s.client_id=p.client_id AND s.provider_user_id=p.provider_user_id
                              AND s.school_organization_id=p.organization_id AND s.start_time IS NOT NULL
-                           ORDER BY (LOWER(CAST(s.weekday AS CHAR))=LOWER(COALESCE(p.service_day,''))) DESC, s.slot_index LIMIT 1) AS soft_time,
+                           ORDER BY (${sqlUnicodeEq('LOWER(CAST(s.weekday AS CHAR CHARACTER SET utf8mb4))', "LOWER(COALESCE(p.service_day,''))")}) DESC, s.slot_index LIMIT 1) AS soft_time,
                          ag.slug AS agency_slug
                   FROM client_provider_assignments p
                   JOIN users u ON u.id=p.provider_user_id
@@ -57,7 +65,7 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
                          (SELECT DATE_FORMAT(s.start_time, '%h:%i %p') FROM soft_schedule_slots s
                            WHERE s.client_id=c.id AND s.provider_user_id=c.provider_id
                              AND s.school_organization_id=c.organization_id AND s.start_time IS NOT NULL
-                           ORDER BY (LOWER(CAST(s.weekday AS CHAR))=LOWER(COALESCE(c.service_day,''))) DESC, s.slot_index LIMIT 1),
+                           ORDER BY (${sqlUnicodeEq('LOWER(CAST(s.weekday AS CHAR CHARACTER SET utf8mb4))', "LOWER(COALESCE(c.service_day,''))")}) DESC, s.slot_index LIMIT 1),
                          ag.slug
                   FROM clients c JOIN users u ON u.id=c.provider_id
                   JOIN agencies ag ON ag.id=c.agency_id
@@ -81,9 +89,9 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
     [providers] = await pool.execute(legacyProviderSql, [...schoolIds, ...schoolIds]);
   }
   const [[staff], [rois]] = await Promise.all([
-    pool.execute(`SELECT r.client_id, r.school_organization_id, r.access_level, r.is_active,
+    pool.execute(`SELECT r.client_id, r.school_organization_id, c.roi_expires_at, r.is_active,
                          TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS name
-                  FROM client_school_staff_roi_access r JOIN users u ON u.id=r.school_staff_user_id
+                  FROM client_school_staff_roi_access r JOIN clients c ON c.id=r.client_id JOIN users u ON u.id=r.school_staff_user_id
                   WHERE r.client_id IN (${placeholders}) ORDER BY u.last_name,u.first_name`, schoolIds),
     pool.execute(`SELECT r.client_id,r.school_organization_id,r.status,r.signed_at,
                          CASE WHEN c.organization_id=r.school_organization_id THEN c.roi_expires_at ELSE NULL END AS expires_at,
@@ -100,11 +108,14 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
   ]);
   // A release signed in enrollment need not have a later standalone signing link.
   // Read the same signed evidence used by Tasks; never issue or change a release.
-  const ownConsent = new Map();
-  for (const sid of new Set(schoolClients.flatMap(c=>c.school_affiliations.map(s=>s.organization_id)))) {
-    const missing = schoolClients.filter(c=>c.school_affiliations.some(s=>s.organization_id===sid)
-      && !rois.some(r=>Number(r.client_id)===Number(c.client_id)&&Number(r.school_organization_id)===sid));
-    if(missing.length)ownConsent.set(sid,await loadConsent({clientIds:missing.map(c=>Number(c.client_id)),schoolOrganizationId:sid,db:pool}));
+  const canReadSchoolDocuments = client => documentClientIds.includes(Number(client.client_id))
+    && guardianCanReadIntakeDocuments({access_enabled:1,permissions_json:client.permissions_json});
+  const readable = schoolClients.filter(canReadSchoolDocuments);
+  const consentBySchool = new Map();
+  for (const schoolId of new Set(readable.flatMap(client => client.school_affiliations.map(school => school.organization_id)))) {
+    const clientIds = readable.filter(client => client.school_affiliations.some(school => school.organization_id === schoolId))
+      .map(client => Number(client.client_id));
+    consentBySchool.set(schoolId, await loadConsent({clientIds,schoolOrganizationId:schoolId,db:pool}));
   }
   for (const client of schoolClients) for (const school of client.school_affiliations) {
     const sameSchool = row => Number(row.client_id) === Number(client.client_id) && Number(row.organization_id || row.school_organization_id) === school.organization_id;
@@ -115,16 +126,27 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
       profile_url: portalProfilePath({ agencySlug: p.agency_slug, providerId: p.provider_user_id, providerName: p.name }),
       status: school.status === 'current' && Number(p.is_active) === 1 ? 'current' : 'former'
     })) : [];
-    school.staff = staff.filter(sameSchool).map(s => ({ name: s.name || 'School staff member',
-      access_level: s.access_level,
-      status: school.status === 'current' && Number(s.is_active) === 1 ? 'current' : 'former'
-    }));
+    const canRead = canReadSchoolDocuments(client);
+    school.staff_visible = canRead;
+    school.staff = [];
+    if (!canRead) { school.roi = null; continue; }
+    const consent = consentBySchool.get(school.organization_id)?.get(Number(client.client_id)) || [];
+    const records = staff.filter(sameSchool);
+    if (school.status === 'current') {
+      const roster = await loadStaffRoster({ clientId:Number(client.client_id), schoolOrganizationId:school.organization_id,
+        roiExpiresAt:records[0]?.roi_expires_at || null, guardianConsent:consent });
+      school.staff = roster.map(person => ({
+        name:[person.first_name, person.last_name].filter(Boolean).join(' ') || 'School staff member',
+        role_title:person.role_title || null, access_state:person.effective_access_state, status:'current'
+      }));
+    } else {
+      school.staff = records.map(person => ({name:person.name || 'School staff member', status:'former'}));
+    }
     const roi = rois.find(sameSchool);
-    const canRead = documentClientIds.includes(Number(client.client_id)) && guardianCanReadIntakeDocuments({access_enabled:1,permissions_json:client.permissions_json});
     school.roi = roi ? { status: roi.status, signed_at: roi.signed_at || null, expires_at: roi.expires_at || null,
-      document_id: canRead ? Number(roi.document_id) || null : null } : {status:'not_on_file'};
+      document_id:Number(roi.document_id) || null } : {status:'not_on_file'};
     if(!roi) {
-      const own=(ownConsent.get(school.organization_id)?.get(Number(client.client_id))||[])
+      const own=consent
         .flatMap(item=>item.decisions||[]).filter(decision=>Number(decision.guardianUserId)===Number(guardianUserId));
       if(own.length){
         const latest=[...own].sort((a,b)=>new Date(b.signedAt)-new Date(a.signedAt))[0];

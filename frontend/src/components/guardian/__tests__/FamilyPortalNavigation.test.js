@@ -231,3 +231,15 @@ it('remembers each child’s chosen service when switching back without overridi
 });
 
 it('opens practice Help from the selected profile’s messaging access guidance',async()=>{const{w}=await setup('/itsco/guardian?clientId=1&panel=child');const access=w.findComponent({name:'GuardianCareAccess'});expect(access.exists()).toBe(true);access.vm.$emit('help');await flushPromises();expect(w.findComponent(Shell).props('active')).toBe('help');w.unmount();});
+
+it('opens the branded school connection directly from the enrolled child’s card',async()=>{
+ const {w,router}=await setup();
+ const cards=w.findAll('.family-profile-card');
+ const schoolCard=cards.find(card=>card.text().includes('Avery'));
+ expect(cards.filter(card=>card.find('.school-connection-link').exists())).toHaveLength(1);
+ await schoolCard.get('.school-connection-link').trigger('click'); await flushPromises();
+ expect(router.currentRoute.value.query).toMatchObject({panel:'schoolcarebridge',clientId:'3'});
+ expect(w.findComponent(Shell).props('brandName')).toBe('SchoolCareBridge');
+ expect(w.findComponent({name:'GuardianSchoolCareBridge'}).props('schools')[0].name).toBe('Hogwarts');
+ w.unmount();
+});

@@ -148,6 +148,9 @@ server.listen(PORT, HOST, () => {
       const {requireClientCreationDraftSchema}=await import('./services/clientCreationDraftReadiness.service.js');
       await requireClientCreationDraftSchema();
       console.log('[startup:clients] Encrypted client-creation draft schema verified');
+      const { requireClientProgramSchema } = await import('./services/clientProgramSchemaReadiness.service.js');
+      await requireClientProgramSchema();
+      console.log('[startup:client-programs] Chart types and program registration schema verified');
       const { requireClientPacketPortalSchema } = await import('./services/clientPacketPortalReadiness.service.js');
       await requireClientPacketPortalSchema();
       console.log('[startup:client-packet] Billing responsibility, service rates, audit events and guest-invoice schema verified');

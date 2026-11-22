@@ -2,7 +2,7 @@
 // to another tenant or replaces school/program affiliation checks.
 export function isOfficeRootOrganization({agencyId,organizationId,organizationType,clientType}) {
  return Number(agencyId)>0 && Number(agencyId)===Number(organizationId)
-  && String(organizationType||'').toLowerCase()==='agency' && String(clientType||'').toLowerCase()==='clinical';
+  && String(organizationType||'').toLowerCase()==='agency' && ['clinical','learning'].includes(String(clientType||'').toLowerCase());
 }
 
 export function supportsAgencyOfficeClients(agency) {

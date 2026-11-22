@@ -68,7 +68,7 @@ export function createFamilySharedConversations(overrides={}) {
     const family=[];
     for(const member of links) {
       const p=parse(member.permissions_json)||{};
-      if(!active(member)||!FAMILY.has(member.role)||p.noView||p.noViewOtherGuardian||p.coGuardianInviteRestricted||p.canMessage===false)continue;
+      if(!active(member)||!FAMILY.has(member.role)||p.relationshipRevoked||p.noView||p.noViewOtherGuardian||p.coGuardianInviteRestricted||p.canMessage===false)continue;
       if(!guardianServiceAllowed({...member,agency_id:client.agency_id},service||{agency_id:aid}))continue;
       if(member.relationship_type!=='self'&&!client.guardian_portal_enabled)continue;
       if(clinical&&!(await d.clinical({agencyId:aid,clientId:cid,userId:member.id},db)).scopes.includes('clinical_messages'))continue;

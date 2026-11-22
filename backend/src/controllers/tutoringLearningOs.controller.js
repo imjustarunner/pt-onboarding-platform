@@ -25,8 +25,8 @@ export async function getTaxonomy(_req, res) {
 
 export async function getOverview(req, res, next) {
   try {
-    const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
-    const data = await los.getLearningOverview(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : ['provider','provider_plus','intern','intern_plus'].includes(req.user.role)?Number(req.user.id):null});
+    const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId, null, null, {assignedStudent:true});
+    const data = await los.getLearningOverview(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : ['provider','provider_plus','intern','intern_plus','tutor'].includes(req.user.role)?Number(req.user.id):null});
     res.json(data);
   } catch (e) {
     next(e);
@@ -35,9 +35,9 @@ export async function getOverview(req, res, next) {
 
 export async function listSubjects(req, res, next) {
   try {
-    const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId);
+    const { clientId,agencyId,service } = await assertLearningClientAccess(req, req.params.clientId, null, null, {assignedStudent:true});
     const subjects = await los.StudentSubject.listByClient(clientId,{agencyId});
-    res.json({ subjects:service?subjects.filter(s=>Number(service.provider_user_id)>0&&Number(s.primary_tutor_user_id)===Number(service.provider_user_id)):subjects });
+    res.json({ subjects:req.user.role==='tutor' ? subjects.filter(s=>Number(s.primary_tutor_user_id)===Number(req.user.id)) : service?subjects.filter(s=>Number(service.provider_user_id)>0&&Number(s.primary_tutor_user_id)===Number(service.provider_user_id)):subjects });
   } catch (e) {
     next(e);
   }
@@ -45,7 +45,7 @@ export async function listSubjects(req, res, next) {
 
 export async function enrollSubject(req, res, next) {
   try {
-    const access = await assertLearningClientAccess(req, req.body.clientId);
+    const access = await assertLearningClientAccess(req, req.body.clientId, null, null, {assignedStudent:true});
     const clientId = access.clientId;
     const agencyId =
       Number(req.body.agencyId) ||
@@ -68,7 +68,7 @@ export async function enrollSubject(req, res, next) {
         instructionalLevel: req.body.instructionalLevel,
         reasonForTutoring: req.body.reasonForTutoring,
         enrollmentGoal: req.body.enrollmentGoal,
-        primaryTutorUserId: req.body.primaryTutorUserId,
+        primaryTutorUserId: req.user.role === 'tutor' ? req.user.id : req.body.primaryTutorUserId,
         standardsVersionKey: req.body.standardsVersionKey,
         status: req.body.status
       },
@@ -84,7 +84,10 @@ export async function patchSubject(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
+    if (req.user.role === 'tutor' && Object.hasOwn(req.body,'primaryTutorUserId') && Number(req.body.primaryTutorUserId) !== Number(req.user.id)) {
+      throw Object.assign(new Error('Agency staff can transfer a subject to another tutor.'),{status:403});
+    }
     const updated = await los.StudentSubject.update(subject.id, req.body, actorId(req));
     res.json({ subject: updated });
   } catch (e) {
@@ -96,7 +99,7 @@ export async function saveBaseline(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const result = await los.saveManualBaseline(req.body, actorId(req));
     res.status(201).json(result);
   } catch (e) {
@@ -108,7 +111,7 @@ export async function listEvaluations(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const summaries = await los.EvaluationSummary.listBySubject(subject.id);
     res.json({ evaluations: summaries });
   } catch (e) {
@@ -118,10 +121,10 @@ export async function listEvaluations(req, res, next) {
 
 export async function createOrUpdatePlan(req, res, next) {
   try {
-    requireStaffPlanActor(req.user);
+    requireStaffPlanActor(req.user, {learning:true});
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
 
     const existingGoals = new Map();
     for (const goal of Array.isArray(req.body.goals) ? req.body.goals : []) {
@@ -195,12 +198,23 @@ export async function createOrUpdatePlan(req, res, next) {
   }
 }
 
+async function requireLearningRecord(req, row) {
+  let subject = null;
+  if (req.user.role === 'tutor' && row.student_subject_id) {
+    subject = await los.StudentSubject.findById(row.student_subject_id);
+    if (!subject || Number(subject.client_id) !== Number(row.client_id) || Number(subject.agency_id) !== Number(row.agency_id)) {
+      throw Object.assign(new Error('This record does not match the student and agency.'), {status:403});
+    }
+  }
+  return assertLearningClientAccess(req, row.client_id, row.agency_id, subject);
+}
+
 export async function getPlan(req, res, next) {
   try {
-    requireStaffPlanActor(req.user);
+    requireStaffPlanActor(req.user, {learning:true});
     const bundle = await los.StudentLearningPlan.getPlanBundle(req.params.planId);
     if (!bundle) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, bundle.plan.client_id, bundle.plan.agency_id);
+    await requireLearningRecord(req, bundle.plan);
     const { learningPlanStaffFeedback } = await import('../services/guardianLearningPlan.service.js');
     res.json({ ...bundle, guardianFeedback: await learningPlanStaffFeedback(bundle.plan) });
   } catch (e) {
@@ -212,7 +226,7 @@ export async function listPlansForSubject(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const plans = await los.StudentLearningPlan.listBySubject(subject.id);
     res.json({ plans });
   } catch (e) {
@@ -222,10 +236,10 @@ export async function listPlansForSubject(req, res, next) {
 
 export async function approvePlan(req, res, next) {
   try {
-    requireStaffPlanActor(req.user);
+    requireStaffPlanActor(req.user, {learning:true});
     const existing = await los.StudentLearningPlan.findById(req.params.planId);
     if (!existing) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, existing.client_id, existing.agency_id);
+    await requireLearningRecord(req, existing);
     const bundle = await los.approveLearningPlan(existing.id, actorId(req));
     const guardianSharing = await shareSavedLearningPlan(bundle, actorId(req));
     res.json({ ...bundle, guardianSharing });
@@ -248,7 +262,7 @@ export async function generateBrief(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     if(req.body.sessionId)await requireTutorSession(req,req.body.sessionId,subject);
     const brief = await los.generateSessionBrief(
       { studentSubjectId: subject.id, sessionId: req.body.sessionId || null },
@@ -264,7 +278,7 @@ export async function getBriefForSession(req, res, next) {
   try {
     await requireTutorSession(req,req.params.sessionId);
     const brief = await los.TutoringSessionBrief.findBySession(req.params.sessionId);
-    if (brief) { await requireTutorSession(req, req.params.sessionId, { client_id: brief.client_id, agency_id: brief.agency_id }); await assertLearningClientAccess(req, brief.client_id, brief.agency_id); }
+    if (brief) { await requireTutorSession(req, req.params.sessionId, { client_id: brief.client_id, agency_id: brief.agency_id }); await requireLearningRecord(req, brief); }
     res.set('Cache-Control', 'no-store').json({ brief });
   } catch (e) {
     next(e);
@@ -275,7 +289,7 @@ export async function updateBrief(req, res, next) {
   try {
     const existing=await los.TutoringSessionBrief.findById(req.params.briefId);
     if(!existing)return res.status(404).json({error:{message:'Brief not found'}});
-    await assertLearningClientAccess(req,existing.client_id,existing.agency_id);
+    await requireLearningRecord(req, existing);
     if(existing.session_id)await requireTutorSession(req,existing.session_id);
     const brief = await los.TutoringSessionBrief.update(req.params.briefId, req.body, actorId(req));
     res.json({ brief });
@@ -298,7 +312,7 @@ export async function saveSessionNote(req, res, next) {
     }
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     if(req.body.sessionId)await requireTutorSession(req,req.body.sessionId,subject);
     const result = await los.saveNoteAndUpdateProgress(req.body, actorId(req), req);
     res.status(201).json(result);
@@ -311,7 +325,7 @@ export async function getNoteForSession(req, res, next) {
   try {
     await requireTutorSession(req,req.params.sessionId);
     const note = await los.TutoringSessionNote.findBySession(req.params.sessionId);
-    if (note) { await requireTutorSession(req, req.params.sessionId, { client_id: note.client_id, agency_id: note.agency_id }); await assertLearningClientAccess(req, note.client_id, note.agency_id); }
+    if (note) { await requireTutorSession(req, req.params.sessionId, { client_id: note.client_id, agency_id: note.agency_id }); await requireLearningRecord(req, note); }
     res.set('Cache-Control', 'no-store').json({ note });
   } catch (e) {
     next(e);
@@ -323,7 +337,7 @@ export async function downloadSessionNotePdf(req, res, next) {
     await requireTutorSession(req, req.params.sessionId);
     const note = await los.TutoringSessionNote.findBySession(Number(req.params.sessionId));
     if (!note) return res.status(404).json({ error: { message: 'Save the session record first.' } });
-    await assertLearningClientAccess(req, note.client_id, note.agency_id);
+    await requireLearningRecord(req, note);
     const { tutoringSessionPdf } = await import('../services/tutoringSessionPdf.service.js');
     const result = await tutoringSessionPdf(req, req.params.sessionId);
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${result.filename}"`, 'Cache-Control': 'no-store' }).send(result.bytes);
@@ -334,7 +348,7 @@ export async function listEvidence(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const evidence = await los.AcademicSkillEvidence.listBySubject(subject.id);
     const chart = await los.AcademicSkillEvidence.progressChart(subject.id);
     res.json({ evidence, chart });
@@ -347,7 +361,7 @@ export async function getSubjectWorkspace(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const workspace = await los.getSubjectWorkspace(subject.id);
     res.json(workspace);
   } catch (e) {
@@ -361,7 +375,7 @@ export async function getGoalMastery(req, res, next) {
     if (!goal) return res.status(404).json({ error: { message: 'Goal not found' } });
     const subject = await los.StudentSubject.findById(goal.student_subject_id);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const mastery = await los.evaluateGoalMastery(goal.id);
     res.json({ mastery });
   } catch (e) {
@@ -375,7 +389,7 @@ export async function recomputeGoalMastery(req, res, next) {
     if (!goal) return res.status(404).json({ error: { message: 'Goal not found' } });
     const subject = await los.StudentSubject.findById(goal.student_subject_id);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const mastery = await los.applyMasteryToGoal(goal.id, { autoApply: req.body?.autoApply !== false });
     res.json({ mastery, goal: await los.StudentLearningPlan.findGoalById(goal.id) });
   } catch (e) {
@@ -498,7 +512,7 @@ export async function draftPlanAi(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const result = await los.draftLearningPlanWithAi(req.body, actorId(req));
     res.json(result);
   } catch (e) {
@@ -555,7 +569,7 @@ export async function runQuickEval(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const result = await los.runQuickEvaluation(req.body, actorId(req));
     res.status(201).json(result);
   } catch (e) {
@@ -567,7 +581,7 @@ export async function listAlerts(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const alerts = await los.TutoringProgressAlert.listOpenBySubject(subject.id);
     res.json({ alerts });
   } catch (e) {
@@ -588,7 +602,7 @@ export async function createReport(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     let report;
     if (req.body.reportType === 'multi_session') {
       report = await los.buildMultiSessionReport(subject.id, actorId(req));
@@ -618,7 +632,7 @@ export async function listReports(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const reports = await los.TutoringProgressReport.listBySubject(subject.id);
     res.json({ reports });
   } catch (e) {
@@ -639,7 +653,7 @@ export async function previewReport(req, res, next) {
   try {
     const existing = await los.TutoringProgressReport.findById(req.params.reportId);
     if (!existing) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, existing.client_id, existing.agency_id);
+    await requireLearningRecord(req, existing);
     const result = await los.buildParentReportPreview(existing.id);
     res.json(result);
   } catch (e) {
@@ -671,7 +685,7 @@ export async function createOralProbe(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const probe = await los.TutoringOralReadingProbe.create(
       {
         agencyId: subject.agency_id,
@@ -747,7 +761,7 @@ export async function listMilestones(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const milestones = await los.TutoringPackageMilestone.listBySubject(subject.id);
     res.json({ milestones });
   } catch (e) {
@@ -759,7 +773,7 @@ export async function createPractice(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const result = await los.createPracticeAssignment(
       {
         studentSubjectId: subject.id,
@@ -780,7 +794,7 @@ export async function listPracticeForSubject(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.params.subjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const assignments = await los.TutoringPracticeAssignment.listBySubject(subject.id);
     res.json({ assignments });
   } catch (e) {
@@ -805,7 +819,7 @@ export async function completePractice(req, res, next) {
   try {
     const assignment = await los.TutoringPracticeAssignment.findById(req.params.assignmentId);
     if (!assignment) return res.status(404).json({ error: { message: 'Not found' } });
-    await assertLearningClientAccess(req, assignment.client_id, assignment.agency_id);
+    await requireLearningRecord(req, assignment);
     const updated = await los.TutoringPracticeAssignment.complete(assignment.id);
     res.json({ assignment: updated });
   } catch (e) {
@@ -820,7 +834,7 @@ export async function createAssessmentBlueprint(req, res, next) {
     if (studentSubjectId) {
       const subject = await los.StudentSubject.findById(studentSubjectId);
       if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-      await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+      await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
       agencyId = agencyId || subject.agency_id;
       studentSubjectId = subject.id;
     }
@@ -857,7 +871,7 @@ export async function getAssessmentBlueprint(req, res, next) {
     if (!blueprint) return res.status(404).json({ error: { message: 'Not found' } });
     if (blueprint.student_subject_id) {
       const subject = await los.StudentSubject.findById(blueprint.student_subject_id);
-      if (subject) await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+      if (subject) await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     }
     const ids = blueprint.selected_item_ids_json || [];
     const items = [];
@@ -877,7 +891,7 @@ export async function updateAssessmentBlueprint(req, res, next) {
     if (!existing) return res.status(404).json({ error: { message: 'Not found' } });
     if (existing.student_subject_id) {
       const subject = await los.StudentSubject.findById(existing.student_subject_id);
-      if (subject) await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+      if (subject) await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     }
     const blueprint = await los.TutoringAssessmentBlueprint.update(existing.id, req.body || {});
     res.json({ blueprint });
@@ -914,7 +928,7 @@ export async function tutorAssist(req, res, next) {
   try {
     const subject = await los.StudentSubject.findById(req.body.studentSubjectId);
     if (!subject) return res.status(404).json({ error: { message: 'Subject not found' } });
-    await assertLearningClientAccess(req, subject.client_id, subject.agency_id);
+    await assertLearningClientAccess(req, subject.client_id, subject.agency_id, subject);
     const result = await los.runTutorAssist(
       {
         action: req.body.action || 'explain',
@@ -1043,7 +1057,7 @@ export async function confirmClientPackageCheckout(req, res, next) {
 
 async function requireTutorSession(req,sessionId,subject=null){
  const {session,klass,canModerate}=await assertLearningSessionAccess(req,sessionId);
- if(!canModerate||(['provider','provider_plus','intern','intern_plus'].includes(req.user.role)&&Number(session.provider_user_id)!==Number(req.user.id)))throw Object.assign(new Error('Assigned tutor access is required.'),{status:403});
+ if(!canModerate||(['provider','provider_plus','intern','intern_plus','tutor'].includes(req.user.role)&&Number(session.provider_user_id)!==Number(req.user.id)))throw Object.assign(new Error('Assigned tutor access is required.'),{status:403});
  if(subject){
   const [[student]]=await pool.execute('SELECT client_id FROM tutoring_session_clients WHERE session_id=? AND client_id=?',[sessionId,subject.client_id]);
   if(!student||Number(subject.agency_id)!==Number(klass.organization_id))throw Object.assign(new Error('This learning guide belongs to a different student or agency.'),{status:403});

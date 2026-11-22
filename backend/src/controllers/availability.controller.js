@@ -1,3 +1,4 @@
+import { canProvideTutoring } from '../utils/providerServiceOfferings.js';
 import {prepareAvailabilityServices} from '../services/availabilityServiceScope.service.js';
 import { readProviderServices } from '../services/providerServiceOfferings.service.js';
 import { allocateOfficeRoom,lockOfficeRequests,unlockOfficeRequests } from '../services/officeRoomAllocation.service.js';
@@ -4249,7 +4250,7 @@ export const listIntakeAvailabilityCards = async (req, res, next) => {
         try {
           if (serviceType === 'tutoring') {
             const offered = await readProviderServices(pair.providerId,pair.agencyId);
-            if (!offered.careEligibility.canProvideCare || !offered.services.some(service=>service.serviceType==='tutoring'&&service.offered)) continue;
+            if (!canProvideTutoring(offered.careEligibility) || !offered.services.some(service=>service.serviceType==='tutoring'&&service.offered)) continue;
           }
           // eslint-disable-next-line no-await-in-loop
           const avail = await ProviderAvailabilityService.computeWeekAvailability({

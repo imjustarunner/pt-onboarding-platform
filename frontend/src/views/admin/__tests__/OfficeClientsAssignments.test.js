@@ -22,8 +22,8 @@ const clients = [
   { id: 2, fullName: 'Synthetic Two', agencyId: 20, agencies: [{ agencyId: 20, name: 'Other Agency' }], providers: [], bucket: 'prospective' }
 ];
 const providers = [
-  { id: 101, name: 'Agency Ten Provider', agencyIds: [10], agencies: [{ id: 10, name: 'Inner Strength' }] },
-  { id: 202, name: 'Agency Twenty Provider', agencyIds: [20], agencies: [{ id: 20, name: 'Other Agency' }] }
+  { id: 101, name: 'Agency Ten Provider', assignmentServicesByAgency: {10:['counseling','tutoring']}, agencyIds: [10], agencies: [{ id: 10, name: 'Inner Strength' }] },
+  { id: 202, name: 'Agency Twenty Provider', assignmentServicesByAgency: {20:['counseling','tutoring']}, agencyIds: [20], agencies: [{ id: 20, name: 'Other Agency' }] }
 ];
 let wrapper;
 beforeEach(() => {
@@ -44,7 +44,7 @@ it('loads providers for the selected client and prevents assignment across agenc
   expect(mocks.get.mock.calls.some(([url]) => url.includes('/providers'))).toBe(false);
   state.selectedId = 1;
   await flushPromises();
-  expect(mocks.get).toHaveBeenCalledWith('/office-clients/providers', expect.objectContaining({ params: { agencyIds: '10,20', clientId: 1 } }));
+  expect(mocks.get).toHaveBeenCalledWith('/office-clients/providers', expect.objectContaining({ params: { agencyIds: '10,20', clientId: 1, serviceAssignments:'1' } }));
   expect(wrapper.getComponent({ name: 'ProviderSearchSelect' }).props('options').map(provider => provider.id)).toEqual([101]);
   state.assignProviderId = 202;
   await state.assignSelected();

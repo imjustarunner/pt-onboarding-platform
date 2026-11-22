@@ -2,7 +2,7 @@
   <div class="client-directory-table"><table><thead><tr><th>Client</th><th>Agency & affiliations</th><th>Care team</th><th>Care snapshot</th><th>Next booked visit</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>
     <tr v-for="client in clients" :key="client.id" @mouseenter="$emit('preview',client)" @mouseleave="$emit('leave')" @focusin="$emit('preview',client)" @focusout="$emit('leave')" @click="$emit('pin',client)">
       <td data-label="Client"><div class="client-identity"><span class="client-avatar" aria-hidden="true">{{initials(client)}}</span><div><RouterLink :to="chartLink(client)" @click.stop>{{client.full_name||client.initials}}</RouterLink><p v-if="client.age||client.pronouns">{{[client.age?`${client.age} years`:null,client.pronouns].filter(Boolean).join(' · ')}}</p><p>{{client.status_label||client.status||'Status not recorded'}}</p></div></div></td>
-      <td data-label="Agency & affiliations"><OrganizationBadge :name="client.agency_name" :icon="client.agency_icon"/><div v-for="org in client.affiliations||[]" :key="org.id" class="affiliation"><OrganizationBadge :name="org.name" :icon="org.icon_file_path"/></div></td>
+      <td data-label="Agency & affiliations"><OrganizationBadge :name="client.agency_name" :icon="client.agency_icon"/><div v-for="org in client.affiliations||[]" :key="org.id" class="affiliation"><OrganizationBadge :name="chartOrganizationLabel(org.name,org.organization_type)" :icon="org.icon_file_path"/></div></td>
       <td data-label="Care team"><strong>{{client.provider_name||'Not recorded'}}</strong><p>{{client.client_type||client.service||''}}</p><p v-if="client.frequency">{{client.frequency}}</p></td>
       <td data-label="Care snapshot"><span v-if="client.focus">{{client.focus}}</span><p>{{client.consent||client.paperwork_status_label||'Paperwork status not recorded'}}</p></td>
       <td data-label="Next booked visit">{{clientVisitLabel(client,timeZone)}}</td>
@@ -11,6 +11,7 @@
   </tbody></table></div>
 </template>
 <script setup>
+import {chartOrganizationLabel} from '../../utils/clientRosterContext.js';
 import {clientVisitLabel} from './clientVisit';
 import OrganizationBadge from './OrganizationBadge.vue';
 const props=defineProps({clients:{type:Array,default:()=>[]},chartLink:{type:Function,required:true},timeZone:{type:String,default:'America/Denver'}});

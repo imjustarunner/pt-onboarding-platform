@@ -1,3 +1,4 @@
+import { readChartTypes } from './clientChartTypes.service.js';
 import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -9,11 +10,16 @@ const typeOf = org => String(org?.organization_type || '').toLowerCase();
 const slugOf = org => String(org?.portal_url || org?.slug || '').trim();
 const fail = message => Object.assign(new Error(message), { status: 503 });
 
-export async function resolveClientPortalContext(client) {
-  let tenant = await Agency.findById(Number(client.agency_id));
+export async function resolveClientPortalContext(client, {agencyId=Number(client.agency_id)} = {}) {
+  const owningAgency = Number(client.agency_id) === Number(agencyId);
+  if (!owningAgency) {
+    const {clientAgencyMembership} = await import('./clientServiceEnrollment.service.js');
+    if (!client.id || !await clientAgencyMembership(client.id,agencyId)) throw fail('Client is not affiliated with this portal agency.');
+  }
+  let tenant = await Agency.findById(Number(agencyId));
   if (!tenant) throw fail('The client’s tenant portal is not configured.');
   const organization = Number(client.organization_id) === Number(tenant.id) ? tenant
-    : client.organization_id ? await Agency.findById(Number(client.organization_id)) : null;
+    : owningAgency && client.organization_id ? await Agency.findById(Number(client.organization_id)) : null;
   if (['school', 'program', 'learning', 'clinical'].includes(typeOf(tenant))) {
     const parentId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(tenant.id)
       || await AgencySchool.getActiveAgencyIdForSchool(tenant.id);
@@ -25,8 +31,12 @@ export async function resolveClientPortalContext(client) {
   // School affiliations never become a clinical client's sign-in portal.
   // Learning organizations retain their dedicated tutoring experience.
   const clientType = String(client.client_type || '').toLowerCase();
-  const clinical = ['clinical', 'mental_health', 'school'].includes(clientType);
-  const learning = !clinical && (['learning', 'tutoring'].includes(clientType) || typeOf(organization) === 'learning');
+  const profile = client.id
+    ? await readChartTypes(client.id,agencyId,undefined,{checkContact:false}) : null;
+  const clinical = profile ? profile.portalSetup?.portal === 'auricwell'
+    : ['clinical','mental_health','school'].includes(clientType) || ['clinical','school'].includes(typeOf(organization));
+  const learning = !clinical && (profile ? profile.types.includes('learning')
+    : ['learning','tutoring'].includes(clientType) || typeOf(organization) === 'learning');
   const portal = learning && typeOf(organization) === 'learning'
     ? { ...organization, parent_portal_url: slugOf(tenant), parent_custom_domain: tenant.custom_domain }
     : clinical ? { ...tenant, clinical_portal: true } : tenant;
@@ -70,9 +80,20 @@ export async function resolveClientPortalSender(tenantId) {
 
 /** Public enrollment has client types before a guardian session exists. */
 export function intakeClientPortal(agency, {clients=[],channel,school=false}={}) {
-  const type=String(clients.find(c=>c?.client_type)?.client_type||'').toLowerCase();
-  const clinical=['tutoring','learning','coaching','consulting'].includes(channel)?false:
-    type?['clinical','mental_health','school'].includes(type):
-      school||['counseling','clinical','office'].includes(channel)||getMedicalBillingFlags(agency?.feature_flags||{}).clinicalChartEnabled;
+  const types=clients.flatMap(client=>Array.isArray(client?.types) ? client.types : [client?.client_type]).filter(Boolean).map(type=>String(type).toLowerCase());
+  const clinical=school || types.some(type=>['clinical','mental_health','school'].includes(type))
+    || ['counseling','clinical'].includes(channel)
+    || (!types.length && !['tutoring','learning','coaching','consulting'].includes(channel)
+      && (channel==='office' || getMedicalBillingFlags(agency?.feature_flags||{}).clinicalChartEnabled));
   return {...agency,clinical_portal:!!clinical};
+}
+
+/** A submitted intake can refer to a pre-existing mixed-service chart. */
+export async function intakePortalForClients(agency, {clients=[], ...options}={}) {
+  const scoped = await Promise.all(clients.map(async client => {
+    if (!client?.id || !agency?.id) return client;
+    const profile = await readChartTypes(Number(client.id),Number(agency.id),undefined,{checkContact:false});
+    return {types:profile.types};
+  }));
+  return intakeClientPortal(agency,{...options,clients:scoped});
 }
