@@ -16,7 +16,7 @@ import Agency from '../../models/Agency.model.js';
 import User from '../../models/User.model.js';
 import {authorizedAppointmentClient} from '../guardianAppointments.service.js';
 import {clinicalAudit} from '../clinicalSessionAudit.service.js';
-import {issueTutoringGuestLink,exchangeTutoringGuest,tutoringGuestAccess,tutoringGuestBookingHash,revalidateTutoringGuestVisit} from '../tutoringGuest.service.js';
+import {issueTutoringGuestLink,exchangeTutoringGuest,tutoringGuestAccess,tutoringGuestBookingHash,revalidateTutoringGuestVisit,tutoringGuestReminderBody} from '../tutoringGuest.service.js';
 const token='a'.repeat(43),id='11111111-2222-4333-8444-555555555555';
 const appointment={id:481,agencyId:453,providerUserId:1496,status:'scheduled',startAt:'2099-11-21 18:00:00',endAt:'2099-11-21 19:00:00',modality:'VIRTUAL',learningContext:{serviceEnrollmentId:1038}};
 let grant;
@@ -31,3 +31,16 @@ it('rejects revoked guardian permissions, even with a previously issued link',as
 it('requires the HttpOnly guest proof and retains an invited-guest audit identity',async()=>{const ctx=await tutoringGuestAccess({user:{id:999}},id,'private-proof');expect(ctx).toMatchObject({host:false,actor:'guest:'+id,participantUserId:1759,clientId:2547,req:{user:{id:null,role:'invited_family'}}});expect(pool.execute.mock.calls[0][1]).toEqual([id,crypto.createHash('sha256').update('private-proof').digest('hex')]);await expect(tutoringGuestAccess({},id,'')).rejects.toMatchObject({status:401});});
 it('rejects sessions and grants that have been revoked',async()=>{pool.execute.mockResolvedValue([[{...grant,grant_revoked_at:'2026-11-21'}]]);await expect(tutoringGuestAccess({},id,'proof')).rejects.toMatchObject({status:401});});
 it('revalidates the exact appointment again at tutor admission',async()=>{await expect(revalidateTutoringGuestVisit('guest:'+id,999)).rejects.toMatchObject({status:403});grant.revoked_at='2026-11-21';await expect(revalidateTutoringGuestVisit('guest:'+id,481)).rejects.toMatchObject({status:410});});
+
+it('preserves the complete exact-recipient SMS action within the carrier body limit',async()=>{
+ const url='https://app.nextleveluplcc.com/nlu-qa-demo/tutoring/invite#'+'a'.repeat(43);
+ const issue=vi.fn(async()=>url);
+ const body=await tutoringGuestReminderBody({appointment:{...appointment,businessType:'tutoring'},clientId:2547,recipientUserId:1759,body:'Reminder '.repeat(90)},issue);
+ expect(body.length).toBe(480);expect(body.endsWith(url)).toBe(true);
+ expect(issue).toHaveBeenCalledWith(expect.objectContaining({id:481}),2547,1759);
+});
+it('does not create session capabilities for additional contacts or change disabled-rollout reminders',async()=>{
+ const issue=vi.fn(async()=>null),input={appointment:{...appointment,businessType:'tutoring'},clientId:2547,body:'Reminder'};
+ expect(await tutoringGuestReminderBody(input,issue)).toBe('Reminder');expect(issue).not.toHaveBeenCalled();
+ expect(await tutoringGuestReminderBody({...input,recipientUserId:1759},issue)).toBe('Reminder');
+});

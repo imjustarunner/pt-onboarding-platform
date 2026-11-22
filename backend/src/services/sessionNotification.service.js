@@ -1162,7 +1162,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           results.skipped += 1;
           continue;
         }
-        const sent = await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toPhoneNorm, from, body: body.slice(0, 480) });
+        const smsBody=['learning','tutoring'].includes(appt.businessType)
+          ?await (await import('./tutoringGuest.service.js')).tutoringGuestReminderBody({appointment:appt,clientId,recipientUserId:row.recipient_guardian_user_id,body})
+          :body;
+        const sent = await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toPhoneNorm, from, body: smsBody.slice(0, 480) });
         if (!(sent?.id || sent?.sid || sent?.messageId || sent?.messageUuid || sent?.messageUUID) || sent?.skipped || sent?.blocked || sent?.queued || sent?.pendingApproval) throw new Error(sent?.reason || 'Text delivery was not accepted; review before resending.');
         await pool.execute(
           `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW(),message_body=? WHERE id = ?`,

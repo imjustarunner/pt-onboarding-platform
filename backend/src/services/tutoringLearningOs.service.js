@@ -1707,7 +1707,7 @@ export async function getGuardianLearningSnapshot(clientId,{agencyId=null,provid
  */
 // null intentionally aggregates authorized agency work. Zero represents an
 // explicitly selected service awaiting assignment and must never become null.
-export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null,serviceId=null,portalContext=null}={}) {
+export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null,serviceId=null,portalContext=null,recipientUserId=null}={}) {
   const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId,serviceId});
   let upcomingSessions = [];
   let recentSessions = [];
@@ -1765,7 +1765,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
   const now = Date.now();
   const canonical = await Promise.all(appointments.map(async ({external_meeting_url,video_room_mode,...a}) => {
     const state=appointmentAttendanceView({...a,startAt:a.starts_at,endAt:a.ends_at},{learningSession:{status:a.learningStatus,actual_started_at:a.learningStartedAt,actual_ended_at:a.learningEndedAt}});
-    return {...a,...state,source:'appointment',title:appointmentServiceLabel({...a,businessType:a.businessType||'tutoring'}),delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,learningContext:a.learningContext,businessType:a.businessType||'tutoring',videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:state.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning',permissions_json:portalContext?.permissions||{canViewAppointments:false},service:portalContext?.service,services:portalContext?.services},pool)};
+    return {...a,...state,source:'appointment',title:appointmentServiceLabel({...a,businessType:a.businessType||'tutoring'}),delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,learningContext:a.learningContext,businessType:a.businessType||'tutoring',videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:state.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning',permissions_json:portalContext?.permissions||{canViewAppointments:false},service:portalContext?.service,services:portalContext?.services},pool,{recipientUserId})};
   }));
   // A timestamp is never a record link. Canonical appointments replace only
   // their explicitly bridged learning room; unlinked room history stays distinct.

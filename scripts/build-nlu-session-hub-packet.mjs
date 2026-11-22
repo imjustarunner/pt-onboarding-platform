@@ -9,6 +9,13 @@ const out=path.join(root,'deliverables/nlu-session-hub-2026-11-21');
 await mkdir(out,{recursive:true});
 const brief=await readFile(path.join(root,'docs/qa/NLU-SESSION-HUB-V2-RETEST-2026-11-21.txt'),'utf8');
 await writeFile(path.join(out,'NLU-SESSION-HUB-BOT-BRIEF.txt'),brief);
+const fresh=brief.split('FRESH CASES — ALL LIVE RESULTS START NOT RUN\n')[1]?.split('\n\nBLANK ACTION/AUDIT LEDGER')[0];
+if(!fresh||fresh.split('\n').filter(line=>line.startsWith('HUB2-')).length!==34)throw new Error('The 34-case checklist is incomplete.');
+await writeFile(path.join(out,'cases.csv'),fresh+'\n');
+for(const [file,heading] of [['action-audit.csv','BLANK ACTION/AUDIT LEDGER'],['email-ledger.csv','BLANK EMAIL LEDGER']]){
+ const header=brief.split(heading+'\n')[1]?.split('\n')[0];if(!header)throw new Error('Missing evidence header: '+heading);
+ await writeFile(path.join(out,file),header+'\n');
+}
 for(const file of ['math-worksheet.pdf','reading-worksheet.pdf'])await copyFile(path.join(root,'docs/qa/fixtures/tutoring-2026-11-01',file),path.join(out,file));
 await writeFile(path.join(out,'UPLOAD-LIST.txt'),'Upload one NLU-SESSION-HUB-BOT-BRIEF.txt or PDF reading copy, plus math-worksheet.pdf, reading-worksheet.pdf and math-worksheet-image.png. Then send START SESSION HUB. Credentials remain in the existing QA vault.\n');
 const text=await readFile(path.join(root,'docs/qa/fixtures/tutoring-2026-11-01/math-worksheet.txt'),'utf8');

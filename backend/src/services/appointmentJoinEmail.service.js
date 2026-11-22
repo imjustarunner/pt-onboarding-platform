@@ -19,13 +19,13 @@ export async function appointmentGoogleConference(appointment,{db=pool,conferenc
 // Message recipients are checked against the same current relationship and
 // service permissions as portal Join. Contacts and billing-only accounts never
 // receive a room link or its telephone credentials from this renderer.
-export async function appointmentJoinEmail({appointment,clientId,to,context},dependencies={}) {
+export async function appointmentJoinEmail({appointment,clientId,to,context,recipientUserId=null},dependencies={}) {
  if(!active(appointment)||appointment.videoRoomMode==='none')return null;
  const d={db:pool,authorize:authorizedAppointmentClient,join:guardianAppointmentJoin,conference:appointmentGoogleConference,...dependencies};
  try{
   const [[recipient]]=await d.db.execute(`SELECT u.id FROM users u JOIN client_guardians g ON g.guardian_user_id=u.id AND g.client_id=?
     JOIN appointment_participants p ON p.client_id=g.client_id AND p.appointment_id=?
-    WHERE LOWER(u.email)=LOWER(?) AND u.is_active=1 AND g.access_enabled=1 LIMIT 1`,[clientId,appointment.id,to]);
+    WHERE ${Number(recipientUserId)>0?'u.id=?':'LOWER(u.email)=LOWER(?)'} AND u.is_active=1 AND g.access_enabled=1 LIMIT 1`,[clientId,appointment.id,Number(recipientUserId)>0?Number(recipientUserId):to]);
   if(!recipient)return null;
   const client=await d.authorize(recipient.id,clientId,{agencyId:appointment.agencyId});
   let permissions=client.permissions_json||{};

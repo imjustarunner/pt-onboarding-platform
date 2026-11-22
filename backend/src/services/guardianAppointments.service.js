@@ -205,7 +205,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
     }
     row.secureCommentsAvailable = commentAccess.scopes.includes('clinical_messages') && client.permissions_json?.canMessage !== false;
     row.hubUrl=['tutoring','learning'].includes(row.businessType)?`/tutoring-session/appointment/${row.id}?clientId=${Number(clientId)}&agencyId=${Number(client.agency_id)}${serviceId?'&serviceId='+Number(serviceId):''}`:null;
-    row.joinUrl = await guardianAppointmentJoin(row,client,pool);
+    row.joinUrl = await guardianAppointmentJoin(row,client,pool,{recipientUserId:userId});
     if(['tutoring','learning'].includes(row.businessType)){const start=+parseUtcDate(row.startAt),end=+parseUtcDate(row.endAt);if(!start||!end||Date.now()<start-1800000||Date.now()>end+1800000)row.joinUrl=null;}
     delete row.externalMeetingUrl;
     delete row.videoRoomMode;

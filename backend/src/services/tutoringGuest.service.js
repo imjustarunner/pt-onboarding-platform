@@ -32,6 +32,13 @@ export async function issueTutoringGuestLink(appointment,clientId,recipientUserI
  }
  return buildPublicAppUrl(agency,'tutoring/invite#'+token);
 }
+export async function tutoringGuestReminderBody({appointment,clientId,recipientUserId,body},issue=issueTutoringGuestLink){
+ if(!Number(recipientUserId)||!['learning','tutoring'].includes(appointment.businessType))return body;
+ const url=await issue(appointment,clientId,recipientUserId);
+ if(!url)return body;
+ const action='\nJoin tutoring session: '+url;
+ return String(body||'').slice(0,Math.max(0,480-action.length))+action;
+}
 async function grantContext(req,grant) {
  const appointment=await Appointment.findById(grant.appointment_id);
  const agency=appointment&&await Agency.findById(appointment.agencyId);

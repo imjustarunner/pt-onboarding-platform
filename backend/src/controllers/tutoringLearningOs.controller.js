@@ -903,7 +903,7 @@ export async function getGuardianDashboard(req, res, next) {
   try {
     const portalContext=await assertLearningClientAccess(req,req.params.clientId);
     const {clientId,agencyId,service}=portalContext;
-    const data = await los.getGuardianTutoringDashboard(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null,serviceId:service?.id||null,portalContext});
+    const data = await los.getGuardianTutoringDashboard(clientId,{agencyId,providerId:service ? Number(service.provider_user_id) || 0 : null,serviceId:service?.id||null,portalContext,recipientUserId:['guardian','client_guardian','client'].includes(req.user.role)?req.user.id:null});
     res.json(data);
   } catch (e) {
     next(e);

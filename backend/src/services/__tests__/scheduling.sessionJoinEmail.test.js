@@ -49,3 +49,14 @@ it('keeps an NLU QA booked family join link on its agency path',async()=>{
  const result=await appointmentJoinEmail({appointment:qa,clientId:22,to:'guardian@example.test',context:tenantContext},d);
  expect(result.url).toBe('https://app.nextleveluplcc.com/nlu-qa-demo'+destination);
 });
+
+it('resolves a queued SMS recipient by the exact guardian identity rather than a shared delivery inbox',async()=>{
+ const d=fixture();d.join=vi.fn(async()=>'/tutoring/appointment/422?clientId=22');
+ d.guestLink=vi.fn(async()=> 'https://app.nextleveluplcc.com/nlu-qa-demo/tutoring/invite#synthetic');
+ const qa={...appointment,id:422,agencyId:453};
+ const result=await appointmentJoinEmail({appointment:qa,clientId:22,recipientUserId:1759,context:{...context,tenant:{id:453,slug:'nlu-qa-demo'}}},d);
+ expect(d.db.execute.mock.calls[0][0]).toContain('WHERE u.id=?');
+ expect(d.db.execute.mock.calls[0][1]).toEqual([22,422,1759]);
+ expect(d.guestLink).toHaveBeenCalledWith(qa,22,9,d.db);
+ expect(result.url).toContain('/tutoring/invite#');
+});

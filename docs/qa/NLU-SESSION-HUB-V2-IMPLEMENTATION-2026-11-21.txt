@@ -1,0 +1,43 @@
+NLU SESSION HUB V2 — ENGINEERING HANDOFF / NOVEMBER 21, 2026
+
+Implemented scope
+The dedicated Session Hub uses the same appointment-linked lesson for virtual and in-person tutoring. A compact participant panel, central board/worksheet, contextual learning/materials/notes/chat panel, focus mode and persistent session controls follow the supplied NLU mockups. The real booked room remains the media transport; preparation does not create attendance.
+
+The board retains server-enforced tutor clear/lock authority, learner-owned ink and the append-only lesson ledger. Question/worked-example cards can move and resize in both dimensions. Native document fields support text, numeric/fraction responses, choice and pointer/pen ink. PDF/image sources, approved versions, exact attempts, revisions and reviews are retained. Learner payloads exclude tutor keys and private feedback. Actual tablet/Pencil usability still requires physical-device testing.
+
+AI produces private reviewable questions and document field drafts. Text extraction and scanned-image/PDF OCR have an actionable manual-authoring fallback. Tutor review is required before sharing. Current approved plan/goal references, consistent four-level ratings and independence feed explicit progress recommendations. New evidence never silently rewrites a signed plan or declares mastery. Signed session activity records include performed work and worksheet version/attempt references.
+
+The resource library separates tutor-private drafts, student-specific material and staff-reviewed general publication. Import makes a private copy for the exact session. Publishing does not share it with a learner automatically.
+
+New native invitation links use an exact-booking, exact-recipient capability. The URL secret remains in the fragment and exchanges for a narrow HttpOnly guest proof, never an application JWT or whole-portal login. Email, eligible SMS and authenticated portal joins use the same invitation mechanism in enabled organizations. SMS consent and transport readiness remain required. Booking changes, removed guardian rights, explicit revocation and expiration are rechecked; active guest media access is disconnected. Guests cannot prepare a tutor workspace, admit people, sign notes or inspect private learning context.
+
+NR21 repairs preserve makeup client/subject/origin and choose a future default; check student overlaps as well as provider conflicts; include eligible RSVP actions in real tutoring booking/change notices; maintain a waiting tutor's valid room without the alone timeout; clarify focus position/count; and avoid the application-wide loading overlay for Hub requests.
+
+Rollout
+Additive migration 1861_nlu_session_hub.sql introduces guest grants/sessions, material versions/attempts/shares, resource library and progress decisions. Its flag update targets only marked synthetic QA453/nlu-qa-demo and QA454/nlu-qa-learning. No live NLU6 flag is enabled. Live NLU activation requires the owner's review of a complete working QA appointment. No childcare rates, employee agreements, memberships, billing policies or counseling permissions are changed by this work.
+
+Engineering validation on merged main
+- Backend: 836 passed; 23 environment-specific checks skipped in that run.
+- Frontend: 759 passed.
+- Isolated loopback MySQL: 7 passed separately, including additive migration replay, concurrent retry idempotency, immutable submitted answers, stale draft rejection, admission/unshare and cross-scope denial. Unique temporary schemas were dropped after testing.
+- Production frontend and public-site packaging passed.
+- Backend Docker/shared runtime import check passed (52 runtime imports).
+- Local Chrome preview: 7 checks passed; tutor lock synchronized to learner, learner had no clear control or key editor, exact worksheet response persisted, tablet/390px layouts had no horizontal overflow, and no runtime exceptions occurred.
+- CI workflow nlu-session-hub.yml repeats focused frontend/backend and isolated MySQL checks.
+
+Limits and evidence
+These are engineering checks, not completed live QA. Preview screenshots explicitly use synthetic local data and mocked API transport; they do not prove production attendance, email receipt, audio/video, AI/OCR availability or hardware support. All 34 new live cases start NOT RUN. The bot packet also preserves the earlier NR21/WB briefing and original 47-case checklist. Earlier failures remain open until freshly verified.
+
+The latest NR21 evidence used build dc07c21a1677a3f03e09e39852fe643326b7ea6f. Preserve signed479, unlinked480, missed420 and the actual state of481. Parker is client2545 / Math service1038; engineering fixture IDs are not live evidence. No passwords, invitation secrets or personal data belong in this handoff.
+
+Design rationale
+Worked examples beside learner practice, tutor-visible responses, explicit formative feedback and goals make the live lesson easier to guide. This is a product design inference consistent with:
+https://ies.ed.gov/ncee/WWC/PracticeGuide/1/Published
+https://educationendowmentfoundation.org.uk/education-evidence/teaching-learning-toolkit/Feedback
+https://educationendowmentfoundation.org.uk/education-evidence/teaching-learning-toolkit/one-to-one-tuition
+Those sources do not validate this implementation, its AI output or student outcomes.
+
+Handoff artifacts
+docs/qa/NLU-SESSION-HUB-V2-RETEST-2026-11-21.txt is canonical.
+Run node scripts/build-nlu-session-hub-packet.mjs to generate the bot TXT/PDF, 34-case CSV, blank audit/email ledgers and three separate upload attachments under deliverables/nlu-session-hub-2026-11-21.
+Record actual deployed frontend/backend builds and QA flags before starting live actions.
