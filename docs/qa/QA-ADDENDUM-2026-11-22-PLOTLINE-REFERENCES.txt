@@ -38,9 +38,11 @@ and deadline, and send once using Send reference request.
 4. Inspect the actual inbox receipt. Record From, Reply-To, recipient,
 message ID and receipt time. Confirm the Plotline logo, employer name,
 reference button and Want to use Plotline for your organization? link.
-Expected QA sender after provisioning is references@plotlinepo.com. Sender
-provisioning remains pending the separately requested operational approval.
-Mark that sender-specific case BLOCKED until readiness is confirmed. Distinguish
+Expected QA sender after provisioning is references@plotlinepo.com. Replies
+use the company People Operations route. These two synthetic QA companies
+use testing@itsco.health as their controlled reply destination. Sender
+provisioning requires an authorized Workspace group-management identity. Mark
+that sender-specific case BLOCKED until readiness is confirmed. Distinguish
 transport acceptance and the app's label from inbox delivery.
 
 5. Use the reference form's received invitation in an isolated signed-out
