@@ -33,7 +33,8 @@ export async function resolveClientPortalContext(client, {agencyId=Number(client
   const clientType = String(client.client_type || '').toLowerCase();
   const profile = client.id
     ? await readChartTypes(client.id,agencyId,undefined,{checkContact:false}) : null;
-  const clinical = profile ? profile.portalSetup?.portal === 'auricwell' : ['clinical','mental_health','school'].includes(clientType);
+  const clinical = profile ? profile.portalSetup?.portal === 'auricwell'
+    : ['clinical','mental_health','school'].includes(clientType) || ['clinical','school'].includes(typeOf(organization));
   const learning = !clinical && (profile ? profile.types.includes('learning')
     : ['learning','tutoring'].includes(clientType) || typeOf(organization) === 'learning');
   const portal = learning && typeOf(organization) === 'learning'

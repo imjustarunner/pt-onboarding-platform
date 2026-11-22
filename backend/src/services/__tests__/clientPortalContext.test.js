@@ -15,11 +15,11 @@ const school = { id: 2, name: 'School', slug: 'school', organization_type: 'scho
 const learning = { id: 3, name: 'Tutoring', slug: 'tutoring', organization_type: 'learning' };
 beforeEach(() => { vi.resetAllMocks(); Agency.findById.mockImplementation(async id => ({ 1: tenant, 2: school, 3: learning })[id]); });
 it('uses the owning tenant portal for school-based care', async () => {
-  expect(await resolveClientPortalContext({ agency_id: 1, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false, clinical: false });
+  expect(await resolveClientPortalContext({ agency_id: 1, organization_id: 2 })).toEqual({ tenant, portal: {...tenant,clinical_portal:true}, learning: false, clinical: true });
 });
 it('resolves legacy child-owned records to their main tenant', async () => {
   Affiliation.getActiveAgencyIdForOrganization.mockResolvedValue(1);
-  expect(await resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false, clinical: false });
+  expect(await resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).toEqual({ tenant, portal: {...tenant,clinical_portal:true}, learning: false, clinical: true });
 });
 it('retains a separate learning portal under the owning tenant', async () => {
   const context = await resolveClientPortalContext({ agency_id: 1, organization_id: 3 });
