@@ -1,6 +1,6 @@
 <template>
  <Teleport to="body">
-  <section v-if="prompts.length || error" class="dashboard-invitations" aria-label="Training and supervision invitations">
+  <section v-if="!appRemindersSnoozed && (prompts.length || error)" class="dashboard-invitations" aria-label="Training and supervision invitations">
     <p v-if="error" class="invitation-error" role="alert">{{ error }}</p>
     <div class="invitation-list" aria-live="polite">
       <article v-for="event in visible" :key="event.key" class="invitation-toast" :class="{ 'invitation-toast--required': event.required }">
@@ -43,8 +43,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import ScheduledTrainingPanel from './ScheduledTrainingPanel.vue';
+import { useAppReminderSnooze } from '../../composables/useAppReminderSnooze.js';
 const props = defineProps({ userId: { type: [Number, String], required: true } });
 const route = useRoute(), router = useRouter();
+const { snoozed: appRemindersSnoozed } = useAppReminderSnooze(computed(() => props.userId));
 const prompts = ref([]), error = ref(''), busy = ref(''), now = ref(Date.now());
 const declining = ref(''), reason = ref(''), selectedTraining = ref(null), showAll = ref(false);
 const snoozeBlocked = ref('');

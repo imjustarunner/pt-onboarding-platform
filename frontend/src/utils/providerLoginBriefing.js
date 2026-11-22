@@ -27,6 +27,7 @@ export const PROVIDER_BRIEFING_SECTION_ORDER = Object.freeze([
   'tasks',
   'calendar',
   'clientUpdates',
+  'documentation',
   'notesToSign',
   'tickets',
   'supervision',
@@ -102,7 +103,8 @@ export function activeProviderBriefingSections(source = {}) {
 
 /** Provider briefing cards — always include today's schedule so the day agenda is visible even when empty. */
 export function providerBriefingDisplaySections(source = {}) {
-  const active = activeProviderBriefingSections(source);
+  const alwaysVisible = new Set(['calendar','tasks','messages','notifications','notesToSign','documentation']);
+  const active = PROVIDER_BRIEFING_SECTION_ORDER.filter(key => source[key] && (alwaysVisible.has(key) || Number(source[key].count) > 0 || source[key].items?.length)).map(key => ({key,...source[key]}));
   const calendar = source.calendar;
   if (!calendar) return active;
 

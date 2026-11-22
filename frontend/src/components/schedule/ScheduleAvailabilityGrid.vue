@@ -96,7 +96,7 @@
             </div>
           </div>
 
-          <ProviderEnrollmentWaitlist v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id) && !hideOfficeAndCalendarIntegration" compact hide-unless-enabled :provider-id="Number(userId)" :agency-ids="String(route.query.waitlist || '') === '1' && Number(route.query.agencyId) > 0 ? [Number(route.query.agencyId)] : effectiveAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" />
+          <ProviderEnrollmentWaitlist v-if="mode === 'self' && Number(userId) === Number(authStore.user?.id) && !hideOfficeAndCalendarIntegration" compact hide-unless-enabled :provider-id="Number(userId)" :agency-ids="providerWaitlistAgencyIds" :initially-expanded="String(route.query.waitlist || '') === '1'" />
 
           <div class="sched-command__nav" role="group" aria-label="Week navigation" data-tour="my-schedule-week-nav">
             <button
@@ -6073,7 +6073,8 @@ import AppointmentReschedulePanel from './AppointmentReschedulePanel.vue';
 import ScheduleQuickRsvp from './ScheduleQuickRsvp.vue';
 const ScheduleInterviewPanel = defineAsyncComponent(() => import('./ScheduleInterviewPanel.vue'));
 import VirtualSessionBookingConfirmation from './VirtualSessionBookingConfirmation.vue';
-import { mergeSavedAppointmentCalendar } from '../../utils/savedAppointmentCalendar.js';
+import { isSchoolCareBridgeOnly } from '../../utils/schoolCareBridgeTenant.js';
+import { mergeSavedAppointmentCalendar, savedAppointmentAcknowledged } from '../../utils/savedAppointmentCalendar.js';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import TutoringSessionPrice from './TutoringSessionPrice.vue';
@@ -6600,7 +6601,7 @@ const forgetRecentlySavedAppointment = id => {
 const acknowledgeSavedAppointments = data => {
   const rows = data?.scheduleEvents || [];
   recentlySavedAppointments.value = Object.fromEntries(Object.entries(recentlySavedAppointments.value).filter(([, event]) => !rows.some(row =>
-    event.appointmentId && Number(row.appointmentId) === event.appointmentId)));
+    savedAppointmentAcknowledged(row, event))));
 };
 const googleCalendarEnabled = computed(() => !props.teamCalendar && Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
@@ -8046,7 +8047,7 @@ const loadSelfScheduleAgencies = async () => {
     // Always include the currently selected tenant (superadmin may be scoping a non-membership org).
     const current = agencyStore.currentAgency;
     const currentId = Number(current?.id || 0);
-    if (currentId && !seen.has(currentId) && isTenantOrganizationType(current?.organization_type || current?.organizationType)) {
+    if (authStore.user?.role === 'super_admin' && currentId && !seen.has(currentId) && isTenantOrganizationType(current?.organization_type || current?.organizationType)) {
       deduped.push({
         id: currentId,
         name: String(current?.name || `Agency ${currentId}`).trim(),
@@ -9132,6 +9133,7 @@ const mapAgencyOption = (row) => {
     id,
     label: String(row.name || row.agency_name || row.label || `Agency ${id}`).trim() || `Agency ${id}`,
     organizationType,
+    schoolCareBridgeOnly: isSchoolCareBridgeOnly(row),
     hasClinicalOrg: row.hasClinicalOrg == null ? null : !!row.hasClinicalOrg,
     hasLearningOrg: row.hasLearningOrg == null ? null : !!row.hasLearningOrg,
     medicalBillingEnabled: !!row.medicalBillingEnabled || isMedicalBillingEnabled(flags)
@@ -9296,11 +9298,19 @@ const activeScheduleAgencyLegend = computed(() => (
 
 const effectiveAgencyIds = computed(() => {
   if ((props.mode === 'self' || props.teamCalendar) && agencyFilterOptions.value.length) {
-    const active = (activeScheduleAgencyIds.value || []).map((n) => Number(n || 0)).filter((n) => n > 0);
+    const allowed = new Set(agencyFilterOptions.value.map(row => Number(row.id)));
+    const active = (activeScheduleAgencyIds.value || []).map(Number).filter(id => allowed.has(id));
     if (active.length) return Array.from(new Set(active));
     return agencyFilterOptions.value.map((row) => Number(row.id));
   }
   return propAgencyIds.value;
+});
+
+// SchoolCareBridge-only memberships have no clinical enrollment waitlist.
+const providerWaitlistAgencyIds = computed(() => {
+  const allowed = new Set(agencyFilterOptions.value.filter(row => !row.schoolCareBridgeOnly).map(row => Number(row.id)));
+  const explicit = String(route.query.waitlist || '') === '1' ? Number(route.query.agencyId) : 0;
+  return (explicit > 0 ? [explicit] : effectiveAgencyIds.value).filter(id => allowed.has(Number(id)));
 });
 
 let peerBusySummariesTimer = null;
@@ -19391,7 +19401,7 @@ const patchScheduleSummaryWithBookedEvent = ({
     ...(appointmentContext ? {
       clientName: appointmentContext.clientName || participant?.displayName || clientLabel
         || (participant ? scheduleEventClientDisplayName(participant.clientId) : ''),
-      providerId: appointmentContext.providerUserId, timeZone: appointmentContext.sourceTimezone || tz,
+      isClientSession: true, providerId: appointmentContext.providerUserId || props.userId, timeZone: appointmentContext.sourceTimezone || tz,
       canEdit: true, canReschedule: true
     } : {}),
     id: Number(eventId || 0) || null,

@@ -5,7 +5,7 @@
     <SecureSessionCommentsHost v-if="isAuthenticated && canUseSessionComments(user?.role) && user?.id && !isLoginEntry && !secureCommunicationRouteExcluded && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :user-id="user.id" :family="isFamilyPortalAccount" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <InsuranceVerificationGate v-if="isAuthenticated && !sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
-    <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
+    <BillingFollowupSplash v-if="!appRemindersSnoozed && !route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
     <SchoolContactPlanSplash
       v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred && !['AccountSecurity', 'OrganizationAccountSecurity'].includes(route.name)"
       :agency-id="agencyStore.currentAgency?.id"
@@ -1954,7 +1954,7 @@
         />
 
         <div class="app-status-tools">
-          <div v-if="showPayrollPendingToast || showPreHireToast || showApplicantsToast" class="app-corner-toasts" aria-live="polite">
+          <div v-if="!appRemindersSnoozed && (showPayrollPendingToast || showPreHireToast || showApplicantsToast)" class="app-corner-toasts" aria-live="polite">
             <div
               v-if="showPayrollPendingToast"
               class="payroll-pending-toast-wrap"
@@ -2039,7 +2039,8 @@
         </div>
 
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
-        <ProviderAvailabilityNotice v-if="isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
+        <AppReminderControls v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isImmersiveJoinRoute && !route.meta?.publicMarketingHub" :user-id="user.id" />
+        <ProviderAvailabilityNotice v-if="!appRemindersSnoozed && isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
         <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry && route.name !== 'SchoolCareBridgeOperations'" style="margin: 10px auto" />
         <MeetingRouteHost :can-minimize="isAuthenticated" />
         <TenantLegalFooter v-if="route.meta?.publicMarketingHub" />
@@ -2106,13 +2107,13 @@
         :login-trigger="privilegedLoginBriefingTrigger"
       />
       <ProviderUpdateReminderSplash
-        v-if="isAuthenticated && !isFamilyPortalAccount && !sessionLockStore.isLocked && !isImmersiveJoinRoute && !route.meta?.familyCommandCenter"
+        v-if="!appRemindersSnoozed && isAuthenticated && !isFamilyPortalAccount && !sessionLockStore.isLocked && !isImmersiveJoinRoute && !route.meta?.familyCommandCenter"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
       <PoweredByFooter v-if="isAuthenticated && !['GuardianPortal', 'OrganizationGuardianPortal'].includes(route.name) && !isImmersiveJoinRoute && !isPublicIntakeRoute && !route.meta?.fundthred" />
       <Teleport to="body">
         <div
-          v-if="showLoginNotificationsModal && !isOnNotificationsRoute"
+          v-if="!appRemindersSnoozed && showLoginNotificationsModal && !isOnNotificationsRoute"
           class="notifications-alert-overlay"
           @click.self="remindMeNextLogin"
         >
@@ -2157,7 +2158,7 @@
         </div>
       </Teleport>
       <button
-        v-if="showNotificationsNudge"
+        v-if="!appRemindersSnoozed && showNotificationsNudge"
         class="notifications-nudge"
         type="button"
         :title="`Open notifications (${notificationsUnreadCount} unread)`"
@@ -2170,7 +2171,7 @@
         </span>
       </button>
       <div
-        v-if="newNotificationToastVisible"
+        v-if="!appRemindersSnoozed && newNotificationToastVisible"
         class="new-notification-toast-wrap"
         role="alert"
       >
@@ -2193,13 +2194,13 @@
         >×</button>
       </div>
       <AnnouncementToasts
-        v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && (agencyStore.currentAgency?.id || agencyStore.userAgencies?.length) && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
+        v-if="!appRemindersSnoozed && isAuthenticated && !isFamilyPortalAccount && user?.id && (agencyStore.currentAgency?.id || agencyStore.userAgencies?.length) && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
         :storage-key="`staff:${user.id}:agency:${agencyStore.currentAgency?.id || 'platform'}`"
         :load-items="loadOfficeToasts"
         :record-event="recordOfficeToastEvent"
       />
-      <CompanyEventAnnouncements v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive" :key="`event-updates-${user.id}`" :user-id="user.id" :visit-id="authStore.loginVisitId" :agency-id="agencyStore.currentAgency?.id" />
-      <ActiveMeetingToasts v-if="isAuthenticated && !isFamilyPortalAccount && user?.id" :key="user.id" :user-id="user.id" />
+      <CompanyEventAnnouncements v-if="!appRemindersSnoozed && isAuthenticated && !isFamilyPortalAccount && user?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive" :key="`event-updates-${user.id}`" :user-id="user.id" :visit-id="authStore.loginVisitId" :agency-id="agencyStore.currentAgency?.id" />
+      <ActiveMeetingToasts v-if="!appRemindersSnoozed && isAuthenticated && !isFamilyPortalAccount && user?.id" :key="user.id" :user-id="user.id" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
         v-if="toolsAssignState"
@@ -2351,6 +2352,8 @@ import {
 import api from './services/api';
 import CompanyEventAnnouncements from './components/notifications/CompanyEventAnnouncements.vue';
 import AnnouncementToasts from './components/notifications/AnnouncementToasts.vue';
+import AppReminderControls from './components/notifications/AppReminderControls.vue';
+import { useAppReminderSnooze } from './composables/useAppReminderSnooze.js';
 import { loadStaffAnnouncementToasts } from './utils/staffAnnouncementToasts';
 import ActiveMeetingToasts from './components/meetings/ActiveMeetingToasts.vue';
 import { listActivities } from './services/counselingApi.js';
@@ -2538,6 +2541,7 @@ const {
   snoozeTomorrow,
   deferUntilNextLogin
 } = useReminderSnooze(userIdForSnooze, sessionIdForDefer);
+const { snoozed: appRemindersSnoozed } = useAppReminderSnooze(userIdForSnooze);
 const sendingTextReminder = ref(false);
 const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
