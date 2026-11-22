@@ -64,7 +64,7 @@ it('renders the existing-recipient email without creating an assignment or attem
 it('makes SCARED forms assignable without exposing drafts or another recipientâ€™s assessment', async () => {
   m.execute.mockResolvedValueOnce([[]]);
   const catalog = await listUpdateCatalog(2);
-  expect(catalog.assessments.filter(row => row.family.startsWith('scared'))).toEqual([
+  expect(catalog.assessments.filter(row => ['scared','scared-parent'].includes(row.family))).toEqual([
     expect.objectContaining({ family:'scared', assignable:true }),
     expect.objectContaining({ family:'scared-parent', assignable:true })
   ]);
@@ -79,4 +79,17 @@ it('makes SCARED forms assignable without exposing drafts or another recipientâ€
   await expect(assignedOutcomeAssessment({ ...assessment, user:{ id:9, role:'client_guardian' } })).rejects.toMatchObject({ status:404 });
   await expect(assignedOutcomeAssessment({ ...assessment, agencyId:3 })).rejects.toMatchObject({ status:403 });
   await expect(createClientUpdate({ agencyId:2, clientId:5, body:{ assessments:['scared'], guardianUserId:8, guardianEmail:contact.email } })).rejects.toMatchObject({ status:400 });
+});
+
+it('identifies available clinical assessments separately from family assignment',async()=>{
+  m.execute.mockResolvedValueOnce([[]]);
+  const {assessments}=await listUpdateCatalog(2);
+  const measure=key=>assessments.find(item=>item.family===key);
+  for(const key of ['gad-7','phq-9','phq-a']){
+    expect(measure(key)).toMatchObject({assignable:true,respondent:'self'});
+  }
+  expect(measure('cssrs-screener')).toMatchObject({assignable:false,availabilityLabel:'Available in Clinical Forms'});
+  expect(measure('scared-5-parent')).toMatchObject({assignable:false,availabilityLabel:'Available in dependent counseling intake'});
+  expect(measure('scared')).toMatchObject({assignable:true});
+  expect(measure('life_balance')).toMatchObject({assignable:true});
 });

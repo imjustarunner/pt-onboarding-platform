@@ -131,10 +131,17 @@ it('lists reviewed assessments and the client’s current school forms without o
   api.get.mockImplementation(async url => {
     if (url.endsWith('/status')) return {data:{enabled:true}};
     if (url==='/clinical-forms') return {data:{plans:[]}};
-    if (url.endsWith('/updates/catalog')) return {data:{recipients:[recipient],schoolClient:true,schoolName:'Test Elementary',
-      assessments:[{family:'life_balance',title:'Life Balance',assignable:true},{family:'gad-7',title:'GAD-7',assignable:false}],
+    if (url.endsWith('/updates/catalog')) return {data:{recipients:[recipient],schoolClient:true,schoolName:'Test Elementary',schoolCity:'Colorado Springs',
+      assessments:[
+        {family:'life_balance',title:'Life Balance',assignable:true},
+        {family:'gad-7',title:'GAD-7',assignable:false,availabilityLabel:'Available in Outcome Measures'},
+        {family:'cssrs-screener',title:'C-SSRS',assignable:false,availabilityLabel:'Available in Clinical Forms'},
+        {family:'scared-5-parent',title:'SCARED-5 · Parent report',assignable:false,availabilityLabel:'Available in dependent counseling intake'},
+        {family:'values_alignment',title:'Values Alignment',assignable:false}
+      ],
       portalSteps:[{key:'payment',title:'Payment setup'},{key:'information',title:'Verify contact information'}]}};
     if (url.endsWith('/catalog')) return {data:{recipients:[recipient],documents:[
+      {key:'portal-psc-17',title:'PSC-17 · Parent report',instrumentId:'psc-17'},
       {key:'informed-consent',title:'Informed consent'},{key:'policy-services',title:'Policy and services'},{key:'hipaa-notice',title:'Privacy notice'}
     ],refreshFoundationKeys:['informed-consent','policy-services','hipaa-notice']}};
     throw new Error('Unexpected request '+url);
@@ -145,13 +152,44 @@ it('lists reviewed assessments and the client’s current school forms without o
   const row = title => wrapper.findAll('.pick-row').find(item=>item.text().startsWith(title));
   expect(row('Smart School ROI').text()).toContain('Test Elementary');
   expect(row('Life Balance').find('input').exists()).toBe(true);
-  expect(row('GAD-7').text()).toContain('Coming soon');
+  expect(row('GAD-7').text()).toContain('Available in Outcome Measures');
+  expect(row('C-SSRS').text()).toContain('Available in Clinical Forms');
+  expect(row('Values Alignment').text()).toContain('Coming soon');
   expect(row('GAD-7').find('input').exists()).toBe(false);
+  expect(row('SCARED-5').text()).toContain('Available in dependent counseling intake');
+  expect(row('School disclosure').text()).toContain('Colorado Springs');
+  expect(row('PSC-17').get('input').exists()).toBe(true);
   await button('Bring client records up to date').trigger('click');
   expect(wrapper.findAll('.review-selection li').map(item=>item.text())).toEqual([
-    'Current provider disclosure','Verify contact information','Informed consent','Policy and services','Privacy notice'
+    'Assigned provider disclosure','Verify contact information','Informed consent','Policy and services','Privacy notice'
   ]);
   expect(api.post).not.toHaveBeenCalled();
+});
+
+it.each([true,false])('uses the provider disclosure shortcut with recorded signing authority %s',async recordedSigningAuthority=>{
+  api.get.mockImplementation(async url=>{
+    if(url.endsWith('/status')) return {data:{enabled:true}};
+    if(url==='/clinical-forms') return {data:{plans:[]}};
+    if(url.endsWith('/updates/catalog')) return {data:{recipients:[{...recipient,recordedSigningAuthority}]}};
+    if(url.endsWith('/catalog')) return {data:{recipients:[recipient],documents:[]}};
+    if(url.endsWith('/preview/smart/smart-disclosure')) return {data:{context:{contentHash:'a'.repeat(40)}}};
+    throw new Error('Unexpected request '+url);
+  });
+  api.post.mockResolvedValue({data:{assigned:true}});
+  wrapper=mount(Modal,{props:{...props,inline:true,clinicalMode:'full',recipientGuardianId:3}});
+  await flushPromises();
+  await button('Assign provider disclosure').trigger('click');
+  await flushPromises();
+  if(recordedSigningAuthority){
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/5/updates/smart-form',expect.objectContaining({
+      key:'smart-disclosure',recipient:{id:3,kind:'guardian'},useRecordedAuthority:true,contentHash:'a'.repeat(40)
+    }));
+    expect(wrapper.text()).toContain('Provider disclosure assigned in the portal.');
+  }else{
+    expect(api.post).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-selection').text()).toContain('Assigned provider disclosure');
+    expect(button('Assign in portal').attributes('disabled')).toBeDefined();
+  }
 });
 
 it('assigns a general release with the selected chart contact and leaves the signer pinned', async () => {

@@ -55,6 +55,7 @@
           <div class="cu-layout">
             <aside class="assignment-panel">
               <h4>Assign to client portal</h4>
+              <button v-if="enabled && clinicalMode === 'full'" class="choice" type="button" :disabled="saving || busyLoading" @click="assignProviderDisclosure"><FileSignature /> Assign provider disclosure <ChevronRight /></button>
               <button v-if="enabled" class="choice" type="button" @click="openPicker('packages')"><Layers /> Use a package <ChevronRight /></button>
               <button class="choice" type="button" @click="openPicker('items')"><ListChecks /> Select individual items <ChevronRight /></button>
               <button v-if="refreshAvailable" class="choice" type="button" @click="useRefreshPackage"><Layers /> Bring client records up to date <ChevronRight /></button>
@@ -106,9 +107,9 @@
                     <h5>{{ group.label }}</h5><div v-for="item in group.items" :key="item.id" class="pick-row">
                       <label><input v-if="item.assignable !== false && (clinicalMode!=='release' || group.key!=='records')" type="checkbox" :checked="isSelected(item)" @change="toggleItem(item,$event.target.checked)" /> {{ item.title }}</label>
                       <small v-if="item.population">{{ item.population }}</small>
-                      <small v-if="item.assignable === false" class="status-tag">Coming soon</small>
+                      <small v-if="item.assignable === false" class="status-tag">{{ item.availabilityLabel || 'Coming soon' }}</small>
                       <button v-else type="button" class="text-action" @click="previewItems=[item]">Preview</button>
-                      <button v-if="!recipientGuardianId && ['foundation','records'].includes(group.key)" type="button" class="text-action" @click="clinical.prepare(item)">{{ group.key==='records'?'Open':'Prepare' }}</button>
+                      <button v-if="!recipientGuardianId && ['foundation','records'].includes(item.group) && !item.instrumentId" type="button" class="text-action" @click="clinical.prepare(item)">{{ item.group==='records'?'Open':'Prepare' }}</button>
                     </div>
                   </section>
                   <p v-if="!selectionGroups.length && !busyLoading">No matching items.</p>
@@ -144,14 +145,14 @@
             <p v-else-if="assessmentRespondents.length" class="hint">{{ assessmentRespondents[0] === 'self' ? 'The client completes this selection in their own portal account.' : 'A parent or guardian completes this selection about the client.' }}</p>
             <p v-if="!eligible.length" class="hint">No linked account has access to this selection. Review portal access or the responsible payer in Billing.</p>
             <template v-if="needsAuthority">
-              <label v-if="clinicalSelection.length">Recipient action <select v-model="clinicalAction" :disabled="saving"><option value="complete">Complete forms and sign</option><option value="sign">Review and sign</option></select></label>
+              <label v-if="clinicalSelection.length">Recipient action <select v-model="clinicalAction" :disabled="saving || !!selectedScreen"><option value="complete">Complete forms and sign</option><option value="sign">Review and sign</option></select></label>
               <label v-if="chosen?.kind==='guardian'"><input type="checkbox" v-model="authority" :disabled="saving" /> I verified this guardian is authorized to sign the selected documents.</label>
             </template>
             <p v-if="clinicalSelection.length>30" role="alert">Select up to 30 enrollment forms and saved documents at once.</p>
             <p v-if="chosen" class="hint">{{ includeUpdateEmail ? 'A portal update email is requested, subject to the recipient’s contact choices. The forms are completed in the portal.' : 'This selection is assigned in the portal.' }}</p>
             <footer><button v-if="chosen && includeUpdateEmail && !paymentOnly" type="button" @click="previewItems=[{group:'notice',id:'notice',title:'Email notice'}]">Preview email notice</button>
               <button type="button" @click="previewItems=selectedItems.slice()">Preview selection</button>
-              <button type="button" class="btn btn-primary" :disabled="!canSend" @click="send">{{ saving ? 'Assigning…' : includeUpdateEmail ? 'Send portal update' : 'Assign in portal' }}</button></footer>
+              <button type="button" class="btn btn-primary" :disabled="!canSend" @click="send()">{{ saving ? 'Assigning…' : includeUpdateEmail ? 'Send portal update' : 'Assign in portal' }}</button></footer>
           </section>
         </template>
         <PortalSelectionPreview v-if="previewItems.length" :items="previewItems" :client-id="activeClientId" :agency-id="agencyId" :client-name="activeName" :recipient="authorizationOnlyPackage && chosen ? {...chosen,cardAllowed:false} : chosen" :action="clinicalAction" :context="context" :release-contact="chosenReleaseContact" :branding="clinicalCatalog?.branding || {name:agencyName}" @reviewed="rememberSmartPreview" @close="previewItems=[]" />
@@ -216,13 +217,16 @@ const anySelected = computed(() => anyUpdates.value || needsAuthority.value);
 const includeUpdateEmail = computed(() => anyUpdates.value);
 const chosenReleaseContact = computed(() => releaseContacts.value.find(entry => entry.id === releaseContactId.value)?.contact);
 const typedForms = computed(() => [
-  ...(enabled.value && props.clinicalMode === 'full' ? [{group:'smart',id:'smart-disclosure',title:'Current provider disclosure'}] : []),
-  ...(enabled.value && schoolClient.value && props.clinicalMode === 'full' ? [{group:'smart',id:'smart-school-roi',title:'Smart School ROI · ' + (schoolName.value || 'Client’s school')}] : []),
+  ...(enabled.value && props.clinicalMode === 'full' ? [{group:'smart',id:'smart-disclosure',title:'Assigned provider disclosure'}] : []),
+  ...(enabled.value && schoolClient.value && props.clinicalMode === 'full' ? [
+    {group:'smart',id:'school-city-disclosure',title:'School disclosure · ' + (schoolCity.value || schoolName.value || 'Client’s school')},
+    {group:'smart',id:'smart-school-roi',title:'Smart School ROI · ' + (schoolName.value || 'Client’s school')}
+  ] : []),
   ...(props.clinicalMode ? [{group:'release',id:'release-of-information',title:'Release of information'}] : [])
 ]);
 const updateChoices=computed(()=>[
   ...catalog.documents.map(d=>({group:'documents',id:d.id,title:d.name})),
-  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title,population:a.population,respondent:a.respondent,assignable:a.assignable})),
+  ...catalog.assessments.filter(a=>!clinical.foundations.value.some(form=>form.instrumentId===a.family)).map(a=>({group:'assessments',id:a.family,title:a.title,population:a.population,respondent:a.respondent,assignable:a.assignable,availabilityLabel:a.availabilityLabel})),
   ...catalog.portalSteps.map(s=>({group:'portalSteps',id:s.key,title:s.title,detail:s.detail}))
 ]);
 const selectedItems=computed(()=>[...typedForms.value.filter(isSelected),...updateChoices.value.filter(isSelected),...clinicalSelection.value]);
@@ -230,7 +234,7 @@ const groupLabels={smart:'School & provider forms',release:'Releases',foundation
 const selectionGroups=computed(()=>{
   const choices=[...(picker.value==='create'?[]:typedForms.value),...updateChoices.value,...clinical.foundations.value,...clinical.saved.value];
   return Object.entries(groupLabels).filter(([key])=>key!=='records'||picker.value!=='create').map(([key,label])=>({
-    key,label,items:choices.filter(d=>d.group===key && d.title.toLowerCase().includes(catalogSearch.value.toLowerCase()))
+    key,label,items:choices.filter(d=>(d.instrumentId?'assessments':d.group)===key && d.title.toLowerCase().includes(catalogSearch.value.toLowerCase()))
   })).filter(group=>group.items.length);
 });
 function idsFor(group){
@@ -279,7 +283,7 @@ function clearSelection(){
 async function reloadWorkspace(){await Promise.all([enabled.value?loadCatalog().catch(()=>{error.value='The assignment list could not be refreshed.';}):null,clinical.load()]);}
 function prepareToLeave(){return !saving.value && clinical.canLeave();}
 defineExpose({prepareToLeave});
-const schoolClient=ref(false),schoolName=ref(''),schoolExpiry=ref('');
+const schoolClient=ref(false),schoolName=ref(''),schoolCity=ref(''),schoolExpiry=ref('');
 const packages=ref([]),items=ref([]),recipients=ref([]),chosenId=ref(''),packageName=ref(''),schoolOnly=ref(false),packageFilter=ref(''),search=ref('');
 const itemType=ref(''),itemStatus=ref('');
 const allItems = computed(() => {
@@ -310,13 +314,16 @@ const filteredItems=computed(()=>allItems.value.filter(i=>(!itemType.value || ty
 const paymentSelected=computed(()=>selected.portalSteps.some(k=>['payment','authorization'].includes(k)));
 const paymentOnly=computed(()=>paymentSelected.value && !selected.documents.length && !selected.assessments.length && selected.portalSteps.every(k=>['payment','authorization'].includes(k)));
 const assessmentRespondents=computed(()=>[...new Set(catalog.assessments.filter(a=>selected.assessments.includes(a.family) && a.respondent).map(a=>a.respondent))]);
+const selectedScreen = computed(()=>clinicalSelection.value.find(form=>form.instrumentId));
+watch(selectedScreen,screen=>{if(screen)clinicalAction.value='complete';},{flush:'sync'});
 const eligibleRecipients=computed(()=>{
   const updateRecipients=recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing)
     && assessmentRespondents.value.every(type=>r.kind===(type==='self'?'client':'guardian')));
   const schoolRelease=smartKeys.value.includes('smart-school-roi');
   const allowed=schoolRelease ? updateRecipients.filter(r=>r.kind!=='client') : updateRecipients;
   if(!needsAuthority.value)return allowed;
-  const clinicalRecipients=(clinicalCatalog.value?.recipients || []).filter(r=>!schoolRelease || r.kind==='guardian');
+  const clinicalRecipients=(clinicalCatalog.value?.recipients || []).filter(r=>(!schoolRelease || r.kind==='guardian')
+    && (!selectedScreen.value || r.kind===(context.audience==='self'?'client':'guardian')));
   if(!anyUpdates.value && !smartKeys.value.length)return clinicalRecipients;
   return clinicalRecipients.flatMap(r=>{
     const update=allowed.find(u=>Number(u.id)===Number(r.id));
@@ -330,6 +337,25 @@ const chosen=computed(()=>eligible.value.find(r=>Number(r.id)===Number(chosenId.
 watch(eligible,rows=>{if(!rows.some(r=>Number(r.id)===Number(chosenId.value)))chosenId.value=!saving.value && rows.length===1?rows[0].id:'';},{flush:'sync'});
 watch(chosenId,()=>{authority.value=false;},{flush:'sync'});
 const canSend=computed(()=>anySelected.value && chosen.value && !saving.value && !attemptedDelivery.value && clinicalSelection.value.length+Number(releaseSelected.value)<=30 && (!needsAuthority.value || chosen.value.kind!=='guardian' || authority.value));
+
+async function assignProviderDisclosure() {
+  const item = typedForms.value.find(form => form.id === 'smart-disclosure');
+  if (!item || saving.value) return;
+  const current = generation;
+  const offerDirectAssignment = !anySelected.value && !attemptedDelivery.value;
+  if (attemptedDelivery.value) await openPicker('items');
+  if (generation !== current || attemptedDelivery.value) return;
+  if (!isSelected(item)) toggleItem(item, true);
+
+  const recipient = eligible.value.length === 1 ? eligible.value[0] : null;
+  if (offerDirectAssignment && recipient && (recipient.kind === 'client' || recipient.recordedSigningAuthority === true)) {
+    chosenId.value = recipient.id;
+    await send({ directDisclosure: true });
+    if (generation === current && smartKeys.value.includes(item.id)) await openPicker('items');
+    return;
+  }
+  await openPicker('items');
+}
 const visiblePackages=computed(()=>packages.value.filter(p=>!packageFilter.value || Number(p.school_only)));
 const packageSize=p=>['documents','assessments','portalSteps','foundationKeys'].reduce((n,k)=>n+(p.selection_json?.[k]?.length || 0),0);
 async function usePackage(pkg){
@@ -438,7 +464,7 @@ async function loadCatalog() {
   if(current!==generation)return;
   historyError.value=false;
   const firstSchoolLoad = !schoolClient.value && response.data?.schoolClient===true;
-  schoolClient.value=response.data?.schoolClient===true;schoolName.value=response.data?.schoolName || '';schoolExpiry.value=String(response.data?.schoolRoiExpiresAt||'').slice(0,10);
+  schoolClient.value=response.data?.schoolClient===true;schoolName.value=response.data?.schoolName || '';schoolCity.value=response.data?.schoolCity || '';schoolExpiry.value=String(response.data?.schoolRoiExpiresAt||'').slice(0,10);
   if (firstSchoolLoad) context.channel='school';
   recipients.value=response.data?.recipients||[];packages.value=response.data?.packages||[];items.value=response.data?.items||[];
   catalog.documents = response.data?.documents || [];
@@ -526,8 +552,10 @@ async function createShell() {
 }
 
 let lastClinicalRequest=null;
-async function send() {
-  if (!canSend.value) return;
+async function send({ directDisclosure = false } = {}) {
+  const useRecordedAuthority = directDisclosure && chosen.value?.kind === 'guardian' && chosen.value?.recordedSigningAuthority === true;
+  if (!canSend.value && !(useRecordedAuthority && !saving.value && !attemptedDelivery.value && smartKeys.value.length === 1
+    && smartKeys.value[0] === 'smart-disclosure' && !anyUpdates.value && !clinicalSelection.value.length && !releaseSelected.value)) return;
   error.value='';success.value='';
   const recipient=chosen.value, includeUpdates=anyUpdates.value;
   const current=generation,clientId=activeClientId.value,agencyId=Number(props.agencyId);
@@ -542,7 +570,7 @@ async function send() {
       const {data}=await api.get(`/clients/${clientId}/updates/preview/smart/${key}`,{params:{locale:requestContext.locale}});
       const previewHash=previewedSmart.get(key+':'+requestContext.locale);
       if(previewHash && previewHash!==data.context?.contentHash){
-        if(current===generation)error.value='The provider disclosure changed. Open its preview again before assigning.';
+        if(current===generation)error.value='The disclosure changed. Open its preview again before assigning.';
         return;
       }
       reviewedSmartForms.push({key,contentHash:data.context?.contentHash});
@@ -565,10 +593,12 @@ async function send() {
       if(current!==generation)return;
     }
     for(const reviewed of reviewedSmartForms){
-      await api.post(`/clients/${clientId}/updates/smart-form`,{...reviewed,locale:requestContext.locale,recipient:{id:recipient.id,kind:recipient.kind},authorityConfirmed:signerAuthority});
+      const {data} = await api.post(`/clients/${clientId}/updates/smart-form`,{...reviewed,locale:requestContext.locale,recipient:{id:recipient.id,kind:recipient.kind},authorityConfirmed:signerAuthority,...(useRecordedAuthority ? {useRecordedAuthority:true} : {})});
       if(current!==generation)return;
       smartKeys.value=smartKeys.value.filter(key=>key!==reviewed.key);
-      success.value='Current forms are assigned in the portal.';
+      success.value=directDisclosure
+        ? (data?.reused ? 'The provider disclosure is already assigned in the portal.' : 'Provider disclosure assigned in the portal.')
+        : 'Current forms are assigned in the portal.';
     }
     if(!includeUpdates){
       if(reviewedSmartForms.length)await loadCatalog();
@@ -632,7 +662,7 @@ watch(() => [props.open,props.clientId,props.agencyId,props.canUpdate], async ([
   selected.documents = [];
   selected.assessments = [];
   selected.portalSteps = [];
-  itemType.value='';itemStatus.value='';schoolClient.value=false;schoolName.value='';schoolExpiry.value='';
+  itemType.value='';itemStatus.value='';schoolClient.value=false;schoolName.value='';schoolCity.value='';schoolExpiry.value='';
   smartKeys.value=[];releaseSelected.value=false;releaseContactId.value=null;releaseContacts.value=[];contactError.value='';packages.value=[];items.value=[];recipients.value=[];chosenId.value='';packageName.value='';schoolOnly.value=false;packageFilter.value='';search.value='';saving.value=false;
   context.channel='office';
   catalog.documents=[];catalog.assessments=[];catalog.portalSteps=[];organizations.value=[];providers.value=[];

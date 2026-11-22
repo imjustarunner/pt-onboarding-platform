@@ -481,7 +481,7 @@ async function loadUserInfoMap(userIds) {
   return map;
 }
 
-export async function listDisclosureProviders({ agencyId, schoolOrganizationId, schoolCity = null, providerUserIds = null, regulatoryBoardOverrides = {} }) {
+export async function listDisclosureProviders({ agencyId, schoolOrganizationId, schoolCity = null, schoolCityOnly = false, providerUserIds = null, regulatoryBoardOverrides = {} }) {
   const schoolId = Number(schoolOrganizationId || 0);
   const aid = Number(agencyId || 0);
   if (!aid) return [];
@@ -500,6 +500,26 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
   const schoolAssignedIds = new Set();
   const city = String(schoolCity || '').trim().toLowerCase();
   if (schoolId) {
+    let schoolIds = [schoolId];
+    if (schoolCityOnly || city) {
+      const [campuses] = await pool.execute(
+        `SELECT campus.id FROM agencies campus
+         JOIN agencies source ON source.id = ?
+         WHERE campus.organization_type = 'school' AND campus.is_active = 1 AND COALESCE(campus.is_archived, 0) = 0
+           AND (campus.id = source.id OR (
+             TRIM(COALESCE(source.city, '')) <> '' AND TRIM(COALESCE(source.state, '')) <> ''
+             AND LOWER(TRIM(campus.city)) = LOWER(TRIM(source.city))
+             AND REPLACE(LOWER(TRIM(campus.state)), 'colorado', 'co') = REPLACE(LOWER(TRIM(source.state)), 'colorado', 'co')
+           ))
+           AND (EXISTS (SELECT 1 FROM organization_affiliations f
+                        WHERE f.organization_id = campus.id AND f.agency_id = ? AND f.is_active = 1)
+             OR EXISTS (SELECT 1 FROM agency_schools f
+                        WHERE f.school_organization_id = campus.id AND f.agency_id = ? AND f.is_active = 1))`,
+        [schoolId, aid, aid]
+      );
+      schoolIds = campuses.map(({ id }) => Number(id));
+      if (!schoolIds.length) return [];
+    }
     try {
       const [rows] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo,
@@ -508,20 +528,12 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
          JOIN users u ON u.id = psa.provider_user_id
          JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1
          JOIN agencies school ON school.id = psa.school_organization_id
-         WHERE (
-           psa.school_organization_id = ?
-           OR (? <> '' AND LOWER(TRIM(school.city)) = ? AND school.organization_type = 'school' AND (
-             EXISTS (SELECT 1 FROM agency_schools asg
-               WHERE asg.agency_id = ua.agency_id AND asg.school_organization_id = school.id AND asg.is_active = TRUE)
-             OR EXISTS (SELECT 1 FROM organization_affiliations oa
-               WHERE oa.agency_id = ua.agency_id AND oa.organization_id = school.id AND oa.is_active = TRUE)
-           ))
-         )
+         WHERE psa.school_organization_id IN (${schoolIds.map(() => '?').join(',')})
            AND COALESCE(psa.is_active, 1) = 1
            AND COALESCE(school.is_active, 1) = 1 AND COALESCE(school.is_archived, 0) = 0
            ${activeUserClause}
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [aid, schoolId, city, city]
+        [aid, ...schoolIds]
       );
       schoolProviders.push(...(rows || []));
       for (const row of schoolProviders) {
@@ -709,6 +721,10 @@ export async function buildSmartDisclosureContext({
   const orgType = String(schoolOrg?.organization_type || 'school').trim().toLowerCase();
   const messages = parseJsonMaybe(link?.custom_messages || link?.customMessages);
   const assignedTeamOnly = messages?.disclosureAssignedTeamOnly === true;
+  const schoolCityOnly = !assignedTeamOnly && (
+    Number(messages?.disclosureSchoolCityId) > 0
+    || (!!schoolOrg && orgType === 'school' && link?.scope_type === 'school' && !messages?.disclosureContentHash)
+  );
   const isSchoolFamilyOrg = !!schoolOrg && ['school', 'program', 'learning'].includes(orgType);
   // Enabled for any school-family org, programmed disclosure steps, or standalone smart_disclosure forms.
   // Demo Hogwarts people remain filtered via isDemoPacketIdentity in listDisclosureProviders.
@@ -763,6 +779,7 @@ export async function buildSmartDisclosureContext({
       schoolOrganizationId: assignedTeamOnly ? null : schoolId,
       schoolCity: orgType === 'school' ? schoolOrg?.city : null,
       providerUserIds: assignedProviderIds,
+      schoolCityOnly,
       regulatoryBoardOverrides: settings.regulatoryBoardOverrides || {}
     })
     : [];

@@ -2,6 +2,7 @@ import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
 import {readFile} from 'node:fs/promises';
 import {isolatedWorkflowMysql,recoveryMysqlEnabled} from '../../services/__tests__/fixtures/isolatedWorkflowMysql.js';
 import {createAssignmentPackage,getClientUpdateCatalog,previewUpdateItem} from '../clientUpdate.controller.js';
+import {listDisclosureProviders} from '../../services/smartDisclosure.service.js';
 
 const fixture=vi.hoisted(()=>({db:null}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>fixture.db.execute(...args)}}));
@@ -25,7 +26,7 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
       INSERT INTO chat_messages VALUES(3);
       CREATE TABLE users(id INT PRIMARY KEY,first_name TEXT,last_name TEXT,is_active BOOL,is_archived BOOL,terminated_at DATETIME,status VARCHAR(50));
       CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOL);
-      CREATE TABLE agencies(id INT,name VARCHAR(80),organization_type VARCHAR(30),is_active BOOL,is_archived BOOL);
+      CREATE TABLE agencies(id INT,name VARCHAR(80),organization_type VARCHAR(30),is_active BOOL,is_archived BOOL,city VARCHAR(80),state VARCHAR(30));
       CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active BOOL,is_primary BOOL);
       CREATE TABLE client_school_roi_signing_links(id INT,client_id INT,school_organization_id INT,recipient_guardian_user_id INT,issued_by_user_id INT,status VARCHAR(30),signed_at DATETIME);
       CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOL);
@@ -47,7 +48,7 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
       CREATE TABLE client_assessment_deliverables(id INT,scores_snapshot_json JSON,client_id INT,agency_id INT,assessment_family VARCHAR(64),assessment_id INT,kind VARCHAR(30));
       INSERT INTO users VALUES(7,'Support','Staff',1,0,NULL,'ACTIVE'),(8,'Test','Guardian',1,0,NULL,'ACTIVE');
       INSERT INTO user_agencies VALUES(7,3,1);
-      INSERT INTO agencies VALUES(17,'Test School','school',1,0),(18,'Other School','school',1,0);
+      INSERT INTO agencies VALUES(17,'Test School','school',1,0,'Colorado Springs','CO'),(18,'Other School','school',1,0,'Denver','CO');
       INSERT INTO client_school_roi_signing_links VALUES(31,44,17,8,7,'issued',NULL),(32,44,18,8,7,'issued',NULL);
       INSERT INTO organization_affiliations VALUES(17,3,1);
       INSERT INTO family_billing_tasks VALUES(9,3,8,JSON_ARRAY(44),'pending',DATE_ADD(NOW(),INTERVAL 15 DAY),NULL);
@@ -76,6 +77,7 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
     expect(data.packages.map(p=>p.name)).toEqual(['School intake']);
     expect(data.schoolRoiExpiresAt).toBe('2027-04-03');
     expect(data.schoolName).toBe('Test School');
+    expect(data.schoolCity).toBe('Colorado Springs');
     expect(data.items).toMatchObject([
       {id:31,item_type:'school_roi',status:'pending',recipientUserId:8},
       {id:9,item_type:'billing',status:'pending',last_name:'Guardian'}
@@ -109,6 +111,33 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
     expect(res.status).toHaveBeenCalledWith(403);
     await previewUpdateItem({...req,user:{id:7,role:'support'}},res,e=>{throw e;});
     expect(res.sendStatus).toHaveBeenCalledWith(404);
+  });
+
+  it('keeps Colorado Springs and Denver school disclosures separate using active school assignments',async()=>{
+    await runSql(`
+      ALTER TABLE agencies ADD COLUMN state VARCHAR(40);
+      UPDATE agencies SET state='CO';
+      INSERT INTO agencies VALUES(19,'Another Springs campus','school',1,0,' colorado springs ','Colorado');
+      INSERT INTO agencies VALUES(20,'Unaffiliated Springs campus','school',1,0,'Colorado Springs','CO');
+      INSERT INTO organization_affiliations VALUES(18,3,1),(19,3,1),(20,4,1);
+      ALTER TABLE users ADD COLUMN credential TEXT, ADD COLUMN email TEXT, ADD COLUMN role VARCHAR(40),
+        ADD COLUMN title TEXT, ADD COLUMN is_demo BOOL DEFAULT 0, ADD COLUMN has_supervisor_privileges BOOL DEFAULT 0;
+      ALTER TABLE user_agencies ADD COLUMN agency_role VARCHAR(40), ADD COLUMN agency_position TEXT, ADD COLUMN include_on_disclosure BOOL;
+      CREATE TABLE provider_school_assignments(provider_user_id INT,school_organization_id INT,is_active BOOL);
+      INSERT INTO users(id,first_name,last_name,is_active,is_archived,status,role) VALUES
+        (41,'Spring','First',1,0,'ACTIVE_EMPLOYEE','provider'),
+        (42,'Spring','Second',1,0,'ACTIVE_EMPLOYEE','provider'),
+        (43,'Denver','Third',1,0,'ACTIVE_EMPLOYEE','provider'),
+        (44,'Office','Fourth',1,0,'ACTIVE_EMPLOYEE','provider'),
+        (45,'Other','Fifth',1,0,'ACTIVE_EMPLOYEE','provider');
+      INSERT INTO user_agencies(user_id,agency_id,is_active) VALUES(41,3,1),(42,3,1),(43,3,1),(44,3,1),(45,3,1);
+      INSERT INTO provider_school_assignments VALUES(41,17,1),(42,19,1),(43,18,1),(45,20,1);
+    `);
+    const roster=async schoolOrganizationId=>(await listDisclosureProviders({agencyId:3,schoolOrganizationId,schoolCityOnly:true})).map(provider=>provider.id);
+    expect(await roster(17)).toEqual([41,42]);
+    expect(await roster(18)).toEqual([43]);
+    await fixture.db.execute("UPDATE agencies SET city=NULL WHERE id=17");
+    expect(await roster(17)).toEqual([41]);
   });
 
 });

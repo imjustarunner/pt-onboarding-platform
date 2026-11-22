@@ -3,6 +3,8 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
 const permissions = row => { try { return typeof row?.permissions_json === 'string' ? JSON.parse(row.permissions_json) : row?.permissions_json || {}; } catch { return { canSignDocs: false }; } };
+export const hasRecordedGuardianSigningAuthority = row => permissions(row).canSignDocs === true;
+
 export function canReceiveGuardianConsentRequest(row) {
   const p = permissions(row);
   return Number(row?.guardian_user_id) > 0 && Number(row.access_enabled) === 1

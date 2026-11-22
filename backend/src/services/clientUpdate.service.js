@@ -5,7 +5,8 @@ import Client from '../models/Client.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { ASSESSMENT_FAMILIES, getFamilyMeta } from './assessmentFamilyRegistry.js';
-import { canAssignFamilyAssessment, familyAssessmentChoices, familyOutcomeMeasure, isCurrentFamilyDocument } from './familySharingCatalog.js';
+import { canAssignFamilyAssessment, familyAssessmentChoices, familyOutcomeMeasure, familySharingSchool, isCurrentFamilyDocument } from './familySharingCatalog.js';
+import { hasRecordedGuardianSigningAuthority } from './schoolRoiGuardianConsent.service.js';
 import { normalizeUpdateSelection, PORTAL_STEPS } from './clientUpdateSelection.js';
 import { absolutePortalPath, listOpenShareEvents } from './portalShareNotice.service.js';
 import {escapePortalHtml,portalMessageHtml} from './portalEmailBranding.service.js';
@@ -308,6 +309,7 @@ export async function assignmentRecipients(clientId, agencyId) {
     if(!['client_guardian','guardian','client'].includes(row.role) || row.permissions_json?.noContact || row.permissions_json?.contactRestricted || row.permissions_json?.revoked || row.permissions_json?.relationshipRevoked)continue;
     const id = Number(row.guardian_user_id);
     const contact = {id, name: [row.first_name,row.last_name].filter(Boolean).join(' '), email: row.email, kind: row.relationship_type === 'self' ? 'client' : 'guardian', forms:false, billing:false};
+    if (hasRecordedGuardianSigningAuthority(row)) contact.recordedSigningAuthority = true;
     try { await currentClientUpdateRecipient({agencyId,clientId,to:row.email,guardianUserId:id}); contact.forms=true; }
     catch (e) { if (![403,404,409].includes(e.status)) throw e; }
     try {
@@ -422,37 +424,50 @@ export async function assignClientUpdateToPortal(requestId, { actorUserId, guard
 }
 
 /** Bind the current living disclosure, never a legacy PDF with a similar name. */
-export async function assignSmartDisclosureToPortal({agencyId,clientId,guardianUserId,locale,contentHash,actorUserId,assignedTeamOnly=false}) {
+export async function assignSmartDisclosureToPortal({agencyId,clientId,guardianUserId,locale,contentHash,actorUserId,assignedTeamOnly=false,schoolCityId,useRecordedAuthority=false}) {
   assertEnabled();
   if(!['en','es'].includes(locale)||!/^[a-f0-9]{40}$/.test(String(contentHash||'')))throw fail(400,'Review the current disclosure and language before assigning it.');
   const client=await Client.findById(clientId,{includeSensitive:true});
   if(!client||Number(client.agency_id)!==Number(agencyId))throw fail(403,'The disclosure is outside this client’s agency.');
   const [contact]= (await ClientGuardian.listForClient(clientId)).filter(row=>Number(row.guardian_user_id)===Number(guardianUserId));
   await currentClientUpdateRecipient({agencyId,clientId,to:contact?.email,guardianUserId});
-  const agency=await Agency.findById(agencyId),organization=client.organization_id?await Agency.findById(client.organization_id):null;
-  const current=await buildSmartDisclosureContext({boundClient:client,agency,organization,locale,link:{form_type:'smart_disclosure',language_code:locale,...(assignedTeamOnly?{custom_messages:{disclosureAssignedTeamOnly:true}}:{})}});
-  if(!current||current.locale!==locale||current.contentHash!==contentHash||(assignedTeamOnly&&!current.providers?.length))throw fail(409,'The disclosure or care team changed. Refresh the invitation preview before attaching it.');
+  const school = schoolCityId ? await familySharingSchool(client) : null;
+  if (schoolCityId && Number(school?.id) !== Number(schoolCityId)) throw fail(409, 'The client’s school changed. Open the disclosure again.');
+  const organizationId = school?.id || client.organization_id;
+  const agency = await Agency.findById(agencyId);
+  const organization = organizationId ? await Agency.findById(organizationId) : null;
+  const customMessages = school ? { disclosureSchoolCityId: Number(school.id) } : assignedTeamOnly ? { disclosureAssignedTeamOnly: true } : {};
+  const current=await buildSmartDisclosureContext({boundClient:client,agency,organization,locale,link:{form_type:'smart_disclosure',language_code:locale,...(Object.keys(customMessages).length?{custom_messages:customMessages}:{})}});
+  if(!current||current.locale!==locale||current.contentHash!==contentHash||((assignedTeamOnly||school)&&!current.providers?.length))throw fail(409,'The disclosure or care team changed. Refresh the invitation preview before attaching it.');
   const reference=`smart_disclosure:${locale}:${contentHash}`;
-  const title=locale==='es'?'Declaración de divulgación actualizada':'Updated disclosure statement';
+  const city = String(school?.city || school?.name || '').trim();
+  const title = school ? (locale === 'es' ? `Declaración de divulgación escolar · ${city}` : `School disclosure · ${city}`)
+    : locale==='es'?'Declaración de divulgación actualizada':'Updated disclosure statement';
   const connection=await pool.getConnection();let requestId,publicKey,reused=false,superseded=[];
   try{
     await connection.beginTransaction();
     await connection.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[clientId,agencyId]);
     const [[link]]=await connection.execute('SELECT access_enabled,permissions_json FROM client_guardians WHERE client_id=? AND guardian_user_id=? FOR UPDATE',[clientId,guardianUserId]);
     if(Number(link?.access_enabled)!==1||ClientGuardian.isNoView(link.permissions_json))throw fail(403,'This account is no longer authorized for clinical documents.');
+    if (useRecordedAuthority && !hasRecordedGuardianSigningAuthority(link)) throw fail(409, 'Review and confirm the recipient’s signing authority.');
     const [items]=await connection.execute(`SELECT r.id AS request_id,r.packet_public_key,i.reference_key,i.title,i.item_type,i.status,
+      JSON_EXTRACT(packet.custom_messages,'$.disclosureSchoolCityId') AS disclosure_school_city_id,
       EXISTS(SELECT 1 FROM intake_submissions s JOIN intake_links l ON l.id=s.intake_link_id WHERE l.public_key=r.packet_public_key AND s.submitted_at IS NOT NULL) AS submitted
-      FROM client_update_requests r JOIN client_update_items i ON i.request_id=r.id WHERE r.agency_id=? AND r.client_id=? AND r.guardian_user_id=? AND r.status IN ('sent','in_progress')`,[agencyId,clientId,guardianUserId]);
-    const disclosureItem=item=>item.item_type==='document'&&(/^(smart_disclosure:)/.test(item.reference_key)||/disclosure|divulgaci[oó]n/i.test(item.title));
-    const staleRequests=new Set(items.filter(item=>disclosureItem(item)&&item.reference_key!==reference&&item.status==='pending').map(item=>Number(item.request_id)));
+      FROM client_update_requests r JOIN client_update_items i ON i.request_id=r.id
+      LEFT JOIN intake_links packet ON packet.public_key=r.packet_public_key
+      WHERE r.agency_id=? AND r.client_id=? AND r.guardian_user_id=? AND r.status IN ('sent','in_progress')`,[agencyId,clientId,guardianUserId]);
+    const disclosureItem=item=>item.item_type==='document'&&Boolean(Number(item.disclosure_school_city_id))===Boolean(school)
+      &&(/^(smart_disclosure:)/.test(item.reference_key)||/disclosure|divulgaci[oó]n/i.test(item.title));
+    const matchesCurrent=item=>Number(item.disclosure_school_city_id||0)===Number(school?.id||0)&&item.reference_key===reference;
+    const staleRequests=new Set(items.filter(item=>disclosureItem(item)&&!matchesCurrent(item)&&item.status==='pending').map(item=>Number(item.request_id)));
     for(const id of staleRequests){const requestItems=items.filter(item=>Number(item.request_id)===id);if(requestItems.some(item=>!disclosureItem(item)||Number(item.submitted)))throw fail(409,'An earlier disclosure is part of another update or already submitted. Review that update before replacing its pending disclosure.');}
-    const existing=items.find(item=>item.reference_key===reference&&item.status==='pending');
+    const existing=items.find(item=>disclosureItem(item)&&matchesCurrent(item)&&item.status==='pending');
     if(existing){requestId=Number(existing.request_id);publicKey=existing.packet_public_key;reused=true;}
     else{
       const [created]=await connection.execute("INSERT INTO client_update_requests (agency_id,client_id,guardian_user_id,status,created_by_user_id) VALUES (?,?,?,'draft',?)",[agencyId,clientId,guardianUserId,actorUserId]);
       requestId=created.insertId;publicKey=crypto.randomBytes(24).toString('hex');
-      const school=String(client.client_type||'').toLowerCase()==='school'&&Number(client.organization_id);
-      await IntakeLink.create({publicKey,title,description:'Current living disclosure for this existing client.',languageCode:locale,scopeType:school?'school':'agency',formType:'smart_disclosure',organizationId:school||Number(agencyId),isActive:true,createClient:true,createGuardian:false,requiresAssignment:false,allowedDocumentTemplateIds:[],intakeSteps:[{type:'smart_disclosure',title}],customMessages:{clientUpdateRequestId:Number(requestId),disclosureContentHash:contentHash,disclosureLocale:locale,...(assignedTeamOnly?{disclosureAssignedTeamOnly:true}:{})},createdByUserId:actorUserId});
+      const packetSchoolId=school?.id||(String(client.client_type||'').toLowerCase()==='school'&&Number(client.organization_id));
+      await IntakeLink.create({publicKey,title,description:'Current living disclosure for this existing client.',languageCode:locale,scopeType:packetSchoolId?'school':'agency',formType:'smart_disclosure',organizationId:packetSchoolId||Number(agencyId),isActive:true,createClient:true,createGuardian:false,requiresAssignment:false,allowedDocumentTemplateIds:[],intakeSteps:[{type:'smart_disclosure',title}],customMessages:{clientUpdateRequestId:Number(requestId),disclosureContentHash:contentHash,disclosureLocale:locale,...customMessages},createdByUserId:actorUserId},connection);
       const href=intakeUrl(publicKey);
       await connection.execute("INSERT INTO client_update_items (request_id,item_type,reference_key,title,public_key,href) VALUES (?,'document',?,?,?,?)",[requestId,reference,title,publicKey,href]);
       await connection.execute("UPDATE client_update_requests SET status='in_progress',packet_public_key=?,sent_at=UTC_TIMESTAMP() WHERE id=?",[publicKey,requestId]);
@@ -485,12 +500,15 @@ export async function resolveClientUpdatePacketBinding(link) {
   const contact=contacts.find(row=>Number(row.guardian_user_id)===Number(request.guardian_user_id));
   const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:contact?.email,guardianUserId:request.guardian_user_id,reenrollment});
   if(!reenrollment&&['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'This client’s update is no longer active.');
-  const expected=link.scope_type==='school'?client.organization_id:client.agency_id;
+  const school = messages.disclosureSchoolCityId ? await familySharingSchool(client) : null;
+  if (messages.disclosureSchoolCityId && Number(school?.id) !== Number(messages.disclosureSchoolCityId)) throw fail(409, 'The client’s school changed. Ask your care team for the current disclosure.');
+  const expected=link.scope_type==='school'?(school?.id||client.organization_id):client.agency_id;
   if(Number(link.organization_id)!==Number(expected))throw fail(403,'The update packet scope has changed.');
   if(messages.disclosureContentHash){
     const locale=messages.disclosureLocale;
     if(!['en','es'].includes(locale)||String(link.language_code||'en')!==locale)throw fail(409,'The disclosure language changed. Ask your care team for the current document.');
-    const agency=await Agency.findById(request.agency_id),organization=client.organization_id?await Agency.findById(client.organization_id):null;
+    const organizationId = school?.id || client.organization_id;
+    const agency=await Agency.findById(request.agency_id),organization=organizationId?await Agency.findById(organizationId):null;
     const current=await buildSmartDisclosureContext({boundClient:client,agency,organization,locale,link});
     if(!current||current.locale!==locale||current.contentHash!==messages.disclosureContentHash)throw fail(409,'The disclosure or care team changed. Ask your care team to attach the current version.');
   }

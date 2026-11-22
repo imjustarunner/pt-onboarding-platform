@@ -6,17 +6,21 @@ export function usePortalDocumentRecords(props, clientId, clientName) {
   const catalog=ref(null), records=ref([]), loading=ref(false), error=ref('');
   const recordIds=ref([]), foundationKeys=ref([]), editorId=ref(null), editor=ref(null), preparing=ref(false);
   let generation=0;
-  const foundations=computed(()=>(catalog.value?.documents || []).map(d=>({group:'foundation',id:d.key,title:d.title})));
-  const saved=computed(()=>records.value.filter(r=>!r.revoked && r.documentKey !== 'cssrs-screener' && !['screening-questionnaires','school-roi','communications-preferences','insurance-information','enrollment-form','packet-acknowledgment'].includes(r.source?.foundationKey)).map(r=>({group:'records',id:r.id,version:r.version,title:r.documentName || r.title})));
+  const foundations=computed(()=>(catalog.value?.documents || []).map(d=>({
+    group:'foundation',id:d.key,title:d.title,...(d.instrumentId?{instrumentId:d.instrumentId}:{})
+  })));
+  const saved=computed(()=>records.value.filter(r=>!r.revoked && r.documentKey !== 'cssrs-screener' && r.source?.kind !== 'portal-screening' && !['screening-questionnaires','school-roi','communications-preferences','insurance-information','enrollment-form','packet-acknowledgment'].includes(r.source?.foundationKey)).map(r=>({group:'records',id:r.id,version:r.version,title:r.documentName || r.title})));
   const selected=computed(()=>[
     ...saved.value.filter(d=>recordIds.value.includes(d.id)),
     ...foundations.value.filter(d=>foundationKeys.value.includes(d.id))
   ]);
   const assignments=computed(()=>records.value.flatMap(r=>(r.portalAssignments || []).map(s=>{
     const status=r.revoked?'revoked':s.copyOnly?'shared':s.signedAt?'complete':'pending';
-    return {id:s.signerId,recordId:r.id,item_type:'clinical',typeLabel:r.documentKey==='release-of-information'?'Release':'Form',
+    const screening=r.source?.kind==='portal-screening';
+    return {id:s.signerId,recordId:r.id,item_type:'clinical',typeLabel:screening?'Questionnaire':r.documentKey==='release-of-information'?'Release':'Form',
       status,title:r.documentName || r.title,recipient:s.recipient,recipientUserId:s.recipientUserId,completed_at:s.signedAt,
-      progress:r.revoked?'Revoked':s.copyOnly?'Shared copy':s.signedAt?'Signed':'Awaiting signature',canRemind:status==='pending' && Number(s.version)===Number(r.version)};
+      progress:r.revoked?'Revoked':s.copyOnly?'Shared copy':s.signedAt?(screening?'Submitted':'Signed'):(screening?'Awaiting response':'Awaiting signature'),
+      canRemind:status==='pending' && Number(s.version)===Number(r.version)};
   })));
   let pendingLoad;
   function load(){
