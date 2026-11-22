@@ -11,6 +11,8 @@ describe('per-reference workspace', () => {
     const wrapper = mount(ReferenceWorkspace,{props:{userId:2,agencyId:1,references:refs}});await flushPromises();
     await wrapper.findAll('nav button')[1].trigger('click');
     await wrapper.findAll('button').find(b=>b.text()==='Email online reference link').trigger('click');await flushPromises();
+    expect(api.post).not.toHaveBeenCalled();
+    await wrapper.findAll('button').find(b=>b.text()==='Send reference request').trigger('click');await flushPromises();
     expect(api.post.mock.calls[0][1]).toMatchObject({referenceIndex:1,onlyIfNotSent:false});expect(api.post.mock.calls[0][1].deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
   it('saves a private phone-completion note without requiring invented questionnaire answers', async () => {

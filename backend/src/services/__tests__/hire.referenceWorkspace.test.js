@@ -47,3 +47,19 @@ describe('online completion consistency', () => {
     expect(await HiringReferenceRequest.markCompleted(4,{})).toBeNull();expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();
   });
 });
+
+describe('request questionnaire snapshot', () => {
+  it('exposes questions separately from responses until the reference is complete', () => {
+    const questionnaire = {version:2, traits:[{key:'planning',label:'Planning'}]};
+    const stored = JSON.stringify({questionnaireSnapshot:questionnaire});
+    expect(HiringReferenceRequest.mapRow({status:'sent',responses_json:stored})).toMatchObject({responses_json:null,questionnaire});
+    expect(HiringReferenceRequest.mapRow({status:'completed',responses_json:JSON.stringify({questionnaireSnapshot:questionnaire,traits:{planning:5}})})).toMatchObject({questionnaire,responses_json:{traits:{planning:5}}});
+    expect(HiringReferenceRequest.mapRow({status:'sent',responses_json:null}).questionnaire.version).toBe(2);
+  });
+});
+
+it('only declines an active, unexpired request', async () => {
+  mocks.execute.mockResolvedValue([{affectedRows:0}]);
+  expect(await HiringReferenceRequest.markDeclined(3)).toBe(false);
+  expect(mocks.execute.mock.calls.at(-1)[0]).toContain("status = 'sent' AND token_expires_at > NOW()");
+});

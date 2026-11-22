@@ -8,14 +8,36 @@
       <article v-if="person" class="reference-card">
         <h3>{{ person.name || `Reference ${selected + 1}` }}</h3>
         <p>{{ person.email || 'No email' }} · {{ person.phone || person.phone_number || 'No phone' }}</p>
-        <p><strong>{{ completed ? 'Completed' : latest?.status || 'Not yet requested' }}</strong><span v-if="phoneCompletion"> · By phone with People Operations</span></p>
+        <p><strong>{{ latest?.declined ? 'Unable to provide a reference' : completed ? 'Completed' : latest?.status || 'Not yet requested' }}</strong><span v-if="phoneCompletion"> · By phone with People Operations</span></p>
         <p v-if="latest">Deadline: {{ time(latest.token_expires_at) }} · Sent: {{ time(latest.sent_at) }}<br/>Email open detected: {{ time(latest.email_opened_at) }} · Link opened: {{ time(latest.link_opened_at) }}<br/>48-hour reminder: {{ time(latest.reminder_48h_sent_at) }} · Final reminder: {{ time(latest.reminder_24h_sent_at) }}</p>
         <p v-else>When emailed, the deadline defaults to five business days (Monday–Friday), with a reminder after 48 hours.</p>
         <label v-if="!latest || latest.status !== 'sent'">Reference deadline (end of day, UTC)<input v-model="deadline" type="date" :min="new Date().toISOString().slice(0,10)" /></label>
         <small>Email opens are best-effort: mail clients may block images or load them automatically.</small>
-        <p><button type="button" :disabled="busy || !person.email || completed" @click="send">{{ latest?.status === 'sent' ? 'Email reference link again' : 'Email online reference link' }}</button></p>
+        <p><button type="button" :disabled="busy || !questionnaire || !person.email || completed || latest?.declined" @click="prepare">{{ latest?.status === 'sent' ? 'Email reference link again' : 'Email online reference link' }}</button></p>
+        <section v-if="preparing && prepared" class="reference-prepare" aria-label="Prepare reference request">
+          <h4>Review questions for {{ person.name }}</h4>
+          <p>The applicant supplied this contact during their application. Send when you are ready to request a reference.</p>
+          <p v-if="latest?.status === 'sent'">This reminder uses the questions already sent to this reference.</p>
+          <fieldset :disabled="busy || latest?.status === 'sent'">
+            <legend>Rating questions</legend>
+            <div v-for="trait in prepared.traits" :key="trait.key">
+              <label>Rating title<input v-model="trait.label" required maxlength="120" /></label>
+              <label>Question<textarea v-model="trait.question" required maxlength="1000" rows="2" /></label>
+              <label>Helpful example<input v-model="trait.example" maxlength="1000" /></label>
+            </div>
+            <div v-for="(question, index) in prepared.questions" :key="question.key">
+              <label>Written question<textarea v-model="question.label" maxlength="1000" rows="2" /></label>
+              <label><input v-model="question.required" type="checkbox" /> Required</label>
+              <button type="button" @click="prepared.questions.splice(index, 1)">Remove question</button>
+            </div>
+            <button type="button" :disabled="prepared.questions.length >= 10" @click="addQuestion">Add written question</button>
+          </fieldset>
+          <p>The form also asks how long they have known the applicant, professional strengths, development areas and rehire preference.</p>
+          <button type="button" :disabled="busy" @click="send">{{ busy ? 'Sending…' : 'Send reference request' }}</button>
+          <button type="button" :disabled="busy" @click="preparing = false">Cancel</button>
+        </section>
         <section v-for="request in requestsForReference.filter(r => r.responses_json)" :key="request.id">
-          <h4>Online answers · {{ time(request.completed_at) }}</h4><ReferenceAnswers :answers="request.responses_json" :questionnaire="questionnaire" />
+          <h4>Online answers · {{ time(request.completed_at) }}</h4><ReferenceAnswers :answers="request.responses_json" :questionnaire="request.questionnaire || questionnaire" />
         </section>
         <h4>Contact log and phone reference</h4>
         <form @submit.prevent="save">
@@ -29,7 +51,7 @@
         </form>
         <article v-for="contact in contactsForReference" :key="contact.id" class="contact-entry">
           <strong>{{ contact.outcome === 'completed' ? 'Completed by phone' : contact.outcome.replaceAll('_', ' ') }}</strong> · {{ contact.contact_method }} · {{ time(contact.created_at) }} · {{ contact.author_name }}
-          <p class="note">{{ contact.note }}</p><ReferenceAnswers v-if="contact.responses_json" :answers="contact.responses_json" :questionnaire="questionnaire" />
+          <p class="note">{{ contact.note }}</p><ReferenceAnswers v-if="contact.responses_json" :answers="contact.responses_json" :questionnaire="contact.questionnaire || questionnaire" />
         </article>
         <details><summary>Email and request history</summary><article v-for="request in requestsForReference" :key="request.id"><p>#{{ request.id }} · {{ request.status }} · Sent {{ time(request.sent_at) }} · Deadline {{ time(request.token_expires_at) }} · Completed {{ time(request.completed_at) }}</p></article>
           <article v-for="event in eventsForReference" :key="event.id"><p>{{ time(event.created_at) }} · {{ event.metadata?.kind?.replaceAll('_', ' ') }} · {{ event.metadata?.outcome }}</p><p v-if="event.metadata?.error">{{ event.metadata.error }}</p><details v-if="event.metadata?.textBody"><summary>{{ event.metadata.subject || 'Email text' }}</summary><pre>{{ event.metadata.textBody }}</pre></details></article>
@@ -48,6 +70,8 @@ const selected = ref(0), loading = ref(false), busy = ref(false), error = ref(''
 const requests = ref([]), contacts = ref([]), events = ref([]), questionnaire = ref(null);
 const draft = reactive({ method: 'phone', outcome: 'note', note: '', useQuestionnaire: false });
 const answers = ref({});
+const preparing = ref(false);
+const prepared = ref(null);
 function defaultDeadline() { const date = new Date(); for (let days = 5; days > 0;) { date.setUTCDate(date.getUTCDate() + 1); if (![0,6].includes(date.getUTCDay())) days--; } return date.toISOString().slice(0,10); }
 const deadline = ref(defaultDeadline());
 const person = computed(() => props.references[selected.value]);
@@ -59,8 +83,8 @@ const phoneCompletion = computed(() => contactsForReference.value.some(r => r.ou
 const completed = computed(() => phoneCompletion.value || requestsForReference.value.some(r => r.status === 'completed'));
 const time = value => value ? new Date(value).toLocaleString() : '—';
 const options = () => ({ params: { agencyId: props.agencyId } });
-function selectReference(index) { selected.value = index; reset(); }
-function reset() { deadline.value = defaultDeadline(); Object.assign(draft, { method:'phone', outcome:'note', note:'', useQuestionnaire:false }); answers.value = { referenceName: person.value?.name || '', relationshipType:'', relationshipOther:'', wouldHire:'', traits:{}, hireReason:'', additionalComments:'' }; }
+function selectReference(index) { selected.value = index; preparing.value = false; reset(); }
+function reset() { preparing.value = false; prepared.value = null; deadline.value = defaultDeadline(); Object.assign(draft, { method:'phone', outcome:'note', note:'', useQuestionnaire:false }); answers.value = { referenceName: person.value?.name || '', relationshipType:'', relationshipOther:'', wouldHire:'', traits:{}, hireReason:'', additionalComments:'' }; }
 watch(() => draft.method, value => { if (value !== 'phone' && draft.outcome === 'completed') draft.outcome = 'note'; });
 async function load() {
   loading.value = true; error.value = '';
@@ -71,9 +95,17 @@ async function load() {
   } catch(e) { error.value = e.response?.data?.error?.message || 'Could not load references.'; }
   finally { loading.value = false; }
 }
+function prepare() {
+  prepared.value = JSON.parse(JSON.stringify(latest.value?.questionnaire || questionnaire.value));
+  prepared.value.questions ||= [];
+  preparing.value = true;
+}
+function addQuestion() {
+  prepared.value.questions.push({ key: `question_${Date.now()}_${prepared.value.questions.length}`, label: '', required: false });
+}
 async function send() {
   busy.value = true; error.value = ''; message.value = '';
-  try { const { data } = await api.post(`/hiring/candidates/${props.userId}/reference-requests/send`, { referenceIndex: selected.value, onlyIfNotSent: false, deadline: latest.value?.status === 'sent' ? null : deadline.value }, options()); await load(); message.value = data.sent?.length ? 'Reference email sent.' : 'This reference was already completed.'; }
+  try { const { data } = await api.post(`/hiring/candidates/${props.userId}/reference-requests/send`, { referenceIndex: selected.value, onlyIfNotSent: false, deadline: latest.value?.status === 'sent' ? null : deadline.value, questionnaire: prepared.value }, options()); preparing.value = false; await load(); message.value = data.sent?.length ? 'Reference email sent.' : 'This reference was already completed.'; }
   catch(e) { error.value = e.response?.data?.error?.message || 'Could not send the reference email.'; }
   finally { busy.value = false; }
 }
@@ -86,5 +118,5 @@ async function save() {
 watch(() => [props.userId, props.agencyId], async () => { selected.value = 0; reset(); await load(); }, { immediate:true });
 </script>
 <style scoped>
-.reference-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; } button { padding:10px 16px; cursor:pointer; border:1px solid #b8c9bf; border-radius:8px; } button[aria-pressed=true] { background:#176b53; color:white; } button:disabled { opacity:.6; cursor:default; } .reference-card { padding:20px; border:1px solid #dce6e1; border-radius:12px; } label { display:block; margin:14px 0; } select, textarea { display:block; padding:10px; max-width:100%; } textarea { width:100%; box-sizing:border-box; } .contact-entry { border-top:1px solid #dce6e1; padding:16px 0; } .note, pre { white-space:pre-wrap; overflow-wrap:anywhere; } .error { color:#b42318; }
+.reference-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; } button { padding:10px 16px; cursor:pointer; border:1px solid #b8c9bf; border-radius:8px; } button[aria-pressed=true] { background:#176b53; color:white; } button:disabled { opacity:.6; cursor:default; } .reference-card { padding:20px; border:1px solid #dce6e1; border-radius:12px; } label { display:block; margin:14px 0; } input:not([type=checkbox]), select, textarea { display:block; padding:10px; max-width:100%; } textarea { width:100%; box-sizing:border-box; } .reference-prepare { margin:20px 0; padding:20px; background:#f5f8f6; border-radius:12px; } fieldset { border:1px solid #dce6e1; border-radius:10px; } .contact-entry { border-top:1px solid #dce6e1; padding:16px 0; } .note, pre { white-space:pre-wrap; overflow-wrap:anywhere; } .error { color:#b42318; }
 </style>

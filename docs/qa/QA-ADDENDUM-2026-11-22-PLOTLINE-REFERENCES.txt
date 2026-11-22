@@ -1,0 +1,92 @@
+PLOTLINE REFERENCE COLLECTION AND QUESTIONNAIRE RETEST
+November 22, 2026
+
+Use the established QA automation vault login for Jordan 1434. Retain Juniper
+Consulting QA 463, Maple Studio QA 464, and the existing synthetic applicants.
+Record matching frontend / required backend / live backend builds, ready
+status and America/Denver time before testing. Record exact candidate,
+reference index and request IDs with each result.
+
+Reference contacts and authorization are collected in the application.
+Staff manually review questions and send each reference request. Check that
+submitting an application and saving an interview alone do not email references.
+
+1. As the authorized recruiter, open an existing synthetic applicant's
+References tab through normal navigation. Use that applicant's supplied
+fictional reference and consent. Check the exact reference name and email.
+If a reference was already requested or completed, retain its history and use
+another eligible synthetic reference. Physical QA delivery is testing@itsco.health.
+
+2. Choose Email online reference link. Confirm that this opens question review
+before sending. Inspect the four rating areas from the owner's example
+- Reliability & dependability
+- Communication
+- Teamwork & collaboration
+- Professionalism & judgment
+
+The form also asks for name, professional relationship, duration known,
+professional strengths, development areas and whether the referee would work
+with or rehire the applicant. Ratings offer 1 through 5 and Not observed.
+Strengths and duration are required. Development areas and rehire preference
+are optional, as shown in the example.
+
+3. Edit one rating's question and example. Add one written question, such as
+"Describe a time this applicant managed an important deadline." Cancel first
+and confirm that nothing was sent. Prepare again, inspect the chosen reference
+and deadline, and send once using Send reference request.
+
+4. Inspect the actual inbox receipt. Record From, Reply-To, recipient,
+message ID and receipt time. Confirm the Plotline logo, employer name,
+reference button and Want to use Plotline for your organization? link.
+Expected QA sender after provisioning is references@plotlinepo.com. Sender
+provisioning remains pending the separately requested operational approval.
+Mark that sender-specific case BLOCKED until readiness is confirmed. Distinguish
+transport acceptance and the app's label from inbox delivery.
+
+5. Use the reference form's received invitation in an isolated signed-out
+browser profile as the approved synthetic referee. Confirm plotlinepo.com,
+the correct employer and candidate, four rating labels, the edited question,
+and the added written question. Check desktop and a 390-pixel viewport,
+keyboard input, required fields, visible radio focus and review/edit navigation.
+
+Example fictional response
+- Relationship is direct supervisor and duration is 1–2 years.
+- Ratings are reliability 4, communication 5, teamwork 4 and judgment 4.
+- Strengths are "In this synthetic example, the applicant followed through on
+  weekly deliverables and made handoffs clear for the team."
+- Development feedback is "They could delegate routine follow-up sooner when
+  several deadlines fall in the same week."
+- Rehire response is Yes.
+- Deadline example is "They identified a scheduling conflict early and agreed
+  on a revised handoff with the team."
+
+6. Review before submitting. Edit one answer, review again and submit once.
+Confirm success, private reference visibility in the recruiter workspace,
+the exact question snapshot and the recorded completion. Reload and retry
+the used invitation. A repeated submit must preserve the original answers.
+
+7. On a separate eligible synthetic reference, test Unable to provide a
+reference. Cancel the confirmation first. Then confirm the refusal. The staff
+workspace should report Unable to provide a reference, without partial answers.
+A declined request should stop reminders and remain distinct from completion.
+
+8. Inspect a retained earlier reference. Its original five rating questions
+and saved answers should retain their labels. A resend uses the questions
+already sent to that referee. Inspect confidential-answer access boundaries
+as the applicant and an unrelated company account.
+
+9. Open the Plotline organization link. It must lead to the public company
+signup flow without the applicant, referee, answers or invitation in its URL.
+Verify the same link after submission. The marketing invitation is optional.
+
+Report PASS / FAIL / BLOCKED / NOT RUN per case with sanitized evidence.
+Keep credentials and private invitation links in the approved vault.
+
+ROUND 10 MEDIA FINDING
+Round 10 reached a closed room for interview 24 / event 646. Its join returned
+410 Gone while the hiring card remained scheduled. It did not exercise the
+microphone repair. Preserve the closed room's audit evidence. When resuming
+media QA, use a fresh synthetic interview scheduled through the app with
+explicit invitation choices, then rerun the round 9 microphone checks.
+Candidate entry, two-person audio and real camera testing retain their
+previous prerequisites.

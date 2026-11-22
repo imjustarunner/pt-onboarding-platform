@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { legacyReferenceQuestionnaire } from '../utils/hiringReferenceQuestionnaire.js';
 import pool from '../config/database.js';
 
 function parseJsonMaybe(v) {
@@ -17,9 +18,12 @@ function parseJsonMaybe(v) {
 class HiringReferenceRequest {
   static mapRow(row) {
     if (!row) return null;
+    const stored = parseJsonMaybe(row.responses_json);
     return {
       ...row,
-      responses_json: parseJsonMaybe(row.responses_json)
+      responses_json: row.status === 'completed' ? stored : null,
+      questionnaire: stored?.questionnaireSnapshot || legacyReferenceQuestionnaire,
+      declined: stored?.declined === true
     };
   }
 
@@ -39,15 +43,16 @@ class HiringReferenceRequest {
     tokenExpiresAt,
     status = 'sent',
     sentByUserId = null,
-    intakeSubmissionId = null
+    intakeSubmissionId = null,
+    questionnaire = null
   }) {
     const openTok = String(openTrackToken || '').trim() || this.newOpenTrackToken();
     const [result] = await pool.execute(
       `INSERT INTO hiring_reference_requests (
         hiring_profile_id, agency_id, candidate_user_id, reference_index,
         reference_name, reference_email, public_link_token, open_track_token, token_expires_at, status,
-        sent_at, sent_by_user_id, intake_submission_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)`,
+        sent_at, sent_by_user_id, intake_submission_id, responses_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?)`,
       [
         hiringProfileId,
         agencyId,
@@ -60,7 +65,8 @@ class HiringReferenceRequest {
         tokenExpiresAt,
         status,
         sentByUserId || null,
-        intakeSubmissionId || null
+        intakeSubmissionId || null,
+        questionnaire ? JSON.stringify({ questionnaireSnapshot: questionnaire }) : null
       ]
     );
     const [rows] = await pool.execute('SELECT * FROM hiring_reference_requests WHERE id = ?', [result.insertId]);
@@ -104,6 +110,13 @@ class HiringReferenceRequest {
       [hiringProfileId, referenceIndex]
     );
     return (rows || []).length > 0;
+  }
+
+  static async markDeclined(id) {
+    const [result] = await pool.execute(`UPDATE hiring_reference_requests
+      SET status = 'cancelled', responses_json = JSON_SET(COALESCE(responses_json, JSON_OBJECT()), '$.declined', CAST('true' AS JSON)), updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'sent' AND token_expires_at > NOW()`, [id]);
+    return result.affectedRows === 1;
   }
 
   static async markCompleted(id, responsesJson) {

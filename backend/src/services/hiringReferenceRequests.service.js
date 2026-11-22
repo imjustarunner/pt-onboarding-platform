@@ -1,4 +1,4 @@
-import { referenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
+import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
 import { brandedReferenceEmail } from './hiringReferenceEmail.service.js';
 import crypto from 'crypto';
 import config from '../config/config.js';
@@ -42,7 +42,7 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
       templateType: 'hiring_references',
       // agency comes from identity; @example.com / demo recipients redirect to testing@itsco.health
     });
-    if (out?.skipped) {
+    if (out?.skipped || out?.blocked) {
       return { ok: false, skipped: true, reason: out.reason || 'skipped', messageId: null };
     }
     if (out?.queued || out?.pendingApproval) {
@@ -62,7 +62,7 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
 }
 
 export function buildReferenceFormUrl(rawToken) {
-  const base = String(config.frontendUrl || '').replace(/\/$/, '');
+  const base = 'https://plotlinepo.com';
   if (!base) return `/public/hiring/reference/${rawToken}`;
   return `${base}/public/hiring/reference/${rawToken}`;
 }
@@ -212,7 +212,8 @@ export async function createAndSendReferenceRequests({
   intakeSubmissionId = null,
   referenceIndex = null,
   deadline = null,
-  onlyIfNotSent = false
+  onlyIfNotSent = false,
+  questionnaire = referenceQuestionnaire
 }) {
   const errors = [];
   const sent = [];
@@ -225,6 +226,7 @@ export async function createAndSendReferenceRequests({
     return { sent, skipped, errors };
   }
 
+  const preparedQuestionnaire = normalizeReferenceQuestionnaire(questionnaire);
   const consent = parseConsent(profile);
   if (consent.referencesWaived === true) {
     errors.push('References were waived on the application; digital reference forms cannot be sent.');
@@ -303,7 +305,8 @@ export async function createAndSendReferenceRequests({
         tokenExpiresAt: expiresSql,
         status: 'sent',
         sentByUserId,
-        intakeSubmissionId
+        intakeSubmissionId,
+        questionnaire: preparedQuestionnaire
       });
     } catch (e) {
       if (e?.code === 'ER_DUP_ENTRY') {
@@ -523,7 +526,7 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     candidateLabel,
     referenceName: String(row.reference_name || '').trim() || null,
     branding,
-    questionnaire: referenceQuestionnaire,
+    questionnaire: row.questionnaire || legacyReferenceQuestionnaire,
     disclaimer:
       'This form is confidential: your answers are not shared with the applicant and are used only for hiring decisions. The form typically takes less than five minutes.'
   };
@@ -551,8 +554,14 @@ export async function submitPublicReferenceForm(rawToken, body) {
     throw err;
   }
 
-  const responses = normalizeReferenceResponses(body);
-  const updated = await HiringReferenceRequest.markCompleted(row.id, responses);
+  if (body?.declined === true) {
+    if (!await HiringReferenceRequest.markDeclined(row.id)) throw Object.assign(new Error('This reference request is no longer available.'), { status: 409 });
+    logHiringReferenceEvent({ candidateUserId: row.candidate_user_id, agencyId: row.agency_id,
+      kind: 'reference_declined', referenceIndex: row.reference_index, hiringReferenceRequestId: row.id, outcome: 'declined' });
+    return { ok: true, declined: true };
+  }
+  const responses = normalizeReferenceResponses(body, row.questionnaire || legacyReferenceQuestionnaire);
+  const updated = await HiringReferenceRequest.markCompleted(row.id, { ...responses, questionnaireSnapshot: row.questionnaire || legacyReferenceQuestionnaire });
   if (!updated || updated.status !== 'completed') {
     const err = new Error('Unable to save responses.');
     err.status = 409;

@@ -39,6 +39,8 @@ export const trackReferenceEmailOpen = async (req, res, next) => {
 };
 
 export const getReferenceFormMeta = async (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   try {
     const token = String(req.params?.token || '').trim();
     if (!token) return res.status(400).json({ error: { message: 'token is required' } });

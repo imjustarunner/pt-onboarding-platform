@@ -1,7 +1,7 @@
 import { getSharedHireDefaults, saveSharedHireDefaults, validateJobHireDefaults } from '../services/hireJobDefaults.service.js';
 import { getPrehireDraft, savePrehireDraft } from '../services/prehireDraft.service.js';
 import { candidatePrehireProgress } from '../services/hireCandidateProgress.service.js';
-import { referenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
+import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
 import { listReferenceContacts, saveReferenceContact } from '../models/HiringReferenceContact.model.js';
 import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRequests.service.js';
 import { sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
@@ -3459,7 +3459,8 @@ export const postCandidateReferenceRequestsSend = async (req, res, next) => {
       intakeSubmissionId: null,
       onlyIfNotSent,
       referenceIndex,
-      deadline: req.body?.deadline || null
+      deadline: req.body?.deadline || null,
+      questionnaire: req.body?.questionnaire
     });
 
     if ((result.errors || []).length && !(result.sent || []).length) {
@@ -4850,7 +4851,14 @@ export const getCandidateReferenceWorkspace = async (req, res, next) => {
     if (!await ensureCandidateInAgency(userId, agencyId)) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
     const profile = await HiringProfile.findByCandidateUserId(userId);
     if (!profile) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
-    res.json({ questionnaire: referenceQuestionnaire, contacts: await listReferenceContacts(profile.id, agencyId) });
+    const contacts = await listReferenceContacts(profile.id, agencyId);
+    res.json({
+      questionnaire: referenceQuestionnaire,
+      contacts: contacts.map(contact => ({
+        ...contact,
+        questionnaire: contact.responses_json?.questionnaireSnapshot || legacyReferenceQuestionnaire
+      }))
+    });
   } catch (e) { next(e); }
 };
 

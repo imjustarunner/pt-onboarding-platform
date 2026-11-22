@@ -389,11 +389,8 @@
                     <button type="button" class="btn btn-primary" :disabled="interviewSaving" @click="saveInterviewSchedule(false)">
                       {{ interviewSaving ? 'Saving…' : 'Save interview' }}
                     </button>
-                    <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="saveInterviewSchedule(true)">
-                      {{ interviewSaving ? 'Saving…' : 'Save interview and send reference forms' }}
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-sm" :disabled="interviewSaving" @click="sendReferenceRequestsOnly">
-                      Send references only
+                    <button type="button" class="btn btn-secondary" @click="openReferencesTab">
+                      Review reference requests
                     </button>
                     <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="cancelInterviewSchedule">
                       Cancel interview
@@ -1872,26 +1869,6 @@ const saveInterviewSchedule = async (sendReferenceRequests = false) => {
     }
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to save interview');
-  } finally {
-    interviewSaving.value = false;
-  }
-};
-
-const sendReferenceRequestsOnly = async () => {
-  if (!selectedId.value || !effectiveAgencyId.value) return;
-  try {
-    interviewSaving.value = true;
-    const resp = await api.post(
-      `/hiring/candidates/${selectedId.value}/reference-requests/send`,
-      { onlyIfNotSent: true },
-      { params: { agencyId: effectiveAgencyId.value } }
-    );
-    await loadReferenceRequests();
-    await loadReferenceActivity();
-    const errs = resp.data?.errors;
-    if (Array.isArray(errs) && errs.length) window.alert(errs.join('\n'));
-  } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to send reference requests');
   } finally {
     interviewSaving.value = false;
   }
