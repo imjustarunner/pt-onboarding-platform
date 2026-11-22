@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {requireClientProgramSchema} from '../clientProgramSchemaReadiness.service.js';
 import mysql from 'mysql2/promise';
 import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
 import {retireLegacyPrograms} from '../programRetirement.service.js';
@@ -56,8 +57,12 @@ describe.skipIf(!socketPath)('agency programs with isolated MySQL',()=>{
       "booking_package_ledger(agency_id INT,entitlement_id INT,client_id INT,direction VARCHAR(12),quantity INT,reason_code VARCHAR(30),metadata_json JSON,created_by_user_id INT)"
     ];
     for(const definition of tables) await query('CREATE TABLE '+definition);
-    const migration=readFileSync(new URL('../../../../database/migrations/1865_registration_service_audience.sql',import.meta.url),'utf8');
-    for(const statement of migration.split(';').filter(s=>s.trim())) await db.query(statement);
+    await expect(requireClientProgramSchema(db)).rejects.toThrow();
+    for (const file of ['1864_client_chart_type_selections.sql','1865_registration_service_audience.sql']) {
+      const migration=readFileSync(new URL('../../../../database/migrations/'+file,import.meta.url),'utf8');
+      for (const statement of migration.split(';').filter(s=>s.trim())) await db.query(statement);
+    }
+    await requireClientProgramSchema(db);
     await query("INSERT INTO agencies(id,name,organization_type) VALUES (1,'Agency','agency'),(2,'Other','agency'),(10,'School','school'),(20,'Parent Child Partnership','program'),(21,'Learning center','learning'),(22,'Other program','program')");
     await query('INSERT INTO organization_affiliations VALUES (1,10,1),(1,20,1),(1,21,1),(2,22,1)');
     await query('INSERT INTO clients(id,agency_id,organization_id) VALUES (11,1,20),(12,1,10),(13,2,22)');
