@@ -75,3 +75,7 @@ it('uses the invited service date for automatic eligibility instead of today',as
  await processIntakeEligibility({...job,care_start_at:new Date('2026-11-17T23:00:00Z'),care_time_zone:'America/Denver'},{reviewer_user_id:9},{officeId:6},d);
  expect(d.check).toHaveBeenCalledWith(expect.objectContaining({serviceDate:'2026-11-17'}),d);
 });
+it.each(['pending','error','returned'])('does not send an automatic duplicate when the same dated policy already has a %s check',async status=>{
+ const d=deps();d.db.execute.mockImplementation(async sql=>sql.includes('FROM client_coverage_checks')?[[{id:88,status}]]:sql.includes('directory_snapshot_json')?[[{directory_snapshot_json:{eligibility:'yes'}}]]:[[]]);
+ expect(await processIntakeEligibility(job,{reviewer_user_id:9},{officeId:6},d)).toBe('review_required');expect(d.check).not.toHaveBeenCalled();
+});

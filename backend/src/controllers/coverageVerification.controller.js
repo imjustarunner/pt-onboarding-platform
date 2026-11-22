@@ -19,7 +19,7 @@ export async function getCoverageEvidence(req,res,next){try{
  const s=await scope(req),serviceDate=req.query.serviceDate,insurance=await readClientInsurance(s.clientId,s.agencyId),evidence=await listCoverageEvidence({...s,serviceDate});
  const missingAssignmentFields=assignmentCoverageIssues(insurance,serviceDate);
  let automaticEligibility;
- try {automaticEligibility=await clientAutomaticEligibilityStatus({...s,insurance,serviceDate});}
+ try {automaticEligibility=await clientAutomaticEligibilityStatus({...s,insurance,serviceDate,checks:evidence.checks});}
  catch {automaticEligibility={status:'unavailable',message:'Automatic verification status could not be loaded. Saved payer evidence remains available.'};}
  res.set('Cache-Control','no-store').json({...evidence,automaticEligibility,syntheticQaReviewAvailable:await syntheticQaCoverageReviewAvailable(s),blockers:coverageReviewBlockers({insurance,...evidence}),insuranceSummary:assignmentInsuranceSummary(insurance),
   reviewToken:coverageReviewToken({...s,...evidence,serviceDate,insurance}),readyForAssignmentReview:!missingAssignmentFields.length,missingAssignmentFields,

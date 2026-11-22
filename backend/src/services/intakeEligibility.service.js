@@ -69,7 +69,7 @@ export async function intakeAutomationConfig(agencyId,flags,deps={}) {
  return {...config,enabled:true,officeId:valid.length===1?Number(valid[0].id):null,...(!config.medicaidState&&valid.length===1&&valid[0].state==='CO'?{medicaidState:'CO'}:{})};
 }
 
-export async function clientAutomaticEligibilityStatus({agencyId,clientId,insurance,serviceDate},deps={}) {
+export async function clientAutomaticEligibilityStatus({agencyId,clientId,insurance,serviceDate,checks=[]},deps={}) {
  const db=deps.db||pool,env=deps.env||process.env;
  const [[agency]]=await db.execute('SELECT feature_flags FROM agencies WHERE id=?',[agencyId]);
  const [[policy]]=await db.execute('SELECT enabled,monthly_limit FROM agency_eligibility_automation WHERE agency_id=?',[agencyId]);
@@ -93,6 +93,8 @@ export async function clientAutomaticEligibilityStatus({agencyId,clientId,insura
  if(job?.status==='pending'||job?.status==='processing')return status(job.status,job.status==='processing'?'Checking coverage through Claim.MD.':'Automatic Claim.MD verification is queued. The worker normally starts within five minutes.',{jobId:job.id});
  if(job?.status==='completed')return status('completed','The automatic eligibility check returned. Review the payer findings and any other-coverage information below.',{jobId:job.id});
  if(job)return status('review_required','The automatic check needs billing review. Review the saved result or setup issue before sending another paid check.',{jobId:job.id});
+ const prior=checks.find(check=>check.insurance_fingerprint===coverageFingerprint(insurance));
+ if(prior)return status(prior.status==='returned'?'completed':'review_required',prior.status==='returned'?'A saved payer response is available. Review the findings below.':'An earlier check needs review before another paid inquiry is sent.',{coverageCheckId:prior.id});
  return status('ready','Automatic verification is ready. Save the completed insurance information to queue the check.');
 }
 
@@ -125,8 +127,8 @@ export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,i
     const fingerprint=coverageFingerprint(insurance);
     const [[existing]]=await db.execute('SELECT id,status FROM intake_eligibility_jobs WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id DESC LIMIT 1',[agencyId,clientId,fingerprint]);
     if(existing)return {duplicate:true,id:existing.id,status:existing.status};
-    const [[checked]]=await db.execute("SELECT id FROM client_coverage_checks WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? AND status='returned' ORDER BY id DESC LIMIT 1",[agencyId,clientId,fingerprint]);
-    if(checked)return {duplicate:true,id:null};
+    const [[checked]]=await db.execute("SELECT id,status FROM client_coverage_checks WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id DESC LIMIT 1",[agencyId,clientId,fingerprint]);
+    if(checked)return {duplicate:true,id:null,status:checked.status==='returned'?'completed':'review_required'};
     const [result]=await db.execute('INSERT IGNORE INTO intake_eligibility_jobs (agency_id,client_id,submission_id,insurance_fingerprint,status) VALUES (?,?,?,?,?)',[agencyId,clientId,submissionId||0,fingerprint,status]);
     return {duplicate:!result.affectedRows,id:result.insertId||null};
   };
@@ -189,6 +191,8 @@ export async function processIntakeEligibility(job,policy,config,deps={}) {
       const payload=buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode:intakeLookupModes(insurance,slot)[0],medicaidDiscovery});
       // Unsupported and unresolved directory routes go to billing without spending
       // a transaction. Enrollment-required routes also need confirmed setup.
+      const [[priorCheck]]=await db.execute('SELECT id,status FROM client_coverage_checks WHERE agency_id=? AND client_id=? AND policy_slot=? AND service_date=? AND insurance_fingerprint=? ORDER BY id DESC LIMIT 1',[job.agency_id,job.client_id,slot,serviceDate,fingerprint]);
+      if(priorCheck?.status){needsReview=true;continue;}
       if(!await (deps.payerReady||automaticEligibilityPayerReady)({agencyId:job.agency_id,payerId:payload.payerid,profile,connection},{...deps,db})) {needsReview=true;continue;}
     }
     catch(error) { if(![400,409].includes(error.status)) throw error; needsReview=true; continue; }
