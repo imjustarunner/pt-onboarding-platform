@@ -36,8 +36,11 @@
             <button class="cq-link" type="button" @click="openMessages">Open secure conversations</button>
             <button class="cq-link" style="display:block;margin-top:8px" type="button" @click="$emit('open-chart',record,'communications')">View chart communications</button>
           </section>
-          <section class="cq-card"><h3>To do and clinical reminders</h3>
-            <ClientCareOverview :key="`${agencyId}:${client.id}`" :client-id="client.id" :agency-id="agencyId" @open-chart="tab=>$emit('open-chart',record,tab)" @close="$emit('close')" @fiscal-sessions="$emit('fiscal-sessions',$event)" @keep-open="$emit('keep-open')" @leave="$emit('leave')" />
+          <section class="cq-card"><h3>To do and care reminders</h3>
+            <p v-if="chartTypeError" role="status">Service reminders could not be checked. Open the chart to review.</p>
+            <p v-else-if="!chartProfile" role="status">Checking service types…</p>
+            <p v-else-if="!clinicalCare"><button type="button" class="cq-link" @click="$emit('open-chart',record,'notes')">{{ chartProfile.types.includes('learning') ? 'View Learning notes' : 'View care record' }}</button></p>
+            <ClientCareOverview v-if="clinicalCare" :key="`${agencyId}:${client.id}`" :client-id="client.id" :agency-id="agencyId" @open-chart="tab=>$emit('open-chart',record,tab)" @close="$emit('close')" @fiscal-sessions="$emit('fiscal-sessions',$event)" @keep-open="$emit('keep-open')" @leave="$emit('leave')" />
             <h4>Your follow-up tasks</h4>
             <p v-if="tasksLoading" role="status">Loading your follow-ups…</p>
             <p v-if="tasksError" role="alert">{{ tasksError }}</p>
@@ -89,6 +92,7 @@ import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
 import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ClientCareOverview from './ClientCareOverview.vue';
+import {useClientChartTypes} from '../../composables/useClientChartTypes.js';
 import {resolveClientEmail,composeClientEmail} from '../../utils/clientEmailComposer.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 import {sessionDateLabel as date} from '../../composables/useClientSessionSnapshots.js';
@@ -97,6 +101,8 @@ const emit=defineEmits(['close','open-chart','school-workspace','keep-open','lea
 const route=useRoute(),router=useRouter(),auth=useAuthStore();
 const prefix=computed(()=>route.params.organizationSlug?'/'+route.params.organizationSlug:'');
 const agencyId=computed(()=>Number(props.client.agency_id));
+const {profile:chartProfile,error:chartTypeError}=useClientChartTypes(()=>[Number(props.client.id),agencyId.value,true]);
+const clinicalCare=computed(()=>chartProfile.value?.types?.some(type=>['clinical','school'].includes(type)));
 const record=ref({id:props.client.id,agency_id:props.client.agency_id}),loading=ref(false),profileError=ref('');
 const tasks=ref([]),tasksLoading=ref(false),tasksError=ref(''),reload=ref(0);
 const guardians=ref([]),guardiansLoading=ref(false),guardiansError=ref('');
@@ -141,7 +147,7 @@ async function messageGuardian(guardian){
     if(request!==recipientRequest)return;
     const person=data?.person,linked=person?.clientMessaging?.guardians?.find(g=>Number(g.userId)===uid&&!g.isSelf);
     const method=linked?.methods?.find(m=>m.id==='secure');
-    if(Number(person?.clientId)!==clientId||Number(person?.agencyId)!==aid||!linked||linked.sharedSecureEligible===false||!method?.available)throw Error(method?.reason||'This guardian does not have an available secure messaging account. Review their portal access in the chart.');
+    if(Number(person?.clientId)!==clientId||Number(person?.agencyId)!==aid||!linked||linked.sharedSecureEligible===false||!method?.available)throw Error(linked?.sharedSecureEligible===false ? 'Secure messaging is not enabled for this guardian on this chart. Review relationships and portal access.' : method?.reason||'This guardian does not have an available secure messaging account. Review their portal access in the chart.');
     emit('close');await router.push({path:prefix.value+'/messages',query:{view:'hub',channel:'secure',secureRecipient:'guardian',secureClientId:String(clientId),secureGuardianUserId:String(uid),agencyId:String(aid)}});
   }catch(error){if(request===recipientRequest)guardianActionError.value=error.response ? 'Guardian messaging could not be checked. Try again or open relationships and access.' : error.message;}
   finally{if(request===recipientRequest)recipientBusy.value=0;}
