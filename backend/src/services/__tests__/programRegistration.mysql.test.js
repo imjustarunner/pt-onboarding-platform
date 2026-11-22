@@ -99,6 +99,15 @@ describe.skipIf(!socketPath)('agency programs with isolated MySQL',()=>{
     await query("UPDATE family_receivables SET status='void' WHERE source_key='38:11'");
     expect((await retireLegacyPrograms(db,1)).conflicts.some(c=>c.id===38)).toBe(false);
   });
+  it('leaves an agency with completed programs and no obligations at zero current enrollments and zero balances',async()=>{
+    const result=await retireLegacyPrograms(db,2,{apply:true});
+    expect(result.conflicts).toEqual([]);
+    expect(result.counts).toEqual({programEnrollments:1,classes:0,events:1});
+    expect(await query('SELECT * FROM family_receivables WHERE agency_id=2')).toEqual([]);
+    const profile=await programParticipation(13,2,db);
+    expect(profile.map(row=>[row.name,row.period])).toEqual([['Other program','past']]);
+    expect((await retireLegacyPrograms(db,2)).counts).toEqual({programEnrollments:0,classes:0,events:0});
+  });
   it('enrolls on event and staff-facing rosters without creating a school or provider assignment',async()=>{
     await query("INSERT INTO company_events(id,agency_id,organization_id,title,is_active,registration_eligible) VALUES(50,1,10,'New group',1,1)");
     await query("INSERT INTO skills_groups VALUES (8,50,1,10,'2099-01-01')");

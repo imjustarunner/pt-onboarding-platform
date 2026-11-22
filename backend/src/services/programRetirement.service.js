@@ -102,8 +102,9 @@ export async function retireLegacyPrograms(db, agencyId, {apply=false}={}) {
     const reportedOrgs = new Set();
     for (const m of members) {
       if (heldOrgs.has(Number(m.organization_id))) continue;
-      if (Number(m.shared_agency)) {
-        if (!reportedOrgs.has(m.organization_id)) conflicts.push({kind:'program',id:m.organization_id,reasons:['Program assignment is shared with another agency']});
+      if (Number(m.shared_agency) || Number(m.organization_id)===agencyId) {
+        const reason = Number(m.organization_id)===agencyId ? 'Owning agency is classified as a program' : 'Program assignment is shared with another agency';
+        if (!reportedOrgs.has(m.organization_id)) conflicts.push({kind:'program',id:m.organization_id,reasons:[reason]});
         reportedOrgs.add(m.organization_id);
         continue;
       }

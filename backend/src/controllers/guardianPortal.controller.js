@@ -1124,7 +1124,7 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
         const eligibleClientIds = eligible.map(link => Number(link.client_id));
         const classCredits = {};
         for (const id of eligibleClientIds) {
-          if (row.kind === 'learning_class') classCredits[id] = (credits.get(id) || []).filter(c => Number(c.classId) === row.id);
+          if (row.kind === 'learning_class' && row.cashEligible && row.priceCents>0) classCredits[id] = (credits.get(id) || []).filter(c => Number(c.classId) === row.id);
         }
         const completedFormClientIds=await clientsWithCompletedRegistrationForm(row.linkedIntakeId,eligibleClientIds);
         const participants=eligible.map(c=>({clientId:Number(c.client_id),fullName:c.full_name || c.initials || 'Participant'}));
@@ -1148,7 +1148,8 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
 };
 
 async function visibleRegistrationLinks(guardianUserId) {
-  const links = await ClientGuardian.listClientsForGuardian({guardianUserId, requiredClinicalScope:'session_frequency'});
+  // guardianServiceContext checks the service-specific grant. Learning access can coexist with a separate clinical relationship.
+  const links = await ClientGuardian.listClientsForGuardian({guardianUserId});
   return links.filter(link => !ClientGuardian.isNoView(link.permissions_json) && !isGuardianPortalLocked(link, link.date_of_birth));
 }
 
