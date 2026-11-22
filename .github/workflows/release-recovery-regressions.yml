@@ -1,8 +1,6 @@
 name: Recovered shared feature regressions
 on:
-  push:
-    branches: [main]
-    paths: ['frontend/**', 'backend/**', 'scripts/check-production-release*.mjs', '.github/workflows/release-recovery-regressions.yml']
+  workflow_call:
   pull_request:
     paths: ['frontend/**', 'backend/**', 'scripts/check-production-release*.mjs', '.github/workflows/release-recovery-regressions.yml']
 jobs:

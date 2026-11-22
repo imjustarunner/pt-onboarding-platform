@@ -1,0 +1,19 @@
+Production release continuity
+
+Shared frontend/backend application work must be integrated into shared main
+before promoting it. Keep agent activity attributed to the automation identity.
+
+Both deployment workflows fetch complete history and check that the candidate
+contains the commits identified by both current production version endpoints.
+The check repeats before traffic changes. Missing or unverifiable history stops
+the deployment. Frontend traffic targets the exact staged revision, not latest.
+Per-service deployment queues use a fixed production concurrency group.
+
+Do not bypass a rejected source check by changing version metadata to name
+unrelated application code. Merge the actual live source, validate the combined
+change, and deploy that source. Metadata-only compatibility updates must retain
+the actual frontend source build ID.
+
+A branch is complete only after source integration and live verification.
+Retire inactive ancestor branches after confirming their commits remain in main.
+Keep unmerged or pending work with a short reason and verification status.
