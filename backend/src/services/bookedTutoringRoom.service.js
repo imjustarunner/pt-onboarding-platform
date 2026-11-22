@@ -298,7 +298,7 @@ export async function closeChangedBookedTutoringRoom(appointment,actorUserId){
   const current=await media.clinicalMedia(session.booked_media_id,db,true);
   if(current?.session_kind!=='tutoring')return; // Preserve older office evidence.
   mediaId=session.booked_media_id;await media.requestClinicalEnd(mediaId,null,db);
-  await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND status IN ('waiting','admitted')",[session.id]);
+  await endConnectedTutoringVisits(session,db);
   await db.execute("UPDATE learning_class_sessions SET status='ended',actual_ended_at=IF(actual_started_at IS NULL,actual_ended_at,COALESCE(actual_ended_at,UTC_TIMESTAMP())),ends_at=IF(actual_started_at IS NULL,ends_at,COALESCE(actual_ended_at,UTC_TIMESTAMP())) WHERE id=?",[session.id]);
   await clinicalAudit({kind:'tutoring',sessionId:session.id,agencyId:appointment.agencyId,actor:'scheduling-system'},'tutoring_booking_room_closed',{appointmentId:appointment.id,cancellationActorUserId:actorUserId||null},db);
  });

@@ -12,6 +12,7 @@ import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {clinicalAudit} from './clinicalSessionAudit.service.js';
 import {tutoringInvitationAllowed} from '../utils/tutoringGuestPermissions.js';
 import {utcMysqlToIso} from '../utils/zonedWallTime.util.js';
+import {endConnectedTutoringVisits} from './tutoringMediaAttendance.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 export const tutoringGuestBookingHash=a=>hash(JSON.stringify([a.id,a.agencyId,a.providerUserId,utcMysqlToIso(a.startAt),utcMysqlToIso(a.endAt),a.learningContext?.serviceEnrollmentId||0,a.modality,a.videoRoomMode,a.externalMeetingUrl||'']));
@@ -93,7 +94,7 @@ async function disconnectGuest(id,db=pool){
  const media=await import('./clinicalVideo.service.js');
  for(const visit of visits){
   if(visit.booked_media_id)await media.revokeClinicalActor(visit.booked_media_id,'guest:'+id,db);
-  await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=COALESCE(ended_at,UTC_TIMESTAMP()),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE id=?",[visit.id]);
+  await endConnectedTutoringVisits({id:visit.session_id},db,{column:'actor',value:'guest:'+id});
  }
 }
 export async function sweepTutoringGuestAccess(){
