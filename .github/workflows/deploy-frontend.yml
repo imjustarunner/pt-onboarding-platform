@@ -26,7 +26,10 @@ env:
   IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-frontend/onboarding-frontend
 
 jobs:
+  validate-recovered-features:
+    uses: ./.github/workflows/release-recovery-regressions.yml
   deploy:
+    needs: validate-recovered-features
     runs-on: ubuntu-latest
     permissions:
       contents: read
