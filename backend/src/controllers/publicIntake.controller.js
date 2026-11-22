@@ -68,7 +68,7 @@ import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js
 import applyClientIntakeCompletion from '../services/clientIntakeCompletion.service.js';
 import { maybeCreateSchoolIntakeReviewTask } from '../services/schoolIntakeReviewTask.service.js';
 import { generateIntakeSummaryPdf } from '../services/intakeSummaryPdf.service.js';
-import { brandedIntakeSummarySpec } from '../services/packetBrandChrome.service.js';
+import { brandedIntakeSummarySpec, resolvePacketBrandChrome } from '../services/packetBrandChrome.service.js';
 import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
 import { buildReferenceReleasePdfBuffer } from '../services/referenceReleasePdf.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
@@ -472,8 +472,10 @@ async function persistEmbeddedDisclosureForClient({ intakeData, updatedSubmissio
       });
       if (!validateSmartDisclosureResponse(disclosureResponse).valid) throw new Error('Incomplete disclosure');
       {
+        const brand = await resolvePacketBrandChrome(agency || {}, { packetKind: disclosureContext.school ? 'school' : 'office' }).catch(() => null);
         const html = buildSmartDisclosureHtml({
           disclosureContext,
+          logoDataUrl: brand?.headerLogoDataUrl || brand?.headerImageDataUrl || '',
           response: disclosureResponse,
           signedAt: now
         });
@@ -6559,8 +6561,11 @@ export const viewPublicDisclosureHtml = async (req, res, next) => {
       agency,
       locale: resolveRequestedMasterLanguage(req.query, link.language_code || 'en')
     });
+    const brand = disclosureContext && agency
+      ? await resolvePacketBrandChrome(agency, { packetKind: disclosureContext.school ? 'school' : 'office' }).catch(() => null)
+      : null;
     const html = disclosureContext
-      ? buildSmartDisclosureHtml({ disclosureContext })
+      ? buildSmartDisclosureHtml({ disclosureContext, logoDataUrl: brand?.headerLogoDataUrl || brand?.headerImageDataUrl || '' })
       : wrapPublicLegalHtml({
         title: 'Disclosure Statement',
         versionLabel: '',
@@ -6569,7 +6574,7 @@ export const viewPublicDisclosureHtml = async (req, res, next) => {
         bodyHtml: '<p>A disclosure statement is on file with the organization.</p>'
       });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Cache-Control', 'private, no-store');
     return res.send(html);
   } catch (error) {
     next(error);
@@ -9008,8 +9013,10 @@ export const finalizePublicIntake = async (req, res, next) => {
         });
       }
       if(boundClientUpdate&&(!updatedSubmission.client_id||!updatedSubmission.guardian_user_id))updatedSubmission=await IntakeSubmission.updateById(submissionId,{client_id:boundClientId,guardian_user_id:boundClientUpdate.guardianUserId});
+      const brand = await resolvePacketBrandChrome(agency || {}, { packetKind: disclosureContext.school ? 'school' : 'office' }).catch(() => null);
       const html = buildSmartDisclosureHtml({
         disclosureContext,
+        logoDataUrl: brand?.headerLogoDataUrl || brand?.headerImageDataUrl || '',
         response: disclosureResponse,
         signedAt: now
       });

@@ -17,7 +17,7 @@
     </nav>
 
     <ProviderEnrollmentWaitlist
-      v-if="!profileEmbed && Number(currentUserId) === Number(authStore.user?.id)" v-show="activeSection==='waitlist'" @loaded="waitlistCount=$event.count"
+      v-if="!profileEmbed && serverMemberships !== null && !loading && Number(currentUserId) === Number(authStore.user?.id)" v-show="activeSection==='waitlist'" @loaded="waitlistCount=$event.count"
       :provider-id="Number(currentUserId)"
       :initially-expanded="true"
       :agency-ids="officeWaitlistAgencyIds"
@@ -234,16 +234,19 @@
                 <td>
                   <div class="pct-client-cell">
                     <div class="pct-agency-logos">
-                      <ClientAgencyLogo v-for="b in c.agencyBrands" :key="`logo-${c.id}-${b.agencyId}`" :agency="b" class="pct-agency-logo" />
+                      <template v-for="b in c.agencyBrands" :key="`logo-${c.id}-${b.agencyId}`">
+                        <button v-if="linkedChartForAgency(c, b.agencyId)" type="button" class="pct-chart-logo-button"
+                          :title="`Open ${b.agencyName || b.name || 'agency'} chart`" :aria-label="`Open ${b.agencyName || b.name || 'agency'} chart`"
+                          @click="openClientProfile(linkedChartForAgency(c, b.agencyId))">
+                          <ClientAgencyLogo :agency="b" class="pct-agency-logo" />
+                        </button>
+                        <ClientAgencyLogo v-else :agency="b" class="pct-agency-logo" />
+                      </template>
                     </div>
                     <div class="pct-client-charts">
                       <button type="button" class="pct-client-link" :title="officeHoverTitle(c)"
                         @click="openClientProfile(c, sortedCombinedClientsList)">
                         {{ formatOfficeClientLabel(c) }}
-                      </button>
-                      <button v-for="chart in c.linkedCaseloadCharts" :key="chart.id" type="button"
-                        class="pct-client-link pct-linked-chart" @click="openClientProfile(chart)">
-                        {{ chart.agency_name || chart.agencyName || 'Chart ' + chart.id }}
                       </button>
                     </div>
                   </div>
@@ -391,13 +394,12 @@
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
-                  <button
-                    v-for="chart in c.linkedCaseloadCharts"
-                    :key="chart.id"
-                    type="button"
-                    class="pct-client-link"
-                    @click="openClientProfile(chart)"
-                  >{{ chart.agency_name || chart.agencyName || 'Chart ' + chart.id }}</button>
+                  <div v-if="c.linkedCaseloadCharts?.length" class="pct-agency-logos pct-office-chart-links">
+                    <button v-for="chart in c.linkedCaseloadCharts" :key="chart.id" type="button" class="pct-chart-logo-button"
+                      :title="`Open ${chart.agency_name || chart.agencyName || 'agency'} chart`" :aria-label="`Open ${chart.agency_name || chart.agencyName || 'agency'} chart`" @click="openClientProfile(chart)">
+                      <ClientAgencyLogo :agency="chart.agencyBrands?.[0] || { name: chart.agency_name }" class="pct-agency-logo" />
+                    </button>
+                  </div>
                 </td>
                 <td>{{ rosterServiceLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
@@ -657,6 +659,7 @@ function agencyBrandMeta(agencyIdVal) {
 
 function decorateClientAgency(row, agencyIdVal) {
   const brand = agencyBrandMeta(agencyIdVal || row?.agency_id);
+  if (!brand.agencyName) brand.agencyName = row?.agency_name || '';
   const existing = Array.isArray(row?.agencyBrands) ? row.agencyBrands : [];
   const brands = [...existing];
   if (brand.agencyId && !brands.some((b) => Number(b.agencyId) === brand.agencyId)) {
@@ -802,12 +805,20 @@ function collapseLinkedCaseloadRows(rows) {
   return [...groups.values()];
 }
 
+function linkedChartForAgency(client, agencyId) {
+  return client.linkedCaseloadCharts?.find(chart => Number(chart.agency_id) === Number(agencyId));
+}
+
 const isTerminatedClient = (c) =>
   String(c?.client_status_key || c?.status || '').toLowerCase() === 'terminated';
 
+const useOwnCaseload = computed(() => !rosterProviderUserId.value && !props.subjectAgencyId);
+
 const mergedAssignedClients = computed(() => {
   const byId = new Map();
-  for (const c of assignedProviderClients.value || []) byId.set(Number(c.id), c);
+  for (const c of assignedProviderClients.value || []) {
+    byId.set(Number(c.id), useOwnCaseload.value ? decorateClientAgency(c, c.agency_id) : c);
+  }
   if (showTerminated.value) {
     for (const c of terminatedOfficeExtras.value || []) {
       if (!byId.has(Number(c.id))) byId.set(Number(c.id), c);
@@ -1392,6 +1403,16 @@ const loadOfficeClients = async () => {
   officeLoading.value = true;
   officeError.value = '';
   try {
+    if (useOwnCaseload.value) {
+      const { data } = await api.get('/clients', {
+        params: { caseload: 'mine', includeServiceContext: 1 },
+        skipGlobalLoading: true
+      });
+      if (version !== rosterLoadVersion || providerId !== currentUserId.value) return;
+      assignedProviderClients.value = (Array.isArray(data) ? data : data?.items || [])
+        .filter(row => Number(row.id) > 0 && String(row.status || '').toUpperCase() !== 'ARCHIVED');
+      return;
+    }
     const agencyIds = (caseloadAgencies.value || [])
       .map((a) => Number(a.id))
       .filter((id) => id > 0);
@@ -1597,16 +1618,29 @@ const load = async () => {
       selectedFiscalYearStart.value = fiscalYearOptions.value[0]?.startYmd || '';
     }
 
-    if(!props.profileEmbed){try{const response=await api.get('/users/me/agencies',{skipGlobalLoading:true});if(version!==rosterLoadVersion||providerId!==currentUserId.value)return;if(Array.isArray(response.data))serverMemberships.value=response.data;}catch{if(version===rosterLoadVersion)error.value='Agency memberships could not be refreshed. Your loaded caseload may be incomplete; refresh to retry.';}}
-    if(version!==rosterLoadVersion)return;
-    const officeClientsTask = loadOfficeClients();
+    const isCurrent = () => version === rosterLoadVersion && providerId === currentUserId.value;
+    const membershipsTask = props.profileEmbed ? Promise.resolve() :
+      api.get('/users/me/agencies', { skipGlobalLoading: true }).then(({ data }) => {
+        if (isCurrent() && Array.isArray(data)) serverMemberships.value = data;
+      }).catch(() => {
+        if (isCurrent()) error.value = 'Agency memberships could not be refreshed. Refresh to retry.';
+      });
+
+    if (!useOwnCaseload.value) await membershipsTask;
+    if (!isCurrent()) return;
+    await loadOfficeClients();
+    if (!isCurrent()) return;
+    loading.value = false;
+
+    await membershipsTask;
+    if (!isCurrent()) return;
     const schoolsTask = loadSchools().then(async () => {
       if (version !== rosterLoadVersion) return;
       await Promise.all([loadAllRosters(), refreshSchoolAffiliatedClientIds()]);
     });
     const secondaryTasks = [loadBillingPosFlags(), loadOfficeAcceptance(), loadSessionTotals(), loadTerminatedOfficeExtras()];
     if (!props.profileEmbed) secondaryTasks.push(loadPendingClients(), loadNavigationCounts());
-    await Promise.all([officeClientsTask, schoolsTask, ...secondaryTasks]);
+    await Promise.all([schoolsTask, ...secondaryTasks]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';
   } finally {
@@ -2047,7 +2081,8 @@ watch(skillBuildersOnlyFilter, async () => {
   gap: 8px;
 }
 .pct-client-charts { display: grid; gap: 4px; justify-items: start; min-width: 0; }
-.pct-linked-chart { font-size: 0.85em; font-weight: 600; }
+.pct-chart-logo-button { display: inline-flex; padding: 0; border: 0; background: transparent; border-radius: 5px; cursor: pointer; }
+.pct-office-chart-links { margin-top: 4px; }
 .pct-agency-logos {
   width: 40px;
   min-height: 20px;

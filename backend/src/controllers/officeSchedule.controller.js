@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { roomBlockForSession, sessionWindowInRoom } from '../utils/officeSessionWindow.js';
 import { approvePreciseOfficeSessions } from '../services/preciseOfficeSession.service.js';
 import { assertAppointmentClients } from '../services/appointmentClinicalLink.service.js';
-import { clinicalCodesForClientContext } from '../services/clientServiceContext.service.js';
+import { resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
+import { clinicalBookingContextIssue } from '../services/clientServiceContext.service.js';
 import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
@@ -69,7 +70,6 @@ import {
   parseAllowedCredentialTiers
 } from '../services/medicalBillingDefaults.service.js';
 import { ensureTenantServiceSuitesForAgency } from '../services/tenantServiceSuiteDefaults.service.js';
-import { eligibleServiceCodesForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdog.service.js';
 import { validateOfficeSlotSeries, generateOccurrenceDates, recurrenceLabel as officeRecurrenceLabel, normalizeOfficeRequestRecurrence } from '../services/officeSlotSeries.service.js';
@@ -3569,19 +3569,7 @@ export const getBookingMetadata = async (req, res, next) => {
           // tenant_services may not exist yet
         }
 
-        const tier = metadata.credentialTier;
-        const tierAllowList = eligibleServiceCodesForTier(tier); // null => all
-        const allowSet = tierAllowList ? new Set(tierAllowList.map((c) => String(c).toUpperCase())) : null;
-
-        serviceCodes = Array.from(byCode.values())
-          .filter((row) => row?.code)
-          .filter((row) => {
-            // Medical rows already tier-filtered; tenant-only rows honor credential allow-list.
-            if (row.medical) return true;
-            if (!allowSet) return true;
-            return allowSet.has(String(row.code).toUpperCase());
-          })
-          .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+        serviceCodes = [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
       } catch {
         // medical service code table may not exist yet
       }
@@ -3611,19 +3599,30 @@ export const getBookingMetadata = async (req, res, next) => {
           Number(approvedCodes.get(row.code).minDurationMinutes) || 0) || null
       })) : [];
 
-    serviceCodes = await clinicalCodesForClientContext(serviceCodes, { agencyId: policyAgencyId, providerId: requestedProviderId,
+    const clientBookingIssue = await clinicalBookingContextIssue({ agencyId: policyAgencyId, providerId: requestedProviderId,
       clientIds: String(req.query.clientIds || req.query.clientId || '').split(',').map(Number).filter(id => id > 0).slice(0, 50),
       businessType: String(req.query.businessType || '') });
+    let diagnosticBookingIssue = clientBookingIssue || (!metadata.careEligibility.canProvideCare ? metadata.careEligibility.reason : '');
+    if (!diagnosticBookingIssue && !approvedCodes.has('90791')) {
+      const rule = await resolvePolicyRuleForServiceCode({
+        agencyId: policyAgencyId, serviceCode: '90791', credentialTier: metadata.credentialTier
+      });
+      if (rule?.enabledForAgency === false) diagnosticBookingIssue = '90791 is disabled in this agency’s scheduling catalog.';
+      else if (rule?.allowedForCredentialTier === false) diagnosticBookingIssue = 'The provider’s credential tier is not eligible to book 90791.';
+      else diagnosticBookingIssue = 'The agency’s scheduling catalog does not offer 90791 for this provider. Review the service-code and credential settings.';
+    }
 
     return res.json({
       careEligibility: metadata.careEligibility,
+      clientBookingIssue,
+      diagnosticBookingIssue,
       meetingPolicy: await externalMeetingPolicy({agencyId:policyAgencyId,provider:requestedProvider}),
       providerId: requestedProviderId,
       agencyId: policyAgencyId,
       credentialTier: metadata.credentialTier,
       appointmentTypes: metadata.appointmentTypes,
       appointmentSubtypes: metadata.appointmentSubtypes,
-      serviceCodes,
+      serviceCodes: clientBookingIssue ? [] : serviceCodes,
       serviceLocations
     });
   } catch (e) {

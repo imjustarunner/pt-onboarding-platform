@@ -13291,6 +13291,7 @@ const bookingLocationsLoading = ref(false);
 const bookingLocationsError = ref('');
 const loadBookingCatalog = createBookingCatalogCache(api);
 const bookingMetadataError = ref('');
+const bookingDiagnosticIssue = ref('');
 const bookingMetadata = ref({
   appointmentTypes: [],
   appointmentSubtypes: [],
@@ -17296,7 +17297,12 @@ const bookingServiceSelectionIssue = computed(() => {
   if (!code || editorIsLearning.value) return '';
   const option = bookingPrimaryServiceCodeOptions.value.find(row => row.code === code);
   if (!option && !bookingMetadataLoading.value && bookingCatalogLoaded.value && !isAppointmentEditMode.value && !isScheduleEventEditMode.value) {
-    return `${code} is unavailable for this client and appointment. Choose an eligible service code.`;
+    if (code === '90791' && bookingDiagnosticIssue.value) return bookingDiagnosticIssue.value;
+    const catalogOption = bookingServiceCodeOptions.value.find(row => row.code === code);
+    if (catalogOption?.sessionMode === 'individual') return `${code} is configured for individual appointments in this agency.`;
+    if (catalogOption?.sessionMode === 'group') return `${code} is configured for group appointments in this agency.`;
+    if (bookingMetadataError.value) return bookingMetadataError.value;
+    return `${code} is unavailable in this provider’s scheduling catalog. Review the service and provider credential settings.`;
   }
   const [startHour, startMinute] = editorStartTime.value.split(':').map(Number);
   const [endHour, endMinute] = editorEndTime.value.split(':').map(Number);
@@ -17339,6 +17345,7 @@ const resetBookingSelectionDefaults = () => {
 const resetBookingMetadataState = () => {
   bookingMetadataLoading.value = false;
   bookingMetadataError.value = '';
+  bookingDiagnosticIssue.value = '';
   bookingLocationsLoading.value = false;
   bookingLocationsError.value = '';
   bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
@@ -17452,7 +17459,7 @@ const refreshBookingUnitPreview = async () => {
       return;
     }
     if (d.claimable === false) {
-      bookingUnitPreview.value = d.reason || `Not claimable at ${minutes} min for ${code}.`;
+      bookingUnitPreview.value = `Billing preview: ${d.reason || `${code} cannot be billed at ${minutes} minutes.`}`;
       return;
     }
     const parts = [durationHint, `~${minutes} min → ${d.units || 0} unit(s)`].filter(Boolean);
@@ -17513,19 +17520,19 @@ const loadBookingMetadataForProvider = async () => {
   try {
     bookingMetadataLoading.value = true;
     bookingMetadataError.value = '';
+    bookingDiagnosticIssue.value = '';
     const data = await loadBookingCatalog('/office-schedule/booking-metadata', params);
     if(requestId!==bookingMetadataRequest)return;
-    const clientIds=isScheduleEventEditMode.value ? [editorInfoClientId.value].filter(Boolean) : [...virtualSessionSelectedClientIdSet.value];
-    const eligibility=await Promise.all(clientIds.map(clientId=>api.get('/medical-billing/service-code-eligibility',{params:{agencyId:Number(editorAgencyId.value || effectiveAgencyId.value),clientId,providerId,dateOfService:editorDateYmd.value},skipGlobalLoading:true})));
-    let codes=Array.isArray(data?.serviceCodes)?data.serviceCodes:[];
-    for (const result of eligibility) {
-      const allowed = new Set((result.data.serviceCodes || []).map(normalizeCodeValue));
-      codes = codes.filter(item => allowed.has(normalizeCodeValue(typeof item === 'string' ? item : item.code || item.service_code || item.serviceCode)));
-    }
-    if (requestId !== bookingMetadataRequest) return;
-    bookingMeetingPolicy.value=data?.meetingPolicy?{...data.meetingPolicy,agencyId:params.agencyId}:null;
-    const careEnabled = params.businessType === 'tutoring' ? (data?.careEligibility?.canProvideTutoring || data?.careEligibility?.canProvideCare) : data?.careEligibility?.canProvideCare;
-    bookingMetadataError.value=[data?.careEligibility && !careEnabled?data.careEligibility.reason:null,...eligibility.map(result=>result.data.message)].filter(Boolean).join(' ');
+    const codes = Array.isArray(data?.serviceCodes) ? data.serviceCodes : [];
+    bookingMeetingPolicy.value = data?.meetingPolicy ? { ...data.meetingPolicy, agencyId: params.agencyId } : null;
+    bookingDiagnosticIssue.value = data?.diagnosticBookingIssue || '';
+    const careEnabled = params.businessType === 'tutoring'
+      ? (data?.careEligibility?.canProvideTutoring || data?.careEligibility?.canProvideCare)
+      : data?.careEligibility?.canProvideCare;
+    bookingMetadataError.value = [
+      data?.careEligibility && !careEnabled ? data.careEligibility.reason : null,
+      data?.clientBookingIssue
+    ].filter(Boolean).join(' ');
     bookingMetadata.value = {
       appointmentTypes: Array.isArray(data?.appointmentTypes) ? data.appointmentTypes : [],
       appointmentSubtypes: Array.isArray(data?.appointmentSubtypes) ? data.appointmentSubtypes : [],

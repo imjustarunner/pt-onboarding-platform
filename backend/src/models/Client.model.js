@@ -372,9 +372,10 @@ class Client {
     }
 
     if (provider_id) {
-      const assignment = clientServiceAssignmentSql({ providerId: provider_id, agencyId: agency_id, serviceKind: 'counseling' });
-      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : ''}) OR ${assignment.sql})`;
-      values.push(provider_id, ...(agency_id ? [agency_id] : []), ...assignment.params);
+      const scopes = agency_id ? [agency_id] : options.providerAgencyIds || [];
+      const assignment = clientServiceAssignmentSql({ providerId: provider_id, agencyId: agency_id, agencyIds: options.providerAgencyIds, serviceKind: 'counseling' });
+      query += ` AND ((c.provider_id = ? ${agency_id ? 'AND c.agency_id=?' : scopes.length ? `AND c.agency_id IN (${scopes.map(() => '?').join(',')})` : ''}) OR ${assignment.sql})`;
+      values.push(provider_id, ...scopes, ...assignment.params);
     }
 
     if (status) {

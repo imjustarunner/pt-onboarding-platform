@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { schoolRoiSignedTimestamp } from '../../utils/schoolRoiCalendarDate.js';
 import { resolveRequestedMasterLanguage } from '../../utils/schoolIntakeMasterLanguage.js';
 
 const source = fs.readFileSync(new URL('../publicIntake.controller.js', import.meta.url), 'utf8');
@@ -10,7 +11,7 @@ function load(name, next, deps, exported = true) {
   return new Function(...Object.keys(deps), `${body}; return ${name};`)(...Object.values(deps));
 }
 const wrapPublicLegalHtml = load('wrapPublicLegalHtml', 'export const viewPublicPacketSectionHtml', {}, false);
-const buildPacketSectionSignedHtml = load('buildPacketSectionSignedHtml', 'async function validatePacketEditionsBeforeSubmission', { sectionTitle: () => 'Agreement' }, false);
+const buildPacketSectionSignedHtml = load('buildPacketSectionSignedHtml', 'async function validatePacketEditionsBeforeSubmission', { sectionTitle: () => 'Agreement', schoolRoiSignedTimestamp }, false);
 
 for (const [name, next, disclosure] of [
   ['getPublicIntakePacketSection', 'function wrapPublicLegalHtml', false],
@@ -28,7 +29,8 @@ for (const [name, next, disclosure] of [
       applyAgencyMastersReadOnly: async link => link,
       buildPacketSectionContext: async args => { requests.push(args); return { ...args, html: `<p>${args.locale}</p>`, contentHash: `${args.locale}-hash`, packetVersion: 4 }; },
       buildSmartDisclosureContext: async args => { requests.push(args); return { locale: args.locale }; },
-      buildSmartDisclosureHtml: ({ disclosureContext }) => `<p>${disclosureContext.locale}</p>`,
+      resolvePacketBrandChrome: async () => ({ headerLogoDataUrl: 'data:image/png;base64,ZmFrZQ==' }),
+      buildSmartDisclosureHtml: ({ disclosureContext, logoDataUrl }) => `<p>${disclosureContext.locale}</p><img src="${logoDataUrl}">`,
       sectionTitle: (_key, language) => language === 'es' ? 'Acuerdo' : 'Agreement',
       wrapPublicLegalHtml
     };
@@ -41,6 +43,7 @@ for (const [name, next, disclosure] of [
     assert.equal(requests[0].locale, locale);
     if (!disclosure) { assert.equal(requests[0].office, true); assert.equal(requests[0].variant, 'parent'); }
     if (name === 'viewPublicPacketSectionHtml') assert.match(result, new RegExp(`<html lang="${locale}">`));
+    if (name === 'viewPublicDisclosureHtml') assert.match(result, /data:image\/png;base64,ZmFrZQ==/);
   });
 }
 

@@ -36,19 +36,17 @@ export function pickLivingDisclosureParties(currentProviders = [], signedProvide
 
 const DEFAULT_COPY_EN = {
   title: 'DISCLOSURE STATEMENT',
-  introHtml: `<p>This document is MANDATORY for all mental health professions in Colorado. The specific agency within the Department that has responsibility specifically for licensed and unlicensed psychotherapists is:</p>
-<p><em>Department of Regulatory Agencies<br/>Division of Professions and Occupations<br/>Healthcare Professions Programs<br/>State Board Specific to Each Clinician/Provider is Listed with Each Individual<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
-<p>The purpose of this document is to explain the levels of regulation applicable to mental health professionals under the Mental Health Practice Act and the differences between licensure, registration, and certification, including the educational, experience, and training requirements applicable to the particular level of regulation. The direct entity covered by this document can be found below, as well as the Clinicians and Providers who are employees of that entity.</p>
-<p><em>Note: The Clinicians and Providers listed below are subject to change. This document will be sent, acknowledged, and signed by the person completing enrollment at the time of intake and accurate information about their specific clinician/provider will be listed.</em></p>`,
+  introHtml: `<p>Colorado’s Division of Professions and Occupations regulates licensed and registered psychotherapy professionals. Contact the board listed for your provider through the Division at 1560 Broadway, Suite 1350, Denver, CO 80202, or call 303-894-7800.</p>
+<p>The care team can change. This disclosure is reviewed and signed by the person completing enrollment.</p>`,
   doraHtml: '',
   rightsHtml: `<p><strong>Client Rights and Disclosures:</strong></p>
 <p>(I) I understand that I am entitled to receive information about the methods of therapy, the techniques used, the duration of therapy, if known, and the fee structure.</p>
 <p>(II) I understand that I may seek a second opinion from another therapist or may terminate therapy at any time.</p>
-<p>(III) I understand that In a professional relationship such as this, sexual intimacy is never appropriate and should be reported to the board that licenses, registers, or certifies the licensee, registrant, or certificate holder.</p>
-<p>(IV) I understand that the information I provided during my therapy sessions is legally confidential in the case of individuals licensed, certified, or registered under Colorado’s Regulatory agencies, except for certain legal exceptions that will be identified by the licensee, registrant, or certificate holder should any such situation arise during therapy.</p>
-<p>(V) I understand that my records may not be maintained for longer than seven years, subject to changes in state or federal law.</p>`,
+<p>(III) I understand that in a professional relationship such as this, sexual intimacy is never appropriate and should be reported to the board that licenses, registers, or certifies the licensee, registrant, or certificate holder.</p>
+<p>(IV) Information shared during therapy is confidential under Colorado law, subject to C.R.S. § 12-245-220 and other legal exceptions. Your provider will explain applicable exceptions if one arises.</p>
+<p>(V) Your records may no longer be available after seven years, under C.R.S. § 12-245-226(1)(a)(II)(A).</p>`,
   levelsOfRegulationHtml: `<p><strong>Levels of Regulation Applicable</strong></p>
-<p>The levels of regulated titles and licenses vary in educational experience, training, and experience requirements. Candidate and unlicensed providers practice under supervision of a licensed clinician.</p>`,
+<p>Requirements for education, training and experience vary by credential. When a provider is listed as a registered unlicensed psychotherapist, Colorado authorizes that provider to practice psychotherapy through its registry. The registration is separate from licensure and does not require standardized education or testing.</p>`,
   acknowledgmentText: 'I have read the preceding information on our Disclosure Statement and understand my rights as a client or as the client’s responsible party.',
   fullyLicensedHeading: 'FULLY LICENSED PROVIDERS',
   preLicensedHeading: 'PRE-LICENSED PROVIDERS UNDER SUPERVISION',
@@ -57,19 +55,17 @@ const DEFAULT_COPY_EN = {
 
 const DEFAULT_COPY_ES = {
   title: 'DECLARACIÓN DE DIVULGACIÓN',
-  introHtml: `<p>Este documento es OBLIGATORIO para todas las profesiones de salud mental en Colorado.</p>
-<p><em>Department of Regulatory Agencies<br/>Division of Professions and Occupations<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
-<p>El propósito de este documento es explicar los niveles de regulación aplicables a los profesionales de salud mental. La entidad cubierta y los clínicos/proveedores empleados aparecen a continuación.</p>
-<p><em>Nota: Los clínicos y proveedores listados están sujetos a cambio.</em></p>`,
+  introHtml: `<p>La División de Profesiones y Ocupaciones de Colorado regula el ejercicio de la psicoterapia por profesionales con licencia o registro. Puede comunicarse con la junta que figura junto al nombre de su profesional a través de la División, en 1560 Broadway, Suite 1350, Denver, CO 80202, o al 303-894-7800.</p>
+<p>El equipo de atención puede cambiar. La persona que completa la inscripción revisa y firma esta declaración.</p>`,
   doraHtml: '',
   rightsHtml: `<p><strong>Derechos del cliente y divulgaciones:</strong></p>
 <p>(I) Tengo derecho a recibir información sobre métodos, técnicas, duración y estructura de honorarios.</p>
 <p>(II) Puedo buscar una segunda opinión o terminar la terapia en cualquier momento.</p>
 <p>(III) La intimidad sexual nunca es apropiada y debe reportarse a la junta correspondiente.</p>
-<p>(IV) La información es confidencial salvo excepciones legales identificadas por el profesional.</p>
-<p>(V) Los registros no se mantienen más de siete años, sujeto a cambios de ley.</p>`,
+<p>(IV) La información compartida durante la terapia es confidencial conforme a la ley de Colorado, sujeta a C.R.S. § 12-245-220 y otras excepciones legales. Su profesional le explicará las excepciones aplicables si surge alguna.</p>
+<p>(V) Es posible que sus expedientes ya no estén disponibles después de siete años, conforme a C.R.S. § 12-245-226(1)(a)(II)(A).</p>`,
   levelsOfRegulationHtml: `<p><strong>Niveles de regulación aplicables</strong></p>
-<p>Los títulos regulados varían en educación, formación y experiencia. Los candidatos y no licenciados practican bajo supervisión.</p>`,
+<p>Los requisitos de educación, formación y experiencia varían según la credencial. Colorado autoriza a los psicoterapeutas registrados sin licencia a ejercer mediante su registro estatal. Este registro es distinto de una licencia y no exige educación ni exámenes estandarizados.</p>`,
   acknowledgmentText: 'He leído la información anterior de la Declaración de Divulgación y entiendo mis derechos como cliente o como parte responsable del cliente.',
   fullyLicensedHeading: 'PROVEEDORES CON LICENCIA COMPLETA',
   preLicensedHeading: 'PROVEEDORES PRE-LICENCIADOS BAJO SUPERVISIÓN',
@@ -123,19 +119,23 @@ function categorizeProvider({
   title = '',
   role = ''
 } = {}) {
+  const licenseType = extractLicenseTypeKey({ credential, licenseNumber });
+  if (['LPCC', 'MFTC', 'LMFTC', 'SWC', 'LSW', 'LPC-A'].includes(licenseType)) return 'PRE_LICENSED';
+  if (['LPC', 'LCSW', 'CSW', 'LMFT', 'MFT', 'LAC'].includes(licenseType)) return 'FULLY_LICENSED';
+  if (licenseType === 'PSYCHOLOGIST') {
+    const hasLicenseEvidence = /\d/.test(licenseNumber) || /\b(?:licensed psychologist|LPSY|LP)\b/i.test(credential);
+    return hasLicenseEvidence ? 'FULLY_LICENSED' : 'UNVERIFIED';
+  }
+
   const { status } = determineLicenseStatus({
-    credential: credential || licenseNumber || serviceProvider,
+    credential: [credential, licenseNumber, serviceProvider].filter(Boolean).join(' '),
     title,
     role
   });
-  if (status !== 'unknown') return mapLicenseStatusToCategory(status);
-
   const blob = `${credential} ${licenseNumber} ${serviceProvider}`.toLowerCase();
-  if (/(candidate|lpcc|mftc|swc|psychologist candidate)/.test(blob)) return 'PRE_LICENSED';
-  if (/(intern|bachelor|peer specialist|unlicensed|in-process|in process)/.test(blob)) return 'UNLICENSED';
-  if (/(lpc|lcsw|csw|mft|lsw|lac|psychologist)/.test(blob) && !/candidate/.test(blob)) return 'FULLY_LICENSED';
-  if (!String(licenseNumber || '').trim() && /intern|bachelor|peer/.test(blob)) return 'UNLICENSED';
-  return String(licenseNumber || '').trim() ? 'FULLY_LICENSED' : 'UNLICENSED';
+  if (/\b(intern|bachelor|peer specialist|unlicensed)\b/.test(blob) || ['intern', 'intern_plus'].includes(role)) return 'UNLICENSED';
+  if (status === 'licensed') return 'UNVERIFIED';
+  return status === 'unknown' ? 'UNVERIFIED' : mapLicenseStatusToCategory(status);
 }
 
 function pickInfoValue(info, keys = []) {
@@ -481,7 +481,7 @@ async function loadUserInfoMap(userIds) {
   return map;
 }
 
-export async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulatoryBoardOverrides = {} }) {
+export async function listDisclosureProviders({ agencyId, schoolOrganizationId, schoolCity = null, providerUserIds = null, regulatoryBoardOverrides = {} }) {
   const schoolId = Number(schoolOrganizationId || 0);
   const aid = Number(agencyId || 0);
   if (!aid) return [];
@@ -497,22 +497,38 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
   `;
 
   const schoolProviders = [];
+  const schoolAssignedIds = new Set();
+  const city = String(schoolCity || '').trim().toLowerCase();
   if (schoolId) {
     try {
       const [rows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo,
+           psa.school_organization_id
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
          JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1
-         WHERE psa.school_organization_id = ?
+         JOIN agencies school ON school.id = psa.school_organization_id
+         WHERE (
+           psa.school_organization_id = ?
+           OR (? <> '' AND LOWER(TRIM(school.city)) = ? AND school.organization_type = 'school' AND (
+             EXISTS (SELECT 1 FROM agency_schools asg
+               WHERE asg.agency_id = ua.agency_id AND asg.school_organization_id = school.id AND asg.is_active = TRUE)
+             OR EXISTS (SELECT 1 FROM organization_affiliations oa
+               WHERE oa.agency_id = ua.agency_id AND oa.organization_id = school.id AND oa.is_active = TRUE)
+           ))
+         )
            AND COALESCE(psa.is_active, 1) = 1
+           AND COALESCE(school.is_active, 1) = 1 AND COALESCE(school.is_archived, 0) = 0
            ${activeUserClause}
          ORDER BY u.last_name ASC, u.first_name ASC`,
-        [aid, schoolId]
+        [aid, schoolId, city, city]
       );
       schoolProviders.push(...(rows || []));
-    } catch {
-      // ignore
+      for (const row of schoolProviders) {
+        if (Number(row.school_organization_id) === schoolId) schoolAssignedIds.add(Number(row.id));
+      }
+    } catch (error) {
+      throw Object.assign(new Error('Current school provider assignments could not be verified.'), { status: 503, cause: error });
     }
   }
 
@@ -570,14 +586,14 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
 
   const seen = new Set();
   const ordered = [];
-  for (const row of [...schoolProviders, ...agencyProviders]) {
+  for (const row of schoolId ? schoolProviders : agencyProviders) {
     const id = Number(row.id);
-    if (!id || seen.has(id)) continue;
+    if (!id || seen.has(id) || (providerUserIds && !providerUserIds.has(id))) continue;
     if (!isDisclosureEligibleUserStatus(row.status)) continue;
     if (isHogwartsDemoIdentity(row)) continue;
     if (isAuricwellQaAgency(qaAgency) ? !allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) === 1) continue;
     const membership = membershipByUserId.get(id) || row;
-    const fromSchool = schoolProviders.some((s) => Number(s.id) === id);
+    const fromSchool = schoolAssignedIds.has(id);
     const effectiveRole = String(membership.agency_role || row.role || '').trim() || row.role;
     const effectiveTitle = String(membership.agency_position || row.title || '').trim() || row.title;
     const roleNorm = normalizeDisclosureRole(effectiveRole);
@@ -616,7 +632,8 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
           if (!active) return false;
           if (status && !isDisclosureEligibleUserStatus(status)) return false;
           const name = String(`${a.supervisor_first_name || ''} ${a.supervisor_last_name || ''}`).trim();
-          if (isHogwartsDemoIdentity({
+          if (isDemoPacketIdentity({
+            is_demo: a.supervisor_is_demo,
             first_name: a.supervisor_first_name,
             last_name: a.supervisor_last_name,
             email: a.supervisor_email,
@@ -658,7 +675,8 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
       state: DEFAULT_DISCLOSURE_STATE,
       category
     });
-    const fullName = String(`${row.first_name || ''} ${row.last_name || ''}`).trim() || row.email || `User ${row.id}`;
+    const fullName = String(`${row.first_name || ''} ${row.last_name || ''}`).trim();
+    if (!fullName) continue;
     const provider = {
       id: Number(row.id),
       userId: Number(row.id),
@@ -666,9 +684,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
       title,
       credential: credential || null,
       licenseTypeKey,
-      licenseNumber: category === 'UNLICENSED'
-        ? (serviceProvider || licenseNumber || null)
-        : (licenseNumber || null),
+      licenseNumber: /\d/.test(licenseNumber) ? licenseNumber : null,
       serviceProvider: serviceProvider || null,
       education: resolveProviderEducation(info, { role: row.role }),
       regulatoryBoard,
@@ -705,7 +721,7 @@ export async function buildSmartDisclosureContext({
   }
 
   const agencyId = Number(agency?.id || boundClient?.agency_id || link?.agency_id || 0);
-  const schoolId = assignedTeamOnly && !isSchoolFamilyOrg ? null : Number(schoolOrg?.id || boundClient?.organization_id || link?.organization_id || 0);
+  const schoolId = isSchoolFamilyOrg ? Number(schoolOrg.id || 0) : null;
   const loc = normalizeLocale(locale || link?.language_code || schoolOrg?.language_code || 'en');
   const settings = agencyId
     ? await loadAgencyDisclosureSettings(agencyId, loc)
@@ -724,25 +740,35 @@ export async function buildSmartDisclosureContext({
   );
   const businessEntity = resolveDisclosureBusinessEntity(agency, settings.businessEntity);
 
-  const providers = agencyId
+  let assignedProviderIds = null;
+  if (assignedTeamOnly) {
+    assignedProviderIds = new Set();
+    if (agencyId && boundClient?.id) {
+      const sameAgency = Number(boundClient.agency_id) === agencyId;
+      const [assignments] = await pool.execute(
+        `SELECT provider_user_id FROM client_service_enrollments
+         WHERE client_id = ? AND agency_id = ? AND service_kind = 'counseling'
+           AND is_active = 1 AND COALESCE(service_status, 'active') = 'active'
+         UNION SELECT provider_user_id FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND is_active = 1`,
+        [boundClient.id, agencyId, boundClient.id, sameAgency ? boundClient.organization_id || null : null]
+      );
+      if (sameAgency && boundClient.provider_id) assignedProviderIds.add(Number(boundClient.provider_id));
+      for (const row of assignments) assignedProviderIds.add(Number(row.provider_user_id));
+    }
+  }
+  const disclosedProviders = agencyId && assignedProviderIds?.size !== 0
     ? await listDisclosureProviders({
       agencyId,
-      schoolOrganizationId: schoolId,
+      schoolOrganizationId: assignedTeamOnly ? null : schoolId,
+      schoolCity: orgType === 'school' ? schoolOrg?.city : null,
+      providerUserIds: assignedProviderIds,
       regulatoryBoardOverrides: settings.regulatoryBoardOverrides || {}
     })
     : [];
-
-  let disclosedProviders = providers;
-  if (assignedTeamOnly) {
-    const [assignments] = await pool.execute(
-      'SELECT provider_user_id FROM client_provider_assignments WHERE client_id=? AND is_active=1',
-      [boundClient?.id || 0]
-    );
-    const assigned = new Set([boundClient?.provider_id, ...assignments.map(row => row.provider_user_id)].map(Number));
-    disclosedProviders = providers.filter(provider => assigned.has(Number(provider.id)));
-  }
   const contentHash = crypto.createHash('sha256').update(JSON.stringify({
-    copy, businessEntity, providers: disclosedProviders.map((p) => p.credentialFingerprint)
+    copy, businessEntity, schoolId, schoolCity: schoolOrg?.city || null,
+    providers: disclosedProviders.map((p) => [p.credentialFingerprint, p.schoolAssigned])
   })).digest('hex').slice(0, 40);
 
   let signerPrefill = null;
@@ -773,8 +799,13 @@ export async function buildSmartDisclosureContext({
     enabled: true,
     locale: loc,
     contentHash,
-    agency: agencyId ? { id: agencyId, name: agency?.name || null } : null,
-    school: schoolId ? { id: schoolId, name: schoolOrg?.name || null, slug: schoolOrg?.slug || null } : null,
+    agency: agencyId ? {
+      id: agencyId, name: agency?.name || null, slug: agency?.slug || null,
+      logoUrl: agency?.logo_url || null, logoPath: agency?.logo_path || null,
+      iconFilePath: agency?.icon_file_path || null
+    } : null,
+    school: schoolId ? { id: schoolId, name: schoolOrg?.name || null, slug: schoolOrg?.slug || null, city: schoolOrg?.city || null } : null,
+    assignedTeamOnly,
     client: boundClient ? {
       id: Number(boundClient.id),
       fullName: boundClient.full_name || boundClient.fullName || null
@@ -785,10 +816,7 @@ export async function buildSmartDisclosureContext({
     providers: disclosedProviders,
     sections: [
       { id: 'intro', title: copy.title, html: copy.introHtml },
-      ...(copy.doraHtml ? [{ id: 'dora', title: null, html: copy.doraHtml }] : []),
-      ...(copy.levelsOfRegulationHtml
-        ? [{ id: 'levels', title: null, html: copy.levelsOfRegulationHtml }]
-        : [])
+      ...(copy.doraHtml ? [{ id: 'dora', title: null, html: copy.doraHtml }] : [])
     ]
   };
 }
@@ -797,7 +825,8 @@ export function normalizeSmartDisclosureResponse({ disclosureContext = {}, intak
   const payload = intakeData?.smartDisclosure || {};
   const fromPayload = Array.isArray(payload.providers) ? payload.providers : [];
   const fromContext = Array.isArray(disclosureContext.providers) ? disclosureContext.providers : [];
-  const providers = fromPayload.length ? fromPayload : fromContext;
+  const currentEdition = disclosureContext.contentHash && payload.contentHash === disclosureContext.contentHash;
+  const providers = currentEdition || !fromPayload.length ? fromContext : fromPayload;
   return {
     locale: normalizeLocale(payload.locale || disclosureContext.locale || 'en'),
     signedAt: signedAt instanceof Date ? signedAt.toISOString() : String(signedAt || ''),
@@ -831,39 +860,51 @@ export function validateSmartDisclosureResponse(response) {
   return { valid: missing.length === 0, missing };
 }
 
-export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}, signedAt = new Date() } = {}) {
+export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}, signedAt = new Date(), logoDataUrl = '' } = {}) {
   const copy = disclosureContext.copy || defaultCopy(disclosureContext.locale);
   const entity = disclosureContext.businessEntity || FALLBACK_ITSCO_BUSINESS_ENTITY;
+  const school = disclosureContext.school;
+  const spanish = normalizeLocale(disclosureContext.locale) === 'es';
+  const label = (en, es) => spanish ? es : en;
   const providers = response.providers || disclosureContext.providers || [];
+  const logo = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(logoDataUrl) ? logoDataUrl : '';
+  const field = (name, value) => value ? `<div><dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
   const renderGroups = (list) => {
     const groups = [
       { key: 'FULLY_LICENSED', label: copy.fullyLicensedHeading, items: [] },
       { key: 'PRE_LICENSED', label: copy.preLicensedHeading, items: [] },
-      { key: 'UNLICENSED', label: copy.unlicensedHeading, items: [] }
+      { key: 'UNLICENSED', label: copy.unlicensedHeading, items: [] },
+      { key: 'UNVERIFIED', label: label('Credential status needs review', 'El estado de la credencial requiere revisión'), items: [] }
     ];
     for (const p of list) {
-      const g = groups.find((x) => x.key === p.category) || groups[2];
+      const g = groups.find((x) => x.key === p.category) || groups.at(-1);
       g.items.push(p);
     }
-    return groups.map((g) => `
-    <h3>${escapeHtml(g.label)}</h3>
+    return groups.filter(g => g.items.length).map((g) => `
+    <h3>${escapeHtml(g.label)}</h3><div class="provider-grid">
     ${g.items.map((p) => `
-      <div class="prov">
-        <p><strong>Name:</strong> ${escapeHtml(p.fullName || '')}${p.title ? `, <em>${escapeHtml(p.title)}</em>` : ''}</p>
-        ${p.licenseNumber ? `<p><strong>License #:</strong> ${escapeHtml(p.licenseNumber)}</p>` : ''}
-        ${p.serviceProvider && p.category === 'UNLICENSED' ? `<p><strong>Service Provider:</strong> ${escapeHtml(p.serviceProvider)}</p>` : ''}
-        ${p.education ? `<p><strong>Education:</strong> ${escapeHtml(p.education)}</p>` : ''}
-        ${(p.supervisors || []).map((s) => `<p><strong>Supervisor:</strong> ${escapeHtml(s.fullName)}${s.type ? `, ${escapeHtml(s.type)}` : ''}</p>`).join('')}
-        ${p.regulatoryBoard ? `<p><strong>Specific Regulatory Board:</strong> ${escapeHtml(p.regulatoryBoard)}</p>` : ''}
-      </div>
-    `).join('') || '<p><em>None listed.</em></p>'}
+      <article class="prov">
+        <h4>${escapeHtml(p.fullName)}</h4>
+        <p class="provider-role">${escapeHtml(p.title || p.serviceProvider || '')}</p>
+        <dl>
+          ${field(label('Credential', 'Credencial'), p.credential)}
+          ${field(label('License or registration number', 'Número de licencia o registro'), /\d/.test(p.licenseNumber || '') ? p.licenseNumber : '')}
+          ${field(label('Education', 'Educación'), p.education)}
+          ${field(label('Regulatory board', 'Junta reguladora'), p.regulatoryBoard)}
+          ${(p.supervisors || []).map(s => field(s.type === 'Clinical' ? label('Clinical supervisor', 'Supervisor clínico') : s.type, [s.fullName, s.credential].filter(Boolean).join(', '))).join('')}
+        </dl>
+      </article>
+    `).join('')}</div>
   `).join('');
   };
   const schoolTeam = providers.filter((p) => p.schoolAssigned);
   const rest = providers.filter((p) => !p.schoolAssigned);
-  const providerHtml = schoolTeam.length
-    ? `<h2>Assigned to this school</h2>${renderGroups(schoolTeam)}<h2>All current providers</h2>${renderGroups(rest)}`
-    : renderGroups(providers);
+  const noProviders = `<p>${label('No current providers were found for this disclosure.', 'No se encontraron proveedores actuales para esta divulgación.')}</p>`;
+  const scopeLabel = disclosureContext.assignedTeamOnly ? label('Assigned care team', 'Equipo de atención asignado') : label('Current providers', 'Proveedores actuales');
+  const providerHtml = school && !disclosureContext.assignedTeamOnly
+    ? `<h2>${label('Assigned to this school', 'Asignados a esta escuela')}</h2>${renderGroups(schoolTeam) || noProviders}
+       ${rest.length ? `<h2>${label('Other school providers', 'Otros proveedores escolares')}${school.city ? ` · ${escapeHtml(school.city)}` : ''}</h2>${renderGroups(rest)}` : ''}`
+    : `<h2>${scopeLabel}</h2>${renderGroups(providers) || noProviders}`;
 
   const when = signedAt
     ? new Date(signedAt).toLocaleString('en-US', { timeZone: 'America/Denver', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' })
@@ -875,26 +916,31 @@ export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}
   const signedBlock = (response.acknowledged || sigImg || response.signerName)
     ? `${sigImg ? `<div class="sig"><img src="${escapeHtml(sigImg)}" alt="Signature" /></div>` : ''}
     <p><strong>Signed:</strong> ${escapeHtml(response.signerName || '')}${when ? ` · ${escapeHtml(when)}` : ''}</p>`
-    : `<p><em>Current care-team Smart Disclosure — not yet acknowledged for this client. This is not the Release of Information.</em></p>`;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${escapeHtml(copy.title)}</title>
+    : `<p>${label('This version is awaiting acknowledgment.', 'Esta versión está pendiente de confirmación.')}</p>`;
+  return `<!DOCTYPE html><html lang="${spanish ? 'es' : 'en'}"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${escapeHtml(copy.title)}</title>
   <style>
-    body{font-family:Georgia,serif;color:#111;max-width:800px;margin:24px auto;padding:0 16px;line-height:1.45}
-    h1{text-align:center;font-size:22px;letter-spacing:.04em}
-    h2{margin-top:28px;font-size:15px;letter-spacing:.04em}
-    h3{margin-top:18px;font-size:13px;letter-spacing:.04em}
-    .entity{text-align:center;margin:18px 0}
-    .prov{margin:12px 0 18px}
-    .ack{margin-top:28px;padding-top:12px;border-top:1px solid #ccc}
+    *,*::before,*::after{box-sizing:border-box}
+    body{font:15px/1.5 system-ui,sans-serif;color:#182b40;max-width:1100px;margin:24px auto;padding:0 clamp(16px,4vw,42px) 28px}
+    .brand{display:flex;gap:16px;align-items:center;border-bottom:2px solid #c6d7e2;padding:0 0 14px;margin:0 0 16px}
+    .brand img{max-width:140px;max-height:50px;object-fit:contain}
+    h1,h2,h3,h4,p,dl,dd{margin:0}
+    h1{font-size:clamp(21px,3vw,28px);line-height:1.2}h2{margin-top:22px;font-size:19px;break-after:avoid}
+    h3{margin:12px 0 6px;font-size:13px;break-after:avoid}h4{font-size:16px}
+    p{margin-bottom:8px}.brand p,.provider-role{margin:2px 0 0;color:#4b6176}
+    .disclosure-intro,.ack{margin:14px 0}
+    .provider-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:8px}
+    .prov{border:1px solid #c6d7e2;border-radius:7px;padding:10px 12px;break-inside:avoid;overflow-wrap:anywhere}
+    dl{display:grid;gap:4px;margin-top:7px}dt{font-size:12px;font-weight:700;color:#43586d}dd{font-size:14px}
+    .ack{padding-top:12px;border-top:1px solid #c6d7e2}
     .sig img{max-height:64px;max-width:280px}
+    @media print{body{margin:0;padding:0;font-size:11pt}.provider-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
   </style></head><body>
-  <h1>${escapeHtml(copy.title)}</h1>
-  ${copy.introHtml || ''}
-  <div class="entity">
-    <p><strong>Business Entity:</strong> ${escapeHtml(entity.name || '')}</p>
-    <p><strong>Business Address:</strong> ${escapeHtml(entity.address || '')}</p>
-    <p><strong>Phone Number:</strong> ${escapeHtml(entity.phone || '')}</p>
-  </div>
+  <header class="brand">${logo ? `<img src="${logo}" alt=""/>` : ''}
+    <div><h1>${escapeHtml(copy.title)}</h1><p>${[entity.name, school?.name, school?.city].filter(Boolean).map(escapeHtml).join(' · ')}</p>
+    <p>${[entity.address, entity.phone, entity.email].filter(Boolean).map(escapeHtml).join(' · ')}</p></div>
+  </header>
   ${providerHtml}
+  <section class="disclosure-intro">${copy.introHtml || ''}${copy.doraHtml || ''}</section>
   ${copy.rightsHtml || ''}
   ${copy.levelsOfRegulationHtml || ''}
   <div class="ack">
@@ -956,17 +1002,18 @@ export async function persistDisclosureAcknowledgement({
   return { id: result.insertId };
 }
 
-export async function getLatestDisclosureAcknowledgement(clientId) {
+export async function getLatestDisclosureAcknowledgement(clientId, { agencyId = null } = {}) {
   const cid = Number(clientId || 0);
+  const aid = Number(agencyId || 0);
   if (!cid) return null;
   try {
     const [rows] = await pool.execute(
       `SELECT *
        FROM client_disclosure_acknowledgements
-       WHERE client_id = ?
+       WHERE client_id = ?${aid ? ' AND agency_id = ?' : ''}
        ORDER BY signed_at DESC, id DESC
        LIMIT 1`,
-      [cid]
+      aid ? [cid, aid] : [cid]
     );
     const row = rows?.[0] || null;
     if (!row) return null;

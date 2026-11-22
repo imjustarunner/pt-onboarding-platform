@@ -31,7 +31,7 @@ export const DEFAULT_COLORADO_REGULATORY_BOARDS = Object.freeze({
   LMFT: 'State Board of Marriage and Family Therapist Examiners',
   MFT: 'State Board of Marriage and Family Therapist Examiners',
   MFTC: 'State Board of Marriage and Family Therapist Examiners',
-  LAC: 'State Board of Licensed Professional Counselor Examiners',
+  LAC: 'State Board of Addiction Counselor Examiners',
   PSYCHOLOGIST: 'State Board of Psychologist Examiners'
 });
 

@@ -47,13 +47,19 @@ export async function filterBookingServicesForClient(services, input, db = pool)
   });
 }
 
-export async function clinicalCodesForClientContext(codes, { agencyId, providerId, clientIds = [], businessType }, db = pool) {
-  if (businessType && !['mental_health', 'healthcare', 'counseling'].includes(businessType)) return [];
-  for (const clientId of [...new Set(clientIds.map(Number).filter(id => id > 0))]) {
-    const context = await readClientServiceContext({ agencyId, clientId, providerId }, db);
-    if (!context.serviceKinds.includes('counseling')) return [];
+export async function clinicalBookingContextIssue({ agencyId, providerId, clientIds = [], businessType }, db = pool) {
+  if (businessType && !['mental_health', 'healthcare', 'counseling'].includes(businessType)) return 'Select Counseling to book a clinical service code.';
+  try {
+    await requireClientServiceKind({ agencyId, clientIds, providerId, serviceKind: 'counseling' }, db);
+  } catch (error) {
+    if (error.code === 'CLIENT_SERVICE_CONTEXT_MISMATCH') return error.message;
+    throw error;
   }
-  return codes;
+  return '';
+}
+
+export async function clinicalCodesForClientContext(codes, input, db = pool) {
+  return await clinicalBookingContextIssue(input, db) ? [] : codes;
 }
 
 /** Add only already-authorized roster rows, with agency/provider scopes preserved. */
