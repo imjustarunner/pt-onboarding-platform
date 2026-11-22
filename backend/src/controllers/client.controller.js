@@ -501,7 +501,10 @@ async function attachRosterAssignmentAudit(rows) {
 
 export const getClients = async (req, res, next) => {
   try {
-    const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id, client_type } = req.query;
+    const { status, organization_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id, client_type } = req.query;
+    const ownCaseload = req.query.caseload === 'mine';
+    if (ownCaseload && !(Number(req.user.id) > 0)) return res.json([]);
+    const provider_id = ownCaseload ? req.user.id : req.query.provider_id;
     const clientStatusKeyRaw = String(req.query.client_status_key || req.query.clientStatusKey || '').trim().toLowerCase();
     // agency_ids: comma-separated list of agency IDs for platform-mode filtered queries (super_admin only).
     const agencyIdsParam = req.query.agency_ids
@@ -534,7 +537,13 @@ export const getClients = async (req, res, next) => {
 
     // Get user's agencies for filtering
     let agencyIds = [];
-    if (userRole === 'super_admin') {
+    if (ownCaseload) {
+      const memberships = await User.getAgencies(userId);
+      agencyIds = [...new Set(memberships
+        .filter(agency => !['school', 'program'].includes(String(agency.organization_type || 'agency').toLowerCase())
+          && ![false, 0, '0'].includes(agency.is_active) && Number(agency.is_archived) !== 1)
+        .map(agency => Number(agency.id)).filter(id => id > 0))];
+    } else if (userRole === 'super_admin') {
       // Super admin can see all clients
       // Get all agencies
       // Scope selection needs IDs, not the full agency/theme/icon directory.
@@ -552,7 +561,10 @@ export const getClients = async (req, res, next) => {
 
     // Optional: scope to a single agency for performance (used by Admin Client Management).
     const requestedAgencyId = agency_id ? parseInt(agency_id, 10) : null;
-    if (requestedAgencyId) {
+    if (ownCaseload) {
+      if (requestedAgencyId) agencyIds = agencyIds.filter(id => id === requestedAgencyId);
+      if (!agencyIds.length) return res.json([]);
+    } else if (requestedAgencyId) {
       if (userRole === 'super_admin') {
         agencyIds = [requestedAgencyId];
       } else if (agencyIds.includes(requestedAgencyId)) {
@@ -566,7 +578,7 @@ export const getClients = async (req, res, next) => {
     // Build query options
     const options = {
       includeSensitive: true, // Agency view includes all fields
-      directoryAssignments: true,
+      directoryAssignments: !ownCaseload,
       directoryProviderAgencyId: agencyIds.length === 1 ? agencyIds[0] : null,
       status,
       organization_id: organization_id ? parseInt(organization_id) : undefined,
@@ -596,8 +608,10 @@ export const getClients = async (req, res, next) => {
     }
 
     // Get clients for all user's agencies
-    let allClients = [];
-    for (const agencyId of agencyIds) {
+    let allClients = ownCaseload
+      ? await Client.findAll({ ...options, agency_ids: agencyIds, providerAgencyIds: agencyIds })
+      : [];
+    for (const agencyId of ownCaseload ? [] : agencyIds) {
       const agencyOptions = { ...options };
       if (!agencyOptions.client_status_id && clientStatusKeyRaw) {
         try {
@@ -847,7 +861,7 @@ export const getClients = async (req, res, next) => {
     const renewalRole = String(userRole || '').toLowerCase();
     const canSeeRenewalFlags = ['super_admin', 'admin', 'support', 'staff'].includes(renewalRole);
     const renewalFlagFilter = String(req.query.renewalFlag || req.query.renewal_flag || '').trim();
-    if (canSeeRenewalFlags && Array.isArray(out) && out.length) {
+    if (canSeeRenewalFlags && !ownCaseload && Array.isArray(out) && out.length) {
       try {
         const flagsById = await computeRenewalFlagsForClients(out);
         out = attachRenewalFlagsToClients(out, flagsById);
@@ -860,7 +874,7 @@ export const getClients = async (req, res, next) => {
     }
 
     out=filterClientDemos(out,String(req.query.demo || '').toLowerCase());
-    if (isBackofficeRole(req.user.role)) out=await attachRosterAssignmentAudit(out);
+    if (isBackofficeRole(req.user.role) && !ownCaseload) out=await attachRosterAssignmentAudit(out);
 
     if (String(req.query.includeServiceContext || '') === '1') {
       out = await attachRosterServiceContexts(out, { agencyIds, providerId: options.provider_id || null });

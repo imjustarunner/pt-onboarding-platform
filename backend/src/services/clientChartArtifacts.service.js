@@ -27,7 +27,6 @@ import {
 import {
   getLatestDisclosureAcknowledgement,
   buildSmartDisclosureContext,
-  normalizeSmartDisclosureResponse,
   buildSmartDisclosureHtml
 } from './smartDisclosure.service.js';
 import {
@@ -823,42 +822,35 @@ async function htmlForDisclosure({ client, submissions = [] }) {
     intakeData: latest?.intake_data,
     formType: latest?.form_type || link?.form_type
   });
+  const isSchoolDisclosure = ['school', 'program', 'learning'].includes(String(organization?.organization_type || '').toLowerCase());
   const disclosureContext = await buildSmartDisclosureContext({
-    link,
+    link: isSchoolDisclosure ? { ...link, form_type: 'smart_disclosure' } : {
+      ...link,
+      form_type: 'smart_disclosure',
+      custom_messages: { disclosureAssignedTeamOnly: true }
+    },
     boundClient: client,
     organization,
     agency,
     locale: latest?.language_code || 'en'
   });
-  const ack = await getLatestDisclosureAcknowledgement(Number(client?.id || 0)).catch(() => null);
-  const signedDocs = latest?.id
-    ? await signedDocumentsForChart(latest, client)
-    : [];
-  const session = sessionSignature(submissions, signedDocs);
-  const signedPayload = packetSignalsFromIntakeData(latest?.intake_data).disclosure || {};
-  const signed = Boolean(
-    ack
-    || signedPayload.acknowledged
-    || signedPayload.signatureData
-    || session?.signatureData
-  );
-  const response = normalizeSmartDisclosureResponse({
-    disclosureContext: disclosureContext || {},
-    intakeData: signed ? (latest?.intake_data || {}) : {},
-    signedAt: ack?.signed_at || session?.signedAt || signedPayload.signedAt || (signed ? latest?.submitted_at : null) || new Date()
-  });
   if (disclosureContext) {
+    const [ack, brand] = await Promise.all([
+      getLatestDisclosureAcknowledgement(Number(client?.id || 0), { agencyId }),
+      import('./packetBrandChrome.service.js').then(({ resolvePacketBrandChrome }) =>
+        resolvePacketBrandChrome(agency || {}, { packetKind: disclosureContext.school ? 'school' : 'office' })).catch(() => null)
+    ]);
+    const signedPayload = packetSignalsFromIntakeData(latest?.intake_data).disclosure || {};
+    const matchesCurrent = ack?.content_hash === disclosureContext.contentHash;
     return buildSmartDisclosureHtml({
       disclosureContext,
-      response: {
-        ...response,
-        signerName: signed
-          ? (ack?.signer_name || session?.signerName || response.signerName || latest?.signer_name)
-          : null,
-        signatureData: signedPayload.signatureData || session?.signatureData || response.signatureData || null,
-        acknowledged: signed
-      },
-      signedAt: signed ? (ack?.signed_at || session?.signedAt || response.signedAt || latest?.submitted_at) : null
+      logoDataUrl: brand?.headerLogoDataUrl || brand?.headerImageDataUrl || '',
+      response: matchesCurrent ? {
+        signerName: ack.signer_name,
+        signatureData: signedPayload.contentHash === ack.content_hash ? signedPayload.signatureData : null,
+        acknowledged: true
+      } : {},
+      signedAt: matchesCurrent ? ack.signed_at : null
     });
   }
   return wrapHtmlDocument(

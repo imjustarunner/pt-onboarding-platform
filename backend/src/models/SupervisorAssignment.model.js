@@ -286,6 +286,8 @@ class SupervisorAssignment {
              u.first_name as supervisor_first_name,
              u.last_name as supervisor_last_name,
              u.email as supervisor_email,
+             u.credential as supervisor_credential,
+             u.is_demo as supervisor_is_demo,
              u.role as supervisor_role,
              u.status as supervisor_status,
              u.is_active as supervisor_is_active,

@@ -33,6 +33,7 @@ function setup() {
     buildSmartDisclosureContext: async () => ({ providers: [] }),
     normalizeSmartDisclosureResponse: ({ intakeData }) => ({ ...intakeData.smartDisclosure, providers: [] }),
     validateSmartDisclosureResponse: () => ({ valid: true }),
+    resolvePacketBrandChrome: async () => null,
     buildSmartDisclosureHtml: () => 'Disclosure',
     persistDisclosureAcknowledgement: async args => acknowledged.push(args),
     hasProgrammedSchoolRoiStep: () => true,

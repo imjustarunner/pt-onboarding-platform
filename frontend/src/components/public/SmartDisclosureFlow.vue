@@ -10,13 +10,13 @@
 
     <div v-if="stage === 'intro'" class="smart-disclosure-card">
       <div v-if="!isEmbeddedMode" class="progress-label">{{ tr('Step 1 of', 'Paso 1 de') }} {{ totalSteps }}</div>
-      <h3 v-if="!isEmbeddedMode">{{ tr('Provider Disclosure Statement', 'Declaracion de Divulgacion del Proveedor') }}</h3>
-      <p class="lead">
-        {{ tr(
-          'Please review the disclosure below, including licensed provider information, business entity details, and your rights.',
-          'Revise la divulgación a continuación, incluida la información de proveedores con licencia, la entidad comercial y sus derechos.'
-        ) }}
-      </p>
+      <header class="disclosure-brand">
+        <ClientAgencyLogo v-if="disclosureContext?.agency?.name" :agency="disclosureContext.agency" class="disclosure-brand__logo" />
+        <div>
+          <h3>{{ copy.title || tr('Provider Disclosure Statement', 'Declaración de divulgación del proveedor') }}</h3>
+          <p v-if="disclosureContext?.school?.name">{{ [disclosureContext.school.name, disclosureContext.school.city].filter(Boolean).join(' · ') }}</p>
+        </div>
+      </header>
 
       <div :class="isEmbeddedMode ? 'disclosure-scroll' : 'disclosure-full'">
       <section
@@ -40,42 +40,45 @@
         </div>
       </section>
 
-      <section
-        v-for="group in providerGroups"
-        :key="group.key"
-        class="disclosure-section provider-group"
-      >
-        <h4 class="provider-group__title">{{ group.label }}</h4>
-        <div v-if="!group.providers.length" class="muted">
-          {{ tr('None listed in this category.', 'Ninguno listado en esta categoria.') }}
-        </div>
-        <div
-          v-for="provider in group.providers"
-          :key="provider.id || provider.userId || provider.fullName"
-          class="provider-row"
-        >
-          <div class="provider-row__name">
-            {{ providerDisplayName(provider) }}
-            <span v-if="provider.title || provider.credential" class="provider-row__title">
-              {{ provider.title || provider.credential }}
-            </span>
-          </div>
-          <div class="provider-row__meta">
-            <div v-if="licenseLine(provider)">
-              <span class="meta-label">{{ tr('License / Service Provider', 'Licencia / Proveedor de servicios') }}:</span>
-              {{ licenseLine(provider) }}
-            </div>
-            <div v-if="provider.education">
-              <span class="meta-label">{{ tr('Education', 'Educación') }}:</span>
-              {{ provider.education }}
-            </div>
-            <div v-for="(sup, idx) in supervisorLines(provider)" :key="`${provider.id || provider.fullName}-sup-${idx}`">
-              <span class="meta-label">{{ sup.label }}:</span>
-              {{ sup.value }}
-            </div>
-            <div v-if="provider.regulatoryBoard || provider.specificRegulatoryBoard">
-              <span class="meta-label">{{ tr('Specific Regulatory Board', 'Junta regulatoria especifica') }}:</span>
-              {{ provider.regulatoryBoard || provider.specificRegulatoryBoard }}
+      <section v-for="scope in providerScopes" :key="scope.key" class="disclosure-section">
+        <h4>{{ scope.label }}</h4>
+        <p v-if="!scope.groups.length">{{ tr('No current providers were found for this disclosure.', 'No se encontraron proveedores actuales para esta divulgación.') }}</p>
+        <div v-for="group in scope.groups" :key="group.key" class="provider-group">
+          <h5 class="provider-group__title">{{ group.label }}</h5>
+          <div class="disclosure-provider-grid">
+            <div
+              v-for="provider in group.providers"
+              :key="provider.id || provider.userId || provider.fullName"
+              class="provider-row"
+            >
+              <div class="provider-row__name">
+                {{ providerDisplayName(provider) }}
+                <span v-if="provider.title || provider.serviceProvider" class="provider-row__title">
+                  {{ provider.title || provider.serviceProvider }}
+                </span>
+              </div>
+              <div class="provider-row__meta">
+                <div v-if="provider.credential">
+                  <span class="meta-label">{{ tr('Credential', 'Credencial') }}:</span>
+                  {{ provider.credential }}
+                </div>
+                <div v-if="licenseLine(provider)">
+                  <span class="meta-label">{{ tr('License or registration number', 'Número de licencia o registro') }}:</span>
+                  {{ licenseLine(provider) }}
+                </div>
+                <div v-if="provider.education">
+                  <span class="meta-label">{{ tr('Education', 'Educación') }}:</span>
+                  {{ provider.education }}
+                </div>
+                <div v-for="(sup, idx) in supervisorLines(provider)" :key="`${provider.id || provider.fullName}-sup-${idx}`">
+                  <span class="meta-label">{{ sup.label }}:</span>
+                  {{ sup.value }}
+                </div>
+                <div v-if="provider.regulatoryBoard || provider.specificRegulatoryBoard">
+                  <span class="meta-label">{{ tr('Specific Regulatory Board', 'Junta regulatoria especifica') }}:</span>
+                  {{ provider.regulatoryBoard || provider.specificRegulatoryBoard }}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -252,12 +255,14 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
+import ClientAgencyLogo from '../clients/ClientAgencyLogo.vue';
 
-const CATEGORY_ORDER = ['FULLY_LICENSED', 'PRE_LICENSED', 'UNLICENSED'];
+const CATEGORY_ORDER = ['FULLY_LICENSED', 'PRE_LICENSED', 'UNLICENSED', 'UNVERIFIED'];
 const CATEGORY_LABELS = {
   FULLY_LICENSED: { en: 'FULLY LICENSED', es: 'COMPLETAMENTE LICENCIADO' },
   PRE_LICENSED: { en: 'PRE-LICENSED', es: 'PRE-LICENCIADO' },
-  UNLICENSED: { en: 'UNLICENSED', es: 'SIN LICENCIA' }
+  UNLICENSED: { en: 'UNLICENSED', es: 'SIN LICENCIA' },
+  UNVERIFIED: { en: 'Credential status needs review', es: 'El estado de la credencial requiere revisión' }
 };
 
 const props = defineProps({
@@ -412,10 +417,10 @@ const htmlSections = computed(() => {
     return ctx.sections
       .map((section, idx) => ({
         id: section.id || `section_${idx}`,
-        title: section.title || '',
+        title: section.id === 'intro' ? '' : section.title || '',
         html: String(section.html || section.body || section.content || '')
       }))
-      .filter((section) => section.html);
+      .filter((section) => section.html && section.id !== 'levels');
   }
   const fromCopy = [];
   const pairs = [
@@ -461,7 +466,7 @@ const normalizeCategory = (raw) => {
   if (value.includes('FULLY') || value === 'LICENSED') return 'FULLY_LICENSED';
   if (value.includes('PRE')) return 'PRE_LICENSED';
   if (value.includes('UNLICENSED') || value === 'UNLICENSED') return 'UNLICENSED';
-  return 'UNLICENSED';
+  return 'UNVERIFIED';
 };
 
 const providers = computed(() => {
@@ -480,13 +485,29 @@ const categoryLabel = (key) => {
   return resolvedLocale.value === 'es' ? labels.es : labels.en;
 };
 
-const providerGroups = computed(() =>
-  CATEGORY_ORDER.map((key) => ({
+const providerScopes = computed(() => {
+  const context = props.disclosureContext || {};
+  const groupByCategory = (list) => CATEGORY_ORDER.map(key => ({
     key,
     label: categoryLabel(key),
-    providers: providers.value.filter((p) => normalizeCategory(p.category || p.licenseCategory || p.credentialCategory) === key)
-  }))
-);
+    providers: list.filter(provider => normalizeCategory(provider.category || provider.licenseCategory || provider.credentialCategory) === key)
+  })).filter(group => group.providers.length);
+  if (context.school && !context.assignedTeamOnly) {
+    const schoolTeam = providers.value.filter(provider => provider.schoolAssigned);
+    const otherProviders = providers.value.filter(provider => !provider.schoolAssigned);
+    return [
+      { key: 'school', label: tr('Assigned to this school', 'Asignados a esta escuela'), groups: groupByCategory(schoolTeam) },
+      ...(otherProviders.length ? [{
+        key: 'city',
+        label: [tr('Other school providers', 'Otros proveedores escolares'), context.school.city].filter(Boolean).join(' · '),
+        groups: groupByCategory(otherProviders)
+      }] : [])
+    ];
+  }
+  const label = context.assignedTeamOnly ? tr('Assigned care team', 'Equipo de atención asignado')
+    : tr('Current providers', 'Proveedores actuales');
+  return [{ key: 'current', label, groups: groupByCategory(providers.value) }];
+});
 
 const isEmbeddedMode = computed(() => String(props.mode || '').toLowerCase() === 'embedded');
 const stageOrder = computed(() => (
@@ -513,17 +534,8 @@ const providerDisplayName = (provider) => {
 };
 
 const licenseLine = (provider) => {
-  if (provider.licenseNumber || provider.license_number) {
-    return String(provider.licenseNumber || provider.license_number);
-  }
-  if (provider.serviceProvider || provider.service_provider) {
-    return String(provider.serviceProvider || provider.service_provider);
-  }
-  if (provider.serviceProviderLabel || provider.service_provider_label) {
-    return String(provider.serviceProviderLabel || provider.service_provider_label);
-  }
-  if (provider.licenseOrServiceProvider) return String(provider.licenseOrServiceProvider);
-  return '';
+  const number = String(provider.licenseNumber || provider.license_number || provider.licenseOrServiceProvider || '');
+  return /\d/.test(number) ? number : '';
 };
 
 const supervisorLines = (provider) => {
@@ -533,9 +545,12 @@ const supervisorLines = (provider) => {
     const name = String(sup.fullName || sup.name || '').trim();
     if (!name) continue;
     const kind = String(sup.type || sup.kind || '').toLowerCase();
-    const label = kind.includes('billing')
-      ? tr('Billing supervisor', 'Supervisor de facturacion')
-      : tr('Clinical supervisor', 'Supervisor clinico');
+    const labels = {
+      billing: tr('Billing supervisor', 'Supervisor de facturación'),
+      clinical: tr('Clinical supervisor', 'Supervisor clínico'),
+      management: tr('Management', 'Dirección')
+    };
+    const label = labels[kind] || String(sup.type || sup.kind || tr('Supervisor', 'Supervisor'));
     const credential = String(sup.credential || '').trim();
     lines.push({ label, value: credential ? `${name}, ${credential}` : name });
   }
@@ -737,6 +752,11 @@ const submitDisclosure = async () => {
 </script>
 
 <style scoped>
+.disclosure-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.disclosure-brand h3, .disclosure-brand p { margin: 0; }
+.disclosure-brand__logo { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; }
+.disclosure-provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 8px; }
+
 .flow-stages { display: contents; }
 .form-preview-nav { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
 .smart-disclosure-flow {
@@ -815,12 +835,10 @@ const submitDisclosure = async () => {
 }
 
 .provider-row {
-  padding: 12px 0;
-  border-bottom: 1px dashed var(--border, #e2e8f0);
-}
-
-.provider-row:last-child {
-  border-bottom: none;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
 }
 
 .provider-row__name {

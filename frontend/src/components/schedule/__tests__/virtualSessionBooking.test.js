@@ -300,12 +300,12 @@ it('shows the duration conflict while keeping the selected psychotherapy code an
   expect(s.bookingServiceSelectionIssue).toContain('90837 requires at least 53 minutes. This session is 34 minutes.');
 });
 
-it('keeps 90791 visible during client verification and looks up eligibility without a global overlay', async () => {
+it('keeps 90791 available when payer verification excludes it', async () => {
   const base = m.get.getMockImplementation();
   let verify;
   const eligibility = new Promise(resolve => { verify = resolve; });
   m.get.mockImplementation((url, ...args) => url.includes('service-code-eligibility') ? eligibility
-    : url.includes('/booking-metadata') ? Promise.resolve({ data: { serviceCodes: [{ code: '90791', defaultDurationMinutes: 60 }] } }) : base(url, ...args));
+    : url.includes('/booking-metadata') ? Promise.resolve({ data: { serviceCodes: [{ code: '90791', defaultDurationMinutes: 60 }, { code: '90834' }] } }) : base(url, ...args));
   const s = await editor();
   s.bookingServiceCode = '90791';
   s.onEditorEndTime('17:32');
@@ -314,11 +314,26 @@ it('keeps 90791 visible during client verification and looks up eligibility with
   expect(s.bookingServiceCode).toBe('90791');
   expect(s.editorEndTime).toBe('17:32');
   expect(m.get).toHaveBeenCalledWith('/medical-billing/service-code-eligibility', expect.objectContaining({ skipGlobalLoading: true }));
-  verify({ data: { serviceCodes: ['90791'] } });
+  verify({ data: { serviceCodes: ['90834'], message: '90791 is not covered by this payer.' } });
   await flushPromises();
   expect(s.bookingServiceCode).toBe('90791');
   expect(s.bookingServiceSelectionIssue).toBe('');
   expect(s.editorEndTime).toBe('17:32');
+});
+
+it('shows the credential reason when the scheduling catalog excludes 90791', async () => {
+  const base = m.get.getMockImplementation();
+  const reason = 'The provider’s credential tier is not eligible to book 90791.';
+  m.get.mockImplementation((url, options, ...args) => url.includes('/booking-metadata')
+    ? Promise.resolve({ data: options?.params?.clientIds
+      ? { serviceCodes: [], diagnosticBookingIssue: reason }
+      : { serviceCodes: [{ code: '90791' }] } })
+    : base(url, options, ...args));
+  const s = await editor();
+  s.bookingServiceCode = '90791';
+  s.virtualSessionSelectedClientIds = [9];
+  await flushPromises();
+  expect(s.bookingServiceSelectionIssue).toBe(reason);
 });
 
 it('adds a guardian from the selected account and preserves a written name', async () => {
