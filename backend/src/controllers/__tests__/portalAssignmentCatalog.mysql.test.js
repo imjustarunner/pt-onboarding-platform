@@ -115,7 +115,6 @@ describe.skipIf(!recoveryMysqlEnabled)('portal assignments for agency support',(
 
   it('keeps Colorado Springs and Denver school disclosures separate using active school assignments',async()=>{
     await runSql(`
-      ALTER TABLE agencies ADD COLUMN state VARCHAR(40);
       UPDATE agencies SET state='CO';
       INSERT INTO agencies VALUES(19,'Another Springs campus','school',1,0,' colorado springs ','Colorado');
       INSERT INTO agencies VALUES(20,'Unaffiliated Springs campus','school',1,0,'Colorado Springs','CO');
