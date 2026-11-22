@@ -1,0 +1,140 @@
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
+import mysql from 'mysql2/promise';
+import {readFileSync} from 'node:fs';
+import {classifyClient,readChartTypes,requireTypeAccess,saveChartTypes} from '../clientChartTypes.service.js';
+import {putClientContactEmail} from '../../controllers/clientContactEmail.controller.js';
+import {browseHubPeople, resolveHubPerson} from '../messagesHub.service.js';
+import {resolveEmailClientFiling,linkConversationClients,listClientEmailThreads} from '../clientConversationRecord.service.js';
+
+const state=vi.hoisted(()=>({db:null}));
+vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>state.db.execute(...args),getConnection:()=>state.db.getConnection()},onTableWrite:vi.fn()}));
+const client={id:12,agency_id:2,status:'ACTIVE',client_status_key:'current',date_of_birth:'1990-05-10'};
+const active=service_kind=>({service_kind,is_active:1});
+function types(changes) {
+  return classifyClient({client,agencyId:2,services:[],organizations:[],links:[],...changes},'2026-11-22').types;
+}
+it('combines active services without converting a named program into a school',()=>{
+  expect(types({services:[active('counseling'),active('tutoring')],links:[{relationship_type:'guardian'}],
+    organizations:[{name:'Parent Child Partnership',organization_type:'program'}]})).toEqual(['clinical','learning','dependent']);
+  expect(types({services:[active('coaching')]})).toEqual(['coaching']);
+  expect(types({services:[active('consultation')]})).toEqual(['consulting']);
+});
+it('derives Dependent from an authorized relationship or a current minor without an established self portal',()=>{
+  const minor={...client,date_of_birth:'2016-01-01'};
+  expect(types({client:minor})).toEqual(['dependent']);
+  expect(types({client:minor,links:[{relationship_type:'self',established:1}]})).toEqual([]);
+  expect(types({client:minor,links:[{relationship_type:'self',established:1},{relationship_type:'guardian'}]})).toEqual(['dependent']);
+  expect(types({client:{...minor,status:'ARCHIVED'}})).toEqual([]);
+  expect(types({links:[{relationship_type:'guardian',permissions_json:{relationshipRevoked:true}}]})).toEqual([]);
+  expect(types({links:[{relationship_type:'guardian',permissions_json:{learningOnly:true,serviceAgencyIds:[9]}}]})).toEqual([]);
+});
+const socketPath=process.env.HUB_SCOPE_MYSQL_SOCKET;
+const database=`client_chart_types_test_${process.pid}`;
+const admin={id:1,role:'admin'};
+describe.skipIf(!socketPath)('chart services and client email on isolated MySQL',()=>{
+  let server;
+  beforeAll(async()=>{
+    server=await mysql.createConnection({socketPath,user:'root'});
+    await server.query(`CREATE DATABASE ${database}`);
+    state.db=mysql.createPool({socketPath,user:'root',database,connectionLimit:3});
+    const DDL=[
+      'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,full_name VARCHAR(80),initials VARCHAR(12),client_type VARCHAR(24),email VARCHAR(255),date_of_birth DATE,status VARCHAR(20),client_status_id INT,contact_phone VARCHAR(32),identifier_code VARCHAR(24),session_sms_opt_in INT,guardian_portal_enabled INT,compliance_archived_at DATETIME)',
+      'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(24),is_active INT,is_archived INT,logo_path TEXT,logo_url TEXT)',
+      'CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(24),email VARCHAR(80),personal_email VARCHAR(80),status VARCHAR(24),is_active INT,is_archived INT,password_hash VARCHAR(80),temporary_password_hash VARCHAR(80),terminated_at DATETIME,status_expires_at DATETIME,first_name VARCHAR(20),last_name VARCHAR(20))',
+      'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(24))',
+      'CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(24),relationship_title VARCHAR(24),access_enabled INT,permissions_json JSON)',
+      'CREATE TABLE dependent_portal_access(client_id INT,user_id INT,revoked_at DATETIME)',
+      'CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active INT,agency_role VARCHAR(40))',
+      'CREATE TABLE user_agency_access_profiles(user_id INT,agency_id INT,effective_role VARCHAR(40))',
+      'CREATE TABLE client_agency_assignments(client_id INT,agency_id INT,is_active INT)',
+      'CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_active INT)',
+      'CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active INT)',
+      'CREATE TABLE agency_schools(agency_id INT,school_organization_id INT,is_active INT)',
+      'CREATE TABLE client_service_enrollments(client_id INT,agency_id INT,provider_user_id INT,service_kind VARCHAR(24),label VARCHAR(80),is_active INT,service_status VARCHAR(24))',
+      'CREATE TABLE client_provider_assignments(client_id INT,provider_user_id INT,is_active INT)',
+      'CREATE TABLE supervisor_assignments(supervisor_id INT,supervisee_id INT,agency_id INT)',
+      'CREATE TABLE agency_contacts(client_id INT,agency_id INT,email VARCHAR(80),is_active INT)',
+      'CREATE TABLE client_access_logs(client_id INT,user_id INT,user_role VARCHAR(24),action VARCHAR(80),route VARCHAR(80),method VARCHAR(8),ip_address VARCHAR(44),user_agent TEXT)',
+      'CREATE TABLE communication_links(conversation_id INT,entity_type VARCHAR(25),entity_id INT,label VARCHAR(80),UNIQUE KEY link_id(conversation_id,entity_type,entity_id))',
+      'CREATE TABLE communication_conversations(id INT,agency_id INT,subject VARCHAR(80),channel VARCHAR(10),last_message_at DATETIME)',
+      'CREATE TABLE communication_messages(id INT,conversation_id INT,is_internal_note INT,send_status VARCHAR(24))'
+    ];
+    for(const sql of DDL)await state.db.query(sql);
+    const migration=readFileSync(new URL('../../../../database/migrations/1863_client_chart_type_selections.sql',import.meta.url),'utf8');
+    for(let run=0;run<2;run++)for(const sql of migration.split(';').filter(s=>s.trim()))await state.db.query(sql);
+    for(const sql of [
+      "INSERT INTO agencies(id,name,organization_type,is_active,is_archived) VALUES(2,'Practice','agency',1,0),(3,'Second practice','agency',1,0),(4,'Counseling and Psychotherapy','clinical',1,0),(5,'Pine School','school',1,0)",
+      "INSERT INTO clients(id,agency_id,organization_id,full_name,initials,client_type,date_of_birth,status,client_status_id) VALUES(12,2,4,'Jordan Example','JE','basic_nonclinical','1990-05-10','ACTIVE',1)",
+      "INSERT INTO client_statuses VALUES(1,'current')",
+      "INSERT INTO users(id,role,status,is_active,is_archived) VALUES(1,'admin','ACTIVE',1,0),(2,'provider','ACTIVE',1,0),(3,'admin','ACTIVE',1,0)",
+      'INSERT INTO user_agencies(user_id,agency_id,is_active) VALUES(1,2,1),(2,2,1),(3,3,1)',
+      'INSERT INTO client_agency_assignments VALUES(12,3,1)',
+      'INSERT INTO organization_affiliations VALUES(2,4,1),(2,5,1)',
+      "INSERT INTO client_service_enrollments VALUES(12,2,2,'counseling','Counseling',1,'active')"
+    ])await state.db.query(sql);
+  });
+  afterAll(async()=>{
+    await state.db?.end();
+    if(server){await server.query(`DROP DATABASE IF EXISTS ${database}`);await server.end();}
+  });
+  it('persists independent agency selections and audits them without editing historical enrollments',async()=>{
+    expect((await readChartTypes(12,2)).types).toEqual(['clinical']);
+    const input={types:['consulting'],revision:0,suppressMinorDefault:false};
+    const saved=await saveChartTypes(admin,12,2,input);
+    expect(saved.types).toEqual(['clinical','consulting']);
+    await expect(saveChartTypes(admin,12,2,input)).rejects.toMatchObject({status:409});
+    await expect(saveChartTypes(admin,12,3,input)).rejects.toMatchObject({status:403});
+    await expect(requireTypeAccess({id:2,role:'provider'},12,2,{write:true})).rejects.toMatchObject({status:403});
+    expect((await readChartTypes(12,3)).types).toEqual([]);
+    await state.db.query('INSERT INTO client_organization_assignments VALUES(12,5,1)');
+    expect((await readChartTypes(12,2)).types).toContain('school');
+    expect((await readChartTypes(12,3)).schools).toEqual([]);
+    await state.db.query('UPDATE client_organization_assignments SET is_active=0 WHERE client_id=12 AND organization_id=5');
+    expect((await readChartTypes(12,2)).types).toEqual(['clinical','consulting']);
+    const [history]=await state.db.query('SELECT agency_id,changed_by_user_id,revision FROM client_chart_type_history');
+    expect(history).toEqual([{agency_id:2,changed_by_user_id:1,revision:1}]);
+  });
+  it('recalculates a minor’s default from actual account and relationship state',async()=>{
+    await state.db.query("INSERT INTO clients(id,agency_id,date_of_birth,status,client_status_id) VALUES(13,2,DATE_SUB(CURDATE(), INTERVAL 12 YEAR),'ACTIVE',1)");
+    await state.db.query("INSERT INTO users(id,role,status,is_active,is_archived,password_hash,temporary_password_hash) VALUES(10,'client','ACTIVE',1,0,'fixture','setup'),(11,'client_guardian','ACTIVE',1,0,NULL,NULL)");
+    await state.db.query("INSERT INTO client_guardians(client_id,guardian_user_id,relationship_type,access_enabled) VALUES(13,10,'self',1)");
+    const types = async () => (await readChartTypes(13,2)).types;
+    expect(await types()).toEqual(['dependent']);
+    await state.db.query('UPDATE users SET temporary_password_hash=NULL WHERE id=10');
+    expect(await types()).toEqual([]);
+    await state.db.query("INSERT INTO client_guardians(client_id,guardian_user_id,relationship_type,access_enabled) VALUES(13,11,'guardian',1)");
+    expect(await types()).toEqual(['dependent']);
+    await state.db.query("UPDATE client_guardians SET access_enabled=0 WHERE guardian_user_id=11");
+    expect(await types()).toEqual([]);
+  });
+  it('retains prior selections in the audit when a chart is removed',async()=>{
+    await state.db.query("INSERT INTO clients(id,agency_id,status) VALUES(77,2,'ACTIVE')");
+    await saveChartTypes(admin,77,2,{types:['coaching'],suppressMinorDefault:false,revision:0});
+    await state.db.query('DELETE FROM clients WHERE id=77');
+    expect((await state.db.query('SELECT revision FROM client_chart_type_selections WHERE client_id=77'))[0]).toEqual([]);
+    expect((await state.db.query('SELECT revision,changed_by_user_id FROM client_chart_type_history WHERE client_id=77'))[0]).toEqual([{revision:1,changed_by_user_id:1}]);
+  });
+  it('finds an accountless client before email entry and preserves the selected chart through filing and reopening',async()=>{
+    const browse=()=>browseHubPeople({agencyId:2,userId:2,browse:'caseload',q:'Jordan'});
+    const [missing]=await browse();
+    expect(missing).toMatchObject({personKey:'client:12@2',email:null,schoolName:null});
+    const req={user:admin,params:{id:'12'},query:{agencyId:'2'},body:{email:'jordan@example.test',previousEmail:''}};
+    const res={status:vi.fn().mockReturnThis(),set:vi.fn().mockReturnThis(),json:vi.fn()};
+    const next=vi.fn();
+    await putClientContactEmail(req,res,next);
+    expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({clientId:12,agencyId:2,email:'jordan@example.test'});
+    await putClientContactEmail({...req,body:{...req.body,email:'other@example.test'}},res,next);
+    expect(res.status).toHaveBeenCalledWith(409);
+    const [found]=await browse();
+    expect(found.email).toBe('jordan@example.test');
+    const person=await resolveHubPerson({agencyId:2,userId:2,personKey:found.personKey});
+    expect(person).toMatchObject({clientId:12,agencyId:2,email:found.email});
+    expect((await state.db.query('SELECT id FROM users WHERE email=?',[found.email]))[0]).toEqual([]);
+    const filing=await resolveEmailClientFiling({agencyId:2,userId:2,to:found.email,clientIds:[12]});
+    await state.db.query("INSERT INTO communication_conversations VALUES(99,2,'Example correspondence','email',NOW())");
+    await state.db.query("INSERT INTO communication_messages VALUES(100,99,0,'sent')");
+    await linkConversationClients(99,filing.clientIds);
+    expect((await listClientEmailThreads(12,2)).map(t=>t.id)).toEqual([99]);
+    expect(await listClientEmailThreads(12,3)).toEqual([]);
+  });
+});

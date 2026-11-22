@@ -540,7 +540,7 @@ import NewReferralModal from '../clientExchange/NewReferralModal.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import ClientAgencyLogo from '../clients/ClientAgencyLogo.vue';
 import { resolveMembershipLogoUrl } from '../../utils/peerTenantBrand';
-import { hasSchoolRosterContext, rosterServiceLabel, rosterOrganizationLabel, rosterStatusLabel } from '../../utils/clientRosterContext.js';
+import { hasOfficeService, hasSchoolRosterContext, rosterServiceLabel, rosterOrganizationLabel, rosterStatusLabel } from '../../utils/clientRosterContext.js';
 
 const props = defineProps({
   /** school | office | new | exchange | referrals */
@@ -846,7 +846,7 @@ const isSchoolSettingClient = (c) =>
 
 const isPosOfficeClient = (c) => {
   const flags = clientPosFlags(c?.id);
-  if (flags.seenAtOffice) return true;
+  if (flags.seenAtOffice || hasOfficeService(c)) return true;
   if (flags.seenAtSchool) return false;
   // Do not default school-affiliated clients to office when my-roster is empty/out of sync.
   if (isSchoolSettingClient(c)) return false;

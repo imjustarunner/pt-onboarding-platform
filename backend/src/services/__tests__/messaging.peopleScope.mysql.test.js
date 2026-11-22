@@ -44,6 +44,10 @@ describe.skipIf(!socketPath)('messaging access boundaries (isolated MySQL)',()=>
   beforeAll(async()=>{
     process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,7).toString('base64');
     for(const sql of [
+      'ALTER TABLE user_agencies ADD is_active INT DEFAULT 1, ADD agency_role VARCHAR(40)',
+      'CREATE TABLE user_agency_access_profiles (user_id INT,agency_id INT,effective_role VARCHAR(40))',
+      'CREATE TABLE client_service_enrollments (client_id INT,agency_id INT,provider_user_id INT,service_kind VARCHAR(25),is_active INT,service_status VARCHAR(20))',
+      'CREATE TABLE communication_attachments (id INT,message_id INT,filename VARCHAR(100),content_type VARCHAR(80),size_bytes INT)',
       'ALTER TABLE users ADD email VARCHAR(100), ADD personal_email VARCHAR(100)',
       'ALTER TABLE clients ADD email VARCHAR(100)',
       'ALTER TABLE agency_contacts ADD email VARCHAR(100)',
@@ -64,6 +68,7 @@ describe.skipIf(!socketPath)('messaging access boundaries (isolated MySQL)',()=>
         (403,304,'email','inbound',JSON_OBJECT('email','own-child@example.test'),JSON_ARRAY(JSON_OBJECT('email','provider@example.test')),'Question','sent')`,
       "INSERT INTO communication_participants VALUES (303,'siblings@example.test')"
     ])await state.db.query(sql);
+    await state.db.query('ALTER TABLE client_guardians ADD permissions_json JSON');
     const migration=readFileSync(new URL('../../../../database/migrations/1522_contact_documentation_reviews.sql',import.meta.url),'utf8');
     for(const statement of migration.split(';').filter(x=>x.trim()))await state.db.query(statement);
   });
@@ -72,6 +77,11 @@ describe.skipIf(!socketPath)('messaging access boundaries (isolated MySQL)',()=>
   it('limits a provider to assigned clients even with agency membership',async()=>{expect(await accessible(1)).toEqual([101]);});
   it('includes a supervisor’s current supervisees and secondary assignments, excluding other tenants and inactive assignments',async()=>{expect(await accessible(4)).toEqual([102,105]);});
   it('preserves admin agency-wide access without giving access to other tenants',async()=>{expect(await accessible(5)).toEqual([101,102,103,105,106,107]);});
+  it('honors an agency-specific provider role on an otherwise administrative account',async()=>{
+    await state.db.query("INSERT INTO user_agency_access_profiles VALUES(5,2,'provider')");
+    try {expect(await accessible(5)).toEqual([]);}
+    finally {await state.db.query('DELETE FROM user_agency_access_profiles WHERE user_id=5');}
+  });
   it('immediately removes supervision access after an assignment is removed',async()=>{
     await state.db.query('DELETE FROM supervisor_assignments WHERE supervisor_id=4 AND supervisee_id=2');
     try{expect(await accessible(4)).toEqual([]);}finally{await state.db.query('INSERT INTO supervisor_assignments VALUES (4,2,2)');}
@@ -158,7 +168,7 @@ describe.skipIf(!socketPath)('messaging access boundaries (isolated MySQL)',()=>
   it('never puts a sibling’s notification in another child’s communication history',async()=>{
     await state.db.query('ALTER TABLE client_guardians ADD relationship_title VARCHAR(50)');
     await state.db.query('CREATE TABLE agencies (id INT,name VARCHAR(50))');
-    await state.db.query(`CREATE TABLE user_communications (id INT,user_id INT,client_id INT,agency_id INT,template_type VARCHAR(50),template_id INT,channel VARCHAR(20),subject VARCHAR(100),recipient_address VARCHAR(100),delivery_status VARCHAR(30),external_message_id VARCHAR(100),sent_at DATETIME,delivered_at DATETIME,opened_at DATETIME,first_clicked_at DATETIME,error_message VARCHAR(100),generated_at DATETIME,generated_by_user_id INT)`);
+    await state.db.query(`CREATE TABLE user_communications (id INT,user_id INT,client_id INT,agency_id INT,template_type VARCHAR(50),template_id INT,channel VARCHAR(20),subject VARCHAR(100),recipient_address VARCHAR(100),delivery_status VARCHAR(30),external_message_id VARCHAR(100),sent_at DATETIME,delivered_at DATETIME,opened_at DATETIME,first_clicked_at DATETIME,error_message VARCHAR(100),generated_at DATETIME,generated_by_user_id INT,metadata JSON)`);
     await state.db.query("INSERT INTO users (id,role,email) VALUES (31,'guardian','single-parent@example.test')");
     await state.db.query('INSERT INTO client_guardians (client_id,guardian_user_id,access_enabled) VALUES (101,31,1)');
     await state.db.query(`INSERT INTO user_communications (id,user_id,client_id,agency_id,recipient_address) VALUES

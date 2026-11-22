@@ -433,7 +433,7 @@
               :key="p.personKey"
               class="msg-hub-row"
               :class="{ active: isPersonRowActive(p) }"
-              @click="pickPerson(p)"
+              @click="openPeopleRow(p)"
             >
               <div class="msg-hub-avatar" aria-hidden="true">
                 <img v-if="p.photoUrl" :src="photoSrc(p.photoUrl)" :alt="''" />
@@ -462,6 +462,8 @@
                     {{ personRoleLabel(p) }}
                   </template>
                 </p>
+                <p v-if="isClientRecipient(p)" class="msg-hub-snippet">{{ p.guardianAccessLabel || 'No linked portal account' }}{{ !p.email && !p.canEditClientEmail ? ' · No client email on file' : '' }}</p>
+                <button v-if="isClientRecipient(p) && !p.email && p.canEditClientEmail" type="button" class="btn btn-secondary btn-sm" @click.stop="addClientEmail(p)">Add client email</button>
                 <p v-if="p.accessLabel" class="msg-hub-snippet">{{ p.accessLabel }}</p>
                 <div v-if="peopleChannelChips(p).length" class="msg-hub-chip-row">
                   <span
@@ -497,7 +499,7 @@
 
         <section class="msg-hub-thread-col" aria-label="Conversation">
           <SecureMessageBanner v-if="selected && sendMethod === 'secure'" :thread-id="chatThreadId" :shared="!!clientMessaging || !!selectedClientId || (selected.kinds || []).some(k => ['guardian', 'client'].includes(k))" />
-          <SecureFamilyAudience v-if="selected && familySecureCompose" ref="secureFamilyAudience" required :agency-id="selected.agencyId || agencyId" :client-id="clientMessaging?.clientId || selectedClientId || selected.clientId" :person-key="selected.personKey" :me-id="authStore.user?.id" :scope-key="`${selected.personKey}:${sendMethod}`" />
+          <SecureFamilyAudience v-if="selected && familySecureCompose" ref="secureFamilyAudience" required :personal-user-id="personalSecureRecipientId" :agency-id="selected.agencyId || agencyId" :client-id="clientMessaging?.clientId || selectedClientId || selected.clientId" :person-key="selected.personKey" :me-id="authStore.user?.id" :scope-key="`${selected.personKey}:${sendMethod}`" />
           <template v-if="selected">
             <header class="msg-hub-thread-head">
               <button
@@ -1601,7 +1603,8 @@
       v-if="showNew"
       :agency-id="agencyId"
       :channel="newConversationChannel"
-      @close="showNew = false"
+      all-client-agencies :initial-client="emailEntryClient"
+      @close="showNew = false; emailEntryClient = null"
       @pick="startConversationWithPerson"
       @open-group="onOpenGroupFromModal"
     />
@@ -1748,6 +1751,7 @@ import { useAuthStore } from '../../store/auth';
 import { canManageConversaTeam } from '../../constants/conversa';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isTenantOrganizationType } from '../../utils/organizationTypes';
+import { isClientRecipient, resolveClientEmail, composeClientEmail } from '../../utils/clientEmailComposer';
 import StartConversationModal from './StartConversationModal.vue';
 import HubSmsComposer from './HubSmsComposer.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
@@ -1761,6 +1765,10 @@ import { lockMessageScroll } from '../../utils/messageScrollLock';
 
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
+const emailEntryClient = ref(null);
+function addClientEmail(person) {
+  emailEntryClient.value = person; newConversationChannel.value = 'email'; showNew.value = true;
+}
 const newMessageLabel = computed(() => ({email:'New email',internal:'New direct message',secure:'New secure message',sms:'New SMS',calls:'Calls / Voicemails',group:'New group'})[inboxChannel.value] || 'New conversation');
 const channelNeedsActivation = computed(() => inboxChannel.value === 'calls');
 const channelActivationMessage = computed(() => ({
@@ -2511,7 +2519,7 @@ const selectedClientId = computed(() => {
     Number(p?.clientId || ctx?.clientId || 0) ||
     Number(p?.clientMessaging?.clientId || 0) ||
     0;
-  if (direct) return direct;
+  if (direct || isClientRecipient(selected.value)) return direct;
   const pk = String(p?.personKey || '');
   const m = pk.match(/^client:(\d+)/i);
   if (m) return Number(m[1]) || 0;
@@ -2600,7 +2608,7 @@ const composeToName = computed(() => {
 const composeToEmail = computed(() => {
   if (sendMethod.value !== 'email') return '';
   const direct = String(selected.value?.email || '').trim();
-  if (direct) return direct;
+  if (direct || isClientRecipient(selected.value)) return direct;
   return String(talkingToGuardianEmail.value || '').trim();
 });
 
@@ -2721,9 +2729,16 @@ const newTabHint = computed(() => {
 
 const clientMessaging = computed(() => selected.value?.clientMessaging || null);
 const secureFamilyAudience = ref(null);
+const personalSecureRecipientId = computed(() => {
+  if (route.query.secureRecipient === 'client' && Number(route.query.secureClientId) === Number(selected.value?.clientId)) {
+    return Number(selected.value?.userId) || null;
+  }
+  return null;
+});
 const familySecureCompose = computed(() => sendMethod.value === 'secure' && (!!clientMessaging.value || !!selectedClientId.value || (selected.value?.kinds || []).some(k => ['guardian','client'].includes(k))));
 
 const talkingToLabel = computed(() => {
+  if (personalSecureRecipientId.value && sendMethod.value === 'secure') return selected.value.displayName;
   const ctx = clientMessaging.value;
   if (!ctx?.guardians?.length) return '';
   const id = Number(talkingToUserId.value || ctx.talkingToUserId || 0);
@@ -2834,6 +2849,7 @@ function peopleRowTitle(p) {
 }
 
 function peopleTalkingTo(p) {
+  if (isClientRecipient(p)) return p.displayName;
   if (p?.talkingToName) return p.talkingToName;
   if (p?.clientMessaging?.talkingToName) return p.clientMessaging.talkingToName;
   if ((p?.kinds || []).includes('guardian')) return p.displayName || '';
@@ -4957,7 +4973,10 @@ function createReminderStub() {
   setTimeout(() => { reminderNotice.value = ''; }, 4000);
 }
 
+let peopleListRequest = 0;
 async function loadList() {
+  const request = ++peopleListRequest;
+  const current = () => request === peopleListRequest && !sessionBlocked.value;
   loadingList.value = true;
   error.value = '';
   try {
@@ -4972,6 +4991,7 @@ async function loadList() {
       };
       if (q.length >= 2) params.q = q;
       const { data } = await api.get('/messages/hub/contacts', { params, skipGlobalLoading: true });
+      if (!current()) return;
       people.value = Array.isArray(data?.results) ? data.results : [];
       return;
     }
@@ -4988,15 +5008,17 @@ async function loadList() {
               : f === 'clients'
                 ? 'caseload'
                 : 'suggested';
-    people.value = await fetchPeople({
+    const rows = await fetchPeople({
       browse,
-      q: q.length >= 2 && ['staff', 'school_staff', 'guardians'].includes(browse) ? q : undefined
+      q: q.length >= 2 && ['staff', 'school_staff', 'guardians', 'caseload'].includes(browse) ? q : undefined
     });
+    if (current()) people.value = rows;
   } catch (e) {
+    if (!current()) return;
     people.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not load people';
   } finally {
-    loadingList.value = false;
+    if (request === peopleListRequest) loadingList.value = false;
   }
 }
 
@@ -5007,12 +5029,36 @@ function setListFilter(id) {
 
 function openGroupPicker() { return openNewConversation('group'); }
 
+function openPeopleRow(person) {
+  if (isClientRecipient(person) && ['clients','caseload','my_clients'].includes(listFilter.value)) {
+    const channel = person.userId ? 'secure' : person.email ? 'email' : null;
+    if (channel) return startConversationWithPerson({...person,composeChannel:channel});
+    if (person.canEditClientEmail) return addClientEmail(person);
+    error.value = 'This client needs a personal messaging account or a client email. An authorized chart editor can add their contact address.';
+    return;
+  }
+  return pickPerson(person);
+}
+
 async function startConversationWithPerson(person) {
   showNew.value = false;
   const requested = newConversationChannel.value !== 'all' ? newConversationChannel.value : inboxChannel.value;
   const method = person.composeChannel || (['email','internal','secure','sms'].includes(requested) ? requested : person.preferredMethod);
+  if (method === 'secure' && isClientRecipient(person)) {
+    const slug = route.params?.organizationSlug;
+    return router.push({path:slug ? `/${slug}/messages` : '/messages',query:{view:'hub',channel:'secure',secureRecipient:'client',secureClientId:String(person.clientId),agencyId:String(person.agencyId)}});
+  }
   if (method === 'email' && person.email) {
-    openEmailComposer(router, { mode: 'new', agencyId: agencyId.value || person.agencyId, to: person.email });
+    if (isClientRecipient(person)) {
+      try {
+        const recipient = await resolveClientEmail(api,person.clientId,person.agencyId);
+        if (sessionBlocked.value) return;
+        composeClientEmail(router,recipient);
+        people.value = people.value.map(row => row.personKey === recipient.personKey ? recipient : row);
+      } catch (e) { error.value = e.response?.data?.error?.message || e.message; }
+      return;
+    }
+    openEmailComposer(router, { mode: 'new', agencyId: person.agencyId || agencyId.value, to: person.email });
     void pickPerson(person, { method: 'email' });
     return;
   }
@@ -5505,7 +5551,9 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
         (sendAgencyId ? `client:${ctx.clientId}@${sendAgencyId}` : `client:${ctx.clientId}`);
       targets.push(smsKey);
     } else {
-      const primaryKey = talkingToPersonKey() || selected.value.personKey;
+      const primaryKey = personalSecureRecipientId.value && sendMethod.value === 'secure'
+        ? selected.value.personKey
+        : talkingToPersonKey() || selected.value.personKey;
       targets.push(primaryKey);
 
       if (sendToAllPortalGuardians && ctx?.portalGuardians?.length) {
@@ -5802,13 +5850,13 @@ watch(listSearch, () => {
   clearTimeout(listSearchTimer);hasMoreEmailResults.value=false;
   if(emailSearchEnabled.value){listSearchTimer=setTimeout(()=>loadConversations(),300);return;}
   const f = listFilter.value;
-  if (!['staff', 'school_staff', 'guardians'].includes(f)) return;
+  if (!['staff', 'school_staff', 'guardians', 'caseload', 'my_clients', 'clients'].includes(f)) return;
   clearTimeout(listSearchTimer);
   listSearchTimer = setTimeout(() => loadList(), 280);
 });
 
 let linkedSecureRequest=0;
-const linkedSecureScope=()=>JSON.stringify([route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
+const linkedSecureScope=()=>JSON.stringify([route.query.secureRecipient,route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
 function clearLinkedSecureComposer(){
  timelineRequestId++;selected.value=null;selectedConversation.value=null;conversationPreview.value=null;timeline.value=[];recentFiles.value=[];recentActivity.value=[];composeBody.value='';composeSubject.value='';composeCc.value='';composeBcc.value='';composeAttachments.value=[];chatStagedAttachments.value=[];chatThreadId.value=null;sendError.value='';
 }
@@ -5826,6 +5874,7 @@ async function openLinkedSecureClient(){
   let person=data?.person;const context=person?.clientMessaging;
   if(!person||Number(person.clientId)!==clientId||Number(person.agencyId)!==aid||(context&&Number(context.clientId)!==clientId))throw Error('This client is not available for secure messaging in this agency.');
   if(!person.userId||!person.methods?.some(method=>method.id==='secure'&&method.available)){
+   if (route.query.secureRecipient === 'client') throw Error(!person.userId ? 'The client has no active personal messaging account. Review portal access on the chart or choose an authorized guardian in Messages.' : person.methods?.find(m => m.id === 'secure')?.reason || 'Secure messaging is unavailable for this client.');
    const guardians=context?.guardians||[],preferred=guardians.find(g=>Number(g.userId)===Number(context?.talkingToUserId));
    const guardian=[preferred,...guardians].find(g=>g?.personKey&&g.methods?.some(method=>method.id==='secure'&&method.available));
    if(!guardian)throw Error(person.methods?.find(method=>method.id==='secure')?.reason||'No eligible secure recipient is available for this client. Review their linked portal contacts.');
@@ -5866,7 +5915,7 @@ async function openLinkedSecureClient(){
   } else { startNewSubjectCompose(); await focusComposer(); }
  }catch(e){if(current()){clearLinkedSecureComposer();error.value=e.response?.data?.error?.message||e.message||'The secure composer could not be opened. Review this client’s messaging access.';}}
 }
-watch(()=>[route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
+watch(()=>[route.query.secureRecipient,route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
 
 
 let linkedThreadRequest=0;

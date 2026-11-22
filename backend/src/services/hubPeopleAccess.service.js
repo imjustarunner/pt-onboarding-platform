@@ -1,11 +1,23 @@
 import pool from '../config/database.js';
 
+// Company-specific staff roles apply independently to each returned chart.
+function agencyStaffScope(agencyColumn, roles = "'admin','support'") {
+  return `EXISTS (SELECT 1 FROM users hub_viewer WHERE hub_viewer.id=? AND (hub_viewer.role='super_admin' OR EXISTS (
+    SELECT 1 FROM user_agencies m LEFT JOIN user_agency_access_profiles ap ON ap.user_id=m.user_id AND ap.agency_id=m.agency_id
+    WHERE m.user_id=hub_viewer.id AND m.agency_id=${agencyColumn} AND m.is_active=1
+      AND COALESCE(NULLIF(ap.effective_role,''),NULLIF(m.agency_role,''),hub_viewer.role) IN (${roles}))))`;
+}
+
 // Use the same predicate before LIMIT in searches and when opening a person by ID.
 // Supervision is derived from current assignments, scoped to the client's tenant.
 export function hubClientScope(userId, alias = 'c') {
   const c = alias;
   return {
-    sql: `(EXISTS (SELECT 1 FROM users hub_viewer WHERE hub_viewer.id = ? AND (LOWER(hub_viewer.role) = 'super_admin' OR (LOWER(hub_viewer.role) IN ('admin','support') AND EXISTS (SELECT 1 FROM user_agencies hub_membership WHERE hub_membership.user_id = hub_viewer.id AND hub_membership.agency_id = ${c}.agency_id))))
+    sql: `(${agencyStaffScope(`${c}.agency_id`)}
+      OR EXISTS (SELECT 1 FROM client_service_enrollments service
+        JOIN user_agencies member ON member.user_id=service.provider_user_id AND member.agency_id=service.agency_id AND member.is_active=1
+        WHERE service.client_id=${c}.id AND service.agency_id=${c}.agency_id AND service.provider_user_id=?
+          AND service.service_kind='counseling' AND service.is_active=1 AND service.service_status='active')
       OR ${c}.provider_id = ?
       OR EXISTS (SELECT 1 FROM client_provider_assignments hub_assignment WHERE hub_assignment.client_id = ${c}.id AND hub_assignment.provider_user_id = ? AND hub_assignment.is_active = 1)
       OR EXISTS (SELECT 1 FROM supervisor_assignments hub_supervision
@@ -16,7 +28,7 @@ export function hubClientScope(userId, alias = 'c') {
           AND (${c}.provider_id = hub_supervision.supervisee_id OR EXISTS (
             SELECT 1 FROM client_provider_assignments hub_supervised_assignment
             WHERE hub_supervised_assignment.client_id = ${c}.id AND hub_supervised_assignment.provider_user_id = hub_supervision.supervisee_id AND hub_supervised_assignment.is_active = 1))))`,
-    params: [userId, userId, userId, userId]
+    params: [userId, userId, userId, userId, userId]
   };
 }
 
@@ -26,7 +38,7 @@ export function hubContactScope(userId, alias = 'ac') {
     sql: `((${alias}.client_id IS NOT NULL AND EXISTS (SELECT 1 FROM clients c WHERE c.id = ${alias}.client_id AND c.agency_id = ${alias}.agency_id AND ${clinical.sql}))
       OR (${alias}.client_id IS NULL AND (${alias}.share_with_all = 1 OR ${alias}.created_by_user_id = ?
         OR EXISTS (SELECT 1 FROM contact_provider_assignments hub_contact_assignment WHERE hub_contact_assignment.contact_id = ${alias}.id AND hub_contact_assignment.provider_user_id = ?)
-        OR EXISTS (SELECT 1 FROM users hub_viewer WHERE hub_viewer.id = ? AND (LOWER(hub_viewer.role) = 'super_admin' OR (LOWER(hub_viewer.role) IN ('admin','support') AND EXISTS (SELECT 1 FROM user_agencies hub_membership WHERE hub_membership.user_id = hub_viewer.id AND hub_membership.agency_id = ${alias}.agency_id)))))))`,
+        OR ${agencyStaffScope(`${alias}.agency_id`)})))`,
     params: [...clinical.params, userId, userId, userId]
   };
 }
@@ -62,6 +74,7 @@ export async function scopeHubPeople(people, userId) {
   if (userIds.length) { selector.push(`cg.guardian_user_id IN (${userIds.map(()=>'?').join(',')})`); args.push(...userIds); }
   const scope = hubClientScope(userId);
   const [rows] = await pool.execute(`SELECT c.id, c.agency_id, c.full_name, c.initials, c.client_type, cs.status_key AS client_status_key, cg.guardian_user_id, cg.access_enabled,
+      ${agencyStaffScope('c.agency_id',"'admin','support','staff'")} AS can_edit_email,
       (c.provider_id = ? OR EXISTS (SELECT 1 FROM client_provider_assignments own_assignment WHERE own_assignment.client_id = c.id AND own_assignment.provider_user_id = ? AND own_assignment.is_active = 1)) AS own_caseload,
       (SELECT GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(p.first_name,''), ' ', COALESCE(p.last_name,''))) SEPARATOR ', ')
        FROM supervisor_assignments sa JOIN users p ON p.id = sa.supervisee_id
@@ -71,7 +84,7 @@ export async function scopeHubPeople(people, userId) {
     FROM clients c LEFT JOIN client_guardians cg ON cg.client_id = c.id
       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-    WHERE (${selector.join(' OR ')}) AND ${scope.sql}`, [userId,userId,userId,...args,...scope.params]);
+    WHERE (${selector.join(' OR ')}) AND ${scope.sql}`, [userId,userId,userId,userId,...args,...scope.params]);
   return visible.flatMap(p=>{
     if (!clinical.includes(p)) return [p];
     const matches = rows.filter(r=>Number(r.agency_id)===Number(p.agencyId) &&
@@ -85,6 +98,7 @@ export async function scopeHubPeople(people, userId) {
     const relationship=guardian ? `Guardian of ${unique.map(r=>r.full_name || r.initials || `Client #${r.id}`).join(', ')}` : p.relationshipMeta;
     return [{...p,clientId:row.id,clientType:row.client_type || null,clientStatusKey:row.client_status_key || null,
       ...(guardian ? {portalAccess:!!row.access_enabled, guardianClientNames:unique.map(r=>r.full_name || r.initials || `Client #${r.id}`)}:{}),
+      canEditClientEmail:p.personKey?.startsWith('client:') && Number(row.can_edit_email) === 1,
       accessLabel,relationshipMeta:[relationship,accessLabel].filter(Boolean).join(' · ')}];
   });
 }

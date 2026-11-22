@@ -2,7 +2,17 @@ import { displaySchoolClientStatusLabel } from './schoolClientStatusDisplay.js';
 
 export function hasSchoolRosterContext(client = {}) {
   const orgType = String(client.organization_type || client.organizationType || '').toLowerCase();
-  return orgType === 'school' || (!orgType && client.client_type === 'school');
+  return client.roster_selected_types?.includes('school') || (client.roster_organization_types ? client.roster_organization_types.includes('school') : orgType === 'school') ||
+    (client.service_contexts || []).some(row => Number(row.is_active) === 1 && row.organization_type === 'school') ||
+    (!client.roster_organization_types && !orgType && !client.roster_selected_types && client.client_type === 'school');
+}
+
+export function hasOfficeService(client = {}) {
+  const officeTypes = ['clinical','learning','coaching','consulting'];
+  if (client.roster_selected_types?.some(type => officeTypes.includes(type))) return true;
+  const services = client.service_contexts || [];
+  if (services.some(row => Number(row.is_active) === 1 && ['counseling','tutoring','coaching','consultation'].includes(row.service_kind))) return true;
+  return (client.roster_organization_types ? client.roster_organization_types.some(type => officeTypes.includes(type)) : client.organization_type === 'clinical') || (!client.roster_selected_types && !services.length && officeTypes.includes(client.client_type));
 }
 
 export function rosterServiceContexts(client = {}) {

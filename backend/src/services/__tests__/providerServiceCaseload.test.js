@@ -26,6 +26,10 @@ CREATE TABLE paperwork_statuses(id INTEGER,label TEXT,status_key TEXT);
 CREATE TABLE insurance_types(id INTEGER,label TEXT,insurance_key TEXT);
 CREATE TABLE paperwork_delivery_methods(id INTEGER,label TEXT,method_key TEXT);
 CREATE TABLE user_agencies(user_id INTEGER,agency_id INTEGER,is_active INTEGER);
+CREATE TABLE client_organization_assignments(client_id INTEGER,organization_id INTEGER,is_active INTEGER);
+CREATE TABLE organization_affiliations(agency_id INTEGER,organization_id INTEGER,is_active INTEGER);
+CREATE TABLE agency_schools(agency_id INTEGER,school_organization_id INTEGER,is_active INTEGER);
+CREATE TABLE client_chart_type_selections(client_id INTEGER,agency_id INTEGER,selected_types TEXT);
 CREATE TABLE client_chart_identity_members(client_id INTEGER PRIMARY KEY,identity_id TEXT NOT NULL);
 CREATE TABLE client_agency_assignments(client_id INTEGER,agency_id INTEGER,is_active INTEGER);
 CREATE TABLE client_service_enrollments(id INTEGER,client_id INTEGER,agency_id INTEGER,provider_user_id INTEGER,service_kind TEXT,is_active INTEGER,service_status TEXT,organization_id INTEGER,label TEXT);
@@ -47,6 +51,7 @@ INSERT INTO client_service_enrollments VALUES
 (28,9,2,10,'counseling',1,'active',30,'Counseling');
 '''
 db.executescript(schema)
+db.executescript('ALTER TABLE agencies ADD is_active INTEGER DEFAULT 1; ALTER TABLE agencies ADD is_archived INTEGER DEFAULT 0;')
 for i in range(1,10):db.execute("INSERT INTO clients(id,agency_id,provider_id,organization_id,initials,status,client_type) VALUES(?,?,?,?,?,'ACTIVE','clinical')",(i,3 if i in (5,6) else 2,8 if i==1 else None,30,'F'+str(i)))
 db.executescript(request.get('seed',''))
 print(json.dumps([dict(r) for r in db.execute(request['sql'],request['params'])]))
@@ -71,10 +76,13 @@ it('does not put ended services, other providers or inactive provider membership
  expect(await Client.findByAgencyId(2,{provider_id:10})).toEqual([]);
 });
 it('keeps a service-only client in the actual provider Clients endpoint, including its service detail',async()=>{
+ extraSeed = "INSERT INTO agencies(id,name,organization_type) VALUES(35,'Pine Elementary','school'),(36,'Private Academy','school'); INSERT INTO client_organization_assignments VALUES(2,35,1),(1,36,1); INSERT INTO agency_schools VALUES(2,35,1),(3,36,1);";
  const req={query:{agency_id:'2',provider_id:'8',includeServiceContext:'1'},user:{id:8,role:'provider'}};
  const res={json:vi.fn(),status:vi.fn().mockReturnThis()},next=vi.fn();
  await getClients(req,res,next);expect(next).not.toHaveBeenCalled();
  expect(ids(res.json.mock.calls[0][0])).toEqual([1,2,6]);
+ expect(res.json.mock.calls[0][0].find(row=>row.id===2).roster_organization_types).toEqual(['school']);
+ expect(res.json.mock.calls[0][0].find(row=>row.id===1).roster_organization_types).toEqual([]);
  expect(res.json.mock.calls[0][0].find(row=>row.id===2).service_contexts).toEqual(expect.arrayContaining([expect.objectContaining({service_kind:'counseling',agency_id:2})]));
 });
 it('marks linked charts across the provider’s visible caseload without adding clients outside that caseload', async () => {

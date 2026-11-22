@@ -95,47 +95,20 @@
                 >
                   {{ isClientArchived ? 'Archived' : displayStatusLabel }}
                 </span>
-                <span v-if="effectiveClientType !== 'clinical'" class="cdp-pill cdp-pill--type" :class="{ 'is-editable': canEditClientType }">
-                  <span class="cdp-pill__dot"></span>
-                  {{ clientTypeLabel }}
-                  <button
-                    v-if="canEditClientType"
-                    type="button"
-                    class="cdp-pill-edit-btn"
-                    title="Change client type"
-                    aria-label="Change client type"
-                    @click="openAdminSettings"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                  </button>
-                </span>
+                <ClientTypeEditor v-if="canReadChartTypes" :key="`${client.id}:${activeChartAgencyId}`"
+                  :profile="chartTypes" :label="clientTypeLabel" :error="chartTypeError" :can-edit="canEditClientType"
+                  :busy="savingChartTypes" @save="saveChartTypes" @reload="loadChartTypes" @manage="goChartSub" />
+                <span v-else class="cdp-pill cdp-pill--type">{{ clientTypeLabel }}</span>
                 <span v-if="primaryInsuranceLabel" class="cdp-pill cdp-pill--success">
                   {{ primaryInsuranceLabel }}
                 </span>
               </div>
               <details
-                v-if="canEditClientType || (isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote))"
+                v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)"
                 v-show="!headerCollapsed"
-                ref="adminDetailsEl"
                 class="cdp-admin-details"
               >
-              <summary>{{ canEditClientType ? 'Client type & admin settings' : 'Admin settings' }}</summary>
-              <div v-if="canEditClientType" class="cdp-inline-controls">
-                <span class="cdp-inline-controls__label">Client type</span>
-                <select ref="clientTypeSelectEl" v-model="clientTypeDraft" class="inline-select cdp-inline-select" :disabled="savingClientType">
-                  <option v-for="opt in clientTypeOptions" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </option>
-                </select>
-                <button
-                  type="button"
-                  class="btn btn-sm cdp-btn-ink"
-                  :disabled="savingClientType || !clientTypeDraft || clientTypeDraft === effectiveClientType"
-                  @click="saveClientType"
-                >
-                  {{ savingClientType ? 'Saving…' : 'Save type' }}
-                </button>
-              </div>
+              <summary>Admin settings</summary>
               <div v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)" class="cdp-inline-controls cdp-inline-controls--muted">
                 <template v-if="switchableAgencies.length > 1">
                   <span class="cdp-inline-controls__label">Chart agency</span>
@@ -191,6 +164,7 @@
       </div>
     </template>
 
+        <p v-if="clientEmailError" role="alert" class="error">{{ clientEmailError }}</p>
         <section v-if="providerAssignmentOpen && canManageServiceEnrollments" ref="providerAssignmentSection" class="detail-section" aria-label="Assign client provider">
           <div class="cdp-overview-toolbar">
             <h3>Assign provider</h3>
@@ -230,7 +204,7 @@
             :guardian-name="overviewGuardianName" :linked-guardians="guardians" :guardian-loading="guardiansLoading" :guardian-error="guardiansError"
             :contact-role="intakeContactLabel"
             :guardian-meta="overviewGuardianMeta"
-            :organization-name="client.organization_name || schoolGlanceLabel"
+            :organization-name="client.organization_name || schoolNames.join(' · ')"
             @edit="startEditOverview(true)"
             @assign-provider="openProviderAssignment"
             @upload="openDocumentUpload"
@@ -326,7 +300,7 @@
           >
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">{{ showSchoolGlance ? 'School' : 'Organization' }}</span>
-              <strong>{{ schoolGlanceLabel }}</strong>
+              <strong>{{ showSchoolGlance ? schoolGlanceLabel : savedOrganizationLabel }}</strong>
             </div>
             <template v-if="showSchoolGlance && !showSchoolStripAssignmentEditor">
               <div class="cdp-school-profile-item">
@@ -334,7 +308,7 @@
                 <strong>{{ assignedDayGlanceLabel }}</strong>
               </div>
             </template>
-            <div class="cdp-school-profile-item">
+            <div v-if="showSchoolGlance" class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Grade</span>
               <template v-if="editingOverview && canEditAccount">
                 <select v-model="overviewForm.grade" class="cdp-strip-input">
@@ -373,9 +347,9 @@
                 @updated="onSchoolAssignmentUpdated"
               />
             </div>
-            <div class="cdp-school-profile-item">
+            <div v-if="overviewProgramLabel" class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Program</span>
-              <strong>{{ clientTypeLabel }}</strong>
+              <strong>{{ overviewProgramLabel }}</strong>
             </div>
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Insurance</span>
@@ -591,6 +565,7 @@
                 <span class="muted" style="font-size: 12px;">Also shown on the Demographics tab</span>
               </header>
               <div class="ov-card-body">
+                <ClientContactEmail :key="client.id" :client-id="Number(client.id)" :agency-id="Number(client.agency_id)" :email="client.email || ''" :editable="canEditClientEmail" @saved="onClientEmailSaved" />
                 <div class="ov-row">
                   <div class="ov-row-label">Date of Birth</div>
                   <div class="ov-row-value">
@@ -1128,7 +1103,7 @@
           :agency-id="client?.agency_id"
           :roi-expires-at="client?.roi_expires_at"
           :disclosure-status="clientDisclosureStatus"
-          :school-name="client?.organization_name || schoolGlanceLabel || ''"
+          :school-name="schoolNames.join(' · ')"
           :agency-name="clientRenewalAgencyLabel"
           :guardian-email="guardianIntakeEmail || ''"
           :client-initials="client?.initials || ''"
@@ -1441,6 +1416,7 @@
 
         <!-- Demographics Tab -->
         <div v-if="showPanel('demographics')" class="detail-section chart-demographics">
+          <ClientContactEmail ref="demographicsEmailEditor" :key="client.id" :client-id="Number(client.id)" :agency-id="Number(client.agency_id)" :email="client.email || ''" :editable="canEditClientEmail" @saved="onClientEmailSaved" />
           <GuardianDemographicReview v-if="canEditAccount" :client-id="Number(client.id)" />
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
@@ -2900,6 +2876,10 @@ import ClientOperationalStatus from '../clients/ClientOperationalStatus.vue';
 import ClientPortalOverview from '../clients/ClientPortalOverview.vue';
 import DependentPortalSharing from './DependentPortalSharing.vue';
 import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
+import ClientContactEmail from '../clients/ClientContactEmail.vue';
+import { resolveClientEmail, composeClientEmail } from '../../utils/clientEmailComposer';
+import ClientTypeEditor from './clientChart/ClientTypeEditor.vue';
+import { useClientChartTypes } from '../../composables/useClientChartTypes';
 import { meaningfulProgram } from '../../utils/clientRosterContext.js';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
@@ -3677,7 +3657,28 @@ function openClientSecureMessage(){
  if(!canOpenClientSecureMessage.value)return;
  const clientId=Number(props.client.id),agencyId=Number(props.client.agency_id||selectedAgencyId.value);
  const slug=String(route.params?.organizationSlug||'').trim();
- return router.push({path:slug?`/${slug}/messages`:'/messages',query:{view:'hub',channel:'secure',secureClientId:String(clientId),agencyId:String(agencyId)}});
+ return router.push({path:slug?`/${slug}/messages`:'/messages',query:{view:'hub',channel:'secure',secureRecipient:'client',secureClientId:String(clientId),agencyId:String(agencyId)}});
+}
+
+const demographicsEmailEditor = ref(null), clientEmailError = ref('');
+const canEditClientEmail = computed(() => ['super_admin','admin','support','staff'].includes(roleNorm.value) &&
+  (isSuperAdmin.value || myAgencies.value.some(a => Number(a.id) === Number(props.client.agency_id))));
+function onClientEmailSaved({clientId,email}) {
+  if (Number(clientId) === Number(props.client.id)) emit('updated',{keepOpen:true,client:{...props.client,email}});
+}
+watch(() => props.client.id, () => {clientEmailError.value = '';});
+async function openClientEmail() {
+  const id = Number(props.client.id), agencyId = Number(props.client.agency_id);
+  clientEmailError.value = '';
+  if (!props.client.email && canEditClientEmail.value) {
+    await goChartSub('demographics'); await nextTick(); await demographicsEmailEditor.value?.edit(); return;
+  }
+  try {
+    const person = await resolveClientEmail(api,id,agencyId);
+    if (id === Number(props.client.id) && agencyId === Number(props.client.agency_id)) composeClientEmail(router,person);
+  } catch (e) {
+    if (id === Number(props.client.id)) clientEmailError.value = e.response?.data?.error?.message || e.message;
+  }
 }
 
 const clientDobLabel = computed(() => {
@@ -4053,44 +4054,22 @@ const pastAffiliations = ref([]);
 /** Affiliated orgs for the active chart tenant (used to gate learning surfaces). */
 const chartAgencyAffiliatedOrgs = ref([]);
 
-const SCHOOL_LIKE_ORG_TYPES = new Set(['school', 'program', 'learning']);
-const isSchoolLikeOrgType = (t) => SCHOOL_LIKE_ORG_TYPES.has(String(t || '').trim().toLowerCase());
-
-const CLIENT_TYPE_ORDER = ['basic_nonclinical', 'school', 'learning', 'clinical'];
-const CLIENT_TYPE_LABELS = {
-  basic_nonclinical: 'Basic (Non-Clinical)',
-  school: 'School',
-  learning: 'Learning/Program',
-  clinical: 'Clinical'
-};
-const normalizeClientType = (value) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  return CLIENT_TYPE_ORDER.includes(normalized) ? normalized : '';
-};
-
-const explicitClientType = computed(() => normalizeClientType(props.client?.client_type));
-const hasExplicitClientType = computed(() => !!explicitClientType.value);
-const fallbackClientTypeFromOrg = computed(() => {
-  const orgType = String(props.client?.organization_type || '').trim().toLowerCase();
-  if (orgType === 'school') return 'school';
-  if (orgType === 'learning') return 'learning';
-  if (orgType === 'program' || orgType === 'clinical') return 'clinical';
-  if (isSchoolLikeOrgType(orgType)) return 'school';
-  return 'basic_nonclinical';
+const activeChartAgencyId = computed(() => Number(selectedAgencyId.value || props.client?.agency_id) || null);
+const canReadChartTypes = computed(() => ['admin','super_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor'].includes(roleNorm.value));
+const {profile:chartTypes,error:chartTypeError,saving:savingChartTypes,load:loadChartTypes,save:saveChartTypes} =
+  useClientChartTypes(() => [Number(props.client?.id), Number(props.client?.agency_id), canReadChartTypes.value,
+    authStore.user?.id, roleNorm.value, props.client?.organization_id, props.client?.client_status_id, props.client?.status, props.client?.date_of_birth]);
+const fallbackTypes = computed(() => {
+  const org = props.client?.organization_type, legacy = props.client?.client_type;
+  return [...new Set([org,legacy].filter(type => ['clinical','learning','school'].includes(type) &&
+    !(type === 'school' && org && org !== 'school' && legacy === 'school')))];
 });
-const effectiveClientType = computed(() => explicitClientType.value || fallbackClientTypeFromOrg.value);
-const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.value] || effectiveClientType.value || 'Unknown');
-const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
-/** Clinical chart surfaces (notes / plans / medical record) — clinical, learning, and school. */
-const isClinicalLikeClientType = computed(() =>
-  ['clinical', 'learning', 'school'].includes(effectiveClientType.value)
-);
-
-/** Clinical summary / Medical record / Treatment plans (not learning-only student surfaces). */
-const showClinicalChartSurfaces = computed(() =>
-  effectiveClientType.value === 'clinical'
-  || effectiveClientType.value === 'school'
-);
+const activeTypes = computed(() => chartTypes.value?.types ?? fallbackTypes.value);
+const effectiveClientType = computed(() => activeTypes.value.find(type => ['clinical','school','learning'].includes(type)) || activeTypes.value[0] || 'basic_nonclinical');
+const clientTypeLabel = computed(() => activeTypes.value.map(type => type[0].toUpperCase() + type.slice(1)).join(' · ') || 'Unclassified');
+const isSchoolClientType = computed(() => activeTypes.value.includes('school'));
+const showClinicalChartSurfaces = computed(() => [...activeTypes.value,...(chartTypes.value?.historicalTypes || [])].some(type => ['clinical','school'].includes(type)));
+const isClinicalLikeClientType = computed(() => showClinicalChartSurfaces.value || activeTypes.value.includes('learning'));
 
 const clientLearningOrgIds = computed(() => {
   const ids = new Set();
@@ -4111,9 +4090,7 @@ const hasLearningProgramEnrollment = computed(() =>
   effectiveClientType.value === 'learning' || clientLearningOrgIds.value.length > 0
 );
 
-const activeChartAgencyId = computed(() =>
-  Number(selectedAgencyId.value || props.client?.agency_id || 0) || null
-);
+
 
 const activeTenantSponsorsClientLearning = computed(() => {
   if (!hasLearningProgramEnrollment.value) return false;
@@ -4151,7 +4128,7 @@ const activeTenantSponsorsClientLearning = computed(() => {
 
 /** Student summary / Learning plans — gated by active chart tenant sponsorship. */
 const showLearningChartSurfaces = computed(() =>
-  hasLearningProgramEnrollment.value && activeTenantSponsorsClientLearning.value
+  chartTypes.value ? [...activeTypes.value,...chartTypes.value.historicalTypes].includes('learning') : hasLearningProgramEnrollment.value && activeTenantSponsorsClientLearning.value
 );
 
 const showSchoolSpecificOverviewFields = computed(() => showSchoolGlance.value);
@@ -4160,31 +4137,19 @@ const displayStatusLabel = computed(() => {
   return props.client.client_status_label || String(props.client.client_status_key || props.client.status || '—')
     .toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
 });
-const showSchoolGlance = computed(() => isSchoolClientType.value || isSchoolPortalContext.value || String(props.client?.organization_type || '').toLowerCase() === 'school' || affiliations.value.some(row => String(row.organization_type || '').toLowerCase() === 'school'));
-const schoolGlanceLabel = computed(() => {
-  const fromAssignments = [...new Set(
-    (effectiveOverviewProviders.value || [])
-      .map((p) => String(p.organization_name || '').trim())
-      .filter(Boolean)
-  )];
-  if (fromAssignments.length) return fromAssignments.join(' · ');
-  return String(props.client?.organization_name || '').trim() || (showSchoolGlance.value ? 'Not on a school roster' : '—');
-});
+const schoolNames = computed(() => chartTypes.value?.schools ?? [...new Set([
+  ...(props.client?.organization_type === 'school' ? [props.client.organization_name] : []),
+  ...affiliationsForTenant(activeChartAgencyId.value,'school').map(row => row.organization_name)
+].filter(Boolean))]);
+const showSchoolGlance = computed(() => isSchoolClientType.value || isSchoolPortalContext.value || schoolNames.value.length > 0);
+const schoolGlanceLabel = computed(() => schoolNames.value.join(' · ') || 'Not on a school roster');
 const assignedDayGlanceLabel = computed(() => {
   const days = String(careTeamGlanceMeta.value || '').trim();
   if (days && days.toLowerCase() !== 'unknown') return days;
   return assignedDayDisplay(props.client);
 });
-const organizationLabel = computed(() => (isSchoolClientType.value ? 'School' : 'Organization'));
+const organizationLabel = computed(() => props.client?.organization_type === 'school' ? 'School' : 'Organization');
 const savedOrganizationLabel = computed(() => props.client?.organization_name || overviewOrganizations.value.find(o=>Number(o.id)===Number(props.client?.organization_id))?.name || (props.client?.organization_id ? (Number(props.client.organization_id)===Number(props.client.agency_id) ? props.client.agency_name || `Agency #${props.client.agency_id}` : `Organization #${props.client.organization_id}`) : 'None'));
-const clientTypeOptions = computed(() => {
-  const all = CLIENT_TYPE_ORDER.map((value) => ({
-    value,
-    label: CLIENT_TYPE_LABELS[value] || value
-  }));
-  return all;
-});
-
 const canSeeClientFullName = computed(() => {
   // Backoffice roles only see full name. School staff and other portal roles stay on initials/code.
   return ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value);
@@ -4223,27 +4188,9 @@ const statusPillClass = computed(() => {
   return 'cdp-pill--neutral';
 });
 const canEditClientType = computed(
-  () => hasAgencyAccess.value && ['super_admin', 'admin', 'support'].includes(roleNorm.value)
+  () => (isSuperAdmin.value || myAgencies.value.some(a => Number(a.id) === Number(props.client?.agency_id))) && ['super_admin', 'admin', 'support'].includes(roleNorm.value)
 );
-const clientTypeDraft = ref('basic_nonclinical');
-const savingClientType = ref(false);
-const adminDetailsEl = ref(null);
-const clientTypeSelectEl = ref(null);
-
-const openAdminSettings = async () => {
-  const el = adminDetailsEl.value;
-  if (el) el.open = true;
-  await nextTick();
-  clientTypeSelectEl.value?.focus();
-};
-
-const isSchoolClientByPrimaryOrg = computed(() => isSchoolLikeOrgType(props.client?.organization_type));
-
-const clientHasSchoolLikeOrgAffiliation = computed(() =>
-  (affiliations.value || []).some((a) => isSchoolLikeOrgType(a?.organization_type))
-);
-
-const clientQualifiesForSchoolRoiTab = computed(() => isSchoolClientType.value || String(props.client?.organization_type || '').toLowerCase() === 'school' || (!hasExplicitClientType.value && clientHasSchoolLikeOrgAffiliation.value));
+const clientQualifiesForSchoolRoiTab = computed(() => showSchoolGlance.value);
 
 const canManageSchoolRoi = computed(
   () => isBackofficeRole.value && hasAgencyAccess.value && clientQualifiesForSchoolRoiTab.value
@@ -4259,7 +4206,7 @@ const schoolRoiStatusLabel = computed(() => {
 
 const canSupportClientAccount = computed(() => canAccessClientAccountSupport(authStore.user, clientAgencyId.value, myAgencies.value));
 const canViewClientBillingImport = computed(() => {
-  if (!isClinicalLikeClientType.value) return false;
+  if (!showClinicalChartSurfaces.value) return false;
   return canAccessMedicalBilling(authStore.user, clientAgencyId.value);
 });
 
@@ -4270,7 +4217,7 @@ const canViewMissingClaimFlag = computed(() => {
 });
 
 const canViewMedicalRecord = computed(() => {
-  if (!isClinicalLikeClientType.value) return false;
+  if (!showClinicalChartSurfaces.value) return false;
   return [
     'super_admin',
     'admin',
@@ -4377,7 +4324,7 @@ const overviewGlanceItems = computed(() => {
     if (props.client?.school_year) items.push({ label: 'School year', value: String(props.client.school_year) });
   }
   items.push({ label: 'Primary clinician', value: primaryProviderLabel.value, assignable: canManageServiceEnrollments.value && !showSchoolGlance.value });
-  items.push({ label: 'Program', value: clientTypeLabel.value });
+  if (overviewProgramLabel.value) items.push({ label: 'Program', value: overviewProgramLabel.value });
   items.push({ label: 'Insurance', value: primaryInsuranceLabel.value || 'Not on file' });
   items.push({ label: 'Status', value: isClientArchived.value ? 'Archived' : displayStatusLabel.value });
   return items;
@@ -4560,7 +4507,7 @@ function onAgencyServicesLoaded(agencyId, payload) {
 }
 async function onAgencyServicesUpdated(agencyId, payload) {
   onAgencyServicesLoaded(agencyId, payload);
-  await onServiceEnrollmentUpdated();
+  await Promise.all([onServiceEnrollmentUpdated(),loadChartTypes()]);
 }
 const followUpTask = ref(null);
 const profileQuickActions = computed(() => [...clientProfileActions({
@@ -4570,12 +4517,13 @@ const profileQuickActions = computed(() => [...clientProfileActions({
   canDocuments: roleNorm.value !== 'support',
   canPortalDocuments: ['support','admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(roleNorm.value),
   canRequestUpdates: canEditAccount.value && ['super_admin', 'admin', 'support'].includes(roleNorm.value),
-  canSecureMessage: canOpenClientSecureMessage.value,
+  canSecureMessage: canOpenClientSecureMessage.value, canEmail: canOpenClientSecureMessage.value, needsEmail: !props.client.email && canEditClientEmail.value,
   canUpload: canEditPaperwork.value && (paperProcessingAvailable.value || roleNorm.value !== 'support'),
   canProcessPaper: paperProcessingAvailable.value
 }), { id: 'follow-up', label: 'Follow-up task', icon: 'calendar' }]);
 function onProfileQuickAction(action) {
   if (action.id === 'follow-up') { followUpTask.value?.open(props.client); return; }
+  if (action.id === 'email-client') return openClientEmail();
   if (action.id === 'secure-message') return openClientSecureMessage();
   if (action.id === 'upload') return openDocumentUpload();
   if (action.id === 'process-paper') return openClientActions('process');
@@ -4754,6 +4702,7 @@ const refreshOverviewProviders = async () => {
 };
 
 const onSchoolAssignmentUpdated = async ({ clientId, providers: providerList } = {}) => {
+  void loadChartTypes();
   showAssignDayModal.value = false;
   const list = Array.isArray(providerList) ? providerList : [];
   const pairs = list
@@ -5084,7 +5033,7 @@ const addAffiliationForTenant = async (agencyId, bucket) => {
     });
     setTenantAddDraft(agencyId, bucket, '');
     setTenantAddMakePrimary(agencyId, bucket, false);
-    await fetchClientAffiliations();
+    await Promise.all([fetchClientAffiliations(), loadChartTypes()]);
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to save affiliation';
   } finally {
@@ -5252,31 +5201,6 @@ const refreshClient = async () => {
     emit('updated', { keepOpen: true, client: r.data || null });
   } catch {
     // ignore
-  }
-};
-
-const saveClientType = async () => {
-  if (!canEditClientType.value || !props.client?.id) return;
-  const nextType = normalizeClientType(clientTypeDraft.value);
-  if (!nextType || nextType === effectiveClientType.value) return;
-  try {
-    savingClientType.value = true;
-    const payload = {
-      client_type: nextType,
-      reason: `${roleNorm.value === 'support' ? 'Support' : isSuperAdmin.value ? 'Super admin' : 'Admin'} changed client type to ${nextType}`
-    };
-    await api.post(`/clients/${props.client.id}/client-type`, payload);
-    const refreshed = await api.get(`/clients/${props.client.id}`);
-    emit('updated', { keepOpen: true, client: refreshed.data || null });
-    if (['clinical', 'learning'].includes(nextType)) {
-      activeTab.value = 'clinical';
-      await fetchBillingDiagnoses();
-    }
-  } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to update client type');
-    clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
-  } finally {
-    savingClientType.value = false;
   }
 };
 
@@ -5704,7 +5628,7 @@ const fetchHistory = async () => {
   }
 };
 
-const fetchGuardians = () => guardianContactLoader.load();
+const fetchGuardians = () => Promise.all([guardianContactLoader.load(), loadChartTypes()]);
 
 const openAddGuardian = () => {
   lastInviteLink.value = '';
@@ -6034,7 +5958,7 @@ const addAffiliation = async () => {
     await api.post(`/clients/${props.client.id}/affiliations`, { organization_id: orgId, is_primary: addAffiliationMakePrimary.value });
     addAffiliationOrgId.value = '';
     addAffiliationMakePrimary.value = false;
-    await fetchClientAffiliations();
+    await Promise.all([fetchClientAffiliations(), loadChartTypes()]);
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to save affiliation';
   } finally {
@@ -6050,7 +5974,7 @@ const setPrimaryAffiliation = async (orgId) => {
     savingAffiliation.value = true;
     assignmentsError.value = '';
     await api.post(`/clients/${props.client.id}/affiliations`, { organization_id: id, is_primary: true });
-    await fetchClientAffiliations();
+    await Promise.all([fetchClientAffiliations(), loadChartTypes()]);
     emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to set primary';
@@ -6069,7 +5993,7 @@ const removeAffiliation = async (orgId) => {
     assignmentsError.value = '';
     await api.delete(`/clients/${props.client.id}/affiliations/${id}`);
     if (String(selectedAssignmentOrgId.value) === String(id)) selectedAssignmentOrgId.value = '';
-    await fetchClientAffiliations();
+    await Promise.all([fetchClientAffiliations(), loadChartTypes()]);
     emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove affiliation';
@@ -6744,7 +6668,6 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
     editingStatus.value = false;
     editingOverview.value = false;
     clientCodeDraft.value = '';
-    clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
   }
   syncOpenClientForm();
   await Promise.all([
@@ -7228,7 +7151,7 @@ onMounted(async () => {
     await fetchGuardians();
   } else if (activeTab.value === 'assignments') {
     await fetchAvailableAffiliations();
-    await fetchClientAffiliations();
+    await Promise.all([fetchClientAffiliations(), loadChartTypes()]);
     await fetchProviderOptions();
     await reloadProviderAssignments();
     await fetchEventAssignments();

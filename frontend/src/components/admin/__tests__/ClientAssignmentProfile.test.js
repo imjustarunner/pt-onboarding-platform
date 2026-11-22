@@ -34,7 +34,7 @@ it('intersects school roster candidates with the client agency provider catalog'
 
 it('does not present an ordinary counseling agency as a program enrollment',async()=>{
  wrapper=shallowMount(ClientDetailPanel,{props:{client:{id:7,agency_id:2,client_type:'clinical',organization_id:8,organization_name:'Counseling and Therapy',organization_type:'clinical'},agencyId:2},global:{plugins:[createPinia()],stubs:{ClientChartShell:{template:'<div><slot name="header" /></div>'}}}});await flushPromises();
- expect(wrapper.find('.cdp-pill--type').exists()).toBe(false);expect(wrapper.findAll('.cdp-pill').filter(pill=>pill.text().includes('Counseling and Therapy'))).toHaveLength(0);expect(wrapper.text()).not.toContain('Clinical program');expect(wrapper.vm.overviewProgramLabel).toBe('');
+ expect(wrapper.vm.clientTypeLabel).toBe('Clinical');expect(wrapper.findAll('.cdp-pill').filter(pill=>pill.text().includes('Counseling and Therapy'))).toHaveLength(0);expect(wrapper.text()).not.toContain('Clinical program');expect(wrapper.vm.overviewProgramLabel).toBe('');
 });
 it('retains every assigned counselor in the overview care team',async()=>{
  await render();get.mockImplementation(async url=>({data:url==='/clients/7/service-enrollments'?{services:[{id:11,is_active:1,service_kind:'counseling',provider_user_id:20,providers:[{service_id:11,provider_user_id:20,provider_name:'First Counselor'},{service_id:12,provider_user_id:21,provider_name:'Second Counselor'}]}]}:[]}));await wrapper.vm.refreshOverviewProviders();expect(wrapper.vm.overviewProviders.map(provider=>provider.provider_user_id).sort()).toEqual([20,21]);

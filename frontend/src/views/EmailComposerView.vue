@@ -82,7 +82,7 @@ async function loadFilingChoices(){
  if(qv || !record.value?.agency_id || record.value.mode!=='new' || record.value.draft?._schoolContact)return;
  const generation=++filingGeneration;
  try{const {data}=await request('get',`/client-filing-options?${new URLSearchParams({agencyId:record.value.agency_id,to:draft.value.to,cc:draft.value.cc,bcc:draft.value.bcc})}`);
- if(generation===filingGeneration){filingChoices.value=data.clients||[];draft.value.clientIds=(draft.value.clientIds||[]).filter(id=>filingChoices.value.some(c=>c.id===id));}}
+ if(generation===filingGeneration)filingChoices.value=data.clients||[];}
  catch{/* send validates recipient access and required filing again */}
 }
 async function deferFiling(){draft.value.deferClientFiling=true;draft.value.clientIds=[];await send({confirmMissingAttachment:true});}

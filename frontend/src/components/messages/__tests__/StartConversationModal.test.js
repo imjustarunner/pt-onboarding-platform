@@ -26,7 +26,7 @@ describe('new email recipient directory', () => {
     api.get.mockResolvedValue({data:{sections:{clients:[{personKey:'client:1@2',displayName:'Client',kinds:['client']}]}}});
     wrapper=mount(Modal,{props:{agencyId:2,channel:'email'}}); await flushPromises();
     expect(wrapper.find('.scm-person').element.disabled).toBe(true);
-    expect(wrapper.find('.scm-person').attributes('title')).toContain('select a guardian');
+    expect(wrapper.find('.scm-person').attributes('title')).toContain('No email on file');
   });
   it('prefills a new address, searches accessible clients on the server, and saves the selected association', async () => {
     vi.useFakeTimers();
@@ -82,4 +82,22 @@ it('creates a named group direct message from multiple internal staff, with no c
  expect(api.post).toHaveBeenCalledWith('/chat/threads/group',{agencyId:2,userIds:[10,11],name:'Anniversary planning'},{skipGlobalLoading:true});
  expect(api.post.mock.calls.some(([url])=>url.includes('/channel'))).toBe(false);
  expect(wrapper.emitted('open-group')[0][0]).toMatchObject({kinds:['group'],groupId:42,displayName:'Anniversary planning'});
+});
+
+it('searches Clients beyond the initial page and lets authorized staff add the client address in place',async()=>{
+  vi.useFakeTimers();
+  const client={personKey:'client:37@2',clientId:37,agencyId:2,kinds:['client'],displayName:'Jordan Example',email:null,canEditClientEmail:true};
+  api.get.mockImplementation(async(url,config)=>({data:url.endsWith('/people') ? {results:config.params.q==='Jordan'?[client]:[]} : {sections:{}}}));
+  wrapper=mount(Modal,{props:{agencyId:2,channel:'email'}});
+  await flushPromises();
+  await wrapper.findAll('button').find(b=>b.text()==='Clients').trigger('click');
+  await wrapper.get('.scm-search').setValue('Jordan');
+  await vi.advanceTimersByTimeAsync(220);await flushPromises();
+  const result=wrapper.get('.scm-person');
+  expect(result.text()).toContain('Add client email');
+  await result.trigger('click');
+  const editor=wrapper.findComponent({name:'ClientContactEmail'});
+  expect(editor.props()).toMatchObject({clientId:37,agencyId:2,startEditing:true});
+  editor.vm.$emit('saved',{clientId:37,agencyId:2,email:'jordan@example.test'});
+  expect(wrapper.emitted('pick')[0][0]).toMatchObject({personKey:'client:37@2',email:'jordan@example.test',composeChannel:'email'});
 });

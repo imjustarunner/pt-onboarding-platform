@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { activeChartOrganizationJoin, organizationChartType } from './clientChartOrganizations.js';
 import { appointmentServiceKind } from '../utils/guardianCancellationScope.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409, code: 'CLIENT_SERVICE_CONTEXT_MISMATCH' });
@@ -74,5 +75,24 @@ export async function attachRosterServiceContexts(clients, { agencyIds, provider
     AND (c.agency_id=e.agency_id OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=e.agency_id AND ca.is_active=1))
     ${providerId ? 'AND (e.provider_user_id=? OR e.provider_user_id=0)' : ''}`,
   [...ids, ...agencyIds, ...(providerId ? [providerId] : [])]);
-  return clients.map(client => ({ ...client, service_contexts: services.filter(row => Number(row.client_id) === Number(client.id)) }));
+  // Only expose manual roster categories on the already-authorized owning chart.
+  // Linked charts can have different selections for the same person.
+  const [settings] = await db.execute(`SELECT c.id AS client_id,s.selected_types,o.organization_type
+    FROM clients c LEFT JOIN client_chart_type_selections s ON c.id=s.client_id AND c.agency_id=s.agency_id
+    ${activeChartOrganizationJoin('c.agency_id')}
+    WHERE c.id IN (${ids.map(() => '?').join(',')}) AND c.agency_id IN (${agencyIds.map(() => '?').join(',')})`, [...ids,...agencyIds]);
+  const selections = new Map(), organizationTypes = new Map();
+  for (const row of settings) {
+    const id = Number(row.client_id);
+    const saved = typeof row.selected_types === 'string' ? JSON.parse(row.selected_types) : row.selected_types;
+    if (saved) selections.set(id, saved.types);
+    if (!organizationTypes.has(id)) organizationTypes.set(id, new Set());
+    const type = organizationChartType(row.organization_type);
+    if (type) organizationTypes.get(id).add(type);
+  }
+  return clients.map(client => ({
+    ...client, roster_selected_types: selections.get(Number(client.id)) ?? null,
+    roster_organization_types: organizationTypes.has(Number(client.id)) ? [...organizationTypes.get(Number(client.id))] : null,
+    service_contexts: services.filter(row => Number(row.client_id) === Number(client.id))
+  }));
 }
