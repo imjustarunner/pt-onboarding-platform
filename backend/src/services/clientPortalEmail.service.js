@@ -10,13 +10,13 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 export async function clientEmailContext({ agencyId, clientId, client = null, learning, clinical } = {}) {
   client ||= clientId ? await Client.findById(clientId) : null;
   if (client && Number(client.agency_id) !== Number(agencyId)) throw new Error('Email client does not belong to this agency.');
-  const context = client ? await resolveClientPortalContext(client) : { tenant:await Agency.findById(agencyId), learning:learning === true, clinical:clinical === true };
+  const context = client ? await resolveClientPortalContext(client,{agencyId:Number(agencyId)}) : { tenant:await Agency.findById(agencyId), learning:learning === true, clinical:clinical === true };
   if (!context.tenant) throw new Error('Email agency unavailable.');
   const domain = await inferAgencyMailDomain(agencyId);
   if (!domain) throw new Error('Configure the agency support email domain.');
   // Explicit context is used for product-native EHR records and reviewed previews.
-  const isLearning = learning ?? context.learning;
-  const isClinical = !isLearning && (clinical ?? (client?.client_type ? context.clinical : enrollmentMailBrand({agency:context.tenant,domain}).clinical));
+  const isLearning = client && context.clinical ? false : learning ?? context.learning;
+  const isClinical = !!(client && context.clinical) || (!isLearning && (clinical ?? (client ? context.clinical : enrollmentMailBrand({agency:context.tenant,domain}).clinical)));
   const portal = context.portal || {...context.tenant, clinical_portal:isClinical};
   const brand = enrollmentMailBrand({agency:context.tenant,domain,school:client?.client_type === 'school',channel:isLearning?'tutoring':null,clinicalOverride:isClinical});
   return {...context,client,portal:{...portal,clinical_portal:isClinical},learning:!!isLearning,clinical:!!isClinical,brand,domain,

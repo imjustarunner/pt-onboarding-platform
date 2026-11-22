@@ -1,3 +1,4 @@
+import { requireAssignmentService } from './providerServiceOfferings.service.js';
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { requireClinicalScope } from './guardianClinicalAccess.service.js';
@@ -88,7 +89,10 @@ async function saveClientServiceRow({clientId,agencyId,input,userId},db){
  if(!SERVICE_KINDS.includes(serviceKind))throw fail(400,'Choose a service.');
  const providerId=input.providerUserId==null||input.providerUserId===''?0:Number(input.providerUserId),organizationId=input.organizationId==null||input.organizationId===''?0:Number(input.organizationId);
  if(!Number.isSafeInteger(providerId)||providerId<0||!Number.isSafeInteger(organizationId)||organizationId<0)throw fail(400,'Choose a valid provider and program.');
- if(providerId)await assertAssignableProvider({clientId,providerUserId:providerId,agencyId},db);
+ if(providerId){
+  await assertAssignableProvider({clientId,providerUserId:providerId,agencyId},db);
+  await requireAssignmentService(agencyId,providerId,serviceKind,db);
+ }
  if(organizationId&&organizationId!==Number(agencyId)){const [[org]]=await db.execute(`SELECT 1 FROM client_organization_assignments co JOIN organization_affiliations oa ON oa.organization_id=co.organization_id WHERE co.client_id=? AND co.organization_id=? AND co.is_active=1 AND oa.agency_id=? AND oa.is_active=1`,[clientId,organizationId,agencyId]);if(!org)throw fail(400,'Choose a linked school or program for this agency.');}
  const label=serviceKind==='counseling'?'Counseling':String(input.label||serviceKind).trim().slice(0,150);if(!label)throw fail(400,'Enter a service name.');
  const serviceId=input.serviceId == null ? null : Number(input.serviceId);

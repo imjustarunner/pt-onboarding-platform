@@ -217,6 +217,11 @@
         </div>
       </div>
 
+      <div v-else-if="step === 'client-email' && emailClient" class="scm-body">
+        <h4>{{ emailClient.displayName }}</h4>
+        <ClientContactEmail :key="emailClient.personKey" :client-id="Number(emailClient.clientId)" :agency-id="Number(emailClient.agencyId)"
+          :email="emailClient.email || ''" :editable="emailClient.canEditClientEmail" start-editing @cancel="emitClose" @saved="emailSaved" />
+      </div>
       <div v-else-if="step === 'create-group'" class="scm-body">
         <button type="button" class="scm-back" @click="step = 'browse'">← Back</button>
         <h4 class="scm-ext-title">Create a channel</h4>
@@ -364,7 +369,7 @@
           {{ creatingGroup ? 'Creating…' : 'Create channel' }}
         </button>
         <button
-          v-else
+          v-else-if="step === 'browse'"
           type="button"
           class="btn btn-primary"
           :disabled="!pendingPick"
@@ -379,12 +384,16 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import ClientContactEmail from '../clients/ClientContactEmail.vue';
+import {isClientRecipient} from '../../utils/clientEmailComposer';
 import api from '../../services/messagingApi';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   channel: { type: String, default: 'all' },
   initialEmail: { type: String, default: '' },
+  initialClient: Object,
+  allClientAgencies: Boolean,
   contactOnly: Boolean
 });
 
@@ -400,7 +409,8 @@ const externalHint = ref(null);
 const searching = ref(false);
 const activeChip = ref(props.channel === 'group' ? 'groups' : 'all');
 const pendingPick = ref(null);
-const step = ref('browse'); // browse | external | create-group
+const emailClient = ref(props.initialClient || null);
+const step = ref(emailClient.value ? 'client-email' : 'browse'); // browse | external | create-group
 const clientOptions = ref([]), clientQuery = ref(''), selectedClient = ref(null), clientLoading = ref(false), clientError = ref('');
 const directoryError = ref('');
 let clientTimer = null, clientRequest = 0, directoryRequest = 0;
@@ -538,7 +548,8 @@ function initials(name) {
 }
 
 function meta(p) {
-  return [p.relationshipMeta, p.title, p.agencyName].filter(Boolean).join(' · ') || '';
+  const emailHint = isClientRecipient(p) && !p.email ? (canAddEmail(p) && props.channel === 'email' ? 'Add client email' : 'No client email on file') : '';
+  return [emailHint, p.relationshipMeta, p.title, p.agencyName].filter(Boolean).join(' · ') || '';
 }
 
 function emitClose() {
@@ -550,14 +561,23 @@ function setChip(id) {
   pendingPick.value = null;
 }
 
+function canAddEmail(p) {
+  return props.channel === 'email' && isClientRecipient(p) && p.canEditClientEmail && !p.email;
+}
+function emailSaved({clientId,agencyId,email}) {
+  if (!email || Number(emailClient.value?.clientId) !== clientId || Number(emailClient.value?.agencyId) !== agencyId) return;
+  emit('pick', {...emailClient.value,email,composeChannel:'email'}); emitClose();
+}
 function canPick(p) {
+  if (canAddEmail(p)) return true;
   if (props.channel === 'email') return !!p.email;
   if (['internal','secure','sms'].includes(props.channel)) return (p.methods || []).some(m => m.id === props.channel && m.available);
   return true;
 }
-function unavailableHint(p) { return props.channel === 'email' ? 'No email on file — select a guardian or another contact' : 'This channel is not available for this person'; }
+function unavailableHint(p) { return props.channel === 'email' ? 'No email on file' : 'This channel is not available for this person'; }
 function pick(p) {
   if (!canPick(p)) return;
+  if (canAddEmail(p) && props.channel === 'email') {emailClient.value=p; step.value='client-email'; return;}
   pendingPick.value = p;
   if ((p.kinds || []).includes('group')) {
     emit('open-group', p);
@@ -670,6 +690,13 @@ async function loadDirectory() {
   const request = ++directoryRequest;
   loading.value = true; directoryError.value = '';
   try {
+    if (activeChip.value === 'clients') {
+      const {data} = await api.get('/messages/hub/people',{params:{agencyId:props.agencyId,allAgencies:props.allClientAgencies,browse:'caseload',q:query.value.trim() || undefined,limit:60},skipGlobalLoading:true});
+      if (request !== directoryRequest) return;
+      sections.value = {...sections.value,clients:(data.results || []).filter(isClient)};
+      searching.value = !!query.value.trim();
+      return;
+    }
     const { data } = await api.get('/messages/hub/start-directory', {
       params: {
         agencyId: props.agencyId,
@@ -683,7 +710,7 @@ async function loadDirectory() {
     sections.value = data?.sections || {};
     externalHint.value = data?.externalHint || null;
     searching.value = !!data?.searching;
-    if (searching.value) activeChip.value = 'all';
+    if (searching.value && activeChip.value !== 'clients') activeChip.value = 'all';
   } catch {
     if (request !== directoryRequest) return;
     directoryError.value = 'Could not load people. Try again, or add a new contact.';
@@ -862,6 +889,7 @@ async function createAndContinue() {
 }
 
 watch(activeChip, async (id) => {
+  if (id === 'clients' && query.value.trim()) { await loadDirectory(); return; }
   if (id === 'all' || searching.value) { ++directoryRequest; loading.value = false; return; }
   if (!props.agencyId) return;
   const request = ++directoryRequest;
@@ -886,7 +914,7 @@ watch(activeChip, async (id) => {
       const pred = kindPred(id);
       const [{ data: browseData }, { data: recentData }] = await Promise.all([
         api.get('/messages/hub/people', {
-          params: { agencyId: props.agencyId, browse, limit: 60, allAgencies: false },
+          params: { agencyId: props.agencyId, browse, limit: 60, allAgencies: id === 'clients' && props.allClientAgencies },
           skipGlobalLoading: true
         }),
         api.get('/messages/hub/people', {
@@ -912,6 +940,7 @@ watch(activeChip, async (id) => {
 
 onUnmounted(() => { ++groupDirectRequest; clearTimeout(searchTimer); clearTimeout(clientTimer); ++directoryRequest; ++clientRequest; });
 onMounted(async () => {
+  if (props.initialClient) return;
   if (props.contactOnly) { openExternal('email'); return; }
   await Promise.all([loadDirectory(), ...(props.channel === 'email' ? [] : [loadSmartGroups()])]);
   await nextTick();

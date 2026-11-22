@@ -630,6 +630,13 @@
                   </select>
                 </div>
                 <div class="form-group">
+                  <label class="sb-ce-lbl">Available to
+                    <select v-model="draft.registrationAudience" class="input" :disabled="draft.medicaidEligible">
+                      <option value="any">Any client</option><option value="clinical">Clinical clients</option><option value="learning">Learning clients</option>
+                    </select>
+                  </label><span v-if="draft.medicaidEligible">Medicaid requires Clinical services.</span>
+                </div>
+                <div class="form-group">
                   <label class="sb-ce-lbl">Public registration status</label>
                   <select v-model="draft.publicRegistrationStatus" class="input">
                     <option value="open">Open</option>
@@ -1634,6 +1641,7 @@ function emptyDraft() {
     organizerProvidingRaw: '',
     potluckEnabled: false,
     skillBuilderDirectHours: null,
+    registrationAudience: 'any',
     registrationEligible: false,
     publicRegistrationStatus: 'open',
     publicRegistrationStatusLabel: '',
@@ -1972,6 +1980,7 @@ function populateFromEvent(event) {
       event.skillBuilderDirectHours != null && event.skillBuilderDirectHours !== ''
         ? Number(event.skillBuilderDirectHours)
         : null,
+    registrationAudience: event.registrationAudience || 'any',
     registrationEligible: !!event.registrationEligible,
     publicRegistrationStatus: String(event.publicRegistrationStatus || 'open').trim().toLowerCase(),
     publicRegistrationStatusLabel: String(event.publicRegistrationStatusLabel || '').trim(),
@@ -2807,6 +2816,7 @@ function validateAndBuildPersistPayload() {
       draft.value.organizationId && Number(draft.value.organizationId) > 0
         ? Number(draft.value.organizationId)
         : null,
+    registrationAudience: draft.value.medicaidEligible ? 'clinical' : draft.value.registrationAudience,
     registrationEligible: !!draft.value.registrationEligible,
     publicRegistrationStatus: String(draft.value.publicRegistrationStatus || 'open').trim().toLowerCase(),
     publicRegistrationStatusLabel: String(draft.value.publicRegistrationStatusLabel || '').trim().slice(0, 120) || null,

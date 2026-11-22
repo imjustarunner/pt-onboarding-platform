@@ -3,7 +3,7 @@ import { shallowMount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import ClientDetailPanel from '../ClientDetailPanel.vue';
 vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {}, getDocument: vi.fn() }));
-const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: { ...api, defaults: { baseURL: '/api' } } }));
 vi.mock('vue-router', () => ({ onBeforeRouteLeave: vi.fn(), useRoute: () => ({ params: {}, query: {}, path: '/admin/clients' }), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), hasRoute: () => false }) }));
 let wrapper;
@@ -27,13 +27,17 @@ async function render({ role = 'admin', client = {}, ...props } = {}) {
   await flushPromises();
   return wrapper;
 }
-it.each(['admin', 'support'])('lets %s select School from a Clinical chart and saves the actual role in the reason', async role => {
-  await render({ role });
-  expect(wrapper.vm.canEditClientType).toBe(true);
-  expect(wrapper.vm.clientTypeOptions.map(option => option.value)).toEqual(['basic_nonclinical', 'school', 'learning', 'clinical']);
-  await wrapper.get('.cdp-inline-select').setValue('school');
-  await wrapper.vm.saveClientType();
-  expect(api.post).toHaveBeenCalledWith('/clients/7/client-type', { client_type: 'school', reason: `${role === 'support' ? 'Support' : 'Admin'} changed client type to school` });
+it.each(['admin', 'support'])('lets %s combine clinical and school types in the chart agency', async role => {
+  const profile = {types:['clinical'],selected:['clinical'],evidence:{},schools:[],historicalTypes:[],suppressMinorDefault:false,revision:1};
+  api.get.mockImplementation(async url => ({data:url.endsWith('/chart-types') ? profile : []}));
+  api.put.mockResolvedValue({data:{...profile,types:['clinical','school'],revision:2}});
+  await render({role});
+  const editor = wrapper.findComponent({name:'ClientTypeEditor'});
+  expect(editor.props()).toMatchObject({canEdit:true,label:'Clinical'});
+  editor.vm.$emit('save',{types:['clinical','school'],suppressMinorDefault:false,revision:1});
+  await flushPromises();
+  expect(api.put).toHaveBeenCalledWith('/clients/7/chart-types',{types:['clinical','school'],suppressMinorDefault:false,revision:1},expect.objectContaining({params:{agencyId:2}}));
+  expect(editor.props('label')).toBe('Clinical · School');
 });
 it('keeps type controls unavailable outside the agency and for providers', async () => {
   await render();

@@ -165,6 +165,8 @@ import {
 
 import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
 import { updateClientGuardianContact } from '../controllers/clientGuardianContact.controller.js';
+import { putClientContactEmail } from '../controllers/clientContactEmail.controller.js';
+import { getClientPrograms, getClientChartTypes, putClientChartTypes } from '../controllers/clientChartTypes.controller.js';
 const router = express.Router();
 
 // All client routes require authentication (controllers assume req.user is present)
@@ -214,10 +216,14 @@ router.post('/', createClient);
 
 // Update client
 router.put('/:id', updateClient);
+router.put('/:id/contact-email', requireActiveStatus, putClientContactEmail);
 router.put('/:id/guardian-contact', updateClientGuardianContact);
 
 // Graduate client type (school -> learning -> clinical)
 router.post('/:id/client-type', graduateClientType);
+router.get('/:id/program-participation', requireActiveStatus, getClientPrograms);
+router.get('/:id/chart-types', requireActiveStatus, getClientChartTypes);
+router.put('/:id/chart-types', requireActiveStatus, putClientChartTypes);
 
 // Unarchive client (admin/staff/support/super_admin)
 router.post('/:id/unarchive', unarchiveClient);

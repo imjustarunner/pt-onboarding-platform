@@ -5,7 +5,7 @@ vi.mock('../../../services/api',()=>({default:mocks}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{role:'support'}})}));
 import Services from '../ClientServiceEnrollments.vue';
 const service={id:11,service_kind:'counseling',label:'Counseling',organization_id:8,organization_name:'Therapy program',provider_user_id:0,is_active:1};
-const provider={id:20,name:'Sam Provider',agencies:[{id:2,name:'Client agency'}]};
+const provider={id:20,name:'Sam Provider',assignmentServicesByAgency:{2:['counseling','tutoring']},agencies:[{id:2,name:'Client agency'}]};
 let wrapper;
 beforeEach(()=>{
  vi.clearAllMocks();mocks.get.mockImplementation(async url=>url==='/office-clients/providers'?{data:{providers:[provider,{id:99,name:'Unrelated',agencies:[{id:4,name:'Other agency'}]}]}}:{data:{services:[service]}});
@@ -14,7 +14,7 @@ beforeEach(()=>{
 afterEach(()=>wrapper?.unmount());
 async function render(){wrapper=mount(Services,{props:{clientId:7,agencyId:2,organizations:[]}});await flushPromises();return wrapper;}
 it('uses only scoped provider options and updates the existing service by id',async()=>{
- await render();expect(mocks.get).toHaveBeenCalledWith('/office-clients/providers',expect.objectContaining({params:{clientId:7,agencyIds:'2'}}));
+ await render();expect(mocks.get).toHaveBeenCalledWith('/office-clients/providers',expect.objectContaining({params:{clientId:7,agencyIds:'2',serviceAssignments:'1'}}));
  expect(wrapper.text()).toContain('Needs a provider');
  await wrapper.findAll('button').find(b=>b.text()==='Assign provider').trigger('click');
  const input=wrapper.get('#service-provider-11');await input.trigger('focus');

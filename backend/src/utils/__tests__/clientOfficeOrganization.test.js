@@ -1,9 +1,10 @@
 import {expect,it} from 'vitest';
 import {isOfficeRootOrganization,supportsAgencyOfficeClients} from '../clientOfficeOrganization.js';
-it('accepts only an explicit clinical chart at its own root agency',()=>{
+it('accepts explicit clinical and learning charts at its own root agency',()=>{
  const input={agencyId:2,organizationId:2,organizationType:'agency',clientType:'clinical'};
  expect(isOfficeRootOrganization(input)).toBe(true);
- for(const change of [{organizationId:3},{agencyId:0},{organizationType:'school'},{clientType:'school'},{clientType:'learning'},{clientType:''}])expect(isOfficeRootOrganization({...input,...change})).toBe(false);
+ expect(isOfficeRootOrganization({...input,clientType:'learning'})).toBe(true);
+ for(const change of [{organizationId:3},{agencyId:0},{organizationType:'school'},{clientType:'school'},{clientType:''}])expect(isOfficeRootOrganization({...input,...change})).toBe(false);
 });
 
 it('permits healthcare agency office clients without a child organization while preserving employee and non-agency boundaries',()=>{

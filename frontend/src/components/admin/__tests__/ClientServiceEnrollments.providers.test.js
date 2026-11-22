@@ -12,7 +12,7 @@ beforeEach(() => {
   post.mockReset(); remove.mockReset();patch.mockReset();
   vi.stubGlobal('confirm', () => true);
   get.mockReset().mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [],availableServiceKinds:['counseling','tutoring'] } : {providers:[
-    { id: 1433, name: 'Avery QA', agencyIds:[450] }
+    { id: 1433, name: 'Avery QA', assignmentServicesByAgency:{450:['counseling','tutoring']}, agencyIds:[450] }
   ]} }));
 });
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
@@ -20,7 +20,7 @@ afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
 it('uses the authorized limited provider projection for Support instead of an admin user directory', async () => {
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
-  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450' },skipGlobalLoading:true });
+  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450',serviceAssignments:'1' },skipGlobalLoading:true });
   expect(get.mock.calls.some(([url]) => url === '/users')).toBe(false);
   await wrapper.findComponent(ProviderSearchSelect).get('input').trigger('focus');
   expect(wrapper.get('[role=option]').text()).toContain('Avery QA');
@@ -29,12 +29,12 @@ it('uses the authorized limited provider projection for Support instead of an ad
 it('preserves the normal authorized admin provider choices', async () => {
   actor.user.role = 'admin';
   get.mockImplementation(async url => ({ data: url.includes('service-enrollments') ? { services: [],availableServiceKinds:['counseling','tutoring'] } : {providers:[
-    { id: 10, name: 'Admin Provider', agencyIds:[450] },
-    { id: 11, name: 'Other Agency Provider', agencyIds:[999] }
+    { id: 10, name: 'Admin Provider', assignmentServicesByAgency:{450:['counseling','tutoring']}, agencyIds:[450] },
+    { id: 11, name: 'Other Agency Provider', assignmentServicesByAgency:{999:['counseling','tutoring']}, agencyIds:[999] }
   ]} }));
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
-  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450' },skipGlobalLoading:true });
+  expect(get).toHaveBeenCalledWith('/office-clients/providers', { params: { clientId:2434,agencyIds:'450',serviceAssignments:'1' },skipGlobalLoading:true });
   expect(wrapper.findComponent(ProviderSearchSelect).props('options').map(provider=>provider.id)).toEqual([10]);
   expect(get.mock.calls.some(([url])=>url==='/users')).toBe(false);
 });
@@ -44,12 +44,12 @@ it('ignores a delayed provider response belonging to the prior child and agency'
   get.mockImplementation(async (url, options) => {
     if (url.includes('service-enrollments')) return { data: { services: [] } };
     if (options.params.agencyIds === '450') return new Promise(resolve => { release = resolve; });
-    return { data: {providers:[{ id: 20, name:'Current Provider', agencyIds:[999] }]} };
+    return { data: {providers:[{ id: 20, name:'Current Provider', assignmentServicesByAgency:{999:['counseling','tutoring']}, agencyIds:[999] }]} };
   });
   wrapper = mount(ClientServiceEnrollments, { props: { clientId: 2434, agencyId: 450 } });
   await flushPromises();
   await wrapper.setProps({ clientId: 3000, agencyId: 999 }); await flushPromises();
-  release({ data: {providers:[{ id: 1433,name:'Old Provider',agencyIds:[450]}]} });
+  release({ data: {providers:[{ id: 1433,name:'Old Provider',assignmentServicesByAgency:{450:['counseling','tutoring']}, agencyIds:[450]}]} });
   await flushPromises();
   expect(wrapper.findComponent(ProviderSearchSelect).props('options').map(provider=>provider.id)).toEqual([20]);
 });

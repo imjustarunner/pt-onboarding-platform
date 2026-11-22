@@ -46,7 +46,12 @@ let hydratingWorkingDraft=true,pendingServiceDraft=null,servicesLoaded=false;
 const blank=()=>({officeId:'',pos:'',serviceLocationId:''});const draft=reactive(blank());const saved=ref(blank());const additions=reactive({school:'',program:'',learning:''}),makePrimary=reactive({school:false,program:false,learning:false});
 const buckets=computed(()=>[{type:'school',label:'Schools',singular:'school'},{type:'program',label:'Programs',singular:'program'},{type:'learning',label:'Learning',singular:'learning organization'}].filter(bucket=>catalog.value.some(row=>row.organization_type===bucket.type)||scopedAffiliations.value.some(row=>row.organization_type===bucket.type)));
 const canReadBilling=computed(()=>canAccessMedicalBilling(auth.user,props.agencyId));
-const isSchool=computed(()=>client.value?.client_type==='school');
+const isSchool=computed(()=>{
+  const type=client.value?.organization_type;
+  if (type) return type === 'school';
+  if (['clinical','learning','basic_nonclinical'].includes(client.value?.client_type)) return false;
+  return rowsFor('school').length > 0 || (!scopedAffiliations.value.length && client.value?.client_type === 'school');
+});
 const providerId=computed(()=>primaryAssignmentProvider(client.value,services.value)||Number(props.initialAssignment.providerId||0));
 const agencyName=computed(()=>memberships.value.find(row=>Number(row.agency_id)===Number(props.agencyId))?.agency_name || client.value?.agency_name || `Agency #${props.agencyId}`);
 const scopedAffiliations=computed(()=>affiliations.value.filter(row=>catalog.value.some(org=>Number(org.id)===Number(row.organization_id))));

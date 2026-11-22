@@ -24,3 +24,15 @@ export function providerServiceSettings(person, agencyId, types, enrollments) {
       onlineScheduling: Boolean(enrollment?.is_active) };
   });
 }
+
+export function canProvideTutoring(eligibility) {
+  return Boolean(eligibility?.canProvideTutoring || eligibility?.canProvideCare);
+}
+
+export function eligibleProviderServices(person, agencyId, types, enrollments, care) {
+  return providerServiceSettings(person, agencyId, types, enrollments).map(service => {
+    const eligible = service.serviceType === 'tutoring' ? canProvideTutoring(care)
+      : care.canProvideCare && (service.serviceType !== 'counseling' || care.credentialTier !== 'unknown');
+    return {...service, offered:eligible && service.offered, onlineScheduling:eligible && service.onlineScheduling};
+  });
+}

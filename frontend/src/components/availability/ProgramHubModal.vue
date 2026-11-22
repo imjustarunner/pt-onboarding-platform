@@ -351,10 +351,11 @@
           <div v-show="activeSection === 'enrollments'" class="pch-panel pch-enrollments">
             <template v-if="mode === 'coordinator'">
               <p class="pch-muted pch-enrollments-lead">
-                Individual service enrollments are <strong>learning classes</strong> (not dated events). After you create
-                one, add a <strong>digital intake link</strong> scoped to that class so families can register; open a row
-                below for the enrollment workspace.
+                Create a class for a single session or a series. Assign its team and enroll participants here.
               </p>
+              <button v-if="canReviewRetirement" type="button" class="btn btn-secondary btn-sm" :disabled="retirementBusy" @click="reviewRetirement">Review legacy program conflicts</button>
+              <p v-if="retirementMessage" role="status">{{ retirementMessage }}</p>
+              <ul v-if="retirementConflicts.length"><li v-for="row in retirementConflicts" :key="row.kind+row.id">{{ row.kind }} #{{ row.id }} · {{ row.reasons.join(', ') }}</li></ul>
               <div v-if="enrollmentsLoading" class="pch-muted">Loading enrollments…</div>
               <div v-else-if="enrollmentsError" class="pch-error">{{ enrollmentsError }}</div>
               <template v-else>
@@ -384,7 +385,13 @@
                   </label>
                   <label class="pch-field pch-checkbox-field">
                     <input v-model="newEnrollment.registrationEligible" type="checkbox" />
-                    <span>Open for registration setup (registration-eligible)</span>
+                    <span>Open for registration</span>
+                  </label>
+                  <label class="pch-field">Available to
+                    <select v-model="newEnrollment.audience"><option value="any">Any client</option><option value="clinical">Clinical clients</option><option value="learning">Learning clients</option></select>
+                  </label>
+                  <label class="pch-field">Registration fee ($)
+                    <input type="number" v-model.number="newEnrollment.fee" min="0" step="0.01" />
                   </label>
                   <div class="pch-form-actions">
                     <button
@@ -577,6 +584,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRouter, useRoute, RouterLink } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
+import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
 import SkillBuildersAvailabilityPanel from './SkillBuildersAvailabilityPanel.vue';
 import SkillBuildersWorkSchedulePanel from './SkillBuildersWorkSchedulePanel.vue';
@@ -630,11 +638,26 @@ const newProgramEvent = ref({
 const coordinatorEnrollmentClasses = ref([]);
 const enrollmentsLoading = ref(false);
 const enrollmentsError = ref('');
+const retirementBusy=ref(false), retirementMessage=ref(''), retirementConflicts=ref([]);
+const authStore=useAuthStore();
+const canReviewRetirement=computed(()=>['staff','admin','super_admin','support'].includes(authStore.user?.role));
+async function reviewRetirement() {
+  const agencyId=coordinatorAgencyId.value;
+  retirementBusy.value=true; retirementMessage.value=''; retirementConflicts.value=[];
+  try {
+    const {data}=await api.get('/availability/admin/program-retirement-review',{params:{agencyId}});
+    if (agencyId!==coordinatorAgencyId.value) return;
+    retirementConflicts.value=data.conflicts;
+    retirementMessage.value=data.conflicts.length?'These records conflict with retirement.':'No legacy program conflicts found.';
+  } catch(e) { retirementMessage.value=e.response?.data?.error?.message || 'Could not load legacy program conflicts.'; }
+  finally { retirementBusy.value=false; }
+}
+
 const createEnrollmentBusy = ref(false);
 const newEnrollment = ref({
   className: '',
   description: '',
-  registrationEligible: true
+  registrationEligible: true, audience: 'any', fee: 0
 });
 const enrolleesLoading = ref(false);
 const enrolleesError = ref('');
@@ -1042,6 +1065,8 @@ function selectPortalTile(t) {
   else openEnrollmentWorkspace(t);
 }
 
+watch(coordinatorAgencyId,()=>{retirementConflicts.value=[];retirementMessage.value='';});
+
 async function loadCoordinatorLearningClassesList() {
   const oid = resolvedCoordinatorOrganizationId.value;
   if (!oid || props.mode !== 'coordinator') {
@@ -1101,13 +1126,15 @@ async function submitNewEnrollment() {
         status: 'active',
         isActive: true,
         registrationEligible: !!newEnrollment.value.registrationEligible,
+        registrationAudience: newEnrollment.value.audience,
+        registrationPriceCents: Math.round(Number(newEnrollment.value.fee) * 100),
         medicaidEligible: false,
-        cashEligible: false,
+        cashEligible: Number(newEnrollment.value.fee) > 0,
         timezone: 'America/New_York'
       },
       { skipGlobalLoading: true }
     );
-    newEnrollment.value = { className: '', description: '', registrationEligible: true };
+    newEnrollment.value = { className: '', description: '', registrationEligible: true, audience: 'any', fee: 0 };
     await loadCoordinatorLearningClassesList();
   } catch (e) {
     enrollmentsError.value = e.response?.data?.error?.message || e.message || 'Failed to create enrollment';

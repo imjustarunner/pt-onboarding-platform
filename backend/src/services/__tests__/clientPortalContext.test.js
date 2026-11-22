@@ -1,3 +1,5 @@
+vi.mock('../clientChartTypes.service.js',()=>({readChartTypes:vi.fn()}));
+import {readChartTypes} from '../clientChartTypes.service.js';
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../../models/OrganizationAffiliation.model.js', () => ({ default: { getActiveAgencyIdForOrganization: vi.fn() } }));
@@ -7,17 +9,17 @@ vi.mock('../contactReminderToken.service.js', () => ({ publicAppBaseUrl: () => '
 import Agency from '../../models/Agency.model.js';
 import Affiliation from '../../models/OrganizationAffiliation.model.js';
 import { resolvePreferredSenderIdentityForAgency } from '../emailSenderIdentityResolver.service.js';
-import { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl, intakeClientPortal, clientPortalAppUrl } from '../clientPortalContext.service.js';
+import { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl, intakeClientPortal, intakePortalForClients, clientPortalAppUrl } from '../clientPortalContext.service.js';
 const tenant = { id: 1, name: 'ITSCO', slug: 'itsco', organization_type: 'agency' };
 const school = { id: 2, name: 'School', slug: 'school', organization_type: 'school' };
 const learning = { id: 3, name: 'Tutoring', slug: 'tutoring', organization_type: 'learning' };
 beforeEach(() => { vi.resetAllMocks(); Agency.findById.mockImplementation(async id => ({ 1: tenant, 2: school, 3: learning })[id]); });
 it('uses the owning tenant portal for school-based care', async () => {
-  expect(await resolveClientPortalContext({ agency_id: 1, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false, clinical: false });
+  expect(await resolveClientPortalContext({ agency_id: 1, organization_id: 2 })).toEqual({ tenant, portal: {...tenant,clinical_portal:true}, learning: false, clinical: true });
 });
 it('resolves legacy child-owned records to their main tenant', async () => {
   Affiliation.getActiveAgencyIdForOrganization.mockResolvedValue(1);
-  expect(await resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).toEqual({ tenant, portal: tenant, learning: false, clinical: false });
+  expect(await resolveClientPortalContext({ agency_id: 2, organization_id: 2 })).toEqual({ tenant, portal: {...tenant,clinical_portal:true}, learning: false, clinical: true });
 });
 it('retains a separate learning portal under the owning tenant', async () => {
   const context = await resolveClientPortalContext({ agency_id: 1, organization_id: 3 });
@@ -57,7 +59,7 @@ it('uses the counseling or tutoring enrollment context before a session exists',
  const mixed={...tenant,name:'Mixed care and learning',feature_flags:{medicalBillingEnabled:true}};
  expect(intakeClientPortal(mixed,{channel:'counseling'}).clinical_portal).toBe(true);
  expect(intakeClientPortal(mixed,{channel:'tutoring'}).clinical_portal).toBe(false);
- expect(intakeClientPortal(mixed,{channel:'tutoring',clients:[{client_type:'clinical'}]}).clinical_portal).toBe(false);
+ expect(intakeClientPortal(mixed,{channel:'tutoring',clients:[{client_type:'clinical'}]}).clinical_portal).toBe(true);
  expect(intakeClientPortal(mixed,{channel:'office',clients:[{client_type:'learning'}]}).clinical_portal).toBe(false);
 });
 
@@ -74,4 +76,19 @@ it('keeps NLU synthetic tutoring setup, recovery, parent and session links on th
   expect(clientPortalAppUrl(portal,path)).toBe(`https://app.nextleveluplcc.com/nlu-qa-demo/${path}`);
   expect(clientPortalAppUrl(portal,path)).not.toContain('auricwell');
  }
+});
+
+it('uses the effective Clinical selection immediately on a learning chart, including invite and sign-in links',async()=>{
+ const record={id:42,agency_id:1,organization_id:3,client_type:'learning'};
+ readChartTypes.mockResolvedValueOnce({types:['clinical','learning'],portalSetup:{portal:'auricwell'}})
+   .mockResolvedValueOnce({types:['learning'],portalSetup:null});
+ const mixed=await resolveClientPortalContext(record);
+ expect(mixed).toMatchObject({clinical:true,learning:false,portal:{id:1}});
+ expect(clientPortalAppUrl(mixed.portal,'login')).toBe('https://auricwell.com/itsco/login');
+ expect((await resolveClientPortalContext(record)).portal.id).toBe(3);
+});
+
+it('starts Auricwell for a persisted mixed-service client entering through a tutoring intake',async()=>{
+ readChartTypes.mockResolvedValue({types:['clinical','learning']});
+ expect((await intakePortalForClients(tenant,{channel:'tutoring',clients:[{id:42,client_type:'learning'}]})).clinical_portal).toBe(true);
 });

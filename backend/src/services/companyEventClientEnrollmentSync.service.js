@@ -8,14 +8,15 @@ export async function ensureCompanyEventClientEnrollment({
   eventId,
   agencyId,
   clientId,
-  actorUserId = null
+  actorUserId = null,
+  db = pool
 }) {
   const eid = Number(eventId);
   const aid = Number(agencyId);
   const cid = Number(clientId);
   if (!eid || !aid || !cid) return { ok: false };
 
-  await pool.execute(
+  await db.execute(
     `INSERT INTO company_event_clients
        (company_event_id, agency_id, client_id, enrolled_by_user_id, is_active)
      VALUES (?, ?, ?, ?, TRUE)

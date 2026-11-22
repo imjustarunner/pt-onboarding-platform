@@ -3,7 +3,7 @@ import {mount,flushPromises} from '@vue/test-utils';
 import api from '../../../services/api';
 import Bridge from '../GuardianSchoolCareBridge.vue';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));
-const schools=[{organization_id:20,name:'Current School',status:'current',providers:[{name:'Taylor Provider',service_day:'Wednesday',status:'current'}],staff:[{name:'Robin Staff',status:'current',access_level:'roi'}],roi:{status:'issued'}},{organization_id:19,name:'Previous School',status:'former',providers:[{name:'Old Provider',service_day:'Monday',status:'former'}],staff:[{name:'Old Staff',status:'former'}],roi:{status:'completed',signed_at:'2025-09-10',document_id:42}}];
+const schools=[{organization_id:20,name:'Current School',status:'current',providers:[{name:'Taylor Provider',service_day:'Wednesday',status:'current'}],staff:[{name:'Robin Staff',status:'current',access_state:'roi'}],roi:{status:'issued'}},{organization_id:19,name:'Previous School',status:'former',providers:[{name:'Old Provider',service_day:'Monday',status:'former'}],staff:[{name:'Old Staff',status:'former'}],roi:{status:'completed',signed_at:'2025-09-10',document_id:42}}];
 describe('SchoolCareBridge family view',()=>{
  it('opens the assigned school release in Tasks & documents',async()=>{
   const w=mount(Bridge,{props:{schools,clientId:8}});await w.findAll('button').find(b=>b.text()==='Open the assigned release').trigger('click');expect(w.emitted('navigate')[0]).toEqual(['documents']);w.unmount();
@@ -27,3 +27,12 @@ describe('SchoolCareBridge family view',()=>{
 });
 
 it('shows an existing signature in the practice timezone while keeping the expiry as a calendar date',()=>{const w=mount(Bridge,{props:{clientId:8,timeZone:'America/Denver',schools:[{organization_id:20,name:'Current School',status:'current',roi:{status:'completed',signed_at:'2026-11-13T04:21:08.426Z',expires_at:'2030-11-13'}}]}});expect(w.text()).toContain('Nov 12, 2026');expect(w.text()).toContain('MST');expect(w.text()).toContain('11/13/2030');w.unmount();});
+
+it('shows each person’s effective ROI even if a previously signed release is on file',()=>{
+ const staff=['roi_docs','roi','denied','expired','limited','none'].map(access_state=>({name:access_state,access_state,status:'current'}));
+ const w=mount(Bridge,{props:{schools:[{...schools[0],staff,roi:{status:'completed'}}]}});
+ const rows=w.get('[aria-label="School staff and sharing permissions"]').findAll('li').map(el=>el.text());
+ expect(rows).toEqual(['roi_docsSelected goals and objectives may be shared','roiProvider communication is allowed',
+   'deniedPermission to share was denied','expiredSchool release expired','limitedSchool coordination only','noneNo current sharing permission']);
+ w.unmount();
+});

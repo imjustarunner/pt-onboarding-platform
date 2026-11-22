@@ -511,7 +511,7 @@ async function searchClients({ agencyId, q, limit, userId }) {
   const scope = hubClientScope(userId);
   try {
     const [rows] = await pool.execute(
-      `SELECT ${CLIENT_SELECT_ONE}, c.provider_id
+      `SELECT ${CLIENT_SELECT_CORE}, c.provider_id
        ${CLIENT_FROM_JOIN}
        WHERE c.agency_id = ? AND ${scope.sql}
          AND (
@@ -698,7 +698,7 @@ function dedupePeopleByUser(people) {
   const rest = [];
   for (const p of people || []) {
     const uid = Number(p.userId || 0);
-    if (!uid) {
+    if (!uid || p.personKey?.startsWith('client:')) {
       rest.push(p);
       continue;
     }
@@ -825,7 +825,7 @@ export async function buildClientThreadContext({
   const linkedGuardians = [];
   for (const r of rows || []) {
     const uid = Number(r.guardian_user_id);
-    if (!uid) continue;
+    if (!uid || r.permissions_json?.relationshipRevoked) continue;
     const relType = ClientGuardian.normalizeRelationshipType(r.relationship_type);
     const portalAccess = r.access_enabled === 1 || r.access_enabled === true;
     const displayName =
@@ -895,7 +895,7 @@ export async function buildClientThreadContext({
       personKey: clientPersonKey,
       userId: clientSeed.userId || selfPortal?.userId || null,
       displayName: clientSeed.displayName || 'Client',
-      email: clientSeed.email || selfPortal?.email || null,
+      email: clientSeed.email || null,
       phone: clientSeed.phone || null,
       portalAccess: portalReady,
       canInviteToPortal,
@@ -912,9 +912,9 @@ export async function buildClientThreadContext({
 
   const eligibleGuardians = linkedGuardians.filter((guardian) => guardian.sharedSecureEligible);
   const defaultTalkingToPersonKey =
+    (clientHasPortal ? clientParticipant?.personKey : null) ||
     eligibleGuardians.find((g) => g.email)?.personKey ||
     eligibleGuardians[0]?.personKey ||
-    (clientHasPortal ? clientParticipant?.personKey : null) ||
     null;
 
   return {
@@ -958,11 +958,12 @@ async function enrichPeopleWithTalkingTo(people = []) {
 
 const CLIENT_SELECT_CORE = `c.id, c.agency_id, c.organization_id, c.full_name, c.initials, c.contact_phone, c.email,
                 c.session_sms_opt_in, c.guardian_portal_enabled, c.client_type,
-                org.name AS school_name,
+                CASE WHEN org.organization_type = 'school' THEN org.name END AS school_name,
                 (
                   SELECT cg.guardian_user_id
                   FROM client_guardians cg
                   WHERE cg.client_id = c.id
+                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
                     AND cg.access_enabled = 1
                     AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) = 'self'
                   LIMIT 1
@@ -971,11 +972,13 @@ const CLIENT_SELECT_CORE = `c.id, c.agency_id, c.organization_id, c.full_name, c
                   SELECT COUNT(*)
                   FROM client_guardians cg
                   WHERE cg.client_id = c.id
+                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
                 ) AS guardian_link_count,
                 (
                   SELECT COUNT(*)
                   FROM client_guardians cg
                   WHERE cg.client_id = c.id
+                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
                     AND cg.access_enabled = 1
                     AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) = 'self'
                 ) AS self_portal_count,
@@ -983,37 +986,7 @@ const CLIENT_SELECT_CORE = `c.id, c.agency_id, c.organization_id, c.full_name, c
                   SELECT COUNT(*)
                   FROM client_guardians cg
                   WHERE cg.client_id = c.id
-                    AND cg.access_enabled = 1
-                    AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) <> 'self'
-                ) AS portal_guardian_count,
-                cs.status_key AS client_status_key`;
-const CLIENT_SELECT_ONE = `c.id, c.agency_id, c.organization_id, c.full_name, c.initials, c.contact_phone, c.email,
-                c.session_sms_opt_in, c.guardian_portal_enabled, c.client_type,
-                org.name AS school_name,
-                (
-                  SELECT cg.guardian_user_id
-                  FROM client_guardians cg
-                  WHERE cg.client_id = c.id
-                    AND cg.access_enabled = 1
-                    AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) = 'self'
-                  LIMIT 1
-                ) AS user_id,
-                (
-                  SELECT COUNT(*)
-                  FROM client_guardians cg
-                  WHERE cg.client_id = c.id
-                ) AS guardian_link_count,
-                (
-                  SELECT COUNT(*)
-                  FROM client_guardians cg
-                  WHERE cg.client_id = c.id
-                    AND cg.access_enabled = 1
-                    AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) = 'self'
-                ) AS self_portal_count,
-                (
-                  SELECT COUNT(*)
-                  FROM client_guardians cg
-                  WHERE cg.client_id = c.id
+                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
                     AND cg.access_enabled = 1
                     AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) <> 'self'
                 ) AS portal_guardian_count,
@@ -1282,8 +1255,8 @@ export async function browseHubPeople({
   }
 
   if (wantCaseload) {
-    const clientSearch = query ? 'AND (c.full_name LIKE ? OR c.initials LIKE ? OR org.name LIKE ?)' : '';
-    const searchParams = query ? [likeParam(query), likeParam(query), likeParam(query)] : [];
+    const clientSearch = query ? 'AND (c.full_name LIKE ? OR c.initials LIKE ? OR c.identifier_code LIKE ? OR c.email LIKE ? OR org.name LIKE ?)' : '';
+    const searchParams = query ? Array(5).fill(likeParam(query)) : [];
     try {
       const scope = hubClientScope(userId);
       const caseloadFilter = `AND ${scope.sql}`;
@@ -1344,7 +1317,7 @@ export async function browseHubPeople({
         const agencyName = agencyDisplayName(nameMap, aid);
         if (r.client_id) {
           const [clients] = await pool.execute(
-            `SELECT ${CLIENT_SELECT_ONE}
+            `SELECT ${CLIENT_SELECT_CORE}
              ${CLIENT_FROM_JOIN}
              WHERE c.id = ? AND c.agency_id = ? LIMIT 1`,
             [r.client_id, aid]
@@ -1640,7 +1613,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     }
   } else if (parsed.type === 'client') {
     const [rows] = await pool.execute(
-      `SELECT ${CLIENT_SELECT_ONE}
+      `SELECT ${CLIENT_SELECT_CORE}
        ${CLIENT_FROM_JOIN}
        WHERE c.id = ? AND c.agency_id = ? LIMIT 1`,
       [parsed.id, resolvedAgencyId]
@@ -1835,6 +1808,7 @@ async function loadClientMessagingContext({ clientId, agencyId, actorUserId, sel
               SELECT cg.guardian_user_id
               FROM client_guardians cg
               WHERE cg.client_id = c.id
+                AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
                 AND cg.access_enabled = 1
                 AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) = 'self'
               LIMIT 1
@@ -1880,10 +1854,10 @@ async function loadClientMessagingContext({ clientId, agencyId, actorUserId, sel
       ? parsePersonKey(thread.defaultTalkingToPersonKey)
       : null;
     talkingToUserId =
-      eligibleGuardians.find((g) => g.email)?.userId ||
       (fromKey?.type === 'user' && eligibleGuardians.some((g) => Number(g.userId) === Number(fromKey.id))
         ? fromKey.id
         : null) ||
+      eligibleGuardians.find((g) => g.email)?.userId ||
       eligibleGuardians[0]?.userId ||
       (thread.clientHasPortal ? Number(client.user_id) || selfPortal?.userId : null) ||
       null;

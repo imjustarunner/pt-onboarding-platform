@@ -3,7 +3,7 @@ const execute = vi.hoisted(() => vi.fn());
 vi.mock('../../config/database.js', () => ({default:{execute}}));
 import {attachGuardianSchoolAffiliations} from '../guardianSchoolAffiliations.service.js';
 const client = {client_id:8,organization_id:20,organization_type:'school',organization_name:'Current School',permissions_json:{canViewDocs:true}};
-const options = {guardianUserId:4,providerClientIds:[8],documentClientIds:[8],loadConsent:async()=>new Map()};
+const options = {guardianUserId:4,providerClientIds:[8],documentClientIds:[8],loadStaffRoster:async()=>[],loadConsent:async()=>new Map()};
 beforeEach(() => execute.mockReset());
 function seed() {
  execute.mockResolvedValueOnce([[{client_id:8,organization_id:20,name:'Current School',is_active:1,is_primary:1},{client_id:8,organization_id:19,name:'Former School',is_active:0,is_primary:0}]])
@@ -41,11 +41,13 @@ describe('guardian school history', () => {
  it('does not disclose clinical schedule or document links without the corresponding scopes', async () => {
   seed();const [result]=await attachGuardianSchoolAffiliations([client],{guardianUserId:4,loadConsent:options.loadConsent});
   expect(result.school_affiliations.every(s=>s.providers.length===0)).toBe(true);
-  expect(result.school_affiliations[1].roi.document_id).toBeNull();
+  expect(result.school_affiliations[1].roi).toBeNull();
+    expect(result.school_affiliations[1].staff).toEqual([]);
  });
  it('honors disabled document sharing even when clinical scope is present', async () => {
   seed();const [result]=await attachGuardianSchoolAffiliations([{...client,permissions_json:{canViewDocs:false}}],options);
-  expect(result.school_affiliations[1].roi.document_id).toBeNull();
+  expect(result.school_affiliations[1].roi).toBeNull();
+    expect(result.school_affiliations[1].staff).toEqual([]);
  });
 });
 
@@ -58,4 +60,25 @@ it('uses this guardian’s signed enrollment evidence when no separate signing l
 it('does not claim another guardian’s signature is the current guardian’s release',async()=>{
  execute.mockResolvedValue([[]]);const loadConsent=async()=>new Map([[8,[{decisions:[{guardianUserId:5,signedAt:'2026-11-12',expired:false}]}]]]);
  const [row]=await attachGuardianSchoolAffiliations([client],{...options,loadConsent});expect(row.school_affiliations[0].roi.status).toBe('not_on_file');
+});
+
+it('lists current school staff including those without a grant, projecting only family-visible fields', async () => {
+  seed();
+  const loadStaffRoster=vi.fn(async()=>[
+    {first_name:'Sam',last_name:'Example',role_title:'Counselor',effective_access_state:'none',email:'private@example.test'},
+    {first_name:'Lee',effective_access_state:'denied',guardian_consent:{decisions:[{guardianName:'Private'}]}},
+    {first_name:'Robin',effective_access_state:'roi_docs'}
+  ]);
+  const [row]=await attachGuardianSchoolAffiliations([client],{...options,loadStaffRoster});
+  expect(loadStaffRoster).toHaveBeenCalledTimes(1);
+  expect(loadStaffRoster).toHaveBeenCalledWith(expect.objectContaining({clientId:8,schoolOrganizationId:20}));
+  expect(row.school_affiliations[0].staff).toEqual([
+    {name:'Sam Example',role_title:'Counselor',access_state:'none',status:'current'},
+    {name:'Lee',role_title:null,access_state:'denied',status:'current'},
+    {name:'Robin',role_title:null,access_state:'roi_docs',status:'current'}
+  ]);
+});
+it.each([{learningOnly:true,serviceAgencyIds:[2]},{serviceKinds:['counseling'],serviceAgencyIds:[9]},{billingOnly:true},{relationshipRevoked:true}])('hides school details from restricted relationships',async permissions_json=>{
+ const [row]=await attachGuardianSchoolAffiliations([{...client,agency_id:2,permissions_json}],options);
+ expect(row.school_affiliations).toEqual([]);expect(execute).not.toHaveBeenCalled();
 });

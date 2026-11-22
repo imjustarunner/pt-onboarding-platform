@@ -390,23 +390,23 @@ async function loadAffiliationsByClientIds(clientIds, agencyLookup) {
   return map;
 }
 
-async function loadServicesByClientIds(clientIds) {
-  if (!clientIds.length) return new Map();
+async function loadServicesByClientIds(clientIds, agencyIds) {
+  if (!clientIds.length || !agencyIds.length) return new Map();
   const map = new Map();
   try {
     const [rows] = await pool.execute(
       `SELECT e.id, e.client_id, e.agency_id, e.service_kind, e.label, e.provider_user_id,
-              e.organization_id, u.first_name, u.last_name, org.name AS organization_name
+              e.organization_id, u.first_name, u.last_name, org.name AS organization_name, org.organization_type
        FROM client_service_enrollments e
        INNER JOIN clients c ON c.id = e.client_id
        LEFT JOIN users u ON u.id = e.provider_user_id
        LEFT JOIN agencies org ON org.id = e.organization_id
-       WHERE e.client_id IN (${clientIds.map(() => '?').join(',')}) AND e.is_active = TRUE
+       WHERE e.client_id IN (${clientIds.map(() => '?').join(',')}) AND e.agency_id IN (${agencyIds.map(() => '?').join(',')}) AND e.is_active = TRUE
          AND (c.agency_id = e.agency_id OR EXISTS (
            SELECT 1 FROM client_agency_assignments ca
            WHERE ca.client_id = e.client_id AND ca.agency_id = e.agency_id AND ca.is_active = TRUE))
        ORDER BY e.id`,
-      clientIds
+      [...clientIds, ...agencyIds]
     );
     for (const row of clientServiceAssignments(rows.map(row => ({ ...row, is_active: 1,
       provider_name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || null })))) {
@@ -415,7 +415,7 @@ async function loadServicesByClientIds(clientIds) {
         id: Number(row.id), agencyId: Number(row.agency_id), serviceKind: row.service_kind,
         label: row.label, providerId: Number(row.provider_user_id) || null,
         providerName: row.provider_name,
-        organizationId: Number(row.organization_id) || null, organizationName: row.organization_name || null,
+        organizationId: Number(row.organization_id) || null, organizationName: row.organization_name || null, organizationType: row.organization_type || row.organizations?.find(o=>o.id===Number(row.organization_id))?.organization_type || null,
         sourceServiceIds: row.source_service_ids || [Number(row.id)],
         providers: (row.providers || [row]).filter(provider => Number(provider.provider_user_id) > 0).map(provider => ({ providerId: provider.provider_user_id,
           name: provider.provider_name, serviceId: provider.service_id || Number(row.id) }))
@@ -717,7 +717,7 @@ export async function listOfficeClients({
       loadPreferredProviderNames(baseRows),
       loadAffiliationsByClientIds(ids, agencyLookup),
       loadProvidersByClientIds(ids, agencyLookup),
-      loadServicesByClientIds(ids)
+      loadServicesByClientIds(ids, aids)
     ]);
 
   let clients = baseRows.map((base) => {

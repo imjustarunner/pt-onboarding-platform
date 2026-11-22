@@ -14,7 +14,7 @@ export function agencyAssignableProviderSql() {
     WHEN ${choice} IN ('true','1') THEN TRUE
     ELSE COALESCE(u.sees_clients,1)=1 AND (${PROVIDER_ROLE_SQL}
       OR (LOWER(COALESCE(NULLIF(ua.agency_role,''),u.role,'')) IN ('admin','super_admin') AND u.sees_clients=1)
-      OR LOWER(COALESCE(ua.agency_role,'')) IN ('provider','provider_plus','clinician','therapist','counselor','supervisor','intern','intern_plus','clinical_practice_assistant','tutor','coach','consultant')
+      OR LOWER(COALESCE(NULLIF(ua.agency_role,''),u.role,'')) IN ('provider','provider_plus','clinician','therapist','counselor','supervisor','intern','intern_plus','clinical_practice_assistant','tutor','coach','consultant')
       OR EXISTS(SELECT 1 FROM provider_public_service_enrollments care WHERE care.user_id=u.id AND care.agency_id=ua.agency_id AND care.is_active=1)
       OR EXISTS(SELECT 1 FROM client_service_enrollments care WHERE care.provider_user_id=u.id AND care.agency_id=ua.agency_id AND care.is_active=1)) END)`;
 }

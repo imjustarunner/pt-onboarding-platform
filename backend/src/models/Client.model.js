@@ -67,6 +67,31 @@ class Client {
    * @returns {Promise<Object>} Created client object
    */
   static async create(clientData, { executor = pool, hydrate = true } = {}) {
+    if (clientData.learning_provider_user_id) {
+      const { learning_provider_user_id: tutorId, ...chart } = clientData;
+      const { requireAssignmentService } = await import('../services/providerServiceOfferings.service.js');
+      const ownsTransaction = executor === pool;
+      const connection = ownsTransaction ? await pool.getConnection() : executor;
+      let created;
+      try {
+        if (ownsTransaction) await connection.beginTransaction();
+        await requireAssignmentService(chart.agency_id, tutorId, 'tutoring', connection);
+        created = await this.create({...chart, provider_id:null}, {executor:connection, hydrate:false});
+        const org = Number(chart.organization_id) === Number(chart.agency_id) ? 0 : Number(chart.organization_id) || 0;
+        await connection.execute(
+          `INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,organization_id,label,created_by_user_id,updated_by_user_id)
+           VALUES (?,?,'tutoring',?,?,'Tutoring',?,?)`,
+          [created.id,chart.agency_id,tutorId,org,chart.created_by_user_id,chart.created_by_user_id]
+        );
+        if (ownsTransaction) await connection.commit();
+      } catch (error) {
+        if (ownsTransaction) await connection.rollback();
+        throw error;
+      } finally {
+        if (ownsTransaction) connection.release();
+      }
+      return hydrate ? this.findById(created.id) : created;
+    }
     if (Number(clientData.provider_id) > 0) {
       const { assertNewClientProviderCoverage } = await import('../services/clientCoverageAdmission.service.js');
       await assertNewClientProviderCoverage(clientData, { db: executor });
@@ -537,7 +562,14 @@ class Client {
       const [[assignmentClient]] = await executor.execute('SELECT id,agency_id,client_type,provider_id FROM clients WHERE id=?', [id]);
       if (assignmentClient && Number(assignmentClient.provider_id) !== Number(clientData.provider_id)) {
         const { assertAssignableProvider } = await import('../services/clientAssignmentScope.service.js');
-        await assertAssignableProvider({ clientId: id, providerUserId: clientData.provider_id }, executor);
+        if (assignmentClient.client_type === 'learning') {
+          throw Object.assign(new Error('Assign the provider to their service in Assignments.'),{status:409});
+        }
+        await assertAssignableProvider({ clientId:id, providerUserId:clientData.provider_id, agencyId:assignmentClient.agency_id }, executor);
+        if (['clinical','school'].includes(assignmentClient.client_type)) {
+          const {requireAssignmentService} = await import('../services/providerServiceOfferings.service.js');
+          await requireAssignmentService(assignmentClient.agency_id,clientData.provider_id,'counseling',executor);
+        }
         const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
         await assertNewProviderCoverageAdmission(id, clientData.provider_id, { db: executor });
       }

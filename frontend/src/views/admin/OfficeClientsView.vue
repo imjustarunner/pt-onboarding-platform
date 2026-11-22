@@ -266,8 +266,8 @@
 
           <p v-if="ambiguousServiceAssignment" class="ocm-assignment-hint ocm-review-hint">Multiple services need a provider. Open Review assignments to choose the service and agency.</p>
           <div v-if="canQuickAssign" class="ocm-assign">
-            <label for="office-client-provider">Assign provider<template v-if="assignmentService"> · {{ assignmentService.label }}</template></label>
-            <p v-if="assignmentService" class="ocm-assignment-hint">{{ assignmentService.organizationName || 'Agency service' }} · {{ assignmentAgencyName }}</p>
+            <label for="office-client-provider">Assign provider<template v-if="assignmentService"> · {{ chartServiceLabel(assignmentService.serviceKind, assignmentService.label) }}</template></label>
+            <p v-if="assignmentService" class="ocm-assignment-hint">{{ chartOrganizationLabel(assignmentService.organizationName, assignmentService.organizationType) || 'Agency service' }} · {{ assignmentAgencyName }}</p>
             <ProviderSearchSelect
               :key="selected.id"
               v-model="assignProviderId"
@@ -320,6 +320,7 @@
 </template>
 
 <script setup>
+import { chartServiceLabel, chartOrganizationLabel, offersAssignmentService } from '../../utils/clientRosterContext.js';
 import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
 import '../../styles/auricwellClients.css';
 import SendCareInvitation from '../../components/admin/SendCareInvitation.vue';
@@ -410,9 +411,10 @@ const ambiguousServiceAssignment = computed(() => unassignedServices.value.lengt
 const canQuickAssign = computed(() => !!selected.value && !ambiguousServiceAssignment.value && (!!assignmentService.value || !hasAssigned(selected.value)));
 const assignmentAgencyName = computed(() => agencyChips(selected.value).find(agency => Number(agency.agencyId) === Number(assignmentService.value?.agencyId))?.name || 'this service’s agency');
 const clientProviders = computed(() => {
-  const agencyIds = new Set(assignmentService.value ? [Number(assignmentService.value.agencyId)] : agencyChips(selected.value).map(agency => Number(agency.agencyId)));
-  if (!assignmentService.value && selected.value?.agencyId) agencyIds.add(Number(selected.value.agencyId));
-  return providers.value.filter(provider => (provider.agencyIds || provider.agencies?.map(agency => agency.id || agency.agencyId) || []).some(id => agencyIds.has(Number(id))));
+  const agencyId = Number(assignmentService.value?.agencyId || selected.value?.agencyId);
+  const kind = assignmentService.value?.serviceKind || ({clinical:'counseling',school:'counseling',learning:'tutoring'})[selected.value?.clientType];
+  return providers.value.filter(provider => offersAssignmentService(provider,agencyId,kind)
+    && (provider.agencyIds || provider.agencies?.map(agency => agency.id || agency.agencyId) || []).map(Number).includes(agencyId));
 });
 const validAssignProvider = computed(() => clientProviders.value.some(provider => Number(provider.id) === Number(assignProviderId.value)));
 
@@ -627,6 +629,10 @@ async function assignSelected() {
         agencyId: Number(service.agencyId), serviceId: service.id, serviceKind: service.serviceKind,
         providerUserId: Number(assignProviderId.value), organizationId: service.organizationId || 0, label: service.label
       });
+    } else if (selected.value.clientType === 'learning') {
+      await api.post(`/clients/${selected.value.id}/service-enrollments`, {
+        agencyId:Number(selected.value.agencyId),serviceKind:'tutoring',providerUserId:Number(assignProviderId.value),organizationId:0,label:'Tutoring'
+      });
     } else {
       await api.put(`/clients/${selected.value.id}/provider`, {
         provider_id: Number(assignProviderId.value)
@@ -680,7 +686,7 @@ watch(selected, async (c) => {
   if (!c || !canQuickAssign.value) return;
   providersLoading.value = true;
   try {
-    const response = await api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam(), clientId: c.id }, skipGlobalLoading: true });
+    const response = await api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam(), clientId: c.id, serviceAssignments:'1' }, skipGlobalLoading: true });
     if (request !== providerRequest) return;
     providers.value = Array.isArray(response.data?.providers) ? response.data.providers : [];
   } catch (e) {

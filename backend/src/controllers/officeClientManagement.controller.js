@@ -1,3 +1,4 @@
+import { assignmentServicesForProviders } from '../services/providerServiceOfferings.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import * as OfficeClients from '../services/officeClientManagement.service.js';
@@ -143,6 +144,14 @@ export async function listOfficeHubProviders(req, res, next) {
       if (!scopedAgencyIds.length) return res.status(403).json({ error: { message: 'Client is not affiliated with the selected agencies' } });
     }
     const providers = await OfficeClients.listHubProviders({ agencyIds: scopedAgencyIds });
+    if (req.query.serviceAssignments === '1') {
+      const byAgency = new Map(await Promise.all(scopedAgencyIds.map(async agencyId => {
+        const ids = providers.filter(p => p.agencyIds.includes(agencyId)).map(p => p.id);
+        return [agencyId, await assignmentServicesForProviders(agencyId,ids)];
+      })));
+      return res.json({providers:providers.map(provider => ({...provider, assignmentServicesByAgency:
+        Object.fromEntries(provider.agencyIds.map(id => [id,byAgency.get(id)?.get(provider.id) || []]))}))});
+    }
     res.json({ providers });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });

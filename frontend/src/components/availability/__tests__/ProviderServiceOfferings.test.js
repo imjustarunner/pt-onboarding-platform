@@ -27,3 +27,15 @@ describe('agency service selections',()=>{
   expect(api.put.mock.calls[0][1].services).toEqual([]);expect(w.find('[role=alert]').text()).toBe('Not permitted');expect(w.emitted('updated')).toBeUndefined();w.unmount();
  });
 });
+
+it('lets a tutor select Learning with clinical controls disabled',async()=>{
+  api.get.mockResolvedValue({data:{...data,careEligibility:{canProvideCare:false,canProvideTutoring:true},services:data.services.map(s=>({...s,offered:false}))}});
+  const w=mount(Services,{props:{providerId:10,agencyId:2}});await flushPromises();
+  const labels=w.find('fieldset').findAll('label');
+  expect(labels.map(l=>l.text())).toEqual(['Clinical','Learning']);
+  expect(labels[0].get('input').element.disabled).toBe(true);
+  await labels[1].get('input').setValue(true);
+  api.put.mockResolvedValue({data});
+  await w.get('button').trigger('click');await flushPromises();
+  expect(api.put.mock.calls[0][1]).toMatchObject({services:['tutoring'],onlineScheduling:[]});w.unmount();
+});

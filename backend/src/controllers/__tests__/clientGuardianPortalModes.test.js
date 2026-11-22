@@ -1,3 +1,4 @@
+vi.mock('../../services/clientChartTypes.service.js',()=>({personalContactReviewReason:vi.fn().mockResolvedValue(null)}));
 import {beforeEach,expect,it,vi} from 'vitest';const m=vi.hoisted(()=>({client:vi.fn(),links:vi.fn(),getLink:vi.fn(),upsert:vi.fn(),user:vi.fn(),assign:vi.fn(),audit:vi.fn()}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:m.links,getLink:m.getLink,upsertLink:m.upsert}}));vi.mock('../../models/User.model.js',()=>({default:{findByEmail:m.user,assignToAgency:m.assign,getAgencies:async()=>[{id:2}]}}));vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:m.audit}));
 vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecordAccess:async()=>({ok:true})}));

@@ -1,3 +1,5 @@
+import { clinicalProviderIssue } from '../services/providerServiceOfferings.service.js';
+import { clinicalBookingContextIssue } from '../services/clientServiceContext.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import { listClientAgencyMembershipIds } from '../utils/noteAidClientAgency.js';
@@ -45,6 +47,11 @@ export async function getClientServiceCodeEligibility(req, res, next) {
     }
     if (!(await listClientAgencyMembershipIds(clientId)).map(Number).includes(agencyId)) {
       throw Object.assign(new Error('This client is not available in the selected practice.'), { status: 403 });
+    }
+    if (!clinicalSessionId && !officeEventId) {
+      const issue = await clinicalBookingContextIssue({agencyId,clientIds:[clientId],providerId:providerUserId})
+          || await clinicalProviderIssue(agencyId,providerUserId);
+      if (issue) return res.set('Cache-Control','no-store').json({serviceCodes:[],agencyId,message:issue});
     }
     const eligibility = await clientPayerServiceEligibility({ agencyId, clientId, providerUserId, dateOfService });
     const {pendingClassificationCodes = [], ...billing} = eligibility;

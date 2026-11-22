@@ -78,18 +78,6 @@ class AgencyBusinessType {
       conn.release();
     }
 
-    // Mental healthcare tenants get an in-office Counseling and Psychotherapy clinical program.
-    if (normalized.some((row) => row.businessType === 'mental_health' && row.isEnabled)) {
-      try {
-        const { ensureCounselingPsychotherapyProgramForAgency } = await import(
-          '../services/counselingPsychotherapyProgram.service.js'
-        );
-        await ensureCounselingPsychotherapyProgramForAgency(aid);
-      } catch (e) {
-        console.warn('[AgencyBusinessType] counseling program ensure failed:', e?.message || e);
-      }
-    }
-
     return this.listForAgency(aid);
   }
 }

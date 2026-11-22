@@ -4,30 +4,35 @@
   <p v-if="agencyName">Select every service this provider offers at <strong>{{agencyName}}</strong>. You can choose more than one.</p>
   <p v-if="loading" role="status">Loading services…</p>
   <template v-else-if="loaded">
-   <p v-if="!canProvideCare">Care services are not enabled for this agency. An administrator must assign a client-facing role and enable “Sees clients”; credentials alone do not grant access.</p>
-   <fieldset :disabled="busy || !canProvideCare"><legend>Services for this agency</legend>
-    <label v-for="service in services" :key="service.serviceType"><input type="checkbox" v-model="selected" :value="service.serviceType"/> {{service.displayName}}</label>
+   <p v-if="!canSelectServices">Care services are not enabled for this agency. An administrator must assign a client-facing role and enable “Sees clients”; credentials alone do not grant access.</p>
+   <fieldset :disabled="busy || !canSelectServices"><legend>Services for this agency</legend>
+    <label v-for="service in services" :key="service.serviceType"><input type="checkbox" v-model="selected" :disabled="!eligible(service)" :value="service.serviceType"/> {{chartServiceLabel(service.serviceType,service.displayName)}}</label>
    </fieldset>
-   <fieldset :disabled="busy || !canProvideCare"><legend>Online time requests</legend>
-    <label v-for="service in services.filter(s=>selected.includes(s.serviceType))" :key="service.serviceType"><input type="checkbox" v-model="online" :value="service.serviceType"/> Allow online time requests for {{service.displayName}}</label>
+   <fieldset :disabled="busy || !canSelectServices"><legend>Online time requests</legend>
+    <label v-for="service in services.filter(s=>selected.includes(s.serviceType))" :key="service.serviceType"><input type="checkbox" v-model="online" :value="service.serviceType"/> Allow online time requests for {{chartServiceLabel(service.serviceType,service.displayName)}}</label>
    </fieldset>
    <p>Online requests also require the agency’s public scheduling to be enabled. Published hours and new-client preferences still control which times appear. Requests do not automatically confirm appointments.</p>
    <p v-if="!services.length">This agency has no public services enabled yet.</p>
    <p>Selected services place the provider in the matching public directories when “Sees clients” is on. New-client availability is managed separately. Selecting a service does not enable online time requests; use the separate controls above. Removing a service also turns off its online requests.</p>
-   <button v-if="services.length" type="button" :disabled="busy || !canProvideCare" @click="save">{{busy?'Saving…':'Save services'}}</button>
+   <button v-if="services.length" type="button" :disabled="busy || !canSelectServices" @click="save">{{busy?'Saving…':'Save services'}}</button>
   </template>
   <p v-if="error" role="alert">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
  </section>
 </template>
 <script setup>
-import {ref,watch} from 'vue';
+import {chartServiceLabel} from '../../utils/clientRosterContext.js';
+import {computed,ref,watch} from 'vue';
 import api from '../../services/api';
 const props=defineProps({providerId:{type:Number,required:true},agencyId:{type:Number,required:true}}),emit=defineEmits(['updated']);
-const canProvideCare=ref(false);
+const care=ref({});
+const eligible=service => service.serviceType==='tutoring'
+  ? care.value.canProvideTutoring || care.value.canProvideCare
+  : care.value.canProvideCare && (service.serviceType!=='counseling' || care.value.credentialTier!=='unknown');
+const canSelectServices=computed(()=>Boolean(care.value.canProvideCare || care.value.canProvideTutoring));
 const services=ref([]),online=ref([]),selected=ref([]),agencyName=ref(''),loading=ref(false),loaded=ref(false),busy=ref(false),error=ref(''),notice=ref('');
 let generation=0;
 const endpoint=()=>`/availability/providers/${props.providerId}/services`;
-function apply(data){canProvideCare.value=data.careEligibility?.canProvideCare===true;services.value=data.services||[];online.value=services.value.filter(s=>s.onlineScheduling).map(s=>s.serviceType);selected.value=services.value.filter(s=>s.offered).map(s=>s.serviceType);agencyName.value=data.agencyName||'';}
+function apply(data){care.value=data.careEligibility || {};services.value=data.services||[];online.value=services.value.filter(s=>s.onlineScheduling).map(s=>s.serviceType);selected.value=services.value.filter(s=>s.offered).map(s=>s.serviceType);agencyName.value=data.agencyName||'';}
 watch(()=>[props.providerId,props.agencyId],async()=>{const id=++generation;loaded.value=false;error.value='';notice.value='';if(!props.providerId||!props.agencyId)return;loading.value=true;try{const{data}=await api.get(endpoint(),{params:{agencyId:props.agencyId},skipGlobalLoading:true});if(id===generation){apply(data);loaded.value=true;}}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Could not load services.';}finally{if(id===generation)loading.value=false;}},{immediate:true});
 async function save(){const id=generation;busy.value=true;error.value='';notice.value='';try{const{data}=await api.put(endpoint(),{agencyId:props.agencyId,services:[...selected.value],onlineScheduling:online.value.filter(s=>selected.value.includes(s))},{skipGlobalLoading:true});if(id!==generation)return;apply(data);notice.value='Services saved for this agency.';emit('updated',data);}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Could not save services.';}finally{busy.value=false;}}
 </script>

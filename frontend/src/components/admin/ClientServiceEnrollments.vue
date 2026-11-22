@@ -1,7 +1,7 @@
 <template>
   <section class="service-enrollments" aria-label="Services and providers">
     <header class="services-header">
-      <div><h4>Services &amp; providers</h4><p>Assign providers to each service.<template v-if="organizations.length"> A school or program enrollment is optional.</template></p></div>
+      <div><h4>Services &amp; providers</h4><p>Assign providers to each service.<template v-if="placementOptions.length"> A school or program enrollment is optional.</template></p></div>
       <span class="service-count">{{ activeServices.length }} active {{ activeServices.length === 1 ? 'service' : 'services' }}</span>
     </header>
     <p v-if="error" class="service-error" role="alert">{{ error }} <button v-if="!busy && editingServiceId===null && !statusEdit" type="button" @click="load">Retry</button></p>
@@ -10,7 +10,7 @@
     <ul class="services-list">
       <li v-for="service in activeServices" :key="service.id">
         <div class="service-summary">
-          <div><strong>{{ service.label }}</strong><span v-if="servicePrograms(service)" class="service-context">{{ servicePrograms(service) }}</span><span class="service-context">{{ service.status_label || 'Active services' }}</span></div>
+          <div><strong>{{ chartServiceLabel(service.service_kind, service.label) }}</strong><span v-if="servicePrograms(service)" class="service-context">{{ servicePrograms(service) }}</span><span class="service-context">{{ service.status_label || 'Active services' }}</span></div>
           <div class="service-provider" :class="{ 'needs-provider': !Number(service.provider_user_id) }">
             <span class="service-status">{{ Number(service.provider_user_id) ? (service.providers?.length > 1 ? 'Assigned providers' : 'Assigned provider') : 'Needs a provider' }}</span>
             <ul v-if="service.providers?.length > 1" class="service-providers-list">
@@ -25,24 +25,24 @@
           </div>
         </div>
         <form v-if="Number(editingServiceId) === Number(service.id)" class="service-assignment" @submit.prevent="assign(service)">
-          <div><label :for="`service-provider-${service.id}`">{{ addingProvider ? 'Additional provider' : 'Provider' }} for {{ service.label }}</label>
-            <ProviderSearchSelect v-model="selectedProviderId" :input-id="`service-provider-${service.id}`" :options="providers" :loading="providersLoading" :disabled="busy" label="Provider for this service" />
+          <div><label :for="`service-provider-${service.id}`">{{ addingProvider ? 'Additional provider' : 'Provider' }} for {{ chartServiceLabel(service.service_kind, service.label) }}</label>
+            <ProviderSearchSelect v-model="selectedProviderId" :input-id="`service-provider-${service.id}`" :options="choicesFor(service.service_kind)" :loading="providersLoading" :disabled="busy" label="Provider for this service" />
           </div>
-          <button type="submit" class="service-save" :disabled="busy || !selectedProviderId || !providers.some(provider => Number(provider.id) === Number(selectedProviderId))">{{ busy ? 'Saving…' : 'Save assignment' }}</button>
+          <button type="submit" class="service-save" :disabled="busy || !selectedProviderId || !choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId))">{{ busy ? 'Saving…' : 'Save assignment' }}</button>
           <button type="button" :disabled="busy" @click="editingServiceId = null">Cancel</button>
         </form>
       </li>
     </ul>
-    <details v-if="formerServices.length" class="former-services"><summary>Former services ({{ formerServices.length }})</summary><ul><li v-for="service in formerServices" :key="service.id"><strong>{{ service.label }}</strong> · {{ service.provider_name || 'No provider' }} · {{ servicePrograms(service) }}<span>{{ service.status_label || 'Discontinued services' }}</span><div class="service-actions"><button type="button" :disabled="busy" @click="editStatus(service)">Change status</button><ClientReenrollment :client-id="clientId" :agency-id="agencyId" :service-id="service.id" /><button type="button" :disabled="busy" @click="loadReturns(service)">Review return requests</button></div></li></ul></details>
-    <form v-if="statusEdit" class="status-editor" @submit.prevent="saveStatus"><h5>Service status · {{ statusEdit.label }}</h5><p>This changes this service with {{ statusEdit.provider_name || 'this agency' }}. Cancel or transfer future appointments before ending services. Reactivation does not restore canceled sessions.</p><label>Status<select v-model="statusDraft.status"><option value="active">Active services</option><option value="discontinued">Discontinued services</option><option value="completed">Completed services</option><option value="terminated">Terminated services</option><option value="canceled">Canceled services</option></select></label><label v-if="statusDraft.status!=='active'">Closure category<select v-model="statusDraft.closureReason"><option value="client_choice">Client chose to discontinue</option><option value="care_completed">Services completed</option><option value="discontinued_contact">Discontinued contact / unable to re-engage</option><option value="provider_transition">Services with this provider ended</option><option value="other">Other service closure</option></select></label><p v-if="statusDraft.status!=='active'">Client sees: <strong>{{ statusDraft.status==='terminated' && statusDraft.closureReason==='discontinued_contact'?'Discontinued services':statusDraft.status.charAt(0).toUpperCase()+statusDraft.status.slice(1)+' services' }}</strong>. {{ closureCopy[statusDraft.closureReason] }}</p><label>Reason (staff record)<textarea v-model="statusDraft.reason" maxlength="500" required /></label><label><input v-model="statusDraft.confirmed" type="checkbox" /> I confirm this service status change.</label><button type="submit" :disabled="busy||!statusDraft.confirmed||!statusDraft.reason.trim()">Update service status</button><button type="button" :disabled="busy" @click="statusEdit=null">Cancel</button></form><section v-if="returnService" class="return-reviews"><h5>Requests to be considered again · {{ returnService.label }}</h5><p>Reviewing a request does not reactivate services. Use Change status separately if care is resumed.</p><p v-if="!returnRequests.length">No requests have been received.</p><article v-for="request in returnRequests" :key="request.id"><strong>{{ request.requesterName }} · {{ request.status }}</strong><p>{{ request.note }}</p><template v-if="request.status==='pending'"><label>Message to client (optional)<textarea v-model="returnMessages[request.id]" maxlength="500" /></label><button type="button" :disabled="busy" @click="reviewReturn(request,'reviewed')">Mark reviewed</button><button type="button" :disabled="busy" @click="reviewReturn(request,'declined')">Decline request</button></template><p v-else-if="request.response">{{ request.response }}</p></article></section>
+    <details v-if="formerServices.length" class="former-services"><summary>Former services ({{ formerServices.length }})</summary><ul><li v-for="service in formerServices" :key="service.id"><strong>{{ chartServiceLabel(service.service_kind, service.label) }}</strong> · {{ service.provider_name || 'No provider' }} · {{ servicePrograms(service) }}<span>{{ service.status_label || 'Discontinued services' }}</span><div class="service-actions"><button type="button" :disabled="busy" @click="editStatus(service)">Change status</button><ClientReenrollment :client-id="clientId" :agency-id="agencyId" :service-id="service.id" /><button type="button" :disabled="busy" @click="loadReturns(service)">Review return requests</button></div></li></ul></details>
+    <form v-if="statusEdit" class="status-editor" @submit.prevent="saveStatus"><h5>Service status · {{ chartServiceLabel(statusEdit.service_kind, statusEdit.label) }}</h5><p>This changes this service with {{ statusEdit.provider_name || 'this agency' }}. Cancel or transfer future appointments before ending services. Reactivation does not restore canceled sessions.</p><label>Status<select v-model="statusDraft.status"><option value="active">Active services</option><option value="discontinued">Discontinued services</option><option value="completed">Completed services</option><option value="terminated">Terminated services</option><option value="canceled">Canceled services</option></select></label><label v-if="statusDraft.status!=='active'">Closure category<select v-model="statusDraft.closureReason"><option value="client_choice">Client chose to discontinue</option><option value="care_completed">Services completed</option><option value="discontinued_contact">Discontinued contact / unable to re-engage</option><option value="provider_transition">Services with this provider ended</option><option value="other">Other service closure</option></select></label><p v-if="statusDraft.status!=='active'">Client sees: <strong>{{ statusDraft.status==='terminated' && statusDraft.closureReason==='discontinued_contact'?'Discontinued services':statusDraft.status.charAt(0).toUpperCase()+statusDraft.status.slice(1)+' services' }}</strong>. {{ closureCopy[statusDraft.closureReason] }}</p><label>Reason (staff record)<textarea v-model="statusDraft.reason" maxlength="500" required /></label><label><input v-model="statusDraft.confirmed" type="checkbox" /> I confirm this service status change.</label><button type="submit" :disabled="busy||!statusDraft.confirmed||!statusDraft.reason.trim()">Update service status</button><button type="button" :disabled="busy" @click="statusEdit=null">Cancel</button></form><section v-if="returnService" class="return-reviews"><h5>Requests to be considered again · {{ returnService.label }}</h5><p>Reviewing a request does not reactivate services. Use Change status separately if care is resumed.</p><p v-if="!returnRequests.length">No requests have been received.</p><article v-for="request in returnRequests" :key="request.id"><strong>{{ request.requesterName }} · {{ request.status }}</strong><p>{{ request.note }}</p><template v-if="request.status==='pending'"><label>Message to client (optional)<textarea v-model="returnMessages[request.id]" maxlength="500" /></label><button type="button" :disabled="busy" @click="reviewReturn(request,'reviewed')">Mark reviewed</button><button type="button" :disabled="busy" @click="reviewReturn(request,'declined')">Decline request</button></template><p v-else-if="request.response">{{ request.response }}</p></article></section>
     <details v-if="canAddService && newServiceKinds.length" class="add-service" :open="startAssigning && !activeServices.length">
       <summary>{{ activeServices.length ? 'Add another service' : 'Add service' }}</summary>
       <p>Add a service offered by this agency.<template v-if="hasCounseling"> Use Add provider above for another counselor.</template></p>
       <form class="add-service-form" @submit.prevent="save">
         <label>Service<select v-model="draft.serviceKind"><option v-for="kind in availableServiceKinds" :key="kind" :value="kind" :disabled="kind === 'counseling' && hasCounseling">{{ serviceLabels[kind] }}{{ kind === 'counseling' && hasCounseling ? ' (already added)' : '' }}</option></select></label>
         <label v-if="draft.serviceKind !== 'counseling'">Display name<input v-model="draft.label" maxlength="150" placeholder="e.g. Reading tutoring" /></label>
-        <div class="service-provider-field"><label for="new-service-provider">Assigned provider</label><ProviderSearchSelect v-model="draft.providerUserId" input-id="new-service-provider" :options="providers" :loading="providersLoading" :disabled="busy" label="Provider for new service" placeholder="Search providers (optional)…" /></div>
-        <label v-if="organizations.length">School / program (optional)<select v-model="draft.organizationId"><option :value="0">No school or program</option><option v-for="org in organizations" :key="org.organization_id" :value="org.organization_id">{{ org.organization_name || org.name }}</option></select></label>
+        <div class="service-provider-field"><label for="new-service-provider">Assigned provider</label><ProviderSearchSelect v-model="draft.providerUserId" input-id="new-service-provider" :options="choicesFor(draft.serviceKind)" :loading="providersLoading" :disabled="busy" label="Provider for new service" placeholder="Search providers (optional)…" /></div>
+        <label v-if="placementOptions.length">School / program (optional)<select v-model="draft.organizationId"><option :value="0">No school or program</option><option v-for="org in placementOptions" :key="org.organization_id" :value="org.organization_id">{{ org.organization_name || org.name }}</option></select></label>
         <button class="service-save" :disabled="busy || loading" type="submit">{{ busy ? 'Saving…' : 'Add service' }}</button>
         <button v-if="hasServiceDraft" type="button" :disabled="busy" @click="cancelServiceDraft">Cancel new service</button>
       </form>
@@ -56,7 +56,7 @@ import api from '../../services/api';
 import ProviderSearchSelect from '../clients/ProviderSearchSelect.vue';
 import { useAuthStore } from '../../store/auth';
 import ClientReenrollment from './ClientReenrollment.vue';
-import { meaningfulProgram } from '../../utils/clientRosterContext.js';
+import { meaningfulProgram, chartServiceLabel, offersAssignmentService } from '../../utils/clientRosterContext.js';
 const props = defineProps({ clientId: [Number, String], agencyId: [Number, String], organizations: { type: Array, default: () => [] }, startAssigning: { type: Boolean, default: false },initialAssignment:{type:Object,default:()=>({})} });
 const emit = defineEmits(['updated','loaded','busy','draft-change']);
 const auth=useAuthStore();
@@ -68,7 +68,8 @@ const services = ref([]), providers = ref([]), error = ref(''), busy = ref(false
 const editingServiceId = ref(null), selectedProviderId = ref(''), editingSourceId = ref(null), editingOrganizationId = ref(0);
 const addingProvider = ref(false);
 const availableServiceKinds = ref([]);
-const serviceLabels = { counseling: 'Counseling', tutoring: 'Tutoring', coaching: 'Coaching', consultation: 'Consultation' };
+const placementOptions = computed(() => props.organizations.filter(org => meaningfulProgram(org.organization_name || org.name,org.organization_type)));
+const serviceLabels = { counseling: 'Clinical', tutoring: 'Learning', coaching: 'Coaching', consultation: 'Consulting' };
 const newDraft = (serviceKind = 'counseling') => ({ serviceKind, label: '', providerUserId: 0, organizationId: 0 });
 const draft = ref(newDraft());
 const isActive = service => service.is_active === true || Number(service.is_active) === 1;
@@ -84,6 +85,12 @@ const servicePrograms = service => {
   return organizations.filter(program => meaningfulProgram(program.name,program.organization_type)).map(program => program.name).join(' · ');
 };
 let sequence = 0;
+function choicesFor(kind) {
+  return providers.value.filter(provider => offersAssignmentService(provider,props.agencyId,kind));
+}
+watch(() => draft.value.serviceKind, kind => {
+  if (!providersLoading.value && draft.value.providerUserId && !choicesFor(kind).some(p => Number(p.id) === Number(draft.value.providerUserId))) draft.value.providerUserId = 0;
+});
 async function load() {
   const run = ++sequence;
   services.value = []; providers.value = []; error.value = ''; busy.value = false; editingServiceId.value = null; editingSourceId.value = null; selectedProviderId.value = ''; draft.value = newDraft();
@@ -94,7 +101,7 @@ async function load() {
   loading.value = true; providersLoading.value = true;
   const [serviceResult, providerResult] = await Promise.allSettled([
     api.get(`/clients/${props.clientId}/service-enrollments`, { params: { agencyId: props.agencyId } }),
-    canAddService.value ? api.get('/office-clients/providers', { params: { clientId: props.clientId, agencyIds: String(props.agencyId) }, skipGlobalLoading: true }) : Promise.resolve({data:{providers:[]}})
+    canAddService.value ? api.get('/office-clients/providers', { params: { clientId: props.clientId, agencyIds: String(props.agencyId), serviceAssignments:'1' }, skipGlobalLoading: true }) : Promise.resolve({data:{providers:[]}})
   ]);
   if (run !== sequence) return;
   loading.value = false; providersLoading.value = false;
@@ -141,7 +148,7 @@ async function persist(input) {
   finally { if (run === sequence) busy.value = false; }
 }
 function assign(service) {
-  if (!providers.value.some(provider => Number(provider.id) === Number(selectedProviderId.value))) return;
+  if (!choicesFor(service.service_kind).some(provider => Number(provider.id) === Number(selectedProviderId.value))) return;
   return persist({ serviceId: editingSourceId.value || service.id, serviceKind: service.service_kind, label: service.label, organizationId: editingOrganizationId.value, providerUserId: Number(selectedProviderId.value), ...(addingProvider.value ? { addProvider: true } : {}) });
 }
 function save() {
@@ -150,7 +157,11 @@ function save() {
     return;
   }
   if (!availableServiceKinds.value.includes(draft.value.serviceKind)) return;
-  const labels = serviceLabels;
+  if (draft.value.providerUserId && !choicesFor(draft.value.serviceKind).some(provider => Number(provider.id) === Number(draft.value.providerUserId))) {
+    error.value = 'Choose a provider who offers this service.';
+    return;
+  }
+  const labels = {tutoring:'Tutoring',coaching:'Coaching',consultation:'Consultation'};
   return persist({ ...draft.value, label: draft.value.serviceKind === 'counseling' ? 'Counseling' : draft.value.label.trim() || labels[draft.value.serviceKind] });
 }
 function editStatus(service){statusEdit.value=service;statusDraft.value={status:service.service_status||(Number(service.is_active)===1?'active':'discontinued'),reason:'',closureReason:service.closure_reason||({completed:'care_completed',discontinued:'client_choice'}[service.service_status]||'other'),confirmed:false};error.value='';}

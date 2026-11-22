@@ -1,6 +1,6 @@
-import { readStaffCareEligibility, requireStaffCareEligibility } from './staffCareEligibility.service.js';
+import { readStaffCareEligibility, requireStaffCareEligibility, staffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
-import { providerServiceSettings, validateProviderServices } from '../utils/providerServiceOfferings.js';
+import { eligibleProviderServices, validateProviderServices } from '../utils/providerServiceOfferings.js';
 
 export async function readProviderServices(providerId, agencyId, database = pool) {
   const [types] = await database.execute('SELECT service_type,display_name FROM agency_public_service_types WHERE agency_id=? AND is_enabled=1 ORDER BY sort_order,service_type', [agencyId]);
@@ -9,11 +9,41 @@ export async function readProviderServices(providerId, agencyId, database = pool
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? JOIN agencies a ON a.id=ua.agency_id
     LEFT JOIN provider_public_profiles p ON p.user_id=u.id WHERE u.id=?`, [agencyId, providerId]);
   const careEligibility = await readStaffCareEligibility(providerId, agencyId, database);
-  const services = providerServiceSettings(person, agencyId, types, enrollments).map(service => ({
-    ...service, offered: Boolean(service.serviceType==='tutoring'?(careEligibility.canProvideTutoring||careEligibility.canProvideCare):careEligibility.canProvideCare) && service.offered && (service.serviceType !== 'counseling' || careEligibility.credentialTier !== 'unknown'),
-    onlineScheduling: Boolean(service.serviceType==='tutoring'?(careEligibility.canProvideTutoring||careEligibility.canProvideCare):careEligibility.canProvideCare) && service.onlineScheduling && (service.serviceType !== 'counseling' || careEligibility.credentialTier !== 'unknown')
-  }));
+  const services = eligibleProviderServices(person, agencyId, types, enrollments, careEligibility);
   return { agencyId, careEligibility, agencyName: person?.agency_name || '', services };
+}
+
+// Internal assignments use care qualifications and service offerings independently
+// of whether a provider accepts online booking. Read each agency roster in batches.
+export async function assignmentServicesForProviders(agencyId, providerIds, db = pool) {
+  const ids = [...new Set(providerIds.map(Number).filter(id => id > 0))];
+  if (!ids.length) return new Map();
+  const marks = ids.map(() => '?').join(',');
+  const [people] = await db.execute(`SELECT u.id,u.role,u.status,u.credential,u.sees_clients,u.has_provider_access,u.is_active,u.is_archived,
+    ua.agency_role,COALESCE(ua.is_active,1) AS membership_active,p.public_details_json
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
+    LEFT JOIN provider_public_profiles p ON p.user_id=u.id WHERE u.id IN (${marks})`, [agencyId,...ids]);
+  const [enrollments] = await db.execute(`SELECT user_id,service_type,is_active FROM provider_public_service_enrollments
+    WHERE agency_id=? AND user_id IN (${marks})`, [agencyId,...ids]);
+  const types = [{service_type:'counseling'}, {service_type:'tutoring'}];
+  return new Map(people.map(person => {
+    const care = staffCareEligibility(person, agencyId);
+    const services = eligibleProviderServices(person,agencyId,types,enrollments.filter(row => row.user_id === person.id),care);
+    return [Number(person.id),services.filter(service => service.offered).map(service => service.serviceType)];
+  }));
+}
+
+export async function clinicalProviderIssue(agencyId, providerId, db = pool) {
+  const offerings = await assignmentServicesForProviders(agencyId, [providerId], db);
+  return offerings.get(Number(providerId))?.includes('counseling') ? '' : 'This provider does not offer Clinical services in the selected agency.';
+}
+
+export async function requireAssignmentService(agencyId, providerId, serviceKind, db = pool) {
+  if (!['counseling','tutoring'].includes(serviceKind)) return;
+  const offerings = await assignmentServicesForProviders(agencyId, [providerId], db);
+  if (!offerings.get(Number(providerId))?.includes(serviceKind)) {
+    throw Object.assign(new Error('Choose a provider who offers this service in the selected agency.'), {status:409});
+  }
 }
 
 export async function saveProviderServices(providerId, agencyId, selected, onlineScheduling) {

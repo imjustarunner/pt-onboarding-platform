@@ -1,4 +1,5 @@
 import { clientServiceKindsForAgency } from '../clientServiceCatalog.service.js';
+vi.mock('../providerServiceOfferings.service.js', () => ({requireAssignmentService:vi.fn()}));
 vi.mock('../clientServiceCatalog.service.js', () => ({ clientServiceKindsForAgency: vi.fn().mockResolvedValue(['counseling','tutoring']) }));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));

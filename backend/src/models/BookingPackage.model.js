@@ -616,6 +616,12 @@ class BookingPackage {
         `SELECT id, direction, reason_code, metadata_json FROM booking_package_ledger
          WHERE entitlement_id = ? AND agency_id = ? AND appointment_id = ? ORDER BY id ASC`,
         [row.id, agencyId, Number(appointmentId)]);
+      if (['reserve','consume','complete'].includes(mode) && !history.some(entry=>['CONSUME','RESERVE'].includes(entry.direction))) {
+        const [[appointment]]=await conn.execute('SELECT business_type FROM appointments WHERE id=? AND agency_id=?',[appointmentId,agencyId]);
+        if (!appointment || row.learning_program_class_id || (row.business_type && row.business_type!==appointment.business_type)) {
+          throw Object.assign(new Error('Choose a package for this appointment service. Class credits apply to their class.'),{status:409});
+        }
+      }
       const change = planPackageUsage({ mode, remaining: row.sessions_remaining, reserved: row.sessions_reserved,
         freeMisses: row.free_misses_remaining, bonusRemaining: row.bonus_sessions_remaining, bonusReserved: row.bonus_sessions_reserved,
         status: row.status, consumeOn: row.consume_on, history });

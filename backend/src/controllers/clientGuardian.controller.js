@@ -1,3 +1,4 @@
+import { personalContactReviewReason } from '../services/clientChartTypes.service.js';
 import { ageOn } from '../services/guardianClinicalAccess.service.js';
 import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import { guardianAccountStatuses } from '../services/guardianAccountStatus.service.js';
@@ -84,6 +85,12 @@ export const upsertClientGuardian = async (req, res, next) => {
     if (!email) return res.status(400).json({ error: { message: 'Valid email is required' } });
     if (!firstName || !lastName) return res.status(400).json({ error: { message: 'First and last name are required' } });
     if (relationshipType === 'self' && (req.body.clientOwnContactConfirmed !== true || !normalizeEmail(client.email) || normalizeEmail(client.email) !== email)) return res.status(400).json({ error: { message: 'Save and explicitly confirm the client’s own email in Demographics before preparing their portal account. A guardian’s email must not be used as the client’s email.' } });
+    if (relationshipType === 'self') {
+      const issue = await personalContactReviewReason(clientId);
+      if (issue) return res.status(409).json({error:{message:issue === 'shared_email'
+        ? 'This email is shared with another client chart. Confirm a separate client address in Demographics.'
+        : 'An existing portal relationship or identity needs review. Check the client’s current login before preparing another.'}});
+    }
     if (relationshipType !== 'self' && accessEnabled && req.body.relationshipVerified !== true) {
       return res.status(400).json({ error: { message: 'Verify this person’s identity and relationship to the selected client before enabling access.' } });
     }
@@ -102,6 +109,7 @@ export const upsertClientGuardian = async (req, res, next) => {
       }
       if (relationshipType === 'self') {
         const prior = await ClientGuardian.getLink({ clientId, guardianUserId: guardian.id });
+        if (!prior) return res.status(409).json({error:{message:'This address has an existing login. Review its ownership before linking it to this chart.'}});
         if (prior && prior.relationship_type !== 'self') return res.status(409).json({ error: { message: 'This email belongs to an existing guardian relationship for this client. Use the client’s separate email; guardian access cannot be converted into the client’s identity.' } });
       }
     } else {
@@ -145,6 +153,7 @@ export const upsertClientGuardian = async (req, res, next) => {
         ...(relationshipType !== 'self' && { pendingGuardianVerification: !accessEnabled && Number(priorLink?.access_enabled) !== 1 })
       },
       expectedLink: priorLink,
+      ...(relationshipType === 'self' ? {expectedSelfEmail:email} : {}),
       createdByUserId: req.user?.id || null
     });
 
