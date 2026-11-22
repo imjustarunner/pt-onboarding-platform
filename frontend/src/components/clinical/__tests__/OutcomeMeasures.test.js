@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 // Vite rewrites asset URLs to HTTP in jsdom; load the real reviewed JSON directly.
@@ -14,12 +15,12 @@ import { outcomeMeasures, measureRights, getOutcomeMeasure } from '../../../../.
 import { scoreOutcomeMeasure } from '../../../../../backend/src/services/outcomeMeasureScoring.js';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 import api from '../../../services/api';
-const catalog={measures:outcomeMeasures,rights:measureRights,availableCount:12,reviewedCount:34,checkedAt:'2026-10-10'};
+const catalog={measures:outcomeMeasures,rights:measureRights,availableCount:24,reviewedCount:44,checkedAt:'2026-10-10'};
 const mountPanel = props => mount(Panel, { props, global: { stubs: { ClinicalScreenerLink: true } } });
 const button=(w,text)=>w.findAll('button').find(b=>b.text().includes(text));
 beforeEach(()=>{vi.resetAllMocks();window.confirm=vi.fn().mockReturnValue(true);api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('catalog')?catalog:{responses:[]}}));});
 describe('instrument forms',()=>{
-  it('renders all 12 as disabled blank previews with sources and no save control',()=>{
+  it('renders all supported measures as disabled blank previews with sources and no save control',()=>{
     for(const measure of outcomeMeasures){const w=mount(Form,{props:{measure,preview:true}});expect(w.findAll('fieldset')).toHaveLength(measure.items.length);expect(w.findAll('fieldset').every(f=>f.attributes('disabled')!==undefined)).toBe(true);expect(w.text()).toContain(measure.rights.attribution);expect(w.find('button[type=submit]').exists()).toBe(false);w.unmount();}
   });
   it.each(['scared', 'scared-parent'])('opens the official %s PDF and captures numbered answers', async id => {
@@ -62,7 +63,17 @@ it('opens the assigned parent report and submits all responses without showing a
   w.unmount();
 });
 describe('catalog and client workflow',()=>{
-  it('searches and previews without requesting any clinical record',async()=>{const w=mountPanel();await flushPromises();expect(w.findAll('.measure-cards button')).toHaveLength(12);await w.get('input[type=search]').setValue('SCARED Child self-report');expect(w.findAll('.measure-cards button').length).toBeLessThan(outcomeMeasures.length);await button(w,'SCARED · Child self-report').trigger('click');expect(w.getComponent(Form).props('preview')).toBe(true);expect(api.get).toHaveBeenCalledTimes(1);expect(w.find('.record-controls').exists()).toBe(false);w.unmount();});
+  it('submits an assigned branching questionnaire without optional or hidden questions',async()=>{
+    const measure=getOutcomeMeasure('ftnd');api.get.mockResolvedValue({data:{measure}});api.post.mockResolvedValue({data:{complete:true}});
+    const w=mount(AssignedOutcomeAssessment,{props:{agencyId:2,clientId:41,itemId:12}});await w.get('button').trigger('click');await flushPromises();
+    await w.get('[data-question=current_smoking] input[value="0"]').setValue();
+    expect(w.get('button[type=submit]').attributes('disabled')).toBeUndefined();await w.get('form').trigger('submit');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/client-updates/clients/41/items/12/assessment',{agencyId:2,version:measure.version,answers:{current_smoking:'0'}});w.unmount();
+  });
+  it.each(['phq-a','phq-9-parent','phq-9-modified-teens','phq-9-adolescent'])('shows immediate safety follow-up for %s',id=>{
+    const w=mount(Form,{props:{measure:getOutcomeMeasure(id),modelValue:id==='phq-a'?{q9:'1'}:{past_month:'1'}}});expect(w.get('[role=alert]').text()).toContain('Direct safety follow-up');w.unmount();
+  });
+  it('searches and previews without requesting any clinical record',async()=>{const w=mountPanel();await flushPromises();expect(w.findAll('.measure-cards button')).toHaveLength(24);await w.get('input[type=search]').setValue('SCARED Child self-report');expect(w.findAll('.measure-cards button').length).toBeLessThan(outcomeMeasures.length);await button(w,'SCARED · Child self-report').trigger('click');expect(w.getComponent(Form).props('preview')).toBe(true);expect(api.get).toHaveBeenCalledTimes(1);expect(w.find('.record-controls').exists()).toBe(false);w.unmount();});
   it('records server-scored results and preserves submission ID after a network error',async()=>{
     const w=mountPanel({clientId:41});await flushPromises();await button(w,'PHQ-9').trigger('click');
     await w.get('[data-question=q1] input[value="1"]').setValue();await w.get('.record-controls input[type=checkbox]').setValue(true);

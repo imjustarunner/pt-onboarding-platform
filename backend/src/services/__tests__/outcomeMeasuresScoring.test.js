@@ -6,9 +6,9 @@ const score = (id, answers) => scoreOutcomeMeasure(getOutcomeMeasure(id), answer
 const repeated = (count, value) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`q${i+1}`, String(value)]));
 describe('reviewed instrument catalog', () => {
   it('enables exactly the reviewed instruments, with attributed versioned sources', () => {
-    expect(measureRights).toHaveLength(34); expect(outcomeMeasures).toHaveLength(12);
-    expect(new Set(outcomeMeasures.map(m => m.id)).size).toBe(12);
-    expect(outcomeMeasures.map(m => m.id).sort()).toEqual(['phq-9','phq-a','gad-7','pcl-5','lec-5','des-b','aware','cage-aid','ftnd','taps','scared','scared-parent'].sort());
+    expect(measureRights).toHaveLength(44); expect(outcomeMeasures).toHaveLength(24);
+    expect(new Set(outcomeMeasures.map(m => m.id)).size).toBe(24);
+    expect(outcomeMeasures.map(m => m.id).sort()).toEqual(['phq-9','phq-a','gad-7','pcl-5','lec-5','des-b','aware','cage-aid','ftnd','taps','scared','scared-parent','nichq-vanderbilt-assessment-scale-parent-informant-vadrs','vanderbilt-parent-follow-up','asrs','rses','phq','phq-2','phq-4','phq-8','gad-2','phq-9-parent','phq-9-modified-teens','phq-9-adolescent'].sort());
     for (const m of outcomeMeasures) { expect(m.rights.status).toBe('enabled'); expect(m.rights.rightsUrl).toMatch(/^https:/); expect(m.version).toMatch(/^[a-f0-9]{20}$/); expect(new Set(m.items.map(i => i.key)).size).toBe(m.items.length); }
   });
   it.each(['itsco','nlu','isi'])('links both SCARED reports in the %s guide', agency => {

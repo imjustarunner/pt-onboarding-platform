@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import Modal from '../ClientUpdateModal.vue';

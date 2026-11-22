@@ -136,8 +136,8 @@ function assertOutcomeRecipient(measure, recipient, boundRecipientId) {
   const self = recipient.role === 'client' && recipient.relationship_type === 'self';
   if (measure.respondent === 'self' ? !self : !['guardian', 'client_guardian'].includes(recipient.role) || recipient.relationship_type === 'self') {
     throw fail(400, measure.respondent === 'self'
-      ? 'Assign the SCARED child report to the client’s own portal account.'
-      : 'Assign the SCARED parent report to an authorized parent or guardian.');
+      ? `Assign ${measure.title} to the client’s own portal account.`
+      : `Assign ${measure.title} to an authorized parent or guardian.`);
   }
 }
 

@@ -105,6 +105,7 @@
                   <section v-for="group in selectionGroups" :key="group.key">
                     <h5>{{ group.label }}</h5><div v-for="item in group.items" :key="item.id" class="pick-row">
                       <label><input v-if="item.assignable !== false && (clinicalMode!=='release' || group.key!=='records')" type="checkbox" :checked="isSelected(item)" @change="toggleItem(item,$event.target.checked)" /> {{ item.title }}</label>
+                      <small v-if="item.population">{{ item.population }}</small>
                       <small v-if="item.assignable === false" class="status-tag">Coming soon</small>
                       <button v-else type="button" class="text-action" @click="previewItems=[item]">Preview</button>
                       <button v-if="!recipientGuardianId && ['foundation','records'].includes(group.key)" type="button" class="text-action" @click="clinical.prepare(item)">{{ group.key==='records'?'Open':'Prepare' }}</button>
@@ -139,6 +140,8 @@
               </details>
             </section>
             <label>Portal recipient <select v-model="chosenId" :disabled="saving || attemptedDelivery"><option value="">Select a linked account</option><option v-for="r in eligible" :value="r.id" :key="r.id">{{ r.name }}{{ r.email?' · '+r.email:'' }}</option></select></label>
+            <p v-if="assessmentRespondents.length > 1" class="hint">Assign client self-reports and parent reports separately so each person answers their own questionnaire.</p>
+            <p v-else-if="assessmentRespondents.length" class="hint">{{ assessmentRespondents[0] === 'self' ? 'The client completes this selection in their own portal account.' : 'A parent or guardian completes this selection about the client.' }}</p>
             <p v-if="!eligible.length" class="hint">No linked account has access to this selection. Review portal access or the responsible payer in Billing.</p>
             <template v-if="needsAuthority">
               <label v-if="clinicalSelection.length">Recipient action <select v-model="clinicalAction" :disabled="saving"><option value="complete">Complete forms and sign</option><option value="sign">Review and sign</option></select></label>
@@ -219,7 +222,7 @@ const typedForms = computed(() => [
 ]);
 const updateChoices=computed(()=>[
   ...catalog.documents.map(d=>({group:'documents',id:d.id,title:d.name})),
-  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title,assignable:a.assignable})),
+  ...catalog.assessments.map(a=>({group:'assessments',id:a.family,title:a.title,population:a.population,respondent:a.respondent,assignable:a.assignable})),
   ...catalog.portalSteps.map(s=>({group:'portalSteps',id:s.key,title:s.title,detail:s.detail}))
 ]);
 const selectedItems=computed(()=>[...typedForms.value.filter(isSelected),...updateChoices.value.filter(isSelected),...clinicalSelection.value]);
@@ -306,8 +309,10 @@ function matchesStatus(i,status){return !status || (status==='result'?!!Number(i
 const filteredItems=computed(()=>allItems.value.filter(i=>(!itemType.value || typeName(i)===itemType.value) && matchesStatus(i,itemStatus.value) && i.title.toLowerCase().includes(search.value.toLowerCase())));
 const paymentSelected=computed(()=>selected.portalSteps.some(k=>['payment','authorization'].includes(k)));
 const paymentOnly=computed(()=>paymentSelected.value && !selected.documents.length && !selected.assessments.length && selected.portalSteps.every(k=>['payment','authorization'].includes(k)));
+const assessmentRespondents=computed(()=>[...new Set(catalog.assessments.filter(a=>selected.assessments.includes(a.family) && a.respondent).map(a=>a.respondent))]);
 const eligibleRecipients=computed(()=>{
-  const updateRecipients=recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing));
+  const updateRecipients=recipients.value.filter(r=>(paymentOnly.value || r.forms) && (!paymentSelected.value || r.billing)
+    && assessmentRespondents.value.every(type=>r.kind===(type==='self'?'client':'guardian')));
   const schoolRelease=smartKeys.value.includes('smart-school-roi');
   const allowed=schoolRelease ? updateRecipients.filter(r=>r.kind!=='client') : updateRecipients;
   if(!needsAuthority.value)return allowed;

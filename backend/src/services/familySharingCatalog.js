@@ -6,7 +6,8 @@ export const GUARDIAN_ACCOUNT_DOCUMENT_TYPES = ['acknowledgment','administrative
 const READY_ASSESSMENTS = new Set(['life_balance']);
 
 export function familyOutcomeMeasure(key) {
-  return ['scared', 'scared-parent'].includes(key) ? outcomeMeasures.find(measure => measure.id === key) : undefined;
+  const measure = outcomeMeasures.find(measure => measure.id === key);
+  return measure ? { ...measure, respondent: measure.respondent || 'self' } : undefined;
 }
 
 export function canAssignFamilyAssessment(key) {
@@ -16,7 +17,7 @@ export function canAssignFamilyAssessment(key) {
 export function familyAssessmentChoices() {
   return [
     ...ASSESSMENT_FAMILIES.map(({ family, title }) => ({ family, title, assignable: canAssignFamilyAssessment(family) })),
-    ...outcomeMeasures.map(({ id, title }) => ({ family: id, title: title || id, assignable: Boolean(familyOutcomeMeasure(id)) })),
+    ...outcomeMeasures.map(({ id, title, population, respondent }) => ({ family: id, title: `${title || id} · ${respondent === 'caregiver' ? 'Parent / guardian' : 'Client self-report'}`, population, respondent: respondent || 'self', assignable: Boolean(familyOutcomeMeasure(id)) })),
     { family: 'psc-17', title: 'PSC-17 · Parent / guardian report', assignable: false },
     { family: 'cssrs-screener', title: 'C-SSRS · Suicide ideation screener', assignable: false }
   ];
