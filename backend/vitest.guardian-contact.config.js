@@ -9,6 +9,7 @@ export default defineConfig({
     'src/services/__tests__/guardianWorkspace.test.js',
     'src/controllers/__tests__/clientGuardianPortalModes.test.js',
     'src/controllers/__tests__/clientGuardianContactSave.test.js',
+    'src/controllers/__tests__/guardianRelationshipRestore.test.js',
     'src/models/__tests__/schoolGuardianPolicy.concurrentAccess.test.js'
   ] }
 });

@@ -1068,21 +1068,34 @@
                 <button
                   type="button"
                   class="btn btn-primary"
-                  :disabled="guardianSearchLoading || guardianLinkSaving || !guardianSelectedClientId"
+                  v-if="!guardianSelectedHistoricalClient"
+                  :disabled="guardianSearchLoading || guardianLinkedClientsLoading || guardianLinkSaving || !guardianSelectedClientId"
                   @click="linkGuardianToClient"
                 >
                   {{ guardianLinkSaving ? 'Linking…' : 'Link for access review' }}
                 </button>
               </div>
             </div>
+            <div v-if="guardianSelectedHistoricalClient" style="margin-top:16px">
+              <p>This client already has a past relationship with this account. Restore the existing relationship below.</p>
+              <GuardianRelationshipRestore :client-id="Number(guardianSelectedHistoricalClient.client_id)" :guardian-id="Number(userId)" @restored="loadGuardianLinkedClients" />
+            </div>
             <div v-if="guardianSearchLoading" class="muted" style="margin-top: 8px;">Searching…</div>
             <div v-if="guardianLinkError" class="error" style="margin-top: 8px;">{{ guardianLinkError }}</div>
           </details>
 
+          <section v-if="guardianHistoricalClients.length" class="card" style="padding:18px;margin:18px 0">
+            <h3>Past relationships</h3>
+            <article v-for="past in guardianHistoricalClients" :key="past.client_id" style="margin-top:16px">
+              <strong>{{past.full_name||past.initials||`Client ${past.client_id}`}}</strong>
+              <p>Marked incorrect. Previous relationship history is preserved.</p>
+              <GuardianRelationshipRestore v-if="canEditUser && Number(past.client_id)!==Number(guardianSelectedHistoricalClient?.client_id)" :client-id="Number(past.client_id)" :guardian-id="Number(userId)" @restored="loadGuardianLinkedClients" />
+            </article>
+          </section>
           <div v-if="guardianLinkedClientsLoading" class="loading">Loading linked clients…</div>
           <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
           <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
-            <p>No linked clients yet.</p>
+            <p>No current client relationships. Past relationships, when present, can be restored above.</p>
           </div>
           <div v-else class="table-wrap">
             <table class="table">
@@ -2721,6 +2734,8 @@ import { agencyCardStyle } from '../../utils/agencyCardScope.js';
 import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
 import { guardianNotificationDelivery } from '../../utils/guardianDirectory.js';
 import GuardianFamilyWorkspace from '../../components/admin/GuardianFamilyWorkspace.vue';
+import GuardianRelationshipRestore from '../../components/admin/GuardianRelationshipRestore.vue';
+import {useGuardianClientSearch} from '../../composables/useGuardianClientSearch.js';
 import ClientReminderTextConsent from '../../components/admin/ClientReminderTextConsent.vue';
 import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
@@ -2883,12 +2898,14 @@ const memberRegistrationProfile = ref({ customFields: {} });
 const memberSeasonAiSummary = ref('');
 const seasonCaptainTogglingKey = ref('');
 const guardianLinkedClients = ref([]);
+const guardianHistoricalClients = ref([]);
 const guardianConsentClientId = ref(null);
 const guardianLinkedClientsLoading = ref(false);
 const guardianLinkedClientsError = ref('');
 const guardianClientQuery = ref('');
 const guardianClientOptions = ref([]);
 const guardianSelectedClientId = ref('');
+const guardianSelectedHistoricalClient = computed(()=>guardianHistoricalClients.value.find(row=>Number(row.client_id)===Number(guardianSelectedClientId.value))||null);
 const guardianSearchLoading = ref(false);
 const guardianLinkSaving = ref(false);
 const guardianLinkError = ref('');
@@ -3533,10 +3550,11 @@ const loadGuardianLinkedClients = async () => {
   const generation = ++guardianClientLoadGeneration;
   guardianLinkedClientsLoading.value = true;
   guardianLinkedClientsError.value = '';
+  guardianHistoricalClients.value = [];
   try {
-    const response = await api.get(`/users/${targetId}/guardian-clients`);
+    const response = await api.get(`/users/${targetId}/guardian-clients`,{skipGlobalLoading:true,params:{includeHistory:true}});
     if (targetId !== userId.value || generation !== guardianClientLoadGeneration) return;
-    guardianLinkedClients.value = Array.isArray(response?.data)
+    const relationships = Array.isArray(response?.data)
       ? response.data.map((row) => ({
         ...row,
         relationship_type: String(row?.relationship_type || 'guardian').toLowerCase(),
@@ -3544,10 +3562,13 @@ const loadGuardianLinkedClients = async () => {
         access_enabled: row?.access_enabled === 1 || row?.access_enabled === true ? 1 : 0
       }))
       : [];
+    guardianLinkedClients.value = relationships.filter(row=>Number(row.relationship_revoked)!==1);
+    guardianHistoricalClients.value = relationships.filter(row=>Number(row.relationship_revoked)===1);
   } catch (e) {
     if (targetId !== userId.value || generation !== guardianClientLoadGeneration) return;
     guardianLinkedClientsError.value = e.response?.data?.error?.message || 'Failed to load linked clients';
     guardianLinkedClients.value = [];
+    guardianHistoricalClients.value = [];
   } finally {
     if (targetId === userId.value && generation === guardianClientLoadGeneration) guardianLinkedClientsLoading.value = false;
   }
@@ -3693,39 +3714,13 @@ const applyGuardianDeliveryPrefsFromIntake = async () => {
   await saveGuardianDeliveryPrefs();
 };
 
-const searchGuardianClients = async () => {
-  const q = String(guardianClientQuery.value || '').trim();
-  if (!q) {
-    guardianClientOptions.value = [];
-    guardianSelectedClientId.value = '';
-    return;
-  }
-  guardianSearchLoading.value = true;
-  guardianLinkError.value = '';
-  try {
-    const response = await api.get('/clients', {
-      params: {
-        search: q,
-        includeArchived: false,
-        paginate: false
-      }
-    });
-    const payload = response?.data || [];
-    const rows = Array.isArray(payload) ? payload : (Array.isArray(payload?.items) ? payload.items : []);
-    guardianClientOptions.value = rows.slice(0, 25);
-    if (!guardianClientOptions.value.find((c) => String(c.id) === String(guardianSelectedClientId.value))) {
-      guardianSelectedClientId.value = guardianClientOptions.value.length ? String(guardianClientOptions.value[0].id) : '';
-    }
-  } catch (e) {
-    guardianLinkError.value = e.response?.data?.error?.message || 'Failed to search clients';
-  } finally {
-    guardianSearchLoading.value = false;
-  }
-};
+const {search:searchGuardianClients}=useGuardianClientSearch({query:guardianClientQuery,guardianId:userId,
+ options:guardianClientOptions,selectedClientId:guardianSelectedClientId,loading:guardianSearchLoading,error:guardianLinkError,api});
 
 const linkGuardianToClient = async () => {
   const clientId = parseInt(String(guardianSelectedClientId.value || ''), 10);
   if (!clientId || !userId.value) return;
+  if (guardianSelectedHistoricalClient.value) { guardianLinkError.value = 'Restore this existing relationship using the review below.'; return; }
   const email = String(user.value?.email || '').trim();
   if (!email) {
     guardianLinkError.value = 'Guardian account is missing an email. Add an email on the Account tab first.';
@@ -4636,7 +4631,7 @@ watch(() => accountForm.value.role, (newRole) => {
 });
 
 watch([activeTab, isViewingGuardian, userId], async ([t, viewingGuardian], [, , previousId]) => {
-  if (previousId !== undefined && previousId !== userId.value) guardianLinkedClients.value = [];
+  if (previousId !== undefined && previousId !== userId.value) { guardianLinkedClients.value = []; guardianHistoricalClients.value = []; }
   if (t === 'assignments' && viewingGuardian) { activeTab.value = 'portal'; return; }
   // NOTE: On initial mount, `activeTab` is already set (often "account"), but `user` isn't loaded yet.
   // This watch includes `isViewingGuardian` so we still load linked clients/insurance once the target

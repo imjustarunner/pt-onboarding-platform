@@ -97,7 +97,7 @@ import {
   sendClientSchoolRoiSigningText,
   sendClientSchoolRoiSigningEmail
 } from '../controllers/clientSchoolRoiAccess.controller.js';
-import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
+import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian, restoreClientGuardian } from '../controllers/clientGuardian.controller.js';
 import { getClientGuardianWaiverAudit } from '../controllers/guardianWaiver.controller.js';
 import {
   listClientCommunications,
@@ -455,6 +455,7 @@ router.post(
   ],
   upsertClientGuardian
 );
+router.post('/:id/guardians/:guardianUserId/restore', requireBackofficeAdmin, restoreClientGuardian);
 router.patch('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
 // Older guardian contact editors submit PUT; keep the same authorization and handler.
 router.put('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);

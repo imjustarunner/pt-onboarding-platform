@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'backend/src/controllers/clientGuardian.controller.js'
+      - 'backend/src/controllers/user.controller.js'
+      - 'backend/src/controllers/__tests__/guardianRelationshipRestore.test.js'
+      - 'frontend/src/views/admin/UserProfileView.vue'
+      - 'frontend/src/composables/useGuardianClientSearch.js'
+      - 'frontend/src/composables/__tests__/useGuardianClientSearch.test.js'
       - 'backend/src/controllers/__tests__/clientGuardianPortalModes.test.js'
       - 'backend/src/controllers/__tests__/clientGuardianContactSave.test.js'
       - 'backend/src/models/__tests__/schoolGuardianPolicy.concurrentAccess.test.js'
@@ -23,6 +28,11 @@ on:
     branches: [main]
     paths:
       - 'backend/src/controllers/clientGuardian.controller.js'
+      - 'backend/src/controllers/user.controller.js'
+      - 'backend/src/controllers/__tests__/guardianRelationshipRestore.test.js'
+      - 'frontend/src/views/admin/UserProfileView.vue'
+      - 'frontend/src/composables/useGuardianClientSearch.js'
+      - 'frontend/src/composables/__tests__/useGuardianClientSearch.test.js'
       - 'backend/src/controllers/__tests__/clientGuardianPortalModes.test.js'
       - 'backend/src/controllers/__tests__/clientGuardianContactSave.test.js'
       - 'backend/src/models/__tests__/schoolGuardianPolicy.concurrentAccess.test.js'

@@ -120,7 +120,7 @@ export const upsertClientGuardian = async (req, res, next) => {
 
     const priorLink = await ClientGuardian.getLink({ clientId, guardianUserId: guardian.id });
     if (priorLink?.permissions_json?.relationshipRevoked) {
-      return res.status(409).json({ error: { message: 'This relationship was marked incorrect and needs separate review.' } });
+      return res.status(409).json({ error: { message: 'This relationship was marked incorrect. Use Restore relationship under Past relationships to review and restore it.', code: 'GUARDIAN_RELATIONSHIP_REVIEW_REQUIRED' } });
     }
     if (Number(priorLink?.access_enabled) === 1) {
       return res.status(409).json({ error: { message: 'This account already has a relationship with this client. Review it on the Portal tab.' } });
@@ -263,6 +263,27 @@ export const updateClientGuardian = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const restoreClientGuardian = async (req, res, next) => {
+  try {
+    const clientId = Number(req.params.id), guardianUserId = Number(req.params.guardianUserId);
+    if (![clientId, guardianUserId].every(id => Number.isSafeInteger(id) && id > 0)) return res.status(400).json({error:{message:'Invalid relationship ids.'}});
+    const accessMode = req.body?.accessMode;
+    const reason = typeof req.body?.accessReason === 'string' ? req.body.accessReason.trim() : '';
+    if (req.body?.relationshipVerified !== true || !reason || reason.length > 1000 || !['care','payment_only','payer_plus','none'].includes(accessMode)) {
+      return res.status(400).json({error:{message:'Confirm the current relationship, choose access and record the reason for restoring it.'}});
+    }
+    const access = await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId});
+    if (!access.ok) return res.status(access.status || 403).json({error:{message:access.message || 'Client access denied.'}});
+    const link = await ClientGuardian.getLink({clientId,guardianUserId});
+    if (!link) return res.status(404).json({error:{message:'Guardian relationship not found.'}});
+    if (link.relationship_type === 'self') return res.status(409).json({error:{message:'Review the client’s own account separately from guardian relationship restoration.'}});
+    const result = await ClientGuardian.restoreIncorrectLink({clientId,guardianUserId,actorUserId:req.user.id,accessMode,reason});
+    await logAuditEvent(req,{actionType:'guardian_relationship_restored',agencyId:access.client?.agency_id || req.agencyId || null,
+      metadata:{clientId,guardianUserId,accessMode,reason}});
+    res.json({ok:true,...result});
+  } catch (error) { next(error); }
 };
 
 export const removeClientGuardian = async (req, res, next) => {

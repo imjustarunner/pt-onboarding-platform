@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { isDeepStrictEqual } from 'node:util';
+import { permissionsForAccessMode } from '../utils/portalRelationshipAccess.js';
 
 class ClientGuardian {
   static _hasRelationshipTypeColumn = null;
@@ -177,6 +178,55 @@ class ClientGuardian {
     await db.commit();
     return true;
     } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
+  }
+
+  static async restoreIncorrectLink({ clientId, guardianUserId, actorUserId, accessMode, reason }) {
+    const cid = Number(clientId), uid = Number(guardianUserId);
+    if (![cid, uid, Number(actorUserId)].every(id => Number.isSafeInteger(id) && id > 0) || !String(reason || '').trim()) {
+      throw Object.assign(new Error('A valid relationship, reviewer and restoration reason are required.'), { status: 400 });
+    }
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      const [[link]] = await db.execute(`SELECT relationship_type, access_enabled, permissions_json
+        FROM client_guardians WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE`, [cid, uid]);
+      if (!link) throw Object.assign(new Error('Guardian relationship not found.'), { status: 404 });
+      const current = this.parsePermissions(link.permissions_json) || {};
+      if (![true, 'true'].includes(current.relationshipRevoked)) throw Object.assign(new Error('This relationship is already current. Refresh and manage its portal access.'), { status: 409 });
+      const [[event]] = await db.execute(`SELECT from_value FROM client_status_history
+        WHERE client_id = ? AND field_changed = 'incorrect_guardian_relationship' AND to_value = ?
+        ORDER BY id DESC LIMIT 1`, [cid, String(uid)]);
+      const snapshot = this.parsePermissions(event?.from_value);
+      let restored = { ...current, relationshipRevoked: false };
+      // Undo only the contact/privacy flags imposed by the incorrect-link action.
+      // Separate consent and clinical grants are not changed.
+      if (Number(snapshot?.guardianUserId) === uid && snapshot.permissions && typeof snapshot.permissions === 'object' && !Array.isArray(snapshot.permissions)) {
+        for (const flag of ['noContact', 'noView']) {
+          if (Object.hasOwn(snapshot.permissions, flag)) restored[flag] = snapshot.permissions[flag];
+          else delete restored[flag];
+        }
+      }
+      restored = permissionsForAccessMode(restored, accessMode);
+      restored.portalAccessDecision = accessMode;
+      const enabled = accessMode !== 'none';
+      if (enabled) {
+        const [[independent]] = await db.execute("SELECT user_id FROM client_portal_independence WHERE client_id=? AND status IN ('requested','active')", [cid]);
+        if (independent && (Number(independent.user_id) !== uid || link.relationship_type !== 'self')) throw Object.assign(new Error('This client controls their own account. Review client-approved assistance permissions.'), { status: 409 });
+        if (link.relationship_type !== 'self' && restored.enrollmentAccessConfirmed !== true) {
+          const [active] = await db.execute("SELECT guardian_user_id FROM client_guardians WHERE client_id = ? AND access_enabled = 1 AND guardian_user_id <> ? AND relationship_type <> 'self'", [cid, uid]);
+          if (active.length >= 2) throw Object.assign(new Error('This client already has two guardians with access. Restore without portal access and review the current relationships.'), { status: 409 });
+        }
+        restored.pendingGuardianVerification = false;
+      }
+      await db.execute('UPDATE client_guardians SET access_enabled = ?, permissions_json = ? WHERE client_id = ? AND guardian_user_id = ?', [enabled ? 1 : 0, JSON.stringify(restored), cid, uid]);
+      await db.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+        VALUES (?, ?, 'guardian_relationship_restored', ?, ?, ?)`, [cid, actorUserId,
+        JSON.stringify({guardianUserId:uid,accessEnabled:Number(link.access_enabled) === 1,permissions:current}),
+        JSON.stringify({guardianUserId:uid,accessEnabled:enabled,permissions:restored}), reason]);
+      await db.commit();
+      return { accessEnabled: enabled };
+    } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
   }
 
   static async revokeIncorrectLink({ clientId, guardianUserId, actorUserId }) {

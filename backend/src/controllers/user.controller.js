@@ -1025,13 +1025,14 @@ export const getGuardianLinkedClients = async (req, res, next) => {
          a.name AS agency_name,
          ${hasRelationshipType ? 'cg.relationship_type,' : "'guardian' AS relationship_type,"}
          cg.relationship_title,
-         cg.access_enabled
+         cg.access_enabled,
+         COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') = 'true' AS relationship_revoked
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
        LEFT JOIN agencies o ON o.id = c.organization_id
        LEFT JOIN agencies a ON a.id = c.agency_id
        WHERE cg.guardian_user_id = ?
-         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
+         ${req.query?.includeHistory === 'true' ? '' : "AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'"}
        ORDER BY o.name, c.initials`,
       [guardianUserId]
     );

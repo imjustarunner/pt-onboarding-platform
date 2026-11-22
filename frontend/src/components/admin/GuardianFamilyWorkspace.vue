@@ -26,7 +26,7 @@
    <details v-if="data.historicalRelationships?.length" class="relationship-history">
     <summary>Past relationships ({{data.historicalRelationships.length}})</summary>
     <p>These relationships were marked incorrect. Their history is preserved.</p>
-    <article v-for="past in data.historicalRelationships" :key="past.client_id"><strong>{{past.full_name||past.initials||`Client ${past.client_id}`}}</strong><p>{{past.agency_name}} · Marked incorrect</p></article>
+    <article v-for="past in data.historicalRelationships" :key="past.client_id"><strong>{{past.full_name||past.initials||`Client ${past.client_id}`}}</strong><p>{{past.agency_name}} · Marked incorrect</p><GuardianRelationshipRestore v-if="canEdit" :client-id="Number(past.client_id)" :guardian-id="guardianId" @restored="updated" /></article>
    </details>
   </template>
   <ClientDetailPanel v-if="opened" :key="`${opened.client_id}:${openedTab}`" :client="{...opened,id:opened.client_id}" :initial-tab="openedTab" @close="opened=null" @updated="load" />
@@ -37,6 +37,7 @@
 import {computed,defineAsyncComponent,ref,watch} from 'vue';
 import api from '../../services/api';
 import ClientGuardianContactEditor from './ClientGuardianContactEditor.vue';
+import GuardianRelationshipRestore from './GuardianRelationshipRestore.vue';
 import ClientPortalInviteDialog from '../clients/ClientPortalInviteDialog.vue';
 const ClientDetailPanel=defineAsyncComponent(()=>import('./ClientDetailPanel.vue').then(module=>module.default));
 const props=defineProps({guardianId:{type:Number,required:true},canEdit:Boolean});const emit=defineEmits(['updated']);
