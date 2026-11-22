@@ -367,7 +367,7 @@ jobs:
           ENV_VARS="${ENV_VARS}|AURICWELL_APPOINTMENT_EMAIL_FROM=notifications@auricwell.com"
           # AuricWell Groups use SMTP relay; existing accepted Gmail senders
           # remain pinned by WORKSPACE_EMAIL_RELAY_GMAIL_SENDERS on the service.
-          ENV_VARS="${ENV_VARS}|WORKSPACE_EMAIL_RELAY_DOMAINS=innerstrengthin.com,itsco.health,mh4kidz.org,nextleveluplcc.com,plottwistco.com,auricwell.com"
+          ENV_VARS="${ENV_VARS}|WORKSPACE_EMAIL_RELAY_DOMAINS=innerstrengthin.com,itsco.health,mh4kidz.org,nextleveluplcc.com,plottwistco.com,auricwell.com,plotlinepo.com"
           ENV_VARS="${ENV_VARS}|DB_HOST=/cloudsql/${CLOUD_SQL_CONNECTION_NAME}"
           ENV_VARS="${ENV_VARS}|DB_PORT=3306"
           ENV_VARS="${ENV_VARS}|DB_NAME=onboarding_stage"
