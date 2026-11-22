@@ -60,8 +60,22 @@ it('shows a request error when the caseload could not load', async () => {
 });
 
 it('keeps school actions in the school’s agency when the dashboard brand belongs to another agency',async()=>{
- m.schools=true;await render();await wrapper.vm.openSchoolCaseload(60);await flushPromises();
+ m.schools=true;const router=await render();await router.push('/dashboard?tab=clients&clients=school&schoolId=60');await flushPromises();
  const grid=wrapper.findComponent({name:'ClientListGrid'});expect(grid.props('organizationId')).toBe(60);expect(grid.props('parentAgencyId')).toBe(6);
  expect(m.get.mock.calls.filter(([url])=>url==='/school-portal/60/my-roster').every(([,config])=>config.headers['X-Agency-Id']==='6')).toBe(true);
  await wrapper.get('select.pct-control').setValue('all');await flushPromises();expect(grid.props('parentAgencyId')).toBeNull();
+});
+
+it('filters the caseload by agency and exposes appointment sorting with distinct chart and quick-view actions',async()=>{
+ m.post.mockImplementation(async(url,body)=>url==='/clients/caseload-session-dates'?{data:{items:body.clientIds.map(clientId=>({clientId,nextAt:body.agencyId===2?'2026-11-25T12:00:00Z':'2026-11-24T12:00:00Z',lastAt:null,lastCompletedAt:null}))}}:{data:{summaries:[]}});
+ await render();
+ const headings=wrapper.findAll('th').map(th=>th.text());
+ expect(headings).toContain('Agency ↕');expect(headings.some(text=>text.includes('Next appointment'))).toBe(true);
+ expect(wrapper.text()).not.toContain('Clinical ·');
+ await wrapper.get('.pct-agency-filter select').setValue('6');await flushPromises();
+ const rows=wrapper.findAll('tbody tr');
+ expect(rows).toHaveLength(1);expect(rows[0].text()).toContain('BBB');expect(rows[0].text()).not.toContain('AAA');
+ await rows[0].find('.pct-client-link').trigger('click');await flushPromises();
+ expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(true);
+ expect(rows[0].text()).toContain('Open chart');
 });

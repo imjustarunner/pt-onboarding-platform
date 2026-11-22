@@ -185,10 +185,10 @@
         <p>No clients found.</p>
       </div>
       <div v-else class="clients-table-scroll" :class="{ 'is-refreshing': rosterRefreshing }">
-        <table class="clients-table">
+        <table class="clients-table" :class="{'provider-roster-table':rosterScope==='provider'}">
         <thead>
           <tr>
-            <th v-if="feedbackByClient && !isSchoolStaff">Feedback</th>
+
             <th class="sortable col-client" @click="toggleSort('initials')" role="button" tabindex="0">
               Client
               <span class="sort-indicator" v-if="sortKey === 'initials'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -197,6 +197,7 @@
               Client Status
               <span class="sort-indicator" v-if="sortKey === 'status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
+            <th v-if="showAgencyColumn"><button type="button" class="table-link" @click="toggleSort('agency_name')">Agency</button></th>
             <th
               v-if="showSchoolColumn"
               class="sortable"
@@ -269,6 +270,9 @@
               Assigned
               <span class="sort-indicator" v-if="sortKey === 'provider_assigned_at'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
+            <th v-if="rosterScope==='provider'"><button type="button" class="table-link" @click="toggleSort('nextAt')">Next appointment</button></th>
+            <th v-if="rosterScope==='provider'"><button type="button" class="table-link" @click="toggleSort('lastCompletedAt')">Last completed</button></th>
+            <th v-if="rosterScope==='provider'">Client</th>
             <th class="sortable col-submitted" @click="toggleSort('submission_date')" role="button" tabindex="0">
               Submitted
               <span class="sort-indicator" v-if="sortKey === 'submission_date'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -293,7 +297,7 @@
             @keydown.enter.prevent="handleRowActivate(client)"
             @keydown.space.prevent="handleRowActivate(client)"
           >
-            <td v-if="feedbackByClient && !isSchoolStaff"><ClientFeedbackSummary :summaries="feedbackByClient[client.id]" :loading="feedbackLoading" :unavailable="feedbackUnavailable" /></td>
+
             <td class="initials-cell col-client">
               <div class="client-label">
                 <button
@@ -434,6 +438,7 @@
                 <ParentContactAttempts v-if="isSchoolStaff && !showProviderMilestonesReadonly(client)" :count="client.parent_contact_attempt_count" />
               </div>
             </td>
+            <td v-if="showAgencyColumn">{{ client.agency_name || '—' }}</td>
             <td v-if="showSchoolColumn">{{ client.organization_name || organizationName || '—' }}</td>
             <td v-if="showReadinessColumn">
               <button
@@ -562,6 +567,12 @@
               </div>
             </td>
             <td v-if="showAssignedColumn">{{ formatDate(client.provider_assigned_at) }}</td>
+            <td v-if="rosterScope==='provider'">{{ snapshotLabel(client,'nextAt') }}</td>
+            <td v-if="rosterScope==='provider'">{{ snapshotLabel(client,'lastCompletedAt') }}</td>
+            <td v-if="rosterScope==='provider'" class="roster-open-actions">
+              <button type="button" @click.stop="$emit('preview-client',client)">Quick view</button>
+              <button type="button" @click.stop="goEdit(client)">Open chart</button>
+            </td>
             <td class="col-submitted">{{ portalCalendarDate(client.submission_date) }}</td>
           </tr>
         </tbody>
@@ -733,6 +744,7 @@
 </template>
 
 <script setup>
+import {sessionSnapshotKey,sessionDateLabel} from '../../composables/useClientSessionSnapshots.js';
 import {portalCalendarDate} from '../../utils/portalDates';
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import FictionalClientPreview from './redesign/FictionalClientPreview.vue';
@@ -761,6 +773,8 @@ import {
 const props = defineProps({
   feedbackByClient: { type: Object, default: null },
   feedbackLoading: Boolean,
+  sessionSnapshots: {type:Object,default:()=>({})},
+  filterAgencyId: {type:Number,default:null},
   feedbackUnavailable: Boolean,
   organizationSlug: {
     type: String,
@@ -880,7 +894,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:actionFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
+const emit = defineEmits(['preview-client','edit-client', 'update:statusFilterKey', 'update:actionFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
 
 const schoolRosterRefreshToken = inject('schoolRosterRefreshToken', null);
 const bumpPeerRosterRefresh = () => {
@@ -1002,6 +1016,7 @@ const showTerminateButton = computed(() => props.rosterScope === 'provider');
 const showAssignmentRecency = computed(() => props.rosterScope === 'provider');
 const showAssignedColumn = computed(() => props.rosterScope === 'provider' && !isProviderUser.value);
 /** Only show school column when the roster spans multiple schools (e.g. All schools view). */
+const showAgencyColumn = computed(()=>props.rosterScope==='provider' && new Set((props.clientsOverride || clients.value || []).map(c=>Number(c.agency_id)).filter(Boolean)).size>1);
 const showSchoolColumn = computed(() => {
   if (props.rosterScope !== 'provider') return false;
   const rows = Array.isArray(props.clientsOverride) ? props.clientsOverride : clients.value;
@@ -1760,7 +1775,13 @@ const onQuickChecklistSaved = () => {
   fetchClients();
 };
 
+const snapshotLabel=(client,key)=>{
+  const item=props.sessionSnapshots[sessionSnapshotKey(client)];
+  return item?.unavailable?'Unavailable':sessionDateLabel(item?.[key]);
+};
 const sortValue = (client, key) => {
+  if (key==='agency_name') return client.agency_name || '';
+  if (['nextAt','lastCompletedAt'].includes(key)) return new Date(props.sessionSnapshots[sessionSnapshotKey(client)]?.[key] || 0).getTime();
   if (!client) return '';
   if (key === 'provider_assigned_at') {
     const t = client.provider_assigned_at ? new Date(client.provider_assigned_at).getTime() : 0;
@@ -1955,7 +1976,7 @@ const statusFilteredClients = computed(() => {
 
 const filteredClients = computed(() => {
   const q = normalize(searchQuery.value);
-  const list = Array.isArray(statusFilteredClients.value) ? statusFilteredClients.value : [];
+  const list = (Array.isArray(statusFilteredClients.value) ? statusFilteredClients.value : []).filter(client=>!props.filterAgencyId || Number(client.agency_id || props.parentAgencyId)===props.filterAgencyId);
   if (!q) return list;
   // Smart search (name, birthday, guardian) is applied on the server.
   return list;
@@ -2466,6 +2487,7 @@ onMounted(() => {
     if (props.organizationId) fetchEditPermissions();
   }
 });
+defineExpose({openOverview});
 </script>
 
 <style scoped>
@@ -3132,6 +3154,9 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.clients-table.provider-roster-table {table-layout:auto;min-width:1450px}
+.provider-roster-table .roster-open-actions {min-width:150px}
+.roster-open-actions button {display:block;font:inherit;color:var(--primary,#386e4b);background:none;border:0;text-decoration:underline;cursor:pointer;margin:4px 0;padding:2px}
 .clients-table thead {
   background: var(--bg-alt);
 }

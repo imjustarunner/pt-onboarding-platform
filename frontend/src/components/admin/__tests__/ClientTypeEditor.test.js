@@ -12,9 +12,9 @@ it('keeps an assignment active, allows staff to retain it after unlinking, and o
   expect(checkbox('School').element.checked).toBe(true);
   expect(checkbox('School').element.disabled).toBe(true);
   expect(checkbox('Dependent').element.checked).toBe(true);
-  await checkbox('Keep after unlinking').setValue(true);
+  await checkbox('Retain School after its linked assignment ends').setValue(true);
   expect(checkbox('Clinical').element.disabled).toBe(true);
-  await checkbox('Keep Clinical independently').setValue(true);
+  await checkbox('Retain Clinical after its linked assignment ends').setValue(true);
   await checkbox('Dependent').setValue(false);
   await w.findAll('button').find(button => button.text() === 'Save types').trigger('click');
   const [change] = w.emitted('save')[0];

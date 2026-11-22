@@ -51,7 +51,7 @@
               </h2>
               <span v-if="headerCollapsed" class="mono cdp-compact-id">ID {{ client.identifier_code || client.id }}</span>
               <div v-show="!headerCollapsed" class="cdp-identity-line">
-                <span v-if="client.initials">Initials {{ client.initials }}</span>
+
                 <span v-if="clientAgeLabel">Age {{ clientAgeLabel }}</span>
                 <span v-if="client.identifier_code" class="mono">Client code {{ client.identifier_code }}</span>
                 <span v-if="isBackofficeRole" class="mono">Record #{{ client.id }}</span>
@@ -136,15 +136,18 @@
 
         <div class="cdp-header-actions">
           <button type="button" class="cdp-header-toggle" :aria-expanded="!headerCollapsed" @click="headerCollapsed = !headerCollapsed">{{ headerCollapsed ? 'Expand header' : 'Collapse header' }}</button>
-          <router-link v-if="!headerCollapsed && canViewMedicalRecord && isClinicalLikeClientType && router.hasRoute?.('AssistantHumanReviews')" class="btn btn-secondary" :to="{path:'/assistant-reviews',query:{agencyId:selectedAgencyId || client.agency_id,sourceKind:'clinical_chart',sourceId:client.id}}">Assistant review</router-link>
-          <button v-if="!headerCollapsed && canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Refer through Client Exchange</button>
+          <details v-if="!headerCollapsed" class="cdp-more-actions"><summary>More actions</summary><div>
+            <router-link v-if="canViewMedicalRecord && isClinicalLikeClientType && router.hasRoute?.('AssistantHumanReviews')" :to="{path:'/assistant-reviews',query:{agencyId:selectedAgencyId || client.agency_id,sourceKind:'clinical_chart',sourceId:client.id}}">Review AI recommendations</router-link>
+            <p v-if="canViewMedicalRecord && isClinicalLikeClientType">View saved assistant suggestions and record your decision.</p>
+            <button v-if="canPostClientToExchange" type="button" class="btn btn-secondary btn-sm" @click="openPostToExchangeModal">Refer through Client Exchange</button>
+          </div></details>
           <button
             v-if="!props.fullPage && props.client?.id"
             class="cdp-btn-primary cdp-open-full"
             type="button"
             @click="openFullClientRecord"
           >
-            Open full client record
+            Open full record
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
               <polyline points="15 3 21 3 21 9" />
@@ -7404,8 +7407,9 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px 16px;
-  padding: 10px 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
   border-bottom: 1px solid rgba(58, 76, 107, 0.10);
   background: #fff;
 }
@@ -7415,7 +7419,7 @@ watch(
   gap: 12px;
   align-items: center;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 580px;
 }
 
 .cdp-avatar {
@@ -7460,7 +7464,7 @@ watch(
   font-weight: 750;
   color: var(--secondary, #1D2633);
   letter-spacing: -0.01em;
-  white-space: nowrap;
+  white-space: normal;
 }
 .cdp-title-link {
   appearance: none;
@@ -7478,6 +7482,7 @@ watch(
 }
 
 .cdp-identity-line {
+  flex-basis: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -7709,6 +7714,7 @@ watch(
 }
 
 .cdp-header-actions {
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -9915,4 +9921,17 @@ watch(
 @media (max-width: 640px) {
   .cont-choice-row { grid-template-columns: 1fr; }
 }
+
+.cdp-header .cdp-identity-line>span {display:inline-flex;align-items:center;flex:0 0 auto}
+.cdp-header .cdp-header-row {align-items:center;gap:8px 12px}
+.cdp-header .cdp-tenant-line {display:flex;flex-wrap:wrap;gap:6px}
+.cdp-header .cdp-meta-row {display:flex;flex-wrap:wrap;gap:6px}
+.cdp-header .cdp-header-actions .cdp-open-full {padding:9px 14px;font-size:14px}
+.cdp-header .cdp-header-actions {gap:8px}
+.cdp-more-actions {position:relative;font-size:13px}
+.cdp-more-actions summary {cursor:pointer;padding:8px}
+.cdp-more-actions>div {position:absolute;right:0;top:100%;width:270px;padding:16px;border:1px solid #d6e2df;border-radius:10px;background:#fff;box-shadow:0 8px 28px #142e3529;z-index:20}
+.cdp-more-actions p {font-size:12px;color:#64748b;margin:8px 0}
+@media(max-width:750px){.cdp-header-actions{width:100%;justify-content:flex-start}.cdp-header-main{flex-basis:100%}}
+
 </style>

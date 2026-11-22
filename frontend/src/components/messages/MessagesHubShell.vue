@@ -5856,7 +5856,7 @@ watch(listSearch, () => {
 });
 
 let linkedSecureRequest=0;
-const linkedSecureScope=()=>JSON.stringify([route.query.secureRecipient,route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
+const linkedSecureScope=()=>JSON.stringify([route.query.secureRecipient,route.query.secureGuardianUserId,route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
 function clearLinkedSecureComposer(){
  timelineRequestId++;selected.value=null;selectedConversation.value=null;conversationPreview.value=null;timeline.value=[];recentFiles.value=[];recentActivity.value=[];composeBody.value='';composeSubject.value='';composeCc.value='';composeBcc.value='';composeAttachments.value=[];chatStagedAttachments.value=[];chatThreadId.value=null;sendError.value='';
 }
@@ -5873,10 +5873,10 @@ async function openLinkedSecureClient(){
   if(!current())return;
   let person=data?.person;const context=person?.clientMessaging;
   if(!person||Number(person.clientId)!==clientId||Number(person.agencyId)!==aid||(context&&Number(context.clientId)!==clientId))throw Error('This client is not available for secure messaging in this agency.');
-  if(!person.userId||!person.methods?.some(method=>method.id==='secure'&&method.available)){
+  if(route.query.secureRecipient==='guardian' || !person.userId||!person.methods?.some(method=>method.id==='secure'&&method.available)){
    if (route.query.secureRecipient === 'client') throw Error(!person.userId ? 'The client has no active personal messaging account. Review portal access on the chart or choose an authorized guardian in Messages.' : person.methods?.find(m => m.id === 'secure')?.reason || 'Secure messaging is unavailable for this client.');
    const guardians=context?.guardians||[],preferred=guardians.find(g=>Number(g.userId)===Number(context?.talkingToUserId));
-   const guardian=[preferred,...guardians].find(g=>g?.personKey&&g.methods?.some(method=>method.id==='secure'&&method.available));
+   const guardian=[preferred,...guardians].find(g=>(route.query.secureRecipient!=='guardian' || Number(g?.userId)===Number(route.query.secureGuardianUserId)) && g?.personKey&&g.methods?.some(method=>method.id==='secure'&&method.available));
    if(!guardian)throw Error(person.methods?.find(method=>method.id==='secure')?.reason||'No eligible secure recipient is available for this client. Review their linked portal contacts.');
    const result=await api.get(`/messages/hub/people/${encodeURIComponent(guardian.personKey)}`,{params:{agencyId:aid},skipGlobalLoading:true});
    if(!current())return;const resolved=result.data?.person;
@@ -5915,7 +5915,7 @@ async function openLinkedSecureClient(){
   } else { startNewSubjectCompose(); await focusComposer(); }
  }catch(e){if(current()){clearLinkedSecureComposer();error.value=e.response?.data?.error?.message||e.message||'The secure composer could not be opened. Review this client’s messaging access.';}}
 }
-watch(()=>[route.query.secureRecipient,route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
+watch(()=>[route.query.secureRecipient,route.query.secureGuardianUserId,route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
 
 
 let linkedThreadRequest=0;

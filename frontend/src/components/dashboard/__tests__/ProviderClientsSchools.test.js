@@ -36,13 +36,13 @@ async function render(query = 'tab=clients'){
   wrapper=shallowMount(ProviderClientsTab,{props:{subjectUserId:12,subjectAgencyId:2,profileEmbed:true},global:{plugins:[router]}});
   await flushPromises();return router;
 }
-it('shows counts for each school and drills into the selected provider roster',async()=>{
+it('uses a compact school filter and preserves the provider roster scope',async()=>{
   const router=await render();
-  const cards=wrapper.findAll('.pct-school-card');
-  expect(cards.map(card=>card.text())).toEqual(['North School1 client','South School2 clients']);
+  expect(wrapper.findAll('.pct-school-card')).toHaveLength(0);
   const schoolTab=wrapper.findAll('[role=tab]').find(tab=>tab.text().includes('By School'));
-  expect(schoolTab.text()).toContain('2'); // Shared client counted once across both schools.
-  await cards[1].trigger('click');await flushPromises();
+  expect(schoolTab.text()).toContain('2');
+  await schoolTab.trigger('click'); await flushPromises();
+  await wrapper.get('select.pct-control').setValue(20); await flushPromises();
   expect(router.currentRoute.value.query).toMatchObject({tab:'clients',clients:'school'});
   expect(wrapper.findComponent({name:'ClientListGrid'}).props()).toMatchObject({organizationId:20,rosterProviderUserId:12,parentAgencyId:2});
   expect(api.get.mock.calls.filter(([url])=>url.includes('my-roster')).every(([,options])=>options.params.providerUserId===12)).toBe(true);
@@ -55,13 +55,13 @@ it('hides the school view when the provider has no school assignments or school 
 it('does not report a failed roster request as zero clients',async()=>{
   const original=api.get.getMockImplementation();
   api.get.mockImplementation((url,...args)=>url.includes('/20/my-roster')?Promise.reject(new Error('offline')):original(url,...args));
-  await render();expect(wrapper.findAll('.pct-school-card')[1].text()).toContain('Roster unavailable');
+  await render();expect(wrapper.text()).toContain('School rosters could not load');
 });
 
 it('opens an assignment link at its school and restores filters on route navigation', async () => {
   const router = await render('tab=clients&clients=school&schoolId=20');
   expect(wrapper.findComponent({name:'ClientListGrid'}).props('organizationId')).toBe(20);
-  expect(wrapper.findAll('.pct-school-card')[1].attributes('aria-pressed')).toBe('true');
+  expect(wrapper.findAll('.pct-school-card')).toHaveLength(0);
   await router.push('/admin/users/12?tab=clients&clients=school&schoolId=10'); await flushPromises();
   expect(wrapper.findComponent({name:'ClientListGrid'}).props('organizationId')).toBe(10);
   await wrapper.get('select.pct-control').setValue('all'); await flushPromises();
@@ -79,7 +79,7 @@ it('shows office counseling once and hides an empty school/program column',async
  api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'clinical',organization_name:'Counseling and Psychotherapy',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Counseling and Psychotherapy',organization_type:'clinical'}]}]:[]}));
  await render('tab=clients&clients=all');
  expect(wrapper.findAll('th').some(th=>th.text().includes('School / program'))).toBe(false);
- expect(wrapper.text()).toContain('Clinical · Practice A');expect(wrapper.text()).not.toContain('Counseling and Psychotherapy');
+ expect(wrapper.text()).not.toContain('Clinical · Practice A');expect(wrapper.text()).not.toContain('Counseling and Psychotherapy');
 });
 it('keeps the school/program column when a client actually has a named program',async()=>{
  api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'FIXTURE',status:'ACTIVE',client_type:'clinical',organization_type:'program',organization_name:'Student Support',service_contexts:[{agency_id:2,agency_name:'Practice A',service_kind:'counseling',is_active:1,organization_name:'Student Support',organization_type:'program'}]}]:[]}));

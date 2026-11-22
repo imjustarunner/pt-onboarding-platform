@@ -122,21 +122,13 @@
         </button>
       </div>
 
-      <section v-if="schoolOverview.length && ['all', 'school'].includes(activeSection)" class="pct-school-overview" aria-label="Schools and caseload">
-        <h3>Schools &amp; caseload</h3>
-        <p class="muted">Select a school to view this provider’s assigned clients.</p>
-        <div class="pct-school-cards">
-          <button v-for="school in schoolOverview" :key="school.id" type="button" class="pct-school-card"
-            :aria-pressed="activeSection === 'school' && Number(selectedSchoolOrgId) === school.id"
-            @click="openSchoolCaseload(school.id)">
-            <strong>{{ school.name }}</strong>
-            <span>{{ loading ? 'Loading clients…' : school.count === null ? 'Roster unavailable' : `${school.count} client${school.count === 1 ? '' : 's'}` }}</span>
-          </button>
-        </div>
-      </section>
-
-      <p v-if="feedbackError" role="alert">{{ feedbackError }}</p>
-      <CaseloadFeedbackSummary :by-client="feedbackByClient" />
+      <label v-if="rosterAgencies.length>1" class="pct-field pct-agency-filter"><span class="pct-field__label">Agency</span>
+        <select class="pct-control" v-model="rosterAgencyId"><option value="all">All agencies</option><option v-for="agency in rosterAgencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select>
+      </label>
+      <p v-if="!loading && schoolOverview.some(row=>row.count===null) && activeSection!=='office'" role="alert">School rosters could not load completely. Refresh to retry.</p>
+      <p v-if="sessionDatesError" role="alert">{{ sessionDatesError }}</p>
+      <p v-if="feedbackError && activeSection!=='school'" role="alert">{{ feedbackError }}</p>
+      <CaseloadFeedbackSummary v-if="activeSection!=='school'" :by-client="feedbackByClient" />
 
       <!-- All Clients -->
       <template v-if="activeSection === 'all'">
@@ -176,13 +168,13 @@
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('school') }}</span>
                 </th>
                 <th
-                  v-if="allColumnPrefs.type"
+                  v-if="rosterAgencies.length>1"
                   class="pct-sortable"
-                  :aria-sort="allAriaSortFor('type')"
-                  @click="toggleAllColumnSort('type')"
+                  :aria-sort="allAriaSortFor('agency')"
+                  @click="toggleAllColumnSort('agency')"
                 >
-                  Service
-                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('type') }}</span>
+                  Agency
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('agency') }}</span>
                 </th>
                 <th
                   v-if="allColumnPrefs.insurance"
@@ -220,7 +212,10 @@
                   Since
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('since') }}</span>
                 </th>
-                <th>Feedback</th>
+                <th v-for="column in appointmentColumns" :key="column.key" :aria-sort="allAriaSortFor(column.key)">
+                  <button type="button" class="pct-link-btn" @click="toggleAllColumnSort(column.key)">{{ column.label }} {{ allSortIndicatorFor(column.key) }}</button>
+                </th>
+                <th>Feedback</th><th>Chart</th>
                 <th v-if="canEhrPatientImport">Chart setup</th>
               </tr>
             </thead>
@@ -245,7 +240,7 @@
                     </div>
                     <div class="pct-client-charts">
                       <button type="button" class="pct-client-link" :title="officeHoverTitle(c)"
-                        @click="openClientProfile(c, sortedCombinedClientsList)">
+                        @click="openQuickView(c, sortedCombinedClientsList)">
                         {{ formatOfficeClientLabel(c) }}
                       </button>
                     </div>
@@ -253,12 +248,14 @@
                 </td>
                 <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
                 <td v-if="allColumnPrefs.school && hasProgramColumn">{{ rosterOrganizationLabel(c) }}</td>
-                <td v-if="allColumnPrefs.type">{{ rosterServiceLabel(c) }}</td>
+                <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                 <td v-if="allColumnPrefs.insurance">{{ formatInsuranceTypeLabel(c) }}</td>
                 <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
                 <td v-if="allColumnPrefs.sessions">{{ officeSessionTotal(c) }}</td>
                 <td v-if="allColumnPrefs.since">{{ formatSinceDate(c.submission_date) }}</td>
-                <td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
+                <td v-for="column in appointmentColumns" :key="column.key">{{ appointmentLabel(c,column.key) }}</td>
+                <td><ClientFeedbackSummary v-if="hasOfficeRosterContext(c)" :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
+                <td><button type="button" class="pct-link-btn" @click="openClientProfile(c, sortedCombinedClientsList)">Open chart</button></td>
                 <td v-if="canEhrPatientImport">
                   <button
                     v-if="requiresClientRecordImport(c)"
@@ -283,16 +280,15 @@
           This school is not available for this provider in the selected agency. Choose another school or switch to the agency for this assignment.
         </p>
 
-        <ClientListGrid
+        <ClientListGrid ref="schoolGrid"
           v-if="selectedSchoolOrgId && schools.length && !schoolSelectionUnavailable"
           :organization-slug="organizationSlug"
           :organization-id="Number(selectedSchoolOrgId) || null"
           :parent-agency-id="selectedSchoolAgencyId"
           :organization-name="selectedSchoolName"
           :clients-override="schoolClientsForGrid"
-          :feedback-by-client="feedbackByClient"
-          :feedback-loading="feedbackLoading"
-          :feedback-unavailable="!!feedbackError"
+          :session-snapshots="sessionSnapshots"
+          :filter-agency-id="rosterAgencyId==='all' ? null : Number(rosterAgencyId)"
           roster-scope="provider"
           :roster-provider-user-id="rosterProviderUserId"
           :skill-builders-only="skillBuildersOnlyFilter"
@@ -303,6 +299,7 @@
           :show-search="true"
           search-placeholder="Search school clients…"
           edit-mode="inline"
+          @preview-client="client => openQuickView(client, schoolClientsForGrid || [])"
           @edit-client="onSchoolRosterEditClient"
           @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
         />
@@ -312,35 +309,33 @@
           class="office-clients-table-wrap"
           :style="schools.length ? 'margin-top: 16px;' : ''"
         >
-          <div v-if="schools.length" class="hint muted" style="margin-bottom: 8px;">
-            Billing import — Place of Service 03 (not on school roster)
-          </div>
+
           <table class="office-clients-table">
             <thead>
               <tr>
                 <th>Client</th>
-                <th>Service</th>
+                <th v-if="rosterAgencies.length>1">Agency</th>
                 <th>Status</th>
                 <th>Sessions (FY)</th>
-                <th>Since</th><th>Feedback</th>
+                <th>Since</th><th>Chart</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in schoolBillingTableClients" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
+              <tr v-for="c in schoolBillingTableClients.filter(agencyMatches)" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
                 <td>
                   <button
                     type="button"
                     class="pct-client-link"
                     :title="officeHoverTitle(c)"
-                    @click="openClientProfile(c, schoolBillingTableClients)"
+                    @click="openQuickView(c, schoolBillingTableClients)"
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
                 </td>
-                <td>{{ rosterServiceLabel(c) }}</td>
+                <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
                 <td>{{ officeSessionTotal(c) }}</td>
-                <td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
+                <td>{{ formatSinceDate(c.submission_date) }}</td><td><button type="button" class="pct-link-btn" @click="openClientProfile(c,schoolBillingTableClients)">Open chart</button></td>
               </tr>
             </tbody>
           </table>
@@ -369,28 +364,29 @@
           </span>
         </div>
         <div v-if="officeError" class="error">{{ officeError }}</div>
-        <div v-if="!officeLoading && currentOfficeClients.length === 0 && !officeError" class="muted empty-state">
-          No in-office clients yet (non–Place of Service 03 billing lines).
+        <div v-if="!officeLoading && visibleOfficeClients.length === 0 && !officeError" class="muted empty-state">
+          No office clients in this selection.
         </div>
         <div v-else class="office-clients-table-wrap">
           <table class="office-clients-table">
             <thead>
               <tr>
                 <th>Client</th>
-                <th>Service</th>
+                <th v-if="rosterAgencies.length>1"><button type="button" class="pct-link-btn" @click="toggleAllColumnSort('agency')">Agency {{ allSortIndicatorFor('agency') }}</button></th>
                 <th>Status</th>
                 <th>Sessions (FY)</th>
-                <th>Since</th><th>Feedback</th>
+                <th v-for="column in appointmentColumns" :key="column.key"><button type="button" class="pct-link-btn" @click="toggleAllColumnSort(column.key)">{{ column.label }} {{ allSortIndicatorFor(column.key) }}</button></th>
+                <th>Since</th><th>Feedback</th><th>Chart</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in currentOfficeClients" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
+              <tr v-for="c in visibleOfficeClients" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
                 <td>
                   <button
                     type="button"
                     class="pct-client-link"
                     :title="officeHoverTitle(c)"
-                    @click="openClientProfile(c, currentOfficeClients)"
+                    @click="openQuickView(c,visibleOfficeClients)"
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
@@ -401,10 +397,10 @@
                     </button>
                   </div>
                 </td>
-                <td>{{ rosterServiceLabel(c) }}</td>
+                <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
                 <td>{{ officeSessionTotal(c) }}</td>
-                <td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
+                <td v-for="column in appointmentColumns" :key="column.key">{{ appointmentLabel(c,column.key) }}</td><td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td><td><button type="button" class="pct-link-btn" @click="openClientProfile(c,visibleOfficeClients)">Open chart</button></td>
               </tr>
             </tbody>
           </table>
@@ -450,7 +446,7 @@
               <thead>
                 <tr>
                   <th>Client</th>
-                  <th>Service</th>
+                  <th v-if="rosterAgencies.length>1">Agency</th>
                   <th>Preferred</th>
                   <th>Since</th>
                 </tr>
@@ -467,7 +463,7 @@
                       {{ formatOfficeClientLabel(c) }}
                     </button>
                   </td>
-                  <td>{{ rosterServiceLabel(c) }}</td>
+                  <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                   <td>{{ formatPreferred(c) }}</td>
                   <td>{{ c.submission_date || '—' }}</td>
                 </tr>
@@ -478,6 +474,10 @@
       </template>
     </template>
 
+    <ClientQuickView v-if="quickClient" :key="`quick-${quickClient.agency_id}-${quickClient.id}`" :client="quickClient"
+      :label="formatOfficeClientLabel(quickClient)" :status="officeStatusLabel(quickClient)" :school="isSchoolSettingClient(quickClient)"
+      :snapshot="sessionSnapshots[sessionSnapshotKey(quickClient)]" @close="quickClient=null"
+      @open-chart="openQuickChart" @school-workspace="openSchoolWorkspace" />
     <Teleport to="body">
       <div v-if="profileLoading" class="pct-profile-loading-overlay" role="status" aria-live="polite">
         <div class="pct-profile-loading-card muted">Loading client…</div>
@@ -486,6 +486,7 @@
         <ClientDetailPanel
           :key="`pct-client-${profileClient.id}`"
           :client="profileClient"
+          :initial-tab="profileInitialTab"
           :school-organization-id="profileClient.organization_id"
           return-label="Back to My Clients"
           :current-client-index="profileClientIndex"
@@ -522,7 +523,7 @@ import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.v
 import { isSchoolCareBridgeOnly } from '../../utils/schoolCareBridgeTenant.js';
 import ClientCheckinSubmissions from '../kiosk/ClientCheckinSubmissions.vue';
 import PostClientToExchangeButton from '../clientExchange/PostClientToExchangeButton.vue';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { nextTick, computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -532,6 +533,8 @@ import ClientListGrid from '../school/ClientListGrid.vue';
 import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
 import { useClientFeedbackSummaries } from '../../composables/useClientFeedbackSummaries.js';
+import ClientQuickView from './ClientQuickView.vue';
+import {useClientSessionSnapshots,sessionSnapshotKey,sessionDateLabel} from '../../composables/useClientSessionSnapshots.js';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
 import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
@@ -540,7 +543,7 @@ import NewReferralModal from '../clientExchange/NewReferralModal.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import ClientAgencyLogo from '../clients/ClientAgencyLogo.vue';
 import { resolveMembershipLogoUrl } from '../../utils/peerTenantBrand';
-import { hasOfficeService, hasSchoolRosterContext, rosterServiceLabel, rosterOrganizationLabel, rosterStatusLabel } from '../../utils/clientRosterContext.js';
+import { hasOfficeService, hasSchoolRosterContext, rosterOrganizationLabel, rosterStatusLabel } from '../../utils/clientRosterContext.js';
 
 const props = defineProps({
   /** school | office | new | exchange | referrals */
@@ -930,7 +933,6 @@ const hasProgramColumn = computed(() => combinedClientsList.value.some(client =>
 const ALL_CLIENT_OPTIONAL_COLUMNS = [
   { key: 'setting', label: 'Setting' },
   { key: 'school', label: 'School / program' },
-  { key: 'type', label: 'Service' },
   { key: 'insurance', label: 'Insurance Type' },
   { key: 'status', label: 'Status' },
   { key: 'sessions', label: 'Sessions (FY)' },
@@ -1002,7 +1004,8 @@ function allClientSortValue(c, field) {
   if (field === 'client') return formatOfficeClientLabel(c);
   if (field === 'setting') return String(c?.setting || '');
   if (field === 'school') return rosterOrganizationLabel(c);
-  if (field === 'type') return rosterServiceLabel(c);
+  if (field === 'agency') return rosterAgencyLabel(c);
+  if (['nextAt','lastAt','lastCompletedAt'].includes(field)) return new Date(sessionSnapshots.value[sessionSnapshotKey(c)]?.[field] || 0).getTime();
   if (field === 'insurance') return formatInsuranceTypeLabel(c);
   if (field === 'status') return officeStatusLabel(c);
   if (field === 'sessions') {
@@ -1019,12 +1022,43 @@ function allClientSortValue(c, field) {
   return '';
 }
 
-const { byClient: feedbackByClient, loading: feedbackLoading, error: feedbackError, refresh: refreshFeedback } = useClientFeedbackSummaries(combinedClientsList, currentUserId);
+const rosterAgencyId=ref('all'),quickClient=ref(null),profileInitialTab=ref(''),schoolGrid=ref(null);
+const rosterAgencies=computed(()=>{
+  const agencies=new Map();
+  for(const client of combinedClientsList.value.flatMap(c=>[c,...(c.linkedCaseloadCharts||[])])){
+    if(client.agency_id) agencies.set(Number(client.agency_id),{id:Number(client.agency_id),name:client.agency_name || client.agencyName || `Agency #${client.agency_id}`});
+  }
+  return [...agencies.values()].sort((a,b)=>a.name.localeCompare(b.name));
+});
+const rosterAgencyLabel=c=>[...new Set([c,...(c.linkedCaseloadCharts||[])].map(row=>row.agency_name||row.agencyName).filter(Boolean))].join(' · ') || '—';
+const scopedRosterClient=c=>rosterAgencyId.value==='all'?c:([c,...(c.linkedCaseloadCharts||[])].find(row=>Number(row.agency_id)===Number(rosterAgencyId.value)) || c);
+const agencyMatches=c=>rosterAgencyId.value==='all' || [c,...(c.linkedCaseloadCharts||[])].some(row=>Number(row.agency_id)===Number(rosterAgencyId.value));
+const hasOfficeRosterContext=c=>officeChartRows.value.some(row=>Number(row.id)===Number(c.id) || (c.linkedCaseloadCharts||[]).some(chart=>Number(chart.id)===Number(row.id)));
+const feedbackClients=computed(()=>combinedClientsList.value.filter(hasOfficeRosterContext));
+const {snapshots:sessionSnapshots,error:sessionDatesError}=useClientSessionSnapshots(combinedClientsList);
+const appointmentColumns=[{key:'nextAt',label:'Next appointment'},{key:'lastAt',label:'Last scheduled'},{key:'lastCompletedAt',label:'Last completed'}];
+const appointmentLabel=(client,key)=>{
+  const value=sessionSnapshots.value[sessionSnapshotKey(client)];
+  return value?.unavailable ? 'Unavailable' : sessionDateLabel(value?.[key]);
+};
+const visibleOfficeClients=computed(()=>{
+  const field=allSortBy.value,dir=allSortDir.value==='desc'?-1:1;
+  return currentOfficeClients.value.filter(agencyMatches).map(scopedRosterClient).sort((a,b)=>{
+    const av=allClientSortValue(a,field),bv=allClientSortValue(b,field);
+    const cmp=typeof av==='number' && typeof bv==='number' ? av-bv : String(av).localeCompare(String(bv),undefined,{sensitivity:'base'});
+    return cmp*dir || formatOfficeClientLabel(a).localeCompare(formatOfficeClientLabel(b));
+  });
+});
+function openQuickView(client,navList){quickClient.value=rosterAgencyId.value==='all' ? client : ([client,...(client.linkedCaseloadCharts||[])].find(row=>Number(row.agency_id)===Number(rosterAgencyId.value)) || client);profileInitialTab.value='';if(Array.isArray(navList))profileNavClients.value=navList;}
+function openQuickChart(client,tab=''){quickClient.value=null;openClientProfile(client,null,tab);}
+function openSchoolWorkspace(client){quickClient.value=null;setSection('school');selectedSchoolOrgId.value=Number(client.organization_id)||'all';nextTick(()=>schoolGrid.value?.openOverview(client));}
+watch(rosterAgencyId,()=>{quickClient.value=null;});
+const { byClient: feedbackByClient, loading: feedbackLoading, error: feedbackError, refresh: refreshFeedback } = useClientFeedbackSummaries(feedbackClients, currentUserId);
 
 const sortedCombinedClientsList = computed(() => {
   const field = allSortBy.value;
   const dir = allSortDir.value === 'desc' ? -1 : 1;
-  const rows = [...(combinedClientsList.value || [])];
+  const rows = (combinedClientsList.value || []).filter(agencyMatches).map(scopedRosterClient);
   rows.sort((a, b) => {
     const av = allClientSortValue(a, field);
     const bv = allClientSortValue(b, field);
@@ -1040,7 +1074,7 @@ const sortedCombinedClientsList = computed(() => {
 });
 
 const schoolClientsForGrid = computed(() => {
-  if (isAllSchools.value) return allClients.value;
+  if (isAllSchools.value) return allClients.value.filter(agencyMatches);
   return null;
 });
 
@@ -1086,10 +1120,7 @@ const schoolOverview = computed(() => (schools.value || []).map(school => {
   return { id, name: school.name, count: Array.isArray(rows)
     ? new Set(rows.filter(client => showTerminated.value || !isTerminatedClient(client)).map(client => client.id)).size : null };
 }));
-function openSchoolCaseload(id) {
-  selectedSchoolOrgId.value = Number(id);
-  setSection('school');
-}
+
 
 const primarySections = computed(() => {
   const schoolCount = new Set([
@@ -1143,7 +1174,7 @@ const sectionHint = computed(() => {
   if (activeSection.value === 'school') {
     return props.profileEmbed
       ? 'School-based clients assigned to this provider. Select a school to see its roster.'
-      : 'School roster clients plus billing lines with Place of Service 03.';
+      : 'Your assigned school clients.';
   }
   if (activeSection.value === 'office') {
     return props.profileEmbed
@@ -1233,6 +1264,7 @@ const formatSinceDate = (raw) => {
 };
 
 function onSchoolRosterEditClient(payload) {
+  profileInitialTab.value='';
   const client = payload?.client || payload;
   const list = Array.isArray(schoolClientsForGrid.value) && schoolClientsForGrid.value.length
     ? schoolClientsForGrid.value
@@ -1240,7 +1272,9 @@ function onSchoolRosterEditClient(payload) {
   openClientProfile(client, list);
 }
 
-async function openClientProfile(client, navList = null) {
+async function openClientProfile(client, navList = null, initialTab='') {
+  quickClient.value=null;
+  profileInitialTab.value=initialTab;
   const id = Number(client?.id || client?.client_id || 0);
   if (!id) return;
   const rosterSnap = client && typeof client === 'object' ? { ...client } : null;
@@ -1282,6 +1316,7 @@ function closeClientProfile() {
 }
 
 async function onProfileNavigate({ direction }) {
+  profileInitialTab.value='';
   const idx = profileClientIndex.value;
   const list = profileNavClients.value;
   const nextIdx = direction === 'previous' ? idx - 1 : idx + 1;

@@ -11,13 +11,14 @@
           <legend>Staff selections for this agency</legend>
           <div v-for="type in options" :key="type">
             <label><input type="checkbox" :checked="checked(type)" :disabled="requiredByLink(type)" @change="toggle(type,$event.target.checked)" /> {{ title(type) }}</label>
-            <label v-if="requiredByLink(type)" class="keep-type"><input v-model="draft" type="checkbox" :value="type" /> {{ type === 'clinical' && checked('school') ? 'Keep Clinical independently' : 'Keep after unlinking' }}</label>
+            <label v-if="requiredByLink(type)" class="keep-type"><input v-model="draft" type="checkbox" :value="type" /> Retain {{ title(type) }} after its linked assignment ends</label>
           </div>
+          <small v-if="options.some(requiredByLink)">Linked assignments supply the checked types. Retain a type to keep it selected when that assignment ends.</small>
           <small v-if="checked('school')">School includes Clinical and starts Auricwell setup.</small>
         </fieldset>
         <div v-for="(sources,type) in profile.evidence" :key="type" class="type-source">
           <strong>{{ title(type) }}</strong>
-          <button v-for="source in sources" :key="source.label + source.tab" type="button" @click="manage($event, source.tab)">{{ chartOrganizationLabel(source.label,type) }}</button>
+          <button v-for="source in uniqueSources(sources,type)" :key="source.label + source.tab" type="button" @click="manage($event, source.tab)">{{ chartOrganizationLabel(source.label,type) }}</button>
         </div>
         <button v-if="canEdit" type="button" class="btn btn-primary btn-sm" :disabled="busy || !changed" @click="save">{{ busy ? 'Saving…' : 'Save types' }}</button>
       </template>
@@ -29,6 +30,13 @@ import { chartOrganizationLabel } from '../../../utils/clientRosterContext.js';
 import { computed, ref, watch } from 'vue';
 const props = defineProps({profile:Object, label:String, error:String, canEdit:Boolean, busy:Boolean});
 const emit = defineEmits(['save','reload','manage']);
+function uniqueSources(sources,type) {
+  const seen=new Set();
+  return sources.filter(source=>{
+    const label=chartOrganizationLabel(source.label,type);
+    if(seen.has(label))return false;seen.add(label);return true;
+  });
+}
 const options = ['clinical','learning','coaching','consulting','school','dependent'];
 const title = type => type[0].toUpperCase() + type.slice(1);
 const draft = ref([]), useMinorDefault = ref(true);

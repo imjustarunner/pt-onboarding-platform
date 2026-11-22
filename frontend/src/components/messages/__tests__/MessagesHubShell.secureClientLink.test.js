@@ -53,3 +53,20 @@ it('addresses a client picked from the Clients list to their own portal',async()
   await state.openPeopleRow({...person(2543),clientMessaging:{talkingToUserId:20}});
   expect(m.push).toHaveBeenCalledWith({path:'/auricwell-qa-demo/messages',query:{view:'hub',channel:'secure',secureRecipient:'client',secureClientId:'2543',agencyId:'450'}});
 });
+
+it('keeps an explicitly selected guardian even when the client has their own portal and a different preferred contact',async()=>{
+  m.route.query.secureRecipient='guardian';m.route.query.secureGuardianUserId='21';
+  const original=m.get.getMockImplementation();
+  m.get.mockImplementation((url,...args)=>{
+    if(url==='/messages/hub/people/client%3A2542%40450') return Promise.resolve({data:{person:{...person(2542),clientMessaging:{
+      clientId:2542,talkingToUserId:20,guardians:[20,21].map(userId=>({personKey:`user:${userId}@450`,userId,methods:[{id:'secure',available:true}]}))}}}});
+    if(url==='/messages/hub/people/user%3A21%40450') return Promise.resolve({data:{person:{personKey:'user:21@450',userId:21,agencyId:450,displayName:'Chosen guardian',kinds:['guardian'],methods:[{id:'secure',available:true}]}}});
+    return original(url,...args);
+  });
+  const state=await open();
+  expect(state.selected.userId).toBe(21);
+  expect(m.get.mock.calls.some(([url])=>url==='/messages/hub/people/user%3A20%40450')).toBe(false);
+  m.route.query.secureGuardianUserId='99';await flushPromises();
+  expect(state.selected).toBeNull();
+  expect(state.error).toContain('No eligible secure recipient');
+});
