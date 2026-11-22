@@ -15,7 +15,7 @@ import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardR
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 import { validateQaIntakeGuardian } from '../services/qaIntakeIdentity.service.js';
 import { schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
-import { requiresCaptchaForLink } from '../utils/intakeCaptchaPolicy.js';
+import { requiresPublicApplicationCaptcha, isLocalCaptchaDevelopmentRequest } from '../services/publicApplicationCaptcha.service.js';
 import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
@@ -5594,6 +5594,7 @@ export const listPublicCareers = async (req, res, next) => {
         officialName: agency.official_name || null,
         logoUrl: agency.logo_url || null,
         careersPage: agencyCareersPage,
+        plotlineOnly: parseJsonObjectSafe(agency.feature_flags)?.plotlineOnly === true,
         plotlineBrand: (()=>{const theme=parseJsonObjectSafe(agency.theme_settings);return theme?.plotlineBrand||null;})()
       },
       jobs
@@ -5623,9 +5624,7 @@ export const getPublicJobDescription = async (req, res, next) => {
 };
 
 const isLocalRecaptchaBypassRequest = (req) => {
-  const host = String(req.get('host') || '').toLowerCase();
-  const origin = String(req.get('origin') || req.get('referer') || '').toLowerCase();
-  return host.includes('localhost') || host.includes('127.0.0.1') || origin.includes('localhost') || origin.includes('127.0.0.1');
+  return isLocalCaptchaDevelopmentRequest(req, config.nodeEnv);
 };
 
 const notifyUnassignedDocuments = async ({ link, submission, docCount }) => {
@@ -6140,7 +6139,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       }
     }
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
-    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency, process.env, link);
+    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && await requiresPublicApplicationCaptcha(organization, agency, process.env, link);
     const shouldIncludeRoiContext = isSmartSchoolRoiForm(link) || hasProgrammedSchoolRoiStep(link);
     const roiContext = shouldIncludeRoiContext
       ? await buildSmartSchoolRoiContext({
@@ -6712,7 +6711,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
     }) : null;
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
-    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency, process.env, link);
+    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && await requiresPublicApplicationCaptcha(organization, agency, process.env, link);
     const intakeSiteKey = String(process.env.RECAPTCHA_SITE_KEY_INTAKE || '').trim();
     const captchaConfigured = !!intakeSiteKey && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
     const isLocalBypass = isLocalRecaptchaBypassRequest(req);

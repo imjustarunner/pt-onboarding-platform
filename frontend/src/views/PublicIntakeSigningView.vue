@@ -4258,7 +4258,8 @@ const INTAKE_TRANSLATIONS = {
 
 const route = useRoute();
 const router = useRouter();
-const publicKey = route.params.publicKey;
+const applicationProps = defineProps({ applicationPublicKey: String, hiringContext: Object });
+const publicKey = applicationProps.applicationPublicKey || route.params.publicKey;
 const returnToPath = computed(() => {
   const raw = String(route.query.returnTo || '').trim();
   if (!raw.startsWith('/')) return '';
@@ -9978,6 +9979,14 @@ const loadLink = async ({ background = false } = {}) => {
         skipGlobalLoading: true
       }
     );
+    if (applicationProps.hiringContext) {
+      const expected = applicationProps.hiringContext;
+      if (resp.data?.link?.form_type !== 'job_application'
+        || Number(resp.data.link.job_description_id) !== Number(expected.jobId)
+        || Number(resp.data.agency?.id || resp.data.organization?.id) !== Number(expected.agencyId)) {
+        throw new Error('This application does not belong to the selected company and job.');
+      }
+    }
     link.value = resp.data?.link || null;
     if (isCoachingIntakeLink(link.value)) intakeForSelf.value = true;
     // Prefill only a published option on Kimi's own coaching intake. Never consent or clinical answers.

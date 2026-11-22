@@ -38,3 +38,24 @@ it('waits for a named company instead of requesting the previous one during meta
  w=shallow(Dashboard);await flushPromises();expect(m.get).not.toHaveBeenCalled();
  m.agency.userAgencies.push(maple);await flushPromises();expect(m.get.mock.calls.every(([,options])=>Number(options.params.agencyId)===464)).toBe(true);
 });
+
+it('retries job loading in the staff candidate form instead of silently offering an empty dropdown',async()=>{
+ let fail=true;
+ m.get.mockImplementation(async path=>{
+  if(path==='/hiring/job-descriptions'){
+   if(fail)throw {response:{data:{error:{message:'Jobs temporarily unavailable'}}}};
+   return {data:[{id:43,title:'Maple consulting role'}]};
+  }
+  return {data:[]};
+ });
+ w=shallow(Candidates);await flushPromises();
+ const open=w.findAll('button').find(button=>button.text()==='Add candidate');await open.trigger('click');await flushPromises();
+ expect(w.text()).toContain('Jobs temporarily unavailable');
+ expect(w.get('select[aria-label="Job posting"]').attributes('disabled')).toBeDefined();
+ fail=false;await w.findAll('button').find(button=>button.text()==='Retry loading jobs').trigger('click');await flushPromises();
+ expect(w.get('select[aria-label="Job posting"]').text()).toContain('Maple consulting role');
+ await w.get('select[aria-label="Job posting"]').setValue('43');
+ expect(w.findAll('a').find(link=>link.text()==='Open public application ↗').attributes('href')).toBe('https://plotlinepo.com/careers/maple/jobs/43/apply');
+ expect(w.text()).not.toContain('Jobs temporarily unavailable');
+ expect(m.post).not.toHaveBeenCalled();
+});

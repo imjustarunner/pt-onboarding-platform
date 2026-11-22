@@ -919,6 +919,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/careers/:agencySlug/jobs/:jobId/apply',
+    name: 'PublicJobApplication',
+    component: () => import('../views/public/PublicJobApplicationView.vue'),
+    meta: { requiresAuth: false, hideNav: true }
+  },
+  {
     path: '/careers/:agencySlug/jobs/:jobId',
     name: 'PublicJobDescription',
     component: () => import('../views/public/PublicJobDescriptionView.vue'),

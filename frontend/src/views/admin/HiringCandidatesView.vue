@@ -20,7 +20,7 @@
           </select>
         </div>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
-        <button class="btn btn-primary" @click="openCreate">New application</button>
+        <button class="btn btn-primary" @click="openCreate">Add candidate</button>
         <span v-if="newForMeInView > 0" class="pill unread-pill">
           {{ newForMeInView }} new for you
         </span>
@@ -536,7 +536,7 @@
     <div v-if="showCreate" class="modal-overlay" @click.self="closeCreate">
       <div class="modal">
         <div class="modal-header">
-          <h3>New applicant</h3>
+          <h3>Add candidate</h3>
           <button class="btn-close" @click="closeCreate" aria-label="Close">×</button>
         </div>
         <div class="modal-body">
@@ -546,14 +546,18 @@
             <input v-model="createForm.personalEmail" class="input" placeholder="Personal email (required)" />
             <input v-model="createForm.phoneNumber" class="input" placeholder="Phone (optional)" />
             <div class="job-row">
-              <select v-model="createForm.jobDescriptionId" class="input">
-                <option value="">Select job description…</option>
+              <select v-model="createForm.jobDescriptionId" class="input" aria-label="Job posting" :disabled="jobsLoading || !!jobsError">
+                <option value="">{{ jobsLoading ? 'Loading jobs…' : 'Select job posting…' }}</option>
                 <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">
                   {{ j.title }}
                 </option>
               </select>
               <button class="btn btn-secondary" @click="goToCareers" type="button">Open careers</button>
+              <a v-if="createPublicApplicationUrl" class="btn btn-secondary" :href="createPublicApplicationUrl" target="_blank" rel="noopener noreferrer">Open public application ↗</a>
             </div>
+            <p v-if="jobsError" class="error-banner" role="alert">{{ jobsError }} <button type="button" class="btn btn-secondary" @click="loadJobDescriptions">Retry loading jobs</button></p>
+            <p v-else-if="!jobsLoading && !jobDescriptions.length" role="status">This company has no active job postings.</p>
+            <p class="muted">For a complete application with references and the applicant's consent, use the public job application from Careers. This form adds a candidate for staff follow-up.</p>
             <input v-model="createForm.appliedRole" class="input" placeholder="Applied role (optional override)" />
             <input v-model="createForm.source" class="input" placeholder="Source (optional)" />
             <textarea v-model="createForm.coverLetterText" class="textarea" placeholder="Cover letter (optional)" rows="4" />
@@ -562,7 +566,7 @@
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" @click="closeCreate">Cancel</button>
-          <button class="btn btn-primary" @click="createApplicant" :disabled="createSaving">
+          <button class="btn btn-primary" @click="createApplicant" :disabled="createSaving || jobsLoading || !!jobsError">
             {{ createSaving ? 'Creating…' : 'Create' }}
           </button>
         </div>
@@ -706,6 +710,8 @@ const dashboardStats = ref({
 // Job descriptions (agency-scoped) — needed for job-dash counts
 const jobDescriptions = ref([]);
 const jobsLoading = ref(false);
+const jobsError = ref('');
+let jobReadGeneration = 0;
 
 const knownJobIdSet = computed(() =>
   new Set((jobDescriptions.value || []).map((j) => Number(j.id)).filter((id) => id > 0))
@@ -2005,19 +2011,21 @@ const createTask = async () => {
 };
 
 const loadJobDescriptions = async () => {
-  if (!effectiveAgencyId.value) {
-    jobDescriptions.value = [];
-    return;
-  }
+  const agencyId = effectiveAgencyId.value;
+  const generation = ++jobReadGeneration;
+  jobsError.value = '';
+  if (!agencyId) { jobDescriptions.value = []; jobsLoading.value = false; return; }
+  jobsLoading.value = true;
   try {
-    jobsLoading.value = true;
-    const r = await api.get('/hiring/job-descriptions', { params: { agencyId: effectiveAgencyId.value } });
-    jobDescriptions.value = Array.isArray(r.data) ? r.data : [];
-  } catch {
+    const { data } = await api.get('/hiring/job-descriptions', { params: { agencyId } });
+    if (generation !== jobReadGeneration || Number(effectiveAgencyId.value) !== Number(agencyId)) return;
+    if (!Array.isArray(data)) throw new Error('The job list could not be read. Please try again.');
+    jobDescriptions.value = data;
+  } catch (e) {
+    if (generation !== jobReadGeneration || Number(effectiveAgencyId.value) !== Number(agencyId)) return;
     jobDescriptions.value = [];
-  } finally {
-    jobsLoading.value = false;
-  }
+    jobsError.value = e.response?.data?.error?.message || e.message || 'Could not load this company’s jobs.';
+  } finally { if (generation === jobReadGeneration) jobsLoading.value = false; }
 };
 
 function isTruthyQueryFlag(v) {
@@ -2041,6 +2049,16 @@ const createForm = ref({
   coverLetterText: ''
 });
 
+const createPublicApplicationUrl = computed(() => {
+  const company = agencyChoices.value.find(agency => Number(agency.id) === Number(effectiveAgencyId.value));
+  const slug = company?.portal_url || company?.slug;
+  const jobId = Number(createForm.value.jobDescriptionId);
+  let flags = company?.feature_flags || company?.featureFlags || {};
+  try { if (typeof flags === 'string') flags = JSON.parse(flags); } catch { return ''; }
+  return flags.plotlineOnly === true && slug && jobDescriptions.value.some(job => Number(job.id) === jobId)
+    ? `https://plotlinepo.com/careers/${encodeURIComponent(slug)}/jobs/${jobId}/apply` : '';
+});
+
 const openCreate = () => {
   createError.value = '';
   createSaving.value = false;
@@ -2055,6 +2073,7 @@ const openCreate = () => {
     coverLetterText: ''
   };
   showCreate.value = true;
+  loadJobDescriptions();
 };
 const closeCreate = () => {
   showCreate.value = false;

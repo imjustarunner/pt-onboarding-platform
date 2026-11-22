@@ -16,3 +16,10 @@ it('shows no current openings for Inner Strength when its published jobs feed is
 it('reports a failed jobs lookup without claiming that there are no openings',async()=>{
  api.get.mockRejectedValue(new Error('Unavailable'));wrapper=shallowMount(Careers);await flushPromises();expect(wrapper.text()).toContain('Unable to load careers');expect(wrapper.text()).not.toContain('No current openings.');
 });
+it('routes a standalone Plotline job through the main website careers application',async()=>{
+ api.get.mockResolvedValue({data:{agency:{id:463,name:'Juniper',slug:'tisi',plotlineOnly:true},jobs:[{jobId:42,title:'Consulting QA role',applicationPublicKey:'old-published-form-key'}]}});
+ wrapper=shallowMount(Careers);await flushPromises();
+ const apply=wrapper.findAll('a').find(link=>link.text().includes('Apply Now'));
+ expect(apply.attributes('href')).toBe('https://plotlinepo.com/careers/tisi/jobs/42/apply');
+ expect(apply.attributes('href')).not.toContain('/intake/');
+});

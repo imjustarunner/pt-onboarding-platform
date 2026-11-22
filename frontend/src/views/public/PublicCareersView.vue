@@ -463,7 +463,7 @@
               >View role details</button>
               <a
                 class="cr-apply-btn cr-apply-btn--outline"
-                :href="buildPublicIntakeUrl(job.applicationPublicKey)"
+                :href="buildApplicationUrl(job)"
                 target="_blank"
                 rel="noopener noreferrer"
               >Apply Now →</a>
@@ -569,7 +569,7 @@
             <button type="button" class="cr-apply-btn cr-apply-btn--outline" @click="closeJobDetails">Back to listings</button>
             <a
               class="cr-apply-btn cr-apply-btn--solid"
-              :href="buildPublicIntakeUrl(learnMoreJob.applicationPublicKey)"
+              :href="buildApplicationUrl(learnMoreJob)"
               target="_blank"
               rel="noopener noreferrer"
             >Apply for this role →</a>
@@ -757,6 +757,9 @@ import JobDescriptionSections from '../../components/careers/JobDescriptionSecti
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
 import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+const buildApplicationUrl = job => plotlineOnly.value === true
+  ? `https://plotlinepo.com/careers/${encodeURIComponent(slug.value)}/jobs/${Number(job.jobId)}/apply`
+  : buildPublicIntakeUrl(job.applicationPublicKey);
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { ensurePortalSlugResolved, resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import {
@@ -805,6 +808,7 @@ const loading = ref(false);
 const error = ref('');
 const jobs = ref([]);
 const agencyId = ref(null);
+const plotlineOnly = ref(false);
 const agencyName = ref('');
 const plotlineBrand=ref(null);
 const agencyCareersPageRaw = ref({});
@@ -1346,6 +1350,7 @@ const loadCareers = async () => {
     });
     plotlineBrand.value=r.data?.agency?.plotlineBrand || null;
     agencyId.value = r.data?.agency?.id != null ? Number(r.data.agency.id) : null;
+    plotlineOnly.value = r.data?.agency?.plotlineOnly === true;
     agencyName.value = String(r.data?.agency?.officialName || r.data?.agency?.name || '').trim();
     agencyCareersPageRaw.value =
       r.data?.agency?.careersPage && typeof r.data.agency.careersPage === 'object'

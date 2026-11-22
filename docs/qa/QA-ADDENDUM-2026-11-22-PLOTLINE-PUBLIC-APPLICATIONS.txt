@@ -1,0 +1,71 @@
+PLOTLINE PUBLIC CAREERS AND APPLICATION RETEST — NOVEMBER 22, 2026
+
+Preserve the prior reference and interview findings. Use Jordan 1434, Juniper
+Consulting QA 463 and Maple Studio QA 464. No new company, administrator,
+clinical client, paid background check or real employment action is required.
+Use the controlled QA inbox and the existing synthetic materials/persona.
+
+Engineering scope
+- The Google checkbox and score keys now allow plotlinepo.com. Existing
+  domains, integration type and security settings were preserved.
+- Public applications for registered Plotline QA companies skip CAPTCHA.
+  This is a server-side registry decision using the stored application link,
+  not a browser flag, QA-looking name or caller-supplied agency ID.
+- Real standalone Plotline applications require CAPTCHA. Request-rate,
+  trial, company capacity, consent and hiring permission controls remain.
+- Public Plotline careers now links to
+  https://plotlinepo.com/careers/{company-slug}/jobs/{job-id}/apply
+  The published job selects its saved application configuration. It remains
+  an application to that exact employer and job, with references and consent,
+  and creates a Hiring applicant rather than a clinical client. Existing
+  application records and old public links are retained for compatibility.
+- The staff shortcut is labeled Add candidate. It reloads this company's jobs,
+  reports loading errors and offers Retry. It links to the selected public
+  application; staff manual entry must not stand in for applicant consent or
+  a received public application.
+
+Retest through the normal UI
+1. Record matching frontend/required backend/live backend releases and ready
+   status. Recount retained synthetic applicants, clients and provider roles.
+2. Open Juniper's public careers page using its Copy public page action.
+   Retain live jobs 42 and 43. Do not republish/reset them merely for this test.
+3. Choose Apply for job 42. Capture the main Plotline careers application URL,
+   company name, job title and Plotline — A People Operations Platform branding.
+4. In a fresh signed-out session verify the QA application has no CAPTCHA gate
+   and can start. Record the exact session/application ID produced by the app.
+   Do not manufacture a CAPTCHA token or use a production company as a shortcut.
+5. Use the exact synthetic person prepared for the previously blocked round.
+   Search for their email/marker first. Reuse an existing unfinished application
+   through its normal resume path instead of creating another person.
+6. Complete the job's own questions, resume/material uploads, references and
+   applicant reference-consent choices. Missing required information must
+   produce a clear error without losing the rest of the form. Submit once.
+7. Confirm a Hiring applicant/application for company 463 and job 42. Capture
+   person/application/job IDs, source, answers, attachments and consent after
+   reload. Client count must not increase. The standalone applicant role must
+   not gain clinical, billing, school or supervisor capabilities.
+8. As Jordan open Add candidate. The job dropdown should load Juniper's active
+   jobs, including 42/43. Choose 42 and follow Open public application. Do not
+   create another manual candidate for the same submitted public application.
+9. Switch to Maple and back. A late response must not replace the new company's
+   job options. A failed job request shows an error/Retry, not an empty success.
+10. Inspect ordinary application receipt and staff notice delivery. Continue
+    the reference request/review/completion cases in the reference brief.
+    Applicant references are collected here but emailed only when hiring staff
+    explicitly review and send. Staff must not consent on the applicant's behalf.
+11. Verify a genuinely non-QA Plotline configuration still requires CAPTCHA.
+    Do not submit to a real vacancy or solve a challenge as an automated test.
+    Engineering policy tests cover unregistered/renamed companies, mismatched
+    agency links, inactive companies, lookup failure and localhost spoofing.
+
+Email evidence
+- Sample 7571 has Google SMTP acceptance with zero rejected recipients. Its
+  imported Sent archive is not proof of inbox delivery. Do not resend it.
+- Capture actual inbox receipt for each new action. If absent, record BLOCKED
+  and obtain the Workspace delivery-log result rather than claiming delivery.
+- Retain prior open microphone/interview-state findings separately. This
+  public application retest is not an interview audio/video sign-off.
+
+Report PASS / FAIL / BLOCKED / NOT RUN with exact role, company, job,
+application/reference/message IDs, click path, screenshot and Denver time.
+Engineering setup and unit checks do not count as a completed live bot pass.
