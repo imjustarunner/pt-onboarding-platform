@@ -12,6 +12,7 @@ export default defineConfig({
       'backend/src/services/__tests__/outcomeMeasuresAccess.test.js',
       'backend/src/services/__tests__/clientUpdateAccess.test.js',
       'backend/src/services/__tests__/liveOutcomeContext.test.js',
+      'backend/src/services/__tests__/appointmentStaffTools.test.js',
       'frontend/src/components/clinical/__tests__/OutcomeMeasures.test.js',
       'frontend/src/components/clinical/__tests__/AppointmentLiveAssessments.test.js',
       'frontend/src/components/admin/__tests__/ClientUpdateModal.test.js',

@@ -58,7 +58,7 @@ export async function listOutcomeResponses(user, clientId) {
 }
 export async function liveOutcomeWorkspace(user, clientId, appointmentId) {
   const client = await assertOutcomeClientAccess(user, clientId);
-  const context = await liveOutcomeContext(client, appointmentId);
+  const context = await liveOutcomeContext(client, appointmentId, user);
   const [rows] = await pool.execute('SELECT * FROM client_outcome_measure_responses WHERE client_id = ? AND agency_id = ? AND appointment_id = ? ORDER BY recorded_at DESC, id DESC', [client.id, client.agency_id, context.appointment.id]);
   const recent = await listOutcomeResponses(user, clientId);
   const responses = [...new Map([...recent, ...rows.map(decode)].map(row => [row.id, row])).values()]
@@ -78,7 +78,7 @@ export async function saveOutcomeResponse(user, clientId, input, retry = false) 
   if (!allowedAdministration.includes(input?.administration)) fail(400, 'Select the administration method.');
   const { answers, result } = scoreOutcomeMeasure(measure, input.answers);
   if (!Object.values(answers).some(value => Array.isArray(value) ? value.length > 0 : String(value).trim().length > 0)) fail(400, 'Record at least one response.');
-  const context = input.appointmentId != null ? await liveOutcomeContext(client, input.appointmentId) : null;
+  const context = input.appointmentId != null ? await liveOutcomeContext(client, input.appointmentId, user) : null;
   const respondent = context ? liveOutcomeRespondent(measure, input.respondent, context, client) : null;
   if (context && !result.complete) fail(400, 'Complete every required question before marking this live assessment complete.');
   if (respondent && measure.items.some(item => item.key === 'informant')) answers.informant = respondent.label;
