@@ -13,7 +13,7 @@ const agencyIds = [463, 464];
 const apply = process.argv.includes('--apply');
 
 try {
-  const [agencies] = await pool.execute('SELECT id, name, hiring_reference_sender_identity_id FROM agencies WHERE id IN (?, ?) AND is_demo = 1', agencyIds);
+  const [agencies] = await pool.execute('SELECT a.id, a.name, a.hiring_reference_sender_identity_id FROM agencies a JOIN plotline_companies p ON p.agency_id = a.id WHERE a.id IN (?, ?) AND p.is_qa = 1', agencyIds);
   if (agencies.length !== agencyIds.length) throw new Error('The two expected QA companies must exist as demo companies.');
   const existing = [];
   for (const agency of agencies) {
@@ -40,7 +40,7 @@ try {
       identity = identity
         ? await Identity.update(identity.id, fields)
         : await Identity.create({ agencyId, identityKey: 'hiring_references', fromEmail: address, ...fields });
-      await pool.execute('UPDATE agencies SET hiring_reference_sender_identity_id = ? WHERE id = ? AND is_demo = 1', [identity.id, agencyId]);
+      await pool.execute('UPDATE agencies SET hiring_reference_sender_identity_id = ? WHERE id = ? AND EXISTS (SELECT 1 FROM plotline_companies p WHERE p.agency_id = agencies.id AND p.is_qa = 1)', [identity.id, agencyId]);
       console.log(JSON.stringify({ agencyId, identityId: identity.id, senderVerified: true }));
     }
   }

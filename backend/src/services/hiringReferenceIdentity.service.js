@@ -81,5 +81,6 @@ export async function resolveHiringReferenceReplyTo(agencyId, identity = null) {
   const address = candidates.find(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''))
     && String(value).toLowerCase() !== 'references@plotlinepo.com');
   if (address) return address;
-  return agency?.is_demo ? 'testing@itsco.health' : null;
+  const [[company]] = await pool.execute('SELECT is_qa FROM plotline_companies WHERE agency_id = ? LIMIT 1', [agencyId]);
+  return Number(company?.is_qa) === 1 ? 'testing@itsco.health' : null;
 }
