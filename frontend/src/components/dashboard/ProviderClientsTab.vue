@@ -474,10 +474,11 @@
       </template>
     </template>
 
+    <ClientFollowUpTask ref="followUpTask" :agency-id="followUpAgencyId" />
     <ClientQuickView v-if="quickClient" :key="`quick-${quickClient.agency_id}-${quickClient.id}`" :client="quickClient"
       :label="formatOfficeClientLabel(quickClient)" :status="officeStatusLabel(quickClient)" :school="isSchoolSettingClient(quickClient)"
       :snapshot="sessionSnapshots[sessionSnapshotKey(quickClient)]" @close="closeQuickView"
-      @fiscal-sessions="onFiscalSessions" @open-chart="openQuickChart" @school-workspace="openSchoolWorkspace" @keep-open="keepQuickView" @leave="closeQuickViewLater" />
+      @follow-up="openFollowUp" @fiscal-sessions="onFiscalSessions" @open-chart="openQuickChart" @school-workspace="openSchoolWorkspace" @keep-open="keepQuickView" @leave="closeQuickViewLater" />
     <Teleport to="body">
       <div v-if="profileLoading" class="pct-profile-loading-overlay" role="status" aria-live="polite">
         <div class="pct-profile-loading-card muted">Loading client…</div>
@@ -535,6 +536,7 @@ import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
 import { useClientFeedbackSummaries } from '../../composables/useClientFeedbackSummaries.js';
 import ClientQuickView from './ClientQuickView.vue';
+import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import {useDirectoryQuickView} from '../../composables/useDirectoryQuickView.js';
 import {useClientSessionSnapshots,sessionSnapshotKey,sessionDateLabel} from '../../composables/useClientSessionSnapshots.js';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
@@ -1020,6 +1022,8 @@ function allClientSortValue(c, field) {
   return '';
 }
 
+const followUpTask=ref(null),followUpAgencyId=ref(null);
+async function openFollowUp(client){followUpAgencyId.value=Number(client.agency_id);closeQuickView();await nextTick();followUpTask.value?.open?.(client);}
 const fiscalSnapshots=ref({});
 function onFiscalSessions({clientId,agencyId,totals}){fiscalSnapshots.value={...fiscalSnapshots.value,[`${agencyId}:${clientId}`]:totals};}
 const rosterAgencyId=ref('all'),profileInitialTab=ref(''),schoolGrid=ref(null);

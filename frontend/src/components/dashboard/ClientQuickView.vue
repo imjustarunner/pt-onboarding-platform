@@ -14,7 +14,7 @@
           <button class="cq-primary" type="button" @click="$emit('open-chart',record)">Open chart ↗</button>
           <button type="button" @click="secureMessage">Secure message</button>
           <button type="button" :disabled="emailBusy" @click="emailClient">{{ record.email ? 'Email client' : 'Add client email' }}</button>
-          <button type="button" @click="followUp?.open(record)">Follow-up task</button>
+          <button type="button" @click="$emit('follow-up',record)">Follow-up task</button>
         </div>
         <div class="cq-content">
           <p v-if="loading" role="status">Loading client overview…</p>
@@ -82,7 +82,6 @@
         </div>
       </aside>
   </Teleport>
-  <ClientFollowUpTask ref="followUp" :agency-id="agencyId" @created="loadTasks" />
 </template>
 <script setup>
 import {portalCalendarDate} from '../../utils/portalDates';
@@ -90,21 +89,20 @@ import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
-import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
 import ClientCareOverview from './ClientCareOverview.vue';
 import {useClientChartTypes} from '../../composables/useClientChartTypes.js';
 import {resolveClientEmail,composeClientEmail} from '../../utils/clientEmailComposer.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 import {sessionDateLabel as date} from '../../composables/useClientSessionSnapshots.js';
 const props=defineProps({client:{type:Object,required:true},label:String,status:String,snapshot:Object,school:Boolean});
-const emit=defineEmits(['close','open-chart','school-workspace','keep-open','leave','fiscal-sessions']);
+const emit=defineEmits(['close','open-chart','school-workspace','keep-open','leave','fiscal-sessions','follow-up']);
 const route=useRoute(),router=useRouter(),auth=useAuthStore();
 const prefix=computed(()=>route.params.organizationSlug?'/'+route.params.organizationSlug:'');
 const agencyId=computed(()=>Number(props.client.agency_id));
 const {profile:chartProfile,error:chartTypeError}=useClientChartTypes(()=>[Number(props.client.id),agencyId.value,true]);
 const clinicalCare=computed(()=>chartProfile.value?.types?.some(type=>['clinical','school'].includes(type)));
 const record=ref({id:props.client.id,agency_id:props.client.agency_id}),loading=ref(false),profileError=ref('');
-const tasks=ref([]),tasksLoading=ref(false),tasksError=ref(''),reload=ref(0);
+const tasks=ref([]),tasksLoading=ref(false),tasksError=ref('');
 const guardians=ref([]),guardiansLoading=ref(false),guardiansError=ref('');
 const canViewGuardians=computed(()=>['super_admin','admin','support','provider','provider_plus','intern','intern_plus','clinical_practice_assistant','supervisor'].includes(auth.user?.role));
 useLinkedGuardianContact({clientId:computed(()=>props.client.id),canView:canViewGuardians,guardians,loading:guardiansLoading,error:guardiansError,api});
@@ -114,7 +112,7 @@ const activeGuardians=computed(()=>guardians.value.filter(g=>{
   return Number(g.access_enabled)===1 && g.relationship_type!=='self' && !p?.revoked && !p?.relationshipRevoked;
 }));
 const guardianActionError=ref(''),recipientBusy=ref(0);let recipientRequest=0;onBeforeUnmount(()=>recipientRequest++);
-const dialog=ref(null),followUp=ref(null),emailBusy=ref(false),actionError=ref('');
+const dialog=ref(null),emailBusy=ref(false),actionError=ref('');
 const avatar=computed(()=>String(props.label || props.client.initials || '?').split(/\s+/).map(word=>word[0]).slice(0,2).join(''));
 const lifecycle=computed(()=>record.value.client_status_label || record.value.status_label || '');
 const daysSinceVisit=computed(()=>{const value=props.snapshot?.lastCompletedAt;if(!value)return null;const days=Math.floor((Date.now()-new Date(value).getTime())/86400000);return Number.isFinite(days)?Math.max(0,days):null;});
@@ -122,8 +120,7 @@ function leavePanel(){if(dialog.value?.contains(document.activeElement))emit('ke
 function leaveFocus(event){if(!dialog.value?.contains(event.relatedTarget))emit('leave');}
 function onKeydown(event){if(event.key==='Escape'){event.stopPropagation();emit('close');}}
 function openMessages(){emit('close');router.push({path:prefix.value+'/messages',query:{view:'hub',secureClientId:String(props.client.id),agencyId:String(agencyId.value)}});}
-function loadTasks(){reload.value++;}
-watch(()=>[props.client.id,agencyId.value,reload.value],async([id,aid],_,onCleanup)=>{
+watch(()=>[props.client.id,agencyId.value],async([id,aid],_,onCleanup)=>{
   let active=true;onCleanup(()=>{active=false;});
   tasks.value=[];tasksError.value='';tasksLoading.value=true;
   try{const {data}=await api.get(`/clients/${id}/quick-view-tasks`,{params:{agencyId:aid},headers:{'X-Agency-Id':String(aid)},skipGlobalLoading:true});

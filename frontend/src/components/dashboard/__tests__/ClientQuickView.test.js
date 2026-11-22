@@ -63,3 +63,8 @@ it('explains missing chart messaging authorization separately from the guardian 
  await w.findAll('button').find(b=>b.text()==='Message this guardian').trigger('click');await flushPromises();
  expect(router.currentRoute.value.path).toBe('/dashboard');expect(w.text()).toContain('Secure messaging is not enabled for this guardian on this chart.');
 });
+
+it('opens follow-up work in the dashboard so it survives dismissing the preview',async()=>{
+ await render();await w.findAll('button').find(b=>b.text()==='Follow-up task').trigger('click');
+ expect(w.emitted('follow-up')[0][0]).toMatchObject({id:12,agency_id:2});
+});

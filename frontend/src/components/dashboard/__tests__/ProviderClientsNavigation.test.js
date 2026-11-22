@@ -2,8 +2,9 @@ import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import {reactive,defineComponent,onMounted} from 'vue';
 import {shallowMount,flushPromises} from '@vue/test-utils';
 import {createRouter,createMemoryHistory} from 'vue-router';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),agency:null,empty:false,failCaseload:false,schools:false}));
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),agency:null,empty:false,failCaseload:false,schools:false,openTask:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:m}));vi.mock('../../../store/agency',()=>({useAgencyStore:()=>m.agency}));vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:9,role:'provider',has_provider_access:true}})}));
+vi.mock('../../clients/ClientFollowUpTask.vue',()=>({default:{name:'ClientFollowUpTask',setup(_,{expose}){expose({open:m.openTask});},template:'<div data-follow-up-host />'}}));
 vi.mock('../../admin/ClientDetailPanel.vue',()=>({default:{name:'ClientDetailPanel',template:'<div />'}}));vi.mock('../../admin/clientChart/ClientEhrBringUpToDatePanel.vue',()=>({default:{template:'<div />'}}));
 import View from '../ProviderClientsTab.vue';
 const Waitlist=defineComponent({name:'ProviderEnrollmentWaitlist',props:['agencyIds','initiallyExpanded'],emits:['loaded'],setup(_, {emit}){onMounted(()=>emit('loaded',{count:0,complete:true}));},template:'<section data-waitlist>Waitlist requests</section>'});
@@ -28,7 +29,7 @@ beforeEach(()=>{vi.clearAllMocks();localStorage.clear();m.empty=false;m.failCase
  });
 });
 afterEach(()=>wrapper?.unmount());
-async function render(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/dashboard',component:{template:'<div />'}}]});await router.push('/dashboard?tab=clients&clients=all');await router.isReady();wrapper=shallowMount(View,{global:{plugins:[router],stubs:{ProviderEnrollmentWaitlist:Waitlist,Teleport:true}}});await flushPromises();return router;}
+async function render(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/dashboard',component:{template:'<div />'}}]});await router.push('/dashboard?tab=clients&clients=all');await router.isReady();wrapper=shallowMount(View,{global:{plugins:[router],stubs:{ProviderEnrollmentWaitlist:Waitlist,Teleport:true,ClientFollowUpTask:false}}});await flushPromises();return router;}
 const tab=label=>wrapper.findAll('[role=tab]').find(t=>t.text().includes(label));
 it('renders the caseload from one request before memberships and badges finish', async () => {
   const original = m.get.getMockImplementation();
@@ -83,4 +84,12 @@ it('filters the caseload by agency and exposes appointment sorting with distinct
  await rows[0].find('.pct-client-link').trigger('click');await flushPromises();
  expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(false);
  expect(wrapper.findComponent({name:'ClientDetailPanel'}).exists()).toBe(true);
+});
+
+it('keeps the task host mounted when creating follow-up work dismisses the hover preview',async()=>{
+ await render();await wrapper.get('.pct-client-link').trigger('mouseenter');
+ await vi.waitFor(()=>expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(true));
+ wrapper.findComponent({name:'ClientQuickView'}).vm.$emit('follow-up',{id:20,agency_id:2,initials:'AAA'});await flushPromises();
+ expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(false);
+ expect(wrapper.find('[data-follow-up-host]').exists()).toBe(true);expect(m.openTask).toHaveBeenCalledWith(expect.objectContaining({id:20,agency_id:2}));
 });
