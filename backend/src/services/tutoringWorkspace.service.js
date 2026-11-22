@@ -1,3 +1,4 @@
+import { canProvideTutoring } from '../utils/providerServiceOfferings.js';
 import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import pool from '../config/database.js';
 import { readProviderServices } from './providerServiceOfferings.service.js';
@@ -23,7 +24,7 @@ export function createTutoringWorkspaceService({ db = pool, services = readProvi
     if (!agency) throw fail(403, 'This agency is not available to your account.');
     const offered = await services(user.id, id, db);
     const selected = offered.services.filter(service => service.offered).map(service => service.serviceType);
-    const canTutor = offered.careEligibility.canProvideCare && selected.includes('tutoring');
+    const canTutor = canProvideTutoring(offered.careEligibility) && selected.includes('tutoring');
     const canClinical = offered.careEligibility.canProvideCare && selected.includes('counseling');
     const manager = ['admin', 'super_admin'].includes(user.role);
     const flags=parse(agency.feature_flags,{});
@@ -53,7 +54,7 @@ export function createTutoringWorkspaceService({ db = pool, services = readProvi
   async function students(user, agencyId) {
     const access = await context(user, agencyId);
     if (!access.canTutor) throw fail(403, 'Tutoring is not enabled for you in this agency.');
-    const [rows] = await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.identifier_code FROM clients c WHERE UPPER(COALESCE(c.status,''))<>'ARCHIVED' AND (EXISTS(SELECT 1 FROM client_service_enrollments e WHERE e.client_id=c.id AND e.agency_id=? AND e.provider_user_id=? AND e.service_kind='tutoring' AND e.is_active=1) OR EXISTS(SELECT 1 FROM student_subjects s WHERE s.client_id=c.id AND s.agency_id=? AND s.primary_tutor_user_id=? AND s.status NOT IN ('completed','discharged','archived'))) ORDER BY c.full_name,c.id`, [access.agencyId, user.id, access.agencyId, user.id]);
+    const [rows] = await db.execute(`SELECT DISTINCT c.id,c.full_name,c.initials,c.identifier_code FROM clients c WHERE UPPER(COALESCE(c.status,''))<>'ARCHIVED' AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1)) AND (EXISTS(SELECT 1 FROM client_service_enrollments e WHERE e.client_id=c.id AND e.agency_id=? AND e.provider_user_id=? AND e.service_kind='tutoring' AND e.is_active=1) OR EXISTS(SELECT 1 FROM student_subjects s WHERE s.client_id=c.id AND s.agency_id=? AND s.primary_tutor_user_id=? AND s.status NOT IN ('completed','discharged','archived'))) ORDER BY c.full_name,c.id`, [access.agencyId,access.agencyId,access.agencyId, user.id, access.agencyId, user.id]);
     return { agencyId: access.agencyId, students: rows.map(row => ({ id: row.id, displayName: row.full_name || row.initials || row.identifier_code || `Student ${row.id}` })) };
   }
   return { context, profile, save, students };

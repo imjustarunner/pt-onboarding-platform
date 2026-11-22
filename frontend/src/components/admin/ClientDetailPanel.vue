@@ -99,6 +99,7 @@
                   :profile="chartTypes" :label="clientTypeLabel" :error="chartTypeError" :can-edit="canEditClientType"
                   :busy="savingChartTypes" @save="saveChartTypes" @reload="loadChartTypes" @manage="goChartSub" />
                 <span v-else class="cdp-pill cdp-pill--type">{{ clientTypeLabel }}</span>
+                <button v-if="chartTypes?.portalSetup && canViewGuardians" class="cdp-pill cdp-pill--type" type="button" @click="onHubChange('portal')">Auricwell portal</button>
                 <span v-if="primaryInsuranceLabel" class="cdp-pill cdp-pill--success">
                   {{ primaryInsuranceLabel }}
                 </span>
@@ -204,7 +205,7 @@
             :guardian-name="overviewGuardianName" :linked-guardians="guardians" :guardian-loading="guardiansLoading" :guardian-error="guardiansError"
             :contact-role="intakeContactLabel"
             :guardian-meta="overviewGuardianMeta"
-            :organization-name="client.organization_name || schoolNames.join(' · ')"
+            :organization-name="chartOrganizationLabel(client.organization_name, client.organization_type) || schoolNames.join(' · ')"
             @edit="startEditOverview(true)"
             @assign-provider="openProviderAssignment"
             @upload="openDocumentUpload"
@@ -331,7 +332,7 @@
             </div>
             <template v-if="!showSchoolStripAssignmentEditor">
               <div class="cdp-school-profile-item">
-                <span class="cdp-school-profile-kicker">Primary clinician</span>
+                <span class="cdp-school-profile-kicker">{{ primaryRoleLabel }}</span>
                 <button v-if="canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-clinician-link" @click="openProviderAssignment">{{ primaryProviderLabel }}</button>
                 <strong v-else>{{ primaryProviderLabel }}</strong>
               </div>
@@ -434,10 +435,10 @@
                 <div class="cdp-glance-meta">{{ overviewGuardianMeta || '—' }}</div>
               </article>
               <article class="cdp-contact-card">
-                <div class="cdp-contact-card__role">Primary clinician</div>
+                <div class="cdp-contact-card__role">{{ primaryRoleLabel }}</div>
                 <button v-if="canManageServiceEnrollments && !showSchoolGlance" type="button" class="cdp-contact-card__name cdp-clinician-link" @click="openProviderAssignment">{{ primaryProviderLabel }}</button>
                 <div v-else class="cdp-contact-card__name">{{ primaryProviderLabel }}</div>
-                <div class="cdp-glance-meta">{{ client.organization_name || '—' }}</div>
+                <div class="cdp-glance-meta">{{ chartOrganizationLabel(client.organization_name, client.organization_type) || '—' }}</div>
               </article>
               <article class="cdp-contact-card">
                 <div class="cdp-contact-card__role">Organization</div>
@@ -531,7 +532,7 @@
                         <option :value="''">None</option>
                         <option v-if="client.organization_id && !overviewOrganizations.some(o=>Number(o.id)===Number(client.organization_id))" :value="String(client.organization_id)">{{ savedOrganizationLabel }}</option>
                         <option v-for="o in overviewOrganizations" :key="o.id" :value="String(o.id)">
-                          {{ o.name }}
+                          {{ chartOrganizationLabel(o.name, o.organization_type) }}
                         </option>
                       </select>
                     </template>
@@ -905,7 +906,7 @@
                           <strong>{{ p.provider_last_name }}, {{ p.provider_first_name }}</strong>
                           <span v-if="p.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
                           <div v-if="p.organization_name" class="muted" style="margin-top: 2px;">
-                            {{ p.organization_name }}
+                            {{ chartOrganizationLabel(p.organization_name, p.organization_type) }}
                           </div>
                         </div>
                         <div v-if="showSchoolGlance" class="muted" style="white-space: nowrap;">
@@ -1603,8 +1604,9 @@
         <div v-if="showPanel('communications')" class="detail-section">
           <ClientCommunicationsTab
             :client-id="Number(props.client.id)"
-            :organization-id="Number(props.client.organization_id || props.schoolOrganizationId || 0)"
-            :agency-id="Number(props.client.agency_id || selectedAgencyId || 0)"
+            :key="`${client.id}:${activeChartAgencyId}:${communicationSchoolId}`"
+            :organization-id="communicationSchoolId"
+            :agency-id="activeChartAgencyId"
           />
         </div>
 
@@ -1626,7 +1628,7 @@
             <ClientDisclosurePanel :key="`portal-disclosure-${client.id}`" :client-id="client.id" :client="client" @view-artifact="openChartDocument" />
           </details>
         </section>
-        <ClientPortalOverview ref="portalOverviewRef" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" :personal-login-available="clientIsMinor" />
+        <ClientPortalOverview :portal-setup="chartTypes?.portalSetup" :can-edit-contact="canEditClientEmail" @edit-contact="goChartSub('demographics')" @account-updated="loadChartTypes" ref="portalOverviewRef"  :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" :personal-login-available="clientIsMinor" />
 
         <!-- Guardians Tab -->
         <div v-if="showPanel('guardians')" class="detail-section">
@@ -2113,7 +2115,7 @@
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'school')" :key="`sch-${row.organization_id}`">
                           <div>
-                            <strong>{{ row.organization_name }}</strong>
+                            <strong>{{ chartOrganizationLabel(row.organization_name, row.organization_type) }}</strong>
                             <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
                           </div>
                           <div class="casg-affil-actions">
@@ -2187,7 +2189,7 @@
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'program')" :key="`prog-${row.organization_id}`">
                           <div>
-                            <strong>{{ row.organization_name }}</strong>
+                            <strong>{{ chartOrganizationLabel(row.organization_name, row.organization_type) }}</strong>
                             <span class="casg-badge" style="margin-left: 6px;">{{ affiliationDisplayType(row) }}</span>
                             <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
                           </div>
@@ -2259,7 +2261,7 @@
                       <ul v-else class="casg-affil-list">
                         <li v-for="row in affiliationsForTenant(a.agency_id, 'learning')" :key="`lrn-${row.organization_id}`">
                           <div>
-                            <strong>{{ row.organization_name }}</strong>
+                            <strong>{{ chartOrganizationLabel(row.organization_name, row.organization_type) }}</strong>
                             <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
                           </div>
                           <div class="casg-affil-actions">
@@ -2324,7 +2326,7 @@
                 </article>
               </div>
 
-              <details v-if="pastAffiliations.length" class="casg-past-affiliations"><summary>Completed programs and past affiliations ({{ pastAffiliations.length }})</summary><ul><li v-for="row in pastAffiliations" :key="row.organization_id">{{ row.organization_name }} · Completed</li></ul></details>
+              <details v-if="pastAffiliations.length" class="casg-past-affiliations"><summary>Completed programs and past affiliations ({{ pastAffiliations.length }})</summary><ul><li v-for="row in pastAffiliations" :key="row.organization_id">{{ chartOrganizationLabel(row.organization_name, row.organization_type) }} · Completed</li></ul></details>
               <div class="casg-add-row" style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Add agency membership</label>
@@ -2355,7 +2357,7 @@
                 <ul class="casg-affil-list">
                   <li v-for="row in orphanAffiliations" :key="`orphan-${row.organization_id}`">
                     <div>
-                      <strong>{{ row.organization_name }}</strong>
+                      <strong>{{ chartOrganizationLabel(row.organization_name, row.organization_type) }}</strong>
                       <span class="casg-badge" style="margin-left: 6px;">{{ affiliationDisplayType(row) }}</span>
                       <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
                     </div>
@@ -2880,7 +2882,7 @@ import ClientContactEmail from '../clients/ClientContactEmail.vue';
 import { resolveClientEmail, composeClientEmail } from '../../utils/clientEmailComposer';
 import ClientTypeEditor from './clientChart/ClientTypeEditor.vue';
 import { useClientChartTypes } from '../../composables/useClientChartTypes';
-import { meaningfulProgram } from '../../utils/clientRosterContext.js';
+import { meaningfulProgram, chartOrganizationLabel } from '../../utils/clientRosterContext.js';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide, defineAsyncComponent } from 'vue';
@@ -4057,14 +4059,19 @@ const chartAgencyAffiliatedOrgs = ref([]);
 const activeChartAgencyId = computed(() => Number(selectedAgencyId.value || props.client?.agency_id) || null);
 const canReadChartTypes = computed(() => ['admin','super_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor'].includes(roleNorm.value));
 const {profile:chartTypes,error:chartTypeError,saving:savingChartTypes,load:loadChartTypes,save:saveChartTypes} =
-  useClientChartTypes(() => [Number(props.client?.id), Number(props.client?.agency_id), canReadChartTypes.value,
-    authStore.user?.id, roleNorm.value, props.client?.organization_id, props.client?.client_status_id, props.client?.status, props.client?.date_of_birth]);
+  useClientChartTypes(() => [Number(props.client?.id), activeChartAgencyId.value, canReadChartTypes.value,
+    authStore.user?.id, roleNorm.value, props.client?.email, props.client?.organization_id, props.client?.client_status_id, props.client?.status, props.client?.date_of_birth]);
 const fallbackTypes = computed(() => {
+  if (activeChartAgencyId.value !== Number(props.client?.agency_id)) return [];
   const org = props.client?.organization_type, legacy = props.client?.client_type;
   return [...new Set([org,legacy].filter(type => ['clinical','learning','school'].includes(type) &&
     !(type === 'school' && org && org !== 'school' && legacy === 'school')))];
 });
 const activeTypes = computed(() => chartTypes.value?.types ?? fallbackTypes.value);
+const primaryRoleLabel = computed(() => {
+  if (activeTypes.value.includes('clinical') || activeTypes.value.includes('school')) return 'Primary clinician';
+  return activeTypes.value.includes('learning') ? 'Primary learning provider' : 'Primary provider';
+});
 const effectiveClientType = computed(() => activeTypes.value.find(type => ['clinical','school','learning'].includes(type)) || activeTypes.value[0] || 'basic_nonclinical');
 const clientTypeLabel = computed(() => activeTypes.value.map(type => type[0].toUpperCase() + type.slice(1)).join(' · ') || 'Unclassified');
 const isSchoolClientType = computed(() => activeTypes.value.includes('school'));
@@ -4142,6 +4149,15 @@ const schoolNames = computed(() => chartTypes.value?.schools ?? [...new Set([
   ...affiliationsForTenant(activeChartAgencyId.value,'school').map(row => row.organization_name)
 ].filter(Boolean))]);
 const showSchoolGlance = computed(() => isSchoolClientType.value || isSchoolPortalContext.value || schoolNames.value.length > 0);
+const communicationSchoolId = computed(() => {
+  if (isSchoolPortalContext.value && schoolOrganizationId.value) return schoolOrganizationId.value;
+  const schools = affiliationsForTenant(activeChartAgencyId.value,'school');
+  const chosen = schools.find(row => Number(row.organization_id) === Number(selectedAssignmentOrgId.value))
+    || schools.find(row => Number(row.is_primary) === 1) || (schools.length === 1 && schools[0]);
+  if (chosen) return Number(chosen.organization_id);
+  return props.client?.organization_type === 'school' && Number(props.client.agency_id) === activeChartAgencyId.value
+    ? Number(props.client.organization_id) : 0;
+});
 const schoolGlanceLabel = computed(() => schoolNames.value.join(' · ') || 'Not on a school roster');
 const assignedDayGlanceLabel = computed(() => {
   const days = String(careTeamGlanceMeta.value || '').trim();
@@ -4149,7 +4165,13 @@ const assignedDayGlanceLabel = computed(() => {
   return assignedDayDisplay(props.client);
 });
 const organizationLabel = computed(() => props.client?.organization_type === 'school' ? 'School' : 'Organization');
-const savedOrganizationLabel = computed(() => props.client?.organization_name || overviewOrganizations.value.find(o=>Number(o.id)===Number(props.client?.organization_id))?.name || (props.client?.organization_id ? (Number(props.client.organization_id)===Number(props.client.agency_id) ? props.client.agency_name || `Agency #${props.client.agency_id}` : `Organization #${props.client.organization_id}`) : 'None'));
+const savedOrganizationLabel = computed(() => {
+  const client = props.client;
+  const org = overviewOrganizations.value.find(row => Number(row.id) === Number(client?.organization_id));
+  const name = chartOrganizationLabel(client?.organization_name || org?.name, client?.organization_type || org?.organization_type);
+  if (name || !client?.organization_id) return name || 'None';
+  return Number(client.organization_id) === Number(client.agency_id) ? client.agency_name || `Agency #${client.agency_id}` : `Organization #${client.organization_id}`;
+});
 const canSeeClientFullName = computed(() => {
   // Backoffice roles only see full name. School staff and other portal roles stay on initials/code.
   return ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value);
@@ -4323,7 +4345,7 @@ const overviewGlanceItems = computed(() => {
     items.push({ label: 'Grade', value: formatGradeDisplay(props.client?.grade) || '—' });
     if (props.client?.school_year) items.push({ label: 'School year', value: String(props.client.school_year) });
   }
-  items.push({ label: 'Primary clinician', value: primaryProviderLabel.value, assignable: canManageServiceEnrollments.value && !showSchoolGlance.value });
+  items.push({ label: primaryRoleLabel.value, value: primaryProviderLabel.value, assignable: canManageServiceEnrollments.value && !showSchoolGlance.value });
   if (overviewProgramLabel.value) items.push({ label: 'Program', value: overviewProgramLabel.value });
   items.push({ label: 'Insurance', value: primaryInsuranceLabel.value || 'Not on file' });
   items.push({ label: 'Status', value: isClientArchived.value ? 'Archived' : displayStatusLabel.value });
@@ -4676,7 +4698,7 @@ const refreshOverviewProviders = async () => {
         const [firstName, ...lastName] = String(provider.provider_name || '').split(' ');
         rows.push({ id: `service-${provider.service_id || service.id}`, provider_user_id: provider.provider_user_id,
           provider_first_name: firstName, provider_last_name: lastName.join(' '),
-          organization_name: service.organization_name, is_primary: false });
+          organization_name: service.organization_name, organization_type: service.organization_type, is_primary: false });
       }
     }
     overviewProviders.value = rows.length

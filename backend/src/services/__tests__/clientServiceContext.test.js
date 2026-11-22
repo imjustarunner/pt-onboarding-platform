@@ -6,7 +6,7 @@ const tutoring = { id: 12, businessType: 'tutoring', serviceCode: 'TUTORING' };
 const consultation = { id: 13, businessType: 'consulting', serviceCode: 'CONSULT' };
 function database(enrollments = [], clientType = 'clinical') {
  return { execute: vi.fn(async (sql, args) => {
-  if (sql.startsWith('SELECT c.id')) return [[{ id: args[0], client_type: clientType }]];
+  if (sql.startsWith('SELECT c.id')) return [[{ id: args[0], agency_id:2, client_type: clientType }]];
   return [enrollments.filter(row => !row.agency_id || row.agency_id === args[1])];
  }) };
 }
@@ -66,4 +66,8 @@ describe('client agency and service context', () => {
 it('labels the configured tutoring product with this student’s assigned Math/Reading enrollment, excluding another tutor',async()=>{
  const db=database([row('tutoring',8,{id:1038,label:'Tutoring — Math'}),row('tutoring',9,{id:1039,label:'Other tutor Reading'})]);
  const services=await filterBookingServicesForClient([tutoring],input,db);expect(services).toEqual([{...tutoring,enrollmentLabel:'Tutoring — Math'}]);expect(services[0].serviceCode).toBe('TUTORING');expect(services[0].id).toBe(tutoring.id);
+});
+
+it('never inherits a primary clinical classification into a linked agency without a service assignment',async()=>{
+ expect((await readClientServiceContext({...input,agencyId:3},database())).serviceKinds).toEqual([]);
 });

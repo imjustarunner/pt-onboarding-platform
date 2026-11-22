@@ -1,3 +1,4 @@
+import { canProvideTutoring } from '../utils/providerServiceOfferings.js';
 import { utcMysqlToZonedWallMysql,clientScheduleInstantToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { listClientServices } from './clientServiceEnrollment.service.js';
 import { guardianServiceAllowed } from '../utils/guardianServiceRestrictions.js';
@@ -53,7 +54,7 @@ export async function guardianBookingOptions(input) {
   for(const provider of providers) {
     if (learning) {
       const offered = await readProviderServices(provider.id, agency.id);
-      if (!offered.careEligibility.canProvideCare || !offered.services.some(s=>s.serviceType==='tutoring'&&s.offered&&s.onlineScheduling)) continue;
+      if (!canProvideTutoring(offered.careEligibility) || !offered.services.some(s=>s.serviceType==='tutoring'&&s.offered&&s.onlineScheduling)) continue;
       const [[profile]]=await pool.execute("SELECT COALESCE(payment_policy, 'POST_SESSION') AS payment_policy FROM provider_tutoring_profiles WHERE agency_id=? AND user_id=?",[agency.id,provider.id]);
       if (profile?.payment_policy !== 'POST_SESSION') continue;
     }

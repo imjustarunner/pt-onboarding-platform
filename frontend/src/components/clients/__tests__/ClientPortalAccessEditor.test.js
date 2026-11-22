@@ -7,3 +7,11 @@ it('clears the previous client’s identity and confirmation when another client
  const w=mount(Component,{props:{clientId:8}});await flushPromises();await w.findAll('button').find(b=>b.text().includes('Prepare client’s own')).trigger('click');await flushPromises();await w.get('input[type=checkbox]').setValue(true);
  await w.setProps({clientId:9});await flushPromises();expect(w.find('form').exists()).toBe(false);expect(w.text()).not.toContain('client@example.test');expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+
+it('opens the ownership review automatically for an eligible Auricwell setup and waits for staff to confirm',async()=>{
+ const w=mount(Component,{props:{clientId:8,agencyId:2,startSelfReview:true}});await flushPromises();
+ expect(w.get('form').text()).toContain('client@example.test');
+ expect(w.get('form button').element.disabled).toBe(true);
+ expect(api.post).not.toHaveBeenCalled();
+ w.unmount();
+});

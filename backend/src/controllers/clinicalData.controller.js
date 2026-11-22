@@ -1,3 +1,4 @@
+import { requireClientServiceKind } from '../services/clientServiceContext.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
@@ -149,6 +150,7 @@ export const bootstrapClinicalSession = async (req, res, next) => {
       if(fullProgressNoteRequiresSession({toolId,serviceCode,noteKind:req.body?.noteType || (!toolId && !serviceCode ? 'progress' : '')})) {
         await requireActualProgressSession({agencyId,clientId,providerUserId:req.user.id});
       }
+      await requireClientServiceKind({agencyId, clientIds:[clientId], providerId:req.user.id, serviceKind:'counseling'});
       const { ensureNoteOnlyClinicalRecord } = await import('../services/billingEncounterClinical.service.js');
       const titleBits = [
         String(req.body?.noteType || 'PROGRESS_NOTE').replace(/_/g, ' '),

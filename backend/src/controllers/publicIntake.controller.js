@@ -17,7 +17,7 @@ import { validateQaIntakeGuardian } from '../services/qaIntakeIdentity.service.j
 import { schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
 import { requiresCaptchaForLink } from '../utils/intakeCaptchaPolicy.js';
 import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
-import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
+import { intakePortalForClients, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
 import { safeEnrollmentPortalUrl } from '../utils/enrollmentPortalAccess.js';
 import { missingInsuranceCards } from '../utils/insuranceCardRequirements.js';
@@ -10402,7 +10402,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             ? orgContextHoisted
             : await resolveIntakeOrgContext(link, { boundClient: null });
           const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
-          const registrationLoginPageUrl = clientPortalInviteUrl({portal:intakeClientPortal(agency,{clients:createdClients,channel:link.master_channel,school:link.scope_type==='school'}),existingAccount:true});
+          const registrationLoginPageUrl = clientPortalInviteUrl({portal:await intakePortalForClients(agency,{clients:createdClients,channel:link.master_channel,school:link.scope_type==='school'}),existingAccount:true});
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
           const portalGuardian = updatedSubmission.guardian_user_id ? await User.findById(updatedSubmission.guardian_user_id) : null;
           const ownsPortalEmail = portalGuardian && [portalGuardian.email, portalGuardian.personal_email, portalGuardian.work_email].some(email => email && String(email).trim().toLowerCase() === String(updatedSubmission.signer_email).trim().toLowerCase());
@@ -11741,7 +11741,7 @@ export const submitPublicIntake = async (req, res, next) => {
           ? orgContextHoisted
           : await resolveIntakeOrgContext(link, { issuedRoiLink: null, boundClient: null });
         const portalBase = String(config.frontendUrl || '').replace(/\/$/, '');
-        const registrationLoginPageUrl = clientPortalInviteUrl({portal:intakeClientPortal(agency,{clients:createdClients,channel:link.master_channel,school:link.scope_type==='school'}),existingAccount:true});
+        const registrationLoginPageUrl = clientPortalInviteUrl({portal:await intakePortalForClients(agency,{clients:createdClients,channel:link.master_channel,school:link.scope_type==='school'}),existingAccount:true});
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
         const portalGuardian = updatedSubmission.guardian_user_id ? await User.findById(updatedSubmission.guardian_user_id) : null;
         const ownsPortalEmail = portalGuardian && [portalGuardian.email, portalGuardian.personal_email, portalGuardian.work_email].some(email => email && String(email).trim().toLowerCase() === String(updatedSubmission.signer_email).trim().toLowerCase());

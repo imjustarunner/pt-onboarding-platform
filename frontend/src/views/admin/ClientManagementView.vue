@@ -266,7 +266,7 @@
           <select v-model="organizationFilter" @change="applyFilters" class="filter-select" aria-label="Affiliation">
             <option value="">All affiliations / schools</option>
             <option v-for="org in availableAffiliations" :key="org.id" :value="org.id">
-              {{ org.name }}
+              {{ chartOrganizationLabel(org.name, org.organization_type) }}
             </option>
           </select>
           <button
@@ -434,7 +434,7 @@
           <div class="bulk-group">
             <select v-model="bulkAffiliationId" class="filter-select">
               <option value="">Move to affiliation…</option>
-              <option v-for="org in availableAffiliations" :key="org.id" :value="String(org.id)">{{ org.name }}</option>
+              <option v-for="org in availableAffiliations" :key="org.id" :value="String(org.id)">{{ chartOrganizationLabel(org.name, org.organization_type) }}</option>
             </select>
             <button
               class="btn btn-secondary btn-sm"
@@ -754,7 +754,7 @@
             <select v-model="newClient.organization_id" required>
               <option value="">Select organization...</option>
               <option v-for="org in availableOrganizations" :key="org.id" :value="org.id">
-                {{ org.name }}
+                {{ chartOrganizationLabel(org.name, org.organization_type) }}
               </option>
             </select>
             <small v-if="loadingOrganizations">Loading organizations…</small>
@@ -822,7 +822,7 @@
             </small>
             <small v-else>Days are sourced from the provider’s schedule for this organization.</small>
           </div>
-          <div v-if="newClient.provider_id" class="form-group">
+          <div v-if="newClient.provider_id && newClient.client_type !== 'learning'" class="form-group">
             <label for="create-client-alert">Client Alert <span class="hint">(optional, for the person receiving this client)</span></label>
             <textarea
               id="create-client-alert"
@@ -1316,7 +1316,7 @@
       :client-id="renewalModalClient.id"
       :agency-id="renewalModalClient.agency_id"
       :roi-expires-at="renewalModalClient.roi_expires_at"
-      :school-name="renewalModalClient.organization_name || ''"
+      :school-name="renewalModalClient.organization_type === 'school' ? renewalModalClient.organization_name : ''"
       :agency-name="renewalModalClient.agency_name || 'ITSCO'"
       :client-initials="renewalModalClient.initials || ''"
       :initial-options="renewalModalClient.renewalFlags?.recommended || null"
@@ -1329,6 +1329,7 @@
 </template>
 
 <script setup>
+import { offersAssignmentService, chartOrganizationLabel } from '../../utils/clientRosterContext.js';
 import ClientQuickLook from '../../components/clients/ClientQuickLook.vue';
 import ClientFollowUpTask from '../../components/clients/ClientFollowUpTask.vue';
 import ClientServiceEnrollments from '../../components/admin/ClientServiceEnrollments.vue';
@@ -2409,19 +2410,15 @@ const providersWithOpenSlotsForOrg = computed(() => {
   return set;
 });
 
+const creationProviderCatalog = ref([]);
 const availableProvidersForOrg = computed(() => {
-  const orgId = Number(newClient.value?.organization_id);
-  if (!orgId) return [];
-  const allowed = providersWithOpenSlotsForOrg.value;
-  const affiliatedIds = new Set((affiliatedProvidersForOrg.value || []).map((p) => Number(p?.id)).filter((n) => Number.isFinite(n) && n > 0));
-  // If we haven't loaded assignments yet, fall back to all providers (non-blocking).
-  if (!allowed || allowed.size === 0) {
-    // Prefer org-affiliated list when available.
-    if (affiliatedIds.size > 0) return (availableProviders.value || []).filter((p) => affiliatedIds.has(Number(p.id)));
-    return availableProviders.value || [];
-  }
-  // Normal case: show those with capacity, plus rare affiliated-without-schedule providers.
-  return (availableProviders.value || []).filter((p) => allowed.has(Number(p.id)) || affiliatedIds.has(Number(p.id)));
+  if (!newClient.value.organization_id) return [];
+  const kind = newClient.value.client_type === 'learning' ? 'tutoring'
+    : ['clinical','school'].includes(newClient.value.client_type) ? 'counseling' : null;
+  const eligible = creationProviderCatalog.value.filter(person => offersAssignmentService(person,createAgencyEffectiveId.value,kind));
+  if (!selectedOrgIsSchool.value) return eligible;
+  const allowed = new Set([...providersWithOpenSlotsForOrg.value,...affiliatedProvidersForOrg.value.map(p => Number(p.id))]);
+  return allowed.size ? eligible.filter(person => allowed.has(Number(person.id))) : eligible;
 });
 
 const availableServiceDays = computed(() => {
@@ -2605,28 +2602,29 @@ const fetchProviders = async () => {
   }
 };
 
+let createProviderRequest = 0;
 const fetchProviderAssignmentsForOrg = async () => {
-  const agencyId = createAgencyEffectiveId.value;
-  const orgId = Number(newClient.value?.organization_id);
-  if (!agencyId || !orgId) {
-    providerAssignmentsForOrg.value = [];
-    affiliatedProvidersForOrg.value = [];
-    return;
-  }
+  const run = ++createProviderRequest;
+  const agencyId = createAgencyEffectiveId.value, orgId = Number(newClient.value?.organization_id);
+  creationProviderCatalog.value = [];
+  providerAssignmentsForOrg.value = []; affiliatedProvidersForOrg.value = [];
+  providerOptionsLoading.value = Boolean(agencyId && orgId);
+  if (!agencyId || !orgId) return;
   try {
-    providerOptionsLoading.value = true;
-    const [sched, aff] = await Promise.all([
-      api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId }, skipGlobalLoading: true }),
-      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId }, skipGlobalLoading: true })
+    const config = { params:{agencyId,schoolOrganizationId:orgId}, skipGlobalLoading:true };
+    const [catalog, schedules, affiliated] = await Promise.all([
+      api.get('/office-clients/providers',{params:{agencyIds:String(agencyId),serviceAssignments:'1'},skipGlobalLoading:true}),
+      selectedOrgIsSchool.value ? api.get('/provider-scheduling/assignments',config) : null,
+      selectedOrgIsSchool.value ? api.get('/provider-scheduling/affiliated-providers',config) : null
     ]);
-    providerAssignmentsForOrg.value = sched.data || [];
-    affiliatedProvidersForOrg.value = Array.isArray(aff.data) ? aff.data : [];
+    if (run !== createProviderRequest) return;
+    creationProviderCatalog.value = (catalog.data?.providers || []).map(p=>({...p,first_name:p.firstName,last_name:p.lastName}));
+    providerAssignmentsForOrg.value = schedules?.data || [];
+    affiliatedProvidersForOrg.value = affiliated?.data || [];
   } catch (e) {
-    // Best-effort: don’t block creation; just disable provider/day guidance.
-    providerAssignmentsForOrg.value = [];
-    affiliatedProvidersForOrg.value = [];
+    if (run === createProviderRequest) error.value = e.response?.data?.error?.message || 'Could not load providers for this agency.';
   } finally {
-    providerOptionsLoading.value = false;
+    if (run === createProviderRequest) providerOptionsLoading.value = false;
   }
 };
 
@@ -3317,7 +3315,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
     }
     const listing = await finishClientCreation({ api, clientId: created.id, agencyId, organizationId: orgId,
       schedule, matchingPreferences: createMatchingPreferences.value, outcome: createOutcome.value, providerId: newClient.value.provider_id,
-      serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value, clientAlert: newClient.value.client_alert });
+      serviceKind:newClient.value.client_type==='learning'?'tutoring':null, serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value, clientAlert: newClient.value.client_alert });
     await fetchClients();
     if (listing?.notifications?.failed) {
       error.value = 'Client saved and posted, but some notification emails could not be sent. The listing is available in Client Exchange.';

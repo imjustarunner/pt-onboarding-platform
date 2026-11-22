@@ -2,13 +2,14 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { hasEstablishedPortalPassword } from '../utils/portalAccountCredentials.js';
 import { requestPasswordRecoveryEmail } from './passwordRecovery.service.js';
-import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
+import { clientPortalInviteUrl, intakePortalForClients } from './clientPortalContext.service.js';
 
 export async function enrollmentPortalAccess({ submission, agency, schoolOrganizationId, enrollmentChannel, sendSetupEmail, invitationDeferred, req }, { users = User, recover = requestPasswordRecoveryEmail, db = pool } = {}) {
   const fail = message => Object.assign(new Error(message), { status:409 });
   if (submission?.status !== 'submitted' || !submission.guardian_user_id) throw fail('Portal access is available after enrollment is submitted and the account is linked.');
   const guardian = await users.findById(submission.guardian_user_id);
   if (!guardian || !['client_guardian', 'guardian', 'client'].includes(guardian.role)) throw fail('Please contact the agency for help with portal access.');
+  const portal = await intakePortalForClients(agency,{clients:submission.client_id?[{id:submission.client_id}]:[],channel:enrollmentChannel,school:!!schoolOrganizationId});
   let deliveryStatus = null;
   if (sendSetupEmail === true) {
     const connection = await db.getConnection();
@@ -27,7 +28,7 @@ export async function enrollmentPortalAccess({ submission, agency, schoolOrganiz
         if (recent) deliveryStatus = recent.delivery_status === 'pending' ? 'pending' : 'sent';
         else {
           const result = await recover({ targetUser:guardian, email:guardian.email, organizationSlug:agency?.portal_url || agency?.slug, req,
-            enrollment: { agencyId: agency?.id, channel: enrollmentChannel, schoolOrganizationId:schoolOrganizationId || null } });
+            enrollment: { clinicalPortal:portal.clinical_portal, agencyId: agency?.id, channel: enrollmentChannel, schoolOrganizationId:schoolOrganizationId || null } });
           deliveryStatus = result.deliveryStatus || result.outcome;
         }
       }
@@ -37,6 +38,6 @@ export async function enrollmentPortalAccess({ submission, agency, schoolOrganiz
     }
   }
   // A session is not proof of email ownership. Never disclose tokens/passwords.
-  return { username:guardian.email,portalLoginUrl:clientPortalInviteUrl({portal:intakeClientPortal(agency,{channel:enrollmentChannel,school:!!schoolOrganizationId}),existingAccount:true}),needsPasswordSetup:!hasEstablishedPortalPassword(guardian),deliveryStatus,
+  return { username:guardian.email,portalLoginUrl:clientPortalInviteUrl({portal,existingAccount:true}),needsPasswordSetup:!hasEstablishedPortalPassword(guardian),deliveryStatus,
     note:'Open the setup link in your email to choose a password. Existing account passwords remain unchanged.' };
 }

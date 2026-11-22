@@ -3,6 +3,9 @@ import {requireTestingEligibility} from './testingEligibility.service.js';
 import User from '../models/User.model.js';
 import { assertClinicalWorkActive } from './clinicalWorkArchiveRead.service.js';
 import { hasVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
+import { readClientServiceContext } from './clientServiceContext.service.js';
+import { appointmentServiceKind } from '../utils/guardianCancellationScope.js';
+import Appointment from '../models/Appointment.model.js';
 import Client from '../models/Client.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -74,16 +77,7 @@ class ClinicalEligibilityService {
 
   static async assertBookedClinicalSession({ agencyId, clientId, officeEventId }) {
     const client = await Client.findById(clientId);
-    if (!client || Number(client.agency_id) !== Number(agencyId)) {
-      const err = new Error('Client not found for agency');
-      err.status = 404;
-      throw err;
-    }
-    if (!isClinicalChartClientType(client.client_type)) {
-      const err = new Error('Clinical data plane only supports clinical or school client types');
-      err.status = 409;
-      throw err;
-    }
+    if (!client) throw Object.assign(new Error('Client not found for agency'), {status:404});
 
     const event = await OfficeEvent.findById(officeEventId);
     if (!event) {
@@ -97,6 +91,27 @@ class ClinicalEligibilityService {
       throw err;
     }
 
+    const providerId = Number(event.booked_provider_id || event.assigned_provider_id) || null;
+    const context = await readClientServiceContext({agencyId, clientId, providerId});
+    if (!context.serviceKinds.includes('counseling')) {
+      throw Object.assign(new Error('This client does not receive Clinical services with this provider in this agency.'), {status:409});
+    }
+    const appointment = await Appointment.findByOfficeEventId(officeEventId);
+    if (appointment) {
+      if (Number(appointment.agencyId) !== Number(agencyId) || appointmentServiceKind(appointment) !== 'counseling'
+        || (providerId && appointment.providerUserId && Number(appointment.providerUserId) !== providerId)
+        || (!appointment.businessType && (!isClinicalChartClientType(client.client_type) || context.serviceKinds.includes('tutoring')))) {
+        throw Object.assign(new Error('Choose a clinical appointment in the selected agency.'), {status:409});
+      }
+      const participants = await Appointment.listParticipants(appointment.id);
+      const linkedClient = participants.length ? participants.some(row => Number(row.clientId) === Number(clientId)) : Number(event.client_id) === Number(clientId);
+      if (!linkedClient) {
+        throw Object.assign(new Error('This client is not on the selected appointment.'), {status:409});
+      }
+    } else if (Number(client.agency_id) !== Number(agencyId) || !isClinicalChartClientType(client.client_type)
+      || context.serviceKinds.includes('tutoring') || (event.client_id && Number(event.client_id) !== Number(clientId))) {
+      throw Object.assign(new Error('Choose a linked clinical appointment for this client and agency.'), {status:409});
+    }
     return { client, event };
   }
 
@@ -115,7 +130,6 @@ class ClinicalEligibilityService {
       throw err;
     }
     if (Number(client.agency_id) !== Number(session.agency_id)) {
-      const pool = (await import('../config/database.js')).default;
       const [rows] = await pool.execute(
         `SELECT 1 AS ok
          FROM client_agency_assignments
@@ -129,19 +143,22 @@ class ClinicalEligibilityService {
         throw err;
       }
     }
-    if (!isClinicalChartClientType(client.client_type)) {
-      const err = new Error('Clinical data plane only supports clinical or school client types');
-      err.status = 409;
-      throw err;
+    if (!isClinicalChartClientType(client.client_type) || Number(client.agency_id) !== Number(session.agency_id)) {
+      const [[enrollment]] = await pool.execute(
+        `SELECT id FROM client_service_enrollments WHERE client_id=? AND agency_id=?
+           AND service_kind='counseling' AND provider_user_id=? LIMIT 1`,
+        [session.client_id, session.agency_id, session.provider_user_id]
+      );
+      if (!enrollment) throw Object.assign(new Error('No clinical assignment matches this session.'), {status:409});
     }
     if (Number(session.billing_encounter_id || 0) > 0) {
       return { client, event: null, billingBacked: true };
     }
     if (session.appointment_id) {
-      const { default: Appointment } = await import('../models/Appointment.model.js');
       const appointment = await Appointment.findById(session.appointment_id);
       const participants = appointment ? await Appointment.listParticipants(appointment.id) : [];
       if (!appointment || Number(appointment.agencyId) !== Number(session.agency_id)
+        || appointmentServiceKind(appointment) !== 'counseling'
         || !participants.some((p) => Number(p.clientId) === Number(session.client_id))) {
         throw Object.assign(new Error('Session is not linked to this client appointment'), { status: 409 });
       }

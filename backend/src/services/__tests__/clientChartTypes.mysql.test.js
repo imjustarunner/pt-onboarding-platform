@@ -40,7 +40,7 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
     const DDL=[
       'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,full_name VARCHAR(80),initials VARCHAR(12),client_type VARCHAR(24),email VARCHAR(255),date_of_birth DATE,status VARCHAR(20),client_status_id INT,contact_phone VARCHAR(32),identifier_code VARCHAR(24),session_sms_opt_in INT,guardian_portal_enabled INT,compliance_archived_at DATETIME)',
       'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(24),is_active INT,is_archived INT,logo_path TEXT,logo_url TEXT)',
-      'CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(24),email VARCHAR(80),personal_email VARCHAR(80),status VARCHAR(24),is_active INT,is_archived INT,password_hash VARCHAR(80),temporary_password_hash VARCHAR(80),terminated_at DATETIME,status_expires_at DATETIME,first_name VARCHAR(20),last_name VARCHAR(20))',
+      'CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(24),email VARCHAR(80),username VARCHAR(80),personal_email VARCHAR(80),status VARCHAR(24),is_active INT,is_archived INT,password_hash VARCHAR(80),temporary_password_hash VARCHAR(80),terminated_at DATETIME,status_expires_at DATETIME,first_name VARCHAR(20),last_name VARCHAR(20))',
       'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(24))',
       'CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(24),relationship_title VARCHAR(24),access_enabled INT,permissions_json JSON)',
       'CREATE TABLE dependent_portal_access(client_id INT,user_id INT,revoked_at DATETIME)',
@@ -106,6 +106,27 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
     expect(await types()).toEqual(['dependent']);
     await state.db.query("UPDATE client_guardians SET access_enabled=0 WHERE guardian_user_id=11");
     expect(await types()).toEqual([]);
+  });
+  it('starts Auricwell setup for mixed services, moves a shared address to review and reuses an established self account',async()=>{
+    const id=60;
+    await state.db.query("INSERT INTO clients(id,agency_id,client_type,date_of_birth,status,client_status_id) VALUES(60,2,'learning','1990-01-01','ACTIVE',1),(61,2,'learning','1990-01-01','ACTIVE',1)");
+    expect((await readChartTypes(id,2)).portalSetup).toBeNull();
+    const profile=await saveChartTypes(admin,id,2,{types:['clinical','learning'],revision:0,suppressMinorDefault:false});
+    expect(profile.portalSetup).toEqual({portal:'auricwell',state:'add_email'});
+    await state.db.query("UPDATE clients SET email='adult@synthetic.example' WHERE id=60");
+    expect((await readChartTypes(id,2)).portalSetup.state).toBe('confirm_ownership');
+    await state.db.query("UPDATE clients SET email='adult@synthetic.example' WHERE id=61");
+    expect((await readChartTypes(id,2)).portalSetup.state).toBe('shared_email');
+    await state.db.query("INSERT INTO users(id,role,email,status,is_active,password_hash) VALUES(65,'client','verified@synthetic.example','ACTIVE',1,'fixture')");
+    await state.db.query("INSERT INTO client_guardians(client_id,guardian_user_id,relationship_type,access_enabled) VALUES(60,65,'self',1)");
+    expect((await readChartTypes(id,2)).portalSetup.state).toBe('active');
+    await state.db.query("UPDATE users SET status='PENDING_SETUP',password_hash=NULL WHERE id=65");
+    expect((await readChartTypes(id,2)).portalSetup.state).toBe('prepared');
+    await state.db.query("UPDATE client_guardians SET access_enabled=0 WHERE guardian_user_id=65");
+    await state.db.query("UPDATE clients SET email=NULL WHERE id=61");
+    expect((await readChartTypes(id,2)).portalSetup.state).toBe('review_identity');
+    const [[{n}]]=await state.db.query('SELECT COUNT(*) n FROM client_guardians WHERE client_id=60');
+    expect(n).toBe(1);
   });
   it('retains prior selections in the audit when a chart is removed',async()=>{
     await state.db.query("INSERT INTO clients(id,agency_id,status) VALUES(77,2,'ACTIVE')");

@@ -34,7 +34,7 @@
       </form>
     </div>
 
-    <div v-else-if="lane === 'comments'">
+    <div v-else-if="lane === 'comments' && showSchoolLanes">
       <p class="muted small">Comments stay on the client file. School staff see a comment only while their own ROI covered the time it was written.</p>
       <p v-if="!organizationId" class="muted">Comments need a school on this client.</p>
       <p v-else-if="commentsLoading" class="muted">Loading comments…</p>
@@ -110,7 +110,7 @@ const role = computed(() => String(auth.user?.role || '').toLowerCase());
 const schoolViewer = computed(() => role.value === 'school_staff');
 const familyViewer = computed(() => role.value === 'client_guardian' || role.value === 'client');
 const showTexts = computed(() => !schoolViewer.value && !familyViewer.value);
-const showSchoolLanes = computed(() => !familyViewer.value);
+const showSchoolLanes = computed(() => !familyViewer.value && Number(props.organizationId) > 0);
 const canSeeTickets = computed(() => showSchoolLanes.value && !['provider', 'provider_plus'].includes(role.value));
 const canText = computed(() => showTexts.value && ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider', 'provider_plus'].includes(role.value));
 const canComment = computed(() => showSchoolLanes.value && (['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider', 'provider_plus', 'school_staff', 'supervisor'].includes(role.value)));
@@ -120,8 +120,8 @@ const organizationId = computed(() => Number(props.organizationId || 0));
 const textDraft = ref('');
 const recipientId = ref('');
 const eligibleGuardians = computed(() => props.guardians.filter(row => row.canText));
-watch([eligibleGuardians, () => props.hasClientPhone], ([guardians, hasPhone]) => {
-  if (!guardians.some(row => String(row.id) === recipientId.value)) recipientId.value = !hasPhone && guardians.length === 1 ? String(guardians[0].id) : '';
+watch(eligibleGuardians, guardians => {
+  if (!guardians.some(row => String(row.id) === recipientId.value)) recipientId.value = '';
 }, { immediate:true });
 const textSending = ref(false);
 const textError = ref('');
@@ -177,6 +177,7 @@ function hasEmail(ticket) {
 }
 
 async function sendText() {
+  if (recipientId.value ? !eligibleGuardians.value.some(row => String(row.id) === recipientId.value) : !props.hasClientPhone) return;
   textSending.value = true;
   textError.value = '';
   try {

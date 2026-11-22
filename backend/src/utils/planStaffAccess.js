@@ -1,8 +1,8 @@
 const STAFF_PLAN_ROLES = new Set(['super_admin', 'admin', 'agency_admin', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant', 'support', 'staff', 'intern', 'intern_plus']);
 
 // Agency membership alone does not authorize the staff view of every observer.
-export function requireStaffPlanActor(user) {
-  if (!user?.id || !STAFF_PLAN_ROLES.has(String(user.role || '').toLowerCase())) {
+export function requireStaffPlanActor(user, {learning = false} = {}) {
+  if (!user?.id || !(STAFF_PLAN_ROLES.has(String(user.role || '').toLowerCase()) || learning && user.role === 'tutor')) {
     throw Object.assign(new Error('Staff plan access is required. Use your own portal for family observations.'), { status: 403 });
   }
 }

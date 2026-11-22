@@ -16,7 +16,7 @@
         </fieldset>
         <div v-for="(sources,type) in profile.evidence" :key="type" class="type-source">
           <strong>{{ title(type) }}</strong>
-          <button v-for="source in sources" :key="source.label + source.tab" type="button" @click="manage($event, source.tab)">{{ source.label }}</button>
+          <button v-for="source in sources" :key="source.label + source.tab" type="button" @click="manage($event, source.tab)">{{ chartOrganizationLabel(source.label,type) }}</button>
         </div>
         <button v-if="canEdit" type="button" class="btn btn-primary btn-sm" :disabled="busy || !changed" @click="save">{{ busy ? 'Saving…' : 'Save types' }}</button>
       </template>
@@ -24,6 +24,7 @@
   </details>
 </template>
 <script setup>
+import { chartOrganizationLabel } from '../../../utils/clientRosterContext.js';
 import { computed, ref, watch } from 'vue';
 const props = defineProps({profile:Object, label:String, error:String, canEdit:Boolean, busy:Boolean});
 const emit = defineEmits(['save','reload','manage']);

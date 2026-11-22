@@ -1,4 +1,5 @@
 import { attachCaseloadIdentities } from '../services/clientChartIdentity.service.js';
+import { clientServiceKindsForAgency } from '../services/clientServiceCatalog.service.js';
 import { isOfficeRootOrganization, supportsAgencyOfficeClients } from '../utils/clientOfficeOrganization.js';
 import { supportsDirectorySort } from '../utils/clientDirectoryPage.js';
 import { generatedClientInitials } from '../../../frontend/src/navigation/clientInitials.js';
@@ -1468,6 +1469,7 @@ export const createClient = async (req, res, next) => {
           : 'basic_nonclinical'
     );
     const enabledTypes = await getAgencyEnabledClientTypes(parsedAgencyId);
+    if (officeRoot && resolvedClientType === 'learning' && (await clientServiceKindsForAgency(parsedAgencyId)).includes('tutoring')) enabledTypes.add('learning');
     // Creating on a specific program org always permits that chart class.
     if (normalizedOrgType === 'clinical' || normalizedOrgType === 'program') {
       enabledTypes.add('clinical');
@@ -1771,6 +1773,11 @@ export const createClient = async (req, res, next) => {
       resolvedProviderId = userId;
     }
 
+    if (resolvedProviderId && ['clinical','school'].includes(resolvedClientType)) {
+      const {requireAssignmentService} = await import('../services/providerServiceOfferings.service.js');
+      await requireAssignmentService(parsedAgencyId,resolvedProviderId,'counseling');
+    }
+
     // New school/office clients with no explicit status default to Received (legacy: packet).
     let resolvedClientStatusId = client_status_id ? parseInt(client_status_id, 10) : null;
     if (recordsImport) resolvedClientStatusId = (await requireRecordsCurrentStatus(parsedAgencyId)).id;
@@ -1795,7 +1802,8 @@ export const createClient = async (req, res, next) => {
     const clientCreatePayload = {
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
-      provider_id: resolvedProviderId,
+      provider_id: resolvedClientType === 'learning' ? null : resolvedProviderId,
+      ...(resolvedClientType === 'learning' && resolvedProviderId ? {learning_provider_user_id:resolvedProviderId} : {}),
       initials: initialsForSave,
       full_name: full_name ? String(full_name).trim() : null,
       contact_phone: contact_phone ? String(contact_phone).trim() : null,
@@ -1860,7 +1868,7 @@ export const createClient = async (req, res, next) => {
           });
           const reused = scored[0];
           if (reused?.id) {
-            if (resolvedProviderId && !reused.provider_id) {
+            if (resolvedProviderId && !reused.provider_id && resolvedClientType !== 'learning' && reused.client_type !== 'learning') {
               try {
                 await Client.update(reused.id, { provider_id: resolvedProviderId }, userId);
                 reused.provider_id = resolvedProviderId;
@@ -4144,7 +4152,14 @@ export const assignProvider = async (req, res, next) => {
       const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
       if (providerId && providerId !== oldProviderId) {
         const { assertAssignableProvider } = await import('../services/clientAssignmentScope.service.js');
-        await assertAssignableProvider({ clientId: id, providerUserId: providerId }, connection);
+        await assertAssignableProvider({ clientId: id, providerUserId: providerId, agencyId:currentClient.agency_id }, connection);
+        if (currentClient.client_type === 'learning') {
+          throw Object.assign(new Error('Assign the provider to their service in Assignments.'),{status:409});
+        }
+        if (['clinical','school'].includes(currentClient.client_type)) {
+          const {requireAssignmentService} = await import('../services/providerServiceOfferings.service.js');
+          await requireAssignmentService(currentClient.agency_id,providerId,'counseling',connection);
+        }
         const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
         await assertNewProviderCoverageAdmission(id, providerId, { db: connection });
       }

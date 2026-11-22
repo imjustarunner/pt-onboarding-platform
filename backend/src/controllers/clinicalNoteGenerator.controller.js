@@ -1,3 +1,5 @@
+import { clinicalProviderIssue } from '../services/providerServiceOfferings.service.js';
+import { clinicalBookingContextIssue } from '../services/clientServiceContext.service.js';
 import { progressContextSections } from '../../../frontend/src/utils/narrivaProgressContext.js';
 import { formatObjectiveRatings } from '../../../frontend/src/utils/narrivaObjectiveReview.js';
 import { requireNarrivaClient } from '../services/narrivaAccess.service.js';
@@ -1335,6 +1337,11 @@ export const generateClinicalNote = async (req, res, next) => {
     if(clientId && (!requestedToolId || serviceCode)){
       const access=await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId});
       if(!access.ok || !(await listClientAgencyMembershipIds(clientId)).includes(Number(agencyId)))return res.status(403).json({error:{message:'This client is not available in the selected practice.'}});
+      if (!validatedGenerationSession) {
+        const issue = await clinicalBookingContextIssue({agencyId,clientIds:[clientId],providerId:req.user.id})
+          || await clinicalProviderIssue(agencyId,req.user.id);
+        if (issue) return res.status(409).json({error:{message:issue}});
+      }
       // Pro bono is a funding choice. Its underlying clinical service still
       // passes the credential and documentation checks below, independently of insurance.
       if(!isProBonoServiceCode(serviceCode)){

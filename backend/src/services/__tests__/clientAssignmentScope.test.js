@@ -1,3 +1,4 @@
+vi.mock('../providerServiceOfferings.service.js', () => ({requireAssignmentService:vi.fn()}));
 vi.mock('../clientServiceCatalog.service.js', () => ({ clientServiceKindsForAgency: vi.fn().mockResolvedValue(['counseling','tutoring']) }));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
@@ -103,4 +104,12 @@ it('preserves legacy defaults for the same chart agency but honors an explicit c
   expect(await bookingDefaultsForChartAgency(context)).toMatchObject({ default_office_location_id: 77 });
   expect(await bookingDefaultsForChartAgency({ ...context, explicitDefaults: { default_office_location_id: null } }))
     .toMatchObject({ default_office_location_id: null });
+});
+
+it('refuses a tutoring-only provider on a clinical service before writing the assignment',async()=>{
+ const {requireAssignmentService}=await import('../providerServiceOfferings.service.js');
+ requireAssignmentService.mockRejectedValueOnce(Object.assign(new Error('Choose a provider who offers this service'),{status:409}));
+ await expect(saveClientService({clientId:4,agencyId:6,userId:1,input:{serviceKind:'counseling',serviceId:11,providerUserId:20}},pool)).rejects.toMatchObject({status:409});
+ expect(requireAssignmentService).toHaveBeenCalledWith(6,20,'counseling',pool);
+ expect(pool.execute.mock.calls.some(([sql])=>/^(INSERT|UPDATE)/.test(sql))).toBe(false);
 });

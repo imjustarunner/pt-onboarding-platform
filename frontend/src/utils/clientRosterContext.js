@@ -21,11 +21,24 @@ export function rosterServiceContexts(client = {}) {
   const visible = active.length ? active : rows;
   return [...new Map(visible.map(row => [`${row.agency_id}:${row.service_kind}:${row.organization_name || ''}:${row.service_status}`, row])).values()];
 }
-const serviceNames = { counseling: 'Counseling', tutoring: 'Tutoring', consultation: 'Consultation', coaching: 'Coaching' };
+const serviceNames = { counseling:'Clinical', tutoring:'Learning', consultation:'Consulting', coaching:'Coaching' };
+export function chartServiceLabel(kind, label) {
+  const name = serviceNames[kind];
+  const detail = String(label || '').trim();
+  if (!name) return detail || kind;
+  if (!detail || [name.toLowerCase(),kind].includes(detail.toLowerCase()) || (kind === 'counseling' && genericCounselingProgram(detail))) return name;
+  return `${name} · ${detail}`;
+}
+export function chartOrganizationLabel(name, type) {
+  return isLegacyClinicalOrganization(name, type) ? 'Clinical' : name;
+}
+export function isLegacyClinicalOrganization(name, type) {
+  return String(type || '').toLowerCase() === 'clinical' && genericCounselingProgram(name);
+}
 export function rosterServiceLabel(client = {}) {
   const contexts = rosterServiceContexts(client);
   if (contexts.length) return [...new Set(contexts.map(row => `${serviceNames[row.service_kind] || row.label || row.service_kind}${row.agency_name ? ` · ${row.agency_name}` : ''}`))].join('; ');
-  return ({ clinical: 'Counseling', school: 'Counseling', learning: 'Tutoring', tutoring: 'Tutoring' })[client.client_type] || 'Service not specified';
+  return ({ clinical: 'Clinical', school: 'Clinical', learning: 'Learning', tutoring: 'Learning' })[client.client_type] || 'Service not specified';
 }
 // These old clinical buckets are names for Counseling, not separate programs.
 const genericCounselingProgram = name => /^(?:counseling(?:\s+and|\s*&)?\s+(?:psycho)?therapy|counseling)$/i.test(String(name || '').trim());
@@ -56,4 +69,9 @@ export function rosterStatusLabel(client = {}, { school = hasSchoolRosterContext
   if (['current', 'active', 'being_seen'].includes(key)) return 'Active services';
   if (/fall|spring|returning|confirmation_pending|continuation_unknown|needs_day_assignment/i.test(`${key} ${label}`)) return 'Review service status';
   return label || (key ? key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()) : '—');
+}
+
+export function offersAssignmentService(provider, agencyId, kind) {
+  if (!['counseling','tutoring'].includes(kind)) return true;
+  return provider.assignmentServicesByAgency?.[agencyId]?.includes(kind) === true;
 }

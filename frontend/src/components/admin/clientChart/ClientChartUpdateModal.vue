@@ -25,7 +25,7 @@
           <p class="chart-scope">{{ agencyId ? 'Selected agency' : 'All authorized agencies' }} · {{ queue.length }} clients loaded. Filters define the Previous / Next queue. Your draft belongs to your sign-in.</p>
           <div class="chart-client-results">
             <button v-for="client in filtered" :key="client.id" type="button" class="chart-client-option" :aria-pressed="Number(client.id) === Number(current.id)" :disabled="busy || moving" @click="choose(client)">
-              <span><strong>{{ client.full_name || client.initials || `Client #${client.id}` }}</strong><small>{{ client.agency_name || `Agency #${client.agency_id}` }} · {{ client.organization_name || 'Office / no school' }} · #{{ client.id }}</small></span>
+              <span><strong>{{ client.full_name || client.initials || `Client #${client.id}` }}</strong><small>{{ client.agency_name || `Agency #${client.agency_id}` }} · {{ chartOrganizationLabel(client.organization_name,client.organization_type) || 'Office / no school' }} · #{{ client.id }}</small></span>
               <span><b>{{ client.client_status_label || client.status || 'Status unavailable' }}</b><small>{{ client.provider_name || 'Unassigned' }}<template v-if="isDemo(client)"> · QA / demo</template></small></span>
             </button>
             <p v-if="!filtered.length && !loading">No clients match these filters.</p>
@@ -40,6 +40,7 @@
 </template>
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { chartOrganizationLabel } from '../../../utils/clientRosterContext.js';
 import { useAuthStore } from '../../../store/auth';
 import { useModalFocus } from '../../../composables/useModalFocus';
 import api from '../../../services/api';
@@ -54,7 +55,7 @@ const preferenceKey = `chart-update-filters-v1:${auth.user?.id || 'anon'}`;
 try { const saved=JSON.parse(localStorage.getItem(preferenceKey)||'{}'); for(const key of Object.keys(filters)) if(typeof saved[key]==='string') filters[key]=saved[key]; } catch {}
 watch(filters,value=>{try{localStorage.setItem(preferenceKey,JSON.stringify(value));}catch{}},{deep:true});
 const isDemo = client => !!Number(client.is_demo) || !!Number(client.created_via_dev_fill);
-const options = (id,name) => [...new Map(queue.value.filter(c=>c[id]).map(c=>[String(c[id]),{id:String(c[id]),name:c[name] || `#${c[id]}`}])).values()].sort((a,b)=>a.name.localeCompare(b.name));
+const options = (id,name) => [...new Map(queue.value.filter(c=>c[id]).map(c=>[String(c[id]),{id:String(c[id]),name:(name==='organization_name'?chartOrganizationLabel(c[name],c.organization_type):c[name]) || `#${c[id]}`}])).values()].sort((a,b)=>a.name.localeCompare(b.name));
 const agencies=computed(()=>options('agency_id','agency_name')), providers=computed(()=>options('provider_id','provider_name')), schools=computed(()=>options('organization_id','organization_name'));
 const statuses=computed(()=>[...new Set(queue.value.map(c=>c.client_status_label || c.status).filter(Boolean))].sort());
 const filtered = computed(() => {
@@ -63,7 +64,7 @@ const filtered = computed(() => {
     && (!filters.provider || String(c.provider_id)===filters.provider) && (!filters.school || String(c.organization_id)===filters.school)
     && (!filters.assignment || (filters.assignment==='assigned')===!!(c.provider_id || c.provider_name))
     && (!filters.demo || (filters.demo==='only')===isDemo(c))
-    && (!term || [c.full_name,c.initials,c.identifier_code,c.id,c.agency_name,c.organization_name,c.provider_name,c.client_status_label,c.status].join(' ').toLowerCase().includes(term)))
+    && (!term || [c.full_name,c.initials,c.identifier_code,c.id,c.agency_name,chartOrganizationLabel(c.organization_name,c.organization_type),c.provider_name,c.client_status_label,c.status].join(' ').toLowerCase().includes(term)))
     .sort((a,b)=>String(a[filters.sort] || (filters.sort==='full_name'?a.initials:'') || '').localeCompare(String(b[filters.sort] || (filters.sort==='full_name'?b.initials:'') || '')) || Number(a.id)-Number(b.id));
 });
 const index=computed(()=>filtered.value.findIndex(c=>Number(c.id)===Number(current.value?.id)));

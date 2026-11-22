@@ -106,7 +106,7 @@ class ClientGuardian {
     return map;
   }
 
-  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink, metadataOnly = false }) {
+  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink, expectedSelfEmail = null, metadataOnly = false }) {
     const cid = Number(clientId);
     const uid = Number(guardianUserId);
     if (!cid || !uid) throw new Error('clientId and guardianUserId are required');
@@ -121,6 +121,14 @@ class ClientGuardian {
     try {
       await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      if (expectedSelfEmail && relType === 'self') {
+        const [[match]] = await db.execute(`SELECT c.id FROM clients c JOIN users u ON u.id=? AND u.email=TRIM(c.email)
+          WHERE c.id=? AND TRIM(c.email)=?
+            AND NOT EXISTS (SELECT 1 FROM clients other WHERE other.id<>c.id AND other.email=TRIM(c.email))
+            AND NOT EXISTS (SELECT 1 FROM client_guardians g WHERE g.client_id=c.id AND g.guardian_user_id<>u.id AND g.relationship_type='self')
+          FOR UPDATE`,[uid,cid,expectedSelfEmail]);
+        if (!match) throw Object.assign(new Error('The client address or portal relationship changed. Review the current chart before continuing.'),{status:409});
+      }
       const [[current]] = await db.execute(`SELECT access_enabled, permissions_json FROM client_guardians
         WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE`, [cid, uid]);
       const currentPermissions = this.parsePermissions(current?.permissions_json);

@@ -1,3 +1,4 @@
+import { requireClientServiceKind } from './clientServiceContext.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
@@ -65,12 +66,6 @@ export async function ensureClinicalSessionForBillingEncounter({
     err.status = 404;
     throw err;
   }
-  if (!['clinical', 'school'].includes(String(encounter.client_type || '').toLowerCase())) {
-    const err = new Error('Clinical sessions require a clinical or school client');
-    err.status = 409;
-    throw err;
-  }
-
   await ClinicalEligibilityService.assertAgencyHasClinicalOrg(aid);
 
   if (Number(encounter.clinical_session_id || 0) > 0) {
@@ -110,6 +105,8 @@ export async function ensureClinicalSessionForBillingEncounter({
     return { session, encounter: { ...encounter, clinical_session_id: session.id }, created: false };
   }
 
+  await requireClientServiceKind({ agencyId:aid, clientIds:[Number(encounter.client_id)],
+    providerId:Number(encounter.provider_user_id) || null, serviceKind:'counseling' });
   const session = await ClinicalSession.upsertFromBillingEncounter({
     agencyId: aid,
     clientId: Number(encounter.client_id),

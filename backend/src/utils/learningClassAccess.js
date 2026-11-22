@@ -115,6 +115,14 @@ export async function assertLearningSessionAccess(req, sessionId) {
     throw err;
   }
   const individual=session.session_subtype==='tutoring'||session.mode==='individual';
+  if (individual && req.user?.role === 'tutor') {
+    const klass = await LearningProgramClass.findById(session.learning_class_id);
+    if (!klass || Number(session.provider_user_id) !== Number(req.user.id)) throw Object.assign(new Error('This visit is assigned to another tutor.'),{status:403});
+    const {readProviderServices} = await import('../services/providerServiceOfferings.service.js');
+    const offered = await readProviderServices(req.user.id,klass.organization_id);
+    if (!offered.services.some(service=>service.serviceType==='tutoring' && service.offered)) throw Object.assign(new Error('Learning is not enabled in this agency.'),{status:403});
+    return {session,klass,actorRole:'presenter',canManage:false,canModerate:true};
+  }
   if(individual&&['guardian','client_guardian','client'].includes(req.user?.role)){
     const [students]=await pool.execute('SELECT client_id FROM tutoring_session_clients WHERE session_id=?',[sid]);
     const links=await ClientGuardian.listClientsForGuardian({guardianUserId:req.user.id});

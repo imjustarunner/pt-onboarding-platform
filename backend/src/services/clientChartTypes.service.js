@@ -39,12 +39,16 @@ export function classifyClient({client, agencyId, services, organizations, links
     const type = organizationChartType(org.organization_type);
     if (type) add(type, org.name, 'assignments');
   }
-  let establishedSelf = false;
+  let establishedSelf = false, personalAccounts = 0;
   for (const link of links) {
     const permissions = ClientGuardian.parsePermissions(link.permissions_json) || {};
     const restriction = guardianServiceRestrictions(link);
     if (permissions.relationshipRevoked || (restriction && !restriction.agencyIds.includes(agencyId))) continue;
-    if (link.relationship_type === 'self') establishedSelf ||= !!Number(link.established);
+    if (link.relationship_type === 'self') {
+      if (permissions.noView || permissions.revoked || permissions.noContact || permissions.pendingGuardianVerification) continue;
+      personalAccounts++;
+      establishedSelf ||= !!Number(link.established);
+    }
     else if (['guardian','proxy'].includes(link.relationship_type)) add('dependent', 'Linked guardian account', 'guardians');
   }
   const age = ageOn(client.date_of_birth, asOf);
@@ -59,14 +63,38 @@ export function classifyClient({client, agencyId, services, organizations, links
   const preferences = saved ? (typeof saved.selected_types === 'string' ? JSON.parse(saved.selected_types) : saved.selected_types) : null;
   const selected = preferences?.types ?? defaults;
   if (minorDefault && !preferences?.suppressMinorDefault) add('dependent', 'Current minor without an established personal portal', 'guardians', true);
-  return { selected, evidence, types:chartTypes.filter(type => selected.includes(type) || evidence[type]),
+  const types = chartTypes.filter(type => selected.includes(type) || evidence[type]);
+  let portalSetup = null;
+  if (types.includes('clinical') || types.includes('school')) {
+    let state = 'confirm_ownership';
+    if (personalAccounts > 1) state = 'review_identity';
+    else if (establishedSelf) state = 'active';
+    else if (personalAccounts) state = 'prepared';
+    else if (!isCurrent) state = 'review_status';
+    else if (age === null || age < 0) state = 'review_birth_date';
+    else if (age < 18) state = 'review_minor';
+    else if (!String(client.email || '').trim()) state = 'add_email';
+    portalSetup = {portal:'auricwell',state};
+  }
+  return { selected, evidence, types, portalSetup,
     minorDefault, suppressMinorDefault:preferences?.suppressMinorDefault === true, revision:Number(saved?.revision || 0),
     schools:organizations.filter(org => org.organization_type === 'school').map(org => org.name),
     historicalTypes:[...new Set(services.filter(s => serviceStatus(s) !== 'active').map(s => serviceTypes[s.service_kind]).filter(Boolean))] };
 }
 
-export async function readChartTypes(clientId, agencyId, db = pool) {
-  const [[client]] = await db.execute(`SELECT c.agency_id,c.client_type,c.date_of_birth,c.status,cs.status_key AS client_status_key
+// An email match cannot identify the owner of an existing login or shared family address.
+export async function personalContactReviewReason(clientId, db = pool) {
+  const [[row]] = await db.execute(`SELECT
+    EXISTS(SELECT 1 FROM clients other WHERE other.id<>c.id AND other.email=TRIM(c.email)) AS shared_email,
+    EXISTS(SELECT 1 FROM users u WHERE u.email=TRIM(c.email) OR u.username=TRIM(c.email) OR u.personal_email=TRIM(c.email))
+    OR EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=c.id AND cg.relationship_type='self') AS identity_match
+    FROM clients c WHERE c.id=? AND NULLIF(TRIM(c.email),'') IS NOT NULL`,[clientId]);
+  if (Number(row?.shared_email)) return 'shared_email';
+  return Number(row?.identity_match) ? 'review_identity' : null;
+}
+
+export async function readChartTypes(clientId, agencyId, db = pool, {checkContact=true} = {}) {
+  const [[client]] = await db.execute(`SELECT c.agency_id,c.client_type,c.date_of_birth,c.email,c.status,cs.status_key AS client_status_key
     FROM clients c LEFT JOIN client_statuses cs ON cs.id=c.client_status_id WHERE c.id=?`, [clientId]);
   if (!client) throw fail(404, 'Client not found.');
   const [services] = await db.execute('SELECT service_kind,label,is_active,service_status FROM client_service_enrollments WHERE client_id=? AND agency_id=?', [clientId, agencyId]);
@@ -75,14 +103,18 @@ export async function readChartTypes(clientId, agencyId, db = pool) {
     ${activeChartOrganizationJoin('tenant.id')}
     WHERE c.id=? AND o.id IS NOT NULL ORDER BY o.name,o.id`, [agencyId,clientId]);
   const [links] = await db.execute(`SELECT cg.relationship_type,cg.permissions_json,c.agency_id,
-      (NULLIF(u.password_hash,'') IS NOT NULL AND NULLIF(u.temporary_password_hash,'') IS NULL) AS established
+      (NULLIF(u.password_hash,'') IS NOT NULL AND NULLIF(u.temporary_password_hash,'') IS NULL AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','EHR_ONLY')) AS established
     FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id
     WHERE cg.client_id=? AND cg.access_enabled=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
-      AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','EHR_ONLY') AND u.terminated_at IS NULL
+      AND (UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','EHR_ONLY') OR (cg.relationship_type='self' AND UPPER(u.status) IN ('PENDING_SETUP','PENDING'))) AND u.terminated_at IS NULL
       AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
       AND NOT EXISTS (SELECT 1 FROM dependent_portal_access d WHERE d.client_id=cg.client_id AND d.user_id=u.id AND d.revoked_at IS NOT NULL)`, [clientId]);
   const [[saved]] = await db.execute('SELECT selected_types,revision FROM client_chart_type_selections WHERE client_id=? AND agency_id=?', [clientId,agencyId]);
-  return classifyClient({client,agencyId,services,organizations,links,saved});
+  const profile = classifyClient({client,agencyId,services,organizations,links,saved});
+  if (checkContact && profile.portalSetup?.state === 'confirm_ownership') {
+    profile.portalSetup.state = await personalContactReviewReason(clientId,db) || 'confirm_ownership';
+  }
+  return profile;
 }
 
 export async function saveChartTypes(user, clientId, agencyId, input) {

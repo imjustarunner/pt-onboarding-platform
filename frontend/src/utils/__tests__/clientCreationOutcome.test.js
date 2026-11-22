@@ -39,3 +39,15 @@ it('persists client fit choices before one-click posting and stops when saving f
  expect(a.api.put).toHaveBeenCalledWith('/client-exchange/clients/12/matching-preferences',{agencyId:2,matchingPreferences});expect(a.api.put.mock.invocationCallOrder[0]).toBeLessThan(a.api.post.mock.invocationCallOrder[0]);
  a.api.post.mockClear();a.api.put.mockRejectedValueOnce(new Error('Save failed'));await expect(finishClientCreation({...a,outcome:'exchange',matchingPreferences})).rejects.toThrow('Save failed');expect(a.api.post).not.toHaveBeenCalled();
 });
+
+it('assigns a learning provider to the existing learning enrollment and retries without creating a duplicate', async()=>{
+  const a=args(), active={id:40,service_kind:'tutoring',organization_id:3,provider_user_id:0,is_active:1,label:'Tutoring'};
+  const saved={...active,provider_user_id:9};
+  a.api.get.mockResolvedValueOnce({data:{services:[active]}}).mockResolvedValueOnce({data:{services:[saved]}});
+  a.api.post.mockResolvedValue({data:{services:[saved]}});
+  await finishClientCreation({...a,outcome:'assign',serviceKind:'tutoring'});
+  await finishClientCreation({...a,outcome:'assign',serviceKind:'tutoring'});
+  expect(a.api.post).toHaveBeenCalledTimes(1);
+  expect(a.api.post).toHaveBeenCalledWith('/clients/12/service-enrollments',{agencyId:2,serviceKind:'tutoring',providerUserId:9,organizationId:3,serviceId:40,label:'Tutoring'});
+  expect(a.api.put).not.toHaveBeenCalled();
+});

@@ -126,3 +126,12 @@ it('reopens selected areas of a completed native chart in the temporary first ta
  expect(wrapper.vm.showRecordsImportTab).toBe(true);expect(wrapper.vm.tabs[0].id).toBe('bring-up-to-date');expect(wrapper.vm.chartHub).toBe('bring-up-to-date');
  expect(wrapper.findComponent({name:'ClientEhrBringUpToDatePanel'}).props('onlySections')).toEqual(['contacts','insurance']);
 });
+
+it('reloads the chart classification for a linked agency without showing the owning clinical type',async()=>{
+ await render();
+ get.mockImplementation(async(url,config)=>({data:url.endsWith('/chart-types')?{types:config.params.agencyId===3?['learning']:['clinical'],historicalTypes:[],schools:[],evidence:{}}:[]}));
+ wrapper.vm.selectedAgencyId='3';await flushPromises();
+ expect(get).toHaveBeenCalledWith('/clients/7/chart-types',expect.objectContaining({params:{agencyId:3},headers:{'X-Agency-Id':'3'}}));
+ expect(wrapper.vm.activeTypes).toEqual(['learning']);
+ expect(wrapper.vm.primaryRoleLabel).toBe('Primary learning provider');
+});

@@ -8,9 +8,14 @@
         :client-name="client.full_name||client.initials" :agency-id="client.agency_id||agency.id" :agency-name="agency.name"
         :can-update="canViewAs" :clinical-mode="actor.role==='support'?'release':'full'" @close="closeAssignments" />
     </section>
-    <div v-show="!assigningDocuments" class="account-overview">
-    <ClientPersonalPortalInvite v-if="canViewAs && personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="load" />
-    <ClientPortalAccessEditor v-if="canViewAs" :client-id="client.id" :agency-id="agency.id" :show-self-preparation="!personalLoginAvailable" @saved="load" />
+    <div v-if="portalSetup" aria-label="Auricwell portal setup">
+      <h3>Auricwell portal</h3>
+      <p role="status">{{ setupStatuses[portalSetup.state] }}</p>
+      <button v-if="canEditContact && ['add_email','shared_email','review_identity','review_birth_date'].includes(portalSetup.state)" type="button" @click="$emit('edit-contact')">Review demographics</button>
+    </div>
+    <div v-show="!assigningDocuments"  class="account-overview">
+    <ClientPersonalPortalInvite v-if="canViewAs && personalLoginAvailable" :client-id="Number(client.id)" :agency-id="Number(agency.id)" @updated="refreshAccounts" />
+    <ClientPortalAccessEditor :start-self-review="portalSetup?.state==='confirm_ownership'" v-if="canViewAs"  :client-id="client.id" :agency-id="agency.id" :show-self-preparation="!personalLoginAvailable && (!portalSetup || portalSetup.state==='confirm_ownership')" @saved="refreshAccounts" />
     <p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Loading portal overview…</p>
     <p v-if="canViewAs && !loading && !error && !accounts.length">No portal accounts are linked. Portal availability alone does not give anyone access.</p>
     <template v-if="canViewAs"><div class="portal-metrics"><article><strong>{{accounts.length}}</strong><span>Linked portal accounts</span></article><article><strong>{{available.length}}</strong><span>Relationships with access</span></article><article><strong>{{date(latestActivity)}}</strong><span>Last recorded activity in this practice</span></article></div>
@@ -46,8 +51,19 @@ const describe=event=>{const route=String(event.route||'');const writing=event.m
  if(route.includes('skill-builders'))return 'Opened skill builder';
  if(event.action==='login')return 'Signed in';
  return toPlainEnglish(event.action)||String(event.action||'Portal activity').replaceAll('_',' ');};
-const props=defineProps({personalLoginAvailable:{type:Boolean,default:false},showActions:{type:Boolean,default:true},client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
-defineEmits(['share-documents','share-assessments','manage-access']);
+const setupStatuses={
+  active:'The client has an established personal account.',
+  prepared:'The client has a linked account. Review the individual invitation when ready.',
+  add_email:'Add the client’s own email in Demographics to continue setup.',
+  confirm_ownership:'Confirm the client’s own email below to prepare their account.',
+  review_minor:'Review the authorized recipient before activating a personal login for this minor.',
+  review_birth_date:'Review the birth date before choosing a personal or guardian login.',
+  shared_email:'Another client chart uses this email. Confirm the client’s own address in Demographics.',
+  review_identity:'Review the existing login or portal relationship before preparing another account.',
+  review_status:'Review the client’s current status before preparing a login.'
+};
+const props=defineProps({portalSetup:Object,canEditContact:Boolean,personalLoginAvailable:{type:Boolean,default:false},showActions:{type:Boolean,default:true},client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
+const emit=defineEmits(['account-updated','edit-contact','share-documents','share-assessments','manage-access']);
 const assigningDocuments=ref(false),assignmentWorkspace=ref(null);
 const canAssignDocuments=computed(()=>['admin','support','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(props.actor.role));
 function openDocumentAssignments(){if(canAssignDocuments.value){assigningDocuments.value=true;}}
@@ -64,6 +80,7 @@ const available=computed(()=>accounts.value.filter(a=>a.available)),viewedAccoun
 const latestActivity=computed(()=>accounts.value.map(a=>a.lastActivity).filter(Boolean).sort().at(-1));
 const date=value=>value?new Date(value).toLocaleString('en-US',{timeZone:props.actor.timezone||'America/Denver'}):'None recorded';
 const endpoint=()=>`/portal-admin/clients/${props.client.id}/accounts`;
+function refreshAccounts(){emit('account-updated');return load();}
 async function load(){const run=++generation;assigningDocuments.value=false;++activityGeneration;accounts.value=[];previewIds.value=[];activity.value=null;error.value='';loading.value=false;if(!canViewAs.value)return;loading.value=true;try{const{data}=await api.get(endpoint(),{params:{agencyId:props.agency.id}});if(run===generation)accounts.value=data.accounts;}catch(e){if(run===generation)error.value=e.response?.data?.error?.message||'Portal overview could not be loaded.';}finally{if(run===generation)loading.value=false;}}
 async function loadActivity(account){const run=++activityGeneration;activity.value=null;error.value='';try{const{data}=await api.get(`${endpoint()}/${account.id}/activity`,{params:{agencyId:props.agency.id}});if(run===activityGeneration)activity.value=data;}catch(e){if(run===activityGeneration)error.value=e.response?.data?.error?.message||'Activity could not be loaded.';}}
 watch(()=>[props.client.id,props.agency.id,props.actor.role],load,{immediate:true});onBeforeUnmount(()=>{++generation;++activityGeneration;});

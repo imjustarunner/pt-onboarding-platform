@@ -7,13 +7,17 @@ const isActive = row => Number(row.is_active) === 1 && (!row.service_status || r
 
 /** Enrollment belongs to a client + agency + service; a chart type is only a legacy fallback. */
 export async function readClientServiceContext({ agencyId, clientId, providerId = null }, db = pool) {
-  const [[client]] = await db.execute(`SELECT c.id,c.client_type FROM clients c WHERE c.id=? AND
+  const [[client]] = await db.execute(`SELECT c.id,c.agency_id,c.client_type,o.organization_type FROM clients c
+    LEFT JOIN agencies o ON o.id=c.organization_id AND o.is_active=1 AND COALESCE(o.is_archived,0)=0
+      AND NOT EXISTS (SELECT 1 FROM client_organization_assignments old WHERE old.client_id=c.id AND old.organization_id=o.id AND old.is_active=0)
+    WHERE c.id=? AND
     (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`,
   [clientId, agencyId, agencyId]);
   if (!client) throw Object.assign(new Error('Client not found for this agency.'), { status: 404 });
   const [rows] = await db.execute('SELECT id,label,service_kind,provider_user_id,is_active,service_status FROM client_service_enrollments WHERE client_id=? AND agency_id=?', [clientId, agencyId]);
   const active = rows.filter(row => isActive(row) && (!providerId || !Number(row.provider_user_id) || Number(row.provider_user_id) === Number(providerId)));
-  const legacyKind = ({ clinical: 'counseling', school: 'counseling', learning: 'tutoring', tutoring: 'tutoring' })[client.client_type];
+  const kinds = {clinical:'counseling',school:'counseling',learning:'tutoring',tutoring:'tutoring'};
+  const legacyKind = Number(client.agency_id) === Number(agencyId) ? kinds[client.client_type] || kinds[client.organization_type] : null;
   return { clientId: Number(clientId), agencyId: Number(agencyId), explicit: rows.length > 0,
     serviceEnrollments: active, serviceKinds: rows.length ? [...new Set(active.map(row => row.service_kind))] : (legacyKind ? [legacyKind] : []) };
 }
