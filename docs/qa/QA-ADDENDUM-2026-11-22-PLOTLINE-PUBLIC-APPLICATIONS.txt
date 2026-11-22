@@ -59,8 +59,13 @@ Retest through the normal UI
     agency links, inactive companies, lookup failure and localhost spoofing.
 
 Email evidence
-- Sample 7571 has Google SMTP acceptance with zero rejected recipients. Its
-  imported Sent archive is not proof of inbox delivery. Do not resend it.
+- Workspace later confirmed sample 7571 was dropped by the testing group as
+  an auto-response. Engineering had incorrectly marked that sample auto-replied.
+  The normal reference workflow already omits that header. Preserve its history.
+- Corrected sample 7574 uses the standard app sender: logical recipient
+  qa.reference.preview.1122@example.com redirected to testing@itsco.health,
+  with no Auto-Submitted or X-Auto-Response-Suppress headers. Its Message-ID is
+  <comm-7574@plotlinepo.com>. Confirm actual receipt; do not resend either sample.
 - Capture actual inbox receipt for each new action. If absent, record BLOCKED
   and obtain the Workspace delivery-log result rather than claiming delivery.
 - Retain prior open microphone/interview-state findings separately. This
