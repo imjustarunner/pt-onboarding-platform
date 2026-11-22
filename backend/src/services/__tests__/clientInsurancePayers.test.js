@@ -38,3 +38,9 @@ it('offers shared carrier routes to another agency without copying enrollment or
 it('keeps a saved shared payer valid when it is later added to the agency’s own list',()=>{
  expect(resolveConfiguredPolicy({payerCatalogId:'claimmd:SKCO0',payerId:'FORGED'},[{id:77,name:'Colorado Medicaid',payerId:'SKCO0',eligibilityPayerId:'SKCO0',isMedicaid:true}])).toMatchObject({payerId:'SKCO0',eligibilityPayerId:'SKCO0'});
 });
+
+it('does not classify Commercial patients as Medicaid from shared mixed-route aliases',async()=>{
+ listPayerSetupRequests.mockResolvedValue([]);listSharedPayerDirectory.mockResolvedValue([{payer_name:'United',directory_name:'United',claimmd_payer_id:'UNITED',directory_status:'id_match',directory_snapshot_json:{payer_type:'commercial',payer_alt_names:[{alt_payer_name:'Rocky Mountain Medicaid'}]}}]);
+ const rows=await clientInsurancePayers(6,{});expect(rows[0].names).toContain('Rocky Mountain Medicaid');expect(rows[0].isMedicaid).toBe(false);
+ expect(resolveConfiguredPolicy({payerCatalogId:'claimmd:UNITED',payerId:'UNITED',insurerName:'United',isMedicaid:true,programType:'medicaid'},rows)).toMatchObject({isMedicaid:true,programType:'medicaid'});
+});

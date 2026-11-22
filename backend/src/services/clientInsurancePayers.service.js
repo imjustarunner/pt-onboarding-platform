@@ -18,7 +18,9 @@ export async function clientInsurancePayers(agencyId, db) {
     // a route or make a directory request from an OCR guess.
     if(row.claimmd_payer_id==='84146' && names.some(name=>/\bchampva\b/i.test(name)))names.push('CHAMPVA');
     if(['COCHA','SKCO0'].includes(row.claimmd_payer_id))names.push('Colorado Medicaid','Health First Colorado');
-    const isMedicaid = names.some(insurerName => policyIsMedicaid({insurerName})) || ['COCHA', 'SKCO0'].includes(row.claimmd_payer_id);
+    // A shared route can carry Commercial and Medicaid plans. Its aliases are
+    // search hints, not evidence that this client's coverage is Medicaid.
+    const isMedicaid = (row.sharedDirectory ? String(snapshot.payer_type || '').toLowerCase()==='medicaid' : names.some(insurerName => policyIsMedicaid({insurerName}))) || ['COCHA', 'SKCO0'].includes(row.claimmd_payer_id);
     const colorado = isMedicaid && (row.claimmd_payer_id === 'COCHA' || names.some(name => /colorado|\bccha\b/i.test(name)));
     return {id: row.sharedDirectory?row.id:Number(row.id), sharedDirectory:row.sharedDirectory===true, sourcePayerId: row.source_payer_id || null, name: row.payer_name || row.directory_name, names, payerId: row.claimmd_payer_id,
       eligibilityPayerId: colorado ? 'SKCO0' : row.claimmd_payer_id, isMedicaid};
