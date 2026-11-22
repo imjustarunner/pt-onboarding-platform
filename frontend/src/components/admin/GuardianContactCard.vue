@@ -10,7 +10,8 @@
           :key="clientId" :client-id="clientId" :guardian-id="guardianId" @disconnected="$emit('disconnected', $event)" />
       </header>
       <p v-if="contact.guardian.phone"><a :href="`tel:${contact.guardian.phone.replace(/[^+0-9]/g,'')}`">{{contact.guardian.phone}}</a></p>
-      <p>Select every client this email concerns. The conversation will be filed in each selected client’s record.</p>
+      <p v-if="!contact.clients.length">No current client relationships are available for this guardian account.</p>
+      <p v-else>Select every client this email concerns. The conversation will be filed in each selected client’s record.</p>
       <fieldset v-for="agency in agencies" :key="agency.id">
         <legend>{{ agency.name }}</legend>
         <label v-for="client in agency.clients" :key="client.id"><input v-model="selectedIds" type="checkbox" :value="client.id" /> {{ client.name }}</label>

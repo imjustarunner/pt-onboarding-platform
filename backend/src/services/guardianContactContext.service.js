@@ -16,7 +16,24 @@ export async function guardianContactContext({ userId, guardianId }) {
       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
       AND ${scope.sql}
     ORDER BY a.name,c.full_name,c.initials,c.id`,[guardianId,...scope.params]);
-  if(!rows.length)throw Object.assign(new Error('Guardian not found'),{status:404});
+  if (!rows.length) {
+    // An account can outlive its client links. Only account staff with tenant
+    // access may inspect that account; providers still need a visible client.
+    const [accounts] = await pool.execute(`SELECT u.id AS guardian_id,u.first_name,u.last_name,
+      COALESCE(NULLIF(u.personal_email,''),u.email) AS email,
+      COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone
+      FROM users u WHERE u.id=? AND LOWER(u.role) IN ('client_guardian','guardian')
+      AND EXISTS (SELECT 1 FROM users viewer WHERE viewer.id=? AND
+        (LOWER(viewer.role)='super_admin' OR (LOWER(viewer.role) IN ('admin','support') AND EXISTS (
+          SELECT 1 FROM user_agencies viewer_agency JOIN user_agencies guardian_agency
+            ON guardian_agency.agency_id=viewer_agency.agency_id
+          WHERE viewer_agency.user_id=viewer.id AND guardian_agency.user_id=u.id
+            AND viewer_agency.is_active=1 AND guardian_agency.is_active=1))))
+      LIMIT 1`, [guardianId,userId]);
+    if (!accounts.length) throw Object.assign(new Error('Guardian not found'),{status:404});
+    const account = accounts[0];
+    return {guardian:{id:Number(account.guardian_id),name:[account.first_name,account.last_name].filter(Boolean).join(' '),email:account.email,phone:account.phone||null},clients:[]};
+  }
   const first=rows[0];
   const preferences = new Map();
   for (const row of rows) {
@@ -41,6 +58,7 @@ export async function emailFilingOptions({userId,agencyId,to='',cc='',bcc=''}) {
 export async function guardianVoicemailConversations({ user, guardianId }) {
   const context = await guardianContactContext({ userId: user.id, guardianId });
   const agencyIds = [...new Set(context.clients.map(c => c.agencyId))];
+  if (!agencyIds.length) return { conversations: [] };
   const [threads] = await pool.execute(`SELECT c.id,c.subject,c.last_message_at FROM communication_conversations c
     JOIN communication_links l ON l.conversation_id=c.id AND l.entity_type='guardian' AND l.entity_id=?
     WHERE c.agency_id IN (${agencyIds.map(() => '?').join(',')}) ORDER BY c.last_message_at DESC LIMIT 100`, [guardianId,...agencyIds]);

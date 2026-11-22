@@ -1,0 +1,58 @@
+name: Guardian contact and relationship regressions
+on:
+  pull_request:
+    paths:
+      - 'backend/src/controllers/clientGuardian.controller.js'
+      - 'backend/src/controllers/__tests__/clientGuardianPortalModes.test.js'
+      - 'backend/src/models/ClientGuardian.model.js'
+      - 'backend/src/routes/client.routes.js'
+      - 'backend/src/routes/__tests__/guardianContactMethods.test.js'
+      - 'backend/src/services/guardianContactContext.service.js'
+      - 'backend/src/services/guardianWorkspace.service.js'
+      - 'backend/src/services/linkedGuardianContact.service.js'
+      - 'backend/src/services/__tests__/guardianContactContext.account.test.js'
+      - 'backend/src/services/__tests__/guardianWorkspace.test.js'
+      - 'backend/src/services/__tests__/linkedGuardianContact.test.js'
+      - 'frontend/src/components/admin/*Guardian*.vue'
+      - 'frontend/src/components/admin/__tests__/*Guardian*.test.js'
+      - '**/vitest.guardian-contact.config.js'
+      - '.github/workflows/guardian-contact-regressions.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/controllers/clientGuardian.controller.js'
+      - 'backend/src/controllers/__tests__/clientGuardianPortalModes.test.js'
+      - 'backend/src/models/ClientGuardian.model.js'
+      - 'backend/src/routes/client.routes.js'
+      - 'backend/src/routes/__tests__/guardianContactMethods.test.js'
+      - 'backend/src/services/guardianContactContext.service.js'
+      - 'backend/src/services/guardianWorkspace.service.js'
+      - 'backend/src/services/linkedGuardianContact.service.js'
+      - 'backend/src/services/__tests__/guardianContactContext.account.test.js'
+      - 'backend/src/services/__tests__/guardianWorkspace.test.js'
+      - 'backend/src/services/__tests__/linkedGuardianContact.test.js'
+      - 'frontend/src/components/admin/*Guardian*.vue'
+      - 'frontend/src/components/admin/__tests__/*Guardian*.test.js'
+      - '**/vitest.guardian-contact.config.js'
+      - '.github/workflows/guardian-contact-regressions.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guardian-contact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies without building the app
+        run: |
+          npm ci --prefix backend --ignore-scripts --no-audit --no-fund
+          npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+          npm rebuild bcrypt --prefix backend --no-audit --no-fund
+      - name: Check guardian contact and relationship behavior
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.guardian-contact.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.guardian-contact.config.js

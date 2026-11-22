@@ -245,7 +245,7 @@ export const updateClientGuardian = async (req, res, next) => {
     });
 
     await logAuditEvent(req, { actionType: 'client_portal_access_updated', agencyId: req.agencyId || null,
-      metadata: { clientId, guardianUserId, accessMode: req.body.accessMode || null, relationshipVerified: req.body.relationshipVerified === true && req.body.accessMode === 'care', accessEnabled: accessEnabled ?? Number(existing.access_enabled) === 1, reason: String(req.body.accessReason || '').slice(0, 1000) } });
+      metadata: { clientId, guardianUserId, previousAccessEnabled: Number(existing.access_enabled) === 1, accessMode: req.body.accessMode || null, relationshipVerified: req.body.relationshipVerified === true && req.body.accessMode === 'care', accessEnabled: accessEnabled ?? Number(existing.access_enabled) === 1, reason: String(req.body.accessReason || '').slice(0, 1000) } });
     res.json({ ok: true });
   } catch (e) {
     next(e);

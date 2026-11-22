@@ -54,7 +54,7 @@ const save = async () => {
   saving.value = true; error.value = '';
   try {
     const { data } = props.guardianUserId
-      ? await api.put(`/clients/${clientId}/guardians/${props.guardianUserId}`, {contact:{...form.value},relationshipTitle:form.value.relationship})
+      ? await api.patch(`/clients/${clientId}/guardians/${props.guardianUserId}`, {contact:{...form.value},relationshipTitle:form.value.relationship})
       : await api.put(`/clients/${clientId}/guardian-contact`, { ...form.value });
     if (generation !== requestGeneration) return;
     editing.value = false; saved.value = true;

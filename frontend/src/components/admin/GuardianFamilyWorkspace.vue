@@ -15,13 +15,19 @@
     <div><dt>Email</dt><dd><a v-if="data.guardian.email" :href="`mailto:${data.guardian.email}`">{{ data.guardian.email }}</a><span v-else>No email on file</span></dd></div>
     <div><dt>Phone</dt><dd><a v-if="data.guardian.phone" :href="`tel:${data.guardian.phone.replace(/[^+0-9]/g,'')}`">{{ data.guardian.phone }}</a><span v-else>No phone on file</span></dd></div>
    </dl>
-   <ClientGuardianContactEditor v-if="canEdit && data.clients.length" :client-id="data.clients[0].client_id" :guardian-user-id="guardianId" :profile="{firstName:data.guardian.first_name,lastName:data.guardian.last_name,email:data.guardian.email,phone:data.guardian.phone,relationship:data.clients[0].relationship_title}" @saved="updated" />
-   <p v-if="!data.clients.length">No linked children are available. Use Linked Clients to connect this account.</p>
+   <ClientGuardianContactEditor v-if="canEdit && contactRelationship" :client-id="contactRelationship.client_id" :guardian-user-id="guardianId" :profile="{firstName:data.guardian.first_name,lastName:data.guardian.last_name,email:data.guardian.email,phone:data.guardian.phone,relationship:contactRelationship.relationship_title}" @saved="updated" />
+   <p v-if="!data.clients.length">No current client relationships are available for this guardian account.</p>
    <div class="family-profiles"><article v-for="client in data.clients" :key="client.client_id">
     <header><div><h3>{{client.full_name||client.initials||`Client ${client.client_id}`}}</h3><p>{{client.agency_name}}<template v-if="client.organization_name"> · {{client.organization_name}}</template></p></div><span class="relationship">{{client.relationship_title||'Guardian'}}</span></header>
-    <dl><div><dt>Portal access</dt><dd>{{Number(client.access_enabled)===1?'Relationship enabled':'Relationship disabled'}}</dd></div><div><dt>Guardian’s verified amount due</dt><dd>{{client.billing.available?money(client.billing.amountDueCents):'Unavailable under current billing access'}}</dd><small v-if="client.billing.error">{{client.billing.error}}</small><small v-else-if="client.billing.available && !client.billing.assignedBalanceCount">No balances assigned to this guardian.</small><small v-else-if="client.billing.reviewCount">{{client.billing.reviewCount}} under review or awaiting payment confirmation.</small></div></dl>
-    <div class="profile-actions"><button type="button" @click="open(client,'portal')">Portal & access</button><button type="button" @click="open(client,'phi')">Documents & forms</button><button v-if="client.billing.available" type="button" @click="open(client,'client-billing')">Balances & receipts</button><button type="button" @click="open(client,'overview')">Open child’s record</button></div>
+    <dl><div><dt>Portal access</dt><dd>{{Number(client.access_enabled)===1?'Portal access enabled':'Portal access disabled'}}</dd></div><div><dt>Guardian’s verified amount due</dt><dd>{{client.billing.available?money(client.billing.amountDueCents):'Unavailable under current billing access'}}</dd><small v-if="client.billing.error">{{client.billing.error}}</small><small v-else-if="client.billing.available && !client.billing.assignedBalanceCount">No balances assigned to this guardian.</small><small v-else-if="client.billing.reviewCount">{{client.billing.reviewCount}} under review or awaiting payment confirmation.</small></div></dl>
+    <p v-if="Number(client.access_enabled)!==1" class="disabled-relationship-note">This relationship stays linked and its history is preserved. Enable portal access again without reconnecting.</p>
+    <div class="profile-actions"><button type="button" @click="open(client,'portal')">{{canEdit && Number(client.access_enabled)!==1 ? 'Enable portal access' : 'Portal & access'}}</button><button type="button" @click="open(client,'phi')">Documents & forms</button><button v-if="client.billing.available" type="button" @click="open(client,'client-billing')">Balances & receipts</button><button type="button" @click="open(client,'overview')">Open child’s record</button></div>
    </article></div>
+   <details v-if="data.historicalRelationships?.length" class="relationship-history">
+    <summary>Past relationships ({{data.historicalRelationships.length}})</summary>
+    <p>These relationships were marked incorrect. Their history is preserved.</p>
+    <article v-for="past in data.historicalRelationships" :key="past.client_id"><strong>{{past.full_name||past.initials||`Client ${past.client_id}`}}</strong><p>{{past.agency_name}} · Marked incorrect</p></article>
+   </details>
   </template>
   <ClientDetailPanel v-if="opened" :key="`${opened.client_id}:${openedTab}`" :client="{...opened,id:opened.client_id}" :initial-tab="openedTab" @close="opened=null" @updated="load" />
   <ClientPortalInviteDialog v-if="showInvite" :recipient-guardian-id="guardianId" :client-ids="data.clients.map(c=>c.client_id)" @close="showInvite=false" />
@@ -41,6 +47,7 @@ const signInLabel = computed(() => {
   const date = new Date(value);
   return Number.isNaN(+date) ? 'Unavailable' : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 });
+const contactRelationship=computed(()=>data.value?.clients?.[0]||data.value?.historicalRelationships?.[0]||null);
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
 function open(client,tab){opened.value=client;openedTab.value=tab;}
 async function load(){const own=++generation;loading.value=true;error.value='';try{const response=await api.get(`/users/${props.guardianId}/guardian-workspace`,{skipGlobalLoading:true});if(own===generation)data.value=response.data;}catch(e){if(own===generation){data.value=null;error.value=e.response?.data?.error?.message||'Family account could not be loaded.';}}finally{if(own===generation)loading.value=false;}}

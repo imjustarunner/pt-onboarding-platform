@@ -456,6 +456,8 @@ router.post(
   upsertClientGuardian
 );
 router.patch('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
+// Older guardian contact editors submit PUT; keep the same authorization and handler.
+router.put('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
 router.delete('/:id/guardians/:guardianUserId', requireBackofficeAdmin, removeClientGuardian);
 
 // Affiliated contacts (reminder recipients without portal access)

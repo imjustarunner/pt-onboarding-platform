@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { requireBillingStaff } from './familyLedger/policy.js';
@@ -16,10 +17,16 @@ export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAcces
     a.name AS agency_name,o.name AS organization_name,cg.relationship_type,cg.relationship_title,cg.access_enabled,cg.permissions_json
     FROM client_guardians cg JOIN clients c ON c.id=cg.client_id LEFT JOIN agencies a ON a.id=c.agency_id
     LEFT JOIN agencies o ON o.id=c.organization_id WHERE cg.guardian_user_id=? ORDER BY c.full_name,c.id`,[guardianId]);
-  const clients=[];
+  const clients=[], historicalRelationships=[];
   for(const link of links){
     const access=await resolveAccess({userId:actor.id,role:actor.role,clientId:link.client_id});
     if(!access.ok)continue;
+    const permissions = ClientGuardian.parsePermissions(link.permissions_json);
+    if ([true, 'true'].includes(permissions?.relationshipRevoked)) {
+      historicalRelationships.push({client_id:link.client_id,agency_id:link.agency_id,full_name:link.full_name,initials:link.initials,
+        agency_name:link.agency_name,relationship_title:link.relationship_title,status:'incorrect'});
+      continue;
+    }
     const client={...link,billing:{available:false}};
     try {
       await authorizeBilling(actor,link.agency_id);
@@ -30,12 +37,12 @@ export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAcces
     }catch(error){if(error.status!==403)client.billing={available:false,error:'Balances could not be loaded. Open billing to review.'};}
     clients.push(client);
   }
-  if(!clients.length&&actor.role!=='super_admin'){
+  if(!clients.length&&!historicalRelationships.length&&actor.role!=='super_admin'){
     const [[membership]]=await db.execute(`SELECT 1 AS allowed FROM user_agencies target JOIN user_agencies viewer ON viewer.agency_id=target.agency_id
       WHERE target.user_id=? AND viewer.user_id=? AND target.is_active=1 AND viewer.is_active=1 LIMIT 1`,[guardianId,actor.id]);
     if(!membership)throw fail('This guardian account is outside your staff access.',403);
   }
-  const visibleAgencyIds = [...new Set(clients.map(client => Number(client.agency_id)).filter(id => id > 0))];
+  const visibleAgencyIds = [...new Set([...clients,...historicalRelationships].map(client => Number(client.agency_id)).filter(id => id > 0))];
   let lastLogin = null;
   if (visibleAgencyIds.length) {
     const [[activity]] = await db.execute(
@@ -45,5 +52,5 @@ export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAcces
     );
     lastLogin = utcMysqlToIso(activity?.lastLogin);
   }
-  return {guardian:{ ...guardian, lastLogin },clients,viewMode:'staff',actorUserId:actor.id};
+  return {guardian:{ ...guardian, lastLogin },clients,historicalRelationships,viewMode:'staff',actorUserId:actor.id};
 }

@@ -46,3 +46,13 @@ it('opens the full guardian profile for staff and disconnects only the current c
   auth.user.role = 'provider';
  }
 });
+
+it('shows a valid account with no linked clients without offering client outreach', async () => {
+ api.get.mockImplementation(async url => ({data:url.endsWith('/voicemails')?{conversations:[]}:{guardian:{id:30,name:'Demo Parent',email:'parent@example.test'},clients:[]}}));
+ const w=mount(Card,{props:{guardianId:30},global:{stubs:{RouterLink:true}}});await flushPromises();
+ expect(w.text()).toContain('Demo Parent');
+ expect(w.text()).toContain('No current client relationships are available for this guardian account.');
+ expect(w.find('[role=alert]').exists()).toBe(false);
+ expect(w.find('button').exists()).toBe(false);
+ w.unmount();
+});

@@ -19,6 +19,6 @@ export async function updateLinkedGuardianContact({ clientId, guardianUserId, us
   if (!firstName || !lastName || firstName.length > 255 || lastName.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255 || phoneNumber.length > 30) throw fail('Enter the parent’s name, a valid email, and a phone number of 30 characters or fewer.');
   const other = await deps.users.findByEmail(email);
   if (other && Number(other.id) !== Number(guardianUserId)) throw fail('That email belongs to another account. Choose the correct linked contact before continuing.', 409);
-  await deps.users.update(guardianUserId, { firstName, lastName, email, phoneNumber: phoneNumber || null });
+  await deps.users.update(guardianUserId, { firstName, lastName, email, personalEmail: email, phoneNumber: phoneNumber || null });
   return { guardianUserId, firstName, lastName, email, phone: phoneNumber };
 }

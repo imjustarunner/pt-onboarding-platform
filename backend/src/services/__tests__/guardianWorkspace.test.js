@@ -40,3 +40,56 @@ it('shows a recorded sign-in only from the account’s authorized linked practic
  expect(result.guardian).toMatchObject({password_set:0,lastLogin:'2026-11-21T13:13:00.000Z'});
  expect(deps.db.execute.mock.calls.find(([sql])=>sql.includes('FROM user_activity_log'))?.[1]).toEqual([20,2]);
 });
+
+it.each([{ relationshipRevoked: true }, JSON.stringify({ relationshipRevoked: true })])('excludes removed relationships from portal clients, billing and invitations: %j', async permissions => {
+ const deps=fixture();
+ deps.db.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[guardian]] : sql.includes('FROM client_guardians') ? [[
+  {client_id:10,agency_id:2,full_name:'Incorrect relationship',access_enabled:0,permissions_json:permissions},
+  {client_id:12,agency_id:2,full_name:'Current relationship',access_enabled:0,permissions_json:{}}
+ ]] : [[]]);
+ deps.resolveAccess.mockResolvedValue({ok:true});
+ const result=await guardianWorkspace({actor,guardianId:20},deps);
+ expect(result.clients.map(c=>c.client_id)).toEqual([12]);
+ expect(result.clients[0].access_enabled).toBe(0);
+ expect(deps.resolveAccess).toHaveBeenCalledWith({userId:40,role:'admin',clientId:12});
+ expect(deps.balances).toHaveBeenCalledExactlyOnceWith({agencyId:2,userId:40,clientId:12,staff:true});
+ expect(result.historicalRelationships).toEqual([expect.objectContaining({client_id:10,full_name:'Incorrect relationship',status:'incorrect'})]);
+ expect(result.historicalRelationships[0]).not.toHaveProperty('billing');
+ expect(deps.db.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
+});
+it('keeps the guardian account readable when its only relationship was removed', async () => {
+ const deps=fixture();
+ deps.db.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[guardian]] : sql.includes('FROM client_guardians') ? [[
+  {client_id:10,agency_id:2,full_name:'Incorrect relationship',access_enabled:0,permissions_json:{relationshipRevoked:true}}
+ ]] : [[]]);
+ const result=await guardianWorkspace({actor:{id:40,role:'super_admin'},guardianId:20},deps);
+ expect(result.guardian.id).toBe(20);
+ expect(result.clients).toEqual([]);
+ expect(deps.resolveAccess).toHaveBeenCalledExactlyOnceWith({userId:40,role:'super_admin',clientId:10});
+ expect(result.historicalRelationships).toHaveLength(1);
+ expect(deps.balances).not.toHaveBeenCalled();
+ expect(deps.db.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
+});
+
+it('does not expose past relationships outside the staff member’s client access', async () => {
+ const deps=fixture(),base=deps.db.execute.getMockImplementation();
+ deps.db.execute.mockImplementation(async(sql,params)=>sql.includes('FROM client_guardians') ? [[
+  {client_id:10,agency_id:2,full_name:'Visible current client',access_enabled:0,permissions_json:{}},
+  {client_id:11,agency_id:3,full_name:'Private former client',access_enabled:0,permissions_json:{relationshipRevoked:true}}
+ ]] : base(sql,params));
+ const result=await guardianWorkspace({actor,guardianId:20},deps);
+ expect(result.clients.map(client=>client.client_id)).toEqual([10]);
+ expect(result.historicalRelationships).toEqual([]);
+ expect(JSON.stringify(result)).not.toContain('Private former client');
+});
+
+it('retains the last recorded sign-in for an authorized past relationship', async () => {
+ const deps=fixture(),base=deps.db.execute.getMockImplementation();
+ deps.db.execute.mockImplementation(async(sql,params)=>sql.includes('FROM client_guardians') ? [[
+  {client_id:10,agency_id:2,full_name:'Former client',access_enabled:0,permissions_json:{relationshipRevoked:true}}
+ ]] : sql.includes('FROM user_activity_log') ? [[{lastLogin:'2026-11-21 13:13:00'}]] : base(sql,params));
+ const result=await guardianWorkspace({actor,guardianId:20},deps);
+ expect(result.clients).toEqual([]);
+ expect(result.guardian.lastLogin).toBe('2026-11-21T13:13:00.000Z');
+ expect(deps.db.execute.mock.calls.find(([sql])=>sql.includes('FROM user_activity_log'))[1]).toEqual([20,2]);
+});
