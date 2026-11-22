@@ -98,10 +98,10 @@ async function disconnectGuest(id,db=pool){
 }
 export async function sweepTutoringGuestAccess(){
  let rows;
- try{[rows]=await pool.execute("SELECT DISTINCT s.id,g.appointment_id,s.last_checked_at FROM tutoring_guest_sessions s JOIN tutoring_guest_grants g ON g.id=s.grant_id JOIN tutoring_session_visits v ON v.actor=CONCAT('guest:',s.id) AND v.status IN ('waiting','admitted') ORDER BY s.last_checked_at,s.id LIMIT 100");}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return;throw e;}
+ try{[rows]=await pool.execute("SELECT DISTINCT s.id,g.appointment_id,g.agency_id,g.client_id,v.session_id,s.last_checked_at FROM tutoring_guest_sessions s JOIN tutoring_guest_grants g ON g.id=s.grant_id JOIN tutoring_session_visits v ON v.actor=CONCAT('guest:',s.id) AND v.status IN ('waiting','admitted') ORDER BY s.last_checked_at,s.id LIMIT 100");}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return;throw e;}
  for(const row of rows){
   try{await revalidateTutoringGuestVisit('guest:'+row.id,row.appointment_id);}
-  catch(e){if(![401,403,404,409,410].includes(e.status))throw e;await pool.execute('UPDATE tutoring_guest_sessions SET revoked_at=COALESCE(revoked_at,UTC_TIMESTAMP()) WHERE id=?',[row.id]);await disconnectGuest(row.id);await clinicalAudit({kind:'tutoring',sessionId:row.appointment_id,actor:'system:tutoring-guest-access',role:'system'},'tutoring_guest_access_ended',{guestSessionId:row.id});}
+  catch(e){if(![401,403,404,409,410].includes(e.status))throw e;await pool.execute('UPDATE tutoring_guest_sessions SET revoked_at=COALESCE(revoked_at,UTC_TIMESTAMP()) WHERE id=?',[row.id]);await disconnectGuest(row.id);await clinicalAudit({kind:'tutoring',sessionId:row.session_id,agencyId:row.agency_id,actor:'system:tutoring-guest-access',role:'system'},'tutoring_guest_access_ended',{appointmentId:row.appointment_id,clientId:row.client_id,guestSessionId:row.id});}
   finally{await pool.execute('UPDATE tutoring_guest_sessions SET last_checked_at=UTC_TIMESTAMP() WHERE id=?',[row.id]);}
  }
 }

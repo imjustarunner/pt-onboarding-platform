@@ -8,6 +8,7 @@ vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:v
 vi.mock('../clientServiceEnrollment.service.js',()=>({guardianContextAllowsAppointment:vi.fn(()=>true)}));
 vi.mock('../bookedTutoringRoom.service.js',()=>({bookedTutoringWindow:()=>({closesAt:'2099-11-21T20:30:00Z'})}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>'encrypted:'+v,maybeDecryptNotePayload:v=>v.replace('encrypted:','')}));
+vi.mock('../clinicalVideo.service.js',()=>({revokeClinicalActor:vi.fn()}));
 vi.mock('../clinicalSessionAudit.service.js',()=>({clinicalAudit:vi.fn()}));
 vi.mock('../../utils/publicPortalUrl.js',()=>({buildPublicAppUrl:(_a,p)=>'https://app.nextleveluplcc.com/nlu-qa-demo/'+p}));
 import pool from '../../config/database.js';
@@ -16,7 +17,7 @@ import Agency from '../../models/Agency.model.js';
 import User from '../../models/User.model.js';
 import {authorizedAppointmentClient} from '../guardianAppointments.service.js';
 import {clinicalAudit} from '../clinicalSessionAudit.service.js';
-import {issueTutoringGuestLink,exchangeTutoringGuest,tutoringGuestAccess,tutoringGuestBookingHash,revalidateTutoringGuestVisit,tutoringGuestReminderBody} from '../tutoringGuest.service.js';
+import {issueTutoringGuestLink,exchangeTutoringGuest,tutoringGuestAccess,tutoringGuestBookingHash,revalidateTutoringGuestVisit,tutoringGuestReminderBody,sweepTutoringGuestAccess} from '../tutoringGuest.service.js';
 const token='a'.repeat(43),id='11111111-2222-4333-8444-555555555555';
 const appointment={id:481,agencyId:453,providerUserId:1496,status:'scheduled',startAt:'2099-11-21 18:00:00',endAt:'2099-11-21 19:00:00',modality:'VIRTUAL',learningContext:{serviceEnrollmentId:1038}};
 let grant;
@@ -43,4 +44,17 @@ it('does not create session capabilities for additional contacts or change disab
  const issue=vi.fn(async()=>null),input={appointment:{...appointment,businessType:'tutoring'},clientId:2547,body:'Reminder'};
  expect(await tutoringGuestReminderBody(input,issue)).toBe('Reminder');expect(issue).not.toHaveBeenCalled();
  expect(await tutoringGuestReminderBody({...input,recipientUserId:1759},issue)).toBe('Reminder');
+});
+
+it('records background invitation expiry with exact agency, client, appointment and learning-session references',async()=>{
+ Appointment.findById.mockResolvedValue({...appointment,status:'completed'});
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.startsWith('SELECT DISTINCT'))return [[{id,appointment_id:481,agency_id:453,client_id:2547,session_id:600}]];
+  if(sql.includes('s.revoked_at AS session_revoked_at'))return [[grant]];
+  if(sql.includes('SELECT v.id'))return [[]];
+  return [{affectedRows:1}];
+ });
+ await sweepTutoringGuestAccess();
+ expect(clinicalAudit).toHaveBeenCalledWith({kind:'tutoring',sessionId:600,agencyId:453,actor:'system:tutoring-guest-access',role:'system'},'tutoring_guest_access_ended',{appointmentId:481,clientId:2547,guestSessionId:id});
+ expect(pool.execute.mock.calls.some(([sql])=>sql.includes('g.agency_id,g.client_id,v.session_id'))).toBe(true);
 });
