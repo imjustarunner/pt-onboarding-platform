@@ -105,3 +105,6 @@ frontend/dist-auricwell-mobile/
 frontend/native/auricwell/ios/App/App/public/
 frontend/native/auricwell/ios/App/App/capacitor.config.json
 frontend/native/auricwell/ios/App/App/config.xml
+
+# Ignore reused development dependency symlinks as well as directories.
+**/node_modules

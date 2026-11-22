@@ -1,0 +1,27 @@
+name: Recovered shared feature regressions
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', 'backend/**', 'scripts/check-production-release*.mjs', '.github/workflows/release-recovery-regressions.yml']
+  pull_request:
+    paths: ['frontend/**', 'backend/**', 'scripts/check-production-release*.mjs', '.github/workflows/release-recovery-regressions.yml']
+jobs:
+  recovered-features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: frontend
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: backend
+      - run: npm run test -- --config vitest.release-recovery.config.js
+        working-directory: frontend
+      - run: ./frontend/node_modules/.bin/vitest run --config backend/vitest.release-recovery.config.js
+      - run: node --test scripts/check-production-release.test.mjs
