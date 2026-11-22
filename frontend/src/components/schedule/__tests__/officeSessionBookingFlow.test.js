@@ -29,7 +29,6 @@ beforeEach(() => {
   mocks.user = { id: 7, role: 'super_admin' };mocks.agency=null;
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-12T21:00:00Z'));
   mocks.get.mockImplementation(async url => ({ data:
-    url.includes('/service-code-eligibility') ? {serviceCodes:['90837']} :
     url.includes('/booking-access') ? { enabled: true } :
     url.includes('/booking-locations') ? { serviceLocations } :
     url.includes('/booking-metadata') ? { meetingPolicy:{providerId:7,usesGoogleSso:false,externalLinksAllowed:true}, serviceLocations, serviceCodes: [{ code: '90837', label: 'Psychotherapy', allowedPlaceOfService: ['11', '12', '02', '10'] }] } :

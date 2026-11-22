@@ -49,7 +49,7 @@ async function schoolClientEditor({ synthetic = false } = {}) {
   const clients = [{ id: 8, displayName: 'School client', schools: [{ schoolOrganizationId: 30, name: 'Assigned school' }] }];
   m.get.mockImplementation(async (url, ...args) => url.includes('virtual-session-clients') ? { data: { clients } } : /booking-(metadata|locations)/.test(url)
     ? { data: { serviceLocations, serviceCodes: [{ code: '90837' }, { code: '90832' }] } }
-    : url.includes('service-code-eligibility') ? { data: { serviceCodes: ['90837', '90832'] } } : base(url, ...args));
+    : base(url, ...args));
   const s = await editor();
   s.virtualSessionClients = clients;
   s.editorModality = 'IN_PERSON';
@@ -289,8 +289,8 @@ it('keeps the reserved office when the chosen client has an assigned school', as
 
 it('shows the duration conflict while keeping the selected psychotherapy code and typed minutes', async () => {
   const base = m.get.getMockImplementation();
-  m.get.mockImplementation((url, ...args) => url.includes('service-code-eligibility') ? Promise.resolve({ data: { serviceCodes: ['90837'] } })
-    : url.includes('/booking-metadata') ? Promise.resolve({ data: { serviceCodes: [{ code: '90837' }] } }) : base(url, ...args));
+  m.get.mockImplementation((url, ...args) => url.includes('/booking-metadata')
+    ? Promise.resolve({ data: { serviceCodes: [{ code: '90837' }] } }) : base(url, ...args));
   const s = await editor();
   s.bookingServiceCode = '90837';
   s.onEditorEndTime('17:34');
@@ -300,25 +300,28 @@ it('shows the duration conflict while keeping the selected psychotherapy code an
   expect(s.bookingServiceSelectionIssue).toContain('90837 requires at least 53 minutes. This session is 34 minutes.');
 });
 
-it('keeps 90791 available when payer verification excludes it', async () => {
+it.each(['90791', 'H0004'])('can manually book an approved %s without waiting for payer eligibility', async code => {
   const base = m.get.getMockImplementation();
-  let verify;
-  const eligibility = new Promise(resolve => { verify = resolve; });
-  m.get.mockImplementation((url, ...args) => url.includes('service-code-eligibility') ? eligibility
-    : url.includes('/booking-metadata') ? Promise.resolve({ data: { serviceCodes: [{ code: '90791', defaultDurationMinutes: 60 }, { code: '90834' }] } }) : base(url, ...args));
+  m.get.mockImplementation(async (url, ...args) => {
+    if (url.includes('/medical-billing/service-code-eligibility')) throw new Error('Payer eligibility unavailable');
+    if (url.includes('/booking-metadata')) return {
+      data: { serviceCodes: [{ code: '90791' }, { code: 'H0004' }, { code: '90837' }] }
+    };
+    return base(url, ...args);
+  });
   const s = await editor();
-  s.bookingServiceCode = '90791';
-  s.onEditorEndTime('17:32');
   s.virtualSessionSelectedClientIds = [9];
+  s.bookingServiceCode = code;
+  s.onEditorEndTime('17:32');
   await flushPromises();
-  expect(s.bookingServiceCode).toBe('90791');
-  expect(s.editorEndTime).toBe('17:32');
-  expect(m.get).toHaveBeenCalledWith('/medical-billing/service-code-eligibility', expect.objectContaining({ skipGlobalLoading: true }));
-  verify({ data: { serviceCodes: ['90834'], message: '90791 is not covered by this payer.' } });
-  await flushPromises();
-  expect(s.bookingServiceCode).toBe('90791');
+
   expect(s.bookingServiceSelectionIssue).toBe('');
+  expect(s.bookingServiceCode).toBe(code);
   expect(s.editorEndTime).toBe('17:32');
+  await s.submitRequest();
+  await flushPromises();
+  expect(m.post).toHaveBeenCalledWith('/appointments', expect.objectContaining({ serviceCode: code }), { skipGlobalLoading: true });
+  expect(m.get.mock.calls.some(([url]) => url.includes('/medical-billing/service-code-eligibility'))).toBe(false);
 });
 
 it('shows the credential reason when the scheduling catalog excludes 90791', async () => {

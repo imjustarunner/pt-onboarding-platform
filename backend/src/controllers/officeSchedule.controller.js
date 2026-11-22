@@ -70,7 +70,6 @@ import {
   parseAllowedCredentialTiers
 } from '../services/medicalBillingDefaults.service.js';
 import { ensureTenantServiceSuitesForAgency } from '../services/tenantServiceSuiteDefaults.service.js';
-import { eligibleServiceCodesForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { OfficeScheduleWatchdogService } from '../services/officeScheduleWatchdog.service.js';
 import { validateOfficeSlotSeries, generateOccurrenceDates, recurrenceLabel as officeRecurrenceLabel, normalizeOfficeRequestRecurrence } from '../services/officeSlotSeries.service.js';
@@ -3570,19 +3569,7 @@ export const getBookingMetadata = async (req, res, next) => {
           // tenant_services may not exist yet
         }
 
-        const tier = metadata.credentialTier;
-        const tierAllowList = eligibleServiceCodesForTier(tier); // null => all
-        const allowSet = tierAllowList ? new Set(tierAllowList.map((c) => String(c).toUpperCase())) : null;
-
-        serviceCodes = Array.from(byCode.values())
-          .filter((row) => row?.code)
-          .filter((row) => {
-            // The scheduling catalog already checked this diagnostic code against the provider’s credential.
-            if (row.medical || row.code === '90791') return true;
-            if (!allowSet) return true;
-            return allowSet.has(String(row.code).toUpperCase());
-          })
-          .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+        serviceCodes = [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
       } catch {
         // medical service code table may not exist yet
       }
