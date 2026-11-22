@@ -304,6 +304,7 @@ const quickNavCtx = computed(() => {
   const isClub = orgType === 'affiliation';
   const kudosEnabled = !!(cur?.kudos_enabled ?? cur?.kudosEnabled);
   return buildQuickNavContext({
+    agency:cur,
     user: u,
     isClubContext: isClub,
     kudosEnabled,

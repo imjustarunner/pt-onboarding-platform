@@ -34,7 +34,7 @@ function harness() {
     if (sql.startsWith('UPDATE appointment_reminders') || sql.startsWith('UPDATE appointment_change_notification_queue')) return [{}];
     throw new Error(`Unimplemented test SQL: ${sql}`);
   }) };
-  const deps={database,joinEmail:vi.fn(async()=>null),serviceBlocked:vi.fn(async()=>false),now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
+  const deps={database,tutoringResponse:vi.fn(async()=>null),joinEmail:vi.fn(async()=>null),serviceBlocked:vi.fn(async()=>false),now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
     encrypt:s=>JSON.stringify({encrypted:Buffer.from(s).toString('base64')}),decrypt:s=>Buffer.from(JSON.parse(s).encrypted,'base64').toString(),
     appointment:vi.fn(async id=>appointments.get(Number(id))),participants:vi.fn(async()=>[{clientId:8}]),
     tenant:vi.fn(async()=>({channelsEnabled:{sms:true},changeNotify:{channels:['email','sms'],bufferMinutes:15}})),

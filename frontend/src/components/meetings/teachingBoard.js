@@ -16,7 +16,7 @@ export function teachingPage(events, boardId) {
       items.set(event.id, { ...event, visible: true });
     const target = items.get(p.targetId);
     if (event.type === 'board_move' && target)
-      target.payload = { ...target.payload, x: p.x, y: p.y, width: p.width };
+      target.payload = { ...target.payload, x: p.x, y: p.y, width: p.width, ...(p.height!==undefined?{height:p.height}:{}) };
     if (event.type === 'board_visibility' && target) {
       target.visible = p.visible;
       target.changedBy = event.actor;

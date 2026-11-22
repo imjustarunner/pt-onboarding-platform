@@ -4,7 +4,7 @@ import { encryptChatText, decryptChatText } from './chatEncryption.service.js';
 import { clinicalAudit } from './clinicalSessionAudit.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const TYPES=new Set(['chat','share','drawing','response','viewed','rating','download']);
-const MODES=new Set(['video','whiteboard','pdf','book','media','resource','assessment','activity','treatment']);
+const MODES=new Set(['video','whiteboard','pdf','book','media','resource','assessment','activity','treatment','worksheet']);
 const scope=c=>[c.kind,c.sessionId,c.generation || 0,c.agencyId];
 export function validateArtifact(context,body) {
  const type=body?.type,payload=body?.payload;
@@ -15,6 +15,7 @@ export function validateArtifact(context,body) {
   if(!['provider','client'].includes(context.role)) throw fail(403,'Session admission is required.');
   if(payload.mode==='treatment'&&context.role!=='provider') throw fail(403,'Only the provider may share a treatment plan.');
   if(!MODES.has(payload.mode)) throw fail(400,'Unknown session tool.');
+  if(payload.mode==='worksheet'&&(context.role!=='provider'||!context.verifiedWorksheet))throw fail(403,'Choose an approved worksheet from this session.');
   if(payload.mode==='treatment'&&!context.clientId) throw fail(403,'Treatment plans require an identified client session.');
   if(payload.mode==='treatment'&&!context.verifiedTreatment) throw fail(403,'Select a treatment plan from this client’s record.');
   if(payload.url) { let url;try{url=new URL(payload.url);}catch{throw fail(400,'Enter a valid HTTPS link.');}if(url.protocol!=='https:')throw fail(400,'Use an HTTPS resource link.'); }
@@ -25,7 +26,7 @@ export function validateArtifact(context,body) {
  if(type==='rating'&&(!context.clientId||context.role!=='client'))throw fail(403,'Only the identified client may rate their treatment plan.');
  if(type==='drawing'&&(!Array.isArray(payload.points)||payload.points.length>2000||payload.points.some(p=>!Array.isArray(p)||p.length!==2||p.some(n=>!Number.isFinite(n)||n<0||n>1000))||!/^#[a-f0-9]{6}$/i.test(payload.color)))throw fail(400,'Invalid drawing.');
  if(['response','viewed','rating','drawing','download'].includes(type)&&!Number.isSafeInteger(payload.shareId))throw fail(400,'Choose a shared session tool.');
- const fields={chat:['text'],drawing:['shareId','color','points'],rating:['shareId','value'],download:['shareId'],viewed:['shareId','page'],response:['shareId','answers'],share:['mode','title','url','document','questions','description','planId','clientId','goals']}[type];
+ const fields={chat:['text'],drawing:['shareId','color','points'],rating:['shareId','value'],download:['shareId'],viewed:['shareId','page'],response:['shareId','answers'],share:['mode','title','url','document','questions','description','planId','clientId','goals','versionId']}[type];
  const clean=Object.fromEntries(fields.filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]]));
  if(type==='share') {clean.title=String(clean.title||'').slice(0,150);clean.description=String(clean.description||'').slice(0,1000);if(clean.mode!=='treatment'){delete clean.planId;delete clean.clientId;delete clean.goals;}}
  if(type==='drawing') {
@@ -42,8 +43,18 @@ async function authorizedWorkspace(context, operation, suppliedDb) {
  const db=suppliedDb||await pool.getConnection();
  try {
   if(!suppliedDb)await db.beginTransaction();
-  const [sessions]=await db.execute('SELECT * FROM clinical_video_sessions WHERE session_kind=? AND session_id=? AND generation=? AND agency_id=? FOR UPDATE',scope(context));
-  const session=sessions[0];
+  let session;
+  if(context.kind==='tutoring'&&context.learningWorkspace===true) {
+   const [[appointment]]=await db.execute('SELECT status,provider_user_id,agency_id FROM appointments WHERE id=? FOR UPDATE',[context.appointmentId]);
+   if(!appointment||Number(appointment.agency_id)!==Number(context.agencyId)||Number(appointment.provider_user_id)!==Number(context.providerId))throw fail(403,'This Session Hub assignment changed. Reopen the current appointment.');
+   if(context.historical!==true&&!['scheduled','confirmed','client_confirmed','in_progress'].includes(appointment.status))throw fail(410,'This appointment is closed.');
+   const [[lesson]]=await db.execute('SELECT s.status,s.actual_ended_at FROM learning_class_sessions s JOIN learning_program_classes p ON p.id=s.learning_class_id WHERE s.id=? AND p.organization_id=? FOR UPDATE',[context.sessionId,context.agencyId]);
+   if(!lesson)throw fail(404,'Learning session not found.');
+   session={state:lesson.actual_ended_at||lesson.status==='ended'?'ended':'active'};
+  }else{
+   const [sessions]=await db.execute('SELECT * FROM clinical_video_sessions WHERE session_kind=? AND session_id=? AND generation=? AND agency_id=? FOR UPDATE',scope(context));
+   session=sessions[0];
+  }
   if(!session&&!(context.historical===true&&context.role==='provider'))throw fail(404,'Encounter not found.');
   if(context.historical!==true && session?.state!=='active')throw fail(410,'This encounter has ended.');
   if(context.historical && context.role!=='provider')throw fail(403,'Provider access is required.');
@@ -71,7 +82,7 @@ export async function appendWorkspace(context,body,suppliedDb) {
  const historical=context.closedLessonReview===true && context.kind==='tutoring' && context.role==='provider' && body?.type==='board_review';
  return authorizedWorkspace({...context,historical},async db=>{
  let {type,payload}=validateArtifact(context,body);
- const boardAction=boardTypes.has(type)||type==='drawing'||type==='share'&&payload.mode==='whiteboard';
+ const boardAction=boardTypes.has(type)||type==='drawing'||type==='share'&&['whiteboard','worksheet'].includes(payload.mode);
  const key=boardAction?body.requestId||null:null;
  if(key){const prior=await priorBoardRequest(db,context,key);if(prior){if(prior.artifact_type!==type)throw fail(409,'This action has already been used.');return {artifact:{id:prior.id,actor:prior.actor,role:prior.actor_role,type,payload:unpack(prior)}};}}
  if(boardAction||type==='share'&&context.role!=='provider')payload=await authorizeBoard(db,context,type,payload);

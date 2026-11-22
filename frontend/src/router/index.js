@@ -1925,7 +1925,7 @@ const routes = [
     path: '/:organizationSlug/tutoring-session/:sessionId',
     name: 'OrganizationVirtualTutoringSession',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { sessionHub:true, requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/counseling',
@@ -3635,25 +3635,27 @@ const routes = [
     component: () => import('../views/tutoring/InPersonTutoringSessionView.vue'),
     meta: { requiresAuth: true }
   },
+  ...['/:organizationSlug/tutoring-library','/tutoring-library'].map((path,i)=>({path,name:'TutoringResourceLibrary'+i,component:()=>import('../views/tutoring/TutoringLibraryView.vue'),meta:{requiresAuth:true,organizationSlug:i===0}})),
+  ...['/:organizationSlug/tutoring/invite','/tutoring/invite','/:organizationSlug/tutoring/invite/:token','/tutoring/invite/:token','/:organizationSlug/tutoring/guest/:guestSessionId','/tutoring/guest/:guestSessionId'].map((path,i)=>({path,name:'TutoringGuest'+i,component:()=>import('../views/tutoring/TutoringGuestView.vue'),meta:{requiresAuth:false,tutoringGuest:true,sessionHub:true}})),
   {
     path: '/tutoring-session/appointment/:appointmentId',
     alias: '/tutoring/appointment/:appointmentId',
     name: 'VirtualTutoringAppointment',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
-    meta: { requiresAuth: true }
+    meta: { sessionHub:true, requiresAuth: true }
   },
   {
     path: '/:organizationSlug/tutoring-session/appointment/:appointmentId',
     alias: '/:organizationSlug/tutoring/appointment/:appointmentId',
     name: 'OrganizationVirtualTutoringAppointment',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { sessionHub:true, requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/tutoring-session/:sessionId',
     name: 'VirtualTutoringSession',
     component: () => import('../views/tutoring/VirtualTutoringSessionView.vue'),
-    meta: { requiresAuth: true }
+    meta: { sessionHub:true, requiresAuth: true }
   },
   {
     path: '/counseling',
@@ -5261,7 +5263,7 @@ router.beforeEach(async (to, from, next) => {
   if (to.query.item === 'auricwell-transition' && to.path.endsWith('/admin/settings')) { next({ path: '/practice-transition', replace: true }); return; }
   // A guest payment capability does not use the visitor's application identity.
   if (to.name === 'EmploymentNotice') { next(); return; }
-  if (to.meta.guestPaymentSurface === true) { next(); return; }
+  if (to.meta.guestPaymentSurface === true || to.meta.tutoringGuest === true) { next(); return; }
   if(/^\/mobile(?:\/|$)/.test(to.path)){window.location.replace(to.fullPath);next(false);return;}
   // /logout (flat or under an org slug) is an action, not a page. Sign out through the
   // same path as the Sign out buttons; authStore.logout performs the hard redirect itself.

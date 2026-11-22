@@ -834,6 +834,7 @@ function buildAppEntries() {
 export function getQuickNavCatalog() {
   return [...buildAccountEntries(), ...buildAppEntries(),
     {id:'tutoring-students',label:'My students',description:'Your assigned tutoring students and learning plans.',group:'workspace',kind:'path',path:'/students',requiresService:'canTutor',keywords:['students','tutoring','learning']},
+    {id:'tutoring-library',label:'Tutoring resource library',description:'Prepare private general materials and review staff publishing.',group:'workspace',kind:'path',path:'/tutoring-library',requiresTutoringHub:true,rolesAny:['admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant'],keywords:['tutoring','worksheet','resources','library','publish']},
     {id:'tutoring-profile',label:'Tutoring profile',description:'Subjects, grades and public introduction.',group:'workspace',kind:'path',path:'/tutoring-profile',requiresService:'canTutor',keywords:['tutor profile','subjects','grades']},
     {id:'childcare-shifts',label:'Childcare',description:'Your childcare shifts, attendance and clocking.',group:'workspace',kind:'path',path:'/childcare',requiresService:'canChildcare',keywords:['childcare','clock in','children','shifts']}
   ];
@@ -871,6 +872,8 @@ export function buildQuickNavContext(opts = {}) {
     !isTrueAdmin &&
     !isProviderLike &&
     (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
+  let agencyFlags=opts.agency?.feature_flags||{};try{if(typeof agencyFlags==='string')agencyFlags=JSON.parse(agencyFlags);}catch{agencyFlags={};}
+  const tutoringHubEnabled=agencyFlags.tutoringSessionHubV2===true;
   const isClubContext = !!opts.isClubContext;
   const isSchoolStaff = role === 'school_staff' || !!opts.isSchoolStaff;
 
@@ -878,6 +881,7 @@ export function buildQuickNavContext(opts = {}) {
     user,
     role,
     capabilities: caps,
+    tutoringHubEnabled,
     serviceWorkspace: opts.serviceWorkspace || user?.workspaceServiceContext || {},
     isClubContext,
     isSchoolStaff,
@@ -902,6 +906,7 @@ export function buildQuickNavContext(opts = {}) {
 }
 
 function entryVisible(entry, ctx) {
+  if(entry.requiresTutoringHub&&!ctx?.tutoringHubEnabled)return false;
   if(entry.requiresService && ctx?.serviceWorkspace?.[entry.requiresService]!==true)return false;
   if (ctx?.serviceWorkspace?.learningOnly && (['clients','supervision'].includes(entry.group) || /note-aid|clinical-note-generator/.test(entry.path || '') || ['documentation-hub','note-workspace','clients-caseload'].includes(entry.id))) return false;
   if (!ctx?.isOnboardingComplete && entry.kind === 'path') return false;

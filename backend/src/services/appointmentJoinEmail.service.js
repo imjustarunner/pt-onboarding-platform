@@ -38,7 +38,8 @@ export async function appointmentJoinEmail({appointment,clientId,to,context},dep
   if(!destination)return null;
   context ||= await (await import('./clientPortalEmail.service.js')).clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(appointment.businessType)?{learning:true}:{})});
   const bookedTutoring = destination.startsWith('/tutoring/appointment/') && Number(context.tenant?.id) === Number(appointment.agencyId);
-  const url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
+  let url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
+  if(bookedTutoring){const guest=await (dependencies.guestLink|| (await import('./tutoringGuest.service.js')).issueTutoringGuestLink)(appointment,clientId,recipient.id,d.db);if(guest)url=guest;}
   const phone=appointment.includeGoogleDialIn===true?googleDialInContent(await d.conference(appointment)):null;
   const label=['learning','tutoring'].includes(appointment.businessType)?'Join tutoring session':'Join online appointment';
   return {url,text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};

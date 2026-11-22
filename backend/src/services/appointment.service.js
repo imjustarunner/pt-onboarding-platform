@@ -6,6 +6,7 @@ import {requireTestingEligibility} from './testingEligibility.service.js';
 import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
 import { recordQaAttendanceTerms, syncQaAppointmentBalance, requireQaOutcomeElapsed } from './qaAppointmentBilling.service.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
+import {assertTutoringStudentWindow} from './tutoringStudentConflict.service.js';
 import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
@@ -361,6 +362,7 @@ async function createLockedAppointment({
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
       modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000,
       learningFormat: businessType === 'tutoring' ? (['VIRTUAL','TELEHEALTH'].includes(String(modality||service?.modality).toUpperCase()) ? 'virtual' : 'in-person') : undefined }) : null;
+  await assertTutoringStudentWindow(pool,{businessType,clientIds:bookingClients.map(c=>c.id),startAt:start,endAt:end,appointmentId:resuming?.id||null});
   const appt = resuming || await Appointment.create({
     replacementOfferId,
     agencyId: aid,
@@ -621,6 +623,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       endAt: patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt
     }, existing.id);
   }
+  if(moved||patch.participants)await assertTutoringStudentWindow(pool,{businessType:existing.businessType,clientIds:(patch.participants||await Appointment.listParticipants(appointmentId)).map(p=>p.clientId||p.client_id),startAt:nextStartAt,endAt:nextEndAt,appointmentId});
   if (moved && existing.officeEventId) {
     const { moveAppointmentOffice } = await import('./appointmentCalendarMaintenance.service.js');
     await moveAppointmentOffice(existing,

@@ -1,4 +1,5 @@
 import StudentSubject from '../models/StudentSubject.model.js';
+import {tutoringSessionHubEnabled} from '../utils/tutoringSessionHubPolicy.js';
 import StudentLearningPlan from '../models/StudentLearningPlan.model.js';
 import { saveLearningPlanSessionNote } from './tutoringSessionChecklist.service.js';
 import pool from '../config/database.js';
@@ -58,14 +59,14 @@ export async function bookedTutoringAccess(req, appointmentId) {
   if (access.permissions?.canViewAppointments===false) throw fail(403, 'Appointment access is required to join this session.');
  }
  if (req.query?.clientId && Number(req.query.clientId)!==clientId) throw fail(403,'This appointment belongs to a different student.');
- return {appointment,clientId,studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
+ return {appointment,clientId,hubV2:tutoringSessionHubEnabled(await Agency.findById(appointment.agencyId)),studentName:access?.client?.full_name || clients[0].displayName || access?.client?.initials || null,host,actor:`user-${req.user.id}`,req};
 }
 const transact = async operation => {
  const db = await pool.getConnection();
  try { await db.beginTransaction(); const result=await operation(db); await db.commit();return result; }
  catch(error){await db.rollback();throw error;}finally{db.release();}
 };
-async function linkedSession(ctx,db=pool,lock=false) {
+export async function linkedSession(ctx,db=pool,lock=false) {
  const [[row]]=await db.execute(`SELECT s.* FROM tutoring_appointment_sessions b JOIN learning_class_sessions s ON s.id=b.session_id
   JOIN learning_program_classes c ON c.id=s.learning_class_id WHERE b.appointment_id=? AND c.organization_id=? AND s.provider_user_id=?${lock?' FOR UPDATE':''}`,[ctx.appointment.id,ctx.appointment.agencyId,ctx.appointment.providerUserId]);
  if (row) {
@@ -86,7 +87,7 @@ function requireOpen(ctx) {
   throw fail(409,`This tutoring session opens ${local.format(new Date(window.opensAt))}.`);
  }
 }
-async function lockAppointment(ctx,db) {
+export async function lockAppointment(ctx,db) {
  await assertClinicalWorkActive({id:ctx.appointment.id,archiveResourceType:'appointment'},{db,currentRead:true});
  const [[current]]=await db.execute('SELECT status,provider_user_id,agency_id,start_at,end_at,modality,service_code,business_type,video_room_mode FROM appointments WHERE id=? FOR UPDATE',[ctx.appointment.id]);
  if (!current || Number(current.provider_user_id)!==Number(ctx.appointment.providerUserId)||Number(current.agency_id)!==Number(ctx.appointment.agencyId)) throw fail(409,'The tutor assignment changed. Reopen the appointment.');
@@ -112,7 +113,7 @@ export async function tutoringRoomStatus(ctx) {
  const session=await linkedSession(ctx), window=bookedTutoringWindow(ctx.appointment);
  const {status,displayStatus}=appointmentAttendanceView(ctx.appointment,{learningSession:session});
  const closed=terminal.has(status)||['ended','completed'].includes(status);
- const safe={appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,
+ const safe={sessionHubV2:!!ctx.hubV2,appointmentId:ctx.appointment.id,clientId:ctx.clientId,agencyId:ctx.appointment.agencyId,
   providerId:ctx.appointment.providerUserId,studentName:ctx.studentName||null,host:ctx.host,
   title:appointmentServiceLabel(ctx.appointment),modality:ctx.appointment.modality,
   timeZone:ctx.appointment.sourceTimezone||'America/Denver',startAt:utcMysqlToIso(ctx.appointment.startAt),endAt:utcMysqlToIso(ctx.appointment.endAt),
@@ -123,7 +124,7 @@ export async function tutoringRoomStatus(ctx) {
   safe.familySummary=await getAppointmentFamilySummary(ctx,session);
  }
  if (!session||closed)return {...safe,visits:[],visit:null};
- const [visits]=await pool.execute(`SELECT v.id,v.user_id AS userId,v.status,v.admitted_at AS admittedAt,v.ended_at AS endedAt,v.duration_seconds AS durationSeconds,CONCAT_WS(' ',u.first_name,u.last_name) AS displayName FROM tutoring_session_visits v JOIN users u ON u.id=v.user_id WHERE v.session_id=? ${ctx.host?'':'AND v.user_id=?'} ORDER BY v.id`,ctx.host?[session.id]:[session.id,ctx.req.user.id]);
+ const [visits]=await pool.execute(`SELECT v.id,v.user_id AS userId,v.actor,v.status,v.admitted_at AS admittedAt,v.ended_at AS endedAt,v.duration_seconds AS durationSeconds,CONCAT_WS(' ',u.first_name,u.last_name) AS displayName FROM tutoring_session_visits v JOIN users u ON u.id=v.user_id WHERE v.session_id=? ${ctx.host?'':ctx.guestSessionId?'AND v.actor=?':'AND v.user_id=?'} ORDER BY v.id`,ctx.host?[session.id]:[session.id,ctx.guestSessionId?ctx.actor:ctx.req.user.id]);
  const room=session.booked_media_id?await media.clinicalMedia(session.booked_media_id):null;
  if(ctx.host){const durations=await media.clinicalAttendance('tutoring',session.id);return {...safe,roomState:room?.state||'idle',visits:visits.map(v=>({...v,mediaDurationSeconds:durations.get(Number(v.id))??null}))};}
  const visit=visits.at(-1)||null;
@@ -152,11 +153,12 @@ export async function joinBookedTutoringRoom(ctx) {
  if(ctx.host)return openBookedTutoringRoom(ctx);
  return transact(async db=>{
   await lockAppointment(ctx,db);requireOpen(ctx);
-  const session=await prepareSession(ctx,db);
+  const session=ctx.hubV2?await linkedSession(ctx,db,true):await prepareSession(ctx,db);
+  if(!session)return {waitingForTutor:true};
   if(session.status==='ended')throw fail(410,'This tutoring session has ended.');
-  const [[existing]]=await db.execute("SELECT id,status FROM tutoring_session_visits WHERE session_id=? AND user_id=? AND status IN ('waiting','admitted') ORDER BY id DESC LIMIT 1",[session.id,ctx.req.user.id]);
+  const [[existing]]=await db.execute(`SELECT id,status FROM tutoring_session_visits WHERE session_id=? AND ${ctx.guestSessionId?'actor':'user_id'}=? AND status IN ('waiting','admitted') ORDER BY id DESC LIMIT 1`,[session.id,ctx.guestSessionId?ctx.actor:ctx.req.user.id]);
   if(existing)return {visit:existing};
-  const [result]=await db.execute('INSERT INTO tutoring_session_visits(session_id,user_id,client_id,actor) VALUES(?,?,?,?)',[session.id,ctx.req.user.id,ctx.clientId,ctx.actor]);
+  const [result]=await db.execute('INSERT INTO tutoring_session_visits(session_id,user_id,client_id,actor) VALUES(?,?,?,?)',[session.id,ctx.participantUserId||ctx.req.user.id,ctx.clientId,ctx.actor]);
   await audit(ctx,session,'tutoring_waiting_room_joined',{visitId:result.insertId},db);
   return {visit:{id:result.insertId,status:'waiting'}};
  });
@@ -174,7 +176,8 @@ export async function admitBookedTutoringParticipant(ctx,visitId) {
   // Recheck family authorization at admission, not only when entering the lobby.
   const [[person]]=await db.execute('SELECT id,role,is_active,is_archived FROM users WHERE id=?',[visit.user_id]);
   if(Number(person?.is_active)!==1||Number(person?.is_archived)===1)throw fail(403,'This participant no longer has an active account.');
-  await bookedTutoringAccess({...ctx.req,user:person},ctx.appointment.id);
+  if(String(visit.actor).startsWith('guest:'))await (await import('./tutoringGuest.service.js')).revalidateTutoringGuestVisit(visit.actor,ctx.appointment.id,db);
+  else await bookedTutoringAccess({...ctx.req,user:person},ctx.appointment.id);
   await db.execute("UPDATE tutoring_session_visits SET status='admitted',admitted_at=COALESCE(admitted_at,UTC_TIMESTAMP()),last_seen_at=UTC_TIMESTAMP() WHERE id=?",[visit.id]);
   await db.execute("UPDATE learning_class_sessions SET status='live',actual_started_at=COALESCE(actual_started_at,UTC_TIMESTAMP()),started_by_user_id=COALESCE(started_by_user_id,?) WHERE id=? AND status IN ('scheduled','live')",[ctx.req.user.id,session.id]);
   await db.execute("UPDATE appointments SET status='in_progress',updated_by_user_id=? WHERE id=? AND status IN ('scheduled','confirmed','client_confirmed','in_progress')",[ctx.req.user.id,ctx.appointment.id]);
@@ -187,7 +190,7 @@ export async function bookedTutoringToken(ctx) {
   await lockAppointment(ctx,db);requireOpen(ctx);
   const session=await linkedSession(ctx,db,true);
   if(!session?.booked_media_id||session.status==='ended')throw fail(409,'Wait for your tutor to open this session.');
-  const [[visit]]=await db.execute("SELECT id FROM tutoring_session_visits WHERE session_id=? AND user_id=? AND client_id=? AND status='admitted' ORDER BY id DESC LIMIT 1",[session.id,ctx.req.user.id,ctx.clientId]);
+  const [[visit]]=await db.execute(`SELECT id FROM tutoring_session_visits WHERE session_id=? AND ${ctx.guestSessionId?'actor':'user_id'}=? AND client_id=? AND status='admitted' ORDER BY id DESC LIMIT 1`,[session.id,ctx.guestSessionId?ctx.actor:ctx.req.user.id,ctx.clientId]);
   if(!visit)throw fail(403,'Wait for your tutor to admit you to this appointment.');
   return {sessionId:session.booked_media_id,applicationId:process.env.VONAGE_APPLICATION_ID,token:await media.clinicalVideoToken(session.booked_media_id,{actor:ctx.actor,role:'client',visitId:visit.id,req:ctx.req,displayName:ctx.studentName ? `${ctx.studentName}’s family` : 'Family participant'},db),participantRole:'client'};
  });
@@ -196,7 +199,7 @@ export async function leaveBookedTutoringRoom(ctx) {
  await transact(async db=>{
   await lockAppointment(ctx,db);const session=await linkedSession(ctx,db,true);if(!session)return;
   if(session.booked_media_id)await media.revokeClinicalActor(session.booked_media_id,ctx.actor,db);
-  await db.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND user_id=? AND status IN ('waiting','admitted')",[session.id,ctx.req.user.id]);
+  await db.execute(`UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=IF(admitted_at IS NULL,0,GREATEST(0,TIMESTAMPDIFF(SECOND,admitted_at,UTC_TIMESTAMP()))) WHERE session_id=? AND ${ctx.guestSessionId?'actor':'user_id'}=? AND status IN ('waiting','admitted')`,[session.id,ctx.guestSessionId?ctx.actor:ctx.req.user.id]);
   await audit(ctx,session,'tutoring_participant_left',{},db);
  });
  await media.retryClinicalDisconnections();return {ok:true};
@@ -222,10 +225,15 @@ export async function endBookedTutoringRoom(ctx) {
 export async function bookedTutoringWorkspace(ctx,operation,input={}) {
  if(terminal.has(ctx.appointment.status)&&!(ctx.host&&operation==='read'))throw fail(410,'This appointment was canceled or changed. Its shared workspace is closed.');
  const session=await linkedSession(ctx);if(!session)throw fail(409,'The tutor has not opened this appointment yet.');
- const [[visit]]=ctx.host?[[null]]:await pool.execute("SELECT id FROM tutoring_session_visits WHERE session_id=? AND user_id=? AND status='admitted' ORDER BY id DESC LIMIT 1",[session.id,ctx.req.user.id]);
+ const [[visit]]=ctx.host?[[null]]:await pool.execute(`SELECT id FROM tutoring_session_visits WHERE session_id=? AND ${ctx.guestSessionId?'actor':'user_id'}=? AND status='admitted' ORDER BY id DESC LIMIT 1`,[session.id,ctx.guestSessionId?ctx.actor:ctx.req.user.id]);
  if(!ctx.host&&!visit)throw fail(403,'Admission to this appointment is required.');
- const scope={kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,role:ctx.host?'provider':'client',actor:ctx.actor,clientId:ctx.clientId,visitId:visit?.id,req:ctx.req,historical:ctx.host&&session.status==='ended',afterId:input.afterId};
+ const scope={kind:'tutoring',sessionId:session.id,agencyId:ctx.appointment.agencyId,role:ctx.host?'provider':'client',actor:ctx.actor,clientId:ctx.clientId,visitId:visit?.id,req:ctx.req,learningWorkspace:!!ctx.hubV2,appointmentId:ctx.appointment.id,providerId:ctx.appointment.providerUserId,historical:ctx.host&&session.status==='ended',afterId:input.afterId};
  if(operation==='read')return workspace.readWorkspace(scope);
+ if(input.type==='share'&&input.payload?.mode==='worksheet'){
+  const [[v]]=await pool.execute("SELECT v.id FROM tutoring_material_versions v JOIN tutoring_material_shares sh ON sh.material_version_id=v.id AND sh.session_id=v.session_id WHERE v.id=? AND v.session_id=? AND v.client_id=? AND v.status='approved' AND sh.revoked_at IS NULL",[Number(input.payload.versionId),session.id,ctx.clientId]);
+  if(!ctx.hubV2||!v||!ctx.host)throw fail(403,'Choose an approved worksheet from this session.');
+  scope.verifiedWorksheet=true;
+ }
  if(!ctx.host && input.type==='share')throw fail(403,'Only the assigned tutor can present lesson materials.');
  if(input.type==='board_review')throw fail(400,'Review learning activities from the session record.');
  if(input.type==='board_prompt'){
@@ -351,10 +359,21 @@ export async function tutoringBoardMaterials(ctx){
 }
 export async function tutoringJoinLink(ctx){
  const agency=await Agency.findById(ctx.appointment.agencyId);
+ if(ctx.hubV2){
+  const {issueTutoringGuestLink}=await import('./tutoringGuest.service.js');
+  if(!ctx.host)return {url:await issueTutoringGuestLink(ctx.appointment,ctx.clientId,ctx.req.user.id)};
+  const recipientId=Number(ctx.req.query?.recipientUserId);
+  if(recipientId){const url=await issueTutoringGuestLink(ctx.appointment,ctx.clientId,recipientId);if(!url)throw fail(409,'This appointment does not use a native tutoring room.');return {url};}
+  const [people]=await pool.execute('SELECT DISTINCT u.id,u.first_name,u.last_name FROM client_guardians g JOIN users u ON u.id=g.guardian_user_id WHERE g.client_id=? AND g.access_enabled=1 AND u.is_active=1 AND u.is_archived=0',[ctx.clientId]);
+  const recipients=[];
+  for(const person of people){try{const {authorizedAppointmentClient}=await import('./guardianAppointments.service.js');const {guardianContextAllowsAppointment}=await import('./clientServiceEnrollment.service.js');const {tutoringInvitationAllowed}=await import('../utils/tutoringGuestPermissions.js');const access=await authorizedAppointmentClient(person.id,ctx.clientId,{agencyId:ctx.appointment.agencyId,serviceId:ctx.appointment.learningContext?.serviceEnrollmentId});if(tutoringInvitationAllowed(access,ctx.appointment,guardianContextAllowsAppointment))recipients.push({id:person.id,name:[person.first_name,person.last_name].filter(Boolean).join(' ')});}catch(e){if(![403,404].includes(e.status))throw e;}}
+  return {recipients};
+ }
  const query=new URLSearchParams({clientId:ctx.clientId,agencyId:ctx.appointment.agencyId});
  if(ctx.appointment.learningContext?.serviceEnrollmentId)query.set('serviceId',ctx.appointment.learningContext.serviceEnrollmentId);
  return {url:buildPublicAppUrl(agency,`tutoring/appointment/${ctx.appointment.id}?${query}`)};
 }
+
 export async function tutoringBoardDraft(ctx,input){
  if(!ctx.host||terminal.has(ctx.appointment.status)||ctx.appointment.status==='completed')throw fail(403,'Open an active tutoring appointment as its assigned tutor.');
  return draftBoardQuestion(ctx,await bookedTutoringLearningContext(ctx),input);

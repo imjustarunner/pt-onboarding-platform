@@ -1,3 +1,5 @@
+import Agency from '../models/Agency.model.js';
+import {tutoringSessionHubEnabled} from '../utils/tutoringSessionHubPolicy.js';
 import { lessonMeasures } from '../utils/tutoringBoardProgress.js';
 import {appointmentAttendanceView,appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
@@ -495,7 +497,7 @@ export async function saveNoteAndUpdateProgress(notePayload, actorUserId, req = 
     evidenceRows.push(ev);
 
     // Write the observed rating immediately, then let deterministic mastery refine status
-    if (chip.planGoalId && chip.rating) {
+    if (chip.planGoalId && chip.rating && !tutoringSessionHubEnabled(await Agency.findById(note.agency_id))) {
       await StudentLearningPlan.updateGoal(chip.planGoalId, { status: chip.rating });
       try {
         const mastery = await applyMasteryToGoal(chip.planGoalId, { autoApply: true });
@@ -828,8 +830,12 @@ const MASTERY_MIN_PCT = 0.8;
  * Rule: ≥3 independent positive measures with ≥80% strong (secure+) → mastered;
  * regression signals → needs_review.
  */
-export async function evaluateGoalMastery(planGoalId) {
-  const evidence = await AcademicSkillEvidence.listByGoal(planGoalId, { limit: 30 });
+export async function evaluateGoalMastery(planGoalId,{reviewedOnly=false,grade=null}={}) {
+  const evidence = (await AcademicSkillEvidence.listByGoal(planGoalId,{limit:30})).filter(row=>!reviewedOnly||(
+    !!row.recorded_by_user_id && !!row.session_id &&
+    (row.metadata_json?.documentationMode==='learning_plan_checklist'||['teaching_board','session_hub_worksheet'].includes(row.metadata_json?.source)) &&
+    (!grade||!row.metadata_json?.grade||String(row.metadata_json.grade)===String(grade))
+  ));
   const checklistReview = checklistMasteryReview(planGoalId, evidence);
   if (checklistReview) return checklistReview;
   const chronological = lessonMeasures([...evidence].reverse());
@@ -881,7 +887,10 @@ export async function evaluateGoalMastery(planGoalId) {
 
 export async function applyMasteryToGoal(planGoalId, { autoApply = true } = {}) {
   const mastery = await evaluateGoalMastery(planGoalId);
-  if (autoApply && mastery.recommendedStatus) {
+  const goal=await StudentLearningPlan.findGoalById(planGoalId);
+  const plan=goal&&await StudentLearningPlan.findById(goal.learning_plan_id);
+  const reviewRequired=plan&&tutoringSessionHubEnabled(await Agency.findById(plan.agency_id));
+  if (autoApply && mastery.recommendedStatus && !reviewRequired) {
     await StudentLearningPlan.updateGoal(planGoalId, { status: mastery.recommendedStatus });
   }
   return mastery;

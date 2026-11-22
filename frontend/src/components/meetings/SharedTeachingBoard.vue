@@ -22,6 +22,7 @@
           </select></label
         >
         <button type="button" class="accent" @click="composing = !composing">Insert question</button>
+        <button type="button" @click="format='example';composing=true">Text / worked example</button>
         <button
           type="button"
           :aria-pressed="!page.locked"
@@ -217,9 +218,10 @@
           >
             <option value="">Choose an observation</option>
             <option value="not_observed">Not assessed</option>
-            <option value="needs_review">Needs more practice</option>
-            <option value="developing">Solved with support</option>
-            <option value="secure">Solved independently</option>
+            <option value="emerging">1 · Emerging</option>
+            <option value="developing">2 · Developing</option>
+            <option value="nearly_secure">3 · Nearly secure</option>
+            <option value="secure">4 · Secure independently</option>
           </select></label
         >
         <small v-if="page.answers.has(item.id)"
@@ -508,13 +510,13 @@ function eraseOrDraw(e, item) {
 const preview = ref(null);
 function cardStyle(item) {
   const p = preview.value?.id === item.id ? preview.value : item.payload;
-  return { left: p.x + '%', top: p.y + '%', width: p.width + '%' };
+  return {left:p.x+'%',top:p.y+'%',width:p.width+'%',...(p.height!==undefined?{height:p.height+'%'}:{})};
 }
 function moved(item, mode, dx, dy) {
-  const { x, y, width: w } = item.payload;
-  return mode === 'move'
-    ? { x: clamp(x + dx, 0, 100 - w), y: clamp(y + dy, 0, 94), width: w }
-    : { x, y, width: clamp(w + dx, 24, 100 - x) };
+  const {x,y,width:w,height:h}=item.payload;
+  return mode==='move'
+    ? {x:clamp(x+dx,0,100-w),y:clamp(y+dy,0,h?100-h:94),width:w,...(h?{height:h}:{})}
+    : {x,y,width:clamp(w+dx,24,100-x),height:clamp((h||25)+dy,8,100-y)};
 }
 function keyMove(e, item, mode) {
   const d = { ArrowLeft: [-2, 0], ArrowRight: [2, 0], ArrowUp: [0, -2], ArrowDown: [0, 2] }[e.key];
@@ -541,8 +543,8 @@ function beginMove(e, item, mode) {
     el.removeEventListener('pointermove', drag);
     el.removeEventListener('lostpointercapture', finish);
     if (preview.value && ev.type === 'pointerup') {
-      const { x, y, width } = preview.value;
-      post('board_move', { targetId: item.id, x, y, width });
+      const {id,...geometry}=preview.value;
+      post('board_move',{targetId:item.id,...geometry});
     }
     preview.value = null;
   };

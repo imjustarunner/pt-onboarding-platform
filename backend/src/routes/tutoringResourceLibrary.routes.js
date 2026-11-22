@@ -1,0 +1,13 @@
+import express from 'express';
+import multer from 'multer';
+import {authenticate,requireActiveStatus} from '../middleware/auth.middleware.js';
+import * as library from '../services/tutoringResourceLibrary.service.js';
+const router=express.Router(),upload=multer({storage:multer.memoryStorage(),limits:{fileSize:15*1024*1024,files:1}});
+router.use(authenticate,requireActiveStatus);
+const handle=fn=>async(req,res,next)=>{try{res.set('Cache-Control','no-store');res.json(await fn(req,req.params.agencyId,req.params.id,req.body));}catch(e){next(e);}};
+router.get('/:agencyId',handle(library.listResources));
+router.post('/:agencyId',upload.single('file'),handle((req,agencyId,_id,body)=>library.uploadResource(req,agencyId,req.file,body)));
+router.post('/:agencyId/:id/publish',handle(library.publishResource));
+router.delete('/:agencyId/:id',handle(library.archiveResource));
+router.get('/:agencyId/:id/file',async(req,res,next)=>{try{const file=await library.resourceFile(req,req.params.agencyId,req.params.id);res.set({'Content-Type':file.contentType,'Content-Disposition':'inline; filename="general-worksheet.pdf"','Cache-Control':'no-store'}).send(file.buffer);}catch(e){next(e);}});
+export default router;

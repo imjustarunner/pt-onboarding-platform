@@ -51,7 +51,8 @@ function practiceModel(model) {
 function bounds(p) {
   if (!within(p.x, 0, 100) || !within(p.y, 0, 94) || !within(p.width, 24, 100) || p.x + p.width > 100.01)
     throw fail(400, 'Keep the question inside the board.');
-  return { x: p.x, y: p.y, width: p.width };
+  if(p.height!==undefined&&(!within(p.height,8,94)||p.y+p.height>100.01))throw fail(400,'Keep the question height inside the board.');
+  return { x:p.x,y:p.y,width:p.width,...(p.height!==undefined?{height:p.height}:{}) };
 }
 async function latest(db, ctx, clause, args = []) {
   const [[row]] = await db.execute(
@@ -92,7 +93,7 @@ export async function authorizeBoard(db, ctx, type, p) {
     if (
       ctx.kind !== 'tutoring' ||
       !id(p.targetId) ||
-      !['needs_review', 'developing', 'secure', 'not_observed'].includes(p.rating)
+      !['needs_review','emerging','developing','nearly_secure','secure','not_observed'].includes(p.rating)
     )
       throw fail(400, 'Choose a tutoring exercise and rating.');
     const item = await latest(db, ctx, 'id=?', [p.targetId]);

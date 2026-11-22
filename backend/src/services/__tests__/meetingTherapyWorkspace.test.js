@@ -18,6 +18,14 @@ beforeEach(()=>{
  });
 });
 describe('clinical encounter content',()=>{
+ it('prepares a tutoring lesson without media and rejects a changed appointment under the same transaction',async()=>{
+  const ctx={kind:'tutoring',sessionId:600,agencyId:453,appointmentId:481,providerId:1496,actor:'user-1496',role:'provider',learningWorkspace:true};
+  m.execute.mockImplementation(async sql=>sql.includes('FROM appointments')?[[{status:'scheduled',provider_user_id:1496,agency_id:453}]]:sql.includes('FROM learning_class_sessions')?[[{status:'scheduled'}]]:sql.startsWith('SELECT')?[[]]:[{insertId:9}]);
+  expect((await readWorkspace(ctx)).artifacts).toEqual([]);
+  expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM clinical_video_sessions'))).toBe(false);
+  m.execute.mockImplementation(async sql=>sql.includes('FROM appointments')?[[{status:'canceled_by_client',provider_user_id:1496,agency_id:453}]]:[[]]);
+  await expect(appendWorkspace(ctx,{type:'chat',payload:{text:'Late write'}})).rejects.toMatchObject({status:410});
+ });
  it('lets the client share materials but keeps treatment plans provider-controlled',()=>{
   expect(validateArtifact(office,{type:'share',payload:{mode:'resource',url:'https://example.com'}}).type).toBe('share');
   expect(()=>validateArtifact(office,{type:'share',payload:{mode:'treatment'}})).toThrow();

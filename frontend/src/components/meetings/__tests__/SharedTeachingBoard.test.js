@@ -56,7 +56,7 @@ it('moves and resizes with the keyboard and confirms wiping a whole page', async
   await button(wrapper, 'Resize').trigger('keydown', { key: 'ArrowRight' });
   expect(save).toHaveBeenCalledWith(
     'board_move',
-    { shareId: 1, targetId: 2, x: 5, y: 5, width: 57 },
+    { shareId:1,targetId:2,x:5,y:5,width:57,height:25 },
     expect.any(String)
   );
   await button(wrapper, 'Clear page').trigger('click');

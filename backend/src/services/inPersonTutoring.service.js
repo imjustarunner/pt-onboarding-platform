@@ -570,12 +570,14 @@ export async function createInPersonMaterial({
   sessionId,
   userId,
   material = {},
-  file = null
+  file = null,
+  preserveDelivery = false
 }) {
   const sid = asInt(sessionId);
   const uid = asInt(userId);
   if (!sid) throw new Error('sessionId is required');
-  await ensureSessionMarkedInPerson(sid);
+  if (preserveDelivery) { if (!await LearningClassSession.findById(sid)) throw Object.assign(new Error('Learning session not found'), {status:404}); }
+  else await ensureSessionMarkedInPerson(sid);
 
   const materialType = ALLOWED_MATERIAL_TYPES.has(String(material.materialType || '').trim())
     ? String(material.materialType).trim()

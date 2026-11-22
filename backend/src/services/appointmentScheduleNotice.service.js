@@ -30,6 +30,7 @@ const defaults = {
   participants: async id => (await import('../models/Appointment.model.js')).default.listParticipants(id),
   tenant: async id => (await import('./sessionNotification.service.js')).getTenantSettings(id),
   joinEmail: async input => (await import('./appointmentJoinEmail.service.js')).appointmentJoinEmail(input),
+  tutoringResponse: async input => (await import('./tutoringBookingResponse.service.js')).tutoringBookingResponseEmail(input),
   reviewedRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(...args),
   operational: async (...args) => (await import('./dayCancellationEmail.service.js')).reviewedDayCancellationContext(...args),
   individualReview: async (...args) => (await import('./appointmentCancellationEmail.service.js')).prepareIndividualCancellationReview(...args),
@@ -305,6 +306,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           if(channel==='email'&&!providerCopy&&recipient&&entries.every(entry=>!entry.cancellation)){
             let addedJoin=false;
             for(const entry of entries){
+              const response=await d.tutoringResponse({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
+              if(response){addedJoin=true;recipientMessage={...recipientMessage,text:recipientMessage.text+'\n\n'+response.text,html:recipientMessage.html+response.html};}
               const join=await d.joinEmail({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
               if(join){addedJoin=true;recipientMessage={...recipientMessage,text:`${recipientMessage.text}\n\n${join.text}`,html:`${recipientMessage.html}${join.html}`};}
             }
