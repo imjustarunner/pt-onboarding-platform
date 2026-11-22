@@ -46,6 +46,12 @@ describe('online completion consistency', () => {
     const db = {execute:vi.fn().mockResolvedValue([{affectedRows:0}]),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};mocks.getConnection.mockResolvedValue(db);
     expect(await HiringReferenceRequest.markCompleted(4,{})).toBeNull();expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();
   });
+  it('rolls back completion if its durable receipt event cannot be queued', async () => {
+    const db = {execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};mocks.getConnection.mockResolvedValue(db);
+    db.execute.mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([[{id:4,hiring_profile_id:3,candidate_user_id:2,agency_id:1,reference_index:0,status:'completed'}]]).mockResolvedValueOnce([{affectedRows:1}]).mockRejectedValueOnce(new Error('Queue unavailable'));
+    await expect(HiringReferenceRequest.markCompleted(4,{})).rejects.toThrow('Queue unavailable');
+    expect(db.commit).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();
+  });
 });
 
 describe('request questionnaire snapshot', () => {

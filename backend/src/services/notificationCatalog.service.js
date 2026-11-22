@@ -82,7 +82,7 @@ const TYPES_BY_CATEGORY = {
     'onboarding_completed', 'pending_completed', 'checklist_incomplete',
     'background_check_reimbursement_due', 'background_check_renewal_due',
     'background_check_expired', 'd11_background_tracking_activated',
-    'new_job_application_submitted', 'school_portal_onboarding_completed',
+    'new_job_application_submitted', 'hiring_reference_received', 'school_portal_onboarding_completed',
     'provider_year_update_completed', 'school_collaborative_year_update_completed',
     'hiring_task_assigned', 'training_assigned', 'training_due_soon',
     'school_group_subscription_changed'
@@ -104,6 +104,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  hiring_reference_received: 'Reference received',
   website_chat_waiting: 'Live Chat visitor waiting',
   secure_session_comment: 'AuricWell secure session comments',
   claimmd_data_gap: 'Payer data needs Technology review',
@@ -346,7 +347,7 @@ const MANAGER_ESSENTIAL = new Set([
   'unassigned_document_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
-  'new_job_application_submitted', 'school_portal_onboarding_completed',
+  'new_job_application_submitted', 'hiring_reference_received', 'school_portal_onboarding_completed',
   'provider_year_update_completed', 'school_collaborative_year_update_completed',
   'company_event_shift_requested', 'school_event_marketing_photo',
   'school_group_subscription_changed', 'client_ready_to_schedule'
@@ -361,7 +362,7 @@ const OPERATIONS_ESSENTIAL = new Set([
   'office_availability_request_pending', 'school_availability_request_pending',
   'company_event_registration_submitted', 'company_event_shift_requested',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
-  'new_job_application_submitted', 'school_portal_onboarding_completed',
+  'new_job_application_submitted', 'hiring_reference_received', 'school_portal_onboarding_completed',
   'provider_year_update_completed', 'school_collaborative_year_update_completed',
   'school_group_subscription_changed'
 ]);
@@ -534,7 +535,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         inApp: true,
         toast: true,
         sound: true,
-        digest: true,
+        digest: type !== 'hiring_reference_received',
         push: PUSH_CAPABLE.has(type),
         email: EMAIL_CAPABLE.has(type),
         sms: SMS_CAPABLE.has(type)

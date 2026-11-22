@@ -126,7 +126,7 @@ function resolveTriggerSetting(trigger, setting) {
 }
 
 // Message-related notification types must never be visible cross-user.
-const MESSAGE_PRIVATE_TYPES = new Set(['school_closure_notice', 'chat_message', 'inbound_client_message', 'support_safety_net_alert']);
+const MESSAGE_PRIVATE_TYPES = new Set(['school_closure_notice', 'chat_message', 'inbound_client_message', 'support_safety_net_alert', 'hiring_reference_received']);
 
 const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout', 'presence_user_returned']);
 
@@ -1410,8 +1410,8 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
   const params = [];
   const clauses = ['n.is_resolved = FALSE', notificationInboxVisibilitySql('n')];
   const hiringIds = [...(req._feedHiringAgencyIds || [])];
-  clauses.push(hiringIds.length ? `(n.type <> 'new_job_application_submitted' OR n.agency_id IN (${hiringIds.map(() => '?').join(',')}))`
-    : "n.type <> 'new_job_application_submitted'");
+  clauses.push(hiringIds.length ? `(n.type NOT IN ('new_job_application_submitted','hiring_reference_received') OR n.agency_id IN (${hiringIds.map(() => '?').join(',')}))`
+    : "n.type NOT IN ('new_job_application_submitted','hiring_reference_received')");
   params.push(...hiringIds);
   if (access.agencyIds.length) {
     clauses.push(`n.agency_id IN (${access.agencyIds.map(() => '?').join(',')})`);
@@ -1973,7 +1973,7 @@ export const applyRecommendedNotificationPreferences = async (req, res, next) =>
 
 async function verifyNotificationViewerAccess(req, notification) {
   if (!notification) return false;
-  if (notification.type === 'new_job_application_submitted' && !hiringNotificationVisible(notification,
+  if (['new_job_application_submitted','hiring_reference_received'].includes(notification.type) && !hiringNotificationVisible(notification,
     await hiringNotificationAgencyIds(await User.findById(req.user.id), [Number(notification.agency_id)]))) return false;
   if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(req.user.id)) return false;
   if (req.user.role === 'super_admin') return true;

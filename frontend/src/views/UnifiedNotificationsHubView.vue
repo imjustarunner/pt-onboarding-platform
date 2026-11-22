@@ -438,6 +438,7 @@ const formatNotificationLine = (notification) => [
 ].filter(Boolean).join(' • ');
 
 const primaryLabel = (notification) => {
+  if (notification.type === 'hiring_reference_received') return 'Open reference';
   if (notification.type === 'user_activity_digest') return 'View activity';
   if (notification.type === 'school_portal_onboarding_completed') return 'View onboarding';
   if (notification.type === 'provider_year_update_completed') return 'View year update';

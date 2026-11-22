@@ -4,6 +4,7 @@ import { NOTIFICATION_TYPES } from '../services/notificationCatalog.service.js';
 
 const PRIVATE_CROSS_USER_TYPES = new Set([
   'secure_session_comment',
+  'hiring_reference_received',
   'claimmd_data_gap',
   'school_group_email_received',
   'school_closure_notice',

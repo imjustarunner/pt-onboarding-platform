@@ -7,5 +7,6 @@ export default {...base,test:{...base.test,include:[...base.test.include,
  'src/views/teamMeeting/__tests__/TeamMeetingLeave.test.js',
  'src/views/__tests__/InterviewStaffJoin.test.js',
  'src/components/hiring/__tests__/ReferenceWorkspace.test.js',
+ 'src/utils/__tests__/notificationActions.test.js',
  'src/views/__tests__/HiringReferenceForm.test.js'
 ]}};

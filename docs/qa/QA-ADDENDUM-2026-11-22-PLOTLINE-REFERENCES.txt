@@ -38,9 +38,11 @@ and deadline, and send once using Send reference request.
 4. Inspect the actual inbox receipt. Record From, Reply-To, recipient,
 message ID and receipt time. Confirm the Plotline logo, employer name,
 reference button and Want to use Plotline for your organization? link.
-Expected QA sender after provisioning is references@plotlinepo.com. Sender
-provisioning remains pending the separately requested operational approval.
-Mark that sender-specific case BLOCKED until readiness is confirmed. Distinguish
+Expected QA sender after provisioning is references@plotlinepo.com. Replies
+use the company People Operations route. These two synthetic QA companies
+use testing@itsco.health as their controlled reply destination. Sender
+provisioning requires an authorized Workspace group-management identity. Mark
+that sender-specific case BLOCKED until readiness is confirmed. Distinguish
 transport acceptance and the app's label from inbox delivery.
 
 5. Use the reference form's received invitation in an isolated signed-out
@@ -90,3 +92,41 @@ media QA, use a fresh synthetic interview scheduled through the app with
 explicit invitation choices, then rerun the round 9 microphone checks.
 Candidate entry, two-person audio and real camera testing retain their
 previous prerequisites.
+
+
+NOVEMBER 22 FOLLOW-UP — RECEIPTS, DELIVERY CHANNELS AND BRANDING
+- Migration 1863 adds a durable, deduplicated receipt queue. Apply it before
+  using this release. Completion and its queue event commit together.
+- Prepare an active SSO staff member and an active password/group-login staff
+  member with effective hiring permission for Juniper 463. Preserve all other
+  capabilities. Do not grant hiring permission to a clinical-only account to
+  make this test pass. Reuse an existing eligible automation persona if present.
+- Submit one previously pending, consented synthetic reference through its
+  actual invitation. Do not resubmit a completed reference or resend an invite
+  that was already received. Capture exact request, applicant and message IDs.
+- SSO hiring recipient gets EMAIL ONLY at their work email. No in-app receipt
+  should be created for that recipient. Non-SSO hiring recipient gets APP ONLY,
+  without a personal/work email copy, SMS or generic digest copy of this alert.
+- The receipt identifies the applicant and completing reference, then offers
+  Open reference. Follow it while signed out and after signing in. It must open
+  this company's applicant, References tab and exact completed reference, also
+  when the hiring workspace is already open on another applicant/reference.
+- A staff member without hiring permission, an inactive/revoked member, a
+  candidate and a different company must receive neither channel. Recheck
+  permission before dispatch and approval. Revoke hiring access and confirm old
+  app receipts disappear from list/count/direct view and the link denies access.
+- No answers, ratings, results or contact notes appear in external receipt or
+  applicant email. Referee and applicant receive separate branded confirmation
+  emails. Applicant confirmation names who completed it and states completion
+  only. Explain this disclosure before the referee submits and in thank-you.
+- Reference mail uses references@plotlinepo.com and the company's configured
+  People Operations reply address. Juniper/Maple QA replies are intentionally
+  testing@itsco.health; never claim the demo has a real po@ work mailbox.
+- Branding wording is Plotline — A People Operations Platform. A small card
+  offers Want to use Plotline for your organization? It opens the general signup
+  page without candidate/reference identifiers or tokens. It is optional and
+  does not enroll or subscribe the referee to marketing.
+- Refresh/repeat submit must not send another receipt. Timed-out/uncertain mail
+  stays held for review. Do not trigger a new send merely to obtain a screenshot.
+- Record actual QA inbox receipt separately from accepted transport. Supporting
+  engineering tests and sender verification do not constitute a live bot pass.

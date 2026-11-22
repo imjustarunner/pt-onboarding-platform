@@ -3,6 +3,14 @@ export function notificationDestination(notification, { organizationSlug = null,
   const n = notification || {};
   const base = organizationSlug ? `/${organizationSlug}` : '';
   if(n.type==='school_group_email_received' && n.related_entity_type==='communication_conversation' && Number(n.related_entity_id)>0)return {path:`${base}/admin/communications`,query:{mode:'home',conversationId:String(n.related_entity_id),agencyId:String(n.agency_id)}};
+  if (n.type === 'hiring_reference_received' && n.related_entity_type === 'hiring_candidate' && Number(n.related_entity_id) > 0) {
+    let audience = n.audience_json || n.audienceJson || {};
+    if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
+    return { path: `${base}/admin/hiring/applicants`, query: { agencyId: String(n.agency_id), candidateId: String(n.related_entity_id), tab: 'references',
+      ...(Number.isInteger(Number(audience.referenceIndex)) && Number(audience.referenceIndex) >= 0 ? { referenceIndex: String(audience.referenceIndex) } : {}),
+      ...(Number(audience.referenceRequestId) > 0 ? { referenceRequestId: String(audience.referenceRequestId) } : {}),
+      ...(Number(audience.referenceContactId) > 0 ? { referenceContactId: String(audience.referenceContactId) } : {}) } };
+  }
   if (n.type === 'employee_award_eligible') return `${base}/admin/employee-relations?agencyId=${Number(n.agency_id)}&status=owed`;
   const entityType = String(n.related_entity_type || '').toLowerCase();
   if (['credentialing_reminder','credentialing_email'].includes(n.type)) {
@@ -127,6 +135,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
+  if (notification.type === 'hiring_reference_received') return 'Open reference';
   if(notification.related_entity_type==='school_client_attachment')return 'Open school document';
   if (notification.related_entity_type === 'paper_packet_task') return 'Process paper packet enrollment';
   if (notification.type === 'school_weekday_availability_requested') return 'Update school availability';

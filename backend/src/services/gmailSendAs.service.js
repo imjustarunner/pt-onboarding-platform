@@ -76,11 +76,7 @@ export async function ensureSendAsAlias({
         sendAsEmail: email,
         displayName: displayName || email.split('@')[0],
         replyToAddress: replyToAddress || email,
-        treatAsAlias: treatAsAlias === null ? true : !!treatAsAlias,
-        // Groups/aliases verified via Workspace often need verificationStatus unset;
-        // accepted addresses on the domain may appear as accepted without SMTP verification.
-        isPrimary: false,
-        isDefault: false
+        treatAsAlias: treatAsAlias === null ? true : !!treatAsAlias
       }
     });
     return { ok: true, created: true, updated: false, sendAs: created?.data || null };

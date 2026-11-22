@@ -7,6 +7,12 @@ vi.mock('../../../services/api', () => ({default:api}));
 const refs = [{name:'First Reference',email:'first@example.test'},{name:'Second Reference',email:'second@example.test'}];
 beforeEach(() => {vi.clearAllMocks();api.post.mockResolvedValue({data:{sent:[{id:1}]}});api.get.mockImplementation(async url => ({data:url.endsWith('reference-workspace')?{contacts:[],questionnaire:{scale:'1–5',traits:[]}}:[]}));});
 describe('per-reference workspace', () => {
+  it('opens the exact received reference rather than the first contact', async () => {
+    api.get.mockImplementation(async url => ({data:url.endsWith('reference-requests') ? [{id:47,reference_index:1,status:'completed',responses_json:{referenceName:'Second Reference'}}] : url.endsWith('reference-workspace') ? {contacts:[],questionnaire:{traits:[]}} : []}));
+    const wrapper = mount(ReferenceWorkspace,{props:{userId:2,agencyId:1,references:refs,referenceRequestId:47,initialReferenceIndex:0}}); await flushPromises();
+    expect(wrapper.findAll('nav button')[1].attributes('aria-pressed')).toBe('true');
+    expect(wrapper.find('#reference-2-request-47').exists()).toBe(true);
+  });
   it('sends only the selected reference and includes a deadline', async () => {
     const wrapper = mount(ReferenceWorkspace,{props:{userId:2,agencyId:1,references:refs}});await flushPromises();
     await wrapper.findAll('nav button')[1].trigger('click');
