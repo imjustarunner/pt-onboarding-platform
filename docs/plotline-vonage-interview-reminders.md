@@ -8,8 +8,10 @@
 | Legal company name and tax ID | Enter the entity name and EIN exactly as they appear on the registrant’s IRS records. The public site identifies PlotTwistCo as the company behind Plotline. Confirm the legal name in the company records. |
 | Company type, registered address, vertical, contact | Use the registrant’s records and authorized People Operations contact. |
 | Website | https://plotlinepo.com |
-| Privacy and terms | The Plotline site links to https://plottwisthq.com/privacypolicy and https://plottwisthq.com/terms. Confirm that the public pages describe this SMS program, include its support and opt-out instructions, and address how SMS consent and mobile numbers are used. |
-| Support | Enter the public support email or phone number monitored for this program. Use the same contact in HELP and the published terms. |
+| Privacy policy | https://plotlinepo.com/privacy |
+| Terms & conditions | https://plotlinepo.com/terms |
+| Live operator full script | https://plotlinepo.com/sms-consent · plain text https://plotlinepo.com/sms-consent.txt |
+| Support | Support@plottwistco.com · 833-756-8894. Match these published contacts in the registered HELP response. |
 
 [Vonage brand registration](https://developer.vonage.com/en/10-dlc/brand-overview)
 
@@ -31,9 +33,9 @@
 
 ### Verbal opt-in script
 
-> May Plotline People Operations text this mobile number about your interview, including reminders? Message and data rates may apply. Message frequency varies. Text HELP for help. Text STOP to opt-out. Terms are at [public SMS terms URL]. Privacy details are at [public privacy URL]. Texts are optional, and you can receive interview details by email. Do you agree?
+> May Plotline People Operations text this mobile number about your interview, including reminders? Message and data rates may apply. Message frequency varies. Text HELP for help. Text STOP to opt-out. Terms are at https://plotlinepo.com/terms. Privacy details are at https://plotlinepo.com/privacy. Texts are optional, and you can receive interview details by email. Do you agree?
 
-Host a read-only PDF or redacted screenshot of the script and the consent form at a public evidence URL. Use sample information. Attach that URL, the public privacy and terms pages, and the final HELP contact in the application. [Vonage campaign registration guide](https://api.support.vonage.com/hc/en-us/articles/360053422591-10DLC-Campaign-registration-guide)
+Use https://plotlinepo.com/sms-consent as the full-script URL in the live operator section. The same complete script is available at https://plotlinepo.com/sms-consent.txt. Both pages are public and contain no candidate information. Attach the public privacy and terms URLs above in the application. [Vonage campaign registration guide](https://api.support.vonage.com/hc/en-us/articles/360053422591-10DLC-Campaign-registration-guide)
 
 ### Sample messages
 
@@ -55,7 +57,7 @@ Host a read-only PDF or redacted screenshot of the script and the consent form a
 
 **HELP response**
 
-> Plotline People Operations: For interview text help, contact [public People Operations support email or phone]. Reply STOP to opt out.
+> Plotline People Operations: For interview text help, contact Support@plottwistco.com or 833-756-8894. Reply STOP to opt out.
 
 Use the final approved help contact when configuring keyword replies. Decide whether Vonage Opt-Out Assist or the app will own STOP and HELP, then configure the sender registration to match. [Vonage campaign requirements](https://api.support.vonage.com/hc/en-us/articles/12132309081500-10DLC-Campaign-requirements) · [Vonage keyword management](https://api.support.vonage.com/hc/en-us/articles/4417194850964-How-do-I-manage-10-DLC-Opt-In-or-Opt-Out)
 

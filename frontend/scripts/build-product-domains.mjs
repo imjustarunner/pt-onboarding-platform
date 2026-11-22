@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {renderWebsite, pages as auricwellPages} from '../src/auricwell/website/render.mjs';
 import {pages as michaelPages, renderSite} from '../src/michael/site.mjs';
 import {plotlinePages} from '../src/content/plotlineWebsite.js';
+import {plotlineLegalPages} from '../src/content/plotlineLegal.js';
 import {fundthredPages} from '../src/content/fundthredWebsite.js';
 import {injectPublicFavicon} from '../src/utils/publicBrowserBranding.js';
 import {buildShareMeta, injectShareMetaIntoHtml, AURICWELL_OFFICE_META} from '../src/utils/sharePreview.js';
@@ -33,8 +34,12 @@ server('fundthred.com',Object.keys(fundthredPages).map(key=>location(key==='home
  location = /fundthred { return 302 https://fundthred.com/$is_args$args; }
  location ~ ^/fundthred/(.*)$ { return 302 https://fundthred.com/$1$is_args$args; }`);
 redirect('www.fundthred.com','https://fundthred.com');
-server('plotlinepo.com',Object.keys(plotlinePages).map(key=>location(key==='home'?'/':`/${key}`,`/_public-sites/plotline${key==='home'?'':'/'+key}/index.html`)).join('\n')+`
+server('plotlinepo.com',Object.keys({...plotlinePages, ...plotlineLegalPages}).map(key=>location(key==='home'?'/':`/${key}`,`/_public-sites/plotline${key==='home'?'':'/'+key}/index.html`)).join('\n')+`
  location = /sitemap.xml { default_type application/xml; try_files /_public-sites/plotline/sitemap.xml =404; }
+ ${Object.keys(plotlineLegalPages).map(key=>`location = /${key}/ { return 301 https://plotlinepo.com/${key}$is_args$args; }`).join('\n ')}
+ location = /privacypolicy { return 301 https://plotlinepo.com/privacy$is_args$args; }
+ location = /privacypolicy/ { return 301 https://plotlinepo.com/privacy$is_args$args; }
+ location = /sms-consent.txt { default_type text/plain; charset utf-8; add_header Cache-Control "no-cache"; try_files /_public-sites/plotline/sms-consent.txt =404; }
  location ^~ /plottline/assets/ { try_files $uri =404; }
  location = /plottline { return 302 https://plotlinepo.com/$is_args$args; }
  location = /plotline { return 302 https://plotlinepo.com/$is_args$args; }

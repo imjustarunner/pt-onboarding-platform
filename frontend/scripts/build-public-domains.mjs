@@ -116,7 +116,8 @@ function nativeLegalLocations(profile, canonicalOnly=false) {
 writeFileSync(`${dist}/tenant-legal-locations.conf`,Object.values(tenantLegalProfiles).map(profile=>nativeLegalLocations(profile,true)).join('\n'));
 // Plotline is a separate public entry, keeping the marketing site independent of staff sessions.
 const { plotlinePages } = await import('../src/content/plotlineWebsite.js');
-const plotlineLocations = Object.keys(plotlinePages).map(key => {
+const { plotlineLegalPages } = await import('../src/content/plotlineLegal.js');
+const plotlineLocations = Object.keys({...plotlinePages, ...plotlineLegalPages}).map(key => {
  const suffix = key === 'home' ? '' : `/${key}`;
  return `location = /plottline${suffix} { add_header Cache-Control "no-cache"; try_files /_public-sites/plotline${suffix}/index.html =404; }
  location = /plottline${suffix}/ { return 302 https://plottwistco.com/plottline${suffix}$is_args$args; }
