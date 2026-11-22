@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import {expect,it,vi} from 'vitest';
-import {requiresCaptchaForLink} from '../../utils/intakeCaptchaPolicy.js';
+import {requiresPublicApplicationCaptcha} from '../../services/publicApplicationCaptcha.service.js';
 
 const source=fs.readFileSync(new URL('../publicIntake.controller.js',import.meta.url),'utf8');
 const start=source.indexOf('export const createPublicIntakeSession = ');
@@ -13,7 +13,7 @@ function setup({link=privateLink,starts=0,used=false,body={}}={}) {
   process:{env:{RECAPTCHA_REQUIRED_FOR_ALL:'true',RECAPTCHA_SITE_KEY_INTAKE:'public-site-key'}},
   validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link}),
   assertClientUpdateSubmissionContext:vi.fn(),resolveIntakeOrgContext:async()=>({organization:agency,agency}),
-  isSmartSchoolRoiForm:()=>false,requiresCaptchaForLink,config:{nodeEnv:'production',recaptcha:{secretKey:'synthetic-server-key'}},
+  isSmartSchoolRoiForm:()=>false,requiresPublicApplicationCaptcha,config:{nodeEnv:'production',recaptcha:{secretKey:'synthetic-server-key'}},
   isLocalRecaptchaBypassRequest:()=>false,getClientIpAddress:()=> '203.0.113.10',verifyRecaptchaV3:verify,
   IntakeSubmission:{countStartsByLinkAndIp:vi.fn(async()=>starts),create,updateById:async()=>({id:900})},
   loadAllowedTemplates:async()=>[],isEnrollmentReminderLink:()=>true,REMINDER_DECLINE_TTL_MS:43200000,

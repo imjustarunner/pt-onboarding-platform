@@ -147,7 +147,7 @@ it('stores only the server-resolved invitation when starting a session',async()=
  const create=vi.fn(async data=>({id:18,...data}));
  const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
   CoGuardianInvite:{resolveCoGuardianIntakeBinding:async()=>({invite:{id:3}})},resolveAgencyIdForLink:async()=>2,
-  resolveIntakeOrgContext:async()=>({organization:{},agency:{}}),isSmartSchoolRoiForm:()=>false,requiresCaptchaForLink:()=>false,
+  resolveIntakeOrgContext:async()=>({organization:{},agency:{}}),isSmartSchoolRoiForm:()=>false,requiresPublicApplicationCaptcha:async()=>false,
   config:{nodeEnv:'test',recaptcha:{}},isLocalRecaptchaBypassRequest:()=>false,getClientIpAddress:()=> '127.0.0.1',
   IntakeSubmission:{countStartsByLinkAndIp:async()=>0,create},loadAllowedTemplates:async()=>[],isEnrollmentReminderLink:()=>false,
   BASE_CONSENT_TTL_MS:86400000,PER_PAGE_TTL_MS:1000,crypto:{randomBytes:()=>({toString:()=> 'synthetic-session'})}};

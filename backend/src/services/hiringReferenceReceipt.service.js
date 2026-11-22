@@ -28,6 +28,7 @@ async function source(event, db) {
   if (!table) return null;
   const [rows] = await db.execute(`SELECT r.reference_index, ${event.source_kind === 'online' ? 'r.reference_name' : 'NULL AS reference_name'},
     u.first_name,u.last_name,h.references_json,a.id,a.name,a.slug,a.custom_domain,a.feature_flags,
+    a.logo_path,a.logo_url,a.color_palette,a.careers_page_json,
     p.agency_id AS plotline_agency_id,p.is_qa AS plotline_is_qa FROM ${table} r
     JOIN users u ON u.id=r.candidate_user_id JOIN hiring_profiles h ON h.id=r.hiring_profile_id
     JOIN agencies a ON a.id=r.agency_id LEFT JOIN plotline_companies p ON p.agency_id=a.id

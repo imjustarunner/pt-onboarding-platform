@@ -73,20 +73,20 @@ const CONTACT_ICON_UPLOADS = Object.freeze({
 
 function plotTwistEmailMarkUrl() {
   const uploaded = publicUploadsUrlFromStoredPath(PLOT_TWIST_EMAIL_MARK_UPLOAD);
-  if (uploaded) return uploaded;
+  if (/^https:\/\//i.test(uploaded || '')) return uploaded;
   return staffHtmlAsset('plottwistco-mark.png');
 }
 
 function itscoLeafEmailMarkUrl() {
   const uploaded = publicUploadsUrlFromStoredPath(ITSCO_LEAF_EMAIL_MARK_UPLOAD);
-  if (uploaded) return uploaded;
+  if (/^https:\/\//i.test(uploaded || '')) return uploaded;
   return staffHtmlAsset('itsco-leaf-mark.png');
 }
 
 function contactIconUrl(kind) {
   const key = CONTACT_ICON_UPLOADS[kind];
   const uploaded = key ? publicUploadsUrlFromStoredPath(key) : null;
-  if (uploaded) {
+  if (/^https:\/\//i.test(uploaded || '')) {
     const sep = uploaded.includes('?') ? '&' : '?';
     return `${uploaded}${sep}v=${STAFF_HTML_ASSET_VERSION}`;
   }

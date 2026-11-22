@@ -1,23 +1,35 @@
-import config from '../config/config.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { publicAppBaseUrl } from './contactReminderToken.service.js';
+import { resolveOrgLogoUrl } from './publicFormBranding.service.js';
 const escape = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const PLOTLINE_REFERENCE_TAGLINE = 'A People Operations Platform';
-export function referenceEmailFrame({ agency, heading, body, footer = '' }) {
+const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
+export function referenceEmployerBrand(agency = {}) {
+  const careers = parse(agency.careers_page_json), palette = parse(agency.color_palette);
+  const color = [careers.accentColor, palette.primary, agency.primary_color].find(value => /^#[a-f0-9]{6}$/i.test(value || '')) || '#176b53';
+  let logoUrl = agency.logo_path ? publicUploadsUrlFromStoredPath(agency.logo_path) : agency.logo_url;
+  logoUrl ||= resolveOrgLogoUrl(agency, { baseUrl: publicAppBaseUrl() });
+  try { logoUrl = logoUrl ? new URL(logoUrl, publicAppBaseUrl()).href : null; } catch { logoUrl = null; }
+  if (!/^https:\/\//i.test(logoUrl || '')) logoUrl = null;
+  return { color, logoUrl };
+}
+function employerHeader(agency) {
   const name = escape(agency?.name || agency?.official_name || 'People Operations');
-  return `<div style="background:#f3f0e9;padding:28px 12px;font:16px/1.65 Arial,Helvetica,sans-serif;color:#203b33"><div style="max-width:600px;margin:auto;background:white;border:1px solid #dce6e1;border-top:5px solid #143e33;border-radius:14px;overflow:hidden"><div style="padding:28px 30px"><img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" width="160" alt="Plotline" style="display:block;max-width:100%;height:auto"><p style="margin:6px 0 24px;color:#546c62;font-size:12px;letter-spacing:.6px">${PLOTLINE_REFERENCE_TAGLINE}</p><p style="color:#516a60;font-size:13px;font-weight:bold">${name} · PEOPLE OPERATIONS</p><h1 style="font-size:26px;line-height:1.3;color:#143e33">${escape(heading)}</h1>${body}${footer}<div style="margin-top:28px;padding:20px;background:#f3f0e9;border:1px solid #e6e0d6;border-radius:10px"><strong style="color:#143e33">People are the heart of your organization.</strong><p style="margin:8px 0;font-size:14px">Meet Plotline — ${PLOTLINE_REFERENCE_TAGLINE}. Bring hiring, onboarding and your employee experience together.</p><a href="https://plotlinepo.com/plotline/start" style="color:#143e33;font-size:14px;font-weight:bold;text-decoration:underline">Want to use Plotline for your organization?</a></div><p style="margin:22px 0 0;font-size:12px;color:#546c62">Plotline — ${PLOTLINE_REFERENCE_TAGLINE}</p></div></div></div>`;
+  const { color, logoUrl } = referenceEmployerBrand(agency);
+  const logo = logoUrl ? `<td width="68" valign="middle" style="padding-right:12px"><img src="${escape(logoUrl)}" alt="${name}" width="56" style="display:block;max-width:56px;max-height:56px;width:auto;height:auto;border:0"></td>` : '';
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;border-bottom:2px solid ${color}"><tr>${logo}<td valign="middle" style="padding:12px 0 16px"><div style="font-size:17px;font-weight:bold;color:#203b33;line-height:1.4">${name}</div><div style="font-size:11px;letter-spacing:.8px;color:#546c62;margin-top:3px">PEOPLE OPERATIONS</div></td></tr></table>`;
+}
+
+export function referenceEmailFrame({ agency, heading, body, footer = '' }) {
+  return `<div style="background:#f3f0e9;padding:28px 12px;font:16px/1.65 Arial,Helvetica,sans-serif;color:#203b33"><div style="max-width:600px;margin:auto;background:white;border:1px solid #dce6e1;border-top:5px solid #143e33;border-radius:14px;overflow:hidden"><div style="padding:28px 30px"><img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" width="160" alt="Plotline" style="display:block;max-width:100%;height:auto"><p style="margin:6px 0 24px;color:#546c62;font-size:12px;letter-spacing:.6px">${PLOTLINE_REFERENCE_TAGLINE}</p>${employerHeader(agency)}<h1 style="font-size:26px;line-height:1.3;color:#143e33">${escape(heading)}</h1>${body}${footer}<div style="margin-top:28px;padding:20px;background:#f3f0e9;border:1px solid #e6e0d6;border-radius:10px"><strong style="color:#143e33">People are the heart of your organization.</strong><p style="margin:8px 0;font-size:14px">Meet Plotline — ${PLOTLINE_REFERENCE_TAGLINE}. Bring hiring, onboarding and your employee experience together.</p><a href="https://plotlinepo.com/plotline/start" style="color:#143e33;font-size:14px;font-weight:bold;text-decoration:underline">Want to use Plotline for your organization?</a></div><p style="margin:22px 0 0;font-size:12px;color:#546c62">Plotline — ${PLOTLINE_REFERENCE_TAGLINE}</p></div></div></div>`;
 }
 export function brandedReferenceEmail({ agency, candidateName, referenceName, url, deadline, footer = '', reminder = false }) {
-  let careers = agency?.careers_page_json || {};
-  if (typeof careers === 'string') { try { careers = JSON.parse(careers); } catch { careers = {}; } }
-  let palette = agency?.color_palette || {};
-  if (typeof palette === 'string') { try { palette = JSON.parse(palette); } catch { palette = {}; } }
-  const color = [careers.accentColor, palette.primary, agency?.primary_color].find(c => /^#[a-f0-9]{6}$/i.test(c || '')) || '#176b53';
+  const { color } = referenceEmployerBrand(agency);
   const name = escape(agency?.name || agency?.official_name || 'People Operations');
-  const logoUrl = agency?.logo_path ? `${String(config.frontendUrl || '').replace(/\/$/, '')}/uploads/${String(agency.logo_path).replace(/^\/?uploads\//, '')}` : agency?.logo_url;
-  const logo = /^https:\/\//i.test(logoUrl || '') ? `<img src="${escape(logoUrl)}" alt="${name}" style="max-width:180px;max-height:64px;margin-bottom:16px;" />` : '';
   const due = new Date(deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   return `<div style="background:#f2f5f4;padding:32px 12px;font-family:Arial,sans-serif;color:#20352e;line-height:1.6;">
     <div style="max-width:600px;margin:auto;background:white;border:1px solid #dce6e1;border-radius:16px;overflow:hidden;">
-      <div style="padding:28px 32px;border-top:8px solid ${color};"><img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" width="150" alt="Plotline by PlotTwistCo" style="display:block;margin-bottom:20px;" />${logo}<div style="color:${color};font-weight:bold;">${name} · PEOPLE OPERATIONS</div>
+      <div style="padding:28px 32px;border-top:8px solid ${color};"><img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" width="150" alt="Plotline by PlotTwistCo" style="display:block;margin-bottom:20px;" /><p style="margin:6px 0 24px;font-size:12px;color:#546c62">${PLOTLINE_REFERENCE_TAGLINE}</p>${employerHeader(agency)}
       <h1 style="font-size:26px;line-height:1.2;">${reminder ? 'A friendly reminder' : 'Your perspective matters'}</h1>
       <p>Hello ${escape(referenceName || 'there')},</p><p>${name} is requesting a professional reference for <strong>${escape(candidateName)}</strong>.</p>
       <p>Would you hire this person? Share your perspective through a short questionnaire. It takes about five minutes.</p>
