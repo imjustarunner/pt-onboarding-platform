@@ -52,7 +52,7 @@ async function assignmentDirectory({assigned=false,recordsImport}={}) {
  apiMock.get.mockImplementation(async url=>({data:
   String(url).startsWith('/clients?')?{items:[currentClient()],total:1}:
   url==='/clients/71/service-enrollments'?{services:[currentService()],availableServiceKinds:['counseling']}:
-  url==='/office-clients/providers'?{providers:[{id:501,name:'Michael Synthetic',agencyIds:[2]}]}:
+  url==='/office-clients/providers'?{providers:[{id:501,name:'Michael Synthetic',agencyIds:[2],assignmentServicesByAgency:{2:['counseling']}}]}:
   url==='/agencies/2'?{id:2,name:'Synthetic agency',portal_url:'synthetic',organization_type:'agency'}:[]}));
  apiMock.post.mockImplementation(async()=>{assigned=true;return {data:{services:[currentService()]}};});
  const pinia=createPinia();setActivePinia(pinia);const agency=useAgencyStore(pinia);

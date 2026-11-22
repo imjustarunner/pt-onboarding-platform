@@ -4,7 +4,7 @@ import {shallowMount,flushPromises} from '@vue/test-utils';
 import {createRouter,createMemoryHistory} from 'vue-router';
 const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),agency:null,empty:false,failCaseload:false,schools:false}));
 vi.mock('../../../services/api',()=>({default:m}));vi.mock('../../../store/agency',()=>({useAgencyStore:()=>m.agency}));vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:9,role:'provider',has_provider_access:true}})}));
-vi.mock('../../admin/ClientDetailPanel.vue',()=>({default:{template:'<div />'}}));vi.mock('../../admin/clientChart/ClientEhrBringUpToDatePanel.vue',()=>({default:{template:'<div />'}}));
+vi.mock('../../admin/ClientDetailPanel.vue',()=>({default:{name:'ClientDetailPanel',template:'<div />'}}));vi.mock('../../admin/clientChart/ClientEhrBringUpToDatePanel.vue',()=>({default:{template:'<div />'}}));
 import View from '../ProviderClientsTab.vue';
 const Waitlist=defineComponent({name:'ProviderEnrollmentWaitlist',props:['agencyIds','initiallyExpanded'],emits:['loaded'],setup(_, {emit}){onMounted(()=>emit('loaded',{count:0,complete:true}));},template:'<section data-waitlist>Waitlist requests</section>'});
 let wrapper;
@@ -19,6 +19,7 @@ beforeEach(()=>{vi.clearAllMocks();localStorage.clear();m.empty=false;m.failCase
       initials: index === 0 ? 'AAA' : 'BBB', status: 'ACTIVE', client_type: 'clinical'
     })) };
   }
+  if(/^\/clients\/\d+$/.test(url)){const id=Number(url.split('/').at(-1));return {data:{id,agency_id:id/10,initials:id===60?'BBB':'AAA'}};}
   if(url.endsWith('/assigned-schools'))return {data:m.schools?[{schoolOrganizationId:Number(config.params.agencyId)*10,name:'School '+config.params.agencyId}]:[]};
   if(url.includes('/my-roster'))return {data:[{id:Number(config.headers['X-Agency-Id'])*100,agency_id:Number(config.headers['X-Agency-Id']),initials:'SCHOOL',status:'CURRENT'}]};
   if(url==='/client-exchange/counts')return {data:m.empty?{matches:0,requestable:0}:Number(config.params.agencyId)===2?{matches:2,requestable:4}:{matches:1,requestable:2}};
@@ -27,7 +28,7 @@ beforeEach(()=>{vi.clearAllMocks();localStorage.clear();m.empty=false;m.failCase
  });
 });
 afterEach(()=>wrapper?.unmount());
-async function render(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/dashboard',component:{template:'<div />'}}]});await router.push('/dashboard?tab=clients&clients=all');await router.isReady();wrapper=shallowMount(View,{global:{plugins:[router],stubs:{ProviderEnrollmentWaitlist:Waitlist}}});await flushPromises();return router;}
+async function render(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/dashboard',component:{template:'<div />'}}]});await router.push('/dashboard?tab=clients&clients=all');await router.isReady();wrapper=shallowMount(View,{global:{plugins:[router],stubs:{ProviderEnrollmentWaitlist:Waitlist,Teleport:true}}});await flushPromises();return router;}
 const tab=label=>wrapper.findAll('[role=tab]').find(t=>t.text().includes(label));
 it('renders the caseload from one request before memberships and badges finish', async () => {
   const original = m.get.getMockImplementation();
@@ -75,7 +76,11 @@ it('filters the caseload by agency and exposes appointment sorting with distinct
  await wrapper.get('.pct-agency-filter select').setValue('6');await flushPromises();
  const rows=wrapper.findAll('tbody tr');
  expect(rows).toHaveLength(1);expect(rows[0].text()).toContain('BBB');expect(rows[0].text()).not.toContain('AAA');
- await rows[0].find('.pct-client-link').trigger('click');await flushPromises();
- expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(true);
+ await rows[0].find('.pct-client-link').trigger('mouseenter');
+ await vi.waitFor(()=>expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(true));
+ expect(wrapper.findComponent({name:'ClientQuickView'}).props('client').agency_id).toBe(6);
  expect(rows[0].text()).toContain('Open chart');
+ await rows[0].find('.pct-client-link').trigger('click');await flushPromises();
+ expect(wrapper.findComponent({name:'ClientQuickView'}).exists()).toBe(false);
+ expect(wrapper.findComponent({name:'ClientDetailPanel'}).exists()).toBe(true);
 });
