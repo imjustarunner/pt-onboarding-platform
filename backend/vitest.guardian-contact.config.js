@@ -5,6 +5,7 @@ export default defineConfig({
   test: { environment: 'node', include: [
     'src/routes/__tests__/guardianContactMethods.test.js',
     'src/services/__tests__/guardianContactContext.account.test.js',
+    'src/services/__tests__/guardianCommunications.test.js',
     'src/services/__tests__/linkedGuardianContact.test.js',
     'src/services/__tests__/guardianWorkspace.test.js',
     'src/services/__tests__/guardianFinancialWorkspace.test.js',

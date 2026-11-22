@@ -3,17 +3,19 @@ import pool from '../config/database.js';
 import { hubClientScope, canAccessHubClient } from './hubPeopleAccess.service.js';
 import { emailClientCandidates } from './clientConversationRecord.service.js';
 
-export async function guardianContactContext({ userId, guardianId }) {
+export async function guardianContactContext({ userId, guardianId, includePast = false }) {
   if (!Number.isSafeInteger(Number(guardianId)) || Number(guardianId)<1) throw Object.assign(new Error('Guardian not found'),{status:404});
   const scope=hubClientScope(userId);
   const [rows]=await pool.execute(`SELECT c.id,c.agency_id,a.name AS agency_name,a.slug AS agency_slug,
-    COALESCE(c.full_name,c.initials) AS name,cg.relationship_title,u.id AS guardian_id,u.first_name,u.last_name,
+    COALESCE(c.full_name,c.initials) AS name,cg.relationship_title,
+    JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')) AS relationship_revoked,
+    u.id AS guardian_id,u.first_name,u.last_name,
     COALESCE(NULLIF(u.personal_email,''),u.email) AS email,
     COALESCE(NULLIF(u.phone_number,''),NULLIF(u.personal_phone,''),NULLIF(u.work_phone,'')) AS phone
     FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id
     JOIN agencies a ON a.id=c.agency_id
     WHERE cg.guardian_user_id=? AND cg.relationship_type<>'self'
-      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'
+      ${includePast ? '' : "AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'"}
       AND ${scope.sql}
     ORDER BY a.name,c.full_name,c.initials,c.id`,[guardianId,...scope.params]);
   if (!rows.length) {
@@ -42,7 +44,7 @@ export async function guardianContactContext({ userId, guardianId }) {
       alternativeContactInstructions: cp.alternativeContactInstructions || null } : null);
   }
   return {guardian:{id:Number(first.guardian_id),name:[first.first_name,first.last_name].filter(Boolean).join(' '),email:first.email,phone:first.phone||null},
-    clients:rows.map(r=>({id:Number(r.id),name:r.name,agencyId:Number(r.agency_id),agencyName:r.agency_name,agencySlug:r.agency_slug,relationship:r.relationship_title,contactPreferences:preferences.get(Number(r.id))}))};
+    clients:rows.map(r=>({id:Number(r.id),name:r.name,agencyId:Number(r.agency_id),agencyName:r.agency_name,agencySlug:r.agency_slug,relationship:r.relationship_title,isHistorical:r.relationship_revoked==='true',contactPreferences:preferences.get(Number(r.id))}))};
 }
 
 export async function emailFilingOptions({userId,agencyId,to='',cc='',bcc=''}) {

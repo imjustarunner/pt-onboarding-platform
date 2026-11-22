@@ -33,3 +33,9 @@ it('returns no voicemail threads without querying an empty agency list', async (
   expect(await guardianVoicemailConversations({ user: { id: 7 }, guardianId: 20 })).toEqual({ conversations: [] });
   expect(m.execute).toHaveBeenCalledTimes(2);
 });
+it('includes a revoked relationship only in the explicit historical context',async()=>{
+ m.execute.mockResolvedValue([[{id:4,agency_id:2,name:'Past client',guardian_id:20,relationship_revoked:'true'}]]);
+ const result=await guardianContactContext({userId:7,guardianId:20,includePast:true});
+ expect(result.clients[0]).toMatchObject({id:4,isHistorical:true});
+ expect(m.execute.mock.calls[0][0]).not.toContain("'false') <> 'true'");
+});

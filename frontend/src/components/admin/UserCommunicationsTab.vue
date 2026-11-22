@@ -1,90 +1,31 @@
 <template>
   <div class="user-communications-tab conversa-surface">
-    <div class="tab-header">
-      <h3>Post Announcement / Splash</h3>
-    </div>
-    <div class="communication-card" style="margin-bottom: 18px;">
-      <p class="muted" style="margin: 0 0 12px 0;">
-        {{ recipientOnly ? 'Schedule a private announcement or splash for this guardian.' : 'Create a scheduled agency announcement directly from this profile. Choose to post to this user only or everyone.' }}
-      </p>
-      <div v-if="postError" class="error" style="margin-bottom: 12px;">{{ postError }}</div>
-      <div v-if="postSuccess" style="margin-bottom: 12px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;">
-        {{ postSuccess }}
-      </div>
-      <div class="filter-controls" style="flex-wrap: wrap; align-items: flex-end;">
-        <div>
-          <label class="muted" style="display:block; margin-bottom: 6px;">Agency</label>
-          <select v-model="postDraft.agencyId" class="form-select" :disabled="viewOnly || posting">
-            <option value="" disabled>Select agency</option>
-            <option v-for="agency in userAgencies" :key="`post-agency-${agency.id}`" :value="String(agency.id)">
-              {{ agency.name }}
-            </option>
-          </select>
+    <GuardianCommunicationsWorkspace v-if="recipientOnly" :guardian-id="userId" :view-only="viewOnly" />
+    <section class="announcement-workspace" aria-label="Announcement and splash editor">
+      <header class="announcement-heading"><div><p class="announcement-eyebrow">Portal updates</p><h3>Announcement / Splash</h3><p>{{ recipientOnly ? 'Schedule a private announcement or splash for this guardian.' : 'Schedule an announcement from this profile.' }}</p></div><span v-if="recipientOnly" class="private-audience">This guardian only</span></header>
+      <div class="announcement-layout">
+        <div class="announcement-editor">
+          <div class="announcement-fields">
+            <label>Organization<select v-model="postDraft.agencyId" :disabled="viewOnly || posting"><option value="" disabled>Select organization</option><option v-for="agency in userAgencies" :key="agency.id" :value="String(agency.id)">{{agency.name}}</option></select></label>
+            <label>Display as<select v-model="postDraft.displayType" :disabled="viewOnly || posting"><option value="announcement">Announcement banner</option><option value="splash">Splash card</option></select></label>
+            <label v-if="!recipientOnly">Audience<select v-model="postDraft.scope" :disabled="viewOnly || posting"><option value="user">This user only</option><option value="everyone">Everyone in agency</option></select></label>
+          </div>
+          <label class="announcement-title">Title <small>Optional · {{postDraft.title.length}} / 255</small><input v-model="postDraft.title" type="text" maxlength="255" placeholder="A clear title for your update" :disabled="viewOnly || posting"/></label>
+          <label class="announcement-message">Message <small>{{postDraft.message.length}} / 1,200</small><textarea v-model="postDraft.message" rows="8" maxlength="1200" placeholder="Write the message you want them to see in their portal…" :disabled="viewOnly || posting"/></label>
+          <div v-if="postDraft.displayType==='splash'" class="splash-image-fields"><label>Image URL <small>Optional</small><input v-model="postDraft.splashImageUrl" type="url" maxlength="512" placeholder="https://…" :disabled="viewOnly || posting"/></label><label class="image-upload">Or upload an image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" :disabled="viewOnly || posting || profileSplashUploading || !postDraft.agencyId" @change="onProfileAnnouncementSplashFile"/></label><p v-if="profileSplashUploading" role="status">Uploading image…</p></div>
+          <div class="announcement-dates"><label>Starts<input v-model="postDraft.startsAt" type="datetime-local" :disabled="viewOnly || posting"/></label><label>Ends<input v-model="postDraft.endsAt" type="datetime-local" :disabled="viewOnly || posting"/></label></div>
+          <p class="announcement-help">Times use {{localTimeZone}}.</p><p v-if="postDraft.startsAt && postDraft.endsAt && new Date(postDraft.endsAt)<=new Date(postDraft.startsAt)" role="alert">Choose an end time after the start time.</p>
+          <p v-if="postError" role="alert">{{postError}}</p><p v-if="postSuccess" class="announcement-success" role="status">{{postSuccess}}</p>
+          <button class="btn btn-primary" type="button" @click="postAnnouncementFromProfile" :disabled="viewOnly || posting || profileSplashUploading || !canPostFromProfile">{{posting?'Posting…':'Post now'}}</button>
         </div>
-        <div>
-          <label class="muted" style="display:block; margin-bottom: 6px;">Type</label>
-          <select v-model="postDraft.displayType" class="form-select" :disabled="viewOnly || posting">
-            <option value="announcement">Announcement</option>
-            <option value="splash">Splash</option>
-          </select>
-        </div>
-        <div v-if="!recipientOnly">
-          <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
-          <select v-model="postDraft.scope" class="form-select" :disabled="viewOnly || posting">
-            <option value="user">This user only</option>
-            <option value="everyone">Everyone in agency</option>
-          </select>
-        </div>
-        <div>
-          <label class="muted" style="display:block; margin-bottom: 6px;">Starts</label>
-          <input v-model="postDraft.startsAt" class="form-select" type="datetime-local" :disabled="viewOnly || posting" />
-        </div>
-        <div>
-          <label class="muted" style="display:block; margin-bottom: 6px;">Ends</label>
-          <input v-model="postDraft.endsAt" class="form-select" type="datetime-local" :disabled="viewOnly || posting" />
-        </div>
+        <aside class="announcement-preview" aria-label="Live announcement preview">
+          <div class="preview-label"><strong>Live preview</strong><span>{{postDraft.displayType==='splash'?'Splash card':'Announcement banner'}}</span></div>
+          <div class="portal-preview"><div class="preview-portal-bar"><span class="portal-dot"></span>{{previewAgencyName}} portal</div><article class="preview-card" :class="{'preview-splash':postDraft.displayType==='splash'}"><img v-if="postDraft.displayType==='splash' && previewImageUrl && !previewImageFailed" :src="previewImageUrl" alt="Splash image preview" @error="previewImageFailed=true"/><p v-if="previewImageFailed" class="announcement-help">This image could not be loaded.</p><div class="preview-copy"><span class="preview-update">{{postDraft.displayType==='splash'?'A message for you':'Portal announcement'}}</span><h4 v-if="postDraft.title.trim()">{{postDraft.title}}</h4><p class="preview-message" :class="{'preview-placeholder':!postDraft.message.trim()}">{{postDraft.message || 'Your message will appear here as you write.'}}</p><span v-if="postDraft.displayType==='splash'" class="preview-dismiss">Continue to portal</span></div></article></div>
+          <p class="announcement-help">{{recipientOnly?'Visible only to this guardian during the selected dates.':postDraft.scope==='everyone'?'Visible to everyone in the selected organization.':'Visible only to this user during the selected dates.'}}</p><p class="announcement-help">This preview shows portal placement. Email, SMS, and secure messages use the conversation tools above.</p>
+        </aside>
       </div>
-      <div style="margin-top: 12px;">
-        <label class="muted" style="display:block; margin-bottom: 6px;">Title (optional)</label>
-        <input v-model="postDraft.title" class="form-select" type="text" maxlength="255" placeholder="e.g., Welcome to the team" :disabled="viewOnly || posting" />
-      </div>
-      <div style="margin-top: 12px;">
-        <label class="muted" style="display:block; margin-bottom: 6px;">Message</label>
-        <textarea
-          v-model="postDraft.message"
-          class="form-select"
-          rows="3"
-          maxlength="1200"
-          placeholder="Type announcement message..."
-          :disabled="viewOnly || posting"
-        />
-      </div>
-      <div v-if="String(postDraft.displayType || '').toLowerCase() === 'splash'" style="margin-top: 12px;">
-        <label class="muted" style="display:block; margin-bottom: 6px;">Splash image URL (optional)</label>
-        <input
-          v-model="postDraft.splashImageUrl"
-          class="form-select"
-          type="url"
-          maxlength="512"
-          placeholder="https://…"
-          :disabled="viewOnly || posting"
-        />
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          style="margin-top: 8px; font-size: 0.9em;"
-          :disabled="viewOnly || posting || profileSplashUploading || !postDraft.agencyId"
-          @change="onProfileAnnouncementSplashFile"
-        />
-        <span v-if="profileSplashUploading" class="muted" style="margin-left: 8px;">Uploading…</span>
-      </div>
-      <div style="margin-top: 12px; display:flex; gap: 8px; align-items:center;">
-        <button class="btn btn-primary btn-sm" type="button" @click="postAnnouncementFromProfile" :disabled="viewOnly || posting || !canPostFromProfile">
-          {{ posting ? 'Posting…' : 'Post now' }}
-        </button>
-      </div>
-    </div>
-
+    </section>
+    <details class="system-history" :open="!recipientOnly"><summary>Generated notices & system texts</summary>
     <div class="tab-header">
       <h3>Generated Communications</h3>
       <div class="filter-controls">
@@ -263,6 +204,7 @@
         </div>
       </div>
     </div>
+    </details>
   </div>
 </template>
 
@@ -270,6 +212,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
+import GuardianCommunicationsWorkspace from './GuardianCommunicationsWorkspace.vue';
 import { prepareEmailPreview } from '../../utils/emailPreview';
 
 const router = useRouter();
@@ -348,6 +291,14 @@ const postDraft = ref({
   endsAt: toLocalInput(in24h)
 });
 
+const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const previewAgencyName = computed(() => props.userAgencies.find(agency => String(agency.id) === String(postDraft.value.agencyId))?.name || 'Your organization');
+const previewImageFailed = ref(false);
+const previewImageUrl = computed(() => {
+  try { const url = new URL(postDraft.value.splashImageUrl, window.location.origin); return postDraft.value.splashImageUrl && ['https:', 'http:'].includes(url.protocol) ? url.href : ''; }
+  catch { return ''; }
+});
+watch(previewImageUrl, () => { previewImageFailed.value = false; });
 const profileSplashUploading = ref(false);
 
 const onProfileAnnouncementSplashFile = async (e) => {
@@ -542,6 +493,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.announcement-workspace{margin:28px 0;padding:28px;border:1px solid #dbe5ee;border-radius:18px;color:var(--text-primary,#20354f);background:var(--bg-card,#fff)}.announcement-heading{display:flex;align-items:start;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:24px}.announcement-heading h3{font-size:23px;margin:5px 0 10px}.announcement-heading p{margin:0;font-size:14px;line-height:1.65}.announcement-eyebrow{text-transform:uppercase;letter-spacing:.1em;font-size:11px!important;font-weight:700;color:#65778b}.private-audience{padding:8px 12px;border-radius:20px;background:#eaf3ef;color:#306552;font-size:12px;font-weight:600}.announcement-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,1fr);gap:30px}.announcement-editor{min-width:0}.announcement-fields,.announcement-dates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.announcement-workspace label{display:flex;flex-wrap:wrap;gap:7px;align-items:baseline;font-size:13px;font-weight:600;margin:0 0 18px}.announcement-workspace label small{font-size:11px;color:#6b7e91;font-weight:400;margin-left:auto}.announcement-workspace input,.announcement-workspace select,.announcement-workspace textarea{display:block;width:100%!important;max-width:none;min-width:0;box-sizing:border-box;padding:12px 14px;border:1px solid #cbd8e5;border-radius:10px;background:var(--bg-card,#fff);color:inherit;font:inherit;font-weight:400}.announcement-workspace textarea{min-height:220px;resize:vertical;line-height:1.7}.announcement-workspace input:focus-visible,.announcement-workspace textarea:focus-visible,.announcement-workspace select:focus-visible{outline:3px solid #8bb7db;outline-offset:2px}.announcement-help{font-size:12px;color:#6b7e91;line-height:1.65}.announcement-preview{padding:20px;border-radius:14px;background:#f3f7fb;min-width:0;align-self:start;position:sticky;top:20px}.preview-label{display:flex;justify-content:space-between;gap:10px;font-size:12px;margin-bottom:16px;color:#435d78}.preview-label span{color:#6b7e91}.portal-preview{border:1px solid #dbe4ed;border-radius:12px;padding:14px;background:#fff;overflow:hidden}.preview-portal-bar{display:flex;gap:8px;align-items:center;font-size:11px;color:#7a8c9e;padding:4px 0 20px;overflow-wrap:anywhere}.portal-dot{width:8px;height:8px;border-radius:3px;background:#94b7aa}.preview-card{border:1px solid #c7dce9;border-radius:10px;background:#eef6fc;overflow:hidden}.preview-splash{background:#fff;border-color:#dae4ed;box-shadow:0 8px 22px #17324d0b}.preview-card img{display:block;width:100%;max-height:240px;object-fit:contain;background:#edf2f6}.preview-copy{padding:22px}.preview-update{text-transform:uppercase;font-size:9px;font-weight:700;letter-spacing:.1em;color:#5f7f9a}.preview-copy h4{font-size:20px;line-height:1.4;margin:12px 0;overflow-wrap:anywhere}.preview-message{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.8}.preview-placeholder{color:#8b9aab}.preview-dismiss{display:inline-block;border-radius:8px;padding:9px 13px;background:#315f86;color:white;font-size:11px;margin-top:12px}.announcement-success{padding:12px 14px;background:#edf7f0;border-radius:10px;color:#2b6a47}.announcement-workspace [role=alert]{color:#a12b30;padding:12px 14px;border-radius:10px;background:#fff2f1}.announcement-workspace .btn{padding:12px 20px;border-radius:10px}.system-history{padding:22px;border:1px solid #dce5ee;border-radius:16px;margin-top:24px}.system-history>summary{cursor:pointer;font-weight:600;font-size:15px;margin-bottom:12px}.image-upload input{font-size:12px}@media(max-width:950px){.announcement-layout{grid-template-columns:1fr}.announcement-preview{position:static}.announcement-workspace{padding:20px}}@media(max-width:580px){.announcement-fields,.announcement-dates{grid-template-columns:1fr;gap:0}.announcement-workspace{padding:16px}.preview-copy{padding:16px}}
+
 .user-communications-tab {
   padding: 24px;
 }

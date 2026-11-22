@@ -1,5 +1,6 @@
 import { changeSharedInboxTicketArchive } from '../services/sharedInboxTicketArchive.service.js';
 import {guardianContactContext,emailFilingOptions} from '../services/guardianContactContext.service.js';
+import { guardianCommunications } from '../services/guardianCommunications.service.js';
 import clinicalMessagingBridge from './clinicalMessagingBridge.routes.js';
 import { getEmailDeliveryReceipt } from '../services/emailDeliveryReceipt.service.js';
 import {getCallBilling,listCallBilling,putCallBilling} from '../controllers/callBillingReview.controller.js';
@@ -81,6 +82,21 @@ router.get('/feed', getCommunicationsFeed);
 router.get('/center-summary', getCommunicationsCenterSummary);
 
 // Unified Communications Inbox (Phase 1–4)
+router.get('/guardian-contacts/:guardianId/conversations', async (req,res,next) => {
+  try { res.set('Cache-Control','private, no-store'); res.json(await guardianCommunications.list({user:req.user,guardianId:Number(req.params.guardianId),query:req.query})); }
+  catch (error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }
+});
+router.get('/guardian-contacts/:guardianId/conversations/:conversationId/sms', async (req,res,next) => {
+  try { res.set('Cache-Control','private, no-store'); res.json(await guardianCommunications.smsDetail({user:req.user,guardianId:Number(req.params.guardianId),conversationId:Number(req.params.conversationId),beforeId:req.query.beforeId})); }
+  catch (error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }
+});
+router.post('/guardian-contacts/:guardianId/sms-eligibility', async (req,res,next) => {
+  try {
+    res.set('Cache-Control','private, no-store');
+    res.json(await guardianCommunications.smsEligibility({user:req.user,guardianId:Number(req.params.guardianId),
+      clientId:req.body.clientId,numberId:req.body.numberId,threadKey:req.body.threadKey}));
+  } catch(error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }
+});
 router.get('/guardian-contacts/:guardianId/voicemails',async(req,res,next)=>{try{const {guardianVoicemailConversations}=await import('../services/guardianContactContext.service.js');res.set('Cache-Control','private, no-store');res.json(await guardianVoicemailConversations({user:req.user,guardianId:Number(req.params.guardianId)}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.get('/guardian-contacts/:guardianId',async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json(await guardianContactContext({userId:req.user.id,guardianId:req.params.guardianId}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.get('/client-filing-options',async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json(await emailFilingOptions({...req.query,userId:req.user.id}));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});

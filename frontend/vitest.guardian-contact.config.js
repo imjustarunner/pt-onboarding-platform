@@ -10,6 +10,7 @@ export default defineConfig({
     'src/components/admin/__tests__/GuardianFinancialWorkspace.test.js',
     'src/components/admin/__tests__/GuardianNotificationPreferences.test.js',
     'src/components/admin/__tests__/GuardianCommunicationsScope.test.js',
+    'src/components/admin/__tests__/GuardianCommunicationsWorkspace.test.js',
     'src/services/__tests__/api.userProfileLoading.test.js',
     'src/components/billing/__tests__/ResponsibleBillingParty.test.js',
     'src/components/admin/__tests__/GuardianRelationshipRestore.test.js',
