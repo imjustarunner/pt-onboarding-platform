@@ -1,11 +1,13 @@
 import Appointment from '../models/Appointment.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import appointmentStaffTools from './appointmentStaffTools.service.js';
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
-export async function liveOutcomeContext(client, appointmentId) {
+export async function liveOutcomeContext(client, appointmentId, user) {
   const id = Number(appointmentId);
   if (!Number.isSafeInteger(id) || id <= 0) fail(400, 'Choose a saved appointment.');
-  const appointment = await Appointment.findById(id, { agencyId: client.agency_id });
-  if (!appointment || Number(appointment.agencyId) !== Number(client.agency_id)) fail(404, 'Appointment not found for this client.');
+  // Shared clients can attend either affiliated agency. Require the existing
+  // appointment permission gate plus this exact client/participant binding.
+  const appointment = await appointmentStaffTools.authorize(user, id);
   const participants = await Appointment.listParticipants(id);
   if (!participants.some(person => Number(person.clientId) === Number(client.id))) fail(404, 'Appointment not found for this client.');
   const links = await ClientGuardian.listForClient(client.id);
@@ -14,7 +16,7 @@ export async function liveOutcomeContext(client, appointmentId) {
     && !['ARCHIVED', 'TERMINATED', 'INACTIVE'].includes(String(person.status || '').toUpperCase()) && !ClientGuardian.isNoView(person.permissions_json))
     .map(person => ({ id: Number(person.guardian_user_id), label: [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Guardian', relationship: person.relationship_title || 'Parent / guardian' }));
   return {
-    appointment: { id, clinicalSessionId: appointment.clinicalSessionId || null, startAt: appointment.startAt, endAt: appointment.endAt },
+    appointment: { id, agencyId: appointment.agencyId, clinicalSessionId: appointment.clinicalSessionId || null, startAt: appointment.startAt, endAt: appointment.endAt },
     guardians
   };
 }
