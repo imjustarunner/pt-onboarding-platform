@@ -1,4 +1,12 @@
 import { escapePortalHtml as e } from '../services/portalEmailBranding.service.js';
+import {parseUtcDate} from './officeEventDateTime.util.js';
+
+export function appointmentEmailLinks(appointment, links, join, now=Date.now()) {
+  if (!join?.url) return links;
+  const entry={label:join.label || 'Join tutoring session',url:join.url};
+  const start=+parseUtcDate(appointment.startAt),end=+parseUtcDate(appointment.endAt);
+  return now>=start-30*60000 && now<=end+30*60000 ? [entry,...links] : [...links,entry];
+}
 
 // Keep the confirmation prominent through the shared automated-email formatter.
 export function appointmentActionsHtml(links) {

@@ -1911,7 +1911,7 @@ if (shouldStartServerBackgroundJobs()) {
   void auricwellReminderTick();
   setInterval(auricwellReminderTick, 60000).unref();
   let clinicalMaintenanceRunning=false;
-  const clinicalMaintenance=async()=>{if(clinicalMaintenanceRunning)return;clinicalMaintenanceRunning=true;try{const {runClinicalSessionMaintenance}=await import('./services/clinicalSessionRetention.service.js');await runClinicalSessionMaintenance();await (await import('./services/tutoringGuest.service.js')).sweepTutoringGuestAccess();}catch(error){console.error('[clinical-session-maintenance]',error.code||'MAINTENANCE_FAILED');}finally{clinicalMaintenanceRunning=false;}};
+  const clinicalMaintenance=async()=>{if(clinicalMaintenanceRunning)return;clinicalMaintenanceRunning=true;try{const {runClinicalSessionMaintenance}=await import('./services/clinicalSessionRetention.service.js');await runClinicalSessionMaintenance();await (await import('./services/bookedTutoringRoom.service.js')).maintainBookedTutoringRooms();await (await import('./services/tutoringGuest.service.js')).sweepTutoringGuestAccess();}catch(error){console.error('[clinical-session-maintenance]',error.code||'MAINTENANCE_FAILED');}finally{clinicalMaintenanceRunning=false;}};
   void clinicalMaintenance();
   setInterval(clinicalMaintenance,15000);
 

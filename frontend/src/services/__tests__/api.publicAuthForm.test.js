@@ -41,3 +41,5 @@ it('keeps overlapping forms protected until each unmounts, with idempotent clean
   leave();
   expect(isPublicAuthFormActive()).toBe(false);
 });
+
+it('does not turn an invitation into a staff login when a background staff request is denied',async()=>{window.history.replaceState(null,'','/nlu-qa-demo/tutoring/guest/11111111-2222-4333-8444-555555555555');const error=unauthorized();await expect(m.error(error)).rejects.toBe(error);expect(m.redirect).not.toHaveBeenCalled();});

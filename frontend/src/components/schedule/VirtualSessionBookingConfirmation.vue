@@ -11,7 +11,6 @@
       <p v-else-if="busy" role="status">Finishing the session’s video links…</p>
       <p v-else-if="!shareUrl && !booking.externalMeeting">The appointment is saved. Its video link is not ready yet. Retry links to continue with these same appointments.</p>
       <p v-if="booking.externalMeeting && !shareUrl">The session uses an external meeting. You can add its link to the appointment later.</p>
-      <label v-if="shareUrl">Client video link<input :value="shareUrl" readonly aria-label="Client video link" /></label>
       <button v-if="shareUrl" type="button" @click="$emit('copy')">{{ copied ? 'Copied' : 'Copy client link' }}</button>
       <button v-if="canWriteNote" type="button" class="write-booked-note" :disabled="busy" @click="$emit('write-note')"><img :src="AURICWELL_MARK_URL" alt="" /> Write note</button>
       <p v-if="booking.officeRequestError" role="alert">{{ booking.officeRequestError }}</p>

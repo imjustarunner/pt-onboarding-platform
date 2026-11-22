@@ -1,4 +1,4 @@
-import {it,expect,vi} from 'vitest';
+import {it,expect,vi,afterEach} from 'vitest';
 import {mount} from '@vue/test-utils';
 import {defineComponent} from 'vue';
 vi.mock('../../video/VideoSessionRoom.vue',()=>({default:{name:'VideoSessionRoom',template:'<div data-media>Video</div>'}}));
@@ -12,3 +12,6 @@ it('admits only after the host has connected to this appointment',async()=>{cons
 it('does not expose the lesson to an unadmitted invitation',()=>{const w=render({state:{...state,host:false,visit:{status:'waiting'}},guest:true,wantsJoin:true});expect(w.find('[data-studio]').exists()).toBe(false);expect(w.text()).not.toContain('PRIVATE TUTOR NOTES');expect(w.text()).not.toContain('my portal');expect(w.text()).toContain('waiting room');});
 it('keeps admitted family controls distinct from the tutor’s end and admission controls',()=>{const w=render({state:{...state,host:false,visit:{status:'admitted'},startedAt:'2026-11-21T18:00:00Z'},guest:true,video:{sessionId:'media'}});expect(w.text()).toContain('Leave session');expect(w.text()).not.toContain('End session');expect(w.text()).not.toContain('Copy family session invitation');});
 it('requires a recipient choice when the tutor copies invitations for linked families',async()=>{const w=render({joinRecipients:[{id:1759,name:'Morgan QA'},{id:1785,name:'Rene QA'}],selectedRecipient:''});await w.get('select').setValue('1785');expect(w.emitted('select-recipient')[0]).toEqual(['1785']);});
+
+it('hides disconnected stale waiting entries and does not label permission as connected attendance',()=>{const w=render({state:{...state,visits:[{id:4,status:'waiting',displayName:'Stale visitor',present:false},{id:5,status:'admitted',displayName:'Rene QA',mediaDurationSeconds:null}]}});expect(w.findAll('button').some(b=>b.text()==='Admit')).toBe(false);expect(w.text()).toContain('waiting for video connection');expect(w.text()).toContain('no connected attendance yet');w.unmount();});
+it('warns at the scheduled end and offers review after the grace window closes',async()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2099-11-21T18:56:00Z'));const w=render({state:{...state,closesAt:'2099-11-21T19:30:00Z'}});expect(w.text()).toContain('ends in 4 minutes');await vi.advanceTimersByTimeAsync(4*60000);expect(w.text()).toContain('scheduled session time has ended');await w.setProps({closed:true,state:{...state,needsCompletion:true}});expect(w.text()).toContain('Review & complete session');w.unmount();vi.useRealTimers();});
