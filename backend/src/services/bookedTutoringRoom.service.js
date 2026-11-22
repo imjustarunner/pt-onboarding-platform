@@ -25,7 +25,7 @@ import {resolveTutoringTrack} from './tutoringBookingContext.service.js';
 import {getLearningOverview} from './tutoringLearningOs.service.js';
 import { AcademicSkillEvidence, TutoringSessionNote, TutoringSessionBrief } from '../models/TutoringSessionLearning.model.js';
 import {assertClinicalWorkActive} from './clinicalWorkArchiveRead.service.js';
-import {endConnectedTutoringVisits} from './tutoringMediaAttendance.service.js';
+import {endConnectedTutoringVisits,expireDisconnectedTutoringVisits} from './tutoringMediaAttendance.service.js';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const terminal = new Set(['canceled','cancelled','canceled_by_client','canceled_by_provider','canceled_by_guardian','canceled_by_organization','late_canceled','no_show','rescheduled','voided','draft','no_show_pending']);
@@ -142,13 +142,7 @@ export async function heartbeatBookedTutoringRoom(ctx) {
  return {ok:true};
 }
 export async function maintainBookedTutoringRooms() {
- const [stale]=await pool.execute(`SELECT v.id,v.session_id,a.agency_id,a.id AS appointment_id FROM tutoring_session_visits v
-  JOIN tutoring_appointment_sessions b ON b.session_id=v.session_id JOIN appointments a ON a.id=b.appointment_id
-  WHERE v.status='waiting' AND v.last_seen_at<UTC_TIMESTAMP()-INTERVAL 20 SECOND ORDER BY v.last_seen_at LIMIT 100`);
- for(const visit of stale){
-  const [updated]=await pool.execute("UPDATE tutoring_session_visits SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=0 WHERE id=? AND status='waiting' AND last_seen_at<UTC_TIMESTAMP()-INTERVAL 20 SECOND",[visit.id]);
-  if(updated.affectedRows)await clinicalAudit({kind:'tutoring',sessionId:visit.session_id,agencyId:visit.agency_id,actor:'system:tutoring-presence',role:'system'},'tutoring_waiting_room_expired',{appointmentId:visit.appointment_id,visitId:visit.id});
- }
+ await expireDisconnectedTutoringVisits();
  const [expired]=await pool.execute(`SELECT a.id FROM appointments a JOIN tutoring_appointment_sessions b ON b.appointment_id=a.id
   JOIN learning_class_sessions s ON s.id=b.session_id JOIN clinical_video_sessions m ON m.media_id=s.booked_media_id
   WHERE m.session_kind='tutoring' AND m.state='active' AND a.end_at<UTC_TIMESTAMP()-INTERVAL 30 MINUTE LIMIT 100`);

@@ -3,6 +3,23 @@ import pool from '../config/database.js';
 import {utcMysqlToIso} from '../utils/zonedWallTime.util.js';
 import {clinicalAttendance} from './clinicalVideo.service.js';
 
+export async function expireDisconnectedTutoringVisits(db=pool){
+ const noConnection=`NOT EXISTS (SELECT 1 FROM clinical_video_connections c JOIN clinical_video_grants g ON g.id=c.grant_id
+  JOIN clinical_video_sessions m ON m.media_id=c.media_id AND m.session_kind='tutoring' AND m.session_id=v.session_id
+  WHERE g.visit_id=v.id AND g.revoked_at IS NULL AND c.disconnected_at IS NULL AND c.disconnect_requested=0)`;
+ const [stale]=await db.execute(`SELECT v.id,v.session_id,v.status,a.agency_id,a.id AS appointment_id FROM tutoring_session_visits v
+  JOIN tutoring_appointment_sessions b ON b.session_id=v.session_id JOIN appointments a ON a.id=b.appointment_id
+  WHERE v.status IN ('waiting','admitted') AND v.last_seen_at<UTC_TIMESTAMP()-INTERVAL 20 SECOND AND ${noConnection}
+  ORDER BY v.last_seen_at LIMIT 100`);
+ for(const visit of stale){
+  const durations=await clinicalAttendance('tutoring',visit.session_id,db),seconds=durations.get(Number(visit.id))||0;
+  const [updated]=await db.execute(`UPDATE tutoring_session_visits v SET status='ended',ended_at=UTC_TIMESTAMP(),duration_seconds=?
+   WHERE v.id=? AND v.status IN ('waiting','admitted') AND v.last_seen_at<UTC_TIMESTAMP()-INTERVAL 20 SECOND AND ${noConnection}`,[seconds,visit.id]);
+  if(updated.affectedRows)await clinicalAudit({kind:'tutoring',sessionId:visit.session_id,agencyId:visit.agency_id,actor:'system:tutoring-presence',role:'system'},
+   'tutoring_participant_presence_expired',{appointmentId:visit.appointment_id,visitId:visit.id,previousStatus:visit.status,measuredSeconds:seconds},db);
+ }
+}
+
 export async function endConnectedTutoringVisits(session,db,only=null){
  const measured=await clinicalAttendance('tutoring',session.id,db);
  const intervals=measured instanceof Map?[...measured.entries()]:[];

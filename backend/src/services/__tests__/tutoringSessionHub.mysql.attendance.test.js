@@ -1,17 +1,17 @@
 import {beforeAll,beforeEach,afterAll,it,expect,vi} from 'vitest';
 import {isolatedWorkflowMysql,recoveryMysqlEnabled} from './fixtures/isolatedWorkflowMysql.js';
 const runtime=vi.hoisted(()=>({db:null}));
-vi.mock('../../config/database.js',()=>({default:{getConnection:()=>runtime.db.getConnection()}}));
+vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>runtime.db.execute(...args),getConnection:()=>runtime.db.getConnection()}}));
 vi.mock('../clinicalSessionAudit.service.js',()=>({clinicalAudit:vi.fn()}));
-import {startConnectedTutoringSession,endConnectedTutoringVisits} from '../tutoringMediaAttendance.service.js';
+import {startConnectedTutoringSession,endConnectedTutoringVisits,expireDisconnectedTutoringVisits} from '../tutoringMediaAttendance.service.js';
 let fixture;
 const media={session_id:600,media_id:'synthetic-booked-media',agency_id:453};
 beforeAll(async()=>{if(!recoveryMysqlEnabled)return;fixture=await isolatedWorkflowMysql('nlu_email_attendance');runtime.db=fixture.db;
  for(const sql of [
-  'CREATE TABLE appointments(id INT PRIMARY KEY,status VARCHAR(30))',
+  'CREATE TABLE appointments(id INT PRIMARY KEY,status VARCHAR(30),agency_id INT DEFAULT 453)',
   'CREATE TABLE tutoring_appointment_sessions(appointment_id INT PRIMARY KEY,session_id INT)',
   'CREATE TABLE learning_class_sessions(id INT PRIMARY KEY,status VARCHAR(30),booked_media_id VARCHAR(100),actual_started_at DATETIME(3),actual_ended_at DATETIME(3))',
-  'CREATE TABLE tutoring_session_visits(id INT PRIMARY KEY,session_id INT,status VARCHAR(30),ended_at DATETIME,duration_seconds INT)',
+  'CREATE TABLE tutoring_session_visits(id INT PRIMARY KEY,session_id INT,status VARCHAR(30),ended_at DATETIME,duration_seconds INT,last_seen_at DATETIME)',
   'CREATE TABLE clinical_video_sessions(media_id VARCHAR(100) PRIMARY KEY,state VARCHAR(30),session_kind VARCHAR(30),session_id INT)',
   'CREATE TABLE clinical_video_grants(id INT PRIMARY KEY,participant_role VARCHAR(30),visit_id INT,revoked_at DATETIME(3),expires_at DATETIME(3))',
   'CREATE TABLE clinical_video_connections(connection_id INT PRIMARY KEY,media_id VARCHAR(100),grant_id INT,connected_at DATETIME(3),disconnected_at DATETIME(3),disconnect_requested BOOL)'
@@ -19,7 +19,7 @@ beforeAll(async()=>{if(!recoveryMysqlEnabled)return;fixture=await isolatedWorkfl
 },30000);
 beforeEach(async()=>{if(!recoveryMysqlEnabled)return;
  for(const table of ['appointments','tutoring_appointment_sessions','learning_class_sessions','tutoring_session_visits','clinical_video_sessions','clinical_video_grants','clinical_video_connections'])await runtime.db.query(`DELETE FROM ${table}`);
- await runtime.db.query("INSERT INTO appointments VALUES(498,'scheduled')");
+ await runtime.db.query("INSERT INTO appointments(id,status) VALUES(498,'scheduled')");
  await runtime.db.query('INSERT INTO tutoring_appointment_sessions VALUES(498,600)');
  await runtime.db.query("INSERT INTO learning_class_sessions VALUES(600,'scheduled','synthetic-booked-media',NULL,NULL)");
  await runtime.db.query("INSERT INTO tutoring_session_visits(id,session_id,status) VALUES(9,600,'admitted')");
@@ -40,3 +40,6 @@ test.each(['disconnected','revoked','expired','wrong-session'])('withholds atten
 });
 
 test('records actual connected seconds on end, with no duration invented from admission',async()=>{await runtime.db.query("INSERT INTO clinical_video_connections VALUES(2,'synthetic-booked-media',2,'2026-11-22 13:43:00','2026-11-22 13:43:07',FALSE)");expect(await endConnectedTutoringVisits({id:600},runtime.db)).toBe(true);const [[visit]]=await runtime.db.query('SELECT status,duration_seconds FROM tutoring_session_visits WHERE id=9');expect(visit).toMatchObject({status:'ended',duration_seconds:7});});
+
+test('expires a stale admitted-only participant without deleting its admission history',async()=>{await runtime.db.query('UPDATE tutoring_session_visits SET last_seen_at=UTC_TIMESTAMP()-INTERVAL 1 MINUTE WHERE id=9');await expireDisconnectedTutoringVisits(runtime.db);const [[visit]]=await runtime.db.query('SELECT status,duration_seconds FROM tutoring_session_visits WHERE id=9');expect(visit).toMatchObject({status:'ended',duration_seconds:0});});
+test('keeps a genuine connected guest even when browser heartbeats are throttled',async()=>{await runtime.db.query('UPDATE tutoring_session_visits SET last_seen_at=UTC_TIMESTAMP()-INTERVAL 1 MINUTE WHERE id=9');await runtime.db.query("INSERT INTO clinical_video_connections VALUES(2,'synthetic-booked-media',2,'2026-11-22 13:43:00',NULL,FALSE)");await expireDisconnectedTutoringVisits(runtime.db);const [[visit]]=await runtime.db.query('SELECT status FROM tutoring_session_visits WHERE id=9');expect(visit.status).toBe('admitted');});
