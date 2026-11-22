@@ -6,7 +6,7 @@ import { requireBillingStaff } from './familyLedger/policy.js';
 import { listBalances } from './familyLedger/views.js';
 
 const fail=(message,status)=>Object.assign(new Error(message),{status});
-export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAccess=resolveClientRecordAccess,authorizeBilling=requireBillingStaff,balances=listBalances}={}) {
+export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAccess=resolveClientRecordAccess,authorizeBilling=requireBillingStaff,balances=listBalances,includeBalances=true}={}) {
   if(!['super_admin','admin','support','staff'].includes(actor?.role))throw fail('Guardian account management requires staff access.',403);
   if(!Number.isSafeInteger(Number(guardianId))||Number(guardianId)<1)throw fail('Guardian not found.',404);
   const [[guardian]]=await db.execute(`SELECT id,first_name,last_name,email,COALESCE(NULLIF(phone_number,''),NULLIF(personal_phone,''),NULLIF(work_phone,'')) AS phone,
@@ -29,6 +29,7 @@ export async function guardianWorkspace({actor,guardianId},{db=pool,resolveAcces
     }
     const client={...link,billing:{available:false}};
     try {
+      if (!includeBalances) { clients.push(client); continue; }
       await authorizeBilling(actor,link.agency_id);
       const rows=await balances({agencyId:link.agency_id,userId:actor.id,clientId:link.client_id,staff:true});
       const own=rows.filter(row=>Number(row.payerUserId)===Number(guardianId));

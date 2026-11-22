@@ -1,5 +1,5 @@
 <template>
-  <div class="container user-profile-view" ref="profileSearchRoot">
+  <div class="container user-profile-view" :class="{'guardian-profile-page':isViewingGuardian}" ref="profileSearchRoot">
     <div class="page-header">
       <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">{{ backLinkLabel }}</router-link>
 
@@ -211,11 +211,12 @@
         :label="tabs.find(tab => tab.id === activeTab)?.label || 'Profile'"
       />
 
-      <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
+      <!-- Guardian panels retain their state between tabs; staff panels keep existing remount behavior. -->
       <div
         class="tab-content"
+        :data-guardian-workspace="isViewingGuardian || undefined"
         :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' || activeTab === 'clients' || activeTab === 'tasks' || activeTab === 'assignments' }"
-        :key="activeTab"
+        :key="isViewingGuardian ? `guardian-${userId}` : activeTab"
         data-tour="user-profile-tab-content"
       >
 
@@ -251,7 +252,7 @@
           @updated="onBenefitsUpdated"
         />
 
-        <div v-if="activeTab === 'account'" class="tab-panel">
+        <div v-if="guardianPanelMounted('account')" v-show="activeTab === 'account'" class="tab-panel">
           <ChildcareAssignmentPanel v-if="user && !isViewingGuardian && canEditUser && profileOverviewAgencyId" :user-id="Number(userId)" :agency-id="Number(profileOverviewAgencyId)" />
           <section v-if="canPrintProfileCards" id="profile-business-cards" class="card" style="padding:18px;margin-bottom:18px">
             <h3>Business cards</h3><p>Print this person’s cards with their affiliated agency’s branding.</p>
@@ -260,63 +261,8 @@
           <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
           <GuardianContactCard v-if="isViewingGuardian" :guardian-id="Number(userId)" />
 
-          <!-- Guardian insurance (from linked client intakes) -->
-          <div v-if="isViewingGuardian" class="card" style="padding: 16px; margin-bottom: 18px;">
-            <h3 style="margin: 0 0 6px;">Insurance</h3>
-            <p class="hint" style="margin-top: 0;">
-              Insurance details collected during each linked client's intake.
-            </p>
+          <GuardianFinancialWorkspace v-if="isViewingGuardian" :guardian="user" :data="guardianFinancialData" :loading="guardianFinancialLoading" :error="guardianFinancialError" :can-edit="canEditUser" summary-only @refresh="loadGuardianFinancial(true)" @manage="selectTab('billing_insurance')" />
 
-            <div v-if="guardianLinkedClientsLoading" class="loading">Loading insurance…</div>
-            <div v-else-if="guardianLinkedClientsError" class="error">{{ guardianLinkedClientsError }}</div>
-            <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
-              <p>No linked clients — no insurance to show.</p>
-            </div>
-            <div v-else>
-              <div
-                v-for="client in guardianLinkedClients"
-                :key="`ins-client-${client.client_id}`"
-                class="card"
-                style="padding: 14px; margin-top: 12px; background: var(--bg-alt, #f8fafc);"
-              >
-                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                  <strong>
-                    <a href="" @click.prevent="openLinkedClient(client.client_id)" style="text-decoration: none;">
-                      {{ client.full_name || client.initials || `Client ${client.client_id}` }}
-                    </a>
-                  </strong>
-                  <span class="muted" style="font-size: 13px;">{{ client.organization_name || '—' }}</span>
-                </div>
-
-                <div v-if="guardianCommPrefsLoading[client.client_id]" class="muted" style="font-size: 13px;">Loading…</div>
-                <div v-else>
-                  <div v-if="(guardianInsuranceByClient[client.client_id] || []).length">
-                    <div
-                      v-for="f in guardianInsuranceByClient[client.client_id]"
-                      :key="String(f.key || f.label)"
-                      class="comm-pref-row"
-                    >
-                      <span class="comm-pref-label">{{ f.label }}</span>
-                      <span class="comm-pref-value">
-                        <button
-                          v-if="isInsuranceCardField(f)"
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          @click="viewInsuranceCard(client.client_id, insuranceSlotFromFieldKey(f.key))"
-                        >
-                          View
-                        </button>
-                        <span v-else>{{ f.value || '—' }}</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div v-else class="muted" style="font-size: 13px;">
-                    No insurance information on file for this client.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <div v-if="isSscMemberProfileMode" class="account-layout">
             <div class="account-main">
@@ -1028,7 +974,7 @@
           </UserAccountDashboard>
         </div>
 
-        <div v-if="activeTab === 'linked_clients'" class="tab-panel guardian-linked-clients">
+        <div v-if="guardianPanelMounted('linked_clients')" v-show="activeTab === 'linked_clients'" class="tab-panel guardian-linked-clients">
           <h2>Linked Clients</h2>
           <p class="hint" style="margin-top: -6px;">
             Manage which clients this guardian can access and sign for.
@@ -1154,15 +1100,15 @@
           </div>
         </div>
 
-        <GuardianFamilyWorkspace v-if="activeTab === 'portal' && isViewingGuardian"
+        <GuardianFamilyWorkspace v-if="guardianPanelMounted('portal') && isViewingGuardian" v-show="activeTab === 'portal'"
           :guardian-id="Number(userId)" :can-edit="canEditUser" @updated="fetchUser" />
-        <GuardianProfileDocuments v-if="activeTab === 'documents' && isViewingGuardian" :key="Number(userId)"
+        <GuardianProfileDocuments v-if="guardianPanelMounted('documents') && isViewingGuardian" v-show="activeTab === 'documents'" :key="Number(userId)"
           :guardian-id="Number(userId)" :guardian-name="headerDisplayName" :clients="guardianLinkedClients"
           :loading="guardianLinkedClientsLoading" :error="guardianLinkedClientsError"
           :account-documents-allowed="guardianAccountDocumentsAllowed" :clinical-mode="guardianDocumentClinicalMode" />
 
         <!-- Guardian: Events tab -->
-        <div v-if="activeTab === 'events' && isViewingGuardian" class="tab-panel">
+        <div v-if="guardianPanelMounted('events') && isViewingGuardian" v-show="activeTab === 'events'" class="tab-panel">
           <h2>Events</h2>
           <p class="hint" style="margin-top: -6px;">
             Company events that this guardian's linked clients are enrolled in.
@@ -2330,135 +2276,21 @@
         />
 
         <UserCommunicationsTab
-          v-if="activeTab === 'communications'"
+          v-if="guardianPanelMounted('communications')" v-show="activeTab === 'communications'"
           :userId="userId"
           :userAgencies="userAgencies"
+          :recipient-only="isViewingGuardian"
           :preferred-club-agency-id="isSscMemberProfileMode ? selectedClubIdForMemberProfile : null"
           :viewOnly="!canEditUser"
         />
 
         <UserActivityLogTab
-          v-if="activeTab === 'activity'"
+          v-if="guardianPanelMounted('activity')" v-show="activeTab === 'activity'"
           :userId="userId"
         />
 
-        <!-- Guardian: Communication Preferences (replaces full staff preferences hub) -->
-        <div v-if="activeTab === 'preferences' && isViewingGuardian" class="tab-panel">
-          <h2>Communication preferences</h2>
-
-          <!-- Guardian-level delivery preferences (drives notifications) -->
-          <div class="card" style="padding: 16px; margin-bottom: 14px;">
-            <h3 style="margin: 0 0 6px;">Account notifications</h3>
-            <p class="hint" style="margin-top: 0;">
-              These delivery preferences apply to the guardian’s account across linked clients.
-            </p>
-
-            <div v-if="guardianDeliveryPrefsLoading" class="loading">Loading delivery settings…</div>
-            <div v-else>
-              <p v-if="guardianDeliveryPrefsError" role="alert" class="error">{{ guardianDeliveryPrefsError }}</p>
-              <p v-if="guardianDeliveryPrefsNotice" role="status">{{ guardianDeliveryPrefsNotice }}</p>
-
-              <div class="comm-pref-row">
-                <span class="comm-pref-label">In-app notifications</span>
-                <span class="comm-pref-value"><strong>Required</strong></span>
-              </div>
-              <div class="comm-pref-row">
-                <span class="comm-pref-label">Email notifications</span>
-                <span class="comm-pref-value">
-                  <label class="field checkbox" style="margin: 0;">
-                    <input type="checkbox" v-model="guardianDeliveryPrefs.email_enabled" :disabled="!canEditUser || guardianDeliveryPrefsSaving" />
-                    Enabled
-                  </label>
-                </span>
-              </div>
-              <div class="comm-pref-row">
-                <span class="comm-pref-label">SMS / text notifications</span>
-                <span class="comm-pref-value">
-                  <label class="field checkbox" style="margin: 0;">
-                    <input type="checkbox" v-model="guardianDeliveryPrefs.sms_enabled" :disabled="!canEditUser || guardianDeliveryPrefsSaving" />
-                    Enabled
-                  </label>
-                </span>
-              </div>
-              <p class="hint">Appointment texts require consent for the specific client. Review or record consent below.</p>
-
-              <div style="display:flex; gap: 10px; align-items:center; margin-top: 12px; flex-wrap: wrap;">
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="!canEditUser || guardianDeliveryPrefsSaving"
-                  @click="saveGuardianDeliveryPrefs"
-                >
-                  {{ guardianDeliveryPrefsSaving ? 'Saving…' : 'Save delivery settings' }}
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!canEditUser || guardianDeliveryPrefsSaving || guardianLinkedClientsLoading || guardianLinkedClients.length === 0"
-                  @click="applyGuardianDeliveryPrefsFromIntake"
-                  title="Use the latest intake communication preferences to set delivery toggles"
-                >
-                  Use intake answers
-                </button>
-                <span v-if="!guardianDeliveryPrefsExists" class="muted" style="font-size: 13px;">
-                  No saved guardian preferences yet — defaults shown until saved.
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <h3>Appointment text consent</h3>
-          <div v-if="guardianLinkedClientsLoading" class="loading">Loading linked clients…</div>
-          <div v-else-if="guardianLinkedClients.length === 0" class="empty-state">
-            <p>No linked clients — no communication preferences to display.</p>
-          </div>
-          <div v-else>
-            <div
-              v-for="client in guardianLinkedClients"
-              :key="`pref-client-${client.client_id}`"
-              class="card"
-              style="padding: 16px; margin-bottom: 14px;"
-            >
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                <div>
-                  <strong>
-                    <a href="" @click.prevent="openLinkedClient(client.client_id)" style="text-decoration: none;">
-                      {{ client.full_name || client.initials || `Client ${client.client_id}` }}
-                    </a>
-                  </strong>
-                  <span class="muted" style="margin-left: 8px; font-size: 13px;">{{ client.organization_name }}</span>
-                </div>
-              </div>
-
-              <div v-if="guardianCommPrefs[client.client_id]?.length">
-                <div
-                  v-for="pref in guardianCommPrefs[client.client_id]"
-                  :key="pref.key"
-                  class="comm-pref-row"
-                >
-                  <span class="comm-pref-label">{{ pref.label }}</span>
-                  <span class="comm-pref-value">{{ pref.value || '—' }}</span>
-                </div>
-              </div>
-              <div v-else-if="guardianCommPrefsLoading[client.client_id]" class="muted" style="font-size: 13px;">
-                Loading…
-              </div>
-              <div v-else class="muted" style="font-size: 13px;">
-                No communication preferences on record for this client.
-              </div>
-              <template v-if="['super_admin', 'admin', 'support'].includes(authStore.user?.role)">
-                <button type="button" class="btn btn-secondary btn-sm"
-                  style="margin-top: 12px"
-                  :aria-expanded="guardianConsentClientId === Number(client.client_id)"
-                  @click="guardianConsentClientId = guardianConsentClientId === Number(client.client_id) ? null : Number(client.client_id)">
-                  {{ guardianConsentClientId === Number(client.client_id) ? 'Close verbal consent' : 'Review or record verbal consent for reminder texts' }}
-                </button>
-                <ClientReminderTextConsent v-if="guardianConsentClientId === Number(client.client_id)"
-                  :key="`${userId}:${client.client_id}`" :client-id="Number(client.client_id)" :recipient-id="Number(userId)" />
-              </template>
-            </div>
-          </div>
-        </div>
+        <GuardianNotificationPreferences v-if="guardianPanelMounted('preferences') && isViewingGuardian" v-show="activeTab === 'preferences'" :guardian-id="Number(userId)" :clients="guardianLinkedClients" :can-edit="canEditUser" />
+        <GuardianFinancialWorkspace v-if="guardianPanelMounted('billing_insurance') && isViewingGuardian" v-show="activeTab === 'billing_insurance'" :guardian="user" :data="guardianFinancialData" :loading="guardianFinancialLoading" :error="guardianFinancialError" :can-edit="canEditUser" @refresh="loadGuardianFinancial(true)" />
 
         <div v-if="activeTab === 'preferences' && !isViewingGuardian" class="tab-panel">
           <h2>User Preferences</h2>
@@ -2734,6 +2566,8 @@ import { agencyCardStyle } from '../../utils/agencyCardScope.js';
 import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
 import { guardianNotificationDelivery } from '../../utils/guardianDirectory.js';
 import GuardianFamilyWorkspace from '../../components/admin/GuardianFamilyWorkspace.vue';
+import GuardianFinancialWorkspace from '../../components/admin/GuardianFinancialWorkspace.vue';
+import GuardianNotificationPreferences from '../../components/admin/GuardianNotificationPreferences.vue';
 import GuardianRelationshipRestore from '../../components/admin/GuardianRelationshipRestore.vue';
 import {useGuardianClientSearch} from '../../composables/useGuardianClientSearch.js';
 import ClientReminderTextConsent from '../../components/admin/ClientReminderTextConsent.vue';
@@ -2885,6 +2719,20 @@ const _initialProfileTab = resolveInitialProfileTab();
 const activeAffiliationSection = ref(_initialProfileTab.affiliationSection);
 // Initialize activeTab from query parameter or default to 'overview' (employee profiles)
 const activeTab = ref(_initialProfileTab.tab);
+const guardianVisitedTabs=ref(new Set([activeTab.value]));
+watch([activeTab,userId],([tab,id],[,previousId])=>{guardianVisitedTabs.value=id===previousId?new Set([...guardianVisitedTabs.value,tab]):new Set([tab]);});
+const guardianPanelMounted=tab=>activeTab.value===tab||(isViewingGuardian.value&&guardianVisitedTabs.value.has(tab));
+const guardianFinancialData=ref(null),guardianFinancialLoading=ref(false),guardianFinancialError=ref('');
+let guardianFinancialGeneration=0;
+async function loadGuardianFinancial(force=false){
+ if(!isViewingGuardian.value || guardianFinancialLoading.value || (!force&&guardianFinancialData.value))return;
+ const own=++guardianFinancialGeneration,target=userId.value;guardianFinancialLoading.value=true;guardianFinancialError.value='';
+ try{const {data}=await api.get(`/users/${target}/guardian-financial-workspace`,{skipGlobalLoading:true});if(own===guardianFinancialGeneration&&target===userId.value)guardianFinancialData.value=data;}
+ catch(e){if(own===guardianFinancialGeneration)guardianFinancialError.value=e.response?.data?.error?.message||'Insurance and billing information could not be loaded.';}
+ finally{if(own===guardianFinancialGeneration)guardianFinancialLoading.value=false;}
+}
+watch(userId,()=>{guardianFinancialGeneration++;guardianFinancialData.value=null;guardianFinancialLoading.value=false;guardianFinancialError.value='';});
+
 const pendingProfileSection = ref(_initialProfileTab.section || '');
 const profileSearchRoot = ref(null);
 const saving = ref(false);
@@ -3268,6 +3116,7 @@ const isViewingGuardian = computed(() => {
   const r = String(user.value?.role || '').trim().toLowerCase();
   return ['client_guardian','guardian'].includes(r);
 });
+watch([activeTab,isViewingGuardian],([tab,guardian])=>{if(guardian&&['account','billing_insurance'].includes(tab))void loadGuardianFinancial();});
 
 const isSscSstcTenant = computed(() => {
   const routeSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
@@ -3957,6 +3806,7 @@ const tabs = computed(() => {
       { id: 'account', label: 'Account' },
       { id: 'portal', label: 'Portal' },
       { id: 'linked_clients', label: 'Linked clients' },
+      { id: 'billing_insurance', label: 'Billing & insurance' },
       { id: 'documents', label: 'Documents' },
       { id: 'events', label: 'Events' },
       { id: 'communications', label: 'Communications' },
@@ -4638,30 +4488,20 @@ watch([activeTab, isViewingGuardian, userId], async ([t, viewingGuardian], [, , 
   // profile resolves as a guardian account.
   if (t === 'account' && viewingGuardian) {
     if (guardianLinkedClients.value.length === 0) await loadGuardianLinkedClients();
-    // Load insurance + communication prefs from linked client intakes
-    for (const client of guardianLinkedClients.value) {
-      loadGuardianCommPrefsForClient(client.client_id);
-    }
-    // Delivery settings are guardian-level (user_preferences)
-    await loadGuardianDeliveryPrefs();
+    void loadGuardianFinancial();
     return;
   }
   if ((t === 'linked_clients' || t === 'documents') && viewingGuardian) {
-    await loadGuardianLinkedClients();
+    if(!guardianLinkedClients.value.length&&!guardianHistoricalClients.value.length)await loadGuardianLinkedClients();
     return;
   }
-  if ((t === 'assignments' || t === 'preferences') && viewingGuardian) {
+  if (t === 'preferences' && viewingGuardian) {
     if (guardianLinkedClients.value.length === 0) await loadGuardianLinkedClients();
-    if (t === 'preferences') {
-      await loadGuardianDeliveryPrefs();
-      for (const client of guardianLinkedClients.value) {
-        loadGuardianCommPrefsForClient(client.client_id);
-      }
-    }
+
     return;
   }
   if (t === 'events' && viewingGuardian) {
-    await loadGuardianEvents();
+    if(!guardianEvents.value.length)await loadGuardianEvents();
     return;
   }
   if (t === 'season_history' && isSscMemberProfileMode.value) {
@@ -4689,13 +4529,7 @@ watch([isSscMemberProfileMode, selectedClubIdForMemberProfile], async ([enabled,
   await loadMemberSeasonHistory();
 });
 
-watch(guardianLinkedClients, (clients) => {
-  if (activeTab.value === 'preferences' && isViewingGuardian.value) {
-    for (const client of clients) {
-      loadGuardianCommPrefsForClient(client.client_id);
-    }
-  }
-});
+
 
 
 let guardianClientSearchTimer = null;
@@ -5444,8 +5278,9 @@ const fetchUser = async () => {
     return;
   }
   try {
-    loading.value = true;
-    userAgencies.value = [];
+    const initialLoad=!user.value||Number(user.value.id)!==Number(userId.value);
+    loading.value = initialLoad;
+    if(initialLoad)userAgencies.value = [];
     const response = await api.get(`/users/${userId.value}`);
     user.value = response.data;
 
@@ -10749,4 +10584,8 @@ onUnmounted(() => {
 .user-profile-view :deep(.form-group input:not([type="checkbox"]):not([type="radio"])),
 .user-profile-view :deep(.form-group select),
 .user-profile-view :deep(.form-group textarea) { box-sizing: border-box; max-width: 100%; font-size: 14px; }
+</style>
+
+<style scoped>
+.guardian-profile-page{--guardian-ink:#20354f;color:var(--guardian-ink);width:100%;max-width:1440px;margin-inline:auto}.guardian-profile-page .profile-content{min-height:620px}.guardian-profile-page .tab-content{width:100%;min-height:520px;padding:24px!important;background:var(--bg-card,#f7f9fc);border:1px solid var(--border,#dce5ed);border-radius:20px;box-sizing:border-box}.guardian-profile-page .tab-panel{width:100%;max-width:none;margin:0;box-sizing:border-box}.guardian-profile-page :deep(h2),.guardian-profile-page :deep(h3),.guardian-profile-page :deep(h4){color:var(--guardian-ink)}.guardian-profile-page :deep(p),.guardian-profile-page :deep(label){color:var(--text-primary,#334b61)}.guardian-profile-page :deep(input:not([type=checkbox])),.guardian-profile-page :deep(select),.guardian-profile-page :deep(textarea){border:1px solid #cad8e4;border-radius:10px;padding:11px 13px;background:var(--bg-card,#fff);font:inherit;color:var(--text-primary,#20354f);box-sizing:border-box;max-width:100%}.guardian-profile-page :deep(input[type=checkbox]){width:17px;height:17px;accent-color:#2f6558}.guardian-profile-page :deep(.card),.guardian-profile-page :deep(.guardian-contact-card),.guardian-profile-page :deep(.communication-card){border-radius:16px;border:1px solid var(--border,#dce5ed);box-shadow:0 2px 8px #17324d06;background:var(--bg-card,#fff)}.guardian-profile-page :deep(.btn){border-radius:10px;padding:10px 16px;font-weight:600}.guardian-profile-page :deep(.guardian-workspace),.guardian-profile-page :deep(.guardian-profile-documents),.guardian-profile-page :deep(.user-communications-tab),.guardian-profile-page :deep(.user-activity-log){width:100%;max-width:none;box-sizing:border-box;margin:0}.guardian-profile-page :deep(.filter-controls){display:flex;gap:14px;flex-wrap:wrap}.guardian-profile-page :deep(.form-select){min-height:42px}.guardian-profile-page .guardian-profile-heading{border-radius:20px;border:1px solid #dce5ed;background:var(--bg-card,#fff);padding:24px;margin-bottom:22px}.guardian-profile-page .profile-tabs{margin-bottom:18px}.guardian-profile-page :deep(.comm-pref-row){padding:14px 0;border-bottom:1px solid #e8eef4}@media(max-width:700px){.guardian-profile-page .tab-content{padding:16px!important}.guardian-profile-page .guardian-profile-heading{padding:18px}}
 </style>

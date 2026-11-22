@@ -93,7 +93,8 @@ export async function staffReminderConsentContext(user,clientId,{guardianId=null
         if (allowed && purpose === 'reminders') person.enabled = true;
       } else if (purpose === 'reminders' && person.enabled) state = 'verbal';
       person.textChoices[purpose] = {
-        state, at: ['on', 'opted_out'].includes(state) ? evidence.collectedAt || null : null
+        state, at: ['on', 'opted_out'].includes(state) ? evidence.collectedAt || null : null,
+        ...(/^inbound_(noremind|noprovider)$/.test(evidence.source||'') ? {keyword:evidence.source.slice(8).toUpperCase()} : {})
       };
     }
   }

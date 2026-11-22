@@ -221,6 +221,7 @@ api.interceptors.request.use(
       const isPublicIntakeApi =
         url.includes('/public-intake/') || url.startsWith('public-intake/');
       const isClientProfilePage = /\/admin\/clients\/\d+(?:\/|$)/.test(String(window.location.pathname || ''));
+      const isUserProfilePage = /\/admin\/users\/\d+(?:\/|$)/.test(String(window.location.pathname || ''));
       let currentHiringAgency = null;
       try { currentHiringAgency = JSON.parse(localStorage.getItem('currentAgency') || 'null'); } catch { /* no stored context */ }
       const isNluHiringForm = isNluPrehireWorkspace(window.location.pathname, currentHiringAgency);
@@ -234,7 +235,7 @@ api.interceptors.request.use(
         || /\/agencies\/\d+\/(users|departments)(\?|$)/.test(url)
         || url.includes('/supervision/providers')
         || /\/availability\//.test(url);
-      if (!config?.skipGlobalLoading && (isNluHiringForm || isPayrollWorkspacePath(window.location.pathname) || isClientProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
+      if (!config?.skipGlobalLoading && (isNluHiringForm || isPayrollWorkspacePath(window.location.pathname) || isClientProfilePage || isUserProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {
