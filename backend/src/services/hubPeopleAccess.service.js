@@ -5,7 +5,7 @@ function agencyStaffScope(agencyColumn, roles = "'admin','support'") {
   return `EXISTS (SELECT 1 FROM users hub_viewer WHERE hub_viewer.id=? AND (hub_viewer.role='super_admin' OR EXISTS (
     SELECT 1 FROM user_agencies m LEFT JOIN user_agency_access_profiles ap ON ap.user_id=m.user_id AND ap.agency_id=m.agency_id
     WHERE m.user_id=hub_viewer.id AND m.agency_id=${agencyColumn} AND m.is_active=1
-      AND COALESCE(NULLIF(ap.effective_role,''),NULLIF(m.agency_role,''),hub_viewer.role) IN (${roles}))))`;
+      AND CONVERT(COALESCE(NULLIF(ap.effective_role,''),NULLIF(m.agency_role,''),hub_viewer.role) USING utf8mb4) COLLATE utf8mb4_unicode_ci IN (${roles}))))`;
 }
 
 // Use the same predicate before LIMIT in searches and when opening a person by ID.
@@ -24,7 +24,7 @@ export function hubClientScope(userId, alias = 'c') {
         JOIN users hub_supervisee ON hub_supervisee.id = hub_supervision.supervisee_id
         WHERE hub_supervision.supervisor_id = ? AND hub_supervision.agency_id = ${c}.agency_id
           AND COALESCE(hub_supervisee.is_archived, 0) = 0
-          AND UPPER(COALESCE(hub_supervisee.status, '')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','TERMINATED_PENDING','ARCHIVED','DELETED')
+          AND CONVERT(UPPER(COALESCE(hub_supervisee.status, '')) USING utf8mb4) COLLATE utf8mb4_unicode_ci NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','TERMINATED_PENDING','ARCHIVED','DELETED')
           AND (${c}.provider_id = hub_supervision.supervisee_id OR EXISTS (
             SELECT 1 FROM client_provider_assignments hub_supervised_assignment
             WHERE hub_supervised_assignment.client_id = ${c}.id AND hub_supervised_assignment.provider_user_id = hub_supervision.supervisee_id AND hub_supervised_assignment.is_active = 1))))`,
@@ -79,7 +79,7 @@ export async function scopeHubPeople(people, userId) {
       (SELECT GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(p.first_name,''), ' ', COALESCE(p.last_name,''))) SEPARATOR ', ')
        FROM supervisor_assignments sa JOIN users p ON p.id = sa.supervisee_id
        WHERE sa.supervisor_id = ? AND sa.agency_id = c.agency_id
-         AND COALESCE(p.is_archived,0) = 0 AND UPPER(COALESCE(p.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','TERMINATED_PENDING','ARCHIVED','DELETED')
+         AND COALESCE(p.is_archived,0) = 0 AND CONVERT(UPPER(COALESCE(p.status,'')) USING utf8mb4) COLLATE utf8mb4_unicode_ci NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','TERMINATED_PENDING','ARCHIVED','DELETED')
          AND (c.provider_id = p.id OR EXISTS (SELECT 1 FROM client_provider_assignments cpa WHERE cpa.client_id = c.id AND cpa.provider_user_id = p.id AND cpa.is_active = 1))) AS supervisee_names
     FROM clients c LEFT JOIN client_guardians cg ON cg.client_id = c.id
       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cg.permissions_json, '$.relationshipRevoked')), 'false') <> 'true'

@@ -82,6 +82,10 @@ router.get('/feed', getCommunicationsFeed);
 router.get('/center-summary', getCommunicationsCenterSummary);
 
 // Unified Communications Inbox (Phase 1–4)
+router.get('/guardian-contacts/:guardianId/context', async (req,res,next) => {
+  try { res.set('Cache-Control','private, no-store'); res.json(await guardianContactContext({userId:req.user.id,guardianId:Number(req.params.guardianId),includePast:true})); }
+  catch (error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }
+});
 router.get('/guardian-contacts/:guardianId/conversations', async (req,res,next) => {
   try { res.set('Cache-Control','private, no-store'); res.json(await guardianCommunications.list({user:req.user,guardianId:Number(req.params.guardianId),query:req.query})); }
   catch (error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }

@@ -34,7 +34,7 @@ export function createGuardianCommunications(overrides = {}) {
   function recipient(guardian, alias = 'ml') {
     const phone = normalizeSmsPhone(guardian.phone);
     return { sql: `(JSON_UNQUOTE(JSON_EXTRACT(${alias}.metadata,'$.guardianUserId'))=?
-      OR (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${alias}.metadata,'$.guardianUserId')),'null') IN ('null','')
+      OR (CONVERT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${alias}.metadata,'$.guardianUserId')),'null') USING utf8mb4) COLLATE utf8mb4_unicode_ci IN ('null','')
         AND (EXISTS (SELECT 1 FROM client_parent_contact_events historical WHERE historical.source_type='sms' AND historical.source_id=${alias}.id AND historical.guardian_user_id=?)
           OR ? IS NOT NULL AND IF(UPPER(${alias}.direction)='INBOUND',${alias}.from_number,${alias}.to_number)=?)))`,
     params: [String(guardian.id), Number(guardian.id), phone, phone] };

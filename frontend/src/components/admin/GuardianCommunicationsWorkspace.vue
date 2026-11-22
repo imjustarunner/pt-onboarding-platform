@@ -1,6 +1,6 @@
 <template>
   <section class="guardian-messages" aria-label="Guardian communications">
-    <header class="workspace-heading"><div><p class="eyebrow">Conversations & client records</p><h2>Communications</h2><p>Email, text, and secure conversations with {{ contact?.name || 'this guardian' }}.</p></div><button type="button" class="quiet-button" :disabled="loading" @click="loadHistory()">Refresh history</button></header>
+    <header class="workspace-heading"><div><p class="eyebrow">Conversations & client records</p><h2>Communications</h2><p>Email, text, and secure conversations with {{ contact?.name || 'this guardian' }}.</p></div><button type="button" class="quiet-button" :disabled="loading || initialLoading" @click="refreshWorkspace()">Refresh history</button></header>
     <p v-if="initialLoading" role="status">Loading communication records…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="contact">
@@ -112,7 +112,26 @@ watch([channel,agencyId,selectedClientId],(next,previous)=>{
   smsReply.value=null;secureReply.value=null;
 });
 watch([channel,selectedClientId,numberId,smsReply],()=>{void checkSms();});
-watch(()=>props.guardianId,async()=>{const own=++generation;drafts.clear();pendingSecure.value=null;historyGeneration++;detailGeneration++;smsGeneration++;smsReady.value=null;smsError.value='';smsReply.value=null;secureReply.value=null;selectedIds.value=[];selectedClientId.value=null;historyClientId.value='';historyChannel.value='';contact.value=null;clients.value=[];threads.value=[];body.value='';subject.value='';emailContext.value=null;closeThread();agencyId.value='';error.value='';notice.value='';actionError.value='';initialLoading.value=true;busy.value=false;try{const {data}=await api.get(`${root()}/conversations`,{skipGlobalLoading:true});if(own!==generation||!alive)return;clients.value=data.clients||[];contact.value=data.guardian;agencyId.value=clients.value[0]?.agencyId||'';if(!agencyId.value){threads.value=data.conversations||[];nextCursor.value=data.nextCursor;}}catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Could not load guardian communications.';}finally{if(own===generation)initialLoading.value=false;}},{immediate:true});
+async function loadContact(){
+ const own=generation;initialLoading.value=true;error.value='';
+ try{
+  const {data}=await api.get(`${root()}/context`,{skipGlobalLoading:true});
+  if(own!==generation||!alive)return;
+  clients.value=data.clients||[];contact.value=data.guardian;
+  const nextAgency=clients.value[0]?.agencyId||'';
+  if(agencyId.value===nextAgency)void loadHistory();
+  else agencyId.value=nextAgency;
+ }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Could not load guardian contact details.';}
+ finally{if(own===generation)initialLoading.value=false;}
+}
+function refreshWorkspace(){if(contact.value)void loadHistory();else void loadContact();}
+watch(()=>props.guardianId,()=>{
+ generation++;drafts.clear();pendingSecure.value=null;historyGeneration++;detailGeneration++;smsGeneration++;
+ smsReady.value=null;smsError.value='';smsReply.value=null;secureReply.value=null;selectedIds.value=[];selectedClientId.value=null;
+ historyClientId.value='';historyChannel.value='';contact.value=null;clients.value=[];threads.value=[];nextCursor.value=null;historyError.value='';loading.value=false;
+ body.value='';subject.value='';emailContext.value=null;closeThread();agencyId.value='';error.value='';notice.value='';actionError.value='';busy.value=false;
+ void loadContact();
+},{immediate:true});
 function onEmailChanged(event){if(event.detail?.change==='delivery'&&contact.value)void loadHistory();}
 onMounted(()=>window.addEventListener('email-workspace-changed',onEmailChanged));
 onBeforeUnmount(()=>{alive=false;generation++;historyGeneration++;detailGeneration++;smsGeneration++;window.removeEventListener('email-workspace-changed',onEmailChanged);});

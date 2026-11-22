@@ -78,3 +78,25 @@ it('can cancel an undo-delayed secure send and restore its draft without sending
  expect(api.post).toHaveBeenCalledWith('/messages/hub/queued/70/undo',{},{skipGlobalLoading:true});
  expect(w.get('textarea').element.value).toBe('Keep this secure draft');expect(w.text()).toContain('Queued message cancelled');expect(api.post.mock.calls.filter(([url])=>url==='/messages/hub/send')).toHaveLength(1);w.unmount();
 });
+it('keeps contact details and all message channels available when history fails',async()=>{
+ api.get.mockImplementation(async url=>{
+  if(url.endsWith('/context'))return {data:{guardian,clients}};
+  if(url.endsWith('/conversations'))throw {response:{data:{error:{message:'History is temporarily unavailable.'}}}};
+  return {data:[]};
+ });
+ const w=await start();expect(w.text()).toContain('Demo Parent');expect(w.text()).toContain('History is temporarily unavailable.');
+ expect(button(w,'Email').exists()).toBe(true);expect(button(w,'Text (SMS)').exists()).toBe(true);expect(button(w,'Secure message').exists()).toBe(true);
+ await w.findAll('input[type=checkbox]')[0].setValue(true);await button(w,'Write email').trigger('click');
+ expect(w.get('.email-composer-stub').text()).toContain('parent@example.test · 4');w.unmount();
+});
+it('retries the contact load from Refresh history after an initial failure',async()=>{
+ let failContext=true;
+ api.get.mockImplementation(async url=>{
+  if(url.endsWith('/context') && failContext)throw {response:{data:{error:{message:'Contact details unavailable.'}}}};
+  return {data:{guardian,clients,conversations:[thread],nextCursor:null}};
+ });
+ const w=await start();expect(w.text()).toContain('Contact details unavailable.');expect(w.find('.contact-strip').exists()).toBe(false);
+ failContext=false;await button(w,'Refresh history').trigger('click');await flushPromises();
+ expect(w.text()).toContain('Demo Parent');expect(w.text()).not.toContain('Contact details unavailable.');expect(button(w,'Write email').exists()).toBe(true);
+ expect(api.get.mock.calls.filter(([url])=>url.endsWith('/context'))).toHaveLength(2);w.unmount();
+});
