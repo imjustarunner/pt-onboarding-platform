@@ -1,6 +1,7 @@
 import Appointment from '../models/Appointment.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import appointmentStaffTools from './appointmentStaffTools.service.js';
+import clinicalPool from '../config/clinicalDatabase.js';
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 export async function liveOutcomeContext(client, appointmentId, user) {
   const id = Number(appointmentId);
@@ -10,13 +11,16 @@ export async function liveOutcomeContext(client, appointmentId, user) {
   const appointment = await appointmentStaffTools.authorize(user, id);
   const participants = await Appointment.listParticipants(id);
   if (!participants.some(person => Number(person.clientId) === Number(client.id))) fail(404, 'Appointment not found for this client.');
+  // Group appointments store a primary session on the appointment. Resolve this
+  // client's session explicitly; reading an assessment never creates a session.
+  const [sessions] = await clinicalPool.execute('SELECT id FROM clinical_sessions WHERE appointment_id = ? AND client_id = ? AND agency_id = ? LIMIT 1', [id, client.id, appointment.agencyId]);
   const links = await ClientGuardian.listForClient(client.id);
   const guardians = links.filter(person => person.relationship_type !== 'self' && ['guardian', 'client_guardian'].includes(person.role)
     && Number(person.access_enabled) === 1 && Number(person.is_active) === 1 && !Number(person.is_archived) && !person.terminated_at
     && !['ARCHIVED', 'TERMINATED', 'INACTIVE'].includes(String(person.status || '').toUpperCase()) && !ClientGuardian.isNoView(person.permissions_json))
     .map(person => ({ id: Number(person.guardian_user_id), label: [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Guardian', relationship: person.relationship_title || 'Parent / guardian' }));
   return {
-    appointment: { id, agencyId: appointment.agencyId, clinicalSessionId: appointment.clinicalSessionId || null, startAt: appointment.startAt, endAt: appointment.endAt },
+    appointment: { id, agencyId: appointment.agencyId, clinicalSessionId: sessions[0]?.id || null, startAt: appointment.startAt, endAt: appointment.endAt },
     guardians
   };
 }
