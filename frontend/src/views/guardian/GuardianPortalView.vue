@@ -1,6 +1,6 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
-  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand" :brand-name="loading ? 'Loading your portal…' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="ft(portalAccountLabel)" :test-environment="isQaPortal" :logo-url="loading ? '' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="'help'" @navigate="navigatePortal">
+  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand && !schoolWorkspaceActive" :brand-name="loading ? 'Loading your portal…' : schoolWorkspaceActive ? 'SchoolCareBridge' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="ft(portalAccountLabel)" :test-environment="isQaPortal" :logo-url="loading ? '' : schoolWorkspaceActive ? '/assets/schoolcarebridge/wordmark.svg' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="schoolWorkspaceActive ? '#176b50' : auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="'help'" @navigate="navigatePortal">
     <template #context>
       <PortalMessageAlert v-if="!isSuperadminPreview && authStore.user?.id" :key="authStore.user.id" :spanish="familyLocale==='es'" @open="navigatePortal('family_messages')" />
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
@@ -62,6 +62,7 @@
                 <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Open Tasks & documents to review any pending enrollment, or ask the office about your access.') }}</p>
                 <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">{{ ft("School:") }} {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
                 <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{displayOrganization(context.agency_name)}} · {{ft(service.label)}}<small>{{service.provider_name || ft(service.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{displayOrganization(context.agency_name)}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
+                <button v-if="profileSchool(person)" type="button" class="school-connection-link" @click="chooseFamilyProfile(person.client_id,'schoolcarebridge',person.agency_id)"><img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />{{ profileSchool(person).name }} →</button>
               </article></div>
             </section>
 
@@ -837,7 +838,11 @@ const selectedChildAgencyId = computed(() => {
   return Number(portalAgency.value?.id || 0) || null;
 });
 
-const schoolAffiliations = computed(() => {const profile=allFamilyProfiles.value.find(p=>Number(p.client_id)===Number(selectedChildId.value));if(Number(profile?.agency_id)!==Number(currentAgencyId.value)&&!selectedService.value?.organization_id)return [];return (selectedChild.value?.school_affiliations||[]).filter(s=>!selectedService.value?.organization_id||Number(s.organization_id)===Number(selectedService.value.organization_id));});
+const schoolAffiliations = computed(() => {
+  const profile = allFamilyProfiles.value.find(person => Number(person.client_id) === Number(selectedChildId.value));
+  if (!familyProfileHasRecordAccess(profile)) return [];
+  return selectedChild.value?.school_affiliations || [];
+});
 const hasSchoolAffiliations = computed(() => schoolAffiliations.value.length > 0);
 const selectedSchoolId = ref(null);
 const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(s.organization_id) === Number(selectedSchoolId.value)) || schoolAffiliations.value[0] || null);
@@ -850,7 +855,7 @@ const learningOnlySelectedProfile = computed(() => selectedService.value
   : familyProfilesLearningOnly(selectedChild.value ? [selectedChild.value] : allFamilyProfiles.value));
 const learningOnlyPortalContext = computed(() => ['family','family_billing','family_messages','account','assistance','enroll'].includes(activePanel.value) ? familyProfilesLearningOnly(allFamilyProfiles.value) : learningOnlySelectedProfile.value);
 const guardianWorkspaceMode = ref('clinical');
-const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge');
+const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge' && hasSchoolAffiliations.value && selectedChildRecordAccess.value);
 function openAuricWellPanel(panel) { navigatePortal(panel); }
 watch(selectedChildId, () => { pendingEnrollmentState.value = { loaded: false, pending: false }; selectedSchoolId.value = null; migrationState.value = null; onboardingBillingNotice.value = false; });
 
@@ -939,7 +944,11 @@ const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family port
 const selectedFirstName = computed(() => String(selectedChild.value?.full_name || '').split(' — ')[0].trim().split(/\s+/)[0] || 'Client');
 const selectedPrograms = computed(() => programs.value.filter(p => [Number(selectedChild.value?.agency_id),Number(selectedChild.value?.organization_id)].includes(Number(p.id))));
 function displayOrganization(name) {return isQaPortal.value?String(name||'').replace(/\s*[—-]\s*DEMO$/i,''):name;}
-function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:displayOrganization(school.name),logo:school.logo_url} : person?.organization_type==='school' ? {name:displayOrganization(person.organization_name),logo:person.organization_logo_url} : null; }
+function profileSchool(person) {
+  if (!familyProfileHasRecordAccess(person)) return null;
+  const school = person?.school_affiliations?.find(item => item.status === 'current');
+  return school ? {name:displayOrganization(school.name), logo:school.logo_url} : null;
+}
 const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => familyProfileHasRecordAccess(person) && profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
 const selectedSchoolRelease = computed(() => schoolReleasePeople.value.find(person => Number(person.clientId) === Number(selectedChildId.value)) || null);
 function openSchoolRelease(clientId) {
@@ -1978,6 +1987,8 @@ watch(
 </script>
 
 <style scoped>
+.school-connection-link {display:flex;align-items:center;gap:10px;flex-wrap:wrap}.school-connection-link img {width:100px;height:auto}
+
 .family-language{display:flex;justify-content:flex-end;align-items:center;gap:8px;font-size:13px}.family-language select{padding:6px;border:1px solid #c7d6e6;border-radius:6px;background:white}
 .family-service-links{display:grid;gap:8px}.family-service-links small{display:block;font-weight:400;margin-top:4px}
 

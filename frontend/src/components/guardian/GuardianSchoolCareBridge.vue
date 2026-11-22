@@ -1,7 +1,7 @@
 <template>
   <section class="school-bridge" aria-label="SchoolCareBridge school connection">
     <header>
-      <img src="https://mh4kidz.org/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />
+      <img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />
       <div><p class="eyebrow">{{ ft("Your school connection") }}</p><h2>{{ ft(school?.name || 'SchoolCareBridge') }}</h2>
         <span v-if="school" class="school-status" :class="{ former: school.status === 'former' }">{{ ft(school.status === 'former' ? 'Former school' : 'Current school') }}</span>
       </div>
@@ -25,20 +25,20 @@
         </ul>
         <p v-else>{{ ft("No provider assignment is shared here yet.") }}</p>
       </section>
-      <section aria-label="School release of information">
+      <section v-if="school?.roi" aria-label="School release of information">
         <h3>{{ ft("School information release") }}</h3><strong>{{ ft(roiLabel) }}</strong>
         <p v-if="school?.roi?.signed_at">{{ ft("Signed") }} {{ formatSignedAt(school.roi.signed_at) }}</p>
         <p v-if="school?.roi?.expires_at">{{ ft("Expires") }} {{ formatDate(school.roi.expires_at) }}</p>
         <button v-if="school?.roi?.document_id" :disabled="downloading" @click="openRoi">{{ ft(downloading ? 'Opening…' : 'Open my signed release') }}</button>
         <p v-else-if="school?.roi?.status === 'completed'">{{ ft("Your available signed copies are in Tasks & documents.") }}</p>
-        <p v-else-if="['issued','in_progress','not_on_file'].includes(school?.roi?.status)">{{ ft("This release is assigned in Tasks & documents.") }}</p>
-        <button v-if="school?.status !== 'former' && ['issued','in_progress','not_on_file'].includes(school?.roi?.status)" type="button" @click="$emit('navigate', 'documents')">{{ ft("Open the assigned release") }}</button>
+        <p v-else-if="['issued','in_progress'].includes(school?.roi?.status)">{{ ft("This release is assigned in Tasks & documents.") }}</p>
+        <button v-if="school?.status !== 'former' && ['issued','in_progress'].includes(school?.roi?.status)" type="button" @click="$emit('navigate', 'documents')">{{ ft("Open the assigned release") }}</button>
         <p v-if="downloadError" role="alert">{{ downloadError }}</p>
       </section>
-      <section aria-label="School staff included">
-        <h3>{{ ft("School staff included") }}</h3>
-        <ul v-if="school?.staff?.length"><li v-for="(staff,index) in school.staff" :key="index"><strong>{{ staff.name }}</strong><span>{{ ft(staffLabel(staff)) }}</span></li></ul>
-        <p v-else>{{ ft("No school staff have been included on this record yet.") }}</p>
+      <section v-if="school?.staff_visible !== false" aria-label="School staff and sharing permissions">
+        <h3>{{ ft("School staff and sharing permissions") }}</h3>
+        <ul v-if="school?.staff?.length"><li v-for="(staff,index) in school.staff" :key="index"><strong>{{ staff.name }}</strong><span v-if="staff.role_title">{{ staff.role_title }}</span><span>{{ ft(staffLabel(staff)) }}</span></li></ul>
+        <p v-else>{{ ft("No school staff are listed for this school.") }}</p>
       </section>
     </div>
     <p>{{ ft("Other signed documents and waivers stay in their own sections in AuricWell. Your family’s records and care-team conversations remain available according to your sharing permissions after a school change.") }}</p>
@@ -72,8 +72,15 @@ function formatSignedAt(value) {
 function formatDate(value) { const date = new Date(String(value).slice(0,10) + 'T12:00:00'); return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString(); }
 function staffLabel(staff) {
   if (staff.status === 'former') return 'Historical school entry';
-  if (roiLabel.value === 'School release expired') return 'School release expired';
-  return ({roi_docs:'Selected goals and objectives may be shared',roi:'Provider communication is allowed',limited:'School coordination',packet:'No current sharing permission'})[staff.access_level] || 'School record';
+  return ({
+    roi_docs:'Selected goals and objectives may be shared',
+    roi:'Provider communication is allowed',
+    limited:'School coordination only',
+    expired:'School release expired',
+    denied:'Permission to share was denied',
+    none:'No current sharing permission',
+    packet:'No current sharing permission'
+  })[staff.access_state] || 'Sharing status unavailable';
 }
 async function openRoi() {
   const current = ++request; downloading.value = true; downloadError.value = '';

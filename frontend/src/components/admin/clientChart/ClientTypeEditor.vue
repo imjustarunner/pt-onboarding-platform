@@ -11,8 +11,9 @@
           <legend>Staff selections for this agency</legend>
           <div v-for="type in options" :key="type">
             <label><input type="checkbox" :checked="checked(type)" :disabled="requiredByLink(type)" @change="toggle(type,$event.target.checked)" /> {{ title(type) }}</label>
-            <label v-if="requiredByLink(type)" class="keep-type"><input v-model="draft" type="checkbox" :value="type" /> Keep after unlinking</label>
+            <label v-if="requiredByLink(type)" class="keep-type"><input v-model="draft" type="checkbox" :value="type" /> {{ type === 'clinical' && checked('school') ? 'Keep Clinical independently' : 'Keep after unlinking' }}</label>
           </div>
+          <small v-if="checked('school')">School includes Clinical and starts Auricwell setup.</small>
         </fieldset>
         <div v-for="(sources,type) in profile.evidence" :key="type" class="type-source">
           <strong>{{ title(type) }}</strong>
@@ -42,7 +43,8 @@ function manage(event, tab) {
   emit('manage', tab);
 }
 function requiredByLink(type) {
-  return props.profile.evidence[type]?.some(source => !source.minorDefault);
+  if (type === 'clinical' && checked('school')) return true;
+  return props.profile.evidence[type]?.some(source => !source.minorDefault && source.impliedBy !== 'school');
 }
 function checked(type) {
   return draft.value.includes(type) || requiredByLink(type) || type === 'dependent' && props.profile.minorDefault && useMinorDefault.value;

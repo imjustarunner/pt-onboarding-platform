@@ -71,3 +71,13 @@ it('labels the configured tutoring product with this student’s assigned Math/R
 it('never inherits a primary clinical classification into a linked agency without a service assignment',async()=>{
  expect((await readClientServiceContext({...input,agencyId:3},database())).serviceKinds).toEqual([]);
 });
+
+it('offers clinical codes for an owning School selection and respects its removal',async()=>{
+  const read = (selected, organization_type = null) => ({
+    execute:async sql => sql.startsWith('SELECT c.id') ? [[{id:7,agency_id:2,client_type:'school'}]]
+      : sql.includes('client_chart_type_selections') ? [[{selected_types:{types:selected},organization_type,ended_school_assignment:1}]] : [[]]
+  });
+  expect(await clinicalCodesForClientContext([clinical],{...input,clientIds:[7]},read(['school']))).toEqual([clinical]);
+  expect(await clinicalCodesForClientContext([clinical],{...input,clientIds:[7]},read([], 'school'))).toEqual([clinical]);
+  expect(await clinicalCodesForClientContext([clinical],{...input,clientIds:[7]},read([]))).toEqual([]);
+});

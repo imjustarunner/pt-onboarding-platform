@@ -5,7 +5,7 @@ import { terminalProfile, serviceStatus } from '../utils/clientServiceLifecycle.
 import { ageOn } from './guardianClinicalAccess.service.js';
 import { clientAgencyMembership } from './clientServiceEnrollment.service.js';
 import { canAccessHubClient } from './hubPeopleAccess.service.js';
-import { activeChartOrganizationJoin, organizationChartType } from './clientChartOrganizations.js';
+import { activeChartOrganizationJoin, endedSchoolAssignment, organizationChartType } from './clientChartOrganizations.js';
 
 export const chartTypes = ['clinical', 'learning', 'coaching', 'consulting', 'school', 'dependent'];
 const serviceTypes = { counseling: 'clinical', tutoring: 'learning', coaching: 'coaching', consultation: 'consulting' };
@@ -57,15 +57,19 @@ export function classifyClient({client, agencyId, services, organizations, links
   // Carry an older classification only on its owning chart until staff review it.
   if (Number(client.agency_id) === agencyId && ['clinical','learning'].includes(client.client_type)
       && !evidence[client.client_type] && !services.some(s => serviceTypes[s.service_kind] === client.client_type)) defaults.push(client.client_type);
+  if (Number(client.agency_id) === agencyId && client.client_type === 'school' && !evidence.school && !Number(client.ended_school_assignment)) defaults.push('school');
   const minorDefault = isCurrent && age !== null && age >= 0 && age < 18 && !establishedSelf;
   // A minor default remains dynamic as their birthday or portal changes. A staff
   // decision can explicitly include or suppress it without changing portal rights.
   const preferences = saved ? (typeof saved.selected_types === 'string' ? JSON.parse(saved.selected_types) : saved.selected_types) : null;
   const selected = preferences?.types ?? defaults;
   if (minorDefault && !preferences?.suppressMinorDefault) add('dependent', 'Current minor without an established personal portal', 'guardians', true);
+  if (selected.includes('school') || evidence.school) {
+    (evidence.clinical ||= []).push({label:'Included with School', tab:'assignments', impliedBy:'school'});
+  }
   const types = chartTypes.filter(type => selected.includes(type) || evidence[type]);
   let portalSetup = null;
-  if (types.includes('clinical') || types.includes('school')) {
+  if (types.includes('clinical')) {
     let state = 'confirm_ownership';
     if (personalAccounts > 1) state = 'review_identity';
     else if (establishedSelf) state = 'active';
@@ -94,7 +98,7 @@ export async function personalContactReviewReason(clientId, db = pool) {
 }
 
 export async function readChartTypes(clientId, agencyId, db = pool, {checkContact=true} = {}) {
-  const [[client]] = await db.execute(`SELECT c.agency_id,c.client_type,c.date_of_birth,c.email,c.status,cs.status_key AS client_status_key
+  const [[client]] = await db.execute(`SELECT c.agency_id,c.client_type,c.date_of_birth,c.email,c.status,${endedSchoolAssignment} AS ended_school_assignment,cs.status_key AS client_status_key
     FROM clients c LEFT JOIN client_statuses cs ON cs.id=c.client_status_id WHERE c.id=?`, [clientId]);
   if (!client) throw fail(404, 'Client not found.');
   const [services] = await db.execute('SELECT service_kind,label,is_active,service_status FROM client_service_enrollments WHERE client_id=? AND agency_id=?', [clientId, agencyId]);

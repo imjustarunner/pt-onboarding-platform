@@ -4064,8 +4064,9 @@ const {profile:chartTypes,error:chartTypeError,saving:savingChartTypes,load:load
 const fallbackTypes = computed(() => {
   if (activeChartAgencyId.value !== Number(props.client?.agency_id)) return [];
   const org = props.client?.organization_type, legacy = props.client?.client_type;
-  return [...new Set([org,legacy].filter(type => ['clinical','learning','school'].includes(type) &&
-    !(type === 'school' && org && org !== 'school' && legacy === 'school')))];
+  const types = new Set([org, legacy]);
+  if (types.has('school')) types.add('clinical');
+  return ['clinical','learning','school'].filter(type => types.has(type));
 });
 const activeTypes = computed(() => chartTypes.value?.types ?? fallbackTypes.value);
 const primaryRoleLabel = computed(() => {
@@ -4985,7 +4986,7 @@ const canEditPaperwork = computed(() => {
   return ['super_admin', 'admin', 'support', 'staff'].includes(r) && hasAgencyAccess.value;
 });
 
-const paperProcessingAvailable=computed(()=>canEditPaperwork.value&&(effectiveClientType.value==='school'||isPaperPacketClient(props.client)));
+const paperProcessingAvailable=computed(()=>canEditPaperwork.value&&(isSchoolClientType.value||isPaperPacketClient(props.client)));
 
 const clientPaperwork = useClientPaperwork(
   computed(() => props.client),

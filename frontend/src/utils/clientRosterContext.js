@@ -8,6 +8,7 @@ export function hasSchoolRosterContext(client = {}) {
 }
 
 export function hasOfficeService(client = {}) {
+  if (hasSchoolRosterContext(client)) return true;
   const officeTypes = ['clinical','learning','coaching','consulting'];
   if (client.roster_selected_types?.some(type => officeTypes.includes(type))) return true;
   const services = client.service_contexts || [];

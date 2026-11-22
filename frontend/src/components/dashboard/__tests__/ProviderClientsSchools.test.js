@@ -107,7 +107,7 @@ it('shows assigned clients while school and billing details are still loading', 
 
 it('counts an assigned Clinical and School client in both settings and once in All Clients',async()=>{
   api.get.mockImplementation(async url=>({data:url==='/clients'?[{id:220,initials:'MIXED',status:'ACTIVE',
-    organization_type:'clinical',organization_name:'Office Counseling',roster_organization_types:['clinical','school']}]:[]}));
+    organization_type:'clinical',organization_name:'Office Counseling',roster_organization_types:['school']}]:[]}));
   await render('tab=clients&clients=all');
   expect(wrapper.vm.currentSchoolBillingClients.map(row=>row.id)).toEqual([220]);
   expect(wrapper.vm.currentOfficeClients.map(row=>row.id)).toEqual([220]);

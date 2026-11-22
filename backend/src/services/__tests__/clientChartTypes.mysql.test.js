@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import mysql from 'mysql2/promise';
+import {attachGuardianSchoolAffiliations} from '../guardianSchoolAffiliations.service.js';
 import {readFileSync} from 'node:fs';
 import {classifyClient,readChartTypes,requireTypeAccess,saveChartTypes} from '../clientChartTypes.service.js';
 import {putClientContactEmail} from '../../controllers/clientContactEmail.controller.js';
@@ -39,7 +40,7 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
     state.db=mysql.createPool({socketPath,user:'root',database,connectionLimit:3});
     const DDL=[
       'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,provider_id INT,full_name VARCHAR(80),initials VARCHAR(12),client_type VARCHAR(24),email VARCHAR(255),date_of_birth DATE,status VARCHAR(20),client_status_id INT,contact_phone VARCHAR(32),identifier_code VARCHAR(24),session_sms_opt_in INT,guardian_portal_enabled INT,compliance_archived_at DATETIME)',
-      'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(24),is_active INT,is_archived INT,logo_path TEXT,logo_url TEXT)',
+      'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),organization_type VARCHAR(24),is_active INT,is_archived INT,logo_path TEXT,logo_url TEXT,slug VARCHAR(80),feature_flags JSON)',
       'CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(24),email VARCHAR(80),username VARCHAR(80),personal_email VARCHAR(80),status VARCHAR(24),is_active INT,is_archived INT,password_hash VARCHAR(80),temporary_password_hash VARCHAR(80),terminated_at DATETIME,status_expires_at DATETIME,first_name VARCHAR(20),last_name VARCHAR(20))',
       'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(24))',
       'CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(24),relationship_title VARCHAR(24),access_enabled INT,permissions_json JSON)',
@@ -60,7 +61,7 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
       'CREATE TABLE communication_messages(id INT,conversation_id INT,is_internal_note INT,send_status VARCHAR(24))'
     ];
     for(const sql of DDL)await state.db.query(sql);
-    const migration=readFileSync(new URL('../../../../database/migrations/1863_client_chart_type_selections.sql',import.meta.url),'utf8');
+    const migration=readFileSync(new URL('../../../../database/migrations/1864_client_chart_type_selections.sql',import.meta.url),'utf8');
     for(let run=0;run<2;run++)for(const sql of migration.split(';').filter(s=>s.trim()))await state.db.query(sql);
     for(const sql of [
       "INSERT INTO agencies(id,name,organization_type,is_active,is_archived) VALUES(2,'Practice','agency',1,0),(3,'Second practice','agency',1,0),(4,'Counseling and Psychotherapy','clinical',1,0),(5,'Pine School','school',1,0)",
@@ -76,6 +77,17 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
   afterAll(async()=>{
     await state.db?.end();
     if(server){await server.query(`DROP DATABASE IF EXISTS ${database}`);await server.end();}
+  });
+  it('inventories school and organization mappings before any type selections exist',async()=>{
+    await state.db.query("UPDATE agencies SET slug='counseling-and-psychotherapy-2' WHERE id=4");
+    await state.db.query("INSERT INTO agencies(id,name,organization_type,is_active,is_archived) VALUES(6,'Counseling and Psychotherapy','program',1,0)");
+    await state.db.query("INSERT INTO clients(id,agency_id,client_type,organization_id) VALUES(101,2,'school',5),(102,2,'school',NULL),(103,2,'basic_nonclinical',6)");
+    const sql=readFileSync(new URL('../../scripts/reviewSchoolClinicalRollout.sql',import.meta.url),'utf8');
+    const [one]=await state.db.query(sql), [two]=await state.db.query(sql);
+    expect(two).toEqual(one);
+    const counts=Object.fromEntries(Object.entries(one.find(row=>row.agency_id===2)).map(([key,n])=>[key,Number(n)]));
+    expect(counts).toMatchObject({active_school_assignments:1,legacy_school_charts:2,
+      review_legacy_school_without_active_assignment:1,verified_clinical_group_charts:1,review_organization_identity:1});
   });
   it('persists independent agency selections and audits them without editing historical enrollments',async()=>{
     expect((await readChartTypes(12,2)).types).toEqual(['clinical']);
@@ -93,6 +105,21 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
     expect((await readChartTypes(12,2)).types).toEqual(['clinical','consulting']);
     const [history]=await state.db.query('SELECT agency_id,changed_by_user_id,revision FROM client_chart_type_history');
     expect(history).toEqual([{agency_id:2,changed_by_user_id:1,revision:1}]);
+  });
+  it('keeps a legacy School chart clinical in its own agency and recalculates after the school ends',async()=>{
+    await state.db.query("INSERT INTO clients(id,agency_id,client_type,date_of_birth,status,client_status_id) VALUES(78,2,'school','1990-01-01','ACTIVE',1)");
+    await state.db.query('INSERT INTO client_agency_assignments VALUES(78,3,1)');
+    const read=()=>readChartTypes(78,2);
+    expect(await read()).toMatchObject({types:['clinical','school'],schools:[],portalSetup:{state:'add_email'}});
+    expect((await readChartTypes(78,3)).types).toEqual([]);
+    await state.db.query('INSERT INTO client_organization_assignments VALUES(78,5,1)');
+    expect(await read()).toMatchObject({types:['clinical','school'],schools:['Pine School'],selected:[]});
+    await state.db.query('UPDATE client_organization_assignments SET is_active=0 WHERE client_id=78');
+    expect((await read()).types).toEqual([]);
+    const saved=await saveChartTypes(admin,78,2,{types:['school'],suppressMinorDefault:false,revision:0});
+    expect(saved).toMatchObject({types:['clinical','school'],selected:['school'],schools:[],portalSetup:{portal:'auricwell'}});
+    const clinical=await saveChartTypes(admin,78,2,{types:['clinical'],suppressMinorDefault:false,revision:1});
+    expect(clinical.types).toEqual(['clinical']);
   });
   it('recalculates a minor’s default from actual account and relationship state',async()=>{
     await state.db.query("INSERT INTO clients(id,agency_id,date_of_birth,status,client_status_id) VALUES(13,2,DATE_SUB(CURDATE(), INTERVAL 12 YEAR),'ACTIVE',1)");
@@ -157,5 +184,37 @@ describe.skipIf(!socketPath)('chart services and client email on isolated MySQL'
     await linkConversationClients(99,filing.clientIds);
     expect((await listClientEmailThreads(12,2)).map(t=>t.id)).toEqual([99]);
     expect(await listClientEmailThreads(12,3)).toEqual([]);
+  });
+  it('shows a guardian the assigned school provider and each current staff member’s effective release',async()=>{
+    for (const sql of [
+      'ALTER TABLE clients ADD roi_expires_at DATE, ADD service_day VARCHAR(20)',
+      'ALTER TABLE agencies ADD phone_number VARCHAR(32)',
+      'ALTER TABLE users ADD work_email VARCHAR(100), ADD phone_number VARCHAR(32), ADD title VARCHAR(80)',
+      'ALTER TABLE client_organization_assignments ADD is_primary INT',
+      'ALTER TABLE client_provider_assignments ADD organization_id INT, ADD service_day VARCHAR(20)',
+      'CREATE TABLE soft_schedule_slots(client_id INT,provider_user_id INT,school_organization_id INT,start_time TIME,weekday INT,slot_index INT)',
+      'CREATE TABLE school_contacts(id INT,school_organization_id INT,email VARCHAR(80),full_name VARCHAR(80),role_title VARCHAR(80),is_scheduler INT)',
+      'CREATE TABLE client_school_roi_signing_links(id INT,client_id INT,school_organization_id INT,recipient_guardian_user_id INT,latest_intake_submission_id INT,status VARCHAR(20),signed_at DATETIME)',
+      'CREATE TABLE intake_submission_documents(id INT,client_id INT,intake_submission_id INT,signed_pdf_path TEXT,audit_trail JSON,signed_at DATETIME)',
+      'CREATE TABLE intake_submissions(id INT,intake_link_id INT,guardian_user_id INT)',
+      'CREATE TABLE intake_links(id INT,organization_id INT)',
+      'CREATE TABLE client_school_roi_guardian_decisions(client_id INT,school_organization_id INT,guardian_user_id INT,school_staff_user_id INT,intake_submission_id INT,signed_at DATETIME,expires_at DATETIME,decision VARCHAR(20))',
+      readFileSync(new URL('../../../../database/migrations/540_client_school_staff_roi_access.sql',import.meta.url),'utf8'),
+      "INSERT INTO users(id,first_name,role,is_active,status) VALUES(211,'Alex','school_staff',1,'ACTIVE'),(212,'Blair','school_staff',1,'ACTIVE'),(213,'Casey','school_staff',1,'ACTIVE'),(214,'Former','school_staff',1,'ACTIVE')",
+      "INSERT INTO user_agencies(user_id,agency_id,is_active) VALUES(211,5,1),(212,5,1),(213,5,1),(214,5,0)",
+      "INSERT INTO clients(id,organization_id,agency_id,roi_expires_at) VALUES(210,4,2,DATE_ADD(CURDATE(),INTERVAL 1 YEAR))",
+      'INSERT INTO client_organization_assignments(client_id,organization_id,is_active,is_primary) VALUES(210,5,1,0)',
+      "UPDATE users SET first_name='Pat' WHERE id=2",
+      "INSERT INTO client_provider_assignments(client_id,organization_id,provider_user_id,is_active,service_day) VALUES(210,5,2,1,'Tuesday')",
+      "INSERT INTO client_school_staff_roi_access(client_id,school_organization_id,school_staff_user_id,access_level) VALUES(210,5,211,'roi'),(210,5,212,'roi')",
+      "INSERT INTO client_school_roi_guardian_decisions VALUES(210,5,1,212,1,NOW(),DATE_ADD(NOW(),INTERVAL 1 YEAR),'none')"
+    ]) await state.db.query(sql);
+    const read = async()=> (await attachGuardianSchoolAffiliations([{client_id:210,agency_id:2}],
+      {guardianUserId:1,providerClientIds:[210],documentClientIds:[210]}))[0].school_affiliations[0];
+    const school=await read();
+    expect(school).toMatchObject({name:'Pine School',status:'current',providers:[{name:'Pat',service_day:'Tuesday'}]});
+    expect(school.staff.map(staff=>[staff.name,staff.access_state])).toEqual([['Alex','roi'],['Blair','denied'],['Casey','none']]);
+    await state.db.query('UPDATE clients SET roi_expires_at=DATE_SUB(CURDATE(),INTERVAL 1 DAY) WHERE id=210');
+    expect((await read()).staff[0].access_state).toBe('expired');
   });
 });

@@ -287,6 +287,9 @@ class ClientGuardian {
          c.organization_id,
          c.agency_id,
          c.client_type,
+         ${requiredClinicalScope ? `EXISTS (SELECT 1 FROM client_organization_assignments ca
+           JOIN agencies school ON school.id=ca.organization_id AND school.organization_type='school' AND school.is_active=1
+           WHERE ca.client_id=c.id AND ca.is_active=1) AS has_active_school,` : ''}
          c.guardian_portal_enabled,
          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(cg.permissions_json),cg.permissions_json,JSON_OBJECT()),'$.portalLanguage')),JSON_UNQUOTE(JSON_EXTRACT(c.onboarding_docs_json,'$.paperProcessing.consentReview.locale')),CASE WHEN LOWER(TRIM(c.preferred_language)) IN ('es','spanish','español') THEN 'es' WHEN LOWER(TRIM(c.preferred_language)) IN ('en','english') THEN 'en' ELSE NULL END,(SELECT il.language_code FROM intake_submissions s
            JOIN intake_links il ON il.id=s.intake_link_id
@@ -295,6 +298,7 @@ class ClientGuardian {
            ORDER BY s.submitted_at DESC,s.id DESC LIMIT 1),'en') AS portal_language,
          o.name AS organization_name,
          o.organization_type AS organization_type,
+         (o.is_active=1 AND COALESCE(o.is_archived,0)=0) AS organization_active,
          o.slug AS organization_slug,
          COALESCE(NULLIF(o.logo_url,''),CONCAT('/api/',NULLIF(TRIM(LEADING '/' FROM o.logo_path),''))) AS organization_logo_url,
          a.name AS agency_name,
@@ -320,7 +324,7 @@ class ClientGuardian {
         const { guardianClientPrivacy } = await import('../services/guardianClientPrivacy.service.js');
         if (await guardianClientPrivacy({ clientId: r.client_id, guardianUserId: uid })) continue;
       }
-      if (requiredClinicalScope && ['clinical','mental_health'].includes(String(r.client_type||r.organization_type||'').toLowerCase())) {
+      if (requiredClinicalScope && (['clinical','mental_health','school'].includes(r.client_type) || ['school','clinical'].includes(r.organization_type) || Number(r.has_active_school))) {
         const { clinicalAccess } = await import('../services/guardianClinicalAccess.service.js');
         const access = await clinicalAccess({agencyId:r.agency_id,clientId:r.client_id,userId:uid});
         if (!access.scopes.includes(requiredClinicalScope)) continue;

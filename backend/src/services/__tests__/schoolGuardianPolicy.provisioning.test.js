@@ -10,7 +10,7 @@ vi.mock('../messagesHub.service.js',()=>({sendHubPortalInvitation:m.portalInvite
 import PublicIntakeClientService from '../publicIntakeClient.service.js';
 import { upsertClientGuardian } from '../../controllers/clientGuardian.controller.js';
 const guardian = { id:8, email:'parent@example.test', first_name:'Pat', last_name:'Example', role:'client_guardian' };
-beforeEach(() => { vi.resetAllMocks(); m.agencies.mockResolvedValue([{id:2}]); delete process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED; m.execute.mockResolvedValue([[]]); m.create.mockResolvedValue(guardian); m.token.mockResolvedValue({token:'setup-secret'}); m.email.mockResolvedValue({sent:true});
+beforeEach(() => { vi.resetAllMocks(); m.agencies.mockResolvedValue([{id:2}]); delete process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED; m.execute.mockImplementation(async sql => sql.includes('AS ended_school_assignment') && sql.includes('client_status_key') ? [[{agency_id:2,client_type:'school'}]] : [[]]); m.create.mockResolvedValue(guardian); m.token.mockResolvedValue({token:'setup-secret'}); m.email.mockResolvedValue({sent:true});
   m.agency.mockImplementation(async id => Number(id) === 20 ? {id:20,organization_type:'school'} : {id:2,slug:'example',name:'Example Agency'});
   m.client.mockResolvedValue({ id:22,agency_id:2,organization_id:20,client_type:'school' });
 });
