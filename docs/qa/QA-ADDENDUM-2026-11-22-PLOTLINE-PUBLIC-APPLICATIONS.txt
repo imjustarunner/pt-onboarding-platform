@@ -28,7 +28,12 @@ Retest through the normal UI
 1. Record matching frontend/required backend/live backend releases and ready
    status. Recount retained synthetic applicants, clients and provider roles.
 2. Open Juniper's public careers page using its Copy public page action.
-   Retain live jobs 42 and 43. Do not republish/reset them merely for this test.
+   Engineering's final check found company 463's careers page still unpublished
+   (HTTP 404: This company's careers page is not published). As Jordan, review
+   the labeled synthetic company page and publish it through normal Careers
+   settings first. Capture that action/audit event and then reload its public
+   link. If the role cannot publish it, record the exact permission boundary.
+   Retain live jobs 42 and 43. Do not republish/reset those jobs for this test.
 3. Choose Apply for job 42. Capture the main Plotline careers application URL,
    company name, job title and Plotline — A People Operations Platform branding.
 4. In a fresh signed-out session verify the QA application has no CAPTCHA gate
