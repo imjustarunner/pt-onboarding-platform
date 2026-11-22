@@ -25,6 +25,10 @@ export function plotlineCareersUrl(slug) {
 export const plotlinePaths = {
   internal(value) {
     const path = String(value);
+    // Employer application links share the careers prefix with the product
+    // marketing page. Keep their company/job route before adapting marketing.
+    const application = path.match(/^\/careers\/([a-z0-9-]+)(?:\/jobs\/[1-9]\d*(?:\/apply)?)?\/?(?:[?#]|$)/);
+    if (application && isPlotlineCompanySlug(application[1])) return path;
     if (/^\/(setup|verify)(?:[/?#]|$)/.test(path) || /^\/(brand|company)\/[1-9]\d*(?:[/?#]|$)/.test(path)) return `/plotline${path}`;
     if (PLOTLINE_MARKETING_PAGES.some(page => new RegExp(`^/${page}(?:[/?#]|$)`).test(path))) return `/plotline${path}`;
     if (/^\/(?:[?#]|$)/.test(path)) return `/plotline${path.slice(1)}`;
