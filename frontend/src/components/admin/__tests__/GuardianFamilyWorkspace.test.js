@@ -14,7 +14,7 @@ it('shows contact, per-child portal status and real versus unavailable balances 
  expect(w.text()).toContain('(303) 555-0100');expect(w.text()).toContain('$45.00');expect(w.text()).toContain('Unavailable under current billing access');
  expect(w.text()).toContain('Portal access disabled');expect(w.text()).toContain('Password setup needed');
  expect(w.text()).not.toMatch(/Employee ID|Payroll|Email Signature|Licenses & Certifications/);
- await w.findAll('.profile-actions button')[1].trigger('click');await flushPromises();expect(w.find('.opened-child').text()).toBe('10 phi');w.unmount();
+ await w.findAll('.profile-actions button')[1].trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.find('.opened-child').exists()).toBe(true));expect(w.find('.opened-child').text()).toBe('10 phi');w.unmount();
 });
 it('limits portal invitation preview to the selected guardian while allowing selection of either child',async()=>{
  const w=mount(View,{props:{guardianId:20,canEdit:true},global:{stubs:{ClientPortalInviteDialog:{props:['recipientGuardianId','clientIds'],template:'<div class="invite">{{recipientGuardianId}}:{{clientIds.join()}}</div>'}}}});await flushPromises();
@@ -42,6 +42,7 @@ it('keeps a disabled relationship visible and opens its existing access controls
  expect(disabled.text()).toContain('its history is preserved');
  expect(disabled.text()).toContain('without reconnecting');
  await disabled.findAll('button').find(button=>button.text()==='Enable portal access').trigger('click');await flushPromises();
+ await vi.waitFor(()=>expect(w.find('.opened-child').exists()).toBe(true));
  expect(w.find('.opened-child').text()).toBe('11 portal');
  expect(api.put).not.toHaveBeenCalled();
  w.unmount();
