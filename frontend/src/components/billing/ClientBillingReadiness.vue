@@ -12,11 +12,18 @@
       <label>Verification evidence / agreed self-pay terms<textarea v-model="reason" required maxlength="2000" rows="3" /></label>
       <button :disabled="busy || !reason.trim()">{{ busy ? 'Saving…' : 'Save billing setup' }}</button>
     </form>
+    <PatientSharePreview
+      v-if="clientId"
+      :key="agencyId + ':' + clientId"
+      :agency-id="agencyId"
+      :client-id="clientId"
+    />
   </section>
 </template>
 <script setup>
 import {ref,watch} from 'vue';
 import api from '../../services/api';
+import PatientSharePreview from './PatientSharePreview.vue';
 const props=defineProps({agencyId:[Number,String],clients:{type:Array,default:()=>[]}});
 const profiles=ref([]),clientId=ref(null),coverageMode=ref('unknown'),setupStatus=ref('incomplete'),collectionPolicy=ref('manual'),reason=ref(''),busy=ref(false),error=ref(''),message=ref('');
 let generation=0;

@@ -39,9 +39,33 @@ describe('client billing portal',()=>{
   it('billing setup starts incomplete and saving readiness never invokes a charge endpoint',async()=>{
     api.post.mockResolvedValue({data:{setupStatus:'ready'}});
     const w=mount(ClientBillingReadiness,{props:{agencyId:1,clients:[{id:10,name:'Synthetic client'}]}});await flushPromises();await w.find('select').setValue('10');
-    expect(w.findAll('select').map(s=>s.element.value)).toEqual(['10','unknown','incomplete','manual']);
+    expect(w.findAll('select').slice(0,4).map(s=>s.element.value)).toEqual(['10','unknown','incomplete','manual']);
     await w.findAll('select')[1].setValue('insured');await w.findAll('select')[2].setValue('ready');await w.findAll('select')[3].setValue('verified_copay');await w.find('textarea').setValue('Verified coverage and agreed payment schedule');await w.find('form').trigger('submit');await flushPromises();
     expect(api.post).toHaveBeenCalledOnce();expect(api.post).toHaveBeenCalledWith('/family-billing/staff/clients/10/readiness',expect.objectContaining({agencyId:1,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'verified_copay'}));expect(w.text()).toContain('No card was charged');w.unmount();
+  });
+  it('previews a patient share in the selected client context and clears it when the amount changes', async () => {
+    api.post.mockResolvedValueOnce({ data: {
+      estimatedPatientCents: 6400, allowedAmountCents: 12000, deductibleAppliedCents: 5000,
+      coinsuranceBasisPoints: 2000, coinsuranceCents: 1400
+    } });
+    const workspace = mount(ClientBillingReadiness, { props: { agencyId: 1, clients: [{ id: 10, name: 'Synthetic client' }] } });
+    await flushPromises();
+    await workspace.find('select').setValue('10');
+    const section = workspace.get('.patient-share');
+    await section.get('input[type="date"]').setValue('2026-11-21');
+    await section.get('input[inputmode="decimal"]').setValue('120.00');
+    await section.get('select').setValue('matching_remittance');
+    await section.get('input[type="checkbox"]').setValue(true);
+    await section.get('form').trigger('submit');
+    await flushPromises();
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/family-billing/staff/clients/10/patient-share-preview', {
+      agencyId: 1, serviceDate: '2026-11-21', allowedAmountCents: 12000,
+      allowedAmountSource: 'matching_remittance', standardCostShareConfirmed: true
+    });
+    expect(section.text()).toContain('Estimated patient share $64.00');
+    await section.get('input[inputmode="decimal"]').setValue('125.00');
+    expect(section.text()).not.toContain('$64.00');
+    workspace.unmount();
   });
 });
 

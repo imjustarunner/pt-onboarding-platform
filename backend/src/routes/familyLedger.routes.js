@@ -16,6 +16,7 @@ import { requireBillingStaff, transaction } from '../services/familyLedger/polic
 import { adjustBalance,createReceivable,setBillingRule,allocateBalance,updateBalanceReview } from '../services/familyLedger/receivables.js';
 import { payAllocation,recordCash,reconcileSavedPayment } from '../services/familyLedger/payments.js';
 import { saveReadiness } from '../services/familyLedger/readiness.js';
+import { previewPatientShare } from '../services/familyLedger/patientSharePreview.js';
 import { runDueCopays } from '../services/familyLedger/copays.js';
 import { refundPayment } from '../services/familyLedger/refunds.js';
 import { receiptWorkspace,requestPaymentRefund,listRefundRequests,resolveRefundRequest } from '../services/familyLedger/refundRequests.js';
@@ -98,6 +99,11 @@ router.get('/staff/collection-handoff',run(async(req,res)=>res.json(await handof
 router.post('/staff/collection-handoff',limited,run(async(req,res)=>res.json(await transferToCollections({...req.body,user:req.user,agencyId:context(req).agencyId}))));
 router.get('/staff/collection-handoff/:id',run(async(req,res)=>res.json(await collectionCaseDetail({user:req.user,agencyId:context(req).agencyId,caseId:positiveId(req.params.id)}))));
 router.post('/staff/clients/:id/readiness',run(async(req,res)=>res.json(await saveReadiness({...req.body,...context(req),clientId:positiveId(req.params.id)}))));
+router.post('/staff/clients/:id/patient-share-preview', run(async (req, res) => {
+ const { serviceDate, allowedAmountCents, allowedAmountSource, standardCostShareConfirmed } = req.body || {};
+ const clientId = positiveId(req.params.id);
+ res.json(await previewPatientShare({ ...context(req), clientId, serviceDate, allowedAmountCents, allowedAmountSource, standardCostShareConfirmed }));
+}));
 router.get('/staff/readiness',run(async(req,res)=>{const [profiles]=await pool.execute('SELECT client_id AS clientId,coverage_mode AS coverageMode,setup_status AS setupStatus,collection_policy AS collectionPolicy,automatic_from AS automaticFrom FROM client_billing_readiness WHERE agency_id=?',[context(req).agencyId]);res.json({profiles});}));
 router.post('/staff/copays/collect-due',limited,run(async(req,res)=>res.json({results:await runDueCopays(context(req))})));
 router.post('/staff/payments/:id/reconcile',limited,run(async(req,res)=>res.json(await reconcileSavedPayment({...context(req),paymentId:positiveId(req.params.id)}))));
