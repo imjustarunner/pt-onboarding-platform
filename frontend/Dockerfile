@@ -55,7 +55,7 @@ RUN echo "VITE_API_URL=$VITE_API_URL" && \
     node -v && npm -v && \
     ls -la && ls -la node_modules/@vitejs || true
 
-RUN npm run test -- --config vitest.release-recovery.config.js
+RUN npm run test -- --config vitest.image.config.js
 
 # Build the application (install used --ignore-scripts so postinstall does not double-build)
 RUN npm run build || ( \

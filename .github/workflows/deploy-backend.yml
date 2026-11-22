@@ -15,6 +15,7 @@ on:
       - '.dockerignore'
       - 'scripts/build-backend-image*'
       - 'scripts/check-production-release*.mjs'
+      - 'scripts/check-paired-release*.mjs'
       - '.github/workflows/deploy-backend.yml'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
@@ -613,6 +614,7 @@ jobs:
             echo "❌ App never reached loaded phase after ~5 minutes. Failing deploy."
             exit 1
           fi
+          node scripts/check-paired-release.mjs frontend-staged "$GITHUB_SHA"
           node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" \
             --to-revisions="${CANDIDATE_REVISION}=100"

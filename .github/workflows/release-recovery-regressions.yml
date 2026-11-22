@@ -24,4 +24,4 @@ jobs:
       - run: npm run test -- --config vitest.release-recovery.config.js
         working-directory: frontend
       - run: ./frontend/node_modules/.bin/vitest run --config backend/vitest.release-recovery.config.js
-      - run: node --test scripts/check-production-release.test.mjs
+      - run: node --test scripts/check-production-release.test.mjs scripts/check-paired-release.test.mjs

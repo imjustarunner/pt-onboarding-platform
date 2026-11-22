@@ -8,6 +8,9 @@ contains the commits identified by both current production version endpoints.
 The check repeats before traffic changes. Missing or unverifiable history stops
 the deployment. Frontend traffic targets the exact staged revision, not latest.
 Per-service deployment queues use a fixed production concurrency group.
+The backend waits for the same-commit frontend candidate to be staged before
+promotion. The frontend waits for that backend commit to report ready before
+its traffic changes. A failed image build leaves the prior production pair live.
 
 Do not bypass a rejected source check by changing version metadata to name
 unrelated application code. Merge the actual live source, validate the combined

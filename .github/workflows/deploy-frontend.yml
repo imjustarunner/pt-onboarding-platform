@@ -12,6 +12,7 @@ on:
       - 'database/clinical_migrations/**'
       - 'scripts/check-school-demo-release.test.mjs'
       - 'scripts/check-production-release*.mjs'
+      - 'scripts/check-paired-release*.mjs'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
@@ -131,10 +132,13 @@ jobs:
           set -euo pipefail
           CANDIDATE_SUFFIX="g${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}"
           CANDIDATE_REVISION="${SERVICE_NAME}-${CANDIDATE_SUFFIX}"
+          CANDIDATE_TAG="release-${GITHUB_SHA:0:12}"
+          echo "CANDIDATE_TAG=$CANDIDATE_TAG" >> "$GITHUB_ENV"
           node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --no-traffic \
+            --tag "$CANDIDATE_TAG" \
             --revision-suffix "$CANDIDATE_SUFFIX" \
             --platform managed \
             --region $REGION \
@@ -146,6 +150,7 @@ jobs:
             --max-instances=10 \
             --min-instances=0
 
+          node scripts/check-paired-release.mjs backend-live "$GITHUB_SHA"
           # Verify again after the build; a concurrent release must never be overwritten.
           node scripts/check-production-release.mjs "$GITHUB_SHA"
           gcloud run services update-traffic $SERVICE_NAME \
@@ -155,7 +160,11 @@ jobs:
       - name: Protect production image from registry cleanup
         run: |
           set -euo pipefail
-          DEPLOYED_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.latestReadyRevisionName)')
+          DEPLOYED_REVISION="${SERVICE_NAME}-g${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}"
           DEPLOYED_IMAGE=$(gcloud run revisions describe "$DEPLOYED_REVISION" --region "$REGION" --format='value(status.imageDigest)')
           test -n "$DEPLOYED_IMAGE"
           gcloud artifacts docker tags add "$DEPLOYED_IMAGE" "$IMAGE_NAME:production" --quiet
+
+      - name: Remove temporary candidate URL
+        if: always() && env.CANDIDATE_TAG != ''
+        run: gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" --remove-tags="$CANDIDATE_TAG"
