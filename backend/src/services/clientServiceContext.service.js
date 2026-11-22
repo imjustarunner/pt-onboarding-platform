@@ -36,9 +36,17 @@ export async function requireClientServiceKind({ agencyId, clientIds = [], provi
   }
 }
 
+export function assertClinicalInsuranceService(businessType, ...modes) {
+  if (modes.some(mode => /insurance|medicaid|medicare/i.test(String(mode || ''))) &&
+      !['mental_health','healthcare','clinical','counseling'].includes(businessType || 'mental_health')) {
+    throw fail('Insurance billing requires a Clinical service.');
+  }
+}
+
 /** Catalog identity, rather than a CPT prefix or the provider's other agency, defines the offering. */
-export async function assertAppointmentServiceContext({ agencyId, clientIds, providerId, service, businessType, serviceCode, addonServiceCodes = [] }, db = pool) {
+export async function assertAppointmentServiceContext({ agencyId, clientIds, providerId, service, businessType, serviceCode, settlementMode, addonServiceCodes = [] }, db = pool) {
   const kind = appointmentServiceKind({ businessType });
+  assertClinicalInsuranceService(businessType, service?.billingMethod, settlementMode);
   if (service?.serviceCode && serviceCode && String(service.serviceCode).toUpperCase() !== String(serviceCode).toUpperCase()) {
     throw fail('The service code does not belong to the selected agency service. Choose its configured code.');
   }

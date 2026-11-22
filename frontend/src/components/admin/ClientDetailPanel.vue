@@ -2181,7 +2181,7 @@
                   <div v-if="hasTenantCategory(a.agency_id, 'program')" class="casg-tenant-section">
                     <h5 class="casg-tenant-section__title">Programs</h5>
                     <p class="casg-card-hint" style="margin-bottom: 8px;">
-                      Optional enrollments, such as a Tutoring + Therapy program. Counseling services do not require a program.
+                      Current program enrollments for this agency.
                     </p>
                     <div v-if="affiliationsLoading" class="loading">Loading…</div>
                     <div v-else>
@@ -2326,7 +2326,7 @@
                 </article>
               </div>
 
-              <details v-if="pastAffiliations.length" class="casg-past-affiliations"><summary>Completed programs and past affiliations ({{ pastAffiliations.length }})</summary><ul><li v-for="row in pastAffiliations" :key="row.organization_id">{{ chartOrganizationLabel(row.organization_name, row.organization_type) }} · Completed</li></ul></details>
+              <ProgramParticipation :client-id="Number(client.id)" :agency-id="activeChartAgencyId" :refresh-key="programHistoryRevision" />
               <div class="casg-add-row" style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Add agency membership</label>
@@ -2889,6 +2889,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide, de
 const ClientOnboardingChecklistPanel = defineAsyncComponent(() => import('../clients/ClientOnboardingChecklistPanel.vue'));
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import ProgramParticipation from '../ProgramParticipation.vue';
 import api from '../../services/api';
 import { openEnrollmentReceipt, openOperationalDocument } from '../../utils/openEnrollmentReceipt.js';
 import { canAccessMedicalBilling, canAccessClientAccountSupport } from '../../config/medicalBillingAccess';
@@ -3543,7 +3544,7 @@ const programAffiliationPills = computed(() => {
     const typeLabel = t === 'school'
       ? 'School'
       : t === 'learning'
-        ? 'Learning program'
+        ? 'Learning'
         : t === 'program'
           ? 'Program'
           : t === 'clinical'
@@ -4052,7 +4053,7 @@ const docStatusDetailsEl = ref(null);
 
 // Multi-org + multi-provider assignments (backoffice only)
 const affiliations = ref([]);
-const pastAffiliations = ref([]);
+const programHistoryRevision = ref(0);
 /** Affiliated orgs for the active chart tenant (used to gate learning surfaces). */
 const chartAgencyAffiliatedOrgs = ref([]);
 
@@ -5937,7 +5938,7 @@ const fetchClientAffiliations = async () => {
     if (clientId !== Number(props.client?.id)) return;
     const rows = Array.isArray(r.data) ? r.data : [];
     affiliations.value = rows.filter(row => Number(row.is_active) === 1);
-    pastAffiliations.value = rows.filter(row => Number(row.is_active) === 0);
+    programHistoryRevision.value++;
     if (!rosterAffiliations.value.some(row => Number(row.organization_id) === Number(selectedAssignmentOrgId.value))) selectedAssignmentOrgId.value = '';
     if (canEditAccount.value && !selectedAssignmentOrgId.value) {
       const primary = rosterAffiliations.value.find((a) => a?.is_primary) || rosterAffiliations.value[0] || null;
@@ -5950,7 +5951,6 @@ const fetchClientAffiliations = async () => {
       assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
     }
     affiliations.value = [];
-    pastAffiliations.value = [];
     if (canEditAccount.value) overviewProviders.value = [];
   } finally {
     if (clientId === Number(props.client?.id)) affiliationsLoading.value = false;

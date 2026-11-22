@@ -1,4 +1,4 @@
-ALTER TABLE agencies ADD COLUMN slug VARCHAR(100), ADD COLUMN logo_url VARCHAR(255), ADD COLUMN logo_path VARCHAR(255), ADD COLUMN color_palette JSON, ADD COLUMN feature_flags JSON;
+ALTER TABLE agencies ADD COLUMN slug VARCHAR(100), ADD COLUMN logo_url VARCHAR(255), ADD COLUMN logo_path VARCHAR(255), ADD COLUMN color_palette JSON, ADD COLUMN feature_flags JSON, ADD COLUMN organization_type VARCHAR(32) DEFAULT 'agency';
 ALTER TABLE users ADD COLUMN email VARCHAR(255), ADD COLUMN work_email VARCHAR(255), ADD COLUMN status VARCHAR(50) DEFAULT 'ACTIVE';
 UPDATE users SET email=CONCAT('fixture-',id,'@example.invalid');
 UPDATE agencies SET slug=CONCAT('fixture-',id);
@@ -13,21 +13,28 @@ ALTER TABLE learning_session_charges ADD COLUMN due_at DATETIME, ADD COLUMN serv
 ALTER TABLE clinical_claims ADD COLUMN client_id INT, ADD COLUMN is_deleted TINYINT DEFAULT 0, ADD COLUMN clinical_session_id BIGINT, ADD COLUMN claim_status VARCHAR(40) DEFAULT 'READY', ADD COLUMN claimmd_submitted_at DATETIME, ADD COLUMN claim_lifecycle VARCHAR(40) DEFAULT 'draft';
 CREATE TABLE clinical_sessions(id BIGINT PRIMARY KEY,agency_id INT,client_id INT,scheduled_start_at DATETIME,encounter_status VARCHAR(40));
 ALTER TABLE learning_session_charges MODIFY learning_program_session_id BIGINT NOT NULL DEFAULT 80;
-CREATE TABLE learning_program_classes(id INT PRIMARY KEY,agency_id INT,class_name VARCHAR(200));
+CREATE TABLE learning_program_classes(id INT PRIMARY KEY,agency_id INT,class_name VARCHAR(200),organization_id INT,
+  starts_at DATETIME,ends_at DATETIME,enrollment_opens_at DATETIME,enrollment_closes_at DATETIME,status VARCHAR(16) DEFAULT 'active',
+  is_active TINYINT DEFAULT 1,registration_eligible TINYINT DEFAULT 1,medicaid_eligible TINYINT DEFAULT 0,cash_eligible TINYINT DEFAULT 0);
+CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active TINYINT);
 CREATE TABLE booking_packages(id INT PRIMARY KEY,agency_id INT,business_type VARCHAR(50),learning_program_class_id INT, name VARCHAR(255),description TEXT, package_type VARCHAR(40), session_count INT,price_cents INT,is_active TINYINT,is_public TINYINT,consume_on VARCHAR(20),allowed_tenant_service_ids_json JSON,domain_config_json JSON);
 CREATE TABLE booking_package_entitlements(id INT PRIMARY KEY AUTO_INCREMENT,agency_id INT,client_id INT,package_id INT,learning_program_class_id INT,business_type VARCHAR(50),sessions_purchased INT,sessions_remaining INT,sessions_reserved INT,payment_status VARCHAR(30),status VARCHAR(30),purchaser_user_id INT,created_by_user_id INT,activated_at DATETIME);
 CREATE TABLE booking_package_ledger(id INT PRIMARY KEY AUTO_INCREMENT,agency_id INT,entitlement_id INT,client_id INT,direction VARCHAR(30),quantity INT,reason_code VARCHAR(60),created_by_user_id INT);
 ALTER TABLE booking_package_entitlements ADD COLUMN pricing_snapshot_json JSON, ADD COLUMN bonus_sessions_remaining INT DEFAULT 0, ADD COLUMN free_misses_remaining INT DEFAULT 0;
 ALTER TABLE booking_package_ledger ADD COLUMN metadata_json JSON;
 CREATE TABLE learning_class_client_memberships(learning_class_id INT,client_id INT,membership_status VARCHAR(30),joined_at DATETIME,role_label VARCHAR(100),notes TEXT,created_by_user_id INT,removed_at DATETIME,UNIQUE(learning_class_id,client_id));
-CREATE TABLE company_events(id INT PRIMARY KEY,agency_id INT,organization_id INT,registration_eligible TINYINT,medicaid_eligible TINYINT,cash_eligible TINYINT);
+CREATE TABLE company_events(id INT PRIMARY KEY,agency_id INT,organization_id INT,registration_eligible TINYINT,medicaid_eligible TINYINT,cash_eligible TINYINT,
+  title VARCHAR(200),starts_at DATETIME,ends_at DATETIME,recurrence_json JSON,is_active TINYINT DEFAULT 1,program_cost_billing_mode VARCHAR(16),
+  program_cost_dollars DECIMAL(8,2),per_session_cost_dollars DECIMAL(8,2));
+CREATE TABLE company_event_session_dates(company_event_id INT,starts_at DATETIME,ends_at DATETIME);
+CREATE TABLE skill_builders_event_sessions(company_event_id INT,starts_at DATETIME,ends_at DATETIME);
 CREATE TABLE skills_groups(id INT PRIMARY KEY,agency_id INT,organization_id INT,company_event_id INT);
 CREATE TABLE company_event_clients(company_event_id INT,agency_id INT,client_id INT,enrolled_by_user_id INT,is_active TINYINT,UNIQUE(company_event_id,client_id));
 INSERT INTO learning_services VALUES(70,1,'COACHING');
 INSERT INTO learning_program_sessions VALUES(80,1,70,'PAY_PER_EVENT');
-INSERT INTO learning_program_classes VALUES(90,1,'Synthetic coaching class');
+INSERT INTO learning_program_classes(id,agency_id,organization_id,class_name) VALUES(90,1,1,'Synthetic coaching class');
 INSERT INTO booking_packages VALUES(91,1,'coaching',90,'Synthetic package',NULL,'prepaid_bundle',4,4000,1,1,'reserve',NULL,NULL);
-INSERT INTO company_events VALUES(92,1,NULL,1,0,1);
+INSERT INTO company_events(id,agency_id,organization_id,registration_eligible,medicaid_eligible,cash_eligible) VALUES(92,1,NULL,1,0,1);
 CREATE TABLE practitioner_client_packets(id INT PRIMARY KEY,agency_id INT,client_id INT,selected_package_id INT,selected_payment_mode VARCHAR(30),status VARCHAR(30),offered_package_ids_json JSON,updated_at DATETIME);
 CREATE TABLE practitioner_session_packages(id INT PRIMARY KEY,agency_id INT,name VARCHAR(255),session_count INT,price_cents INT,is_active TINYINT);
 CREATE TABLE practitioner_client_package_entitlements(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,client_id INT,package_id INT,packet_id INT,sessions_purchased INT,sessions_remaining INT,free_rebooks_remaining INT,payment_mode VARCHAR(30),payment_status VARCHAR(30),installment_state_json JSON,status VARCHAR(30),activated_at DATETIME);

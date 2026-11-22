@@ -95,6 +95,7 @@
                 <div class="panel-title">{{ ft("Upcoming registrations") }}</div>
                 <div class="panel-subtitle">{{ ft("Choose from programs available to your family.") }}</div>
               </div>
+              <ProgramParticipation v-if="!isSuperadminPreview" guardian :client-id="Number(selectedChildId)" :agency-id="Number(selectedChildAgencyId)" :refresh-key="programHistoryRevision" />
               <div class="reg-catalog-head">
                 <div>
                   <div class="reg-catalog-title">{{ ft("Open events and enrollments") }}</div>
@@ -106,12 +107,17 @@
                   {{ regCatalogLoading ? ft("Loading…") : ft("Refresh") }}
                 </button>
               </div>
+              <p v-if="registrationNotice" role="status">{{ registrationNotice }}</p>
               <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
               <ul v-else-if="regCatalogItems.length" class="reg-catalog-list">
                 <li v-for="item in regCatalogItems" :key="`panel-${item.kind}-${item.id}`" class="reg-catalog-row">
                   <div class="reg-catalog-meta">
                     <div class="reg-catalog-item-title">{{ item.title }}</div>
                     <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
+                    <div v-if="item.unitCents || item.priceCents" class="muted small">
+                      <template v-if="item.priceMode==='per_session'">${{ (item.unitCents/100).toFixed(2) }} per session · {{ item.sessionCount }} scheduled</template>
+                      <span v-if="item.priceCents"> ${{ (item.priceCents/100).toFixed(2) }} registration total</span>
+                    </div>
                     <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
                       {{ registrationPayerLine(item) }}
                     </div>
@@ -120,7 +126,7 @@
                     </div>
                   </div>
                   <div class="reg-catalog-actions">
-                    <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">{{ ft("Register") }}</button>
+                    <button type="button" class="btn btn-primary btn-sm" :disabled="isSuperadminPreview" @click="openRegistrationEnroll(item)">{{ ft("Register") }}</button>
                   </div>
                 </li>
               </ul>
@@ -546,16 +552,23 @@
           <p v-if="registrationEnrollTarget" class="muted" style="margin-top:0;">
             <strong>{{ registrationEnrollTarget.title }}</strong>
             · {{ registrationEnrollTarget ? registrationKindLabel(registrationEnrollTarget.kind) : '' }}
+            <span v-if="registrationEnrollTarget.priceCents"> · ${{ (registrationEnrollTarget.priceCents/100).toFixed(2) }} per participant</span>
           </p>
+          <a v-if="registrationEnrollTarget?.linkedIntakePublicKey" :href="buildPublicIntakeUrl(registrationEnrollTarget.linkedIntakePublicKey)">Complete the registration form for another participant</a>
           <div v-if="registrationEnrollError" class="error" style="font-size: 13px; margin-bottom: 10px;">{{ registrationEnrollError }}</div>
-          <p v-if="!registrationEnrollDependents.length" class="hint">{{ ft("No dependents linked for this agency. Ask your organization to link a child or use intake to add one.") }}</p>
+          <p v-if="!registrationEnrollDependents.length" class="hint">{{ ft("No eligible participants for this registration.") }}</p>
           <template v-else>
             <div class="form-group" style="margin-bottom: 12px;">
-              <div class="lbl">{{ ft("Select child(ren)") }}</div>
+              <div class="lbl">{{ ft("Select participants") }}</div>
               <div v-for="d in registrationEnrollDependents" :key="d.clientId" class="reg-enroll-check">
                 <label>
                   <input v-model="registrationEnrollSelected" type="checkbox" :value="d.clientId" />
                   {{ d.fullName || d.initials || `Client #${d.clientId}` }}
+                </label>
+                <label v-if="registrationEnrollSelected.includes(d.clientId) && registrationEnrollPayerType==='cash' && registrationEnrollTarget?.classCredits?.[d.clientId]?.length">
+                  Payment <select v-model="registrationCredits[d.clientId]"><option :value="undefined">Pay registration fee</option>
+                    <option v-for="credit in registrationEnrollTarget.classCredits[d.clientId]" :key="credit.id" :value="credit.id">{{ credit.name }} · use one class credit ({{ credit.remaining }} available)</option>
+                  </select>
                 </label>
               </div>
             </div>
@@ -620,6 +633,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useGuardianStore } from '../../store/guardian';
 import { useRoute, useRouter } from 'vue-router';
+import ProgramParticipation from '../../components/ProgramParticipation.vue';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
@@ -700,6 +714,9 @@ const genError = ref('');
 const regCatalogItems = ref([]);
 const regCatalogLoading = ref(false);
 const regCatalogError = ref('');
+const registrationNotice = ref('');
+const programHistoryRevision = ref(0);
+const registrationCredits = ref({});
 const registrationEnrollOpen = ref(false);
 const registrationEnrollTarget = ref(null);
 const registrationEnrollDependents = ref([]);
@@ -1490,7 +1507,7 @@ const fetchRegistrationCatalog = async () => {
       },
       skipGlobalLoading: true
     });
-    regCatalogItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+    regCatalogItems.value = (resp.data?.items || []).filter(item => !selectedChildId.value || !item.eligibleClientIds || item.eligibleClientIds.includes(Number(selectedChildId.value)));
   } catch (err) {
     regCatalogError.value = err.response?.data?.error?.message || 'Could not load registration catalog';
     regCatalogItems.value = [];
@@ -1500,7 +1517,7 @@ const fetchRegistrationCatalog = async () => {
 };
 
 const openRegistrationEnroll = async (item) => {
-  if (item?.kind === 'company_event') {
+  if (item?.kind === 'company_event' && !item.completedFormClientIds?.length) {
     const key = String(item?.linkedIntakePublicKey || '').trim();
     if (key) {
       const url = buildPublicIntakeUrl(key);
@@ -1511,20 +1528,15 @@ const openRegistrationEnroll = async (item) => {
     }
   }
   registrationEnrollTarget.value = item;
+  registrationCredits.value = {};
+  registrationNotice.value = '';
   registrationEnrollSelected.value = [];
   registrationEnrollPayerType.value = '';
   registrationEnrollError.value = '';
   const aid = Number(item?.agencyId || dashboardAgencyId.value || 0);
   if (!aid) return;
-  try {
-    const resp = await api.get('/guardian-portal/dependents', {
-      params: { agencyId: aid, ...previewParams.value },
-      skipGlobalLoading: true
-    });
-    registrationEnrollDependents.value = Array.isArray(resp.data?.dependents) ? resp.data.dependents : [];
-  } catch {
-    registrationEnrollDependents.value = [];
-  }
+  registrationEnrollDependents.value = (item.participants || []).filter(d =>
+    !item.linkedIntakeId || item.completedFormClientIds?.includes(Number(d.clientId)));
   if (item?.medicaidEligible && !item?.cashEligible) registrationEnrollPayerType.value = 'medicaid';
   else if (!item?.medicaidEligible && item?.cashEligible) registrationEnrollPayerType.value = 'cash';
   registrationEnrollOpen.value = true;
@@ -1551,6 +1563,8 @@ const submitRegistrationEnroll = async () => {
     const body = {
       agencyId: aid,
       clientIds: ids,
+      expectedPriceCents: target.priceCents,
+      classCredits: registrationEnrollPayerType.value === 'cash' ? registrationCredits.value : {},
       ...(registrationEnrollPayerType.value ? { payerType: registrationEnrollPayerType.value } : {})
     };
     let resp;
@@ -1563,12 +1577,17 @@ const submitRegistrationEnroll = async () => {
       return;
     }
     const results = Array.isArray(resp.data?.results) ? resp.data.results : [];
+    programHistoryRevision.value++;
+    const orders = results.filter(r => r.orderStatus);
+    registrationNotice.value = orders.length ? orders.map(r => r.orderStatus === 'open' ? 'Registration awaits payment in Billing.' :
+      r.orderStatus === 'paid' ? 'Payment recorded. Registration is being confirmed.' : 'The registration balance is awaiting billing review.').filter((v,i,a) => i===a.indexOf(v)).join(' ') : '';
     const failed = results.filter((r) => !r.ok);
     if (failed.length) {
-      registrationEnrollError.value = failed.map((r) => r.error || 'Failed').join('; ');
+      registrationEnrollError.value = registrationNotice.value + ' ' + failed.map((r) => r.error || 'Failed').join('; ');
       return;
     }
     closeRegistrationEnroll();
+    if (orders.some(r => r.orderStatus==='open') && orders.every(r=>Number(r.clientId)===Number(selectedChildId.value))) navigatePortal('billing');
     await fetchRegistrationCatalog();
     await fetchSkillBuilderEvents();
     if (target.kind === 'company_event') await fetchGenEvents();

@@ -1314,6 +1314,9 @@ const enrollSmartRegistrationSelections = async ({
             clientId,
             membershipStatus: 'active',
             roleLabel: 'registered',
+            agencyId: agencyIdForEnrollment,
+            portalRegistration: true,
+            payerType: selection.payerType || globalPayer || null,
             notes: `Auto-enrolled via smart registration link${submissionId ? ` (submission ${submissionId})` : ''}`,
             actorUserId: null
           });

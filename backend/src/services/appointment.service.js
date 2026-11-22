@@ -100,7 +100,7 @@ export async function resolveBookingOptions({
         const svc = services.find((s) => Number(s.id) === Number(serviceId))
           || await TenantService.findById(serviceId, aid);
         entitlements = entitlements.filter((e) => {
-          if (svc?.businessType && e.businessType !== svc.businessType) return false;
+          if (e.learningProgramClassId || (svc?.businessType && e.businessType !== svc.businessType)) return false;
           const allowed = e.allowedTenantServiceIds;
           if (Array.isArray(allowed) && allowed.length) {
             return allowed.map(Number).includes(Number(serviceId));
@@ -278,7 +278,7 @@ async function createLockedAppointment({
   }
   serviceCode = serviceCode || service?.serviceCode || null;
   await assertAppointmentServiceContext({ agencyId: aid, providerId: providerUserId, clientIds: bookingClients.map(client => client.id),
-    service, businessType: businessType || (serviceCode === 'TUTORING' ? 'tutoring' : 'mental_health'), serviceCode, addonServiceCodes });
+    service, settlementMode:billing?.settlementMode, businessType: businessType || (serviceCode === 'TUTORING' ? 'tutoring' : 'mental_health'), serviceCode, addonServiceCodes });
   let learningContext=null;
   if(learningSubjectKey!=null){
     if(businessType!=='tutoring'||serviceCode!=='TUTORING'||bookingClients.length!==1)throw Object.assign(new Error('Select an individual tutoring service before choosing an academic subject.'),{status:400});
@@ -314,6 +314,9 @@ async function createLockedAppointment({
   if(clinicalBooking&&providerUserId){const resolved=await reconcileClinicalAfterHours({agencyId:aid,providerUserId,primaryCode:serviceCode,startAt:start,timeZone,modality:modality||service?.modality,placeOfService:actualPlaceOfService,addonServiceCodes,billing});addonServiceCodes=resolved.addonServiceCodes;}
   if (packageEntitlementId) {
     const entitlement = await BookingPackage.findEntitlementById(packageEntitlementId, aid);
+    if (entitlement?.learningProgramClassId || (entitlement?.businessType && entitlement.businessType!==businessType)) {
+      throw Object.assign(new Error('Choose a package for this appointment service. Class credits are applied in program registration.'), {status:409});
+    }
     assertPackageProviderBinding(entitlement?.pricingSnapshot,{providerUserId,tenantServiceId,startAt:start,endAt:end,modality,participantMode:participantModeFromList(participants)});
     assertPackageExpiration(entitlement?.pricingSnapshot,entitlement?.activatedAt,start);
     const clientIds = participants.map((p) => Number(p.clientId || p.client_id));
@@ -548,11 +551,11 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     if(allowed.length && !allowed.includes(Number(patch.tenantServiceId)))throw Object.assign(new Error('Provider is not assigned to this service'),{status:400});
     patch.businessType=service.businessType;
   }
-  if (clinicalContextChanged || patch.participants) {
+  if (clinicalContextChanged || patch.participants || patch.billing?.settlementMode) {
     const service = (patch.tenantServiceId ?? existing.tenantServiceId) ? await TenantService.findById(patch.tenantServiceId ?? existing.tenantServiceId, existing.agencyId) : null;
     const clients = await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId));
     await assertAppointmentServiceContext({ agencyId: existing.agencyId, providerId: patch.providerUserId || existing.providerUserId,
-      clientIds: clients.map(client => client.id), service, businessType: service?.businessType || existing.businessType,
+      clientIds: clients.map(client => client.id), service, settlementMode:patch.billing?.settlementMode ?? (await Appointment.getBilling(appointmentId))?.settlementMode, businessType: service?.businessType || existing.businessType,
       serviceCode: patch.serviceCode ?? existing.serviceCode, addonServiceCodes: patch.addonServiceCodes ?? existing.addonServiceCodes ?? [] });
   }
   let moved = false;

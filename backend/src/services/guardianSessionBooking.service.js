@@ -70,7 +70,7 @@ export async function guardianBookingOptions(input) {
       const quote=await resolveSelfPayQuote({agencyId:agency.id,providerId:provider.id,service,modality:modality==='VIRTUAL'?'TELEHEALTH':modality,learningFormat:learning?(modality==='VIRTUAL'?'virtual':'in-person'):undefined,durationMinutes:service.defaultDurationMinutes});
       if(!policy||quote?.amountCents==null)continue;
       const eligiblePackages=packages.filter(pkg=>{
-        if(pkg.status!=='ACTIVE'||pkg.paymentStatus!=='PAID'||Number(pkg.sessionsRemaining)<1
+        if(pkg.learningProgramClassId || (pkg.businessType && pkg.businessType!==service.businessType) || pkg.status!=='ACTIVE'||pkg.paymentStatus!=='PAID'||Number(pkg.sessionsRemaining)<1
           || (pkg.purchaserUserId && Number(pkg.purchaserUserId)!==Number(input.userId))
           || (pkg.allowedTenantServiceIds?.length&&!pkg.allowedTenantServiceIds.map(Number).includes(Number(service.id))))return false;
         if(pkg.pricingSnapshot?.mode==='provider-discount'&&Number(pkg.pricingSnapshot.minutes)!==Number(service.defaultDurationMinutes))return false;

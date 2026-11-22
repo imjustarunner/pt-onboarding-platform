@@ -1,3 +1,4 @@
+import { registrationAudience, requireRegistrationAudience } from '../services/registrationServiceAudience.service.js';
 import pool from '../config/database.js';
 import { toMysqlDateTimeOrNull } from '../utils/mysqlDateTime.utils.js';
 
@@ -102,6 +103,8 @@ class LearningProgramClass {
       seasonAnnouncementText = null,
       seasonSettingsJson = null,
       deliveryMode = 'group',
+      registrationAudience: audience = 'any',
+      registrationPriceCents = 0,
       registrationEligible = false,
       medicaidEligible = false,
       cashEligible = false,
@@ -116,8 +119,8 @@ class LearningProgramClass {
         masters_age_threshold, recognition_categories_json, recognition_metric,
         captain_application_open, captains_finalized, season_splash_enabled, season_announcement_text, season_settings_json,
         delivery_mode,
-        registration_eligible, medicaid_eligible, cash_eligible, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        registration_eligible, registration_audience, registration_price_cents, medicaid_eligible, cash_eligible, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         organizationId,
         className,
@@ -153,6 +156,8 @@ class LearningProgramClass {
         seasonSettingsJson ? JSON.stringify(seasonSettingsJson) : null,
         String(deliveryMode || 'group').toLowerCase() === 'individual' ? 'individual' : 'group',
         registrationEligible ? 1 : 0,
+        registrationAudience({registrationAudience:audience,medicaidEligible}),
+        registrationPriceCents,
         medicaidEligible ? 1 : 0,
         cashEligible ? 1 : 0,
         createdByUserId
@@ -199,6 +204,8 @@ class LearningProgramClass {
       seasonSettingsJson: 'season_settings_json',
       deliveryMode: 'delivery_mode',
       registrationEligible: 'registration_eligible',
+      registrationAudience: 'registration_audience',
+      registrationPriceCents: 'registration_price_cents',
       medicaidEligible: 'medicaid_eligible',
       cashEligible: 'cash_eligible'
     };
@@ -250,18 +257,64 @@ class LearningProgramClass {
     return this.findById(id);
   }
 
-  static async addClientMember({ classId, clientId, membershipStatus = 'active', roleLabel = null, notes = null, actorUserId = null }) {
-    await pool.execute(
-      `INSERT INTO learning_class_client_memberships
-       (learning_class_id, client_id, membership_status, joined_at, role_label, notes, created_by_user_id)
-       VALUES (?, ?, ?, CASE WHEN ? = 'active' THEN NOW() ELSE NULL END, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         membership_status = VALUES(membership_status),
-         role_label = VALUES(role_label),
-         notes = VALUES(notes),
-         removed_at = CASE WHEN VALUES(membership_status) IN ('removed') THEN NOW() ELSE NULL END`,
-      [classId, clientId, membershipStatus, membershipStatus, roleLabel, notes, actorUserId]
-    );
+  static async addClientMember({classId,clientId,membershipStatus='active',roleLabel=null,notes=null,actorUserId=null,
+    agencyId=null,portalRegistration=false,paidOrder=false,payerType=null,creditId=null,allowCheckout=false,expectedPriceCents=null}) {
+    const db=await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [[klass]]=await db.execute(`SELECT k.*,o.organization_type, (k.ends_at<NOW()) AS ended,
+        (k.enrollment_opens_at>NOW() OR k.enrollment_closes_at<NOW()) AS outside_window
+        FROM learning_program_classes k JOIN agencies o ON o.id=k.organization_id WHERE k.id=? FOR SHARE`,[classId]);
+      if (!klass) throw Object.assign(new Error('Class not found.'),{status:404});
+      if (['active','invited'].includes(membershipStatus)) {
+        const [[client]]=await db.execute('SELECT agency_id FROM clients WHERE id=? FOR UPDATE',[clientId]);
+        const aid=Number(agencyId || client?.agency_id);
+        if (!client || (agencyId && Number(client.agency_id)!==aid)) throw Object.assign(new Error('Client not in this agency.'),{status:403});
+        if (portalRegistration || registrationAudience(klass)!=='any' || ['agency','clinical','learning','program','school'].includes(klass.organization_type)) {
+          const [[allowed]]=await db.execute(`SELECT 1 AS ok WHERE ?=? OR EXISTS (SELECT 1 FROM organization_affiliations
+            WHERE agency_id=? AND organization_id=? AND is_active=1)`,[aid,klass.organization_id,aid,klass.organization_id]);
+          if (!allowed) throw Object.assign(new Error('Class is outside this agency.'),{status:403});
+        }
+        if (['closed','archived'].includes(klass.status) || Number(klass.ended) ||
+            (portalRegistration && (!Number(klass.is_active) || !Number(klass.registration_eligible) || klass.status!=='active' || Number(klass.outside_window)))) {
+          throw Object.assign(new Error('This class is closed to enrollment.'),{status:409});
+        }
+        await requireRegistrationAudience(klass,clientId,aid,db);
+        if (portalRegistration) {
+          const [[existing]]=await db.execute('SELECT membership_status FROM learning_class_client_memberships WHERE learning_class_id=? AND client_id=?',[classId,clientId]);
+          if (existing?.membership_status==='active') { await db.commit(); return; }
+          if (!paidOrder) {
+            const {validatePayerForEligibility} = await import('../services/skillBuildersIntakeEnrollment.service.js');
+            const payer = validatePayerForEligibility(payerType, klass);
+            if (!payer.ok) throw Object.assign(new Error(payer.message), {status:400});
+          }
+          if (creditId && (payerType!=='cash' || !Number(klass.cash_eligible) || Number(klass.registration_price_cents)<1)) {
+            throw Object.assign(new Error('Class credits can only pay an applicable self-pay registration fee.'),{status:409});
+          }
+          if (creditId) {
+            const {redeemClassCredit}=await import('../services/registrationPayments.service.js');
+            await redeemClassCredit({db,agencyId:aid,clientId,classId,actorUserId,creditId,startsAt:klass.starts_at});
+          } else if (!paidOrder && Number(klass.registration_price_cents)>0 && !(payerType==='medicaid' && Number(klass.medicaid_eligible))) {
+            if (!allowCheckout || payerType !== 'cash' || !Number(klass.cash_eligible)) {
+              throw Object.assign(new Error('Complete payment for this registration through Billing.'), {status:402});
+            }
+            if (Number(expectedPriceCents)!==Number(klass.registration_price_cents)) throw Object.assign(new Error('The registration price changed. Refresh the catalog before confirming.'),{status:409});
+            const {createRegistrationOrder} = await import('../services/registrationPayments.service.js');
+            const order = await createRegistrationOrder({db, agencyId:aid, clientId, actorUserId, offering:klass, kind:'class'});
+            await db.commit();
+            return order;
+          }
+        }
+      }
+      await db.execute(`INSERT INTO learning_class_client_memberships
+        (learning_class_id,client_id,membership_status,joined_at,role_label,notes,created_by_user_id)
+        VALUES (?,?,?,CASE WHEN ?='active' THEN NOW() ELSE NULL END,?,?,?)
+        ON DUPLICATE KEY UPDATE membership_status=VALUES(membership_status),role_label=VALUES(role_label),
+        notes=VALUES(notes),removed_at=CASE WHEN VALUES(membership_status)='removed' THEN NOW() ELSE NULL END`,
+        [classId,clientId,membershipStatus,membershipStatus,roleLabel,notes,actorUserId]);
+      await db.commit();
+    } catch (error) { await db.rollback(); throw error; }
+    finally { db.release(); }
   }
 
   static async addProviderMember({ classId, providerUserId, membershipStatus = 'active', roleLabel = null, notes = null, actorUserId = null, teamId = undefined }) {

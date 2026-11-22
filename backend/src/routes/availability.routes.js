@@ -9,7 +9,7 @@ import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware
 import {
   listProgramCompanyEventsForCoordinator,
   postBackfillSkillsGroupCompanyEvents,
-  postProgramCompanyEventForCoordinator
+  reviewProgramRetirement, postProgramCompanyEventForCoordinator
 } from '../controllers/companyEvents.controller.js';
 import {
   getMyAvailabilityPending,
@@ -126,6 +126,7 @@ router.get('/admin/skill-builders/options', requireSkillBuildersSchoolProgramFor
 router.get('/admin/skill-builders', requireSkillBuildersSchoolProgramForAgencyContext, listSkillBuildersAvailability);
 router.get('/admin/skill-builder-settings', requireSkillBuildersSchoolProgramForAgencyContext, getSkillBuilderSettings);
 router.put('/admin/skill-builder-settings', requireSkillBuildersSchoolProgramForAgencyContext, putSkillBuilderSettings);
+router.get('/admin/program-retirement-review', reviewProgramRetirement);
 router.get('/admin/program-company-events', requireSkillBuildersSchoolProgramForAgencyContext, listProgramCompanyEventsForCoordinator);
 router.post('/admin/program-company-events', requireSkillBuildersSchoolProgramForAgencyContext, postProgramCompanyEventForCoordinator);
 router.post('/admin/backfill-skills-group-company-events', requireSkillBuildersSchoolProgramForAgencyContext, postBackfillSkillsGroupCompanyEvents);

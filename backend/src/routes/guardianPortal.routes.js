@@ -36,6 +36,7 @@ import {
   listGuardianSkillBuilderEventPosts,
   ensureGuardianSkillBuilderEventChatThread,
   listGuardianDependentsForAgency,
+  guardianProgramParticipation,
   listGuardianRegistrationCatalog,
   guardianEnrollCompanyEvent,
   guardianEnrollLearningClass,
@@ -274,6 +275,7 @@ router.get('/dependents', listGuardianDependentsForAgency);
 router.get('/dependents/:clientId/plan-progress', getGuardianDependentPlanProgress);
 router.post('/dependents/:clientId/plan-progress/ratings', postGuardianPlanRating);
 router.post('/dependents/:clientId/plan-progress/acknowledgments/:linkId', postGuardianPlanAcknowledgment);
+router.get('/clients/:clientId/program-participation', guardianProgramParticipation);
 router.get('/registration/catalog', listGuardianRegistrationCatalog);
 router.post('/registration/company-events/:eventId/enroll', guardianEnrollCompanyEvent);
 router.post('/registration/learning-classes/:classId/enroll', guardianEnrollLearningClass);

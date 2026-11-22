@@ -36,6 +36,11 @@ export async function registerPublicEventGuest({ eventId, body, consentDetails =
     const [events] = await conn.execute('SELECT * FROM company_events WHERE id = ? FOR UPDATE', [eventId]);
     const event = events[0];
     assertEventRegistrationOpen(event);
+    if (Number(event.registration_eligible) && (Number(event.medicaid_eligible) ||
+        (event.registration_audience && event.registration_audience!=='any') ||
+        Number(event.program_cost_billing_mode==='per_session' ? event.per_session_cost_dollars : event.program_cost_dollars)>0)) {
+      throw fail('Use client or family portal registration for this offering.',409);
+    }
     if (input.smsConsent && (!readEventOperations(event).attendeeSmsEnabled || !consentDetails?.enabled)) throw fail('Text registration is not enabled for this event');
     const [existing] = await conn.execute('SELECT id, management_token_hash, checked_in_at, checked_out_at FROM company_event_guest_registrations WHERE company_event_id = ? AND LOWER(email) = ? LIMIT 1', [eventId, input.email]);
     const previous = existing[0];

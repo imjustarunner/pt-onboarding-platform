@@ -45,7 +45,10 @@
           <div class="section-divider"></div><label class="feature-toggle"><input v-model="draft.isWorkEvent" type="checkbox" /><span><strong>This is a work event</strong><small>Enable employee clock-in, clock-out and the existing payroll approval flow.</small></span></label>
           <div v-if="draft.isWorkEvent && isServiceProgramEventType" class="form-group"><label class="lbl">Skill Builders direct hours</label><input v-model.number="draft.skillBuilderDirectHours" class="input" type="number" min="0" step="0.25" placeholder="Optional direct-hours allocation" /><p class="hint">Used for the existing Skill Builders payroll split.</p></div>
           <div class="section-divider"></div><EventOperationsSettings v-model="draft" :users="canManageAll ? coordinatorUsers : []" />
-          <details class="advanced-section"><summary>Program &amp; guardian registration settings</summary><p class="hint">Use these for program registration and family enrollment. An internal company event does not need catalog registration.</p><div class="grid"><div class="form-group"><label class="lbl">Show in guardian registration catalog</label><select v-model="draft.registrationEligible" class="input"><option :value="false">No</option><option :value="true">Yes</option></select></div><div class="form-group"><label class="lbl">Registration status</label><select v-model="draft.publicRegistrationStatus" class="input"><option value="open">Open</option><option value="limited">Limited</option><option value="waitlist">Waitlist</option><option value="closed">Closed</option></select></div><label class="check-label"><input v-model="draft.medicaidEligible" type="checkbox" />Medicaid eligible</label><label class="check-label"><input v-model="draft.cashEligible" type="checkbox" />Cash / self-pay eligible</label></div><label class="lbl">Registration banner (optional)</label><input v-model.trim="draft.publicRegistrationStatusLabel" class="input" maxlength="120" placeholder="A short registration status note" /><label class="lbl">Public hero image URL</label><input v-model.trim="draft.publicHeroImageUrl" type="url" class="input" placeholder="https://…" /><label class="lbl">Public page details</label><textarea v-model.trim="draft.publicListingDetails" rows="2" class="input" /><label class="check-label"><input v-model="draft.inPersonPublic" type="checkbox" />Show the venue on the public page</label></details>
+          <details class="advanced-section"><summary>Program &amp; guardian registration settings</summary>
+            <label>Available to <select v-model="draft.registrationAudience" :disabled="draft.medicaidEligible">
+              <option value="any">Any client</option><option value="clinical">Clinical clients</option><option value="learning">Learning clients</option>
+            </select></label><span v-if="draft.medicaidEligible"> Medicaid requires Clinical services.</span><p class="hint">Use these for program registration and family enrollment. An internal company event does not need catalog registration.</p><div class="grid"><div class="form-group"><label class="lbl">Show in guardian registration catalog</label><select v-model="draft.registrationEligible" class="input"><option :value="false">No</option><option :value="true">Yes</option></select></div><div class="form-group"><label class="lbl">Registration status</label><select v-model="draft.publicRegistrationStatus" class="input"><option value="open">Open</option><option value="limited">Limited</option><option value="waitlist">Waitlist</option><option value="closed">Closed</option></select></div><label class="check-label"><input v-model="draft.medicaidEligible" type="checkbox" />Medicaid eligible</label><label class="check-label"><input v-model="draft.cashEligible" type="checkbox" />Cash / self-pay eligible</label></div><label class="lbl">Registration banner (optional)</label><input v-model.trim="draft.publicRegistrationStatusLabel" class="input" maxlength="120" placeholder="A short registration status note" /><label class="lbl">Public hero image URL</label><input v-model.trim="draft.publicHeroImageUrl" type="url" class="input" placeholder="https://…" /><label class="lbl">Public page details</label><textarea v-model.trim="draft.publicListingDetails" rows="2" class="input" /><label class="check-label"><input v-model="draft.inPersonPublic" type="checkbox" />Show the venue on the public page</label></details>
         </section>
 
         <section v-show="activeStep === 'reminders'" class="editor-section">
@@ -293,6 +296,7 @@ const emptyDraft = () => ({
     roleKeys: []
   },
   skillBuilderDirectHours: null,
+  registrationAudience: 'any',
   registrationEligible: false,
   publicRegistrationStatus: 'open',
   publicRegistrationStatusLabel: '',
@@ -538,6 +542,7 @@ const editEvent = (event) => {
       event.skillBuilderDirectHours != null && event.skillBuilderDirectHours !== ''
         ? Number(event.skillBuilderDirectHours)
         : null,
+    registrationAudience: event.registrationAudience || 'any',
     registrationEligible: !!event.registrationEligible,
     publicRegistrationStatus: String(event.publicRegistrationStatus || 'open').trim().toLowerCase(),
     publicRegistrationStatusLabel: String(event.publicRegistrationStatusLabel || '').trim(),
@@ -644,6 +649,7 @@ const saveEvent = async () => {
         draft.value.organizationId && Number(draft.value.organizationId) > 0
           ? Number(draft.value.organizationId)
           : null,
+      registrationAudience: draft.value.medicaidEligible ? 'clinical' : draft.value.registrationAudience,
       registrationEligible: !!draft.value.registrationEligible,
       publicRegistrationStatus: String(draft.value.publicRegistrationStatus || 'open').trim().toLowerCase(),
       publicRegistrationStatusLabel: String(draft.value.publicRegistrationStatusLabel || '').trim().slice(0, 120) || null,
