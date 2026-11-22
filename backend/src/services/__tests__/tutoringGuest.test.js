@@ -8,7 +8,7 @@ vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:v
 vi.mock('../clientServiceEnrollment.service.js',()=>({guardianContextAllowsAppointment:vi.fn(()=>true)}));
 vi.mock('../bookedTutoringRoom.service.js',()=>({bookedTutoringWindow:()=>({closesAt:'2099-11-21T20:30:00Z'})}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>'encrypted:'+v,maybeDecryptNotePayload:v=>v.replace('encrypted:','')}));
-vi.mock('../clinicalVideo.service.js',()=>({revokeClinicalActor:vi.fn()}));
+vi.mock('../clinicalVideo.service.js',()=>({revokeClinicalActor:vi.fn(),clinicalAttendance:vi.fn(async()=>new Map())}));
 vi.mock('../clinicalSessionAudit.service.js',()=>({clinicalAudit:vi.fn()}));
 vi.mock('../../utils/publicPortalUrl.js',()=>({buildPublicAppUrl:(_a,p)=>'https://app.nextleveluplcc.com/nlu-qa-demo/'+p}));
 import pool from '../../config/database.js';

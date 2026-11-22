@@ -6,6 +6,7 @@ import {guardianContextAllowsAppointment} from './clientServiceEnrollment.servic
 import {tutoringInvitationAllowed} from '../utils/tutoringGuestPermissions.js';
 import {createAppointmentEmailLink} from './appointmentEmailActions.service.js';
 import {appointmentActionsHtml} from '../utils/appointmentEmailContent.js';
+import {appointmentEmailTutorName} from './appointmentEmailDetails.service.js';
 export async function tutoringBookingResponseEmail({appointment,clientId,to}){
  if(!['learning','tutoring'].includes(appointment.businessType)||!['scheduled','confirmed','client_confirmed'].includes(appointment.status))return null;
  if(!tutoringSessionHubEnabled(await Agency.findById(appointment.agencyId)))return null;
@@ -16,6 +17,6 @@ export async function tutoringBookingResponseEmail({appointment,clientId,to}){
  const url=await createAppointmentEmailLink({appointment,clientId,to});
  if(!url)return null;
  const action=(value)=>url+(url.includes('?')?'&':'?')+'action='+value;
- const links=[{label:'Confirm tutoring session',url:action('confirm')},{label:'Cancel tutoring session',url:action('cancel')},{label:'Request a different time',url:action('reschedule')}];
- return {text:links.map(l=>l.label+': '+l.url).join('\n'),html:appointmentActionsHtml(links)};
+ const links=[...(appointment.status==='scheduled'?[{label:'Confirm tutoring session',url:action('confirm')}]:[]),{label:'Cancel tutoring session',url:action('cancel')},{label:'Request a different time',url:action('reschedule')}];
+ return {links,reviewUrl:action('review'),tutorName:await appointmentEmailTutorName(appointment),text:links.map(l=>l.label+': '+l.url).join('\n'),html:appointmentActionsHtml(links)};
 }

@@ -1,0 +1,12 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{getConnection:vi.fn()}}));
+vi.mock('../clinicalSessionAudit.service.js',()=>({clinicalAudit:vi.fn()}));
+import {startConnectedTutoringSession} from '../tutoringMediaAttendance.service.js';
+import {clinicalAudit} from '../clinicalSessionAudit.service.js';
+const media={session_id:600,media_id:'exact-appointment-room',agency_id:453};
+let presence,session,appointment,db;
+beforeEach(()=>{vi.clearAllMocks();appointment={id:498};session={id:600,appointment_id:498,actual_started_at:null};presence={provider_connected:'2026-11-22 13:40:00',family_connected:'2026-11-22 13:43:00'};
+ db={execute:vi.fn(async sql=>sql.startsWith('SELECT a.id')?[[appointment].filter(Boolean)]:sql.startsWith('SELECT s.id')?[[session].filter(Boolean)]:sql.includes('AS provider_connected')?[[presence]]:[{affectedRows:1}])};});
+it.each(['provider_connected','family_connected'])('cannot start attendance when %s is absent',async missing=>{presence[missing]=null;expect(await startConnectedTutoringSession(media,db)).toBe(false);expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);expect(clinicalAudit).not.toHaveBeenCalled();});
+it('starts at the verified overlap, attributed to the media system',async()=>{expect(await startConnectedTutoringSession(media,db)).toBe(true);expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("SET status='live',actual_started_at=?"),[new Date('2026-11-22T13:43:00Z'),600]);expect(clinicalAudit).toHaveBeenCalledWith(expect.objectContaining({actor:'system:tutoring-media'}),'tutoring_connected_session_started',expect.objectContaining({appointmentId:498}),db);const sql=db.execute.mock.calls.find(([s])=>s.includes('AS provider_connected'))[0];expect(sql).toContain('c.disconnected_at IS NULL');expect(sql).toContain('g.revoked_at IS NULL');expect(sql).toContain("v.status='admitted'");});
+it('never restarts an existing timer or a canceled appointment',async()=>{session.actual_started_at='2026-11-22 13:40:00';expect(await startConnectedTutoringSession(media,db)).toBe(false);session.actual_started_at=null;appointment=null;expect(await startConnectedTutoringSession(media,db)).toBe(false);expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});

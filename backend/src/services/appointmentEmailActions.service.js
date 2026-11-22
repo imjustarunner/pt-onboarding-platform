@@ -5,7 +5,8 @@ import Appointment from '../models/Appointment.model.js';
 import { applyAppointmentReply } from './appointmentReply.service.js';
 import { resolveAppointmentServiceSetting, formatAppointmentTime } from './appointmentServiceSetting.service.js';
 import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.service.js';
-import { appointmentActionsHtml } from '../utils/appointmentEmailContent.js';
+import { appointmentActionsHtml,appointmentEmailLinks } from '../utils/appointmentEmailContent.js';
+import {appointmentEmailTutorName} from './appointmentEmailDetails.service.js';
 import { appointmentProviderCopy } from './appointmentProviderCopy.service.js';
 import { schoolAppointmentReminderText } from '../utils/schoolAppointmentReminder.js';
 import { appointmentResponseUrl } from '../utils/appointmentResponseUrl.js';
@@ -15,6 +16,9 @@ import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.ut
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { createSchoolSessionEmailOptOutLink, schoolSessionEmailOptOutContent, isSchoolSessionEmailOptedOut, SCHOOL_EMAIL_TEMPLATE } from './schoolSessionEmailPreferences.service.js';
 import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
+import {authorizedAppointmentClient} from './guardianAppointments.service.js';
+import {guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
+import {tutoringInvitationAllowed} from '../utils/tutoringGuestPermissions.js';
 
 const hash = text => crypto.createHash('sha256').update(String(text)).digest('hex');
 const emailHash = email => hash(String(email || '').trim().toLowerCase());
@@ -51,12 +55,18 @@ export async function appointmentEmailActionContext(token,db=pool) {
     AND COALESCE(u.is_archived,0)=0 AND c.agency_id=? AND c.guardian_portal_enabled=1
     AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED')`,[row.guardian_user_id,row.client_id,row.agency_id]);
   if(!access || emailHash(access.email)!==row.recipient_hash) throw fail('This link no longer has access. Please sign in or contact your team.',403);
-  const permissions=typeof access.permissions_json==='string'?JSON.parse(access.permissions_json):access.permissions_json||{};
-  if(permissions.noView || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted || isDobAdultLocked(access.date_of_birth)) throw fail('This link no longer has access. Please contact your team.',403);
+  let permissions;
+  try{permissions=typeof access.permissions_json==='string'?JSON.parse(access.permissions_json):access.permissions_json||{};}catch{throw fail('This link no longer has access. Please contact your team.',403);}
+  if(!permissions||typeof permissions!=='object'||Array.isArray(permissions))throw fail('This link no longer has access. Please contact your team.',403);
+  if(permissions.noView || permissions.billingOnly || permissions.canViewAppointments===false || permissions.noViewOtherGuardian || permissions.coGuardianInviteRestricted || isDobAdultLocked(access.date_of_birth)) throw fail('This link no longer has access. Please contact your team.',403);
   const appt=await Appointment.findById(row.appointment_id);
   if (!appt || Number(appt.agencyId)!==Number(row.agency_id) || +date(appt.startAt)!==+date(row.appointment_start) || +date(appt.endAt)!==+date(row.appointment_end)) throw fail('This appointment changed. Please use the latest reminder.');
   const [[participant]]=await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appt.id,row.client_id]);
   if(!participant) throw fail('This appointment link is no longer available.');
+  if(['learning','tutoring'].includes(appt.businessType)){
+    const current=await authorizedAppointmentClient(row.guardian_user_id,row.client_id,{agencyId:row.agency_id,serviceId:appt.learningContext?.serviceEnrollmentId});
+    if(!tutoringInvitationAllowed(current,appt,guardianContextAllowsAppointment))throw fail('This appointment link no longer has access. Please contact your team.',403);
+  }
   const setting=await resolveAppointmentServiceSetting(appt);
   const context=await clientEmailContext({agencyId:row.agency_id,clientId:row.client_id,...(['learning','tutoring'].includes(String(appt.businessType||appt.business_type||'').toLowerCase())?{learning:true}: {})});
   return {row,appt,setting,context};
@@ -73,12 +83,13 @@ export async function submitAppointmentEmailAction(token,action) {
     const current=await appointmentEmailActionContext(token,db);
     const {row,appt,setting}=current;
     if(setting.isSchool && action==='absence') action='cancel'; // Older school reminder links remain usable.
-    if(row.status==='completed') return row.result_message;
-    if(row.status!=='ready') throw fail('Your response needs review. Please contact your team before trying again.',409);
+    const changeConfirmation=row.status==='completed'&&row.chosen_action==='confirm'&&['cancel','reschedule'].includes(action);
+    if(row.status==='completed'&&!changeConfirmation) return row.result_message;
+    if(row.status!=='ready'&&!changeConfirmation) throw fail('Your response needs review. Please contact your team before trying again.',409);
     if(!appointmentEmailActions(setting.isSchool).includes(action)) throw fail('Choose an available response.',400);
     if(!['scheduled','confirmed','client_confirmed','reschedule_requested'].includes(appt.status)) throw fail('This appointment is no longer available for a response.');
     if(!setting.isSchool && +date(appt.startAt)<=Date.now()) throw fail('This appointment has started. Please contact your team.');
-    await db.execute("UPDATE appointment_email_actions SET status='processing',chosen_action=? WHERE id=? AND status='ready'",[action,row.id]);
+    await db.execute("UPDATE appointment_email_actions SET status='processing',chosen_action=? WHERE id=? AND status IN ('ready','completed')",[action,row.id]);
     try {
       if(row.product==='auricwell') {
         const message=await (await import('./auricwell/appointmentEmailResponse.js')).applyNativeResponse(current,action);
@@ -104,13 +115,15 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
   const confirmed = sessionRsvpState(appointment) === 'confirmed';
   const ask = !confirmed && requiresConfirmation;
-  const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:message || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`;
+  const tutorName=context.learning?await appointmentEmailTutorName(appointment):'';
+  const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:(message || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`)+(tutorName?` Your tutor: ${tutorName}.`:'');
   const actions=appointmentEmailActions(setting.isSchool).filter(action=>action!=='confirm'||ask);
   const links=actionUrl?actions.map(action=>({label:setting.isSchool?'Cancel school session':actionLabels[action],url:`${actionUrl}?action=${action}`})):setting.isSchool?[]:[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];
   const join=setting.isSchool?null:await appointmentJoinEmail({appointment,clientId,to,context});
-  const footer=setting.isSchool?`${actionUrl?'If your dependent cannot attend, use the cancel button.':'This is an informational notice. Contact the guardian or care team about a cancellation.'} Please report school absences directly to the school as usual.`:actionUrl?`${ask?'Confirm directly from this email. ':''}Cancellation and new-time requests open a review page. No sign-in is needed. Any cancellation policy will still apply.`:'Sign in to view your appointment or contact your team about a change.';
-  return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${links.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}${join?`\n\n${join.text}`:''}\n\n${footer}${optOut.text}`,
-    html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${appointmentActionsHtml(links)}${join?.html||''}<p>${e(footer)}</p>${optOut.html}`};
+  const displayedLinks=appointmentEmailLinks(appointment,links,join);
+  const footer=setting.isSchool?`${actionUrl?'If your dependent cannot attend, use the cancel button.':'This is an informational notice. Contact the guardian or care team about a cancellation.'} Please report school absences directly to the school as usual.`:actionUrl?`${ask?'Confirm directly from this email. ':''}${context.learning?'The email buttons submit your response directly.':'Cancellation and new-time requests open a review page.'} No sign-in is needed. Any cancellation policy will still apply.`:'Sign in to view your appointment or contact your team about a change.';
+  return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${displayedLinks.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}${join?.detailsText?`\n\n${join.detailsText}`:''}\n\n${footer}${optOut.text}`,
+    html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${appointmentActionsHtml(displayedLinks)}${join?.detailsHtml||''}<p>${e(footer)}</p>${optOut.html}`};
 }
 
 export async function sendAppointmentEmail(input) {

@@ -435,6 +435,7 @@ api.interceptors.response.use(
       path.includes('/school-events/kiosk');
     const isPublicPath =
       publicPathPrefixes.some((prefix) => path.startsWith(prefix)) ||
+      /\/(?:tutoring)\/(?:invite|guest)(?:\/|$)/.test(path) ||
       /\/family-documents\//.test(path) ||
       /\/family-introduction\//.test(path) ||
       /\/join\/supervision\//.test(path) ||

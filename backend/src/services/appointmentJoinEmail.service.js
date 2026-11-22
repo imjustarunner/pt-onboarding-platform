@@ -42,7 +42,7 @@ export async function appointmentJoinEmail({appointment,clientId,to,context,reci
   if(bookedTutoring){const guest=await (dependencies.guestLink|| (await import('./tutoringGuest.service.js')).issueTutoringGuestLink)(appointment,clientId,recipient.id,d.db);if(guest)url=guest;}
   const phone=appointment.includeGoogleDialIn===true?googleDialInContent(await d.conference(appointment)):null;
   const label=['learning','tutoring'].includes(appointment.businessType)?'Join tutoring session':'Join online appointment';
-  return {url,text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};
+  return {url,label,detailsHtml:phone?.html||'',detailsText:phone?.text||'',text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};
  }catch(error){
   if(![403,404,410].includes(error.status))console.warn('[appointment email join] Details unavailable',{appointmentId:appointment.id,code:error.code||'join_lookup_failed'});
   return null;

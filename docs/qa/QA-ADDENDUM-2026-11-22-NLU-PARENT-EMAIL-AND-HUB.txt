@@ -1,0 +1,157 @@
+NLU PARENT EMAIL AND SESSION HUB — RETEST BRIEF
+November 22, 2026 · America/Denver
+
+This is a fresh live retest assignment, not a completed live report. Preserve the
+original 47 tutoring cases, NR21/WB findings and earlier billing findings. Use
+PASS / FAIL / BLOCKED / NOT RUN only from actual evidence. No additional file
+uploads are required for these email and room-access cases. Reuse the original
+worksheets only if continuing the earlier lesson/material tests.
+
+SCOPE AND ACCESS
+Agency 453 / nlu-qa-demo, learning program 454 only. Use the deployed NLU app:
+https://app.nextleveluplcc.com/nlu-qa-demo/login
+Finley 1496 is the assigned automation-only tutor. Morgan 1759 and Rene 1785 are
+the authorized QA parents. Riley 1807 and Jordan 1434 retain their existing QA
+staff/support boundaries. Use ordinary authentication and existing vault entries.
+Do not use a human employee account, superadministrator, forged credentials,
+SQL, clock changes or hidden role changes. The guest invitation is a normal
+appointment-specific capability, not a general login or employee credential.
+
+Retain Parker 2545, Math service 1038, unassigned service 1042 and the other
+existing QA people. Recount and reuse eligible fixtures. No additional students
+or employees are needed. Keep historical appointment 498 and its admission/audit
+evidence intact; its previously recorded admission is not proof of connected
+attendance. Do not rewrite its history or complete it merely to remove a banner.
+Use a new correctly linked future virtual appointment to prove the corrected
+start/timer behavior. Do not duplicate an appointment or resend received mail.
+
+Mail physically goes to testing@itsco.health only. Keep the logical parent
+address separate from that inbox. Never put full invitation links, response
+links, fragments, passwords, cookies or tokens into screenshots or result files.
+The copy-link control is permitted; keep the resulting private link in the vault
+or use it directly in the intended private browser. Use separate tutor and guest
+browser profiles. Do not infer receipt from a Sent label or provider acceptance.
+
+EXPECTED BEHAVIOR AND CASES
+PE01 — Email layout and tutor identity. Create one future native virtual tutoring
+booking through the normal calendar, with the retained student/service/tutor.
+Verify its actual delivered email identifies the tutor, exact date/time/zone and
+appointment. Inside the opening window (30 minutes before start through 30
+minutes after end), Join is the prominent first button. Before that window,
+confirmation can remain first. Check desktop and phone. Do not age a reminder.
+
+PE02 — Confirm. Before the scheduled start, click the delivered Confirm once in
+a signed-out browser. Expect a clear confirmation receipt and the exact booking
+confirmed after reload. A visible browser submits the confirmation; reading or
+prefetching the URL must not change a booking. Retrying the same confirmation
+must not create another action, appointment or notice. A completed/past or moved
+appointment must explain that its old response link is no longer available.
+
+PE03 — Review. The delivered Review my appointment link opens that appointment's
+secure details without a portal login: appointment reference, tutoring subject,
+tutor, date/time/zone, duration and format. It provides the actual Join action
+when appropriate, and no other child's appointment or private clinical data.
+
+PE04 — Cancel. On a separate unused QA appointment, click the delivered Cancel
+link once while signed out. The visible browser submits it; any required policy
+review still follows the existing cancellation rules. Expect
+one clear result, the actual correct booking state and any normal fee/review
+handling. Do not collect a real payment. A scanner GET must never cancel it.
+
+PE05 — New time / later cancellation. On a separate booking, request a different
+time through its delivered link and verify the actual request result and review
+state. This is not proof of a replacement booking. Also confirm a booking first,
+then use its cancellation control before start; confirmation must not consume
+all future change access. Repeated submissions remain idempotent.
+
+PE06 — Direct guest entry. Open the actual recipient-specific Join link from
+email in a completely signed-out desktop browser and on a phone-sized screen.
+Expect the exact NLU Session Hub waiting room, never an app Login page or the
+permanent office. Verify the same destination from the actual SMS where consent
+and delivery are configured and from the in-app join action. An external Google
+Meet destination stays a direct external link: its own Google admission/account
+policy must be recorded; this app cannot waive Google's identity controls.
+
+PE07 — Waiting-room presence. Join before the tutor opens video; the waiting
+page remains usable. Opening the room as tutor alone must not start attendance.
+Close the family browser or leave its waiting room. After real elapsed time
+(20 seconds, allowing a maintenance/poll interval), it must disappear from the
+live waiting list. Stale Admit must fail without starting a timer or billing.
+
+PE08 — Admission versus attendance. Rejoin with the actual family browser and
+connect the tutor's media before Admit. Admission permits connection but must
+not itself start the timer or charge. Verify the family actually connects;
+then the verified tutor/family connection starts the session once. Check real
+two-way audio/video separately; two open tabs or an admitted label do not pass
+media. Review measured connected seconds and exact visit/session/appointment
+IDs. A never-connected admitted visit must not produce automatic billing.
+
+PE09 — Private link display. After Schedule & link video room, the booking
+confirmation does not print the family's private URL. Copy client link may
+remain. A screenshot of the dialog must contain no raw invitation token.
+
+PE10 — Alone/reconnect. Keep the tutor connected while genuinely waiting, then
+admit the family. Observe the prior approximately five-minute drop and longer
+idle interval using real time. Check camera/microphone permissions, network loss
+and reconnect. Reconnect must preserve the same appointment, lesson and saved
+work, and recover the status without a forced page reload or staff sign-out.
+Record actual network/media failures; do not claim this passes from a UI preview.
+
+PE11 — Scheduled end. At five minutes before end, expect an approaching-end
+notice. At scheduled end, expect a clear finish/end notice. The existing grace
+window runs until 30 minutes after scheduled end. End normally and verify one
+end time. On a separate case left open, verify normal maintenance closes media
+at the grace boundary (allow one worker interval) and stops fresh joins. An
+attended auto-closed room requires tutor review/completion; no attendance or
+billing is fabricated for a tutor-only room.
+
+PE12 — Loading/retry. Follow the invitation fresh, refresh the guest route, and
+revisit the staff Hub normally. Failed requests offer useful retry/recovery
+instead of an indefinite blank Loading state. Never grant staff access to the
+guest. Revoked, canceled, rescheduled, expired and wrong-recipient invitations
+must fail without revealing another appointment or lesson.
+
+PE13 — End/compensation boundaries. End an attended appointment normally and
+reconcile the saved work, real attendance, note and billing draft. End an
+admitted-only case with no family media connection: keep its audit evidence and
+expect a review warning, with no automatic completed-service charge. Existing
+package/free-miss, price-control and clinical boundaries remain in force.
+
+PE14 — Existing tutoring regression. Resume the earlier booking, lesson,
+whiteboard, worksheet, progress and family tests on this same deployed build.
+Preserve prior failures until freshly verified. This email repair does not
+activate the new Hub for live NLU 6; its reviewed rollout remains separate.
+
+EVIDENCE TO KEEP
+For every case record PASS / FAIL / BLOCKED / NOT RUN, visible frontend/backend
+build, actor, exact agency/client/service/appointment/session/visit IDs, actual
+America/Denver timestamp with offset, screenshot reference and concrete finding.
+For each real mail retain logical recipient, physical inbox, actual From and
+Reply-To, trigger/action ID, message ID and actual receipt time. Do not resend
+old received messages just to collect evidence. Keep action-to-audit rows and
+missing events; never certify a full launch from engineering checks.
+
+BLANK CASE LEDGER (all start NOT RUN)
+case_id,status,frontend_build,backend_build,actor_id,agency_id,client_id,service_id,appointment_id,session_id,visit_id,time_denver,utc_offset,evidence,finding
+PE01,NOT RUN,,,,453,,,,,,,,,
+PE02,NOT RUN,,,,453,,,,,,,,,
+PE03,NOT RUN,,,,453,,,,,,,,,
+PE04,NOT RUN,,,,453,,,,,,,,,
+PE05,NOT RUN,,,,453,,,,,,,,,
+PE06,NOT RUN,,,,453,,,,,,,,,
+PE07,NOT RUN,,,,453,,,,,,,,,
+PE08,NOT RUN,,,,453,,,,,,,,,
+PE09,NOT RUN,,,,453,,,,,,,,,
+PE10,NOT RUN,,,,453,,,,,,,,,
+PE11,NOT RUN,,,,453,,,,,,,,,
+PE12,NOT RUN,,,,453,,,,,,,,,
+PE13,NOT RUN,,,,453,,,,,,,,,
+PE14,NOT RUN,,,,453,,,,,,,,,
+
+BLANK EMAIL LEDGER
+case_id,logical_to,physical_to,actual_from,actual_reply_to,appointment_id,action_id,due_at,sent_at,received_at_denver,message_id,inbox_id,evidence,status,finding
+
+BLANK AUDIT LEDGER
+case_id,actor,agency_id,client_id,object_type,object_id,action,time_denver,expected_event,actual_audit_row_id,evidence,status,finding
+
+END OF SELF-CONTAINED BRIEF

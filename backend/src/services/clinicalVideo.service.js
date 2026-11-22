@@ -190,6 +190,7 @@ export async function processClinicalCallback(event) {
     throw fail(400, 'Invalid connection event.');
   const db = await pool.getConnection();
   let mustDisconnect = false;
+  let connectedTutoringMedia=null;
   try {
     await db.beginTransaction();
     const media = await clinicalMedia(event.sessionId, db, true);
@@ -213,9 +214,11 @@ export async function processClinicalCallback(event) {
       destroyed ? 'clinical_media_disconnected' : allowed ? 'clinical_media_connected' : 'clinical_media_connection_denied',
       { connectionId: connection.id, visitId: grant?.visit_id || null }, db);
     if(media.session_kind==='counseling')await db.execute('UPDATE virtual_office_encounters SET attendance_version=attendance_version+1 WHERE counseling_session_id=?',[media.session_id]);
+    if(media.session_kind==='tutoring'&&allowed&&!destroyed)connectedTutoringMedia=media;
     await db.commit();
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
   if (mustDisconnect) await disconnect(event.sessionId, connection.id);
+  if(connectedTutoringMedia)await (await import('./tutoringMediaAttendance.service.js')).startConnectedTutoringSession(connectedTutoringMedia);
 }
 
 export async function retryClinicalDisconnections() {

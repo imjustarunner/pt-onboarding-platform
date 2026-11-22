@@ -1,0 +1,2 @@
+import base from './vitest.nlu-session-hub.config.js';
+export default {...base,test:{...base.test,include:['src/views/tutoring/__tests__/VirtualTutoringEntry.test.js','src/components/tutoring/__tests__/TutoringSessionHub.test.js','src/composables/__tests__/useAppointmentChange.test.js','src/services/__tests__/api.publicAuthForm.test.js','src/components/schedule/__tests__/virtualSessionBooking.test.js','src/components/video/__tests__/VideoSessionRoom.test.js']}};

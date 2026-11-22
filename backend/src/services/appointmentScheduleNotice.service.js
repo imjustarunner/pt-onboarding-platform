@@ -8,6 +8,7 @@ import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNote
 import { futureAppointment, scheduleNoticeDeadline, buildScheduleNoticeMessage } from './scheduleNoticeMessage.service.js';
 import { cancellationEmailReceipts, needsCancellationReceipt, appendCancellationReceipt } from './cancellationEmailReceipt.service.js';
 import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
+import {appointmentEmailLinks,appointmentActionsHtml} from '../utils/appointmentEmailContent.js';
 
 const sqlDate = d => d.toISOString().slice(0, 19).replace('T', ' ');
 async function textOptedInParent(d, { agencyId, clientId, target, facts, portalUrl, actorUserId }) {
@@ -304,13 +305,19 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             continue;
           }
           if(channel==='email'&&!providerCopy&&recipient&&entries.every(entry=>!entry.cancellation)){
-            let addedJoin=false;
+            let addedJoin=false;const recipientEntries=[];
             for(const entry of entries){
               const response=await d.tutoringResponse({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
-              if(response){addedJoin=true;recipientMessage={...recipientMessage,text:recipientMessage.text+'\n\n'+response.text,html:recipientMessage.html+response.html};}
               const join=await d.joinEmail({appointment:entry.appointment,clientId:seed.client_id,to:recipient});
-              if(join){addedJoin=true;recipientMessage={...recipientMessage,text:`${recipientMessage.text}\n\n${join.text}`,html:`${recipientMessage.html}${join.html}`};}
+              if(response?.links){
+                const links=appointmentEmailLinks(entry.appointment,response.links,join,+d.now());
+                recipientEntries.push({...entry,portalUrl:response.reviewUrl,tutorName:response.tutorName,
+                  actionText:links.map(link=>`${link.label}: ${link.url}`).join('\n')+(join?.detailsText?'\n'+join.detailsText:''),
+                  actionHtml:appointmentActionsHtml(links)+(join?.detailsHtml||'')});
+              }else recipientEntries.push({...entry,actionText:[response?.text,join?.text].filter(Boolean).join('\n\n'),actionHtml:(response?.html||'')+(join?.html||'')});
+              if(response||join)addedJoin=true;
             }
+            recipientMessage=buildScheduleNoticeMessage(recipientEntries,recipientEntries.at(-1)?.portalUrl||portalUrl,{recipientUserId:target?.userId||null});
             body=recipientMessage.text;
             if(addedJoin)await db.execute('UPDATE appointment_schedule_notice_deliveries SET message_json=? WHERE id=?',[d.encrypt(JSON.stringify(recipientMessage)),delivery.insertId]);
           }

@@ -17,6 +17,7 @@ const handle=fn=>async(req,res,next)=>{try{res.json(await fn(req.tutoringContext
 router.use('/:guestSessionId/studio',materials);
 router.get('/:guestSessionId',handle(room.tutoringRoomStatus));
 router.post('/:guestSessionId/join',handle(room.joinBookedTutoringRoom));
+router.post('/:guestSessionId/presence',handle(room.heartbeatBookedTutoringRoom));
 router.post('/:guestSessionId/token',handle(room.bookedTutoringToken));
 router.post('/:guestSessionId/leave',handle(room.leaveBookedTutoringRoom));
 router.get('/:guestSessionId/workspace',handle((ctx,req)=>room.bookedTutoringWorkspace(ctx,'read',req.query)));

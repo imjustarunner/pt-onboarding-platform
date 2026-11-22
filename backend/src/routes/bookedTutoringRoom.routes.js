@@ -18,6 +18,7 @@ router.get('/:appointmentId/lesson-record',handle(room.tutoringLessonRecord));
 router.post('/:appointmentId/lesson-review',handle((ctx,req)=>room.tutoringLessonReview(ctx,req.body)));
 router.post('/:appointmentId/board-draft',rateLimit({windowMs:60000,max:8,standardHeaders:true,legacyHeaders:false,keyGenerator:req=>String(req.user.id)}),handle((ctx,req)=>room.tutoringBoardDraft(ctx,req.body)));
 router.post('/:appointmentId/join',handle(room.joinBookedTutoringRoom));
+router.post('/:appointmentId/presence',handle(room.heartbeatBookedTutoringRoom));
 router.post('/:appointmentId/token',handle(room.bookedTutoringToken));
 router.post('/:appointmentId/admit/:visitId',handle((ctx,req)=>room.admitBookedTutoringParticipant(ctx,req.params.visitId)));
 router.post('/:appointmentId/leave',handle(room.leaveBookedTutoringRoom));

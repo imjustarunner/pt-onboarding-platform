@@ -60,7 +60,9 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
       if (a.attendanceDetails) text += ` ${a.attendanceDetails}`;
       text += ' Your provider will reach out if there are any changes to their schedule. Your other appointments remain scheduled.';
     }
-    return { text, html: `<p>${escapeNoticeHtml(text)}</p>`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : updated ? 'Your appointment details have been updated' : recurring ? 'Your next recurring appointment is scheduled' : 'Your appointment is scheduled' };
+    const entry=visibleEntries.find(entry=>entry.appointment===a);
+    if(entry?.tutorName)text+=` Your tutor: ${entry.tutorName}.`;
+    return { text:`${text}${entry?.actionText?'\n\n'+entry.actionText:''}`, html: `<p>${escapeNoticeHtml(text)}</p>${entry?.actionHtml||''}`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : updated ? 'Your appointment details have been updated' : recurring ? 'Your next recurring appointment is scheduled' : 'Your appointment is scheduled' };
   });
   const linkedSections = sections.map((section, index) => {
     if (sections.length < 2) return section;
@@ -73,7 +75,7 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
   return {
     subject: sections.length === 1 ? sections[0].subject : batchAppointmentNoticeKind(entries) === 'appointment_scheduled' ? 'Your appointments are scheduled' : 'Your appointment schedule has been updated',
     text: `${linkedSections.map(s => s.text).join('\n\n')}\n\nReview your current schedule: ${portalUrl}\n\n${footer}`,
-    html: `${linkedSections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalUrl)}">${sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment'}</a></p>${footer ? `<p>${footer}</p>` : ''}`,
+    html: `${linkedSections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(visibleEntries.at(-1)?.portalUrl||portalUrl)}">${sections.length === 1 ? 'Review my appointment' : 'Review my latest appointment'}</a></p>${footer ? `<p>${footer}</p>` : ''}`,
     sms: sections.length === 1 && batchAppointmentNoticeKind(entries) === 'appointment_scheduled'
       ? `Your ${visibleEntries[0].payload.facts?.recurringBooking ? 'next recurring ' : ''}appointment is scheduled. Review the details in your secure portal: ${portalUrl}`
       : batchAppointmentNoticeKind(entries) === 'appointment_scheduled' ? `Your appointments are scheduled. Review the details in your secure portal: ${portalUrl}`

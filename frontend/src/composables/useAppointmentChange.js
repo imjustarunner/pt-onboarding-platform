@@ -2,7 +2,7 @@ import { computed, reactive, ref, getCurrentInstance, onMounted, onBeforeUnmount
 import api from '../services/api.js';
 import { assembleLocalNarrative } from '../utils/appointmentChangeNarrative.js';
 
-export function useAppointmentChange({identity}={}) {
+export function useAppointmentChange({identity,recoverOperations=true}={}) {
   const open = ref(false);
   const step = ref(1);
   const loading = ref(false);
@@ -91,7 +91,7 @@ export function useAppointmentChange({identity}={}) {
     const id=seriesOperation.value?.remainingAppointmentId;if(id)void openWizard({appointmentId:id,context:{...context}});
   }
   if(getCurrentInstance()){
-    onMounted(async()=>{const generation=seriesGeneration;try{const{data}=await api.get('/appointments/cancellation-operations',{skipGlobalLoading:true});if(!disposed&&generation===seriesGeneration)for(const operation of data?.operations||[])trackSeriesOperation(operation,operation.appointmentId);}catch{/* Optional progress recovery. */}});
+    onMounted(async()=>{if(!recoverOperations)return;const generation=seriesGeneration;try{const{data}=await api.get('/appointments/cancellation-operations',{skipGlobalLoading:true});if(!disposed&&generation===seriesGeneration)for(const operation of data?.operations||[])trackSeriesOperation(operation,operation.appointmentId);}catch{/* Optional progress recovery. */}});
     onBeforeUnmount(()=>{disposed=true;clearInterval(seriesTimer);expiryTimers.forEach(clearTimeout);});
   }
   if(identity)watch(identity,()=>{seriesGeneration++;clearInterval(seriesTimer);seriesTimer=null;expiryTimers.forEach(clearTimeout);expiryTimers.clear();seriesJobs.value=[];closeWizard();});

@@ -2,6 +2,7 @@ import {mount,flushPromises} from '@vue/test-utils';
 import {it,expect,vi,beforeEach,afterEach} from 'vitest';
 const m=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),state:null,failNote:false,route:{params:{appointmentId:'359',organizationSlug:'nlu-qa-demo'},query:{agencyId:'453'}}}));
 vi.mock('../../../services/api',()=>({default:Object.assign(m.request,{get:m.get})}));
+vi.mock('axios',()=>({default:{create:()=>m.request}}));
 vi.mock('vue-router',()=>({useRoute:()=>m.route}));
 vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{name:'Next Level Up'}})}));
 vi.mock('../InPersonTutoringSessionView.vue',()=>({default:{props:['sessionIdOverride','embedded'],template:'<div>In-person tools</div>'}}));
@@ -39,3 +40,5 @@ it('rejoins a departed family participant through a fresh appointment waiting re
 it('takes tenant branding from the booked appointment rather than a previous organization selection',async()=>{m.state={...m.state,agencyId:453,branding:{agencyName:'Next Level Up — SYNTHETIC QA',agencyLogoUrl:'https://example.com/nlu-logo.png'}};const w=await render();expect(w.text()).toContain('Next Level Up — SYNTHETIC QA');expect(w.find('header img').attributes('src')).toBe('https://example.com/nlu-logo.png');});
 
 it('clears the prior appointment and private note when renewed authorization is denied',async()=>{const w=await render();expect(w.text()).toContain('Appointment #359');m.request.mockRejectedValue({response:{status:403,data:{error:{message:'This appointment belongs to a different tutoring team.'}}}});await w.vm.refresh();await flushPromises();expect(w.text()).not.toContain('Appointment #359');expect(w.find('textarea').exists()).toBe(false);expect(w.text()).toContain('different tutoring team');});
+
+it('opens a guest room without requesting staff cancellation recovery or a normal login',async()=>{m.route.params={organizationSlug:'nlu-qa-demo'};m.state={...m.state,host:false,visit:{id:9,status:'waiting'},sessionHubV2:true};wrapper=mount(Entry,{props:{guestSessionId:'11111111-2222-4333-8444-555555555555'},global:{stubs:{TutoringSessionHub:{template:'<div>Family waiting room</div>'},RouterLink:{template:'<a><slot/></a>'},TherapySessionWorkspace:Workspace}}});await flushPromises();expect(m.get).not.toHaveBeenCalled();expect(m.request.mock.calls.some(([c])=>c.url.includes('/tutoring-guest/')&&c.url.endsWith('/join'))).toBe(true);expect(wrapper.text()).toContain('waiting room');});

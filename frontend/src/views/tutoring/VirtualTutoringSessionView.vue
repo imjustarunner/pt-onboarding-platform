@@ -1,6 +1,6 @@
 <template>
  <template v-if="state?.sessionHubV2">
- <TutoringSessionHub :state="state" :video="video" :connected="connected" :closed="closed" :in-person="inPerson" :busy="busy" :wants-join="wantsJoin" :guest="!!guestSessionId" :brand="brand" :logo="logo" :back-path="backPath" :error="error||reconnectError" :window-message="windowMessage" :link-notice="linkNotice" :manual-join-link="manualJoinLink" :join-recipients="joinRecipients" :selected-recipient="selectedRecipient" @select-recipient="selectedRecipient=$event;manualJoinLink='';linkNotice=''" :goals="allGoals" :learning-context="learningContext" :request="request" :workspace-request="workspaceRequest" :rate-activity="state.host?rateActivity:undefined" :generate-question="state.host?generateQuestion:undefined" :read-material="readMaterial" :renew-video="renewVideo" @join="join" @start="startInPerson" @end="confirmingEnd=true" @leave="leave" @admit="admit" @refresh="refresh" @connected="connected=true" @disconnected="reconnect" @copy-link="copyJoinLink" @revoke-link="revokeLink">
+ <TutoringSessionHub :state="state" :video="video" :connected="connected" :closed="closed" :in-person="inPerson" :busy="busy" :wants-join="wantsJoin" :guest="!!guestSessionId" :brand="brand" :logo="logo" :back-path="backPath" :error="error||reconnectError" :window-message="windowMessage" :link-notice="linkNotice" :manual-join-link="manualJoinLink" :join-recipients="joinRecipients" :selected-recipient="selectedRecipient" @select-recipient="selectedRecipient=$event;manualJoinLink='';linkNotice=''" :goals="allGoals" :learning-context="learningContext" :request="request" :workspace-request="workspaceRequest" :rate-activity="state.host?rateActivity:undefined" :generate-question="state.host?generateQuestion:undefined" :read-material="readMaterial" :renew-video="renewVideo" @join="join" @start="startInPerson" @end="confirmingEnd=true" @leave="leave" @admit="admit" @refresh="refresh" @connected="onMediaConnected" @disconnected="reconnect" @copy-link="copyJoinLink" @revoke-link="revokeLink">
   <template #attendance><AppointmentNoShowStatus v-if="state.host" :appointment-id="Number(state.appointmentId)" :resolved-attendance="ended&&!!state.startedAt" :time-zone="state.timeZone" @undone="refresh" @changed="refresh" /></template>
   <template #learning><p v-if="contextError" role="alert">{{contextError}}</p><section v-for="entry in learningContext?.subjects||[]" :key="entry.subject.id"><h3>{{entry.subject.subject_label}}</h3><p>{{entry.activePlan?.title||'Learning plan awaiting review'}}</p><p v-for="goal in entry.goals||[]" :key="goal.id">{{goal.title}}</p></section><p v-if="!state.host">Your tutor chooses practice for your learning goals. Only reviewed work is shared here.</p></template>
   <template #notes><TutoringSessionNoteEditor :key="appointmentId" :appointment-id="appointmentId" :params="params()" :request="request" :ended="ended&&!!state.startedAt" :goals="allGoals" @shared="noteVersion++" /></template>
@@ -12,7 +12,7 @@
  </template>
  <main v-else class="tutoring-room" :class="{focused}">
   <header><img v-if="logo" :src="logo" :alt="brand" /><div><p class="brand-name">{{brand}}</p><h1>Session Hub</h1><p><span v-if="state?.studentName">{{state.studentName}} · </span>{{state?.title || 'Tutoring session'}} · {{inPerson?'In person':'Virtual'}}</p><p v-if="state">Appointment #{{ state.appointmentId }} · {{ scheduleLabel }} · {{ statusLabel }}</p></div><button v-if="video" class="focus-toggle" type="button" :aria-pressed="focused" @click="focused=!focused">{{focused?"Show session panels":"Focus on lesson"}}</button><router-link :to="backPath">Back to {{ state?.host ? 'my schedule' : 'my portal' }}</router-link></header>
-  <p v-if="loading" role="status">Checking your booked session…</p>
+  <p v-if="loading" role="status">Checking your booked session…</p><p v-else-if="!state&&!error" role="status">Your session is paused or could not be opened. <button @click="refresh">Try again</button></p>
   <p v-if="error" role="alert">{{ error }} <button @click="refresh">Try again</button></p>
   <p v-if="reconnectError && video && !closed" role="alert">{{ reconnectError }} <button type="button" :disabled="busy" @click="reconnect()">Retry connection</button></p>
   <template v-if="state">
@@ -50,7 +50,7 @@
    <details v-if="state.host&&!inPerson" class="attendance" aria-label="Tutoring attendance" :open="!video||waiting.length>0"><summary>Waiting room · Appointment #{{state.appointmentId}}<span v-if="waiting.length"> · {{waiting.length}} waiting</span></summary><p v-if="!waiting.length">No participants are waiting for this appointment.</p><article v-for="visit in waiting" :key="visit.id"><span>{{visit.displayName}}</span><button :disabled="busy||!connected" @click="admit(visit.id)">Admit to this session</button></article><p v-for="visit in admitted" :key="visit.id">{{visit.displayName}} · Admitted {{formatTime(visit.admittedAt)}}</p><button v-if="state.sessionId&&!ended&&!connected" :disabled="busy" @click="confirmingEnd=true">End this tutoring session</button><details v-if="state.visits?.length"><summary>Attendance history</summary><p v-for="visit in state.visits" :key="visit.id">{{visit.displayName}} · {{visit.status}} · Admitted {{formatTime(visit.admittedAt)}} · Left {{formatTime(visit.endedAt)}} · Connected video: {{visit.mediaDurationSeconds==null?'Not confirmed':`${visit.mediaDurationSeconds} seconds`}}</p></details></details>
     <button v-if="inPerson&&state.host&&!state.startedAt" :disabled="busy" @click="startInPerson">Start in-person session</button><button v-if="inPerson&&state.host&&state.startedAt" :disabled="busy" @click="confirmingEnd=true">End this tutoring session</button>
     <InPersonTutoringSessionView v-if="inPerson&&state.host&&state.sessionId" :session-id-override="state.sessionId" embedded />
-    <TherapySessionWorkspace v-if="video" :key="video.sessionId" :video="{...video, renewCredentials: renewVideo}" :is-host="state.host" :defer-alone-warning="waitingForAdmittedConnection" :started-at="state.startedAt" :branding="state.branding" product-name="Tutoring" learning :show-brand="false" :learning-context="learningContext" :rate-activity="state.host ? rateActivity : undefined" :generate-question="state.host ? generateQuestion : undefined" :materials="materials" :read-material="readMaterial" :request="workspaceRequest" @connected="connected=true" @disconnected="reconnect" @meeting-ended="refresh" @leave-request="state.host ? confirmingEnd=true : leave()" />
+    <TherapySessionWorkspace v-if="video" :key="video.sessionId" :video="{...video, renewCredentials: renewVideo}" :is-host="state.host" :defer-alone-warning="waitingForAdmittedConnection" :started-at="state.startedAt" :branding="state.branding" product-name="Tutoring" learning :show-brand="false" :learning-context="learningContext" :rate-activity="state.host ? rateActivity : undefined" :generate-question="state.host ? generateQuestion : undefined" :materials="materials" :read-material="readMaterial" :request="workspaceRequest" @connected="onMediaConnected" @disconnected="reconnect" @meeting-ended="refresh" @leave-request="state.host ? confirmingEnd=true : leave()" />
    </template>
     </div>
     <details v-if="state.host && (!closed || ended)" class="hub-note" :open="false"><summary>Session notes &amp; activity</summary><details v-if="state.sessionId&&hasApprovedPlan"><summary>Learning plan results</summary><TutoringSessionLearningPanel :key="`${state.sessionId}-${noteVersion}`" :client-id="state.clientId" :agency-id="state.agencyId" :session-id="state.sessionId" :request="request" :session-type="inPerson?'in_person':'virtual'" /></details><TutoringSessionNoteEditor :key="appointmentId" :appointment-id="appointmentId" :params="params()" :request="request" :ended="ended&&!!state.startedAt" :goals="allGoals" @shared="noteVersion++" /></details>
@@ -81,7 +81,10 @@ import api from '../../services/api';
 const props=defineProps({guestSessionId:{type:String,default:''}});
 const route=useRoute(),agencies=useAgencyStore();
 const guestApi=axios.create({baseURL:getApiBaseUrl(),withCredentials:true});
-const appointmentChange=useAppointmentChange();
+// A family invitation is an appointment capability, never an employee login.
+// Staff cancellation recovery otherwise issues a protected request on mount,
+// whose 401 interceptor redirects this already-open guest room to Login.
+const appointmentChange=useAppointmentChange({recoverOperations:!props.guestSessionId});
 const canDeclareNoShow=computed(()=>state.value?.host&&!state.value.startedAt&&
  ['scheduled','confirmed','client_confirmed','checked_in'].includes(state.value.status)&&Date.now()>=Date.parse(state.value.startAt));
 function openNoShow(){
@@ -123,11 +126,10 @@ const contextKey=()=>`${appointmentId}:${JSON.stringify(params())}`;
 const request=async(suffix,method='get',body,options={})=>{const key=contextKey();const r=await (props.guestSessionId?guestApi:api)({timeout:30000,...options,url:path(suffix),method,data:body,params:params(),skipGlobalLoading:true});if(stopped||key!==contextKey())throw Object.assign(new Error('Session context changed.'),{stale:true});return r.data;};
 const workspaceRequest=(suffix,{method='GET',body}={})=>request(`/workspace${suffix||''}`,method,body);
 // Keep a successful admitted board session active even while a device is reconnecting.
-let stopPresence, presenceExpiry;
+let stopPresence;
 const reconnectError = ref('');
 let mediaPaused = false;
 function clearPresence() {
- clearTimeout(presenceExpiry);
  stopPresence?.();
  stopPresence = null;
 }
@@ -139,8 +141,6 @@ function updatePresence() {
   return;
  }
  stopPresence ||= startLiveMeetingPresence();
- clearTimeout(presenceExpiry);
- presenceExpiry = setTimeout(clearPresence, 20000);
 }
 function joinMarker() {
  const login = localStorage.getItem('sessionId');
@@ -156,7 +156,7 @@ function previouslyJoined() {
  try { const key = joinMarker(); return key && sessionStorage.getItem(key) === '1'; }
  catch { return false; }
 }
-async function refresh(){if(stopped||(!appointmentId&&!props.guestSessionId)||!canPollWorkspace())return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{state.value=await request('');error.value='';if(closed.value || (video.value && !state.value.host && state.value.visit?.status !== 'admitted')){clearPresence();rememberJoin(false);video.value=null;connected.value=false;wantsJoin.value=false;}else if(!wantsJoin.value && previouslyJoined() && state.value.available &&
+async function refresh(){if(stopped||(!appointmentId&&!props.guestSessionId)||(!props.guestSessionId&&!canPollWorkspace()))return;if(polling){refreshQueued=true;return;}const key=contextKey();polling=true;try{if(wantsJoin.value&&!state.value?.host)await request('/presence','post');state.value=await request('');error.value='';if(closed.value || (video.value && !state.value.host && state.value.visit?.status !== 'admitted')){clearPresence();rememberJoin(false);video.value=null;connected.value=false;wantsJoin.value=false;}else if(!wantsJoin.value && previouslyJoined() && state.value.available &&
  (state.value.host ? state.value.roomState==='active' : state.value.visit?.status==='admitted')){
  wantsJoin.value=true;
  try { await renewVideo(); } catch(e){wantsJoin.value=false;rememberJoin(false);throw e;}
@@ -182,6 +182,7 @@ async function renewVideo() {
  tokenRequest = { key, pending };
  try { await pending; } finally { if (tokenRequest?.pending === pending) tokenRequest = null; }
 }
+function onMediaConnected(){connected.value=true;reconnectError.value='';updatePresence();}
 async function reconnect(event) {
  connected.value = false;
  if (event?.reason === 'alone-timeout') { mediaPaused = true; clearPresence(); return; }
