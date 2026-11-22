@@ -1,5 +1,6 @@
 export function outcomeItemVisible(item, answers) {
   return (item.when || []).every(condition => {
+    if (condition.any) return condition.any.some(key => answers[key] === condition.equals);
     const key = condition.key === '$alcohol' ? `alcohol_${answers.alcohol_branch}` : condition.key;
     return condition.positive ? /^[1-4]$/.test(String(answers[key])) : answers[key] === condition.equals;
   });

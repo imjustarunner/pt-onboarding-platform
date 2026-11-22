@@ -1,6 +1,8 @@
 import { scoreNluLearning } from './nluLearningScoring.js';
+import { scoreAdditionalOutcome } from './additionalOutcomeScoring.js';
 // Deterministic scoring only. Never derive diagnoses, billing codes, or treatment plans.
 export const measureItemVisible = (item, answers) => (item.when || []).every(condition => {
+  if (condition.any) return condition.any.some(key => answers[key] === condition.equals);
   const key = condition.key === '$alcohol' ? `alcohol_${answers.alcohol_branch}` : condition.key;
   const value = answers[key];
   return condition.positive ? /^[1-4]$/.test(String(value)) : value === condition.equals;
@@ -53,6 +55,8 @@ export function scoreOutcomeMeasure(measure, input) {
   const result = { complete: missing.length === 0, missing, answered: required.length - missing.length,
     required: required.length, total: null, average: null, domains: {}, flags: [], interpretation: '', prorated: false };
   if (measure.kind === 'original_pilot') return scoreNluLearning(measure, answers, result);
+  const additional = scoreAdditionalOutcome(measure, answers, result);
+  if (additional) return additional;
   const numeric = measure.items.filter(i => /^q\d+$/.test(i.key));
   const rawSum = numeric.reduce((sum, item) => sum + (answers[item.key] == null ? 0 : Number(answers[item.key])), 0);
   if (measure.id === 'phq-9' || measure.id === 'phq-a') {

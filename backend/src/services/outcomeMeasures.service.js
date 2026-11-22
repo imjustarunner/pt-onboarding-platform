@@ -8,6 +8,7 @@ import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNote
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { requireStaffCareEligibility } from './staffCareEligibility.service.js';
 import { supervisorCanAccessClientInOrg } from '../utils/supervisorSchoolAccess.js';
+import { liveOutcomeContext, liveOutcomeRespondent } from './liveOutcomeContext.service.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 export const clinicalMeasureRoles = ['admin', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor'];
@@ -29,7 +30,7 @@ export async function assertOutcomeClientAccess(user, clientId, { write = false 
   return access.client;
 }
 export function outcomeCatalog() {
-  return { checkedAt: '2026-10-10', availableCount: outcomeMeasures.length, reviewedCount: measureRights.length, measures: outcomeMeasures, rights: measureRights };
+  return { checkedAt: measureRights.map(entry => entry.checkedAt).sort().at(-1), availableCount: outcomeMeasures.length, reviewedCount: measureRights.length, measures: outcomeMeasures, rights: measureRights };
 }
 export async function outcomeCatalogFor(user, { clientId, agencyId } = {}) {
   let id;
@@ -55,6 +56,15 @@ export async function listOutcomeResponses(user, clientId) {
   const [rows] = await pool.execute('SELECT * FROM client_outcome_measure_responses WHERE client_id = ? AND agency_id = ? ORDER BY recorded_at DESC, id DESC LIMIT 500', [client.id, client.agency_id]);
   return rows.map(decode);
 }
+export async function liveOutcomeWorkspace(user, clientId, appointmentId) {
+  const client = await assertOutcomeClientAccess(user, clientId);
+  const context = await liveOutcomeContext(client, appointmentId, user);
+  const [rows] = await pool.execute('SELECT * FROM client_outcome_measure_responses WHERE client_id = ? AND agency_id = ? AND appointment_id = ? ORDER BY recorded_at DESC, id DESC', [client.id, client.agency_id, context.appointment.id]);
+  const recent = await listOutcomeResponses(user, clientId);
+  const responses = [...new Map([...recent, ...rows.map(decode)].map(row => [row.id, row])).values()]
+    .sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt) || b.id - a.id);
+  return { ...context, responses, historyLimited: recent.length === 500 };
+}
 export async function saveOutcomeResponse(user, clientId, input, retry = false) {
   const client = await assertOutcomeClientAccess(user, clientId, { write: true });
   const measure = getOutcomeMeasure(input?.measureId);
@@ -68,19 +78,26 @@ export async function saveOutcomeResponse(user, clientId, input, retry = false) 
   if (!allowedAdministration.includes(input?.administration)) fail(400, 'Select the administration method.');
   const { answers, result } = scoreOutcomeMeasure(measure, input.answers);
   if (!Object.values(answers).some(value => Array.isArray(value) ? value.length > 0 : String(value).trim().length > 0)) fail(400, 'Record at least one response.');
-  const payload = { questionnaire: measure, answers, result, administration: input.administration, clinicalFitConfirmed: true, ...(pilotContext ? { pilotContext } : {}) };
+  const context = input.appointmentId != null ? await liveOutcomeContext(client, input.appointmentId, user) : null;
+  const respondent = context ? liveOutcomeRespondent(measure, input.respondent, context, client) : null;
+  if (context && !result.complete) fail(400, 'Complete every required question before marking this live assessment complete.');
+  if (respondent && measure.items.some(item => item.key === 'informant')) answers.informant = respondent.label;
+  const payload = { questionnaire: measure, answers, result, administration: input.administration, clinicalFitConfirmed: true,
+    ...(context ? { appointment: context.appointment, respondent, source: 'live_session' } : {}), ...(pilotContext ? { pilotContext } : {}) };
   const [prior] = await pool.execute('SELECT * FROM client_outcome_measure_responses WHERE client_id = ? AND agency_id = ? AND recorded_by_user_id = ? AND request_id = ?', [client.id, client.agency_id, user.id, input.requestId]);
   if (prior.length) {
     const saved = decode(prior[0]);
-    if (saved.measureId !== measure.id || saved.version !== measure.version || saved.administration !== input.administration || JSON.stringify(saved.answers) !== JSON.stringify(answers) || JSON.stringify(saved.pilotContext || null) !== JSON.stringify(pilotContext)) fail(409, 'This submission was already saved with different responses. Start a new administration.');
+    if (saved.measureId !== measure.id || saved.version !== measure.version || saved.administration !== input.administration || JSON.stringify(saved.answers) !== JSON.stringify(answers) || JSON.stringify(saved.pilotContext || null) !== JSON.stringify(pilotContext) || Number(saved.appointment?.id || 0) !== Number(context?.appointment.id || 0) || JSON.stringify(saved.respondent || null) !== JSON.stringify(respondent)) fail(409, 'This submission was already saved with different responses. Start a new administration.');
     return saved;
   }
   const encrypted = maybeEncryptNotePayload(JSON.stringify(payload)); // Fail closed if encryption is unavailable.
   let id;
   try {
+    const columns = context ? ', appointment_id' : '';
+    const placeholder = context ? ', ?' : '';
     const [saved] = await pool.execute(`INSERT INTO client_outcome_measure_responses
-      (client_id, agency_id, measure_id, measure_version, request_id, recorded_by_user_id, payload_encrypted)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`, [client.id, client.agency_id, measure.id, measure.version, input.requestId, user.id, encrypted]);
+      (client_id, agency_id, measure_id, measure_version, request_id, recorded_by_user_id, payload_encrypted${columns})
+      VALUES (?, ?, ?, ?, ?, ?, ?${placeholder})`, [client.id, client.agency_id, measure.id, measure.version, input.requestId, user.id, encrypted, ...(context ? [context.appointment.id] : [])]);
     id = saved.insertId;
   } catch (error) {
     if (error.code !== 'ER_DUP_ENTRY' || retry) throw error;
@@ -96,7 +113,8 @@ export async function saveAssignedOutcomeResponse({ clientId, agencyId, userId, 
   if (!result.complete) fail(400, 'Answer all items before submitting the questionnaire.');
   const requestId = createHash('sha256').update('client-update-assessment:' + itemId).digest('hex').slice(0, 32)
     .replace(/^(........)(....)(....)(....)(............)$/, '$1-$2-$3-$4-$5');
-  const payload = { questionnaire: measure, answers, result, administration: measure.respondent, source: 'family_portal' };
+  const payload = { questionnaire: measure, answers, result, administration: measure.respondent || 'self', source: 'family_portal', respondentUserId: userId,
+    respondent: measure.respondent === 'caregiver' ? { type:'guardian', userId:Number(userId), label:answers.informant || 'Parent / guardian' } : { type:'client', clientId:Number(clientId), label:'Client' } };
   const encrypted = maybeEncryptNotePayload(JSON.stringify(payload));
   // The assignment and clinical record are in separate stores. A retry after
   // saving the clinical response can complete the checklist without another response.

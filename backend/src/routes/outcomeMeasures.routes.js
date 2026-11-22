@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
-import { outcomeCatalogFor, assertMeasureRole, listOutcomeResponses, saveOutcomeResponse, reviewOutcomeResponse } from '../services/outcomeMeasures.service.js';
+import { outcomeCatalogFor, assertMeasureRole, listOutcomeResponses, saveOutcomeResponse, reviewOutcomeResponse, liveOutcomeWorkspace } from '../services/outcomeMeasures.service.js';
 const router = Router();
 router.use(authenticate);
 router.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -19,6 +19,11 @@ router.get('/clients/:clientId', handle(async req => {
   const responses = await listOutcomeResponses(req.user, req.params.clientId);
   await logClientAccess(req, req.params.clientId, 'view_outcome_measures');
   return { responses };
+}));
+router.get('/clients/:clientId/live', handle(async req => {
+  const workspace = await liveOutcomeWorkspace(req.user, req.params.clientId, req.query.appointmentId);
+  await logClientAccess(req, req.params.clientId, 'view_live_outcome_measures');
+  return workspace;
 }));
 router.post('/clients/:clientId', handle(async req => {
   const response = await saveOutcomeResponse(req.user, req.params.clientId, req.body);

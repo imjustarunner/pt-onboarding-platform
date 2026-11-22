@@ -1,6 +1,7 @@
 // Instrument text is versioned clinical content, never company-editable prose.
 // Rights and source evidence: outcomeMeasureRights.json. English versions only.
 import { getNluLearningMeasure } from './nluLearningMeasures.js';
+import { additionalOutcomeMeasures } from './additionalOutcomeMeasures.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { buildPhq9Fields, buildPhqAFields, buildGad7Fields } from './validatedClinicalScreens.en.js';
@@ -18,13 +19,13 @@ const twoWeeks = 'Over the last 2 weeks, how often have you been bothered by the
 const measures = [
   base('phq-9', 'PHQ-9 · Depression symptoms', 'Depression', twoWeeks,
     [...fields(buildPhq9Fields().map(f => f.label), frequency), impairment],
-    { instrumentVersion: 'PHQ-9, English', summary: 'Nine symptom items and an unscored functioning question. Item 9 requires direct clinical follow-up when endorsed.', scoreRange: '0–27', timeframe: 'Past 2 weeks' }),
+    { instrumentVersion: 'PHQ-9, English', population: 'Ages 12 and older · Client self-report', summary: 'Nine symptom items and an unscored functioning question. Item 9 requires direct clinical follow-up when endorsed.', scoreRange: '0–27', timeframe: 'Past 2 weeks' }),
   base('phq-a', 'PHQ-A · Adolescent depression symptoms', 'Depression', twoWeeks,
     [...fields(buildPhqAFields().map(f => f.label), frequency), impairment],
-    { instrumentVersion: 'PHQ-A, adolescent wording, English', population: 'Adolescents; clinician selects for clinical fit', summary: 'Nine adolescent symptom items, including irritability, and an unscored functioning question. Item 9 requires direct clinical follow-up when endorsed. This is not the adult PHQ-9.', scoreRange: '0–27', timeframe: 'Past 2 weeks' }),
+    { instrumentVersion: 'PHQ-A, adolescent wording, English', population: 'Ages 12–18 · Adolescent self-report, nine symptom items', summary: 'Nine adolescent symptom items, including irritability, and an unscored functioning question. Item 9 requires direct clinical follow-up when endorsed. This is not the adult PHQ-9.', scoreRange: '0–27', timeframe: 'Past 2 weeks' }),
   base('gad-7', 'GAD-7 · Anxiety symptoms', 'Anxiety', twoWeeks,
     [...fields(buildGad7Fields().map(f => f.label), frequency), impairment],
-    { instrumentVersion: 'GAD-7, English', population: 'Adolescents and adults; clinician selects for clinical fit', summary: 'Seven anxiety symptom items and an unscored functioning question.', scoreRange: '0–21', timeframe: 'Past 2 weeks' }),
+    { instrumentVersion: 'GAD-7, English', population: 'Ages 11 and older · Adolescent or adult self-report', summary: 'Seven anxiety symptom items and an unscored functioning question.', scoreRange: '0–21', timeframe: 'Past 2 weeks' }),
   base('pcl-5', 'PCL-5 · PTSD symptoms', 'Trauma', 'Below is a list of problems that people sometimes have in response to a very stressful experience. Keeping your worst event in mind, please read each problem carefully and then select one of the numbers to indicate how much you have been bothered by that problem in the past month.',
     [{ key: 'worst_event', label: 'Your worst event:', type: 'text', optional: true }, ...fields([
       'Repeated, disturbing, and unwanted memories of the stressful experience?',
@@ -154,6 +155,7 @@ for (const [id, report, respondent] of [
     }));
 }
 
+measures.push(...additionalOutcomeMeasures);
 export const outcomeMeasures = measures.map(m => {
   const rights = measureRights.find(r => r.id === m.id);
   if (rights?.status !== 'enabled') throw new Error(`Missing reuse evidence: ${m.id}`);
