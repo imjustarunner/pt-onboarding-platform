@@ -17,13 +17,14 @@ Rollout
 Additive migration 1861_nlu_session_hub.sql introduces guest grants/sessions, material versions/attempts/shares, resource library and progress decisions. Its flag update targets only marked synthetic QA453/nlu-qa-demo and QA454/nlu-qa-learning. No live NLU6 flag is enabled. Live NLU activation requires the owner's review of a complete working QA appointment. No childcare rates, employee agreements, memberships, billing policies or counseling permissions are changed by this work.
 
 Engineering validation on merged main
-- Backend: 836 passed; 23 environment-specific checks skipped in that run.
+- Backend: 843 passed; 23 environment-specific checks skipped in that run.
 - Frontend: 759 passed.
 - Isolated loopback MySQL: 7 passed separately, including additive migration replay, concurrent retry idempotency, immutable submitted answers, stale draft rejection, admission/unshare and cross-scope denial. Unique temporary schemas were dropped after testing.
 - Production frontend and public-site packaging passed.
 - Backend Docker/shared runtime import check passed (52 runtime imports).
 - Local Chrome preview: 7 checks passed; tutor lock synchronized to learner, learner had no clear control or key editor, exact worksheet response persisted, tablet/390px layouts had no horizontal overflow, and no runtime exceptions occurred.
 - CI workflow nlu-session-hub.yml repeats focused frontend/backend and isolated MySQL checks.
+- CI follow-up repairs make the worksheet unit stub deterministic, explicitly model the external mailbox Directory boundary, and update office-release SQL fixtures for the existing assignment-preservation argument. The actual production mailbox policy and office-release behavior remain unchanged. Nine office-release and seven school-contact SQL checks passed separately.
 
 Limits and evidence
 These are engineering checks, not completed live QA. Preview screenshots explicitly use synthetic local data and mocked API transport; they do not prove production attendance, email receipt, audio/video, AI/OCR availability or hardware support. All 34 new live cases start NOT RUN. The bot packet also preserves the earlier NR21/WB briefing and original 47-case checklist. Earlier failures remain open until freshly verified.

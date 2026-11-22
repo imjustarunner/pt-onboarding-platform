@@ -5,7 +5,7 @@ import {guardianAppointmentJoin} from '../guardianVirtualJoin.js';
 const appointment={id:1,agencyId:6,providerUserId:20,status:'scheduled',modality:'TELEHEALTH',businessType:'tutoring',videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/session'};
 const client={client_id:22,agency_id:6};
 const context={url:path=>'https://tenant.example/'+path};
-function fixture(){const db={execute:vi.fn(async()=>[[{id:9}]])},authorize=vi.fn(async()=>client),conference=vi.fn();return {db,authorize,conference};}
+function fixture(){const db={execute:vi.fn(async()=>[[{id:9}]])},authorize=vi.fn(async()=>client),conference=vi.fn();return {db,authorize,conference,guestLink:vi.fn(async()=>null)};}
 it('uses the same saved external destination in the reminder and the authorized portal join',async()=>{
  const d=fixture();const result=await appointmentJoinEmail({appointment,clientId:22,to:'guardian@example.test',context},d);
  expect(result.url).toBe(await guardianAppointmentJoin(appointment,client,d.db,{includeFutureDestination:true}));expect(result.text).toContain(appointment.externalMeetingUrl);expect(result.text).not.toContain('/tutoring-session/');expect(d.conference).not.toHaveBeenCalled();

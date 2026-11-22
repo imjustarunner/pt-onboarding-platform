@@ -29,7 +29,7 @@ it('releases one evening in local time without deleting or deactivating its assi
 });
 it('unbooks one occurrence and retains recurring booking and assignment', async () => {
  await releaseOfficeReservation({ ...input, keepAssigned: true });
- expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_events SET status'), ['RELEASED', 'ASSIGNED_AVAILABLE', 20]);
+ expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_events SET status'), ['RELEASED', 'ASSIGNED_AVAILABLE', true, 20]);
  expect(conn.execute.mock.calls.some(([sql]) => sql.includes('is_active = IF'))).toBe(false);
 });
 it('refuses attached appointments before any writes', async () => {
@@ -67,7 +67,7 @@ it('applies a reviewed release once and rejects stale ownership', async () => {
     now: new Date('2099-07-02T18:00:00Z') };
   const request = { ...input, keepAssigned: true, reviewedOccurrence, actorUserId: 101, canManage: true };
   await releaseOfficeReservation(request);
-  expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_events SET status'), ['RELEASED', 'ASSIGNED_AVAILABLE', 20]);
+  expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE office_events SET status'), ['RELEASED', 'ASSIGNED_AVAILABLE', true, 20]);
   conn.execute.mockClear();
   event.status = 'RELEASED'; event.slot_state = 'ASSIGNED_AVAILABLE'; event.booked_provider_id = null;
   event.session_context_json = { officeCancellationDisposition: 'release' };
