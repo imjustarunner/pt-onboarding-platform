@@ -65,7 +65,7 @@ Email evidence
 - Corrected sample 7574 uses the standard app sender: logical recipient
   qa.reference.preview.1122@example.com redirected to testing@itsco.health,
   with no Auto-Submitted or X-Auto-Response-Suppress headers. Its Message-ID is
-  <comm-7574@plotlinepo.com>. Confirm actual receipt; do not resend either sample.
+  <comm-7574@plotlinepo.com>. The owner confirmed receipt. Do not resend either.
 - Capture actual inbox receipt for each new action. If absent, record BLOCKED
   and obtain the Workspace delivery-log result rather than claiming delivery.
 - Retain prior open microphone/interview-state findings separately. This
@@ -74,3 +74,14 @@ Email evidence
 Report PASS / FAIL / BLOCKED / NOT RUN with exact role, company, job,
 application/reference/message IDs, click path, screenshot and Denver time.
 Engineering setup and unit checks do not count as a completed live bot pass.
+
+Reference email branding follow-up
+- Keep primary Plotline branding and A People Operations Platform. The employer
+  logo, name, People Operations label and saved colors appear beneath it in
+  invitations/reminders and receipt/thank-you templates.
+- Verify Juniper and Maple retain their respective employer identities. Do not
+  rename either company ITSCO to manufacture a branding test. A separate local
+  ITSCO preview is design evidence, not a delivered or completed reference.
+- Verify the PlotTwistCo footer mark and small contact icons load in actual
+  received mail. Missing backend image configuration now uses public absolute
+  HTTPS assets, rather than relative upload links that cannot load in email.

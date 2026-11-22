@@ -3,8 +3,8 @@ November 22, 2026
 
 Use the established QA automation vault login for Jordan 1434. Retain Juniper
 Consulting QA 463, Maple Studio QA 464, and the existing synthetic applicants.
-Wait for release ec395f4c7 or a later compatible release. It includes the
-reference code and persistent mail-route configuration. Record matching
+Wait for release d8d36f8e3 or a later compatible release. It includes the
+reference code, employer branding and public application routing. Record matching
 frontend / required backend / live backend builds, ready
 status and America/Denver time before testing. Record exact candidate,
 reference index and request IDs with each result.
@@ -45,10 +45,11 @@ People Operations route. Juniper 463 pins sender identity 1156 and Maple 464
 pins 1157; both use testing@itsco.health as their controlled reply destination.
 Engineering verified the Group and existing Workspace relay after the domain
 was added. No new sender setup is required for these two companies. Distinguish
-transport acceptance and the app's label from inbox delivery. One fictional
-engineering sample was already sent, communication 7571 / Message-ID
-<comm-7571@plotlinepo.com>. Verify that sample's receipt without sending another.
-It does not count as a real reference invitation or completion.
+transport acceptance and the app's label from inbox delivery. Engineering sample
+7571 was dropped by Google Groups because it was incorrectly marked auto-replied.
+The owner confirmed receipt of corrected sample 7574 / Message-ID
+<comm-7574@plotlinepo.com>. Neither is a real reference invitation or completion.
+Do not resend either sample.
 
 5. Use the reference form's received invitation in an isolated signed-out
 browser profile as the approved synthetic referee. Confirm plotlinepo.com,
@@ -100,8 +101,8 @@ previous prerequisites.
 
 
 NOVEMBER 22 FOLLOW-UP — RECEIPTS, DELIVERY CHANNELS AND BRANDING
-- Migration 1863 adds a durable, deduplicated receipt queue. Apply it before
-  using this release. Completion and its queue event commit together.
+- Migration 1863 is already applied. Its durable, deduplicated receipt queue
+  commits with completion. Browser QA does not require database operations.
 - Prepare an active SSO staff member and an active password/group-login staff
   member with effective hiring permission for Juniper 463. Preserve all other
   capabilities. Do not grant hiring permission to a clinical-only account to
