@@ -11,6 +11,7 @@ import { resolveClaimMdConnection, requireClaimMdEligibility } from './claimMdCo
 import { readClientInsurance } from './clientInsurance.service.js';
 import { coverageFingerprint } from './coverageVerification.service.js';
 import { accountEligibilityLimit, runMeteredCoverageCheck } from './eligibilityUsage.service.js';
+import {intakeAutomationConfig} from './intakeEligibility.service.js';
 
 export const AUTOMATION_CADENCES=['monthly','weekly','before_visit'];
 export const automationDate = (date,timezone='America/Denver') => new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
@@ -30,15 +31,19 @@ export function validateAutomationPolicy(input) {
   if(input.enabled&&input.readinessConfirmed!==true)throw billingError(400,'Confirm eligibility setup and responsibility for reviewing responses');
   return reference;
 }
-export async function saveEligibilityAutomation(input) {
-  const reference=validateAutomationPolicy(input),db=await pool.getConnection();
+export async function saveEligibilityAutomation(input,deps={}) {
+  const reference=validateAutomationPolicy(input);
+  if(input.intakeEnabled!==undefined&&typeof input.intakeEnabled!=='boolean')throw billingError(400,'Choose whether saved insurance starts automatic checks');
+  if(input.enabled&&input.intakeEnabled===true)await (deps.profile||getClaimMdBillingProfile)(input.agencyId,positiveId(input.defaultOfficeId));
+  const db=await (deps.pool||pool).getConnection();
   try {
     await db.beginTransaction();await db.execute('SELECT id FROM agencies WHERE id=? FOR UPDATE',[input.agencyId]);
     const [[previous]]=await db.execute('SELECT revision FROM agency_eligibility_automation WHERE agency_id=? FOR UPDATE',[input.agencyId]);
     if(Number(previous?.revision||0)!==input.revision)throw billingError(409,'Eligibility settings changed; refresh before saving');
     await db.execute(`INSERT INTO agency_eligibility_automation (agency_id,enabled,cadence,monthly_limit,reviewer_user_id,readiness_reference,revision) VALUES (?,?,?,?,?,?,?)
       ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),cadence=VALUES(cadence),monthly_limit=VALUES(monthly_limit),reviewer_user_id=VALUES(reviewer_user_id),readiness_reference=VALUES(readiness_reference),revision=VALUES(revision)`,[input.agencyId,input.enabled,input.cadence,input.monthlyLimit,input.actorUserId,reference,input.revision+1]);
-    await auditBilling({agencyId:input.agencyId,userId:input.actorUserId,action:input.enabled?'eligibility_automation_enabled':'eligibility_automation_paused',objectId:input.agencyId},db);
+    if(input.intakeEnabled!==undefined)await db.execute(`UPDATE agencies SET feature_flags=JSON_SET(COALESCE(feature_flags,JSON_OBJECT()),'$.intakeEligibilityAutomation',JSON_MERGE_PATCH(COALESCE(JSON_EXTRACT(feature_flags,'$.intakeEligibilityAutomation'),JSON_OBJECT()),JSON_OBJECT('enabled',CAST(? AS JSON),'officeId',CAST(? AS JSON)))) WHERE id=?`,[JSON.stringify(input.intakeEnabled),JSON.stringify(Number(input.defaultOfficeId)||null),input.agencyId]);
+    await (deps.audit||auditBilling)({agencyId:input.agencyId,userId:input.actorUserId,action:input.enabled?'eligibility_automation_enabled':'eligibility_automation_paused',objectId:input.agencyId},db);
     await db.commit();return {revision:input.revision+1};
   }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
@@ -62,7 +67,7 @@ export async function enrollEligibilityClients(input) {
 export async function eligibilityAutomationOverview(agencyId,{after=0}={}) {
   const [[agency]]=await pool.execute('SELECT feature_flags FROM agencies WHERE id=?',[agencyId]);
   const flags=typeof agency?.feature_flags==='string'?JSON.parse(agency.feature_flags):agency?.feature_flags||{};
-  const intakeConfig=flags.intakeEligibilityAutomation||{};
+  const intakeConfig=await intakeAutomationConfig(agencyId,flags);
   const [intakeJobs]=await pool.execute('SELECT status,COUNT(*) AS count FROM intake_eligibility_jobs WHERE agency_id=? GROUP BY status',[agencyId]);
   const [[policy]]=await pool.execute('SELECT * FROM agency_eligibility_automation WHERE agency_id=?',[agencyId]);
   const [clients]=await pool.execute(`SELECT c.id,c.initials,c.primary_insurer_name,(${activeClientSql}) AS eligible,e.enabled,e.billing_office_location_id,e.last_checked_at,e.last_status FROM clients c LEFT JOIN client_statuses cs ON cs.id=c.client_status_id LEFT JOIN client_eligibility_automation e ON e.agency_id=c.agency_id AND e.client_id=c.id WHERE c.agency_id=? AND c.id>? AND (c.billing_insurance_payload IS NOT NULL OR e.client_id IS NOT NULL) ORDER BY c.id LIMIT 101`,[agencyId,after]);

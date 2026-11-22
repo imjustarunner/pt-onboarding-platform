@@ -48,3 +48,8 @@ it('clears prior names after access is denied and closes with Escape',async()=>{
  const w=mount(InsuranceVerificationQueue,{props:{agencyId:450},attachTo:document.body});await flushPromises();const open=w.findAll('button').find(b=>b.text()==='Verify insurance');open.element.focus();await open.trigger('click');await flushPromises();document.querySelector('[role=dialog]').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flushPromises();expect(document.querySelector('[role=dialog]')).toBeNull();
  api.get.mockRejectedValue({response:{data:{error:{message:'Access denied'}}}});await w.setProps({agencyId:451});await flushPromises();expect(w.text()).toContain('Access denied');expect(w.text()).not.toContain('DEMO QA Client 22');w.unmount();
 });
+it('retains the open verification dialog when a background refresh removes its row from the queue',async()=>{
+ const w=mount(InsuranceVerificationQueue,{props:{agencyId:450},attachTo:document.body});await flushPromises();await w.findAll('button').find(b=>b.text()==='Verify insurance').trigger('click');await flushPromises();const dialog=document.querySelector('[role=dialog]');
+ api.get.mockResolvedValue(payload([]));await w.get('header form').trigger('submit');await flushPromises();expect(document.querySelector('[role=dialog]')).toBe(dialog);expect(dialog.textContent).toContain('Editor 22 / 450');
+ expect(document.body.style.overflow).toBe('hidden');w.unmount();expect(document.body.style.overflow).not.toBe('hidden');
+});

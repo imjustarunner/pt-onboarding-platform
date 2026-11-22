@@ -54,6 +54,10 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.claim-facility.config.js
       - name: Transaction filters and billing office review
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-transactions.config.js
+      - name: Automatic insurance verification, shared payers and stable review forms
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.insurance-verification.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.insurance-verification.config.js
       - name: Fee schedule controls
         run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.fee-schedules.config.js
       - name: Billing workspace and profile links

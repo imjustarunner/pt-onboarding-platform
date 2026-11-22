@@ -7,6 +7,7 @@ import { getClaimMdBillingProfile } from '../services/claimMdBillingProfile.serv
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { listCoverageEvidence,runCoverageCheck,saveCoverageReview,coverageReviewBlockers,coverageReviewToken,assignmentInsuranceSummary,assignmentCoverageIssues,syntheticQaCoverageReviewAvailable } from '../services/coverageVerification.service.js';
 import { clientCoverageAdmission } from '../services/clientCoverageAdmission.service.js';
+import {clientAutomaticEligibilityStatus} from '../services/intakeEligibility.service.js';
 async function scope(req){
  const agencyId=positiveId(req.body?.agencyId||req.query.agencyId),clientId=positiveId(req.params.clientId);
  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
@@ -17,11 +18,14 @@ async function scope(req){
 export async function getCoverageEvidence(req,res,next){try{
  const s=await scope(req),serviceDate=req.query.serviceDate,insurance=await readClientInsurance(s.clientId,s.agencyId),evidence=await listCoverageEvidence({...s,serviceDate});
  const missingAssignmentFields=assignmentCoverageIssues(insurance,serviceDate);
- res.set('Cache-Control','no-store').json({...evidence,syntheticQaReviewAvailable:await syntheticQaCoverageReviewAvailable(s),blockers:coverageReviewBlockers({insurance,...evidence}),insuranceSummary:assignmentInsuranceSummary(insurance),
+ let automaticEligibility;
+ try {automaticEligibility=await clientAutomaticEligibilityStatus({...s,insurance,serviceDate});}
+ catch {automaticEligibility={status:'unavailable',message:'Automatic verification status could not be loaded. Saved payer evidence remains available.'};}
+ res.set('Cache-Control','no-store').json({...evidence,automaticEligibility,syntheticQaReviewAvailable:await syntheticQaCoverageReviewAvailable(s),blockers:coverageReviewBlockers({insurance,...evidence}),insuranceSummary:assignmentInsuranceSummary(insurance),
   reviewToken:coverageReviewToken({...s,...evidence,serviceDate,insurance}),readyForAssignmentReview:!missingAssignmentFields.length,missingAssignmentFields,
   ...(req.query.forAssignment==='true'||req.query.forAssignment===true?{admission:await clientCoverageAdmission(s.clientId)}:{})});
 }catch(e){next(e);}}
-export async function checkClientCoverage(req,res,next){try{const s=await scope(req),profile=await getClaimMdBillingProfile(s.agencyId,req.body.billingOfficeId),connection=await resolveClaimMdConnection(s.agencyId);res.json(await runMeteredCoverageCheck({...s,slot:req.body.slot,serviceDate:req.body.serviceDate,requestKey:req.body.requestKey,lookupMode:req.body.lookupMode,profile,connection}));}catch(e){next(e);}}
+export async function checkClientCoverage(req,res,next){try{const s=await scope(req),profile=await getClaimMdBillingProfile(s.agencyId,req.body.billingOfficeId),connection=await resolveClaimMdConnection(s.agencyId);res.json(await runMeteredCoverageCheck({...s,slot:req.body.slot,serviceDate:req.body.serviceDate,requestKey:req.body.requestKey,lookupMode:req.body.lookupMode,profile,connection}));}catch(e){if(e.coverageCheckId)return res.set('Cache-Control','no-store').status(e.status||503).json({error:{code:e.code,message:e.message,coverageCheckId:e.coverageCheckId,upstreamCodes:e.upstreamCodes||[]}});next(e);}}
 export async function reviewClientCoverage(req,res,next){try{
  const s=await scope(req),saved=await saveCoverageReview({...req.body,...s});
  res.set('Cache-Control','no-store').status(201).json({...saved,...(req.body.assignmentReview===true?{admission:await clientCoverageAdmission(s.clientId)}:{})});

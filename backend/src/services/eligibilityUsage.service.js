@@ -61,7 +61,8 @@ export async function runMeteredCoverageCheck(input, deps={}) {
     return result;
   } catch(e) {
     // Only local validation failures establish that no request reached Claim.MD.
-    await db.execute('UPDATE claimmd_eligibility_usage SET status=?,completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND status=\'reserved\'',[!checkStarted||e.status===400||e.status===409?'not_sent':'unknown',reservation,input.agencyId]);
+    const localFailure=!checkStarted||([400,409].includes(e.status)&&!e.coverageCheckId&&!String(e.code||'').startsWith('CLAIM_MD_'));
+    await db.execute('UPDATE claimmd_eligibility_usage SET status=?,completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND status=\'reserved\'',[localFailure?'not_sent':'unknown',reservation,input.agencyId]);
     throw e;
   }
 }

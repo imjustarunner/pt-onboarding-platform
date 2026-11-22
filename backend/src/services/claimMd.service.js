@@ -4,6 +4,7 @@ import { normalizeUsStateCode } from '../utils/usStateTimezone.js';
 import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
+import { claimMdFailure } from './claimMdEligibilityErrors.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
  * AccountKey is required on every call. Responses are passthrough JSON/text.
@@ -11,18 +12,22 @@ import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 
 const CLAIM_MD_BASE = String(process.env.CLAIM_MD_API_BASE || 'https://svc.claim.md/services').replace(/\/$/, '');
 
-async function postForm(path, fields = {}, agencyId) {
+async function postForm(path, fields = {}, agencyId, {timeoutMs=30000}={}) {
   const body = new URLSearchParams();
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined || v === null) continue;
     body.append(k, String(v));
   }
-  const resp = await fetch(`${CLAIM_MD_BASE}${path}`, {
+  let resp;
+  try { resp = await fetch(`${CLAIM_MD_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(timeoutMs),
     body
-  });
+  }); } catch(error) {
+    if(path==='/eligdata/')throw claimMdFailure({timeout:['TimeoutError','AbortError'].includes(error?.name),network:true});
+    throw error;
+  }
   const text = await resp.text();
   let json = null;
   try {
@@ -31,12 +36,14 @@ async function postForm(path, fields = {}, agencyId) {
     // non-JSON response
   }
   if (!resp.ok) {
+    if(path==='/eligdata/')throw claimMdFailure({httpStatus:resp.status,body:json});
     const err = new Error(`Claim.MD request failed (HTTP ${resp.status})`);
     err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
     throw err;
   }
   if (!json || typeof json !== 'object' || json.error || json.errors) {
     await observeClaimMdData({agencyId,endpoint:path.replaceAll('/',''),failure:'invalid_api_response'});
+    if(path==='/eligdata/')throw claimMdFailure({httpStatus:resp.status,body:json});
     throw Object.assign(new Error('Claim.MD returned an error or an invalid response. Check the account configuration in Claim.MD.'), { status: 502 });
   }
   await observeClaimMdData({agencyId,payerId:fields.payerid,endpoint:path.replaceAll('/',''),result:json});
@@ -91,7 +98,7 @@ export async function requestEligibilityJson({ agencyId, accountKey, payload }) 
   return postForm('/eligdata/', {
     ...(payload && typeof payload === 'object' ? payload : {}),
     AccountKey: accountKey
-  }, agencyId);
+  }, agencyId, {timeoutMs:100000});
 }
 
 export function fetchPayers({ agencyId, accountKey, payerId, payerName }) {

@@ -51,3 +51,8 @@ describe('background eligibility controls',()=>{
   expect(reserve).not.toHaveBeenCalled();expect(check).not.toHaveBeenCalled();
  });
 });
+it('counts a payer enrollment rejection as a sent inquiry rather than releasing its budget',async()=>{
+ const db={execute:vi.fn(async()=>[{}])},error=Object.assign(new Error('Payer enrollment required'),{status:409,code:'CLAIM_MD_PAYER_ENROLLMENT',coverageCheckId:88});
+ await expect(runMeteredCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-11-22',requestKey:'rejected-enrollment',profile,connection},{db,env,readInsurance:async()=>insurance,queueFollowUp:vi.fn(),reserve:async()=>7,reserveFee:async()=>9,check:async()=>{throw error;}})).rejects.toBe(error);
+ expect(db.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE claimmd_eligibility_usage'))[1][0]).toBe('unknown');
+});

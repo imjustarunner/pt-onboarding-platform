@@ -6,6 +6,7 @@ import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling, assertFamilyBillingEncryption } from './familyBillingEncryption.service.js';
 import { requestEligibilityJson } from './claimMd.service.js';
+import { eligibilityFailure } from './claimMdEligibilityErrors.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { billingError, auditBilling } from './familyBillingPolicy.service.js';
@@ -133,8 +134,10 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
  let id;
  try {const [r]=await db.execute('INSERT INTO client_coverage_checks (agency_id,client_id,policy_slot,service_date,insurance_fingerprint,request_key,created_by_user_id) VALUES (?,?,?,?,?,?,?)',[agencyId,clientId,slot,date,fingerprint,requestKey,actorUserId]);id=r.insertId;}
  catch(e){if(e.code!=='ER_DUP_ENTRY')throw e;throw billingError(409,'This eligibility request was already started. Refresh its recorded result before starting another request');}
+ let responseSaved=false,checked=null,stage='sending';
  try {
   const result=await (deps.request||requestEligibilityJson)({agencyId,accountKey,payload});
+  stage='saving_response';
   const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid}),requestInsuranceFingerprint:fingerprint,eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
   // A demographic fallback may find the person under a different member ID.
   // Preserve that finding, but do not approve the currently saved wrong ID.
@@ -142,8 +145,10 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
   const returnedMembers=asList(result?.elig||result?.result?.elig);
   evidence.summary.identityMatches=eligibilityIdentityMatches({...payload,...(!childDiscovery&&insurance?.[slot]?.memberId?{ins_number:insurance[slot].memberId}:{})},result);
   if(childDiscovery&&!/^[A-Z]\d{6}$/i.test(String(returnedMembers[0]?.ins_number||'')))evidence.summary.identityMatches=false;
+  checked={id,status:'returned',...evidence};
   try { await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]); }
   catch(error) { await observeClaimMdData({agencyId,endpoint:'eligdata',failure:'evidence_storage_failed'}); throw error; }
+  responseSaved=true;stage='follow_up';
   await auditBilling({agencyId,clientId,userId:actorUserId,action:'insurance_eligibility_checked',objectId:id},db);
   const errors=asList(result?.elig||result?.result?.elig).flatMap(e=>asList(e.error));
   let followUpTaskId=null;
@@ -152,13 +157,27 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
     try {const {sendAutomaticBillingBenefits}=await import('./billingBenefitsEmail.service.js');await sendAutomaticBillingBenefits({agencyId,clientId,coverageCheckId:id,actorUserId});}
     catch { /* Eligibility evidence remains valid; notification failures never invalidate it. */ }
   }
-  const checked={id,status:'returned',...evidence,followUpTaskId};
+  checked={id,status:'returned',...evidence,followUpTaskId};
   if(source!=='automatic' && evidence.summary.identityMatches===true && evidence.summary.status==='active_reported') {
    try {const {applyEligibilityProfileResults}=await import('./eligibilityProfile.service.js');await (deps.applyProfile||applyEligibilityProfileResults)({agencyId,clientId,expectedFingerprint:fingerprint,results:[{slot,result:checked}],actorUserId},{db});}
    catch { checked.profileImportPending=true; await observeClaimMdData({agencyId,endpoint:'eligdata',failure:'profile_import_failed'}); await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_unresolved'},db); }
   }
   return checked;
- }catch(e){await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND client_id=?",[id,agencyId,clientId]);await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);throw billingError(502,'Eligibility could not be confirmed. Review payer enrollment or use the payer portal; coverage remains unverified');}
+ }catch(e){
+  if(responseSaved){
+   // A follow-up or audit outage must not discard an already saved payer result
+   // or invite a duplicate paid inquiry.
+   console.warn('[insurance eligibility]',{code:'ELIGIBILITY_FOLLOW_UP_PENDING',stage});
+   return {...checked,processingWarning:'The payer response was saved. Billing follow-up processing needs attention; do not repeat the eligibility check.'};
+  }
+  const failure=eligibilityFailure(e,stage);
+  const diagnostic={code:failure.code,message:failure.message,upstreamCodes:failure.upstreamCodes||[],upstreamStatus:failure.upstreamStatus||null,stage};
+  try {await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling({failure:diagnostic},context(agencyId,clientId)),id,agencyId,clientId]);}
+  catch {console.warn('[insurance eligibility]',{code:'ELIGIBILITY_FAILURE_STORAGE'});}
+  try {await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);}catch{}
+  console.warn('[insurance eligibility]',{code:failure.code,stage,upstreamStatus:failure.upstreamStatus||null});
+  throw Object.assign(failure,{coverageCheckId:id});
+ }
 }
 export async function syntheticQaCoverageReviewAvailable({agencyId,clientId},db=pool) {
  const [[row]]=await db.execute(`SELECT a.id,a.slug,a.feature_flags,a.is_active,a.is_archived,c.is_demo AS client_is_demo

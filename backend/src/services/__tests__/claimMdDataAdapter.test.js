@@ -24,3 +24,8 @@ it('flags a non-JSON response without handing its contents to the monitor',async
  expect(observed).toHaveBeenCalledWith({agencyId:2,endpoint:'payerlist',failure:'invalid_api_response'});
  expect(JSON.stringify(observed.mock.calls)).not.toContain('SECRET');
 });
+it('gives real-time eligibility the documented payer response window and retains a safe failure reason',async()=>{
+ const timeout=vi.spyOn(AbortSignal,'timeout');const fetch=vi.fn(async()=>({ok:true,status:200,text:async()=>JSON.stringify({error:[{error_code:'123',error_mesg:'Provider enrollment required SECRET_PATIENT'}]})}));vi.stubGlobal('fetch',fetch);
+ await expect(requestEligibilityJson({agencyId:2,accountKey:'secret-key',payload:{payerid:'SKCO0'}})).rejects.toMatchObject({code:'CLAIM_MD_PAYER_ENROLLMENT',upstreamCodes:['123'],status:409});
+ expect(timeout).toHaveBeenCalledWith(100000);expect(JSON.stringify(observed.mock.calls)).not.toContain('SECRET_PATIENT');timeout.mockRestore();
+});

@@ -10,8 +10,10 @@ import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
 import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
 import { coverageFingerprint, buildEligibilityRequest } from './coverageVerification.service.js';
 import { resolveClaimMdConnection, requireClaimMdEligibility } from './claimMdConnection.service.js';
-import { getClaimMdBillingProfile } from './claimMdBillingProfile.service.js';
+import { getClaimMdBillingProfile, listClaimMdBillingProfiles } from './claimMdBillingProfile.service.js';
+import {eligibilityPayerCapability} from './eligibilityPayerDirectory.service.js';
 import { runMeteredCoverageCheck } from './eligibilityUsage.service.js';
+import {accountEligibilityLimit} from './eligibilityUsage.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { applyEligibilityProfileResults } from './eligibilityProfile.service.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
@@ -43,12 +45,55 @@ export function needsMedicaidDiscovery(insurance, config) {
 
 export async function automaticEligibilityPayerReady({agencyId,payerId,profile,connection},deps={}) {
   const [[payer]]=await (deps.db||pool).execute(`SELECT d.directory_snapshot_json FROM medical_payer_setup_requests r JOIN medical_payer_setup_details d ON d.request_id=r.id WHERE r.agency_id=? AND d.claimmd_payer_id=? AND d.directory_status='id_match' ORDER BY d.directory_checked_at DESC LIMIT 1`,[agencyId,payerId]);
-  const support=parse(payer?.directory_snapshot_json).eligibility;
+  let support=parse(payer?.directory_snapshot_json).eligibility;
+  if(!['yes','no','enrollment'].includes(support))support=await (deps.capability||eligibilityPayerCapability)({agencyId,payerId,connection},deps);
   if(support==='yes')return true;
   if(support!=='enrollment')return false;
   const taxHash=crypto.createHash('sha256').update(String(profile.practice.tax_id||'').replace(/\D/g,'')).digest('hex');
   const [[enrollment]]=await (deps.clinicalDb||clinicalPool).execute(`SELECT status FROM claimmd_enrollments WHERE agency_id=? AND connection_id=? AND billing_office_location_id=? AND payer_id=? AND enrollment_type='elig' AND provider_npi=? AND tax_id_hash=?`,[agencyId,connection.connectionId,profile.officeId,payerId,profile.billingNpi,taxHash]);
   return ['approved','active','completed','no_enrollment_required'].includes(String(enrollment?.status||'').toLowerCase());
+}
+
+// An approved agency automation policy also covers insurance entered after
+// intake. The older intake-only flag is no longer an additional hidden opt-in.
+// An explicit pause is preserved; no budget, reviewer, or enrollment is invented.
+export async function intakeAutomationConfig(agencyId,flags,deps={}) {
+ const config=flags?.intakeEligibilityAutomation||{};
+ if(config.enabled===false||config.enabled===true&&config.officeId)return config;
+ const db=deps.db||pool;
+ const policy=deps.policy||(await db.execute('SELECT enabled FROM agency_eligibility_automation WHERE agency_id=?',[agencyId]))[0]?.[0];
+ if(!policy?.enabled&&config.enabled!==true)return {...config,enabled:false};
+ if(config.officeId)return {...config,enabled:true};
+ const offices=await (deps.offices||listClaimMdBillingProfiles)(agencyId);
+ const valid=offices.filter(o=>!o.configuration_error&&/^\d{10}$/.test(String(o.practice_npi||'')));
+ return {...config,enabled:true,officeId:valid.length===1?Number(valid[0].id):null,...(!config.medicaidState&&valid.length===1&&valid[0].state==='CO'?{medicaidState:'CO'}:{})};
+}
+
+export async function clientAutomaticEligibilityStatus({agencyId,clientId,insurance,serviceDate},deps={}) {
+ const db=deps.db||pool,env=deps.env||process.env;
+ const [[agency]]=await db.execute('SELECT feature_flags FROM agencies WHERE id=?',[agencyId]);
+ const [[policy]]=await db.execute('SELECT enabled,monthly_limit FROM agency_eligibility_automation WHERE agency_id=?',[agencyId]);
+ const config=await intakeAutomationConfig(agencyId,parse(agency?.feature_flags),{...deps,db,policy});
+ const status=(state,message,extra={})=>({status:state,message,...extra});
+ if(!paperInsuranceIsReviewed(insurance))return status('awaiting_paper_review','Review and save the insurance transcribed from the paper packet. Automatic checks start after that review.');
+ if(!policy?.enabled||!config.enabled)return status('setup_required','Automatic verification is not enabled for this organization. Set it up once in Billing settings → Background insurance verification.');
+ if(env.CLAIM_MD_INTAKE_ELIGIBILITY_ENABLED!=='true')return status('paused','The automatic eligibility worker is paused. Billing setup needs attention.');
+ if(!Number(policy.monthly_limit))return status('setup_required','Set this organization’s monthly eligibility limit in Billing setup.');
+ let connection;
+ try {connection=await (deps.connection||resolveClaimMdConnection)(agencyId);requireClaimMdEligibility(connection,agencyId,env);}
+ catch{return status('setup_required','Connect this organization to Claim.MD eligibility in Billing setup.');}
+ if(accountEligibilityLimit(connection.connectionId,env)==null)return status('setup_required','The shared Claim.MD eligibility account limit needs to be configured.');
+ if(!config.officeId)return status('setup_required','Choose a default billing office for automatic eligibility. More than one billing identity may be available.');
+ let profile;
+ try {profile=await (deps.profile||getClaimMdBillingProfile)(agencyId,config.officeId);}
+ catch{return status('setup_required','Complete the default billing office’s provider name, NPI, tax ID and contact information in Billing setup.');}
+ const inputs=intakeEligibilityInputs(insurance,config,profile,serviceDate);
+ if(!inputs.readySlots.length)return status('waiting_for_information','Automatic verification will start after the missing insurance details are saved.',{missing:inputs.missing});
+ const [[job]]=await db.execute('SELECT id,status,updated_at FROM intake_eligibility_jobs WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id DESC LIMIT 1',[agencyId,clientId,coverageFingerprint(insurance)]);
+ if(job?.status==='pending'||job?.status==='processing')return status(job.status,job.status==='processing'?'Checking coverage through Claim.MD.':'Automatic Claim.MD verification is queued. The worker normally starts within five minutes.',{jobId:job.id});
+ if(job?.status==='completed')return status('completed','The automatic eligibility check returned. Review the payer findings and any other-coverage information below.',{jobId:job.id});
+ if(job)return status('review_required','The automatic check needs billing review. Review the saved result or setup issue before sending another paid check.',{jobId:job.id});
+ return status('ready','Automatic verification is ready. Save the completed insurance information to queue the check.');
 }
 
 export function intakeEligibilityInputs(insurance, config, profile, serviceDate) {
@@ -71,7 +116,7 @@ export function intakeEligibilityInputs(insurance, config, profile, serviceDate)
  * payer outage. A shared billing task exists even if the worker cannot start. */
 export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,insuranceCardsMissing=false}, db=pool) {
   const [[agency]] = await db.execute('SELECT feature_flags FROM agencies WHERE id=?',[agencyId]);
-  const config = parse(agency?.feature_flags).intakeEligibilityAutomation;
+  const config = await intakeAutomationConfig(agencyId,parse(agency?.feature_flags),{db});
   const insurance = await readClientInsurance(clientId,agencyId,db);
   if (!insurance?.primary) return null;
   if(!paperInsuranceIsReviewed(insurance))return {status:'awaiting_paper_review',readySlots:[],missing:[],jobId:null};
@@ -187,7 +232,7 @@ export async function runIntakeEligibilityJobs(deps={}) {
       AND c.compliance_archived_at IS NULL AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') ORDER BY j.id LIMIT 25`);
   const results=[];
   for(const job of jobs) {
-    const config=parse(job.feature_flags).intakeEligibilityAutomation;
+    const config=await intakeAutomationConfig(job.agency_id,parse(job.feature_flags),{db,policy:{enabled:job.automation_enabled},offices:deps.offices});
     if(!config?.enabled || !getMedicalBillingFlags(job).medicalBillingEnabled || !await (deps.actorAllowed||actorAllowed)(job)) continue;
     const [claim]=await db.execute("UPDATE intake_eligibility_jobs SET status='processing' WHERE id=? AND status='pending'",[job.id]);
     if(!claim.affectedRows) continue;

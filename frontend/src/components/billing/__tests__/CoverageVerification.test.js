@@ -6,7 +6,7 @@ describe('coverage and care-team views',()=>{
  it('checks the selected policy with saved client scope and no editable patient payload',async()=>{
   api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'Office',practice_npi:'1306688650'}]}:{checks:[],blockers:['Review coverage']}}));api.post.mockResolvedValue({data:{}});
   const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();await w.find('select').setValue(8);await w.findAll('button').find(b=>b.text()==='Check secondary eligibility').trigger('click');await flushPromises();
-  expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/2/coverage/check',expect.objectContaining({agencyId:1,billingOfficeId:8,slot:'secondary',requestKey:expect.any(String)}));expect(api.post.mock.calls[0][1]).not.toHaveProperty('eligibility');expect(w.text()).toContain('does not rule out other insurance');w.unmount();
+  expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/2/coverage/check',expect.objectContaining({agencyId:1,billingOfficeId:8,slot:'secondary',requestKey:expect.any(String)}),{skipGlobalLoading:true});expect(api.post.mock.calls[0][1]).not.toHaveProperty('eligibility');expect(w.text()).toContain('does not rule out other insurance');w.unmount();
  });
  it('keeps manual verification available when electronic eligibility is not enabled',async()=>{api.get.mockImplementation(async url=>{if(url.endsWith('billing-offices'))throw {response:{status:403}};return {data:{checks:[],blockers:['Manual verification required']}};});const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();expect(w.text()).toContain('Manual verification required');expect(w.text()).toContain('Electronic verification is unavailable');expect(w.find('form button').attributes('disabled')).toBeUndefined();w.unmount();});
  it('shows insurer names while excluding balance details and claim identifiers from the provider summary',async()=>{
@@ -25,15 +25,15 @@ it('keeps verification on the claim service date, displays the saved review, and
  api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'QA office'}]}:{checks:[],blockers:[],review:{status:'verified',created_at:'2026-11-04T20:24:26.000Z',evidence:{reference:'Synthetic portal reference'}}}}));api.post.mockResolvedValue({data:{}});
  const w=mount(Coverage,{props:{agencyId:1,clientId:2,serviceDate:'2026-11-02',billingOfficeId:8}});await flushPromises();
  expect(w.find('input[type="date"]').element.value).toBe('2026-11-02');expect(w.find('input[type="date"]').attributes('disabled')).toBeDefined();
- expect(api.get).toHaveBeenCalledWith('/medical-billing/clients/2/coverage',{params:{agencyId:1,serviceDate:'2026-11-02'}});expect(w.text()).toContain('Saved review: verified');expect(w.text()).toContain('11/02/2026');expect(w.text()).toContain('Synthetic portal reference');
+ expect(api.get).toHaveBeenCalledWith('/medical-billing/clients/2/coverage',{params:{agencyId:1,serviceDate:'2026-11-02'},skipGlobalLoading:true});expect(w.text()).toContain('Saved review: verified');expect(w.text()).toContain('11/02/2026');expect(w.text()).toContain('Synthetic portal reference');
  expect(w.findAll('input[type="checkbox"]').every(input=>!input.element.checked)).toBe(true);
- await w.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/2/coverage/review',expect.objectContaining({serviceDate:'2026-11-02'}));expect(w.emitted('saved')).toHaveLength(1);
+ await w.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/2/coverage/review',expect.objectContaining({serviceDate:'2026-11-02'}),{skipGlobalLoading:true});expect(w.emitted('saved')).toHaveLength(1);
  await w.setProps({serviceDate:'2026-11-01',clientId:3});await flushPromises();expect(w.find('input[type="date"]').element.value).toBe('2026-11-01');w.unmount();
 });
 
 it('uses an explicitly fictional review source only with the current server capability',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[],syntheticQaReviewAvailable:true}}));api.post.mockResolvedValue({data:{syntheticOnly:true}});
- const w=mount(Coverage,{props:{agencyId:450,clientId:22,serviceDate:'2026-11-12'}});await flushPromises();expect(w.findAll('form select')[1].element.value).toBe('synthetic_qa');expect(w.text()).toContain('Fictional QA review—no payer contact');await w.get('textarea').setValue('Owner-authorized fictional-only coverage review.');await w.get('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/22/coverage/review',expect.objectContaining({source:'synthetic_qa'}));expect(w.text()).toContain('No real payer contact');w.unmount();
+ const w=mount(Coverage,{props:{agencyId:450,clientId:22,serviceDate:'2026-11-12'}});await flushPromises();expect(w.findAll('form select')[1].element.value).toBe('synthetic_qa');expect(w.text()).toContain('Fictional QA review—no payer contact');await w.get('textarea').setValue('Owner-authorized fictional-only coverage review.');await w.get('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/22/coverage/review',expect.objectContaining({source:'synthetic_qa'}),{skipGlobalLoading:true});expect(w.text()).toContain('No real payer contact');w.unmount();
 });
 it('cannot forge a fictional review in a normal coverage form without the server capability',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[]}}));const w=mount(Coverage,{props:{agencyId:450,clientId:22}});await flushPromises();expect(w.find('option[value=synthetic_qa]').exists()).toBe(false);w.vm.$.setupState.draft.source='synthetic_qa';await w.get('form').trigger('submit');await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('unavailable for this client');w.unmount();
@@ -101,8 +101,30 @@ it('keeps one review in flight while the saved result refreshes independently of
  await w.get('textarea').setValue('Fictional policies reviewed, without payer contact.');
  await w.get('form').trigger('submit');await w.vm.$.setupState.review();expect(api.post).toHaveBeenCalledTimes(1);
  resolveSave({data:{syntheticOnly:true,id:48}});await flushPromises();
- expect(w.find('form').exists()).toBe(false);await w.vm.$.setupState.review();expect(api.post).toHaveBeenCalledTimes(1);
+ expect(w.find('form').exists()).toBe(true);expect(w.get('form fieldset').attributes('disabled')).toBeDefined();await w.vm.$.setupState.review();expect(api.post).toHaveBeenCalledTimes(1);
  resolveRefresh({data:{checks:[],blockers:[],syntheticQaReviewAvailable:true}});await flushPromises();
  expect(w.emitted('saved')).toHaveLength(1);expect(w.text()).toContain('Fictional QA review recorded');
- resolveOffices({data:{items:[]}});await flushPromises();w.unmount();
+ expect(officeReads).toBe(1);w.unmount();
+});
+
+it('keeps the manual form mounted and its entered evidence while a payer result refreshes',async()=>{
+ let resolveRefresh,reads=0;api.get.mockImplementation(url=>{
+  if(url.endsWith('billing-offices'))return Promise.resolve({data:{items:[{id:8,name:'Office',practice_npi:'1306688650'}]}});
+  return ++reads===1?Promise.resolve({data:{checks:[],blockers:[]}}):new Promise(resolve=>resolveRefresh=resolve);
+ });api.post.mockResolvedValue({data:{}});
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();const form=w.get('form').element,textarea=w.get('textarea').element;
+ await w.get('textarea').setValue('Keep this dated payer call reference');await w.findAll('button').find(b=>b.text()==='Check primary eligibility').trigger('click');await flushPromises();
+ expect(w.get('form').element).toBe(form);expect(w.get('textarea').element).toBe(textarea);expect(textarea.value).toBe('Keep this dated payer call reference');
+ resolveRefresh({data:{checks:[],blockers:[]}});await flushPromises();expect(w.get('textarea').element.value).toBe('Keep this dated payer call reference');
+ expect(api.get.mock.calls.filter(([url])=>url.endsWith('billing-offices'))).toHaveLength(1);w.unmount();
+});
+it('shows a failed check reference and actual setup explanation without erasing manual evidence',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'Office',practice_npi:'1306688650'}]}:{checks:[],blockers:[]}}));
+ api.post.mockRejectedValue({response:{data:{error:{code:'CLAIM_MD_ACCOUNT_SETUP',message:'The account connection needs attention.',coverageCheckId:81,upstreamCodes:['100']}}}});
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();await w.get('textarea').setValue('Manual reference preserved');await w.findAll('button').find(b=>b.text()==='Check primary eligibility').trigger('click');await flushPromises();
+ expect(w.text()).toContain('account connection');expect(w.text()).toContain('Check #81');expect(w.text()).toContain('Claim.MD code: 100');expect(w.get('textarea').element.value).toBe('Manual reference preserved');w.unmount();
+});
+it('shows automatic queue status and prevents duplicate manual checks while it is running',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'Office',practice_npi:'1306688650'}]}:{checks:[],blockers:[],automaticEligibility:{status:'pending',message:'Automatic Claim.MD verification is queued.'}}}));
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2}});await flushPromises();expect(w.text()).toContain('Automatic Claim.MD verification is queued');await w.vm.$.setupState.check('primary');expect(api.post).not.toHaveBeenCalled();w.unmount();
 });

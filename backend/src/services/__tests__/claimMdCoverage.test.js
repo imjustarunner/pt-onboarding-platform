@@ -130,3 +130,16 @@ describe('client-scoped eligibility and other coverage',()=>{
   const db={execute:vi.fn().mockResolvedValueOnce([[{latest_check_id:8}]]).mockResolvedValueOnce([[{status:'verified',through_check_id:8,has_new_evidence:1}]])};await expect(assertCoverageCollectionSafe(1,2,db)).rejects.toMatchObject({status:409});
  });
 });
+
+it('retains a safe encrypted diagnosis of a failed check rather than blaming every failure on enrollment',async()=>{
+ const db={execute:vi.fn(async sql=>sql.startsWith('INSERT')?[{insertId:81}]:[{}])};
+ const failure=Object.assign(new Error('Safe account explanation'),{status:503,code:'CLAIM_MD_ACCOUNT_SETUP',upstreamCodes:['100']});
+ await expect(runCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-11-22',requestKey:'failure-reference-81',actorUserId:5,profile},{db,request:async()=>{throw failure;},readInsurance:async()=>insurance(),queueFollowUp:vi.fn()})).rejects.toMatchObject({code:'CLAIM_MD_ACCOUNT_SETUP',coverageCheckId:81,status:503});
+ const saved=db.execute.mock.calls.find(([sql])=>sql.includes("status='error'"));expect(decryptFamilyBilling(saved[1][0],'coverage:1:2')).toMatchObject({failure:{code:'CLAIM_MD_ACCOUNT_SETUP',upstreamCodes:['100']}});
+});
+it('preserves an already saved payer response when follow-up audit processing fails',async()=>{
+ const {auditBilling}=await import('../familyBillingPolicy.service.js');auditBilling.mockRejectedValueOnce(new Error('Audit database unavailable'));
+ const db={execute:vi.fn(async sql=>sql.startsWith('INSERT')?[{insertId:82}]:[{}])};
+ const result=await runCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-11-22',requestKey:'saved-response-82',actorUserId:5,profile},{db,request:async()=>({elig:[]}),readInsurance:async()=>insurance(),queueFollowUp:vi.fn()});
+ expect(result).toMatchObject({id:82,status:'returned',processingWarning:expect.stringContaining('saved')});expect(db.execute.mock.calls.some(([sql])=>sql.includes("status='error'"))).toBe(false);
+});
