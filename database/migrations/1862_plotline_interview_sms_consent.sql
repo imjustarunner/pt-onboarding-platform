@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS hiring_interview_sms_consents (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  interview_id INT NOT NULL,
+  interview_id BIGINT NOT NULL,
   recorded_by_user_id INT NOT NULL,
   phone VARCHAR(18) NOT NULL,
   number_id INT NOT NULL,

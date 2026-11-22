@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({ execute: vi.fn(), getSender: vi.fn(), suppressed: vi.fn() }));
@@ -59,4 +60,11 @@ describe('Plotline interview text consent', () => {
       .mockResolvedValueOnce([[{ meeting_settings_json: { interviewSmsReminders: true } }]]);
     await expect(authorizeInterviewSms({ sender, phone, interviewId: 19 })).resolves.toBeUndefined();
   });
+});
+
+it('uses the interview primary-key type for the consent foreign key', () => {
+  const migration = name => readFileSync(new URL(`../../../../database/migrations/${name}`, import.meta.url), 'utf8');
+  const source = migration('1185_interview_hub.sql');
+  const type = source.match(/CREATE TABLE IF NOT EXISTS hiring_interviews \(\s*id (\w+(?: UNSIGNED)?) AUTO_INCREMENT/)[1];
+  expect(migration('1862_plotline_interview_sms_consent.sql')).toContain(`interview_id ${type} NOT NULL`);
 });
