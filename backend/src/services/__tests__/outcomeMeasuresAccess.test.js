@@ -11,19 +11,24 @@ import { outcomeCatalogFor, assertOutcomeClientAccess, saveOutcomeResponse, save
 vi.mock('../nluLearningAccess.service.js', async original => ({ ...(await original()), isNluAgency: vi.fn(), assertPilotCatalogAgency: vi.fn() }));
 import { isNluAgency } from '../nluLearningAccess.service.js';
 import { getOutcomeMeasure } from '../../data/outcomeMeasures.js';
+vi.mock('../liveOutcomeContext.service.js',async original=>({...await original(),liveOutcomeContext:vi.fn()}));
+import { liveOutcomeContext } from '../liveOutcomeContext.service.js';
+import { liveOutcomeWorkspace } from '../outcomeMeasures.service.js';
 const user={id:7,role:'provider'}, client={id:41,agency_id:12,organization_id:13};
 const input=()=>({measureId:'phq-9',version:getOutcomeMeasure('phq-9').version,requestId:'11111111-1111-4111-8111-111111111111',clinicalFitConfirmed:true,administration:'self',answers:Object.fromEntries(Array.from({length:9},(_,i)=>[`q${i+1}`,'0']))});
 let rows,reviewRace;
 beforeEach(()=>{
   vi.resetAllMocks(); isNluAgency.mockResolvedValue(false); rows=[];reviewRace=false;
+  liveOutcomeContext.mockResolvedValue({appointment:{id:99,clinicalSessionId:101},guardians:[{id:88,label:'Synthetic guardian',relationship:'Parent'}]});
   vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,9).toString('base64'));
   vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEYS_JSON','');
   resolveClientRecordAccess.mockResolvedValue({ok:true,isAssignedClinician:true,client}); requireStaffCareEligibility.mockResolvedValue(true); supervisorCanAccessClientInOrg.mockResolvedValue(false);
   pool.execute.mockImplementation(async(sql,v)=>{
-    if(sql.startsWith('INSERT')) { if (sql.includes('ON DUPLICATE KEY') && rows.some(r => r.request_id===v[4] && r.client_id===v[0] && r.agency_id===v[1] && r.recorded_by_user_id===v[5])) return [{affectedRows:0}]; const id=rows.length+1; rows.push({id,client_id:v[0],agency_id:v[1],measure_id:v[2],measure_version:v[3],request_id:v[4],recorded_by_user_id:v[5],payload_encrypted:v[6],recorded_at:'2026-10-10T10:00:00Z'});return [{insertId:id}]; }
+    if(sql.startsWith('INSERT')) { if (sql.includes('ON DUPLICATE KEY') && rows.some(r => r.request_id===v[4] && r.client_id===v[0] && r.agency_id===v[1] && r.recorded_by_user_id===v[5])) return [{affectedRows:0}]; const id=rows.length+1; rows.push({id,client_id:v[0],agency_id:v[1],measure_id:v[2],measure_version:v[3],request_id:v[4],recorded_by_user_id:v[5],appointment_id:v[7] || null,payload_encrypted:v[6],recorded_at:'2026-10-10T10:00:00Z'});return [{insertId:id}]; }
     if(sql.startsWith('UPDATE')) { const row=rows.find(r=>r.id===v[2]&&r.client_id===v[3]&&r.agency_id===v[4]&&!r.reviewed_at); if(!row||reviewRace)return[{affectedRows:0}];Object.assign(row,{reviewed_by_user_id:v[0],review_encrypted:v[1],reviewed_at:'2026-10-10T10:05:00Z'});return[{affectedRows:1}]; }
     if(sql.includes('request_id =')) return [rows.filter(r=>r.client_id===v[0]&&r.agency_id===v[1]&&r.recorded_by_user_id===v[2]&&r.request_id===v[3])];
     if(sql.includes('WHERE id =')) return [rows.filter(r=>r.id===v[0]&&r.client_id===v[1]&&r.agency_id===v[2])];
+    if(sql.includes('AND appointment_id ='))return [rows.filter(r=>r.client_id===v[0]&&r.agency_id===v[1]&&r.appointment_id===v[2])];
     if(sql.includes('ORDER BY'))return [rows.filter(r=>r.client_id===v[0]&&r.agency_id===v[1]).toReversed()];
     throw new Error('Unhandled test query');
   });
@@ -101,10 +106,10 @@ describe('NLU pilot persistence', () => {
 });
 
 it('offers pilots only for authorized NLU client catalogs and leaves generic catalog unchanged', async () => {
- expect((await outcomeCatalogFor(user)).measures).toHaveLength(12);
- expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(12);
+ expect((await outcomeCatalogFor(user)).measures).toHaveLength(24);
+ expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(24);
  isNluAgency.mockResolvedValue(true);
- expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(15);
+ expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(27);
  resolveClientRecordAccess.mockResolvedValue({ok:false,status:403});isNluAgency.mockClear();
  await expect(outcomeCatalogFor(user,{clientId:99})).rejects.toMatchObject({status:403});expect(isNluAgency).not.toHaveBeenCalled();
 });
@@ -121,6 +126,31 @@ it('records one encrypted family response attributed to the respondent even if s
   expect(rows).toHaveLength(1);
   expect(JSON.parse(rows[0].payload_encrypted)._enc).toBe(true);
   expect((await listOutcomeResponses(user, 41))[0]).toMatchObject({
-    measureId:'scared-parent', source:'family_portal', recordedBy:8, administration:'caregiver', result:{ total:41 }
+    measureId:'scared-parent', source:'family_portal', recordedBy:8, respondentUserId:8, administration:'caregiver', result:{ total:41 }
+  });
+});
+
+describe('live assessment persistence',()=>{
+  it('stores the appointment and respondent inside encryption while retaining the staff audit actor',async()=>{
+    const saved=await saveOutcomeResponse(user,41,{...input(),appointmentId:99,respondent:{type:'client'},administration:'clinician_assisted'});
+    expect(saved).toMatchObject({recordedBy:7,appointment:{id:99,clinicalSessionId:101},respondent:{type:'client',clientId:41},source:'live_session',result:{complete:true,total:0}});
+    expect(rows[0].appointment_id).toBe(99);expect(rows[0].payload_encrypted).not.toContain('live_session');expect(JSON.parse(rows[0].payload_encrypted)._enc).toBe(true);
+    const workspace=await liveOutcomeWorkspace(user,41,99);expect(workspace.responses.map(r=>r.id)).toEqual([saved.id]);
+    expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('AND appointment_id = ?'),[41,12,99]);
+  });
+  it('rejects incomplete live completion and missing respondent identity without recording',async()=>{
+    await expect(saveOutcomeResponse(user,41,{...input(),appointmentId:99,respondent:{type:'client'},answers:{q1:'1'}})).rejects.toMatchObject({status:400});
+    await expect(saveOutcomeResponse(user,41,{...input(),appointmentId:99})).rejects.toMatchObject({status:400});
+    expect(rows).toHaveLength(0);
+  });
+  it('does not move an existing result to another appointment on retry',async()=>{
+    await saveOutcomeResponse(user,41,{...input(),appointmentId:99,respondent:{type:'client'}});
+    liveOutcomeContext.mockResolvedValueOnce({appointment:{id:100},guardians:[]});
+    await expect(saveOutcomeResponse(user,41,{...input(),appointmentId:100,respondent:{type:'client'}})).rejects.toMatchObject({status:409});
+    expect(rows).toHaveLength(1);expect(rows[0].appointment_id).toBe(99);
+  });
+  it('does not retrieve clinical responses when the appointment binding fails',async()=>{
+    liveOutcomeContext.mockRejectedValueOnce(Object.assign(new Error('Not found'),{status:404}));
+    await expect(liveOutcomeWorkspace(user,41,100)).rejects.toMatchObject({status:404});expect(pool.execute).not.toHaveBeenCalled();
   });
 });

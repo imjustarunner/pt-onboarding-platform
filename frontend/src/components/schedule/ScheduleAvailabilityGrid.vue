@@ -2594,6 +2594,13 @@
             <p v-else class="muted">Session notes are available for booked client sessions.</p>
           </div>
 
+          <AppointmentLiveAssessments
+            v-if="editorWorkspaceTab === 'live_assessments' && editorCanUseLiveAssessments"
+            :key="`${editorInfoClientId}:${editorAppointmentId}`"
+            :client-id="editorInfoClientId"
+            :appointment-id="editorAppointmentId"
+            :client-name="editorInfoClientName"
+          />
           <div v-if="!editorIsLearning" v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentClinicalPanel
               v-if="editorIsClinical"
@@ -6078,6 +6085,7 @@ import { canUseSessionComments } from '../session-comments/sessionComments';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
 import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
 import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
+import AppointmentLiveAssessments from '../clinical/AppointmentLiveAssessments.vue';
 import OfficeEventSessionNotePanel from './OfficeEventSessionNotePanel.vue';
 import ClinicalSessionBody from './ClinicalSessionBody.vue';
 import ServiceInformation from '../notes/ServiceInformation.vue';
@@ -15095,6 +15103,8 @@ const editorCoProviderOptions = computed(() => {
     });
 });
 const editorShowClinicalTab = computed(() => !editorIsLearning.value && (editorShowBillingTab.value || editorIsClinical.value));
+const editorCanUseLiveAssessments = computed(() => editorIsClinical.value && !editorIsLearning.value && Number(editorAppointmentId.value) > 0 && Number(editorInfoClientId.value) > 0
+  && ['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor'].includes(String(authStore.user?.role || '').toLowerCase()));
 
 const editorWorkspaceTabs = computed(() => {
   if (!showAppointmentEditorShell.value) return [];
@@ -15170,6 +15180,7 @@ const editorWorkspaceTabs = computed(() => {
   }
   if (editorIsLearning.value) tabs.push({id:'learning',label:'Learning',icon:'✎'});
   else if (editorIsClinical.value) tabs.push({ id: 'session', label: 'Session note', icon: '✎' });
+  if (editorCanUseLiveAssessments.value) tabs.push({ id:'live_assessments', label:'Live assessments', icon:'▥' });
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
   if (Number(editorAppointmentId.value || 0) > 0) tabs.push({ id: 'communications', label: 'Communications', icon: '✉' });

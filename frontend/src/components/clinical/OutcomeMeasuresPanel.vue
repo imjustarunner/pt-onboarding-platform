@@ -13,7 +13,7 @@
       <ClinicalScreenerLink :search="search" :client-id="clientId" :inline="inlineScreener" @open="$emit('open-screener')" />
       <div class="measure-cards" :class="{ list: layout==='list' }">
         <button v-for="measure in filtered" :key="measure.id" type="button" :disabled="saving || (clientId && !clientAuthorized)" :aria-pressed="selected?.id === measure.id" @click="select(measure)">
-          <span class="eyebrow">{{ measure.domain }}{{ measure.kind === 'original_pilot' ? ' · Not validated' : '' }}</span><strong>{{ measure.title }}</strong><span>{{ measure.summary }}</span><small>{{ measure.timeframe }} · {{ measure.scoreRange }}</small><b>{{ clientId ? 'Record responses' : 'View blank instrument' }} ↗</b>
+          <span class="eyebrow">{{ measure.domain }}{{ measure.kind === 'original_pilot' ? ' · Not validated' : '' }}</span><strong>{{ measure.title }}</strong><span>{{ measure.summary }}</span><span>{{ measure.population }}</span><small>{{ measure.timeframe }} · {{ measure.scoreRange }}</small><b>{{ clientId ? 'Record responses' : 'View blank instrument' }} ↗</b>
         </button>
       </div>
       <p v-if="limitNote && !matchesSuicideScreener(search)" class="notice">{{ limitNote }}</p>
@@ -38,6 +38,8 @@
       </form>
     </section>
     <NluLearningProgress v-if="clientId" :responses="responses" />
+    <VanderbiltProgress v-if="clientId" :responses="responses" />
+    <OutcomeMeasureTrends v-if="clientId" :responses="responses" />
     <section v-if="clientId" class="history" aria-label="Measure history">
       <div class="section-heading"><div><p class="eyebrow">Client record</p><h3>Results &amp; clinical review</h3></div><button type="button" :disabled="saving || loading" @click="refreshHistory">Refresh results</button></div>
       <p v-if="historyError" class="error" role="alert">{{ historyError }}</p>
@@ -45,9 +47,10 @@
       <p v-if="responses.length === 500">Showing the 500 most recent administrations.</p>
       <article v-for="response in responses" :key="response.id" class="result-card">
         <div class="result-heading"><div><h4>{{ response.questionnaire.title }}</h4><p>{{ when(response.recordedAt) }} · {{ administrationLabel(response.administration) }}</p></div><span :class="['review-status', { pending: !response.reviewedAt }]">{{ response.reviewedAt ? 'Reviewed' : 'Needs clinical review' }}</span></div>
+        <p v-if="response.respondent" class="context-note">Answered by {{ response.respondent.label }}{{ response.respondent.relationship ? ` · ${response.respondent.relationship}` : '' }}{{ response.appointment?.id ? ` · Appointment #${response.appointment.id}` : '' }}</p>
         <p v-if="response.pilotContext" class="context-note">Observed {{ response.pilotContext.observedOn }} · {{ response.pilotContext.respondentSeries }} · Age {{ response.pilotContext.age }} · Original pilot, not validated</p>
         <div v-for="flag in response.result.flags" :key="flag.key" :class="['result-flag', { urgent: flag.urgent }]" :role="flag.urgent ? 'alert' : undefined">{{ flag.text }}</div>
-        <div class="result-score"><strong>{{ response.result.total == null ? 'No total score' : response.result.total }}</strong><span v-if="response.result.average != null">Average {{ response.result.average.toFixed(2) }} / 4</span><span>{{ response.result.prorated ? 'Prorated · partial responses' : response.result.complete ? 'Complete responses' : 'Incomplete responses' }}</span></div>
+        <div class="result-score"><strong>{{ response.result.total == null ? 'No total score' : response.result.total }}</strong><span v-if="response.questionnaire.totalLabel">{{ response.questionnaire.totalLabel }}</span><span v-if="response.result.average != null">{{ response.questionnaire.averageLabel || 'Average' }} {{ response.result.average.toFixed(2) }} / {{ response.questionnaire.averageMax || 4 }}</span><span>{{ response.result.prorated ? 'Prorated · partial responses' : response.result.complete ? 'Complete responses' : 'Incomplete responses' }}</span></div>
         <p>{{ response.result.interpretation }}</p>
         <dl v-if="Object.keys(response.result.domains).length" class="domain-scores"><div v-for="(value, domain) in response.result.domains" :key="domain"><dt>{{ domainLabel(domain) }}</dt><dd>{{ value == null ? 'Not scored' : value }}<small v-if="response.result.domainDetails?.[domain]"> · {{ response.result.domainDetails[domain].answered }}/{{ response.result.domainDetails[domain].expected }} observed · {{ response.result.domainDetails[domain].direction }} is favorable</small></dd></div></dl>
         <p v-if="changeFromPrevious(response)" class="change-note">{{ changeFromPrevious(response) }}</p>
@@ -56,7 +59,7 @@
         <details v-else class="review-form"><summary>Record clinical review</summary><form @submit.prevent="review(response)"><label>Clinical interpretation and next steps<textarea v-model="reviewNotes[response.id]" rows="3" maxlength="4000" required :disabled="saving" /></label><label v-if="response.result.flags.some(f => f.urgent)" class="confirmation"><input v-model="safetyConfirmed[response.id]" type="checkbox" required :disabled="saving" />I completed direct safety follow-up and documented the actions taken above.</label><button class="primary" :disabled="saving || !reviewNotes[response.id]?.trim()" type="submit">Save clinical review</button></form></details>
       </article>
     </section>
-    <details v-if="catalog.rights.length" class="rights-register"><summary>Appendix A · Availability &amp; reuse sources <span>{{ catalog.reviewedCount }} references reviewed</span></summary><p>The sources below describe reuse terms for each instrument. Other entries need permission or clarification of the exact version or commercial digital use. Free clinical access alone does not settle that question. Checked {{ catalog.checkedAt }}.</p><div v-for="entry in catalog.rights" :key="entry.id" class="rights-entry"><div><strong>{{ entry.name }}</strong><span>{{ statusLabel(entry.status) }}</span></div><p>{{ entry.reason }}</p><a :href="entry.rightsUrl" target="_blank" rel="noopener noreferrer">Reuse / source reference ↗</a></div></details>
+    <details v-if="catalog.rights.length" class="rights-register"><summary>Appendix A · Availability &amp; reuse sources <span>{{ catalog.reviewedCount }} references reviewed</span></summary><p>The sources below describe reuse terms for each instrument. Edition-specific notes distinguish published reuse terms from questions that still need verification. Checked {{ catalog.checkedAt }}.</p><div v-for="entry in catalog.rights" :key="entry.id" class="rights-entry"><div><strong>{{ entry.name }}</strong><span>{{ statusLabel(entry.status) }}</span></div><p>{{ entry.reason }}</p><a :href="entry.rightsUrl" target="_blank" rel="noopener noreferrer">Reuse / source reference ↗</a></div></details>
   </section>
 </template>
 <script setup>
@@ -65,8 +68,11 @@ import api from '../../services/api';
 import {matchesSuicideScreener} from '../../utils/clinicalScreeners';
 import ClinicalScreenerLink from './ClinicalScreenerLink.vue';
 import NluLearningProgress from './NluLearningProgress.vue';
+import VanderbiltProgress from './VanderbiltProgress.vue';
+import OutcomeMeasureTrends from './OutcomeMeasureTrends.vue';
 import OutcomeMeasureForm from './OutcomeMeasureForm.vue';
 import { outcomeItemVisible, outcomeResponseLabel } from '../../utils/outcomeMeasureFields.js';
+import { outcomeReporter } from '../../utils/outcomeTrends.js';
 import { lettersFit, narrowingLimits } from '../../utils/letterMatch.js';
 const props = defineProps({ clientId: { type: [Number, String], default: null }, initialMeasure: { type: String, default: '' }, agencyId: { type: [Number, String], default: null }, inlineScreener: Boolean });
 const emit = defineEmits(['dirty', 'open-screener']);
@@ -79,7 +85,7 @@ const administrationLabel = value => ({ self: 'Self-report', clinician_assisted:
 const reviewNotes = ref({}), safetyConfirmed = ref({});
 let sequence = 0, historySequence = 0, requestId = '';
 const domains = computed(() => [...new Set(catalog.value.measures.map(m => m.domain).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
-const measureChecks = computed(() => { const checks = []; if (search.value.trim()) checks.push({ label: 'this search', test: m => lettersFit(search.value, `${m.title} ${m.summary} ${m.domain}`) }); if (domain.value !== 'all') checks.push({ label: `Clinical area: ${domain.value}`, test: m => m.domain === domain.value }); return checks; });
+const measureChecks = computed(() => { const checks = []; if (search.value.trim()) checks.push({ label: 'this search', test: m => lettersFit(search.value, `${m.title} ${m.summary} ${m.domain} ${m.population}`) }); if (domain.value !== 'all') checks.push({ label: `Clinical area: ${domain.value}`, test: m => m.domain === domain.value }); return checks; });
 const filtered = computed(() => [...catalog.value.measures.filter(m => measureChecks.value.every(check => check.test(m)))].sort((a, b) => measureSort.value === 'domain' ? String(a.domain).localeCompare(String(b.domain)) || a.title.localeCompare(b.title) : a.title.localeCompare(b.title)));
 const limitNote = computed(() => { if (filtered.value.length || !measureChecks.value.length) return ''; const limits = narrowingLimits(catalog.value.measures, measureChecks.value); return limits.length ? `No measures match. Other measures are available without ${limits.map(item => `${item.label} (${item.count})`).join('; ')}.` : 'No measures match this search.'; });
 const hasAnswers = computed(() => Object.values(answers.value).some(v => Array.isArray(v) ? v.length : String(v ?? '').trim().length));
@@ -121,9 +127,9 @@ async function review(response) {
 }
 function answeredItems(response) { return response.questionnaire.items.filter(i => outcomeItemVisible(i, response.answers)); }
 function changeFromPrevious(response) {
-  if (!response.result.complete || response.result.total == null || ['cage-aid','lec-5'].includes(response.measureId)) return '';
+  if (!response.result.complete || response.result.total == null || response.questionnaire.respondent === 'caregiver' || ['cage-aid','lec-5','asrs'].includes(response.measureId)) return '';
   const index = responses.value.indexOf(response);
-  const earlier = responses.value.slice(index + 1).find(r => r.measureId === response.measureId && r.version === response.version && r.administration === response.administration && r.result.complete && r.result.total != null);
+  const earlier = responses.value.slice(index + 1).find(r => r.measureId === response.measureId && r.version === response.version && r.administration === response.administration && outcomeReporter(r)?.key === outcomeReporter(response)?.key && r.result.complete && r.result.total != null);
   if (!earlier) return '';
   const difference = response.result.total - earlier.result.total;
   return `${difference > 0 ? '+' : ''}${difference} points from ${when(earlier.recordedAt)} (same instrument version and administration method). Interpret the change in clinical context.`;

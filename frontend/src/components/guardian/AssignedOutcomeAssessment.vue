@@ -4,8 +4,8 @@
   </button>
   <form v-else class="assigned-questionnaire" @submit.prevent="submit">
     <OutcomeMeasureForm v-model="answers" :measure="measure" :disabled="busy" />
-    <p>{{ answered }} of {{ measure.items.length }} answered</p>
-    <button type="submit" :disabled="busy || answered !== measure.items.length">
+    <p>{{ answered }} of {{ requiredItems.length }} required questions answered</p>
+    <button type="submit" :disabled="busy || answered !== requiredItems.length">
       {{ busy ? 'Submitting…' : 'Submit to care team' }}
     </button>
   </form>
@@ -16,6 +16,7 @@
 import { computed, ref } from 'vue';
 import api from '../../services/api';
 import OutcomeMeasureForm from '../clinical/OutcomeMeasureForm.vue';
+import { outcomeItemVisible } from '../../utils/outcomeMeasureFields.js';
 
 const props = defineProps({
   agencyId: [Number, String],
@@ -28,7 +29,11 @@ const answers = ref({});
 const busy = ref(false);
 const error = ref('');
 const endpoint = computed(() => `/client-updates/clients/${props.clientId}/items/${props.itemId}/assessment`);
-const answered = computed(() => Object.keys(answers.value).length);
+const requiredItems = computed(() => (measure.value?.items || []).filter(item => !item.optional && outcomeItemVisible(item, answers.value)));
+const answered = computed(() => requiredItems.value.filter(item => {
+  const value = answers.value[item.key];
+  return Array.isArray(value) ? value.length > 0 : String(value ?? '').trim().length > 0;
+}).length);
 
 async function open() {
   busy.value = true;
@@ -45,7 +50,7 @@ async function open() {
 }
 
 async function submit() {
-  if (busy.value || answered.value !== measure.value?.items.length) return;
+  if (busy.value || !measure.value || answered.value !== requiredItems.value.length) return;
   busy.value = true;
   error.value = '';
   try {
