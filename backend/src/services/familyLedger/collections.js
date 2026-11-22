@@ -1,7 +1,7 @@
 import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.service.js';
 import { buildFamilyBillingEmail } from '../clientPortalEmailContent.js';
 import pool from '../../config/database.js';
-import { billingError, auditBilling, requireResponsiblePayer } from '../familyBillingPolicy.service.js';
+import { billingError, auditBilling, requireResponsiblePayer, positiveId } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { listBalances, renderPrivatePdf } from './views.js';
 import { findReceivable } from './receivables.js';
@@ -14,24 +14,25 @@ export function agingFor(row,asOf=today()){
   const entries=installments?installments.filter(i=>Number(i.balanceCents)>0).map(i=>({amountCents:Number(i.balanceCents),dueDate:dateOnly(i.dueDate)})):[{amountCents:Number(row.balanceCents),dueDate:dateOnly(row.dueDate)}];
   return entries.filter(e=>e.amountCents>0&&e.dueDate<asOf).map(e=>({...e,daysPastDue:Math.floor((Date.parse(asOf)-Date.parse(e.dueDate))/86400000)}));
 }
-export async function aging({agencyId,userId,payerUserId=null}){
-  const rows=await listBalances({agencyId,userId,staff:true}),result=[],testPayers=new Map();
+export async function aging({agencyId,userId,payerUserId=null,clientId=null,includeCurrent=false}){
+  const rows=await listBalances({agencyId,userId,staff:true,...(clientId?{clientId}:{}),...(includeCurrent?{allForStatement:true}:{})}),result=[],testPayers=new Map();
   for(const row of rows){if(!row.payerUserId||(payerUserId&&Number(row.payerUserId)!==Number(payerUserId))||row.status!=='open'||row.holdReason||row.disputedAt)continue;
     if(!testPayers.has(row.payerUserId))testPayers.set(row.payerUserId,await isGuardianTestAccountId(row.payerUserId));
     if(testPayers.get(row.payerUserId))continue;
     if(await externallyManaged(row.allocationId))continue;
     try{await requireResponsiblePayer(row.payerUserId,row.clientId,agencyId);await assertCollectible(await findReceivable(agencyId,row.receivableId));}catch(e){if([403,409].includes(e.status))continue;throw e;}
+    if(includeCurrent){const outstanding=Number(row.balanceCents)||0;if(outstanding>0&&!row.paymentStatus)result.push({...row,pastDueCents:outstanding});continue;}
     const pastDue=agingFor(row);if(pastDue.length)result.push({...row,pastDueCents:pastDue.reduce((n,e)=>n+e.amountCents,0),daysPastDue:Math.max(...pastDue.map(e=>e.daysPastDue)),pastDue});
   }return result;
 }
 export function portalUrl(path){const base=String(process.env.FRONTEND_URL||'').split(',')[0].trim();const url=new URL(base);if(url.protocol!=='https:'&&!(process.env.NODE_ENV!=='production'&&['localhost','127.0.0.1'].includes(url.hostname)))throw billingError(503,'Configure the secure portal URL');return new URL(path,url.origin).toString();}
 const aad=row=>`collections:${row.agency_id}:${row.payer_user_id}`;
-export async function draftNotice({agencyId,payerUserId,actorUserId,kind='past_due',idempotencyKey,task=null},connection=null){
+export async function draftNotice({agencyId,payerUserId,actorUserId,kind='past_due',idempotencyKey,task=null,clientId=null},connection=null){
   await requireLiveGuardianBilling(payerUserId);
   if(!['statement','reminder','past_due','payment_setup'].includes(kind))throw billingError(400,'Select a notice type');
   const requestKey=key(idempotencyKey);
-  const balances=kind==='payment_setup'?[]:await aging({agencyId,userId:actorUserId,payerUserId});
-  if(kind!=='payment_setup'&&!balances.length)throw billingError(409,'No eligible past-due balances for this payer');
+  const balances=kind==='payment_setup'?[]:await aging({agencyId,userId:actorUserId,payerUserId,...(clientId?{clientId:positiveId(clientId)}:{}),includeCurrent:kind==='statement'});
+  if(kind!=='payment_setup'&&!balances.length)throw billingError(409,kind==='statement'?'No verified outstanding balances for this payer and client.':'No eligible past-due balances for this payer');
   if(kind==='payment_setup'&&!task?.token)throw billingError(400,'Create a payment task first');
   const reader=connection||pool;
   const [users]=await reader.execute('SELECT first_name,last_name,email FROM users WHERE id=?',[payerUserId]);const [agencies]=await reader.execute('SELECT name,slug FROM agencies WHERE id=?',[agencyId]);
@@ -43,7 +44,7 @@ export async function draftNotice({agencyId,payerUserId,actorUserId,kind='past_d
 }
 export async function notice(agencyId,id){const [rows]=await pool.execute('SELECT * FROM family_collections_notices WHERE id=? AND agency_id=?',[id,agencyId]);if(!rows.length)throw billingError(404,'Notice not found');return {...rows[0],snapshot:decryptFamilyBilling(rows[0].snapshot_encrypted,aad(rows[0]))};}
 export async function listNotices(agencyId){const [rows]=await pool.execute('SELECT id,payer_user_id AS payerUserId,notice_kind AS kind,status,created_at AS createdAt,sent_at AS sentAt,last_error AS lastError FROM family_collections_notices WHERE agency_id=? ORDER BY id DESC LIMIT 100',[agencyId]);return rows;}
-export async function previewNotice({agencyId,noticeId}){const row=await notice(agencyId,noticeId),s=row.snapshot;const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n/100);const lines=[`Date: ${dateOnly(s.createdAt)}`,`To: ${s.payerName}`];if(row.notice_kind==='payment_setup')lines.push('Please sign in to your portal to verify your payment method and complete the billing authorization. Your assigned payment task will guide you through the steps.');else{lines.push(`Our records show ${money(s.totalCents)} past due for your assigned share.`,...s.balances.map(b=>`Balance reference ${b.receivableId} · Due ${dateOnly(b.dueDate)} · ${money(b.amountCents)}`),'Please sign in to view your statement, make a payment, or contact our billing team to discuss a payment plan or an error. If you recently paid, contact us so we can reconcile your account.');}return renderPrivatePdf({title:row.notice_kind==='payment_setup'?'Payment setup invitation':'Account statement',agencyName:s.agencyName,lines});}
+export async function previewNotice({agencyId,noticeId}){const row=await notice(agencyId,noticeId),s=row.snapshot;const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n/100);const lines=[`Date: ${dateOnly(s.createdAt)}`,`To: ${s.payerName}`];if(row.notice_kind==='payment_setup')lines.push('Please sign in to your portal to verify your payment method and complete the billing authorization. Your assigned payment task will guide you through the steps.');else{lines.push(row.notice_kind==='statement'?`Your assigned outstanding balance is ${money(s.totalCents)}.`:`Our records show ${money(s.totalCents)} past due for your assigned share.`,...s.balances.map(b=>`Balance reference ${b.receivableId} · Due ${dateOnly(b.dueDate)} · ${money(b.amountCents)}`),'Please sign in to view your statement, make a payment, or contact our billing team to discuss a payment plan or an error. If you recently paid, contact us so we can reconcile your account.');}return renderPrivatePdf({title:row.notice_kind==='payment_setup'?'Payment setup invitation':'Account statement',agencyName:s.agencyName,lines});}
 export async function sendNotice({agencyId,noticeId,actorUserId}){
   const row=await notice(agencyId,noticeId),s=row.snapshot;
   await requireLiveGuardianBilling(row.payer_user_id);
@@ -51,7 +52,7 @@ export async function sendNotice({agencyId,noticeId,actorUserId}){
   const [users]=await pool.execute('SELECT email FROM users WHERE id=?',[row.payer_user_id]);if(users[0]?.email!==s.email)throw billingError(409,'The recipient address changed; generate a new notice');
   if(row.notice_kind==='payment_setup'){
     const [tasks]=await pool.execute("SELECT * FROM family_billing_tasks WHERE id=? AND agency_id=? AND guardian_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP",[s.taskId,agencyId,row.payer_user_id]);if(!tasks.length)throw billingError(409,'The payment task is no longer pending');for(const clientId of parseJson(tasks[0].client_ids_json)){const {requireBillingLink,requirePaymentAuthorizationLink}=await import('../familyBillingPolicy.service.js');await (tasks[0].require_card?requireBillingLink:requirePaymentAuthorizationLink)(row.payer_user_id,clientId,agencyId);}
-  }else{const current=await aging({agencyId,userId:actorUserId,payerUserId:row.payer_user_id});if(s.balances.some(b=>!current.some(c=>Number(c.allocationId)===Number(b.allocationId)&&c.pastDueCents===b.amountCents)))throw billingError(409,'Balances or access changed. Generate a current notice.');}
+  }else{const current=await aging({agencyId,userId:actorUserId,payerUserId:row.payer_user_id,includeCurrent:row.notice_kind==='statement'});if(s.balances.some(b=>!current.some(c=>Number(c.allocationId)===Number(b.allocationId)&&c.pastDueCents===b.amountCents)))throw billingError(409,'Balances or access changed. Generate a current notice.');}
   // Practice statements stay with billing; referred FundThred cases are separate.
   const sender=await requireReadySender(agencyId,'billing');
   let clientId=s.balances[0]?.clientId;

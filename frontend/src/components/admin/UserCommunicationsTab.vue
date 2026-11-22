@@ -5,7 +5,7 @@
     </div>
     <div class="communication-card" style="margin-bottom: 18px;">
       <p class="muted" style="margin: 0 0 12px 0;">
-        Create a scheduled agency announcement directly from this profile. Choose to post to this user only or everyone.
+        {{ recipientOnly ? 'Schedule a private announcement or splash for this guardian.' : 'Create a scheduled agency announcement directly from this profile. Choose to post to this user only or everyone.' }}
       </p>
       <div v-if="postError" class="error" style="margin-bottom: 12px;">{{ postError }}</div>
       <div v-if="postSuccess" style="margin-bottom: 12px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;">
@@ -28,7 +28,7 @@
             <option value="splash">Splash</option>
           </select>
         </div>
-        <div>
+        <div v-if="!recipientOnly">
           <label class="muted" style="display:block; margin-bottom: 6px;">Audience</label>
           <select v-model="postDraft.scope" class="form-select" :disabled="viewOnly || posting">
             <option value="user">This user only</option>
@@ -289,6 +289,7 @@ const openClientProfile = (clientId) => {
 };
 
 const props = defineProps({
+  recipientOnly: { type: Boolean, default: false },
   userId: {
     type: Number,
     required: true
@@ -401,14 +402,14 @@ const postAnnouncementFromProfile = async () => {
       title: String(postDraft.value.title || '').trim() || null,
       message: String(postDraft.value.message || '').trim(),
       display_type: String(postDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
-      recipient_user_ids: String(postDraft.value.scope || 'user') === 'everyone' ? [] : [props.userId],
+      recipient_user_ids: !props.recipientOnly && String(postDraft.value.scope || 'user') === 'everyone' ? [] : [props.userId],
       starts_at: new Date(postDraft.value.startsAt),
       ends_at: new Date(postDraft.value.endsAt)
     };
     const splash = String(postDraft.value.splashImageUrl || '').trim();
     if (splash) payload.splash_image_url = splash;
-    await api.post(`/agencies/${agencyId}/announcements`, payload);
-    postSuccess.value = 'Posted. It will appear in the agency announcement feed.';
+    await api.post(props.recipientOnly ? `/users/${props.userId}/guardian-announcements` : `/agencies/${agencyId}/announcements`, {...payload,...(props.recipientOnly?{agencyId}: {})}, {skipGlobalLoading:true});
+    postSuccess.value = props.recipientOnly ? 'Scheduled for this guardian only.' : 'Posted. It will appear in the agency announcement feed.';
     postDraft.value.message = '';
     postDraft.value.title = '';
     postDraft.value.splashImageUrl = '';

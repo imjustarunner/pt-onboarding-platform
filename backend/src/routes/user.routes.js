@@ -1,3 +1,4 @@
+import * as guardianAccountWorkspace from '../controllers/guardianAccountWorkspace.controller.js';
 import { previewProviderDayNote, sendProviderDayNote, markProviderSchoolDayClosed } from '../controllers/providerScheduleDay.controller.js';
 import { requireAccountAdministrator, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
 import { updateMyPersonalEmail } from '../controllers/myPersonalEmail.controller.js';
@@ -160,6 +161,10 @@ router.post('/:id/external-calendars', authenticate, createUserExternalCalendar)
 router.post('/:id/external-calendars/:calendarId/feeds', authenticate, addUserExternalCalendarFeed);
 router.patch('/:id/external-calendars/:calendarId', authenticate, patchUserExternalCalendar);
 router.patch('/:id/external-calendars/:calendarId/feeds/:feedId', authenticate, patchUserExternalCalendarFeed);
+router.get('/:id/guardian-financial-workspace',authenticate,requireBackofficeAdmin,guardianAccountWorkspace.financialWorkspace);
+router.get('/:id/guardian-session-preferences/:clientId',authenticate,requireBackofficeAdmin,guardianAccountWorkspace.getSessionPreferences);
+router.put('/:id/guardian-session-preferences/:clientId',authenticate,requireBackofficeAdmin,guardianAccountWorkspace.saveSessionPreferences);
+router.post('/:id/guardian-announcements',authenticate,requireBackofficeAdmin,guardianAccountWorkspace.postProfileAnnouncement);
 router.get('/:id/guardian-clients', authenticate, requireBackofficeAdmin, getGuardianLinkedClients);
 router.get('/:id/guardian-workspace',authenticate,requireBackofficeAdmin,async(req,res,next)=>{
   try { const {guardianWorkspace}=await import('../services/guardianWorkspace.service.js');res.set('Cache-Control','no-store');res.json(await guardianWorkspace({actor:req.user,guardianId:Number(req.params.id)})); }

@@ -55,7 +55,7 @@ const person=computed(()=>context.value?.recipients.find(r=>String(r.id)===selec
 const textLabels = {reminders:'Appointment reminders', care:'Provider texting'};
 function textState(choice) {
   if (choice.state === 'on') return 'On · opted in by texting START';
-  if (choice.state === 'opted_out') return 'Off · opted out';
+  if (choice.state === 'opted_out') return `Off · ${choice.keyword || 'opted out'}`;
   if (choice.state === 'stopped') return 'Off · STOP';
   if (choice.state === 'verbal') return 'On · verbal consent';
   if (choice.state === 'inactive') return 'START received · currently unavailable';
