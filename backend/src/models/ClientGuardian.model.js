@@ -105,7 +105,7 @@ class ClientGuardian {
     return map;
   }
 
-  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink }) {
+  static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId, expectedLink, metadataOnly = false }) {
     const cid = Number(clientId);
     const uid = Number(guardianUserId);
     if (!cid || !uid) throw new Error('clientId and guardianUserId are required');
@@ -123,6 +123,15 @@ class ClientGuardian {
       const [[current]] = await db.execute(`SELECT access_enabled, permissions_json FROM client_guardians
         WHERE client_id = ? AND guardian_user_id = ? FOR UPDATE`, [cid, uid]);
       const currentPermissions = this.parsePermissions(current?.permissions_json);
+      if (metadataOnly) {
+        // Contact corrections must never restore or overwrite relationship access.
+        // Keep the existing row and every permission flag, including revocation.
+        if (!current) throw Object.assign(new Error('Guardian link not found.'), { status: 404 });
+        await db.execute('UPDATE client_guardians SET relationship_title = ? WHERE client_id = ? AND guardian_user_id = ?', [title, cid, uid]);
+        await db.commit();
+        return true;
+      }
+
       if (currentPermissions?.relationshipRevoked) {
         throw Object.assign(new Error('This relationship was marked incorrect and needs separate review.'), { status: 409 });
       }

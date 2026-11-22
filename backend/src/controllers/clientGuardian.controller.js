@@ -196,6 +196,18 @@ export const upsertClientGuardian = async (req, res, next) => {
 
 export const updateClientGuardian = async (req, res, next) => {
   try {
+    const contactOnly = Object.hasOwn(req.body || {}, 'contact');
+    if (contactOnly && (!req.body.contact || typeof req.body.contact !== 'object' || Array.isArray(req.body.contact))) {
+      return res.status(400).json({ error: { message: 'Enter valid guardian contact details.' } });
+    }
+    if (contactOnly && Object.keys(req.body).some(key => !['contact', 'relationshipTitle'].includes(key))) {
+      return res.status(400).json({ error: { message: 'Save contact details separately from portal access or relationship identity changes.' } });
+    }
+    if (contactOnly && req.body.relationshipTitle !== undefined &&
+        (typeof req.body.relationshipTitle !== 'string' || req.body.relationshipTitle.trim().length > 100)) {
+      return res.status(400).json({ error: { message: 'Enter a relationship label of 100 characters or fewer.' } });
+    }
+
     const clientId = parseInt(req.params.id, 10);
     const guardianUserId = parseInt(req.params.guardianUserId, 10);
     if (!clientId || !guardianUserId) return res.status(400).json({ error: { message: 'Invalid ids' } });
@@ -241,10 +253,11 @@ export const updateClientGuardian = async (req, res, next) => {
       accessEnabled: accessEnabled ?? (existing.access_enabled === 1 || existing.access_enabled === true),
       permissionsJson: permissionsJson ?? existing.permissions_json,
       expectedLink: existing,
+      metadataOnly: contactOnly,
       createdByUserId: req.user?.id || null
     });
 
-    await logAuditEvent(req, { actionType: 'client_portal_access_updated', agencyId: req.agencyId || null,
+    await logAuditEvent(req, { actionType: contactOnly ? 'guardian_contact_updated' : 'client_portal_access_updated', agencyId: req.agencyId || null,
       metadata: { clientId, guardianUserId, previousAccessEnabled: Number(existing.access_enabled) === 1, accessMode: req.body.accessMode || null, relationshipVerified: req.body.relationshipVerified === true && req.body.accessMode === 'care', accessEnabled: accessEnabled ?? Number(existing.access_enabled) === 1, reason: String(req.body.accessReason || '').slice(0, 1000) } });
     res.json({ ok: true });
   } catch (e) {

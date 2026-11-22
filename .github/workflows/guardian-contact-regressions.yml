@@ -4,6 +4,8 @@ on:
     paths:
       - 'backend/src/controllers/clientGuardian.controller.js'
       - 'backend/src/controllers/__tests__/clientGuardianPortalModes.test.js'
+      - 'backend/src/controllers/__tests__/clientGuardianContactSave.test.js'
+      - 'backend/src/models/__tests__/schoolGuardianPolicy.concurrentAccess.test.js'
       - 'backend/src/models/ClientGuardian.model.js'
       - 'backend/src/routes/client.routes.js'
       - 'backend/src/routes/__tests__/guardianContactMethods.test.js'
@@ -22,6 +24,8 @@ on:
     paths:
       - 'backend/src/controllers/clientGuardian.controller.js'
       - 'backend/src/controllers/__tests__/clientGuardianPortalModes.test.js'
+      - 'backend/src/controllers/__tests__/clientGuardianContactSave.test.js'
+      - 'backend/src/models/__tests__/schoolGuardianPolicy.concurrentAccess.test.js'
       - 'backend/src/models/ClientGuardian.model.js'
       - 'backend/src/routes/client.routes.js'
       - 'backend/src/routes/__tests__/guardianContactMethods.test.js'
