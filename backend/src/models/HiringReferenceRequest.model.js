@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { legacyReferenceQuestionnaire } from '../utils/hiringReferenceQuestionnaire.js';
 import pool from '../config/database.js';
+import { queueReferenceReceipt } from '../services/hiringReferenceReceiptQueue.js';
 
 function parseJsonMaybe(v) {
   if (v == null) return null;
@@ -135,6 +136,8 @@ class HiringReferenceRequest {
       await db.execute(`UPDATE hiring_reference_requests SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE hiring_profile_id = ? AND agency_id = ? AND reference_index = ? AND status = 'sent' AND id <> ?`,
         [row.hiring_profile_id, row.agency_id, row.reference_index, id]);
+      await queueReferenceReceipt(db, { agencyId: row.agency_id, candidateUserId: row.candidate_user_id,
+        sourceKind: 'online', sourceId: row.id, referenceIndex: row.reference_index });
       await db.commit();
       return this.mapRow(row);
     } catch (error) { await db.rollback(); throw error; }

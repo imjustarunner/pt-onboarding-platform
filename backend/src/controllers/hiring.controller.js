@@ -4,6 +4,7 @@ import { candidatePrehireProgress } from '../services/hireCandidateProgress.serv
 import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
 import { listReferenceContacts, saveReferenceContact } from '../models/HiringReferenceContact.model.js';
 import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRequests.service.js';
+import { runReferenceReceiptNotifications } from '../services/hiringReferenceReceipt.service.js';
 import { sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
 import { prepareHirePacket, retainHirePacket } from '../services/hirePacketPreparation.service.js';
 import pool from '../config/database.js';
@@ -4880,6 +4881,7 @@ export const postCandidateReferenceContact = async (req, res, next) => {
     if (outcome === 'completed' && !responses && !note) return res.status(400).json({ error: { message: 'Record the phone answers or a completion note.' } });
     const id = await saveReferenceContact({ profileId: profile.id, agencyId, userId, referenceIndex, method, outcome, note, responses, authorId: req.user.id });
     if (outcome === 'completed') {
+      await runReferenceReceiptNotifications({ agencyId, sourceKind: 'phone', sourceId: id }).catch(e => console.warn('Reference receipt alert remains queued', e.code || 'worker_unavailable'));
       await notifyApplicantReferenceCompleted({ agencyId, candidateUserId: userId, referenceName: refs[referenceIndex].name, method: 'phone' }).catch(e => console.warn('Reference completion notice failed', e.message));
     }
     res.status(201).json({ id });

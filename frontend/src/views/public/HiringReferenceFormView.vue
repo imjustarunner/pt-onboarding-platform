@@ -2,9 +2,9 @@
   <main class="reference-page">
     <header class="reference-header">
       <a href="https://plotlinepo.com" rel="noreferrer" aria-label="Plotline home">
-        <img src="/assets/plotline/website/brand/logos/plotline-primary-transparent.png" alt="Plotline by PlotTwistCo" />
+        <img src="/assets/plotline/website/brand/logos/plotline-primary-transparent.png" alt="Plotline — A People Operations Platform" />
       </a>
-      <span>Hiring &amp; careers</span>
+      <span>A People Operations Platform</span>
       <span class="invitation-label">Private reference invitation</span>
     </header>
     <div class="reference-layout">
@@ -32,6 +32,7 @@
           <p class="eyebrow">Reference received</p>
           <h2>Thank you for your perspective.</h2>
           <p>{{ declined ? 'The hiring team has been told you are unable to provide a reference.' : 'Your response has been sent to ' + meta?.agencyName + '.' }} You can close this window.</p>
+          <p v-if="!declined">The applicant will be notified that you completed their reference, identifying you by name. Your answers and ratings are not shared with them.</p>
           <a href="https://plotlinepo.com/plotline/start" target="_blank" rel="noopener noreferrer">Want to use Plotline for your organization?</a>
         </div>
         <template v-else-if="meta">
@@ -60,7 +61,7 @@
               <button type="submit" :disabled="submitting">{{ submitting ? 'Submitting…' : reviewing ? 'Submit reference' : 'Review responses' }}</button>
             </div>
           </form>
-          <p class="reference-footer">A hiring experience for {{ meta.agencyName }} · Powered by Plotline by PlotTwistCo</p>
+          <p class="reference-footer">A hiring experience for {{ meta.agencyName }} · Powered by Plotline — A People Operations Platform</p>
           <a class="reference-footer-link" href="https://plotlinepo.com/plotline/start" target="_blank" rel="noopener noreferrer">Want to use Plotline for your organization?</a>
         </template>
       </section>

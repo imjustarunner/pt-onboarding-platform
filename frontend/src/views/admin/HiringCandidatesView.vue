@@ -525,7 +525,7 @@
             </div>
 
             <div v-if="tab === 'references'" class="tab-body">
-              <ReferenceWorkspace :user-id="selectedId" :agency-id="effectiveAgencyId" :references="applicationReferences" />
+              <ReferenceWorkspace :user-id="selectedId" :agency-id="effectiveAgencyId" :references="applicationReferences" :initial-reference-index="route.query.referenceIndex" :reference-request-id="route.query.referenceRequestId" :reference-contact-id="route.query.referenceContactId" />
             </div>
           </template>
         </div>
@@ -734,6 +734,14 @@ const candidatesInView = computed(() => {
 });
 
 const selectedId = ref(null);
+const referenceLinksReady = ref(false);
+watch(() => [route.query.candidateId, route.query.referenceRequestId, route.query.referenceContactId], async ([candidateId]) => {
+  if (!referenceLinksReady.value || !Number(candidateId)) return;
+  const agencyId = Number(route.query.agencyId);
+  if (agencyId && agencyChoices.value.some(agency => Number(agency.id) === agencyId)) selectedAgencyId.value = String(agencyId);
+  await selectCandidate(Number(candidateId));
+  if (route.query.tab === 'references') tab.value = 'references';
+});
 const assessmentPanel = ref('resume');
 const hubInterviews = ref([]);
 const showLegacyInterview = ref(false);
@@ -2366,6 +2374,7 @@ onMounted(async () => {
   const deepCandidateId = route.query?.candidateId ? parseInt(String(route.query.candidateId), 10) : null;
   if (deepCandidateId && Number.isFinite(deepCandidateId)) {
     await selectCandidate(deepCandidateId);
+    if (route.query.tab === 'references') tab.value = 'references';
     const nextQuery = { ...route.query };
     delete nextQuery.candidateId;
     delete nextQuery.stage;
@@ -2373,6 +2382,8 @@ onMounted(async () => {
     delete nextQuery.q;
     await router.replace({ query: nextQuery });
   }
+
+  referenceLinksReady.value = true;
 
   // Allow deep-linking from navigation (People Ops → Job descriptions)
   if (isTruthyQueryFlag(route.query?.openJobs)) {

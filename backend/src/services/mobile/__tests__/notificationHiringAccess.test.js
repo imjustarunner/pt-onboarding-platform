@@ -34,6 +34,12 @@ describe('applicant notification visibility follows current hiring grants', () =
     expect(denied.effective.inApp).toBe(false); expect(denied.effective.push).toBe(false);
     expect(resolveNotificationTypePreference('new_job_application_submitted', { ...context, globalPreferences: { push_notifications_enabled: false } }).effective.push).toBe(false);
   });
+  it('keeps reference receipts private to current hiring recipients and out of email digests', () => {
+    expect(hiringNotificationVisible({type:'hiring_reference_received',agency_id:463},new Set([464]))).toBe(false);
+    const context={userRole:'provider',hiringAccess:true,typePreferences:new Map(),globalPreferences:{}};
+    expect(resolveNotificationTypePreference('hiring_reference_received',context).effective.inApp).toBe(true);
+    expect(resolveNotificationTypePreference('hiring_reference_received',{...context,hiringAccess:false}).effective.inApp).toBe(false);
+  });
   it('uses the normal push preference for online chat and exchange updates', () => {
     for (const [type, userRole] of [['website_chat_waiting', 'support'], ['client_exchange_match', 'provider']]) {
       const context = { userRole, globalPreferences: { push_notifications_enabled: true }, typePreferences: new Map() };

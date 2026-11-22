@@ -1,5 +1,6 @@
 import { referenceQuestionnaire, legacyReferenceQuestionnaire, normalizeReferenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
-import { brandedReferenceEmail } from './hiringReferenceEmail.service.js';
+import { brandedReferenceEmail, referenceEmailFrame } from './hiringReferenceEmail.service.js';
+import { runReferenceReceiptNotifications } from './hiringReferenceReceipt.service.js';
 import crypto from 'crypto';
 import config from '../config/config.js';
 import pool from '../config/database.js';
@@ -164,18 +165,19 @@ async function sendReferenceThankYouToReferee({ row, identity }) {
     `Hello${greetingName ? ` ${greetingName}` : ''},`,
     '',
     `Thank you for taking the time to complete the professional reference for ${cand}. We sincerely appreciate your help and thoughtful consideration.`,
+    'Your answers and ratings remain confidential and are not shared with the applicant. We only let them know you completed their reference, identifying you by name.',
     '',
     contact.text,
     '',
     'With gratitude,',
-    agencyName || 'Hiring team'
+    agencyName || 'Hiring team', '', 'Learn more about Plotline — A People Operations Platform: https://plotlinepo.com/plotline/start'
   ].join('\n');
-  const html = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+  const html = referenceEmailFrame({ agency, heading: 'Thank you for submitting a reference', body: `
     <p>Hello${greetingName ? ` ${escapeHtml(greetingName)}` : ''},</p>
     <p>Thank you for taking the time to complete the professional reference for <strong>${escapeHtml(cand)}</strong>. We sincerely appreciate your help and thoughtful consideration.</p>
-    ${contact.html}
+    <p>Your answers and ratings remain confidential and are not shared with the applicant. We only let them know you completed their reference, identifying you by name.</p>
     <p style="margin-top:18px;">With gratitude,<br/>${escapeHtml(agencyName || 'Hiring team')}</p>
-  </div>`;
+  `, footer: contact.html });
   const openTok = String(row?.open_track_token || '').trim() || null;
   const out = await sendHiringReferenceOutboundEmail({
     identity,
@@ -458,9 +460,11 @@ export async function notifyApplicantReferenceCompleted({ agencyId, candidateUse
   if (!identity?.id) return;
   const nm = String(referenceName || 'A reference').trim();
   const cand = candidateDisplayName(user);
+  const agency = await Agency.findById(aid);
+  const contact = buildPeopleOpsContactFooter(agency);
   const subj = 'Reference form completed';
-  const bodyText = `Hi ${cand},\n\n${nm} completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.\n`;
-  const bodyHtml = `<p>Hi ${escapeHtml(cand)},</p><p><strong>${escapeHtml(nm)}</strong> completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.</p>`;
+  const bodyText = `Hi ${cand},\n\n${nm} completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.\n\nThis is a completion notice only. The confidential answers and ratings are not shared with you.\n\n${contact.text}\n\nLearn more about Plotline — A People Operations Platform: https://plotlinepo.com/plotline/start`;
+  const bodyHtml = referenceEmailFrame({ agency, heading: 'Your reference was completed', body: `<p>Hi ${escapeHtml(cand)},</p><p><strong>${escapeHtml(nm)}</strong> completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.</p><p>This is a completion notice only. The confidential answers and ratings are not shared with you.</p>`, footer: contact.html });
   const out = await sendHiringReferenceOutboundEmail({
     identity,
     to,
@@ -531,7 +535,7 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     branding,
     questionnaire: row.questionnaire || legacyReferenceQuestionnaire,
     disclaimer:
-      'This form is confidential: your answers are not shared with the applicant and are used only for hiring decisions. The form typically takes less than five minutes.'
+      'Your answers and ratings are confidential and are not shared with the applicant. Only staff with hiring permission can review them. We will tell the applicant that you completed their reference, identifying you by name, without sharing any answers. The form typically takes less than five minutes.'
   };
 }
 
@@ -582,6 +586,11 @@ export async function submitPublicReferenceForm(rawToken, body) {
     submittedAt: responses.submittedAt,
     outcome: 'completed'
   });
+
+  // The durable event was committed with the answers. Prompt delivery is best
+  // effort here; the independent worker retains anything still pending.
+  try { await runReferenceReceiptNotifications({ agencyId: row.agency_id, sourceKind: 'online', sourceId: row.id }); }
+  catch (error) { console.warn('Reference receipt alert remains queued', error.code || 'worker_unavailable'); }
 
   try {
     const identity = await resolveHiringReferenceSenderIdentity(row.agency_id);

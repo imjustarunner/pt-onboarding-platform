@@ -8,6 +8,8 @@ vi.mock('../../utils/googleApis.js', () => ({ google: { gmail: m.gmail } }));
 vi.mock('../../models/UserCommunication.model.js', () => ({ default: { updateDeliveryStatus: m.update } }));
 vi.mock('../email.service.js', () => ({ default: {} }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn() }));
+vi.mock('../unifiedEmail/gmailTrafficGuard.js', () => ({ guardGmailClient: client => client }));
+import { ensureSendAsAlias } from '../gmailSendAs.service.js';
 import { ensureHireGroupEmailForActivation } from '../hireGroupEmail.service.js';
 import { recordCommunicationSent } from '../communicationRecordDelivery.service.js';
 beforeEach(() => {
@@ -34,4 +36,23 @@ it('preserves accepted relay and archival evidence after staff approval/retry', 
   const relay = { id: 'relay-42', messageId: '<comm-42@practice.example>', accepted: true, archivePending: true };
   await recordCommunicationSent({ id: 42 }, { senderIdentityId: 7 }, { id: 'relay-42', relay }, 501);
   expect(m.update).toHaveBeenCalledWith(42, 'sent', 'relay-42', null, null, expect.objectContaining({ senderIdentityId: 7, relay, internetMessageId: relay.messageId }));
+});
+
+it('registers a Gmail group sender using writable creation fields', async () => {
+  vi.stubEnv('WORKSPACE_EMAIL_RELAY_MODE', 'off');
+  const create = vi.fn(async ({ requestBody }) => {
+    if ('isPrimary' in requestBody || 'isDefault' in requestBody) throw new Error('Read-only or invalid default field');
+    return { data: { ...requestBody, verificationStatus: 'accepted' } };
+  });
+  m.gmail.mockReturnValue({ users: { settings: { sendAs: {
+    list: vi.fn(async () => ({ data: { sendAs: [] } })), create
+  } } } });
+  const result = await ensureSendAsAlias({
+    sendAsEmail: 'references@plotlinepo.com', displayName: 'Plotline References'
+  });
+  expect(result.ok).toBe(true);
+  expect(create).toHaveBeenCalledWith({ userId: 'me', requestBody: {
+    sendAsEmail: 'references@plotlinepo.com', displayName: 'Plotline References',
+    replyToAddress: 'references@plotlinepo.com', treatAsAlias: false
+  } });
 });

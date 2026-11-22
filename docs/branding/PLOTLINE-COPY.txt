@@ -1,0 +1,20 @@
+Plotline brand wording
+Owner instruction, November 22, 2026
+
+Product name: Plotline
+Descriptor: A People Operations Platform
+Combined wording: Plotline — A People Operations Platform
+
+Use this descriptor for new and updated Plotline customer-facing pages,
+portals, email headers/footers and promotional cards. PlotTwistCo may remain
+in legal attribution and existing logo artwork; it is not the descriptor.
+
+Reference privacy wording
+The applicant receives completion status and the referee's name only.
+Answers, ratings, results and internal contact notes stay confidential and
+are available only to staff with the company's hiring permission.
+Explain this to the referee before submission and in the thank-you email.
+
+Reference emails use the verified Plotline reference sender and the company's
+configured People Operations Reply-To. Marketing cards link to the general
+Plotline signup page without any candidate ID, reference ID or bearer token.

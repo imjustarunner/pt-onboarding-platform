@@ -23,6 +23,6 @@ export async function hiringNotificationAgencyIds(user, agencyIds = null, {
 }
 
 export function hiringNotificationVisible(notification, agencyIds) {
-  return notification?.type !== 'new_job_application_submitted' || agencyIds === null
+  return !['new_job_application_submitted','hiring_reference_received'].includes(notification?.type) || agencyIds === null
     || agencyIds instanceof Set && agencyIds.has(Number(notification.agency_id));
 }

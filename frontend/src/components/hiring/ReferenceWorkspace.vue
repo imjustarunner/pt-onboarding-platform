@@ -1,6 +1,6 @@
 <template>
   <section>
-    <p>Confidential reference answers and contact notes · People Operations and administrators only. Applicants see completion status and method only.</p>
+    <p>Confidential reference answers and contact notes · Staff with hiring permission only. Applicants see completion status and method only.</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading">Loading references…</p>
     <template v-else>
@@ -36,7 +36,7 @@
           <button type="button" :disabled="busy" @click="send">{{ busy ? 'Sending…' : 'Send reference request' }}</button>
           <button type="button" :disabled="busy" @click="preparing = false">Cancel</button>
         </section>
-        <section v-for="request in requestsForReference.filter(r => r.responses_json)" :key="request.id">
+        <section v-for="request in requestsForReference.filter(r => r.responses_json)" :key="request.id" :id="`reference-${userId}-request-${request.id}`" tabindex="-1">
           <h4>Online answers · {{ time(request.completed_at) }}</h4><ReferenceAnswers :answers="request.responses_json" :questionnaire="request.questionnaire || questionnaire" />
         </section>
         <h4>Contact log and phone reference</h4>
@@ -49,7 +49,7 @@
           <p v-if="draft.outcome === 'completed'">The applicant will be notified that this reference was completed by phone. Notes and answers remain private.</p>
           <button :disabled="busy">{{ busy ? 'Saving…' : 'Save contact log' }}</button>
         </form>
-        <article v-for="contact in contactsForReference" :key="contact.id" class="contact-entry">
+        <article v-for="contact in contactsForReference" :key="contact.id" :id="`reference-${userId}-contact-${contact.id}`" tabindex="-1" class="contact-entry">
           <strong>{{ contact.outcome === 'completed' ? 'Completed by phone' : contact.outcome.replaceAll('_', ' ') }}</strong> · {{ contact.contact_method }} · {{ time(contact.created_at) }} · {{ contact.author_name }}
           <p class="note">{{ contact.note }}</p><ReferenceAnswers v-if="contact.responses_json" :answers="contact.responses_json" :questionnaire="contact.questionnaire || questionnaire" />
         </article>
@@ -61,11 +61,11 @@
   </section>
 </template>
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import ReferenceQuestionnaire from './ReferenceQuestionnaire.vue';
 import ReferenceAnswers from './ReferenceAnswers.vue';
-const props = defineProps({ userId: [Number, String], agencyId: [Number, String], references: { type: Array, default: () => [] } });
+const props = defineProps({ userId: [Number, String], agencyId: [Number, String], references: { type: Array, default: () => [] }, initialReferenceIndex: [Number, String], referenceRequestId: [Number, String], referenceContactId: [Number, String] });
 const selected = ref(0), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const requests = ref([]), contacts = ref([]), events = ref([]), questionnaire = ref(null);
 const draft = reactive({ method: 'phone', outcome: 'note', note: '', useQuestionnaire: false });
@@ -92,6 +92,13 @@ async function load() {
     const base = `/hiring/candidates/${props.userId}`;
     const [r, w, e] = await Promise.all([api.get(`${base}/reference-requests`, options()), api.get(`${base}/reference-workspace`, options()), api.get(`${base}/reference-activity`, options())]);
     requests.value = r.data; contacts.value = w.data.contacts; questionnaire.value = w.data.questionnaire; events.value = e.data;
+    const target = requests.value.find(row => Number(row.id) === Number(props.referenceRequestId)) || contacts.value.find(row => Number(row.id) === Number(props.referenceContactId));
+    const index = Number(target?.reference_index ?? props.initialReferenceIndex);
+    if (Number.isInteger(index) && index >= 0 && index < props.references.length) selected.value = index;
+    await nextTick();
+    const element = document.getElementById(target ? `reference-${props.userId}-${props.referenceRequestId ? 'request' : 'contact'}-${target.id}` : '');
+    element?.scrollIntoView?.({ block: 'nearest' });
+    element?.focus?.();
   } catch(e) { error.value = e.response?.data?.error?.message || 'Could not load references.'; }
   finally { loading.value = false; }
 }

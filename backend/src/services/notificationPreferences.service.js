@@ -70,7 +70,7 @@ export function resolveNotificationTypePreference(type, context) {
   const agencyDefaults = agency?.defaults || {};
   const legacyKey = entry.legacyCategoryKey;
   const roleProfile = notificationRoleProfile(context?.userRole);
-  const hiringScoped = type === 'new_job_application_submitted' && typeof context?.hiringAccess === 'boolean';
+  const hiringScoped = ['new_job_application_submitted','hiring_reference_received'].includes(type) && typeof context?.hiringAccess === 'boolean';
   const recommendedForRole = hiringScoped ? context.hiringAccess : isNotificationRecommendedForRole(type, context?.userRole);
   const essentialForRole = hiringScoped ? context.hiringAccess : isNotificationEssentialForRole(type, context?.userRole);
 

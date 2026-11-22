@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { queueReferenceReceipt } from '../services/hiringReferenceReceiptQueue.js';
 
 export async function listReferenceContacts(profileId, agencyId) {
   const [rows] = await pool.execute(`SELECT c.*, CONCAT(u.first_name, ' ', u.last_name) AS author_name
@@ -18,6 +19,8 @@ export async function saveReferenceContact({ profileId, agencyId, userId, refere
       // Close outstanding links so reminders stop after a phone reference is completed.
       await db.execute(`UPDATE hiring_reference_requests SET status = 'cancelled', updated_at = NOW()
         WHERE hiring_profile_id = ? AND agency_id = ? AND reference_index = ? AND status = 'sent'`, [profileId, agencyId, referenceIndex]);
+      await queueReferenceReceipt(db, { agencyId, candidateUserId: userId, sourceKind: 'phone',
+        sourceId: result.insertId, referenceIndex });
     }
     await db.commit();
     return result.insertId;

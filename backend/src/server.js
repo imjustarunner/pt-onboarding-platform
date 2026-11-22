@@ -2407,6 +2407,12 @@ if (shouldStartServerBackgroundJobs()) {
     }
   };
   scheduleHiringReferenceReminders();
+  const referenceReceiptTick = async () => {
+    try { await (await import('./services/hiringReferenceReceipt.service.js')).runReferenceReceiptNotifications(); }
+    catch (error) { console.warn('Reference receipt notification worker needs attention', error.code || 'worker_unavailable'); }
+  };
+  referenceReceiptTick();
+  setInterval(referenceReceiptTick, 60 * 1000);
   setInterval(scheduleHiringReferenceReminders, 60 * 60 * 1000);
 
   const purgeFaxDrafts = async () => {

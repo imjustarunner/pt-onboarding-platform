@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { notificationDestination, notificationDismissPayload } from '../notificationActions';
 
 describe('notificationActions', () => {
+  it('opens the completed reference with candidate and company scope', () => {
+    expect(notificationDestination({type:'hiring_reference_received',related_entity_type:'hiring_candidate',related_entity_id:1849,agency_id:463,audience_json:{referenceIndex:1,referenceRequestId:47}},{organizationSlug:'juniper-qa'})).toEqual({path:'/juniper-qa/admin/hiring/applicants',query:{agencyId:'463',candidateId:'1849',tab:'references',referenceIndex:'1',referenceRequestId:'47'}});
+  });
   it('opens a live invitation directly and supports older plural event entity types', () => {
     expect(notificationDestination({type:'team_meeting_scheduled',related_entity_type:'provider_schedule_event',related_entity_id:20,audience_json:'{"live":true}'},{organizationSlug:'itsco'})).toBe('/itsco/join/team-meeting/20');
     expect(notificationDestination({type:'team_meeting_scheduled',related_entity_type:'provider_schedule_events',related_entity_id:20})).toBe('/my-schedule?eventId=20&eventKind=TEAM_MEETING');

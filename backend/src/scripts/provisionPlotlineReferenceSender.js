@@ -33,13 +33,15 @@ try {
       const alias = await ensureSendAsAlias({ sendAsEmail: address, displayName: 'Plotline References', replyToAddress: null });
       if (!alias.ok) throw new Error('Workspace did not accept the reference send-as setup.');
     }
-    await assertVerifiedGmailSender(await getGmailClient(), address);
     for (const agencyId of agencyIds) {
       let identity = await Identity.findByAgencyAndIdentityKey(agencyId, 'hiring_references', { includeInactive: true });
       const fields = { displayName: 'Plotline References', replyTo: existing.find(company => company.agencyId === agencyId).replyTo, isActive: true };
       identity = identity
         ? await Identity.update(identity.id, fields)
         : await Identity.create({ agencyId, identityKey: 'hiring_references', fromEmail: address, ...fields });
+      // Relay verification requires a registered sender. Pin it only after
+      // the Group, transport membership and delivery route are verified.
+      await assertVerifiedGmailSender(await getGmailClient(), address);
       await pool.execute('UPDATE agencies SET hiring_reference_sender_identity_id = ? WHERE id = ? AND EXISTS (SELECT 1 FROM plotline_companies p WHERE p.agency_id = agencies.id AND p.is_qa = 1)', [identity.id, agencyId]);
       console.log(JSON.stringify({ agencyId, identityId: identity.id, senderVerified: true }));
     }
