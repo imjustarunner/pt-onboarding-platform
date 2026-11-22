@@ -6,6 +6,8 @@ import { relaySelected } from '../services/workspaceRelayConfig.js';
 import { assertVerifiedGmailSender } from '../services/unifiedEmail/verifiedSender.js';
 import { getGmailClient } from '../services/unifiedEmail/gmailClient.js';
 
+import { resolveHiringReferenceReplyTo } from '../services/hiringReferenceIdentity.service.js';
+
 const address = 'references@plotlinepo.com';
 const agencyIds = [463, 464];
 const apply = process.argv.includes('--apply');
@@ -15,24 +17,26 @@ try {
   if (agencies.length !== agencyIds.length) throw new Error('The two expected QA companies must exist as demo companies.');
   const existing = [];
   for (const agency of agencies) {
+    const replyTo = await resolveHiringReferenceReplyTo(agency.id);
+    if (!replyTo) throw new Error('Configure the company People Operations reply address first.');
     const configured = agency.hiring_reference_sender_identity_id ? await Identity.findById(agency.hiring_reference_sender_identity_id) : null;
     if (configured && configured.from_email?.toLowerCase() !== address) throw new Error('A QA company has a pinned reference sender. Review its replacement first.');
     const identity = await Identity.findByAgencyAndIdentityKey(agency.id, 'hiring_references', { includeInactive: true });
     if (identity && identity.from_email?.toLowerCase() !== address) throw new Error('A QA company already has a different reference sender. Review that configuration before replacing it.');
-    existing.push({ agencyId: agency.id, identityId: identity?.id || null });
+    existing.push({ agencyId: agency.id, identityId: identity?.id || null, replyTo });
   }
   console.log(JSON.stringify({ address, companies: existing, apply }));
   if (apply) {
     const result = await ensureWorkspaceSenderGroup({ email: address, displayName: 'Plotline References' });
     if (!result.group?.id) throw new Error('The reference address must be a dedicated Workspace group.');
     if (!relaySelected(address)) {
-      const alias = await ensureSendAsAlias({ sendAsEmail: address, displayName: 'Plotline References', replyToAddress: address });
+      const alias = await ensureSendAsAlias({ sendAsEmail: address, displayName: 'Plotline References', replyToAddress: null });
       if (!alias.ok) throw new Error('Workspace did not accept the reference send-as setup.');
     }
     await assertVerifiedGmailSender(await getGmailClient(), address);
     for (const agencyId of agencyIds) {
       let identity = await Identity.findByAgencyAndIdentityKey(agencyId, 'hiring_references', { includeInactive: true });
-      const fields = { displayName: 'Plotline References', replyTo: address, isActive: true };
+      const fields = { displayName: 'Plotline References', replyTo: existing.find(company => company.agencyId === agencyId).replyTo, isActive: true };
       identity = identity
         ? await Identity.update(identity.id, fields)
         : await Identity.create({ agencyId, identityKey: 'hiring_references', fromEmail: address, ...fields });

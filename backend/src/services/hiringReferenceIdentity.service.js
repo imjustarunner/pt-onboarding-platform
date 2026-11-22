@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 
 /**
@@ -69,4 +70,16 @@ export async function resolveJobApplicationSenderIdentity(agencyId) {
     String(x?.identity_key || '').toLowerCase().includes('school');
   const nonSchool = agencyOnly.find((x) => !isPersonal(x) && !isSchool(x) && String(x?.from_email || '').trim());
   return nonSchool || agencyOnly.find((x) => !isPersonal(x) && String(x?.from_email || '').trim()) || null;
+}
+
+
+export async function resolveHiringReferenceReplyTo(agencyId, identity = null) {
+  const peopleOps = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'people_operations');
+  const agency = await Agency.findById(agencyId);
+  const candidates = [peopleOps?.reply_to, peopleOps?.from_email, agency?.people_ops_email,
+    agency?.onboarding_team_email, identity?.reply_to];
+  const address = candidates.find(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''))
+    && String(value).toLowerCase() !== 'references@plotlinepo.com');
+  if (address) return address;
+  return agency?.is_demo ? 'testing@itsco.health' : null;
 }

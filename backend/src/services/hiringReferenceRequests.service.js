@@ -7,7 +7,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { resolveHiringReferenceSenderIdentity } from './hiringReferenceIdentity.service.js';
+import { resolveHiringReferenceSenderIdentity, resolveHiringReferenceReplyTo } from './hiringReferenceIdentity.service.js';
 import EmailTemplateService from './emailTemplate.service.js';
 import {
   appendEmailOpenPixel,
@@ -32,7 +32,10 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
   const pixel = openTrackToken ? buildReferenceOpenPixelUrl(openTrackToken) : '';
   const htmlWithPixel = pixel ? appendEmailOpenPixel(html, pixel) : html;
   try {
+    const replyTo = await resolveHiringReferenceReplyTo(identity.agency_id, identity);
+    if (!replyTo) throw new Error('Configure the company People Operations reply address before sending references.');
     const out = await sendEmailFromIdentity({
+      replyToOverride: replyTo,
       senderIdentityId: identity.id,
       to,
       subject,

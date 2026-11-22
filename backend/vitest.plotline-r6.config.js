@@ -3,6 +3,7 @@ export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{vites
  'src/utils/__tests__/hire.referenceQuestionnaire.test.js',
  'src/services/__tests__/hire.referenceWorkspace.test.js',
  'src/services/__tests__/hire.referenceReminder.test.js',
+ 'src/services/__tests__/hire.referenceIdentity.test.js',
  'src/services/__tests__/hire.referenceRelease.test.js',
  'src/services/__tests__/teamMeetingRoomCapabilities.test.js',
  'src/services/__tests__/meetingCalendarGuest.test.js',
