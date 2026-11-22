@@ -40,7 +40,8 @@ it('keeps a saved shared payer valid when it is later added to the agency’s ow
 });
 
 it('does not classify Commercial patients as Medicaid from shared mixed-route aliases',async()=>{
- listPayerSetupRequests.mockResolvedValue([]);listSharedPayerDirectory.mockResolvedValue([{payer_name:'United',directory_name:'United',claimmd_payer_id:'UNITED',directory_status:'id_match',directory_snapshot_json:{payer_type:'commercial',payer_alt_names:[{alt_payer_name:'Rocky Mountain Medicaid'}]}}]);
- const rows=await clientInsurancePayers(6,{});expect(rows[0].names).toContain('Rocky Mountain Medicaid');expect(rows[0].isMedicaid).toBe(false);
+ listPayerSetupRequests.mockResolvedValue([]);listSharedPayerDirectory.mockResolvedValue([{payer_name:'Rocky Mountain Medicaid',directory_name:'United',claimmd_payer_id:'UNITED',directory_status:'id_match',directory_snapshot_json:{payer_type:'commercial',payer_alt_names:[{alt_payer_name:'Rocky Mountain Medicaid'}]}}]);
+ const rows=await clientInsurancePayers(6,{});expect(rows[0].names).toContain('Rocky Mountain Medicaid');expect(rows[0].isMedicaid).toBe(false);expect(rows[0].name).toBe('United');
+ expect(resolveConfiguredPolicy({payerCatalogId:'claimmd:UNITED',programType:'commercial'},rows)).toMatchObject({insurerName:'United',isMedicaid:false});
  expect(resolveConfiguredPolicy({payerCatalogId:'claimmd:UNITED',payerId:'UNITED',insurerName:'United',isMedicaid:true,programType:'medicaid'},rows)).toMatchObject({isMedicaid:true,programType:'medicaid'});
 });
