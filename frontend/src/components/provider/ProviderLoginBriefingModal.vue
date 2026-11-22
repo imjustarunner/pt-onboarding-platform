@@ -43,7 +43,6 @@
             Checking your updates. You can open your dashboard now.
           </div>
 
-          <template>
             <div class="briefing-layout">
               <div class="briefing-main">
                 <DashboardMeetings @navigate="dismiss" />
@@ -59,7 +58,7 @@
                     :class="`briefing-card--${section.tone}`"
                   >
                     <header class="card-header">
-                      <span class="card-icon" aria-hidden="true">{{ section.icon }}</span>
+                      <span class="card-icon" aria-hidden="true"><img v-if="section.iconUrl" :src="section.iconUrl" alt="" style="width:100%;height:100%;object-fit:contain" /><span v-else>{{ section.icon }}</span></span>
                       <div>
                         <div class="card-kicker">{{ section.title }}</div>
                         <div v-if="section.key !== 'calendar' || (!calendarLoading && !calendarError)" class="card-count"><strong>{{ section.count }}</strong> {{ section.countLabel }}</div>
@@ -86,6 +85,7 @@
                       </button>
                     </template>
                     <p v-else-if="section.key === 'calendar'" class="card-empty">Nothing scheduled on your calendar today.</p>
+                    <p v-else class="card-empty">{{ section.emptyLabel || 'Nothing needs your attention here.' }}</p>
                     <button class="card-link" type="button" @click="navigate(section.to)">
                       {{ section.action }} <span aria-hidden="true">→</span>
                     </button>
@@ -126,7 +126,6 @@
                 </section>
               </aside>
             </div>
-          </template>
 
           <footer class="briefing-footer">
             <label class="dont-show-label">
@@ -144,6 +143,7 @@
 </template>
 
 <script setup>
+import { DOC_STATUS, deriveWorkQueueDocStatus } from '../../utils/noteAidDocumentationStatus.js';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import DashboardCardStatus from '../dashboard/DashboardCardStatus.vue';
 import DashboardMeetings from '../meetings/DashboardMeetings.vue';
@@ -232,7 +232,7 @@ function agencyLogo(agency) {
   const direct = agency?.logo_url ?? agency?.logoUrl;
   if (direct) return String(direct).startsWith('http') ? direct : toUploadsUrl(direct);
   const path = agency?.logo_path ?? agency?.logoPath ?? agency?.icon_file_path;
-  return path ? toUploadsUrl(path) : null;
+  return path ? toUploadsUrl(path) : brandingStore.iconUrlById(agency?.icon_id ?? agency?.iconId);
 }
 
 function initialsFor(value) {
@@ -245,7 +245,9 @@ function initialsFor(value) {
 }
 
 const tenantAgency = computed(() => {
-  const agency = loginTenantAgency.value;
+  const original = loginTenantAgency.value;
+  const current = agencyStore.currentAgency;
+  const agency = original && Number(current?.id) === Number(original.id) ? { ...original, ...current } : original;
   if (!agency) return null;
   const palette = parseBrandPalette(agency, platformPalette.value);
   return {
@@ -282,7 +284,7 @@ const brandVars = computed(() => {
 });
 
 const now = new Date();
-const todayIso = now.toISOString().slice(0, 10);
+const todayIso = localYmd(now);
 const dateLabel = now.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
 const weekdayLabel = now.toLocaleDateString([], { weekday: 'long' });
 
@@ -292,7 +294,12 @@ const prefix = computed(() => briefingPathPrefix({
   routeSlug: router.currentRoute.value.params?.organizationSlug
 }));
 
-const sections = computed(() => providerBriefingDisplaySections(briefing.value));
+const sections = computed(() => providerBriefingDisplaySections(briefing.value).map(section => ({
+  ...section,
+  iconUrl: brandingStore.getDashboardCardIconUrl({ calendar:'my_schedule', tasks:'momentum_list',
+    notifications:'notifications', messages:'chats', clientUpdates:'clients', notesToSign:'documents',
+    documentation:'clinical_note_generator', overdueNotes:'clinical_note_generator', supervision:'supervision', yearUpdate:'my', tickets:'communications' }[section.key], tenantAgency.value)
+})));
 const hasCalendarSection = computed(() => !!briefing.value.calendar);
 
 const urgentCount = computed(() => {
@@ -506,6 +513,7 @@ async function loadBriefing() {
     if (generation !== requestGeneration) return;
     loginTenantAgency.value = tenant;
     if (tenant?.id) agencyStore.setCurrentAgency(tenant);
+    if (tenant?.id) void agencyStore.hydrateAgencyById(tenant.id);
     await nextTick();
     if (generation !== requestGeneration) return;
     visible.value = true;
@@ -551,6 +559,7 @@ async function loadBriefing() {
       safeRequest(api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
       scheduleRequest,
       safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
+      safeRequest(api.get('/clinical-notes/work-queue', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), null),
       safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),
       safeRequest(api.get('/supervision/my-prompts', {
         params: agencyId ? { agencyId } : {},
@@ -639,7 +648,7 @@ async function loadBriefing() {
         : null
     };
 
-    const [taskPayload, schedulePayload, notesPayload, ticketPayload, supervisionPayload,
+    const [taskPayload, schedulePayload, notesPayload, workQueuePayload, ticketPayload, supervisionPayload,
       yearUpdateStatus, payrollSummary, tierData] = await secondaryRequest;
 
     if (generation !== requestGeneration) return;
@@ -653,6 +662,9 @@ async function loadBriefing() {
       : (supervisionPayload?.items || []);
     const calendarRows = mergeTodayAgendaItems(schedulePayload, supervisionPromptRows);
     const notesCount = Number(notesPayload?.count || 0);
+    const pendingDocumentation = (workQueuePayload?.items || []).filter(item =>
+      (!agencyId || Number(item.agencyId || item.agency_id) === agencyId)
+      && [DOC_STATUS.NOT_STARTED, DOC_STATUS.STARTED].includes(deriveWorkQueueDocStatus(item)));
     const ticketRows = unwrapList(ticketPayload).filter((item) => String(item?.status || '').toLowerCase() !== 'closed');
 
     const unpaid = payrollSummary?.unpaidNotes?.lastPayPeriod || null;
@@ -707,6 +719,11 @@ async function loadBriefing() {
           to: `${pathPrefix}/tasks`
         })
         : null,
+      documentation: workQueuePayload ? { ...baseSection({ title:'Notes to complete', icon:'✎', tone:'orange',
+        count:pendingDocumentation.length, countLabel:'unfinished',
+        items:pendingDocumentation.slice(0,3).map(item=>({id:`work-note-${item.id}`,label:item.clientName || item.title || 'Clinical note',
+          meta:deriveWorkQueueDocStatus(item)===DOC_STATUS.STARTED ? 'In progress' : 'Not started'})),
+        action:'Open Note Workspace',to:`${pathPrefix}/note-aid` }), emptyLabel:'No unfinished notes in your work queue.' } : null,
       notesToSign: notesCount
         ? baseSection({
           title: 'Notes to sign',
@@ -772,6 +789,18 @@ async function loadBriefing() {
         })
         : null
     };
+    // Keep the main work areas visible on a quiet day as well.
+    if (!partialFailure.value) {
+      for (const [key, title, icon, action, to, emptyLabel] of [
+        ['notifications', 'Notifications', '♢', 'View all notifications', 'notifications', 'No unread notifications.'],
+        ['messages', 'Messages', '◌', 'View all messages', 'messages', 'No unread messages.'],
+        ['tasks', 'My work', '☷', 'View all tasks', 'tasks', 'No open assigned tasks.'],
+        ['notesToSign', 'Notes to sign', '✎', 'Open notes to sign', 'notes-to-sign', 'No notes awaiting your signature.']
+      ]) {
+        if (!briefing.value[key]) briefing.value[key] = { ...baseSection({ title, icon, tone:'green', count:0,
+          countLabel:'pending', items:[], action, to:`${pathPrefix}/${to}` }), emptyLabel };
+      }
+    }
   } catch {
     if (generation === requestGeneration) partialFailure.value = true;
   } finally {

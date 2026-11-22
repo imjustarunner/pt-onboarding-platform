@@ -11,7 +11,6 @@
       <router-link class="btn btn-secondary account-dashboard-link" :to="{ path: route.path }">Back to My Dashboard</router-link>
     </template>
     <ContractSchedulingNotice v-if="canManageOwnAvailability && ['account', 'availability', 'compensation'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
-    <ProviderOpeningNotice v-if="canManageOwnAvailability && ['account', 'availability'].includes(activeSection)" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <div data-profile-my-section="account" v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
       <ProviderBillingSettings v-if="canSetOwnRates" :agency-id="agencyId" :provider-id="userId" />
@@ -73,7 +72,6 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import ContractSchedulingNotice from '../availability/ContractSchedulingNotice.vue';
-import ProviderOpeningNotice from '../availability/ProviderOpeningNotice.vue';
 import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
 import VirtualWorkingHoursEditor from '../availability/VirtualWorkingHoursEditor.vue';
 import ProviderBillingSettings from '../admin/ProviderBillingSettings.vue';

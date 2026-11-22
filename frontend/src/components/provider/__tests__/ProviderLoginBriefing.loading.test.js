@@ -27,7 +27,8 @@ it('shows the schedule and Enter Dashboard while unrelated updates are still wai
   api.get.mockImplementation(url => url.endsWith('/schedule-summary')
     ? Promise.resolve({ data: { scheduleEvents: [] } }) : new Promise(() => {}));
   await mount();
-  expect(api.get.mock.calls[0][0]).toBe('/users/7/schedule-summary');
+  expect(api.get.mock.calls.some(([url]) => url === '/users/7/schedule-summary')).toBe(true);
+  expect(wrapper.get('.briefing-layout').element.closest('template')).toBeNull();
   expect(wrapper.text()).toContain('Nothing scheduled on your calendar today.');
   expect(wrapper.text()).toContain('Checking your updates.');
   expect(wrapper.text()).not.toContain('You’re all caught up');
@@ -57,4 +58,18 @@ it.each([
   }));
   await mount();
   expect(wrapper.text().includes('Complete your Provider Fall Update')).toBe(visible);
+});
+
+it('shows the main work areas and live counts', async () => {
+  api.get.mockImplementation(async url => ({data:
+    url.endsWith('/schedule-summary') ? {scheduleEvents:[]} :
+    url === '/clinical-notes/work-queue' ? {items:[{id:1,agencyId:2,clientName:'Example Client',status:'not_started'}]} :
+    url === '/me/notes-to-sign/count' ? {count:2} :
+    url === '/tasks' ? [{id:1,title:'Review my work',status:'pending'}] :
+    url === '/messages/dashboard-summary' ? {cards:{unread:3},priority:[]} :
+    url === '/notifications/counts' ? {2:4} : []
+  }));
+  await mount();
+  for(const text of ['Assigned tasks','Notes to complete','Example Client','Notes to sign','Missed messages','Notifications']) expect(wrapper.text()).toContain(text);
+  expect(wrapper.get('.briefing-layout').element.closest('template')).toBeNull();
 });
