@@ -1,4 +1,5 @@
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
+import { prepareInterviewSmsConsent, recordInterviewSmsConsent } from './hiringInterviewSms.service.js';
 import { saveEventMeetingSettings } from './meetingSettings.service.js';
 import { queueMeetingInvitations } from './meetingInvitations.service.js';
 import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
@@ -112,6 +113,7 @@ export async function scheduleHiringInterview({
   questionSelection = null,
   hiringProfileId = null,
   sendInvites = true,
+  smsConsent = null,
   overrideScheduleHolds = false,
   titleOverride = null,
   interviewRound = 'initial',
@@ -144,6 +146,8 @@ export async function scheduleHiringInterview({
   const candidateAgencies = await User.getAgencies(candidateId);
   if (!candidateAgencies.some(a => Number(a.id) === agency)) throw Object.assign(new Error('Candidate is not in this agency'), { status: 400 });
   if (sendInvites) await resolveInterviewSender(agency);
+  if (smsConsent && !sendInvites) throw Object.assign(new Error('Enable invitations to send interview text reminders.'), { status: 400 });
+  const preparedSmsConsent = await prepareInterviewSmsConsent(agency, smsConsent, hostId);
   // A mail send-as alias (for example po@tenant) may not own a Google calendar.
   const hostIdentity = await resolveMeetingRecipient({ agencyId: agency, user: host });
   const calendarSender = hostIdentity.calendarAccountEmail;
@@ -358,7 +362,6 @@ export async function scheduleHiringInterview({
   }
 
   await saveEventMeetingSettings(saved);
-  if (sendInvites) await queueMeetingInvitations(saved, interviewerIds);
 
   const guestToken = saved.participant_join_token || saved.join_token || null;
   const hostToken = saved.host_join_token || guestToken;
@@ -417,6 +420,23 @@ export async function scheduleHiringInterview({
     createdByUserId: hostId
   });
 
+  let smsWarning = null;
+  if (preparedSmsConsent) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await recordInterviewSmsConsent(connection, interview.id, preparedSmsConsent);
+      await connection.execute("UPDATE provider_schedule_events SET meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json, JSON_OBJECT()), '$.interviewSmsReminders', CAST('true' AS JSON)) WHERE id=?", [saved.id]);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      console.warn('[Plotline interview consent]', interview.id, error.code || 'recording_failed');
+      smsWarning = 'Interview text consent could not be saved. Record it again from interview Reminders.';
+    } finally {
+      connection.release();
+    }
+  }
+  if (sendInvites) await queueMeetingInvitations(saved, interviewerIds);
   await pool.execute('UPDATE hiring_interviews SET calendar_sender_email = ? WHERE id = ?', [calendarSender, interview.id]);
 
   // Mirror onto hiring_profiles interview fields for Applicants compatibility
@@ -489,7 +509,7 @@ export async function scheduleHiringInterview({
     flow,
     scheduleEvent: saved,
     publicJoinUrl,
-    hostJoinUrl, delivery, calendarWarning,
+    hostJoinUrl, delivery, calendarWarning, smsWarning,
     calendar: { requested: !!sendInvites, created: !!googleEventId }
   };
 }

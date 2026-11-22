@@ -101,6 +101,10 @@ import {
   finalizeInterviewHandler,
   endInterviewGuestAccess,
   getInterviewByScheduleEvent,
+  getCalendarInterview,
+  getInterviewSmsProgram,
+  updateCalendarInterview,
+  saveCalendarInterviewPreparation,
   listCandidateInterviews,
   randomIcebreaker,
   randomSalutation
@@ -111,6 +115,9 @@ const router = express.Router();
 // Assigned interviewers can use only the scoped room endpoints. Management stays capability-gated.
 router.use(authenticate);
 router.get('/interview-hub/by-schedule-event/:eventId', getInterviewByScheduleEvent);
+router.get('/interview-hub/calendar/:eventId', getCalendarInterview);
+router.patch('/interview-hub/calendar/:eventId', updateCalendarInterview);
+router.put('/interview-hub/calendar/:eventId/preparation', saveCalendarInterviewPreparation);
 router.get('/interview-hub/interviews/:id/brief', getInterviewBrief);
 router.get('/interview-hub/interviews/:id/documents/:docId', viewInterviewDocument);
 router.get('/interview-hub/interviews/:id/artifacts', getInterviewArtifacts);
@@ -234,6 +241,7 @@ router.put('/signer-roles/:roleId', updateSignerRole);
 router.delete('/signer-roles/:roleId', deleteSignerRole);
 
 // Interview Hub
+router.get('/interview-hub/sms-program', getInterviewSmsProgram);
 router.get('/interview-hub/templates', listTemplates);
 router.post('/interview-hub/templates/ensure-default', ensureDefaultTemplateHandler);
 router.put('/interview-hub/templates/:templateId', updateTemplate);

@@ -5016,6 +5016,27 @@ export const getUserScheduleSummary = async (req, res, next) => {
               [actorId, ...meetingEventIds]
             );
             const myResponses = new Map(responses.map(row => [Number(row.event_id), row.rsvp]));
+            const interviewIds = next.filter(event => event.meetingSubtype === 'interview'
+              && (Number(event.providerId) === actorId || (byEvent.get(Number(event.id)) || []).some(person => Number(person.userId) === actorId)))
+              .map(event => Number(event.id)).filter(id => id > 0);
+            const interviewDetails = new Map();
+            if (interviewIds.length) {
+              const [interviews] = await pool.execute(`SELECT h.provider_schedule_event_id eventId, a.name agencyName,
+                CONCAT_WS(' ', COALESCE(NULLIF(u.preferred_name, ''), u.first_name), u.last_name) candidateName,
+                COALESCE(NULLIF(j.title, ''), hp.applied_role) jobTitle, j.city, j.state
+                FROM hiring_interviews h JOIN users u ON u.id=h.candidate_user_id JOIN agencies a ON a.id=h.agency_id
+                LEFT JOIN hiring_profiles hp ON hp.id=h.hiring_profile_id AND hp.candidate_user_id=h.candidate_user_id
+                LEFT JOIN hiring_job_descriptions j ON j.id=hp.job_description_id AND j.agency_id=h.agency_id
+                WHERE h.provider_schedule_event_id IN (${interviewIds.map(() => '?').join(',')}) ORDER BY h.id`, interviewIds)
+                .catch(error => {
+                  console.warn('[schedule summary] Could not load interview labels', error.code || 'query_failed');
+                  return [[]];
+                });
+              for (const interview of interviews) interviewDetails.set(Number(interview.eventId), {
+                candidateName: interview.candidateName, jobTitle: interview.jobTitle, agencyName: interview.agencyName,
+                location: [interview.city, interview.state].filter(Boolean).join(', '),
+              });
+            }
             let byEventGroups = new Map();
             try {
               const ProviderScheduleEventInviteGroup = (await import('../models/ProviderScheduleEventInviteGroup.model.js')).default;
@@ -5042,6 +5063,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
               return {
                 ...e,
                 attendeeUserIds,
+                ...(interviewDetails.has(eid) ? { interview: interviewDetails.get(eid) } : {}),
                 canRsvp: actorIsInvitee && !cancelled && !e.meetingCompleted && String(e.meetingSubtype || '').toLowerCase() !== 'training',
                 myRsvp: actorIsInvitee ? myResponses.get(eid) || null : null,
                 invitedGroupIds: (byEventGroups.get(eid) || []).map((n) => Number(n)).filter((n) => n > 0),

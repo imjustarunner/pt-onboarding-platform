@@ -67,10 +67,11 @@
           <span>Send calendar + email invites</span>
         </label>
       </div>
+      <InterviewSmsConsent v-if="sendInvites" :key="candidateUserId" v-model="interviewSmsConsent" :program="interviewSmsProgram" :disabled="scheduling" />
       <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :duration-minutes="durationMinutes" :timezone="timezone" :interviewer-user-ids="interviewerIds" @availability="invitationAvailable = $event" />
       <div class="row-actions">
         <button type="button" class="btn btn-secondary" :disabled="scheduling" @click="showSchedule = false">Cancel</button>
-        <button type="button" class="btn btn-primary" :disabled="scheduling || !questionsReady || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
+        <button type="button" class="btn btn-primary" :disabled="scheduling || !questionsReady || !startsLocal || !canSubmitSchedule || (sendInvites && interviewSmsConsent && !interviewSmsConsent.verbalConsent)" @click="scheduleInterview">
           {{ scheduling ? 'Scheduling…' : (sendInvites ? 'Schedule & send invitations' : 'Save without sending') }}
         </button>
       </div>
@@ -286,6 +287,7 @@ import InterviewInvitePreview from './InterviewInvitePreview.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import InterviewSmsConsent from './InterviewSmsConsent.vue';
 import { interviewStaffLink } from '../../utils/interviewStaffLink';
 import { useAuthStore } from '../../store/auth';
 import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
@@ -332,6 +334,19 @@ const guideDirty=ref(false);
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(false);
+const interviewSmsConsent = ref(null);
+const interviewSmsProgram = ref({ available: false });
+watch(() => [props.agencyId, sendInvites.value], async ([agency, enabled], _, onCleanup) => {
+  interviewSmsConsent.value = null;
+  interviewSmsProgram.value = { available: false };
+  if (!agency || !enabled) return;
+  let active = true;
+  onCleanup(() => { active = false; });
+  try {
+    const { data } = await api.get('/hiring/interview-hub/sms-program', { params: { agencyId: agency }, skipGlobalLoading: true });
+    if (active) interviewSmsProgram.value = data?.data || { available: false };
+  } catch { /* Interview scheduling by email stays available. */ }
+});
 const invitationAvailable = ref(null);
 const interviewRound = ref('initial');
 const roundLabelCustom = ref('');
@@ -620,14 +635,16 @@ async function scheduleInterview(overrideScheduleHolds = false) {
       questionSelection: interviewQuestions.value?.questions,
       hiringProfileId: props.hiringProfileId || null,
       sendInvites: sendInvites.value,
+      ...(sendInvites.value && interviewSmsConsent.value ? { smsConsent: interviewSmsConsent.value } : {}),
       interviewRound: interviewRound.value,
       roundLabelCustom: interviewRound.value === 'other' ? roundLabelCustom.value.trim() : null,
       overrideScheduleHolds: overrideScheduleHolds === true
     });
     const outcome = response.data?.data || {};
-    deliveryNotice.value = ['Interview scheduled.', outcome.delivery?.sent ? (outcome.delivery.redirected ? 'Email sent to the configured test recipient.' : 'Candidate invitation sent.') : outcome.delivery?.reason, outcome.calendar?.requested === false ? 'Calendar sync was not requested.' : outcome.calendarWarning].filter(Boolean).join(' ');
+    deliveryNotice.value = ['Interview scheduled.', outcome.delivery?.sent ? (outcome.delivery.redirected ? 'Email sent to the configured test recipient.' : 'Candidate invitation sent.') : outcome.delivery?.reason, outcome.calendar?.requested === false ? 'Calendar sync was not requested.' : outcome.calendarWarning, outcome.smsWarning].filter(Boolean).join(' ');
     selectedId.value = outcome.interview?.id || null;
     showSchedule.value = false;
+    interviewSmsConsent.value = null;
     await loadInterviews();
   } catch (e) {
     const body = e.response?.data?.error || {};

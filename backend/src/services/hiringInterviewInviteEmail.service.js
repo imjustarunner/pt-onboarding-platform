@@ -176,7 +176,7 @@ export async function prepareHiringInterviewInviteEmail({
 
   const firstName = String(candidate.first_name || '').trim() || formatPersonName(candidate);
   const fromDisplay = peopleOperationsFromDisplayName(agency || {});
-  const replyTo = (Array.isArray(interviewerRows) ? interviewerRows : []).map(row=>String(row.email || '').trim()).filter(Boolean).join(', ') || String(identity.from_email).trim();
+  const replyTo = String(identity.from_email).trim();
 
   const subject = String(title || 'Interview invitation').trim();
   const rsvpUrl = interviewRsvpUrl(publicJoinUrl);

@@ -12,7 +12,8 @@
         <p v-if="item.waiting">{{ item.detail || 'Your care team is preparing this step. It does not block the others.' }}</p>
         <template v-else>
           <p>{{ ft(item.detail) }}</p>
-          <a v-if="item.href && ['document','assessment'].includes(item.type)" class="update-action" :href="item.href">{{ ft("Open") }} {{ ft(item.title) }}</a>
+          <AssignedOutcomeAssessment v-if="item.outcomeAssessment" :agency-id="agencyId" :client-id="clientId" :item-id="item.id" @saved="load" />
+          <a v-else-if="item.href && ['document','assessment'].includes(item.type)" class="update-action" :href="item.href">{{ ft("Open") }} {{ ft(item.title) }}</a>
           <template v-else-if="item.type === 'information'">
             <GuardianClientDetails :client-id="Number(clientId)" />
             <details><summary>{{ ft("Review additional contacts") }}</summary>
@@ -25,7 +26,7 @@
           <GuardianPaymentInsuranceTab v-else-if="['authorization','payment'].includes(item.type)" :agency-id="agencyId" :client-id="clientId" :section="item.type" />
           <label v-if="item.type === 'information'" class="confirm"><input v-model="confirmed" type="checkbox" /> {{ ft("I reviewed this information. It is correct, or I submitted the needed corrections.") }}</label>
           <button v-if="item.type === 'information'" type="button" :disabled="busy || !confirmed" @click="confirm(item)">{{ ft("Save confirmation") }}</button>
-          <button v-else-if="item.type !== 'notifications'" type="button" :disabled="busy" @click="load">{{ ft("Check again") }}</button>
+          <button v-else-if="!item.outcomeAssessment && item.type !== 'notifications'" type="button" :disabled="busy" @click="load">{{ ft("Check again") }}</button>
         </template>
       </article>
     </template>
@@ -35,7 +36,7 @@
 <script setup>
 import {useFamilyLocale} from '../../composables/useFamilyLocale';
 const {ft}=useFamilyLocale();
-import { ref, watch, onBeforeUnmount } from 'vue';
+import { defineAsyncComponent, ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import GuardianClientDetails from './GuardianClientDetails.vue';
 import FamilyNotificationChoices from './FamilyNotificationChoices.vue';
@@ -43,6 +44,8 @@ import GuardianPlanProgressPanel from './GuardianPlanProgressPanel.vue';
 import GuardianPaymentInsuranceTab from './GuardianPaymentInsuranceTab.vue';
 import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
+
+const AssignedOutcomeAssessment = defineAsyncComponent(() => import('./AssignedOutcomeAssessment.vue'));
 
 const props = defineProps({
   agencyId: [Number, String],

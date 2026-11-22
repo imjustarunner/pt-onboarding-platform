@@ -33,6 +33,35 @@ export function mergeInterviewWorkspace(artifact, body, actor) {
     if (index >= 0) flow.sections[index] = section;
     else flow.sections.push(section);
   }
+  if (body.questionPatches !== undefined) {
+    if (!Array.isArray(body.questionPatches) || !body.questionPatches.length || body.questionPatches.length > 40) {
+      throw Object.assign(new Error('Save up to 40 interview question changes at a time.'), { status: 400 });
+    }
+    for (const patch of body.questionPatches) {
+      const text = String(patch?.text || '').trim();
+      if (!text || text.length > 2000 || !patch.key || typeof patch.key !== 'string' || patch.key.length > 100) {
+        throw Object.assign(new Error('Enter a question of up to 2,000 characters.'), { status: 400 });
+      }
+      flow.sections ||= [];
+      const existing = flow.sections.flatMap(section => section.questions || [])
+        .find(question => question.key === patch.key);
+      if (existing) {
+        if (existing.text !== patch.original && existing.text !== text) {
+          throw Object.assign(new Error('This interview question changed. Reopen the interview before editing it again.'), { status: 409 });
+        }
+        existing.text = text;
+      } else if (/^calendar-[\w-]{1,80}$/.test(patch.key) && !patch.original) {
+        let section = flow.sections.find(section => section.key === 'additional');
+        if (!section) {
+          section = { key: 'additional', label: 'Additional questions', questions: [] };
+          flow.sections.push(section);
+        }
+        section.questions.push({ key: patch.key, text });
+      } else {
+        throw Object.assign(new Error('This interview question is no longer available.'), { status: 409 });
+      }
+    }
+  }
   const notes = { ...(artifact.private_notes_json || {}) };
   if (body.myNotes !== undefined) notes[uid] = String(body.myNotes).slice(0, 100000);
   const score = structuredClone(artifact.scorecard_json || {});

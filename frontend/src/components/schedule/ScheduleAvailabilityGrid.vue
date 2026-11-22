@@ -1720,7 +1720,8 @@
       >
         <div class="nr-head">
           <div class="nr-head-main">
-            <span class="nr-head-icon" aria-hidden="true">
+            <img v-if="editorIsInterview" class="nr-head-icon" src="/assets/plotline/icon.svg" alt="Plotline" />
+            <span v-else class="nr-head-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
                 <rect x="3" y="5" width="18" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/>
                 <path d="M3 10h18" stroke="currentColor" stroke-width="1.8"/>
@@ -1770,6 +1771,15 @@
         </div>
 
         <VirtualSessionBookingConfirmation v-if="virtualSessionBookingResult" :booking="virtualSessionBookingResult" :share-url="virtualSessionShareUrl" :copied="virtualSessionShareCopied" :busy="submitting" :error="modalError" @copy="copyVirtualSessionShareUrl" :can-write-note="canWriteBookedNote(virtualSessionBookingResult)" @write-note="openBookedSessionNote(virtualSessionBookingResult.appointments[0])" />
+        <ScheduleInterviewPanel
+          v-else-if="editorUsePlotlineInterviewPanel"
+          :key="scheduleEventEditId"
+          :event-id="scheduleEventEditId"
+          :agency-logo="agencyIconUrlById(editorAgencyId) || ''"
+          @rsvp="onQuickRsvpSaved"
+          @calendar-changed="refreshScheduleSummaryInBackground"
+          @unlinked="unlinkedInterviewEventId = $event"
+        />
         <template v-else>
         <div v-if="meetingCreatedShare" class="nr-meeting-created" data-testid="meeting-created-share">
           <div class="nr-meeting-created-copy">
@@ -4796,7 +4806,7 @@
               Close
             </button>
             <button
-              v-if="!editorOutcomeReadOnly && (isEditableScheduleStackItem(editingScheduleStackItem) || canRescheduleScheduleStackItem(editingScheduleStackItem))"
+              v-if="!editorUsePlotlineInterviewPanel && !editorOutcomeReadOnly && (isEditableScheduleStackItem(editingScheduleStackItem) || canRescheduleScheduleStackItem(editingScheduleStackItem))"
               class="btn nr-btn-submit"
               type="button"
               :disabled="scheduleEventSaving"
@@ -5982,7 +5992,7 @@ import './schedule-new-request-modal.css';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 import { createBookingCatalogCache } from '../../utils/bookingCatalogCache.js';
 import { supervisionCoFacilitatorIds, isSupervisionFacilitator } from '../../utils/supervisionFacilitators.js';
-import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { scheduleHubContext } from './scheduleHubContext.js';
 import { normalizeClientNameDisplay, scheduleClientFace } from '../../utils/scheduleClientNames.js';
 import { schoolClosureBlocks } from '../../utils/schoolClosureBlocks.js';
@@ -6054,6 +6064,7 @@ import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentReschedulePanel from './AppointmentReschedulePanel.vue';
 import ScheduleQuickRsvp from './ScheduleQuickRsvp.vue';
+const ScheduleInterviewPanel = defineAsyncComponent(() => import('./ScheduleInterviewPanel.vue'));
 import VirtualSessionBookingConfirmation from './VirtualSessionBookingConfirmation.vue';
 import { mergeSavedAppointmentCalendar } from '../../utils/savedAppointmentCalendar.js';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
@@ -6581,7 +6592,7 @@ const forgetRecentlySavedAppointment = id => {
 const acknowledgeSavedAppointments = data => {
   const rows = data?.scheduleEvents || [];
   recentlySavedAppointments.value = Object.fromEntries(Object.entries(recentlySavedAppointments.value).filter(([, event]) => !rows.some(row =>
-    (event.appointmentId && Number(row.appointmentId) === event.appointmentId) || (event.id && Number(row.id) === event.id && row.kind === event.kind))));
+    event.appointmentId && Number(row.appointmentId) === event.appointmentId)));
 };
 const googleCalendarEnabled = computed(() => !props.teamCalendar && Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
@@ -11462,6 +11473,7 @@ const agendaItemMeta = (item) => {
 };
 
 const agendaItemLogo = (item) => {
+  if (item?.meetingSubtype === 'interview') return '/assets/plotline/icon.svg';
   if (item?.kind === 'school' && item.schoolLogoUrl) return item.schoolLogoUrl;
   if (!isFallCheckinBookedBlock(item)) return null;
   return agencyIconUrlById(item?.agencyId, {
@@ -11585,6 +11597,16 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   }
   let typePrefix = 'Event';
   const meetingLabel = meetingTypeDisplayLabel(ev);
+  if (meetingLabel === 'Interview') {
+    const details = ev.interview;
+    return [
+      ev.isCancelled ? 'Canceled interview' : 'Interview',
+      details?.candidateName || (ev.canRsvp || ev.canEdit ? raw.replace(/^.*?interview\s*[–—·-]\s*/i, '') : ''),
+      details?.jobTitle,
+      details?.location || ev.locationText || (ev.isVirtual ? 'Virtual' : ''),
+      details?.agencyName
+    ].filter(Boolean).join(multiline ? '\n' : ' · ');
+  }
   if (meetingLabel) {
     typePrefix = meetingLabel;
       } else if (eventKind === 'SCHEDULE_HOLD') {
@@ -11601,7 +11623,7 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   const typeLabel = `${canceledPrefix}${typePrefix}`.trim();
   const whoLabel = (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING')
     ? meetingWhoLabelForGrid(ev, typePrefix)
-    : raw;
+    : (isClientSessionScheduleEvent(ev) && ev.clientName) ? ev.clientName : raw;
   return runningAppointmentLabel({
     segmentClass,
     startAt: ev?.startAt,
@@ -11615,6 +11637,7 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
 
 const scheduleEventBlockTitle = (ev, dayName, hour) => {
   const raw = String(ev?.title || '').trim() || 'Schedule event';
+  if (ev.meetingSubtype === 'interview') return [scheduleEventShortLabel(ev), dayName, clockRangeLabel(ev.startAt, ev.endAt)].filter(Boolean).join(' · ');
   const privateTag = ev?.isPrivate ? ' • Private' : '';
   const cancelledTag = calendarSessionState(ev) ? ` • ${calendarSessionState(ev)}` : '';
   const conf = sessionConfirmationState(ev);
@@ -14457,6 +14480,7 @@ const modalScheduleSubtitle = computed(() => {
   if (virtualSessionBookingResult.value) return virtualSessionBookingResult.value.historical ? 'Your saved appointment.' : 'Your saved appointment and its session video link.';
   const t = String(requestType.value || '');
   if (t === 'edit_schedule_event') {
+    if (editorIsInterview.value) return 'Plotline People Operations';
     const item = editingScheduleStackItem.value;
     const kind = appointmentEditKindLabel.value;
     const title = String(item?.label || '').trim();
@@ -14529,6 +14553,7 @@ const modalEditorTitle = computed(() => {
   }
   if (isScheduleEventEditMode.value) {
     const item = editingScheduleStackItem.value;
+    if (editorIsInterview.value) return 'Interview';
     if (isMeetingStackItem(item)) return appointmentEditorTitleForKind(item?.eventKind || 'TEAM_MEETING');
     if (isClientSessionScheduleEvent(item)) return editorIsLearning.value?'Tutoring session':'Clinical session';
     return appointmentEditorTitleForKind(item?.eventKind || 'PERSONAL_EVENT', { kindLabel: item?.kindLabel });
@@ -14537,6 +14562,11 @@ const modalEditorTitle = computed(() => {
     hideOfficeAndCalendarIntegration: props.hideOfficeAndCalendarIntegration
   });
 });
+
+const editorIsInterview = computed(() => isScheduleEventEditMode.value
+  && editingScheduleStackItem.value?.meetingSubtype === 'interview');
+const unlinkedInterviewEventId = ref(0);
+const editorUsePlotlineInterviewPanel = computed(() => editorIsInterview.value && unlinkedInterviewEventId.value !== scheduleEventEditId.value);
 
 const editorIsClinical = computed(() => (
   ['individual_session', 'group_session'].includes(String(requestType.value || ''))
@@ -19332,16 +19362,27 @@ const patchScheduleSummaryWithBookedEvent = ({
   endAt = '',
   kind = 'PERSONAL_EVENT',
   wallTimeZone = '',
-  appointmentContext = null
+  appointmentContext = null,
+  clientLabel = ''
 }) => {
   const tz = String(wallTimeZone || '').trim() || scheduleMeetingTimeZone();
   const start = toSummaryInstantIso(startAt, { storesUtcInstant: true, wallTimeZone: tz });
   const end = toSummaryInstantIso(endAt, { storesUtcInstant: true, wallTimeZone: tz });
   if (!start || !end) return;
   const aId = Number(agencyId || 0) || null;
+  const participant = appointmentContext?.participants?.find(person => Number(person.clientId) > 0);
   const ev = {
-    ...(appointmentContext ? scheduleAppointmentContext({ ...appointmentContext, appointmentId: appointmentContext.id }) : {}),
-    ...(appointmentContext ? { providerId: appointmentContext.providerUserId, timeZone: appointmentContext.sourceTimezone || tz, canEdit: true, canReschedule: true } : {}),
+    ...(appointmentContext ? scheduleAppointmentContext({
+      ...appointmentContext, appointmentId: appointmentContext.id,
+      clientId: appointmentContext.clientId || participant?.clientId,
+      appointmentStatus: appointmentContext.status || appointmentContext.appointmentStatus
+    }) : {}),
+    ...(appointmentContext ? {
+      clientName: appointmentContext.clientName || participant?.displayName || clientLabel
+        || (participant ? scheduleEventClientDisplayName(participant.clientId) : ''),
+      providerId: appointmentContext.providerUserId, timeZone: appointmentContext.sourceTimezone || tz,
+      canEdit: true, canReschedule: true
+    } : {}),
     id: Number(eventId || 0) || null,
     agencyId: aId,
     _agencyId: aId,
@@ -21014,6 +21055,7 @@ const agencyIconUrlById = (agencyId, { preferSchoolOwn = false, schoolLogoUrl = 
 };
 
 const blockAgencyIconUrl = (block) => {
+  if (block?.meetingSubtype === 'interview') return '/assets/plotline/icon.svg';
   const id = Number(block?.agencyId || 0);
   if (!id) return null;
   return agencyIconUrlById(id, {
@@ -22676,13 +22718,12 @@ const projectSavedVirtualAppointments = (booking) => {
   if (!booking) return;
   ensureScheduleAgencyVisible(booking.agencyId);
   for (const appointment of booking.appointments || []) {
-    if ((rawSummary.value?.scheduleEvents || []).some(event => Number(event.appointmentId) === Number(appointment.id)
-      || (appointment.providerScheduleEventId && Number(event.id) === Number(appointment.providerScheduleEventId) && event.kind === 'PERSONAL_EVENT'))) continue;
+    if ((rawSummary.value?.scheduleEvents || []).some(event => Number(event.appointmentId) === Number(appointment.id) && isClientSessionScheduleEvent(event))) continue;
     patchScheduleSummaryWithBookedEvent({ eventId: appointment.providerScheduleEventId || -Number(appointment.id),
       agencyId: booking.agencyId, title: appointment.title || booking.title,
       startAt: parseScheduleInstant(appointment.startAt)?.toISOString(),
       endAt: parseScheduleInstant(appointment.endAt)?.toISOString(),
-      wallTimeZone: booking.timeZone, appointmentContext: appointment });
+      wallTimeZone: booking.timeZone, appointmentContext: appointment, clientLabel: booking.clientLabel });
   }
 };
 
@@ -23585,7 +23626,7 @@ const submitRequest = async () => {
             agencyId, title: titleParts.join(' · '), kind: 'PERSONAL_EVENT',
             startAt: parseScheduleInstant(appointment.startAt)?.toISOString(),
             endAt: parseScheduleInstant(appointment.endAt)?.toISOString(),
-            appointmentContext: appointment
+            appointmentContext: appointment, clientLabel: primarySessionClientLabel.value
           });
         }
         window.dispatchEvent(new Event('appointment-schedule-saved'));
@@ -23665,7 +23706,11 @@ const submitRequest = async () => {
           refreshInBackground = true;
         } else if (r?.data?.kind === 'auto_booked') {
           ensureScheduleAgencyVisible(Number(r.data.agencyId || editorAgencyId.value || effectiveAgencyId.value));
-          if (r.data.appointment) projectSavedVirtualAppointments({ agencyId: r.data.appointment.agencyId, appointments: [r.data.appointment] });
+          if (r.data.appointment) projectSavedVirtualAppointments({
+            agencyId: r.data.appointment.agencyId,
+            appointments: [r.data.appointment],
+            clientLabel: primarySessionClientLabel.value
+          });
           window.dispatchEvent(new Event('appointment-schedule-saved'));
           const count = r.data.appointmentIds?.length || occurrenceCount || 1;
           const reference=r.data.appointmentIds?.[0]?` · Appointment #${r.data.appointmentIds[0]}`:'';
@@ -25153,6 +25198,7 @@ const canJoinEditingMeeting = computed(() => {
 });
 
 const editorMeetingJoinLabel = computed(() => {
+  if (editorIsInterview.value) return 'Join interview';
   if (String(editorVirtualLink.value || '').trim()) return 'Join meeting';
   return 'Join Meet';
 });
@@ -26720,6 +26766,7 @@ const scheduleEventEditTimeZone = ref('');
 /** Tenant selected when the edit form opened — only resend `agencyId` if the host changes it. */
 const editAgencyBaseline = ref(0);
 const scheduleEventEditId = ref(0);
+watch(scheduleEventEditId, () => { unlinkedInterviewEventId.value = 0; });
 const scheduleEventSaving = ref(false);
 const scheduleEventEditError = ref('');
 const scheduleEventEditForm = ref({
@@ -26807,6 +26854,7 @@ const MEETING_SCHEDULE_EVENT_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
 const isMeetingStackItem = (item) => MEETING_SCHEDULE_EVENT_KINDS.has(String(item?.eventKind || '').trim().toUpperCase());
 const cancelMeetingIsMeeting = computed(() => isMeetingStackItem(cancelMeetingItem.value));
 function cancelScheduleItemLabel(item) {
+  if (item?.meetingSubtype === 'interview') return 'Cancel interview';
   if (isMeetingStackItem(item)) return 'Cancel meeting';
   return item?.isClientSession || parseClientIdFromScheduleEvent(item) > 0 ? 'Cancel / Missed session' : 'Cancel event';
 }
@@ -26861,6 +26909,7 @@ function isClientSessionScheduleEvent(ev = null) {
   if (!ev) return false;
   const kind = String(ev?.kind || ev?.eventKind || '').trim().toUpperCase();
   if (kind && kind !== 'PERSONAL_EVENT') return false;
+  if (Number(ev?.appointmentId || ev?.appointment_id || 0) > 0) return true;
   if (Number(ev?.clientId || 0) > 0) return true;
   if (parseClientIdFromScheduleEvent(ev) > 0) return true;
   const title = String(ev?.title || ev?.label || '').trim().toLowerCase();

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { nluLearningMeasures } from '../data/nluLearningMeasures.js';
 import { isNluAgency, assertPilotCatalogAgency, normalizePilotContext } from './nluLearningAccess.service.js';
 import pool from '../config/clinicalDatabase.js';
@@ -88,6 +89,23 @@ export async function saveOutcomeResponse(user, clientId, input, retry = false) 
   const [[row]] = await pool.execute('SELECT * FROM client_outcome_measure_responses WHERE id = ? AND client_id = ? AND agency_id = ?', [id, client.id, client.agency_id]);
   return decode(row);
 }
+// Called only after the authenticated portal assignment has been authorized.
+export async function saveAssignedOutcomeResponse({ clientId, agencyId, userId, itemId, measure, version, answers: submittedAnswers }) {
+  if (version !== measure.version) fail(409, 'The questionnaire changed. Reopen it to see the current form.');
+  const { answers, result } = scoreOutcomeMeasure(measure, submittedAnswers);
+  if (!result.complete) fail(400, 'Answer all items before submitting the questionnaire.');
+  const requestId = createHash('sha256').update('client-update-assessment:' + itemId).digest('hex').slice(0, 32)
+    .replace(/^(........)(....)(....)(....)(............)$/, '$1-$2-$3-$4-$5');
+  const payload = { questionnaire: measure, answers, result, administration: measure.respondent, source: 'family_portal' };
+  const encrypted = maybeEncryptNotePayload(JSON.stringify(payload));
+  // The assignment and clinical record are in separate stores. A retry after
+  // saving the clinical response can complete the checklist without another response.
+  await pool.execute(`INSERT INTO client_outcome_measure_responses
+    (client_id, agency_id, measure_id, measure_version, request_id, recorded_by_user_id, payload_encrypted)
+    VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id`,
+  [clientId, agencyId, measure.id, measure.version, requestId, userId, encrypted]);
+}
+
 export async function reviewOutcomeResponse(user, clientId, responseId, input) {
   const client = await assertOutcomeClientAccess(user, clientId, { write: true });
   if (!Number.isSafeInteger(Number(responseId)) || Number(responseId) <= 0) fail(400, 'Invalid response.');

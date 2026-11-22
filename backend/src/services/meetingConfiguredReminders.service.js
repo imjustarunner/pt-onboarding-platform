@@ -3,14 +3,19 @@ import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { meetingReplyTo, meetingParticipantRows, meetingEmailDetails } from './meetingParticipants.service.js';
 import pool from '../config/database.js';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 import { meetingReminderSchedule } from './meetingReminderPolicy.js';
 import { meetingInvitationContent } from './meetingInvitationPolicy.js';
 import { personalMeetingInvitation } from './meetingInvitations.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { sendHiringInterviewReminder } from './hiringInterviewReminder.service.js';
 export async function sendConfiguredMeetingReminders(now=new Date()) {
+  if (process.env.PLOTLINE_INTERVIEW_SMS_CAMPAIGNS_JSON) {
+    const { sendPendingInterviewSmsConfirmations } = await import('./hiringInterviewSms.service.js');
+    await sendPendingInterviewSmsConfirmations();
+  }
   const [events]=await pool.execute(`SELECT * FROM provider_schedule_events WHERE kind IN ('TEAM_MEETING','HUDDLE') AND status='ACTIVE'
-    AND meeting_completed_at IS NULL AND notify_participants=1 AND (meeting_settings_json IS NOT NULL OR meeting_subtype='interview')
+    AND meeting_completed_at IS NULL AND (notify_participants=1 OR (meeting_subtype='interview' AND (JSON_EXTRACT(meeting_settings_json,'$.interviewSmsReminders')=TRUE OR JSON_EXTRACT(meeting_settings_json,'$.interviewEmailReminders')=TRUE))) AND (meeting_settings_json IS NOT NULL OR meeting_subtype='interview')
     AND start_at>UTC_TIMESTAMP() AND start_at<DATE_ADD(UTC_TIMESTAMP(),INTERVAL 8 DAY)`);
   for(const event of events)for(const reminder of new Map([
     ...meetingReminderSchedule(event),
@@ -18,8 +23,16 @@ export async function sendConfiguredMeetingReminders(now=new Date()) {
   ].map(r=>[r.key,r])).values()) {
     if(reminder.at>now || now-reminder.at>180000)continue;
     const [users]=await pool.execute(`SELECT DISTINCT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,hi.guest_join_token,COALESCE(mp.rsvp,'pending') training_rsvp,COALESCE(mp.is_required,1) is_required FROM users u LEFT JOIN meeting_participant_preferences mp ON mp.user_id=u.id AND mp.event_id=? LEFT JOIN hiring_interviews hi ON hi.candidate_user_id=u.id AND hi.provider_schedule_event_id=? WHERE u.id=? OR u.id IN (SELECT user_id FROM provider_schedule_event_attendees WHERE event_id=?) OR hi.id IS NOT NULL`,[event.id,event.id,event.provider_id,event.id]);
+    const settings = parseMeetingSettings(event.meeting_settings_json);
     const host=users.find(u=>Number(u.id)===Number(event.provider_id));
     for(const user of users) {
+      if (event.meeting_subtype === 'interview') {
+        if (user.training_rsvp === 'declined') continue;
+        if (user.guest_join_token && settings.interviewSmsReminders === true) {
+          await sendInterviewReminderText(event, user, reminder.key);
+        }
+        if (!(settings.interviewEmailReminders ?? !!Number(event.notify_participants ?? 1))) continue;
+      }
       if(event.meeting_subtype==='training' && !meetingReminderSchedule(event,{rsvp:user.training_rsvp || 'pending',isRequired:Number(user.is_required ?? 1)===1}).some(r=>r.key===reminder.key))continue;
       if(!user.email || (!event.meeting_settings_json && !user.guest_join_token))continue;const db=await pool.getConnection();const lock=`meeting-reminder:${event.id}:${user.id}:${reminder.key}`;let acquired=false;
       try {
@@ -30,10 +43,37 @@ export async function sendConfiguredMeetingReminders(now=new Date()) {
         const recipientIdentity=await resolveMeetingRecipient({agencyId:event.agency_id,user,guest:!!user.guest_join_token});
         const result=user.guest_join_token
           ? await sendHiringInterviewReminder(event,user)
+          : event.meeting_subtype === 'interview'
+            ? await (await import('./hiringInterviewReminder.service.js')).sendStaffInterviewEmail(event, user, invite.url, { reminder: true })
           : event.kind==='HUDDLE' ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:event,user,joinUrl:invite.url,kind:`reminder:${reminder.key}`})
           : await sendNotificationEmail({agencyId:event.agency_id,triggerKey:'meeting_join_reminder',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(event),...content,subject:`${finalOptionalReminder?'Final optional training reminder':`${content.trainingRequirement ? `${content.trainingRequirement} ${user.training_rsvp==='accepted'?'join':'RSVP'}` : 'Meeting'} reminder`}: ${event.title}`,userId:user.id,templateType:'meeting_join_reminder',source:'auto'});
         if(!result?.skipped)await db.execute('INSERT IGNORE INTO meeting_reminder_deliveries (event_id,user_id,reminder_key,start_at,delivery_status,communication_id) VALUES (?,?,?,?,?,?)',[...params,result?.pendingApproval?'pending_approval':'sent',result?.communicationId || null]);
       } catch(error){console.warn('[Meeting reminder]',event.id,user.id,error.code||error.message);} finally{if(acquired)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);db.release();}
     }
+  }
+}
+
+async function sendInterviewReminderText(event, user, reminderKey) {
+  const db = await pool.getConnection();
+  const key = `sms:${reminderKey}`;
+  const lock = `meeting-reminder:${event.id}:${user.id}:${key}`;
+  let acquired = false;
+  try {
+    const [[row]] = await db.execute('SELECT GET_LOCK(?,0) acquired', [lock]);
+    acquired = !!row.acquired;
+    if (!acquired) return;
+    const params = [event.id, user.id, key, event.start_at];
+    const [sent] = await db.execute('SELECT 1 FROM meeting_reminder_deliveries WHERE event_id=? AND user_id=? AND reminder_key=? AND start_at=?', params);
+    if (sent.length) return;
+    const { sendHiringInterviewSmsReminder } = await import('./hiringInterviewSms.service.js');
+    const result = await sendHiringInterviewSmsReminder(event, user);
+    if (result?.sid) {
+      await db.execute("INSERT IGNORE INTO meeting_reminder_deliveries (event_id,user_id,reminder_key,start_at,delivery_status) VALUES (?,?,?,?,'sent')", params);
+    }
+  } catch (error) {
+    console.warn('[Plotline interview text reminder]', event.id, user.id, error.code || 'delivery_failed');
+  } finally {
+    if (acquired) await db.execute('SELECT RELEASE_LOCK(?)', [lock]);
+    db.release();
   }
 }

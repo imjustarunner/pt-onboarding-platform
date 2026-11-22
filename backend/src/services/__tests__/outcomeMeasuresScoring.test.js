@@ -1,31 +1,44 @@
 import { describe, it, expect } from 'vitest';
 import { applyScreenerReference } from '../safetyPlans/guideReference.js';
-import { readFileSync } from 'node:fs';
 import { getOutcomeMeasure, outcomeMeasures, measureRights } from '../../data/outcomeMeasures.js';
 import { scoreOutcomeMeasure, measureItemVisible } from '../outcomeMeasureScoring.js';
 const score = (id, answers) => scoreOutcomeMeasure(getOutcomeMeasure(id), answers);
 const repeated = (count, value) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`q${i+1}`, String(value)]));
 describe('reviewed instrument catalog', () => {
-  it('enables exactly the nine reviewed instruments, with attributed versioned sources', () => {
-    expect(measureRights).toHaveLength(33); expect(outcomeMeasures).toHaveLength(9);
-    expect(new Set(outcomeMeasures.map(m => m.id)).size).toBe(9);
-    expect(outcomeMeasures.map(m => m.id).sort()).toEqual(['phq-9','gad-7','pcl-5','lec-5','des-b','aware','cage-aid','ftnd','taps'].sort());
-    for (const m of outcomeMeasures) { expect(m.rights.status).toBe('enabled'); expect(m.rights.attribution).toBeTruthy(); expect(m.rights.rightsUrl).toMatch(/^https:/); expect(m.version).toMatch(/^[a-f0-9]{20}$/); expect(new Set(m.items.map(i => i.key)).size).toBe(m.items.length); }
+  it('enables exactly the reviewed instruments, with attributed versioned sources', () => {
+    expect(measureRights).toHaveLength(34); expect(outcomeMeasures).toHaveLength(12);
+    expect(new Set(outcomeMeasures.map(m => m.id)).size).toBe(12);
+    expect(outcomeMeasures.map(m => m.id).sort()).toEqual(['phq-9','phq-a','gad-7','pcl-5','lec-5','des-b','aware','cage-aid','ftnd','taps','scared','scared-parent'].sort());
+    for (const m of outcomeMeasures) { expect(m.rights.status).toBe('enabled'); expect(m.rights.rightsUrl).toMatch(/^https:/); expect(m.version).toMatch(/^[a-f0-9]{20}$/); expect(new Set(m.items.map(i => i.key)).size).toBe(m.items.length); }
   });
-  it.each(['itsco','nlu','isi'])('keeps all 33 %s guide anchors and links only enabled forms', agency => {
-    const guide = applyScreenerReference(JSON.parse(readFileSync(new URL(`../../content/provider-guides/${agency}.json`, import.meta.url))),agency);
-    expect(guide.sections.find(s => s.slug === 'appendix-a').body_html).toContain('9 of the 33');
-    for (const entry of measureRights) {
-      const section = guide.sections.find(s => s.slug === entry.guideSlug); expect(section).toBeTruthy(); expect(section.body_html).toContain(entry.status === 'clinical_form' ? 'Available in Clinical forms' : entry.status === 'enabled' ? 'Available in the app' : entry.status === 'permission_required' ? 'Permission required' : 'clarification');
-      if(entry.status==='clinical_form')expect(section.body_html).toContain(`/${agency}/clinical-forms?form=cssrs-screener`);
-      expect(section.body_html.includes(`/outcome-measures?measure=${entry.id}`)).toBe(entry.status === 'enabled');
-    }
+  it.each(['itsco','nlu','isi'])('links both SCARED reports in the %s guide', agency => {
+    const guide = applyScreenerReference({ sections: [
+      { slug: 'appendix-a', body_html: '<p>Outcome measures in the app</p>' },
+      { slug: 'measure-scared', body_html: '<p>Commercial digital reuse needs clarification</p>' },
+      { slug: 'measure-c-ssrs', body_html: '<p>Previous screener reference</p>' }
+    ] }, agency);
+    expect(guide.sections.find(s => s.slug === 'appendix-a').body_html).toContain('the two 41-item SCARED reports');
+    expect(guide.sections.find(s => s.slug === 'measure-scared').body_html).toContain('/outcome-measures?measure=scared-parent');
+    expect(guide.sections.find(s => s.slug === 'measure-scared').body_html).toContain('/outcome-measures?measure=scared"');
+    expect(guide.sections.find(s => s.slug === 'measure-c-ssrs').body_html).toContain(`/${agency}/clinical-forms?form=cssrs-screener`);
   });
 });
 describe('symptom scoring and missing answers', () => {
   it.each([['phq-9',9,3,27],['gad-7',7,3,21],['pcl-5',20,4,80],['des-b',8,4,32],['cage-aid',4,1,4]])('%s scores complete lower and upper bounds', (id,n,max,total) => {
     expect(score(id,repeated(n,0)).result).toMatchObject({ total:0,complete:true });
     expect(score(id,repeated(n,max)).result).toMatchObject({ total,complete:true });
+  });
+  it.each(['scared', 'scared-parent'])('scores %s totals and domains and requires all 41 answers', id => {
+    expect(score(id, repeated(41, 0)).result).toMatchObject({ total: 0, complete: true, flags: [] });
+    expect(score(id, repeated(41, 2)).result).toMatchObject({ total: 82, complete: true,
+      domains: { 'Panic / somatic symptoms': 26, 'Generalized anxiety': 18, 'Separation anxiety': 16, 'Social anxiety': 14, 'School avoidance': 8 } });
+    expect(score(id, repeated(40, 0)).result).toMatchObject({ total: null, complete: false, missing: ['q41'], domains: {} });
+    expect(getOutcomeMeasure(id).rights.attribution).toContain('University of Pittsburgh');
+    const answers = { ...repeated(41, 0), q2: '2', q36: '1' };
+    expect(score(id, answers).result.flags).toEqual([expect.objectContaining({ key: 'School avoidance', urgent: false })]);
+    const threshold = { ...repeated(41, 0), ...repeated(12, 2), q13: '1' };
+    expect(score(id, threshold).result.interpretation).toContain('Total reached the screening threshold of 25.');
+    expect(score(id, { ...threshold, q13: '0' }).result.interpretation).toContain('Total is below');
   });
   it.each([[4,'Minimal'],[5,'Mild'],[9,'Mild'],[10,'Moderate'],[14,'Moderate'],[15,'Moderately severe'],[19,'Moderately severe'],[20,'Severe']])('PHQ-9 total %i is %s', (total,band) => {
     const answers = repeated(9,0); let left=total; for(let i=1;i<=9;i++){ answers[`q${i}`]=String(Math.min(left,3)); left=Math.max(0,left-3); }

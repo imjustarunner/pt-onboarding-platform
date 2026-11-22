@@ -1,4 +1,4 @@
-import { familySharingSchool } from '../services/familySharingCatalog.js';
+import { familyOutcomeMeasure, familySharingSchool } from '../services/familySharingCatalog.js';
 import {getFamilyMeta} from '../services/assessmentFamilyRegistry.js';
 import {normalizeUpdateSelection} from '../services/clientUpdateSelection.js';
 import {requireBillingStaff} from '../services/familyLedger/policy.js';
@@ -125,6 +125,8 @@ export async function previewUpdateItem(req,res,next) {
       return res.json(await previewFamilySmartForm(access.client, req.params.key, req.query.locale || 'en'));
     }
     if(req.params.kind==='assessment' && catalog.assessments.some(a=>a.family===req.params.key && a.assignable)){
+      const measure = familyOutcomeMeasure(req.params.key);
+      if (measure) return res.json({ outcomeMeasure: measure });
       const {readAssignmentTemplate}=await import('../services/assessmentAssign.service.js');
       return res.json(await readAssignmentTemplate(req.params.key,agencyId));
     }

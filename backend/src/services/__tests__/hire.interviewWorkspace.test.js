@@ -25,6 +25,15 @@ describe('multi-interviewer persistence', () => {
     const second = mergeInterviewWorkspace(first, { completedPatch: { 'standard:q3': true } }, { id: 22 });
     expect(second.flow_state_json.completed).toEqual({ 'standard:q1': true, 'standard:q2': true, 'standard:q3': true });
   });
+  it('keeps planned question edits and additions without losing progress or overwriting a newer answer guide', () => {
+    const edit = { key: 'q1', original: 'Experience?', text: 'What experience is relevant to this role?' };
+    const merged = mergeInterviewWorkspace(base(), { questionPatches: [edit, { key: 'calendar-extra', text: 'What would you like to ask?' }] }, actor);
+    expect(merged.flow_state_json.sections[0].questions[0].text).toBe(edit.text);
+    expect(merged.flow_state_json.sections[1].questions).toEqual([{ key: 'calendar-extra', text: 'What would you like to ask?' }]);
+    expect(merged.flow_state_json.completed).toEqual({ 'standard:q1': true });
+    expect(() => mergeInterviewWorkspace(merged, { questionPatches: [{ ...edit, text: 'Another edit?' }] }, { id: 22 }))
+      .toThrow('question changed');
+  });
   it('keeps individual ratings and derives the team score', () => {
     const merged = mergeInterviewWorkspace(base(), { myRatings: { communication: 4, experience: 0 } }, actor);
     expect(merged.scorecard_json.ratings.communication).toBe(3);

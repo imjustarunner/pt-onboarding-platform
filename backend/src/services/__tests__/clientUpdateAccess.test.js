@@ -8,7 +8,7 @@ vi.mock('../assessmentDeliverable.service.js',()=>({assertClientCanViewOwnShared
 vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:m.gate}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:async()=>({portal:{slug:'care',clinical_portal:true},url:path=>`https://auricwell.com/care/${path}`}),sendClientPortalEmail:m.send}));
 vi.mock('../clientPortalContext.service.js',()=>({clientPortalInviteUrl:()=> 'https://auricwell.com/care/login?redirect=%2Fcare%2Fguardian'}));
-import {createClientUpdate,sendClientUpdate,sendReenrollmentUpdate,currentClientUpdateRecipient,guardianClientUpdate,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,previewClientUpdateNotice,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
+import {createClientUpdate,sendClientUpdate,sendReenrollmentUpdate,currentClientUpdateRecipient,guardianClientUpdate,assignedOutcomeAssessment,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,previewClientUpdateNotice,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
 let request,client,contact;
 it('sends a dedicated re-enrollment invitation for an archived client without reopening care',async()=>{
  vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','');request.purpose='reenrollment';request.service_enrollment_id=3;client.status='ARCHIVED';
@@ -58,4 +58,25 @@ it('renders the existing-recipient email without creating an assignment or attem
   expect(result.html).not.toContain(contact.email);
   expect(m.execute.mock.calls.filter(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toEqual([]);
   expect(m.send).not.toHaveBeenCalled();
+});
+
+
+it('makes SCARED forms assignable without exposing drafts or another recipient’s assessment', async () => {
+  m.execute.mockResolvedValueOnce([[]]);
+  const catalog = await listUpdateCatalog(2);
+  expect(catalog.assessments.filter(row => row.family.startsWith('scared'))).toEqual([
+    expect.objectContaining({ family:'scared', assignable:true }),
+    expect.objectContaining({ family:'scared-parent', assignable:true })
+  ]);
+  m.execute.mockImplementation(async (sql, [itemId, clientId, agencyId, userId]) => {
+    expect(sql).toContain('r.guardian_user_id = ?');
+    expect(sql).toContain("r.status IN ('sent','in_progress')");
+    return [itemId===10 && clientId===5 && agencyId===2 && userId===8 ? [{ id:10, reference_key:'scared-parent', status:'pending' }] : []];
+  });
+  m.access.mockResolvedValue({ client_id:5, agency_id:2, relationship_type:'guardian' });
+  const assessment = { user:{ id:8, role:'client_guardian' }, agencyId:2, clientId:5, itemId:10 };
+  expect(await assignedOutcomeAssessment(assessment)).toMatchObject({ measure:{ id:'scared-parent' } });
+  await expect(assignedOutcomeAssessment({ ...assessment, user:{ id:9, role:'client_guardian' } })).rejects.toMatchObject({ status:404 });
+  await expect(assignedOutcomeAssessment({ ...assessment, agencyId:3 })).rejects.toMatchObject({ status:403 });
+  await expect(createClientUpdate({ agencyId:2, clientId:5, body:{ assessments:['scared'], guardianUserId:8, guardianEmail:contact.email } })).rejects.toMatchObject({ status:400 });
 });

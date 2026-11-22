@@ -15,10 +15,10 @@ export function normalizeInvitationEvent(event) {
   if (event.supervisor_user_id) return {...event,meeting_type:'supervision',provider_id:event.supervisor_user_id,title:'Supervision',event_timezone:event.event_timezone || 'America/Denver'};
   return event;
 }
-export async function personalMeetingInvitation(rawEvent, userId, { queue = false, resend = false } = {}) {
+export async function personalMeetingInvitation(rawEvent, userId, { queue = false, resend = false, executor = pool } = {}) {
   const event = normalizeInvitationEvent(rawEvent);
   const key = invitationKey(event);
-  await pool.execute(`INSERT INTO meeting_email_invitations
+  await executor.execute(`INSERT INTO meeting_email_invitations
     (agency_id,provider_id,event_id,user_id,invitation_key,join_token,delivery_status,meeting_type,ready_at)
     VALUES (?,?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 90 SECOND))
     ON DUPLICATE KEY UPDATE
@@ -27,9 +27,9 @@ export async function personalMeetingInvitation(rawEvent, userId, { queue = fals
   [event.agency_id,event.provider_id,event.id,userId,key,generateJoinToken(),queue?'pending':'none',event.meeting_type || 'team_meeting']);
   // An explicit live invitation may resend a delivered link, with a cooldown.
   // Approval/failed/cancelled deliveries are never silently retried here.
-  if (queue && resend) await pool.execute(`UPDATE meeting_email_invitations SET ready_at=UTC_TIMESTAMP(),delivery_status='pending'
+  if (queue && resend) await executor.execute(`UPDATE meeting_email_invitations SET ready_at=UTC_TIMESTAMP(),delivery_status='pending'
     WHERE invitation_key=? AND user_id=? AND (delivery_status IN ('none','pending') OR (delivery_status='sent' AND sent_at<UTC_TIMESTAMP()-INTERVAL 1 MINUTE))`,[key,userId]);
-  const [rows] = await pool.execute('SELECT * FROM meeting_email_invitations WHERE invitation_key=? AND user_id=?',[key,userId]);
+  const [rows] = await executor.execute('SELECT * FROM meeting_email_invitations WHERE invitation_key=? AND user_id=?',[key,userId]);
   return { ...rows[0], url: `${await tenantMeetingBase(event.agency_id)}/join/invitation/${encodeURIComponent(rows[0].join_token)}` };
 }
 
@@ -189,7 +189,7 @@ export async function sendDueMeetingInvitations() {
       const [fresh] = await db.execute("SELECT id FROM meeting_email_invitations WHERE id=? AND delivery_status='pending' AND ready_at<=UTC_TIMESTAMP()",[invitation.id]);
       if (!fresh.length) continue;
       const { parseUtcDate } = await import('../utils/officeEventDateTime.util.js');
-      const events = (await invitationEvents(invitation)).filter(e => Number(e.notify_participants ?? 1)!==0 && parseUtcDate(e.end_at || e.end_date)>new Date());
+      const events = (await invitationEvents(invitation)).filter(e => (e.meeting_subtype === 'interview' || Number(e.notify_participants ?? 1)!==0) && parseUtcDate(e.end_at || e.end_date)>new Date());
       if (!events.length) {
         await db.execute("UPDATE meeting_email_invitations SET delivery_status='cancelled' WHERE id=?",[invitation.id]);
         continue;
@@ -209,7 +209,9 @@ export async function sendDueMeetingInvitations() {
       const content = meetingInvitationContent({events,joinUrl,dialIn:await optionalMeetingDialIn(events[0],invitation.user_id),recipientUserId:invitation.user_id,
         recipientRsvp:preference?.rsvp,recipientRequired:Number(preference?.is_required ?? 1)===1,
         hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants,details:await meetingEmailDetails(events[0])});
-      const result = (invitation.meeting_type === 'supervision' || events[0].kind==='HUDDLE')
+      const result = events[0].meeting_subtype === 'interview'
+        ? await (await import('./hiringInterviewReminder.service.js')).sendStaffInterviewEmail(events[0], recipient, joinUrl)
+        : (invitation.meeting_type === 'supervision' || events[0].kind==='HUDDLE')
         ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:events[0],user:recipient,joinUrl})
         : await sendNotificationEmail({agencyId:invitation.agency_id,triggerKey:'meeting_invited',replyToOverride:await meetingReplyTo(events[0]),to:recipientIdentity.email,...content,source:'auto',userId:invitation.user_id,templateType:'meeting_invited'});
       if (!result?.skipped) await db.execute("UPDATE meeting_email_invitations SET delivery_status=?,sent_at=IF(?='sent',UTC_TIMESTAMP(),NULL),communication_id=? WHERE id=?",[result?.pendingApproval?'approval':'sent',result?.pendingApproval?'approval':'sent',result?.communicationId||null,invitation.id]);

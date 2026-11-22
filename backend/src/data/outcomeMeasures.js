@@ -139,6 +139,21 @@ tapsItems.push({ key: 'other_drugs', section: 'Part 2 · Past 3 months', label: 
 measures.push(base('taps', 'TAPS · Substance use', 'Substance use', 'Part 1 asks about the past 12 months. Follow-up questions in Part 2 ask about the PAST 3 MONTHS ONLY. Select one answer for each question shown.', tapsItems,
   { instrumentVersion: 'TAPS Parts 1 and 2, web 2.0 / 4.00, 19 September 2017', summary: 'A two-stage adult screen with substance-specific follow-up and scores. The clinician selects the appropriate original alcohol questions.', scoreRange: 'Separate substance scores; no combined total', timeframe: '12 months; 3-month follow-up' }));
 
+const scaredChoices = options(['Not true or hardly ever true', 'Somewhat true or sometimes true', 'Very true or often true']);
+for (const [id, report, respondent] of [
+  ['scared', 'Child self-report', 'self'],
+  ['scared-parent', 'Parent report', 'caregiver']
+]) {
+  measures.push(base(id, 'SCARED · ' + report, 'Anxiety',
+    'Open the official questionnaire. Use the same item numbers below to enter each answer about the past three months.',
+    fields(Array.from({ length: 41 }, (_, index) => 'Item ' + (index + 1)), scaredChoices), {
+      instrumentVersion: 'SCARED 41-item, ' + report + ', January 19, 2018',
+      population: 'Ages 8–18. For the child form at ages 8–11, an adult can help with the instructions.',
+      summary: 'Anxiety symptoms across five domains. Use the matching University of Pittsburgh questionnaire.',
+      scoreRange: '0–82', timeframe: 'Past 3 months', respondent, referenceQuestionnaire: true
+    }));
+}
+
 export const outcomeMeasures = measures.map(m => {
   const rights = measureRights.find(r => r.id === m.id);
   if (rights?.status !== 'enabled') throw new Error(`Missing reuse evidence: ${m.id}`);

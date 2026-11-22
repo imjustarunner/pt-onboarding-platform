@@ -7,7 +7,7 @@ import pool from '../../config/clinicalDatabase.js';
 import { resolveClientRecordAccess } from '../clientRecordAccess.service.js';
 import { requireStaffCareEligibility } from '../staffCareEligibility.service.js';
 import { supervisorCanAccessClientInOrg } from '../../utils/supervisorSchoolAccess.js';
-import { outcomeCatalogFor, assertOutcomeClientAccess, saveOutcomeResponse, listOutcomeResponses, reviewOutcomeResponse } from '../outcomeMeasures.service.js';
+import { outcomeCatalogFor, assertOutcomeClientAccess, saveOutcomeResponse, saveAssignedOutcomeResponse, listOutcomeResponses, reviewOutcomeResponse } from '../outcomeMeasures.service.js';
 vi.mock('../nluLearningAccess.service.js', async original => ({ ...(await original()), isNluAgency: vi.fn(), assertPilotCatalogAgency: vi.fn() }));
 import { isNluAgency } from '../nluLearningAccess.service.js';
 import { getOutcomeMeasure } from '../../data/outcomeMeasures.js';
@@ -20,7 +20,7 @@ beforeEach(()=>{
   vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEYS_JSON','');
   resolveClientRecordAccess.mockResolvedValue({ok:true,isAssignedClinician:true,client}); requireStaffCareEligibility.mockResolvedValue(true); supervisorCanAccessClientInOrg.mockResolvedValue(false);
   pool.execute.mockImplementation(async(sql,v)=>{
-    if(sql.startsWith('INSERT')) { const id=rows.length+1; rows.push({id,client_id:v[0],agency_id:v[1],measure_id:v[2],measure_version:v[3],request_id:v[4],recorded_by_user_id:v[5],payload_encrypted:v[6],recorded_at:'2026-10-10T10:00:00Z'});return [{insertId:id}]; }
+    if(sql.startsWith('INSERT')) { if (sql.includes('ON DUPLICATE KEY') && rows.some(r => r.request_id===v[4] && r.client_id===v[0] && r.agency_id===v[1] && r.recorded_by_user_id===v[5])) return [{affectedRows:0}]; const id=rows.length+1; rows.push({id,client_id:v[0],agency_id:v[1],measure_id:v[2],measure_version:v[3],request_id:v[4],recorded_by_user_id:v[5],payload_encrypted:v[6],recorded_at:'2026-10-10T10:00:00Z'});return [{insertId:id}]; }
     if(sql.startsWith('UPDATE')) { const row=rows.find(r=>r.id===v[2]&&r.client_id===v[3]&&r.agency_id===v[4]&&!r.reviewed_at); if(!row||reviewRace)return[{affectedRows:0}];Object.assign(row,{reviewed_by_user_id:v[0],review_encrypted:v[1],reviewed_at:'2026-10-10T10:05:00Z'});return[{affectedRows:1}]; }
     if(sql.includes('request_id =')) return [rows.filter(r=>r.client_id===v[0]&&r.agency_id===v[1]&&r.recorded_by_user_id===v[2]&&r.request_id===v[3])];
     if(sql.includes('WHERE id =')) return [rows.filter(r=>r.id===v[0]&&r.client_id===v[1]&&r.agency_id===v[2])];
@@ -101,10 +101,26 @@ describe('NLU pilot persistence', () => {
 });
 
 it('offers pilots only for authorized NLU client catalogs and leaves generic catalog unchanged', async () => {
- expect((await outcomeCatalogFor(user)).measures).toHaveLength(9);
- expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(9);
- isNluAgency.mockResolvedValue(true);
+ expect((await outcomeCatalogFor(user)).measures).toHaveLength(12);
  expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(12);
+ isNluAgency.mockResolvedValue(true);
+ expect((await outcomeCatalogFor(user,{clientId:41})).measures).toHaveLength(15);
  resolveClientRecordAccess.mockResolvedValue({ok:false,status:403});isNluAgency.mockClear();
  await expect(outcomeCatalogFor(user,{clientId:99})).rejects.toMatchObject({status:403});expect(isNluAgency).not.toHaveBeenCalled();
+});
+
+
+it('records one encrypted family response attributed to the respondent even if submission is retried', async () => {
+  const measure = getOutcomeMeasure('scared-parent');
+  const submission = { clientId:41, agencyId:12, userId:8, itemId:10, measure, version:measure.version,
+    answers:Object.fromEntries(measure.items.map(item => [item.key, '1'])) };
+  await expect(saveAssignedOutcomeResponse({ ...submission, answers:{ q1:'1' } })).rejects.toMatchObject({ status:400 });
+  await expect(saveAssignedOutcomeResponse({ ...submission, version:'old' })).rejects.toMatchObject({ status:409 });
+  await saveAssignedOutcomeResponse(submission);
+  await saveAssignedOutcomeResponse({ ...submission, answers:{ ...submission.answers, q1:'2' } });
+  expect(rows).toHaveLength(1);
+  expect(JSON.parse(rows[0].payload_encrypted)._enc).toBe(true);
+  expect((await listOutcomeResponses(user, 41))[0]).toMatchObject({
+    measureId:'scared-parent', source:'family_portal', recordedBy:8, administration:'caregiver', result:{ total:41 }
+  });
 });

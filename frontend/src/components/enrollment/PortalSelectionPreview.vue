@@ -29,6 +29,7 @@
       </fieldset>
       <iframe v-else-if="pdf" :src="pdf" :title="item.title"></iframe>
       <section v-else-if="item.group === 'documents'" class="document-text"><div v-if="html" v-html="html"></div><p v-else>The template has no previewable text.</p></section>
+      <OutcomeMeasureForm v-else-if="assessment?.outcomeMeasure" :measure="assessment.outcomeMeasure" preview />
       <section v-else-if="assessment">
         <p>{{ assessment.description }}</p>
         <article v-for="section in assessment.domains || assessment.categories || assessment.values || []" :key="section.key">
@@ -69,6 +70,7 @@
   </dialog>
 </template>
 <script setup>
+import OutcomeMeasureForm from '../clinical/OutcomeMeasureForm.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';

@@ -38,6 +38,14 @@ export function normalizeMeasureAnswers(measure, input) {
   return answers;
 }
 
+const scaredDomains = [
+  ['Panic / somatic symptoms', 7, [1,6,9,12,15,18,19,22,24,27,30,34,38]],
+  ['Generalized anxiety', 9, [5,7,14,21,23,28,33,35,37]],
+  ['Separation anxiety', 5, [4,8,13,16,20,25,29,31]],
+  ['Social anxiety', 8, [3,10,26,32,39,40,41]],
+  ['School avoidance', 3, [2,11,17,36]]
+];
+
 export function scoreOutcomeMeasure(measure, input) {
   const answers = normalizeMeasureAnswers(measure, input);
   const required = measure.items.filter(i => !i.optional && measureItemVisible(i, answers));
@@ -93,6 +101,15 @@ export function scoreOutcomeMeasure(measure, input) {
     const bands = measure.id === 'gad-7' ? ['Minimal','Mild','Moderate','Severe'] : ['Minimal','Mild','Moderate','Moderately severe','Severe'];
     result.band = bands[thresholds.filter(n => result.total >= n).length];
     result.interpretation = `${result.band} symptom range. Screening result only; clinical assessment determines diagnosis and next steps.`;
+  } else if (measure.id === 'scared' || measure.id === 'scared-parent') {
+    for (const [domain, cutoff, itemNumbers] of scaredDomains) {
+      const score = itemNumbers.reduce((sum, number) => sum + Number(answers['q' + number]), 0);
+      result.domains[domain] = score;
+      if (score >= cutoff) result.flags.push({ key: domain, urgent: false, text: domain + ' reached its screening threshold (' + cutoff + ').' });
+    }
+    const totalDescription = result.total >= 25 ? 'Total reached the screening threshold of 25.' : 'Total is below the screening threshold of 25.';
+    const specificity = result.total > 30 ? ' Scores above 30 are more specific for anxiety concerns.' : '';
+    result.interpretation = totalDescription + specificity + ' Review the total and each subscale in clinical context. Screening scores do not establish a diagnosis.';
   } else if (measure.id === 'pcl-5') {
     for (const [key, from, to] of [['Intrusion',1,5],['Avoidance',6,7],['Mood and cognition',8,14],['Arousal and reactivity',15,20]]) {
       result.domains[key] = Array.from({ length: to - from + 1 }, (_, i) => Number(answers[`q${from + i}`])).reduce((a,b) => a+b,0);

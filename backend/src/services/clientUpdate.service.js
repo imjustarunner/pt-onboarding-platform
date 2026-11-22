@@ -5,7 +5,7 @@ import Client from '../models/Client.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { ASSESSMENT_FAMILIES, getFamilyMeta } from './assessmentFamilyRegistry.js';
-import { canAssignFamilyAssessment, familyAssessmentChoices, isCurrentFamilyDocument } from './familySharingCatalog.js';
+import { canAssignFamilyAssessment, familyAssessmentChoices, familyOutcomeMeasure, isCurrentFamilyDocument } from './familySharingCatalog.js';
 import { normalizeUpdateSelection, PORTAL_STEPS } from './clientUpdateSelection.js';
 import { absolutePortalPath, listOpenShareEvents } from './portalShareNotice.service.js';
 import {escapePortalHtml,portalMessageHtml} from './portalEmailBranding.service.js';
@@ -129,6 +129,25 @@ async function templateName(id, agencyId) {
   return rows?.[0] && isCurrentFamilyDocument(rows[0]) ? rows[0] : null;
 }
 
+function assertOutcomeRecipient(measure, recipient, boundRecipientId) {
+  if (!recipient || Number(recipient.guardian_user_id) !== Number(boundRecipientId)) {
+    throw fail(400, 'Select the linked portal account that will complete this assessment.');
+  }
+  const self = recipient.role === 'client' && recipient.relationship_type === 'self';
+  if (measure.respondent === 'self' ? !self : !['guardian', 'client_guardian'].includes(recipient.role) || recipient.relationship_type === 'self') {
+    throw fail(400, measure.respondent === 'self'
+      ? 'Assign the SCARED child report to the client’s own portal account.'
+      : 'Assign the SCARED parent report to an authorized parent or guardian.');
+  }
+}
+
+function assertOutcomeRecipients(items, recipient, boundRecipientId) {
+  for (const item of items) {
+    const measure = item.item_type === 'assessment' && familyOutcomeMeasure(item.reference_key);
+    if (measure) assertOutcomeRecipient(measure, recipient, boundRecipientId);
+  }
+}
+
 export async function createClientUpdate({ agencyId, clientId, body = {}, actorUserId = null }) {
   assertEnabled();
   const selection = normalizeUpdateSelection(body);
@@ -138,10 +157,11 @@ export async function createClientUpdate({ agencyId, clientId, body = {}, actorU
   if(['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'Review the current client record before requesting updates.');
 
   let recipientId=null;
+  let recipient;
   if(body.guardianUserId!=null){
     recipientId=Number(body.guardianUserId);
     if(!Number.isSafeInteger(recipientId)||recipientId<1)throw fail(400,'Select a linked portal account.');
-    await currentClientUpdateRecipient({agencyId,clientId,to:body.guardianEmail,guardianUserId:recipientId});
+    ({ recipient } = await currentClientUpdateRecipient({agencyId,clientId,to:body.guardianEmail,guardianUserId:recipientId}));
   }
 
   const documentRows = [];
@@ -153,6 +173,12 @@ export async function createClientUpdate({ agencyId, clientId, body = {}, actorU
   const assessmentRows = [];
   const seenFamilies = new Set();
   for (const family of selection.assessments) {
+    const outcomeMeasure = familyOutcomeMeasure(family);
+    if (outcomeMeasure) {
+      assertOutcomeRecipient(outcomeMeasure, recipient, recipientId);
+      assessmentRows.push({ family, title: outcomeMeasure.title });
+      continue;
+    }
     const meta = getFamilyMeta(family);
     if (!meta || !canAssignFamilyAssessment(family)) throw fail(400, 'This assessment is not ready for family assignment.');
     if (seenFamilies.has(meta.family)) continue;
@@ -250,7 +276,7 @@ async function ensureDocumentPacket(request, items, actorUserId) {
 }
 
 async function ensureAssessments(request, items, actorUserId) {
-  const pending = items.filter((item) => item.item_type === 'assessment' && !item.assessment_id);
+  const pending = items.filter((item) => item.item_type === 'assessment' && !item.assessment_id && !familyOutcomeMeasure(item.reference_key));
   if (!pending.length) return;
   const { assignAssessmentToClient } = await import('./assessmentAssign.service.js');
   const [agencies] = await pool.execute(`SELECT slug FROM agencies WHERE id = ? LIMIT 1`, [request.agency_id]);
@@ -330,6 +356,7 @@ export async function sendClientUpdate(requestId, { actorUserId, guardianEmail }
   if (request.purpose==='reenrollment')return sendSingleClientUpdate(requestId,{actorUserId,guardianEmail});
   if (!items.some(item => item.item_type === 'document')) return sendSingleClientUpdate(requestId, { actorUserId, guardianEmail });
   const { recipient } = await currentClientUpdateRecipient({ agencyId: request.agency_id, clientId: request.client_id, to: guardianEmail, guardianUserId: request.guardian_user_id });
+  assertOutcomeRecipients(items, recipient, request.guardian_user_id);
   const recipients = await prepareGuardianConsentUpdates({ request, items, primaryGuardianUserId: recipient.guardian_user_id });
   if (!recipients) return sendSingleClientUpdate(requestId, { actorUserId, guardianEmail });
   const deliveries = [];
@@ -360,15 +387,15 @@ async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } 
   if (!request) throw fail(404, 'Client update not found');
   if(request.status!=='draft')throw fail(409,'Delivery has already been attempted. Check email history before creating another update.');
   const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:guardianEmail,guardianUserId:request.guardian_user_id,reenrollment});
+  const items = await loadItems(request.id);
+  assertOutcomeRecipients(items, recipient, request.guardian_user_id);
   const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
   const gate=await familyNotificationDeliveryGate({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,templateType:reenrollment?'care_reenrollment':'client_update'});
   if(!gate.allowed)throw fail(409,'This contact’s email preferences do not allow an update notice.');
   const [claim]=await pool.execute("UPDATE client_update_requests SET status='in_progress',guardian_user_id=?,sent_at=UTC_TIMESTAMP() WHERE id=? AND status='draft'",[recipient.guardian_user_id,request.id]);
   if(!claim.affectedRows)throw fail(409,'Delivery has already been attempted. Check email history.');
-  let items = await loadItems(request.id);
   const prepared = await ensureDocumentPacket(request, items, actorUserId);
   await ensureAssessments(prepared, items, actorUserId);
-  items = await loadItems(request.id);
   const delivery=await notifyUpdateRecipient({request,client,recipient,actorUserId,reenrollment});
   const sent=!!delivery?.id&&!delivery.redirected&&!delivery.queued&&!delivery.pendingApproval&&!delivery.blocked&&!delivery.skipped;
   if(sent)await pool.execute("UPDATE client_update_requests SET status='sent' WHERE id=? AND status='in_progress'",[request.id]);
@@ -385,9 +412,10 @@ export async function assignClientUpdateToPortal(requestId, { actorUserId, guard
   const recipient=links.find(link=>Number(link.guardian_user_id)===Number(guardianUserId));
   if(!recipient)throw fail(403,'Select a currently authorized portal account.');
   await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,guardianUserId});
+  const items=await loadItems(requestId);
+  assertOutcomeRecipients(items, recipient, request.guardian_user_id);
   const [claim]=await pool.execute("UPDATE client_update_requests SET status='in_progress',guardian_user_id=?,sent_at=UTC_TIMESTAMP() WHERE id=? AND status='draft'",[guardianUserId,requestId]);
   if(!claim.affectedRows)throw fail(409,'This document assignment changed. Refresh before continuing.');
-  const items=await loadItems(requestId);
   await ensureDocumentPacket(request,items,actorUserId);
   await ensureAssessments(request,items,actorUserId);
   return {request:await loadRequest(requestId),items:await loadItems(requestId),invitationSent:false};
@@ -612,6 +640,12 @@ async function refreshItems(request, items, user) {
         : complete || signed.packetSubmitted || signed.ids.has(Number(item.reference_key));
       detail = 'Open the secure form and sign this document.';
     } else if (item.item_type === 'assessment') {
+      if (familyOutcomeMeasure(item.reference_key)) {
+        if (Number(request.guardian_user_id) === Number(user.id)) {
+          views.push({ ...stepView(item, { complete, detail: 'Complete this questionnaire for your care team.' }), outcomeAssessment: true });
+        }
+        continue;
+      }
       complete = complete || await assessmentCompleted(item,request);
       detail = 'Open the assessment and submit it.';
     } else if (signals) {
@@ -697,6 +731,29 @@ export async function guardianClientUpdate({ user, agencyId, clientId }) {
     items: openItems,
     shares
   };
+}
+
+export async function assignedOutcomeAssessment({ user, agencyId, clientId, itemId, submission }) {
+  assertEnabled();
+  const link = await guardianLink(user, clientId);
+  if (Number(agencyId) !== Number(link.agency_id)) throw fail(403, 'This profile belongs to a different agency.');
+  const [rows] = await pool.execute(`SELECT i.id, i.status, i.reference_key
+    FROM client_update_items i JOIN client_update_requests r ON r.id = i.request_id
+    WHERE i.id = ? AND r.client_id = ? AND r.agency_id = ? AND r.guardian_user_id = ?
+      AND i.item_type = 'assessment'
+      AND (r.status IN ('sent','in_progress') OR (r.status = 'completed' AND i.status = 'complete'))
+    LIMIT 1`, [itemId, clientId, agencyId, user.id]);
+  const item = rows?.[0];
+  const measure = familyOutcomeMeasure(item?.reference_key);
+  if (!measure) throw fail(404, 'That assessment is not assigned to your account.');
+  assertOutcomeRecipient(measure, { guardian_user_id: user.id, role: user.role, relationship_type: link.relationship_type }, user.id);
+  if (item.status === 'complete') return { complete: true };
+  if (submission === undefined) return { measure };
+  const { saveAssignedOutcomeResponse } = await import('./outcomeMeasures.service.js');
+  await saveAssignedOutcomeResponse({ clientId, agencyId, userId: user.id, itemId: item.id, measure, version: submission.version, answers: submission.answers });
+  await pool.execute(`UPDATE client_update_items
+    SET status = 'complete', completed_at = COALESCE(completed_at, UTC_TIMESTAMP()) WHERE id = ?`, [item.id]);
+  return { complete: true };
 }
 
 export async function confirmUpdateInformation({ user, agencyId, clientId, itemId }) {

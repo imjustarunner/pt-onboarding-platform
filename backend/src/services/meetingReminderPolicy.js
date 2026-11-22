@@ -1,6 +1,6 @@
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { utcDateToZonedParts, zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
-import { parseMeetingSettings } from './meetingSettingsPolicy.js';
+import { defaultMeetingSettings, parseMeetingSettings } from './meetingSettingsPolicy.js';
 export function trainingReminderDescription(event, { isRequired = true } = {}) {
   const settings = parseMeetingSettings(event.meeting_settings_json);
   if (settings.trainingReminderMode === 'configured_only') {
@@ -14,7 +14,8 @@ export function meetingReminderSchedule(event, { rsvp = 'pending', isRequired = 
   const start=parseUtcDate(event.start_at);if(!start)return [];
   const settings=parseMeetingSettings(event.meeting_settings_json);
   if (event.meeting_subtype==='training' && rsvp==='declined') return [];
-  const configured=settings.reminders || (event.reminder_minutes===null?[]:[event.reminder_minutes??5]);
+  const configured = settings.reminders ?? (event.meeting_subtype === 'interview'
+    ? defaultMeetingSettings('interview').reminders : event.reminder_minutes === null ? [] : [event.reminder_minutes ?? 5]);
   const keys=event.meeting_subtype==='training' && settings.trainingReminderMode!=='configured_only'
     ? rsvp==='accepted' ? [1440,5] : !isRequired ? [10080,4320] : configured
     : configured;

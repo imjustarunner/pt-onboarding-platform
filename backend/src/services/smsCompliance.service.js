@@ -119,7 +119,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, interviewId, interviewSmsConfirmation = false, interviewSmsStartAt = null, companyEventId, companyEventReply = false, clientId, recipientUserId, notificationCategory, providerRelayEnrollmentId, requireConfirmedCare = false, reminderFooter = null }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -148,6 +148,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   assertSmsCarrierPurpose({ registration, purpose });
+  if (registration.interviewOnly === true && staffNotificationKind !== 'plotlineInterview') {
+    throw smsPolicyError('sms_interview_sender_restricted', 'This number is reserved for the registered Plotline interview campaign.');
+  }
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
   if (providerRelayEnrollmentId) {
     const [enrollments] = await pool.execute('SELECT * FROM provider_sms_relay_enrollments WHERE id=? AND agency_id=? AND number_id=? AND phone=?',
@@ -166,6 +169,12 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     if (!events.length) throw smsPolicyError('event_sms_invalid_event', 'Event does not belong to this sending agency');
     const [muted] = await pool.execute('SELECT 1 FROM company_event_sms_preferences WHERE company_event_id = ? AND phone = ? LIMIT 1', [Number(companyEventId), recipient]);
     if (muted.length) throw smsPolicyError('event_sms_muted', 'Recipient has turned off texts about this event');
+  }
+  if (purpose === 'workforce' && staffNotificationKind === 'plotlineInterview') {
+    const { authorizeInterviewSms } = await import('./hiringInterviewSms.service.js');
+    await authorizeInterviewSms({ sender, phone: recipient, interviewId, confirmation: interviewSmsConfirmation, expectedStartAt: interviewSmsStartAt });
+    return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id,
+      body: formatRegisteredSms(body, registration.brandName), registration, purpose };
   }
   if (purpose === 'workforce' && staffNotificationKind === 'hiring') {
     if(!Number.isSafeInteger(Number(hiringUserId))||Number(hiringUserId)<1)throw smsPolicyError('sms_hiring_consent_required','The hiring recipient must be identified.');
@@ -276,6 +285,7 @@ export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId =
     `SELECT n.phone_number FROM twilio_numbers n JOIN sms_sender_registrations r ON r.number_id = n.id
      WHERE n.agency_id = ? AND n.is_active = TRUE AND n.status <> 'released'
        AND JSON_CONTAINS(JSON_EXTRACT(r.registration_json, '$.purposes'), JSON_QUOTE(?))
+       AND COALESCE(JSON_EXTRACT(r.registration_json, '$.interviewOnly')=TRUE, FALSE)=FALSE
        AND JSON_EXTRACT(r.registration_json, '$.approved') = TRUE
        AND JSON_EXTRACT(r.registration_json, '$.numberLinked') = TRUE
        AND (? IS NULL OR n.id = ?)

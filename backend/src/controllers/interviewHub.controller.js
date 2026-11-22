@@ -2,11 +2,17 @@ import { createHash } from 'node:crypto';
 import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 import { deliverExistingInterview } from '../services/hiringInterviewDelivery.service.js';
 import { sendHiringInterviewInviteEmail } from '../services/hiringInterviewInviteEmail.service.js';
-import { requireHiringInterviewAccess } from '../services/hiringInterviewAccess.service.js';
+import { requireHiringInterviewAccess, canAccessHiringInterview } from '../services/hiringInterviewAccess.service.js';
 import { interviewArtifactForViewer, saveInterviewWorkspace } from '../services/hiringInterviewWorkspace.service.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
+import HiringJobDescription from '../models/HiringJobDescription.model.js';
+import { meetingParticipantRows } from '../services/meetingParticipants.service.js';
+import { defaultMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
+import { ACTIVE_EMPLOYEE_SQL } from '../utils/staffEligibility.js';
+import { interviewSmsCalendarSettings, interviewSmsProgram } from '../services/hiringInterviewSms.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -364,6 +370,7 @@ export const createInterview = async (req, res, next) => {
       jobQuestionSetId: parseIntParam(body.jobQuestionSetId ?? body.job_question_set_id),
       questionSelection: body.questionSelection,
       hiringProfileId: parseIntParam(body.hiringProfileId ?? body.hiring_profile_id),
+      smsConsent: body.smsConsent,
       sendInvites: body.sendInvites !== false && body.send_invites !== false,
       titleOverride: body.title || body.displayTitle || body.display_title || null,
       interviewRound: body.interviewRound ?? body.interview_round ?? 'initial',
@@ -668,6 +675,129 @@ export const randomSalutation = async (req, res, next) => {
   }
 };
 
+export const getCalendarInterview = async (req, res, next) => {
+  try {
+    const eventId = parseIntParam(req.params.eventId);
+    const interview = await HiringInterview.findByScheduleEventId(eventId);
+    if (!interview) return res.status(404).json({ error: { code: 'interview_not_linked', message: 'No Plotline interview is linked to this calendar entry.' } });
+    await requireHiringInterviewAccess(req.user, interview);
+    const [event, agency, profile, organizer] = await Promise.all([
+      ProviderScheduleEvent.findById(eventId),
+      Agency.findById(interview.agency_id),
+      HiringProfile.findByCandidateUserId(interview.candidate_user_id),
+      User.findById(interview.created_by_user_id)
+    ]);
+    if (!event || Number(event.agency_id) !== interview.agency_id || event.meeting_subtype !== 'interview') {
+      return res.status(404).json({ error: { message: 'Interview calendar entry unavailable.' } });
+    }
+    const canManage = Number(event.provider_id) === Number(req.user.id) || await canManageCalendarInterview(req, interview);
+    const active = String(event.status).toUpperCase() === 'ACTIVE' && !event.meeting_completed_at
+      && !interview.guest_access_ended_at && !['completed', 'cancelled'].includes(interview.status)
+      && parseUtcDate(event.start_at) > new Date();
+    const [job, participants, staff] = await Promise.all([
+      profile?.job_description_id ? HiringJobDescription.findById(profile.job_description_id) : null,
+      meetingParticipantRows(event, { resolveEmails: false }),
+      canManage && active ? listCalendarInterviewers(interview.agency_id) : []
+    ]);
+    const sameAgencyJob = Number(job?.agency_id) === interview.agency_id ? job : null;
+    const members = participants.map(person => ({
+      id: Number(person.id), name: person.name, rsvp: person.rsvp,
+      role: Number(person.id) === interview.candidate_user_id ? 'Candidate' : person.isHost ? 'Organizer' : 'Interviewer'
+    }));
+    const memberIds = new Set(members.map(person => person.id));
+    const settings = parseMeetingSettings(event.meeting_settings_json);
+    res.json({ data: {
+      interviewId: interview.id, agencyName: agency?.name || agency?.official_name,
+      scheduledBy: [organizer?.preferred_name || organizer?.first_name, organizer?.last_name].filter(Boolean).join(' ')
+        || members.find(person => person.role === 'Organizer')?.name || '',
+      candidateName: members.find(person => person.role === 'Candidate')?.name || '',
+      jobTitle: sameAgencyJob?.title || profile?.applied_role || '',
+      jobLocation: [sameAgencyJob?.city, sameAgencyJob?.state].filter(Boolean).join(', '),
+      startsAt: parseUtcDate(event.start_at)?.toISOString(),
+      endsAt: parseUtcDate(event.end_at)?.toISOString(),
+      timeZone: event.event_timezone || interview.interview_timezone || 'America/Denver',
+      location: event.location_text || (Number(event.platform_video_link ?? 1) || event.google_meet_link ? 'Virtual interview' : ''),
+      participants: members,
+      status: event.status, canManage: canManage && active,
+      canRsvp: active && members.some(person => person.id === Number(req.user.id) && person.role !== 'Candidate'),
+      availableStaff: staff.filter(person => !memberIds.has(Number(person.id)))
+        .map(person => ({ id: Number(person.id), name: [person.preferred_name || person.first_name, person.last_name].filter(Boolean).join(' ') }))
+        .filter(person => person.name).sort((a, b) => a.name.localeCompare(b.name)),
+      reminders: settings.reminders ?? defaultMeetingSettings('interview').reminders,
+      emailReminders: settings.interviewEmailReminders ?? !!Number(event.notify_participants),
+      smsReminders: settings.interviewSmsReminders === true,
+      ...(await interviewSmsCalendarSettings(interview))
+    } });
+  } catch (error) { next(error); }
+};
+
+async function listCalendarInterviewers(agencyId) {
+  const [rows] = await pool.execute(`SELECT u.id, u.preferred_name, u.first_name, u.last_name
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
+    WHERE ${ACTIVE_EMPLOYEE_SQL}`, [agencyId]);
+  return rows;
+}
+
+async function canManageCalendarInterview(req, interview) {
+  return canAccessHiringInterview(req.user, { ...interview, interviewer_user_ids_json: [] });
+}
+
+export const getInterviewSmsProgram = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFromReq(req);
+    await ensureAgencyAccess(req, agencyId);
+    res.json({ data: await interviewSmsProgram(agencyId) });
+  } catch (error) { next(error); }
+};
+
+export const updateCalendarInterview = async (req, res, next) => {
+  try {
+    const id = parseIntParam(req.params.eventId);
+    const interview = await HiringInterview.findByScheduleEventId(id);
+    if (!interview) return res.status(404).json({ error: { message: 'Interview not found.' } });
+    await requireHiringInterviewAccess(req.user, interview);
+    const event = await ProviderScheduleEvent.findById(id);
+    if (!event || Number(event.agency_id) !== interview.agency_id || event.meeting_subtype !== 'interview') {
+      return res.status(404).json({ error: { message: 'Interview calendar entry unavailable.' } });
+    }
+    if (Number(event.provider_id) !== Number(req.user.id) && !await canManageCalendarInterview(req, interview)) {
+      return res.status(403).json({ error: { message: 'The organizer or a hiring manager can change invitations and reminders.' } });
+    }
+    if (req.body?.startsAt) {
+      if (event.status !== 'ACTIVE' || event.meeting_completed_at || parseUtcDate(event.start_at) <= new Date()) {
+        return res.status(409).json({ error: { message: 'This interview is no longer open for schedule changes.' } });
+      }
+      const { parseInterviewStart } = await import('../services/hiringInterviewSchedule.service.js');
+      const zone = event.event_timezone || interview.interview_timezone || 'America/Denver';
+      if (!(parseInterviewStart(req.body.startsAt, zone)?.startDate > new Date())) {
+        return res.status(400).json({ error: { message: 'Choose a future interview time.' } });
+      }
+      const { rescheduleHiringInterview } = await import('../services/hiringInterviewReschedule.service.js');
+      const result = await rescheduleHiringInterview(interview, { startsAt: req.body.startsAt, timezone: zone });
+      return res.json({ data: { calendarWarning: result.calendarWarning, delivery: result.delivery } });
+    }
+    const { updateHiringInterviewCalendar } = await import('../services/hiringInterviewCalendarSettings.service.js');
+    const result = await updateHiringInterviewCalendar({ interview, event, input: req.body || {}, actor: req.user });
+    res.json({ data: result });
+  } catch (error) { next(error); }
+};
+
+export const saveCalendarInterviewPreparation = async (req, res, next) => {
+  try {
+    const interview = await HiringInterview.findByScheduleEventId(parseIntParam(req.params.eventId));
+    if (!interview) return res.status(404).json({ error: { message: 'Interview not found.' } });
+    await requireHiringInterviewAccess(req.user, interview);
+    const event = await ProviderScheduleEvent.findById(interview.provider_schedule_event_id);
+    if (!event || Number(event.agency_id) !== interview.agency_id || event.meeting_subtype !== 'interview'
+      || event.status === 'CANCELLED' || interview.status === 'cancelled') {
+      return res.status(409).json({ error: { message: 'This interview is unavailable for editing.' } });
+    }
+    const { questionPatches, myRatings } = req.body || {};
+    const artifact = await saveInterviewWorkspace(interview.id, { questionPatches, myRatings }, req.user);
+    return res.json({ data: { interview: { status: interview.status }, artifact, flow: artifact.flow_state_json } });
+  } catch (error) { next(error); }
+};
+
 export const getInterviewBrief = async (req, res, next) => {
   try {
     const interview = await HiringInterview.findById(parseIntParam(req.params.id));
@@ -678,7 +808,10 @@ export const getInterviewBrief = async (req, res, next) => {
       HiringResumeParse.findLatestStructuredByCandidateUserId(uid),
       HiringResearchReport.findLatestAiByCandidateUserId(uid),
       HiringProfile.findByCandidateUserId(uid), User.findById(uid),
-      pool.execute("SELECT id, title, original_name, note_text FROM user_admin_docs WHERE user_id = ? AND doc_type IN ('resume', 'cover_letter') ORDER BY created_at DESC", [uid])
+      pool.execute(`SELECT id, title, original_name, doc_type FROM user_admin_docs WHERE user_id = ?
+        AND storage_path IS NOT NULL AND (doc_type IN ('resume', 'cover_letter') OR (doc_type = 'application_material'
+          AND (LOWER(COALESCE(title, '')) LIKE '%cover%' OR LOWER(COALESCE(original_name, '')) LIKE '%cover%')))
+        ORDER BY created_at DESC`, [uid])
     ]);
     res.json({ data: { candidateName: [candidate?.first_name, candidate?.last_name].filter(Boolean).join(' '),
       role: profile?.applied_role || '', coverLetter: profile?.cover_letter_text || '',

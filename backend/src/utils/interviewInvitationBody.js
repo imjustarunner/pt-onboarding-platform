@@ -1,5 +1,14 @@
 const escapeHtml = value => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+export function interviewEmailBrand(agencyName) {
+  return `<table role="presentation" width="100%" style="margin:0 0 18px;border-bottom:1px solid #d9e5dc"><tr><td style="padding:0 0 12px">
+    <img src="https://plotlinepo.com/assets/plotline/website/brand/logos/plotline-primary-transparent.png" alt="Plotline People Operations" width="126" style="display:block;">
+    <div style="color:#36534a;font-family:Arial,Helvetica,sans-serif;font-weight:bold;margin-top:6px;">${escapeHtml(agencyName)}</div>
+  </td></tr></table>`;
+}
+
+export { escapeHtml as escapeInterviewHtml };
+
 // Inline styles and presentation tables keep the invitation usable in email clients
 // that strip stylesheets. The tenant sender adds its existing header and footer.
 export function interviewInvitationBody({ firstName, candidateName, agencyName, title, jobTitle, whenLabel, timezone, calendar, interviewers = [], joinUrl, rsvpUrl, jobUrl, attachmentNames = [] }) {
@@ -8,6 +17,7 @@ export function interviewInvitationBody({ firstName, candidateName, agencyName, 
   const round = String(title || 'Interview').split(' — ')[0];
   const people = interviewers.length ? interviewers.map(person => `<tr><td style="padding:5px 0;"><div style="font-size:17px;font-weight:bold;color:#183d31;">${escapeHtml(person.name)}</div>${person.email ? `<a href="mailto:${escapeHtml(person.email)}" style="font-size:13px;color:#52665e;text-decoration:none;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(person.email)}</a>` : ''}</td></tr>`).join('') : '<tr><td>Our hiring team</td></tr>';
   return `<div style="font-family:Arial,Helvetica,sans-serif;color:#33443d;font-size:16px;line-height:1.6;">
+    ${interviewEmailBrand(agencyName)}
     <p><strong>Your email join link is personal. Do not share or forward it.</strong> Calendar links join as a guest unless you are signed in.</p>
     <p style="margin:0 0 14px;color:#53655e;">Hi ${escapeHtml(firstName)},</p>
     <h1 style="margin:0 0 16px;font-size:34px;line-height:1.15;letter-spacing:-1px;color:#103e2f;">Interview invitation</h1>

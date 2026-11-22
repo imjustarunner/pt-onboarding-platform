@@ -10,9 +10,12 @@ export function mergeSavedAppointmentCalendar(raw, saved, providerId, weekStart,
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant).map(p => [p.type, p.value]));
     const day = `${parts.year}-${parts.month}-${parts.day}`;
     if (day < weekStart || day >= weekEnd) continue;
-    if (rows.some(row => (event.appointmentId && Number(row.appointmentId) === event.appointmentId)
-      || (event.id && Number(row.id) === event.id && row.kind === event.kind))) continue;
-    rows.push(event);
+    const canonical = rows.find(row => event.appointmentId && Number(row.appointmentId) === event.appointmentId);
+    if (canonical) continue;
+    const mirrorIndex = rows.findIndex(row => event.id > 0 && Number(row.id) === event.id
+      && row.kind === event.kind && !row.appointmentId);
+    if (mirrorIndex >= 0) rows[mirrorIndex] = { ...rows[mirrorIndex], ...event };
+    else rows.push(event);
   }
   return raw || rows.length ? { ...raw, scheduleEvents: rows } : null;
 }

@@ -353,15 +353,28 @@
   {
     "id": "scared",
     "guideSlug": "measure-scared",
-    "name": "SCARED: Screen for Child Anxiety Related Emotional Disorders",
-    "checkedAt": "2026-10-10",
-    "scope": "English instrument in a commercial multi-company clinical web application",
-    "status": "rights_review",
-    "version": "Exact licensed digital version not established",
-    "reason": "The author-hosted forms are available at no cost; a commercial redistribution grant was not verified. Parent and child versions require separate faithful implementations.",
-    "rightsUrl": "https://www.pediatricbipolar.pitt.edu/sites/default/files/assets/SCAREDParentVersion_1.19.18_0.pdf",
+    "name": "SCARED · Child self-report",
+    "checkedAt": "2026-11-21",
+    "scope": "Numbered clinical response capture and scoring alongside the publisher-hosted English questionnaire",
+    "status": "enabled",
+    "version": "SCARED 41-item, Child self-report, January 19, 2018",
+    "reason": "Pitt provides the original questionnaires and auto-scoring files at no cost. AuricWell links to the official questionnaire and scores the 41 numbered responses.",
+    "rightsUrl": "https://www.pediatricbipolar.pitt.edu/resources/clinical-tools",
+    "sourceUrl": "https://pre.pediatricbipolar.pitt.edu/sites/default/files/assets/SCAREDChildVersion_1.19.18.pdf",
+    "attribution": "Birmaher, Khetarpal, Cully, Brent, and McKenzie. Western Psychiatric Institute and Clinic, University of Pittsburgh."
+  },
+  {
+    "id": "scared-parent",
+    "guideSlug": "measure-scared",
+    "name": "SCARED · Parent report",
+    "checkedAt": "2026-11-21",
+    "scope": "Numbered clinical response capture and scoring alongside the publisher-hosted English questionnaire",
+    "status": "enabled",
+    "version": "SCARED 41-item, Parent report, January 19, 2018",
+    "reason": "Pitt provides the original questionnaires and auto-scoring files at no cost. AuricWell links to the official questionnaire and scores the 41 numbered responses.",
+    "rightsUrl": "https://www.pediatricbipolar.pitt.edu/resources/clinical-tools",
     "sourceUrl": "https://www.pediatricbipolar.pitt.edu/sites/default/files/assets/SCAREDParentVersion_1.19.18_0.pdf",
-    "attribution": ""
+    "attribution": "Birmaher, Khetarpal, Cully, Brent, and McKenzie. Western Psychiatric Institute and Clinic, University of Pittsburgh."
   },
   {
     "id": "scoff",
