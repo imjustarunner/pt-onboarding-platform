@@ -6,7 +6,7 @@ import { isTokenAuthenticationRoute } from './loginHandoff.js';
 export async function verifyStartupSession({ api, authStore, route, demo = false, storage = localStorage } = {}) {
   if (!authStore.isAuthenticated || demo || isTokenAuthenticationRoute(route) ||
       String(route?.query?.sso || '') === '1' || route?.query?.bs ||
-      route?.meta?.publicQuickView || route?.meta?.familyCommandCenter ||
+      route?.meta?.publicQuickView || route?.meta?.familyCommandCenter || route?.meta?.tutoringGuest ||
       ['OfficeKiosk', 'KioskWelcome'].includes(route?.name)) return 'skipped';
 
   const read = key => { try { return storage.getItem(key); } catch { return null; } };

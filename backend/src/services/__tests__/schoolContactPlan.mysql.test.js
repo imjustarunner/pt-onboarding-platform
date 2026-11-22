@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import mysql from 'mysql2/promise';
+// The SQL fixture has standard Workspace user mailboxes; Directory is an external service.
+vi.mock('../personalMailboxImportPolicy.service.js', () => ({ canImportPersonalMailboxEmail: async () => false }));
 import { readFile } from 'node:fs/promises';
 
 const db = vi.hoisted(() => ({ execute: null }));

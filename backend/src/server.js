@@ -1131,6 +1131,8 @@ app.use('/api/learning-recommendations', learningRecommendationsRoutes);
 app.use('/api/learning-class-sessions', learningClassSessionsRoutes);
 app.use('/api/tutoring-learning-os', tutoringLearningOsRoutes);
 app.use('/api/tutoring-sessions', bookedTutoringRoomRoutes);
+app.use('/api/tutoring-guest', (await import('./routes/tutoringGuest.routes.js')).default);
+app.use('/api/tutoring-library', (await import('./routes/tutoringResourceLibrary.routes.js')).default);
 app.use('/api/tutoring-workspace', tutoringWorkspaceRoutes);
 app.use('/api/club-store', clubStoreRoutes);
 app.use('/api/summit-stats', summitStatsRoutes);
@@ -1909,7 +1911,7 @@ if (shouldStartServerBackgroundJobs()) {
   void auricwellReminderTick();
   setInterval(auricwellReminderTick, 60000).unref();
   let clinicalMaintenanceRunning=false;
-  const clinicalMaintenance=async()=>{if(clinicalMaintenanceRunning)return;clinicalMaintenanceRunning=true;try{const {runClinicalSessionMaintenance}=await import('./services/clinicalSessionRetention.service.js');await runClinicalSessionMaintenance();}catch(error){console.error('[clinical-session-maintenance]',error.code||'MAINTENANCE_FAILED');}finally{clinicalMaintenanceRunning=false;}};
+  const clinicalMaintenance=async()=>{if(clinicalMaintenanceRunning)return;clinicalMaintenanceRunning=true;try{const {runClinicalSessionMaintenance}=await import('./services/clinicalSessionRetention.service.js');await runClinicalSessionMaintenance();await (await import('./services/tutoringGuest.service.js')).sweepTutoringGuestAccess();}catch(error){console.error('[clinical-session-maintenance]',error.code||'MAINTENANCE_FAILED');}finally{clinicalMaintenanceRunning=false;}};
   void clinicalMaintenance();
   setInterval(clinicalMaintenance,15000);
 

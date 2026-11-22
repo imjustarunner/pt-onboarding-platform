@@ -1,0 +1,2 @@
+import base from './vitest.nlu-retest-20261118.config.js';
+export default {...base,test:{...base.test,include:[...base.test.include,'src/utils/__tests__/startupSession.test.js','src/navigation/__tests__/quickNavCatalog.test.js','src/navigation/__tests__/nluWorkspace.test.js','src/navigation/__tests__/quickNavRuntime.test.js','src/utils/__tests__/tutoringMakeupSelection.test.js','src/components/tutoring/__tests__/TutoringSessionHub.test.js','src/components/tutoring/__tests__/TutoringWorksheet.test.js']}};

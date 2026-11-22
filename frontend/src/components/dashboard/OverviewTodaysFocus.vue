@@ -28,7 +28,7 @@
             <button type="button" class="todays-focus__title-btn" @click="onTitleClick">
               <h3 class="todays-focus__title">
                 Today’s Focus
-                <span v-if="visibleItems.length" class="todays-focus__count">{{ visibleItems.length }} items</span>
+                <span v-if="visibleItems.length" class="todays-focus__count">{{ visibleItems.length }} item{{ visibleItems.length===1?'':'s' }}</span>
               </h3>
               <p v-if="!collapsed" class="todays-focus__sub">Your personalized momentum for the day.</p>
             </button>
@@ -92,6 +92,7 @@
               <button type="button" class="btn btn-secondary btn-xs" @click="onSnooze(rotateItem)">Snooze</button>
             </div>
           </div>
+          <p class="todays-focus__position" v-if="displayItems.length>1" role="status">Showing {{rotateIndex+1}} of {{displayItems.length}} focus items</p>
           <div class="todays-focus__dots" role="tablist" aria-label="Focus items">
             <button
               v-for="(item, idx) in displayItems"
@@ -117,7 +118,7 @@
         <div class="todays-focus__footer">
           <MomentumStickyComposer label="+ Add Sticky" />
           <button type="button" class="btn btn-secondary btn-sm" @click="onViewMomentum('view_all')">
-            View All My Work ↗
+            View all work &amp; radar ↗
           </button>
         </div>
       </template>

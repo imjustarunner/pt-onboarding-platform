@@ -1,0 +1,50 @@
+name: NLU Session Hub
+on:
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'shared/**', 'database/migrations/1861_nlu_session_hub.sql', '.github/workflows/nlu-session-hub.yml']
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**', 'shared/**', 'database/migrations/1861_nlu_session_hub.sql', '.github/workflows/nlu-session-hub.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  session-hub:
+    runs-on: ubuntu-latest
+    env:
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['33326:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend --ignore-scripts
+      - name: Session access, invitations, materials, evidence and shared regressions
+        working-directory: backend
+        run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.nlu-session-hub.config.js --maxWorkers=2
+      - name: Hub, worksheets, mobile layout contracts and navigation regressions
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.nlu-session-hub.config.js --maxWorkers=2
+      - name: Isolated additive migration, concurrency, immutable answers and access revocation
+        working-directory: backend
+        env:
+          RECOVERY_TEST_MYSQL_HOST: '127.0.0.1'
+          RECOVERY_TEST_MYSQL_PORT: '33326'
+        run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.nlu-session-hub.config.js tutoringSessionHub.mysql --maxWorkers=1

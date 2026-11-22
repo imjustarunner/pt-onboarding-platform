@@ -1,3 +1,4 @@
+import {maybeDecryptNotePayload} from './clinicalNoteCrypto.service.js';
 import { AcademicSkillEvidence } from '../models/TutoringSessionLearning.model.js';
 import { callTutoringAiJson } from './tutoringAiDraft.service.js';
 import { promptFields, unpack } from './teachingBoard.service.js';
@@ -145,6 +146,17 @@ export async function lessonActivity(ctx, session, db) {
   for (const group of ink) {
     const item = items.get(Number(group.board_target_id || group.board_id));
     if (item) item.strokes += Number(group.strokes);
+  }
+  if(ctx.hubV2){
+    const [attempts]=await db.execute("SELECT a.*,v.definition_envelope,v.version_number FROM tutoring_material_attempts a JOIN tutoring_material_versions v ON v.id=a.material_version_id WHERE a.session_id=? AND a.client_id=? AND a.status IN ('submitted','reviewed') ORDER BY a.id",[session.id,ctx.clientId]);
+    for(const a of attempts){
+      const definition=JSON.parse(maybeDecryptNotePayload(a.definition_envelope));
+      const answers=JSON.parse(maybeDecryptNotePayload(a.responses_envelope));
+      const review=a.review_envelope?JSON.parse(maybeDecryptNotePayload(a.review_envelope)):{};
+      for(const q of definition.questions){
+        items.set('worksheet-'+a.id+'-'+q.id,{id:'worksheet-'+a.id+'-'+q.id,title:q.prompt,kind:'worksheet_'+q.type,grade:q.grade,skill:q.skill,goalId:q.goalId,worksheet:{versionId:a.material_version_id,version:a.version_number,attemptId:a.id,questionId:q.id,page:q.page},responses:1,submissions:[{role:a.actor.startsWith('user-')?'tutor_or_authenticated_participant':'invited_family',at:a.created_at,answers:q.type==='ink'?[]:[answers[q.id]||'']}],strokes:q.type==='ink'?(answers[q.id]||[]).length:0,rating:review[q.id]?.rating||null,independent:review[q.id]?.independent===true});
+      }
+    }
   }
   return { items: [...items.values()], strokes: ink.reduce((sum, r) => sum + Number(r.strokes), 0) };
 }

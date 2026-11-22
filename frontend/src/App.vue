@@ -1,6 +1,8 @@
 <template>
   <PlotlineSessionBoundary v-if="plotlinePrivateSession && route.name !== 'EmploymentNotice'" />
   <router-view v-if="route.name === 'EmploymentNotice'" />
+  <router-view v-else-if="route.meta?.tutoringGuest" />
+  <TutoringHubBoundary v-else-if="sessionHubSurface"><router-view /></TutoringHubBoundary>
   <router-view v-else-if="route.meta?.guestPaymentSurface" :key="route.fullPath" />
   <AssistantAppShell v-else-if="assistantSurface"><router-view /></AssistantAppShell>
   <PublicWebsiteShell v-else-if="route.meta?.publicMarketingHub"><router-view /></PublicWebsiteShell>
@@ -17,6 +19,7 @@ import { computed, defineAsyncComponent, h } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from './store/auth';
 import {useAgencyStore} from './store/agency';
+import TutoringHubBoundary from './components/tutoring/TutoringHubBoundary.vue';
 import PlotlineWorkspaceShell from './components/plotline/PlotlineWorkspaceShell.vue';
 import PlotlineSessionBoundary from './components/plotline/PlotlineSessionBoundary.vue';
 import AssistantAppShell from './components/assistants/AssistantAppShell.vue';
@@ -38,6 +41,11 @@ const agencies=useAgencyStore();
 const companyScope=usePlotlineCompanyScope(route,agencies);
 const plotlineInterview=computed(()=>route.name==='BrandedInterview' && companyScope.locked.value);
 const plotlineCompany=computed(()=>{const agency=agencies.currentAgency;if(!auth.isAuthenticated||!agency)return null;let flags=agency.feature_flags||agency.featureFlags||{};try{if(typeof flags==='string')flags=JSON.parse(flags);}catch{return null;}const slug=route.params.organizationSlug;return flags.plotlineOnly===true&&slug&&(agency.portal_url===slug||agency.slug===slug)?agency:null;});
+const sessionHubSurface=computed(()=>{
+ if(!route.meta?.sessionHub)return false;
+ let flags=agencies.currentAgency?.feature_flags||{};try{if(typeof flags==='string')flags=JSON.parse(flags);}catch{return false;}
+ return flags.tutoringSessionHubV2===true;
+});
 const assistantSurface = computed(() => String(auth.user?.role || '').toLowerCase() === 'assistant' || route.meta?.assistantSurface === true);
 // Sign-in must remain available when an unrelated employee widget cannot load.
 // Login views own their branding; authentication and route guards stay in place.

@@ -14,7 +14,7 @@ export function guardianVirtualJoin(row) {
   } catch { return null; }
 }
 
-export async function guardianAppointmentJoin(row,client,db,{includeFutureDestination=false,now=Date.now()}={}) {
+export async function guardianAppointmentJoin(row,client,db,{includeFutureDestination=false,now=Date.now(),recipientUserId=null,guestLink=null}={}) {
   if (row.videoRoomMode === 'none') return null;
   const learning=['learning','tutoring'].includes(String(row.businessType||row.business_type||client.client_type).toLowerCase());
   if(learning&&!includeFutureDestination){const start=+parseUtcDate(row.startAt),end=+parseUtcDate(row.endAt);if(!start||!end||now<start-1800000||now>end+1800000)return null;}
@@ -39,7 +39,14 @@ export async function guardianAppointmentJoin(row,client,db,{includeFutureDestin
   // A booked tutoring visit always has an appointment-specific destination.
   let context=row.learningContext||{};if(typeof context==='string'){try{context=JSON.parse(context);}catch{context={};}}
   const selectedServiceId=Number(context.serviceEnrollmentId||client.service?.id)||null;
-  if (Number(row.id)>0) return `/${includeFutureDestination?'tutoring':'tutoring-session'}/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}${selectedServiceId?'&serviceId='+selectedServiceId:''}`;
+  if (Number(row.id)>0) {
+    if(Number(recipientUserId)>0&&db?.execute){
+      const issue=guestLink||(await import('./tutoringGuest.service.js')).issueTutoringGuestLink;
+      const invitation=await issue({...row,agencyId:row.agencyId||client.agency_id,learningContext:context},Number(client.client_id),Number(recipientUserId),db);
+      if(invitation)return invitation;
+    }
+    return `/${includeFutureDestination?'tutoring':'tutoring-session'}/appointment/${Number(row.id)}?clientId=${Number(client.client_id)}&agencyId=${Number(row.agencyId||client.agency_id)}${selectedServiceId?'&serviceId='+selectedServiceId:''}`;
+  }
   // An unlinked legacy record cannot safely open an attendance-tracked room.
   return null;
 }

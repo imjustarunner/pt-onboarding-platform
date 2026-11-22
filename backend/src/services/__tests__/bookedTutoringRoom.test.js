@@ -4,6 +4,7 @@ import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>`encrypted:${v}`,maybeDecryptNotePayload:v=>v.replace(/^encrypted:/,'')}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:vi.fn(),listParticipants:vi.fn()}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({feature_flags:{}}))}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
 vi.mock('../../utils/learningAccess.js',()=>({assertLearningClientAccess:vi.fn()}));
 vi.mock('../tutoringOffice.service.js',()=>({tutoringVisit:vi.fn()}));

@@ -1,16 +1,17 @@
-const order = ['needs_review', 'developing', 'secure'];
+const order = ['needs_review','emerging','developing','nearly_secure','secure'];
 
 // Evidence arrives in observation order. Several examples in one lesson are a
 // single opportunity to demonstrate independence for a particular goal.
 export function lessonMeasures(rows) {
   const measures = [];
   const positions = new Map();
-  for (const row of rows) {
-    if (row.metadata_json?.source !== 'teaching_board' || !row.session_id) {
+  for (let row of rows) {
+    if (!['teaching_board','session_hub_worksheet'].includes(row.metadata_json?.source) || !row.session_id) {
       measures.push(row);
       continue;
     }
-    const key = [row.student_subject_id, row.plan_goal_id, row.session_id].join('/');
+    if(row.metadata_json?.source==='session_hub_worksheet'&&row.rating==='secure'&&row.metadata_json.independent!==true)row={...row,rating:'nearly_secure'};
+    const key = [row.student_subject_id,row.plan_goal_id,row.session_id,row.plan_goal_id?'':row.skill_key||'',row.metadata_json?.grade||''].join('/');
     if (!positions.has(key)) {
       positions.set(key, measures.length);
       measures.push(row);
@@ -25,7 +26,7 @@ export function lessonMeasures(rows) {
 export function boardSkillProgress(rows) {
   const groups = new Map();
   for (const row of rows) {
-    if (row.metadata_json?.source !== 'teaching_board' || !order.includes(row.rating)) continue;
+    if (!['teaching_board','session_hub_worksheet'].includes(row.metadata_json?.source) || !order.includes(row.rating)) continue;
     const grade = row.metadata_json.grade || '';
     const key = JSON.stringify([row.skill_key, grade, row.plan_goal_id]);
     if (!groups.has(key))

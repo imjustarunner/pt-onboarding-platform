@@ -5958,6 +5958,7 @@
 </template>
 
 <script setup>
+import {tutoringMakeupSelection} from '../../utils/tutoringMakeupSelection.js';
 import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
@@ -7817,10 +7818,11 @@ const openQuickOfficeRoomRequest = async () => {
     setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     return;
   }
-  const ymd = String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
+  const futureDay=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:scheduleMeetingTimeZone()||'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(Date.now()+86400000)).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
+  const ymd = makeup?`${futureDay.year}-${futureDay.month}-${futureDay.day}`:String(todayLocalYmd.value || weekStart.value || '').slice(0, 10);
   const dayName = dayNameForDateYmd(ymd) || 'Monday';
   const nowHour = new Date().getHours();
-  const hour = Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
+  const hour = makeup?9:Math.max(7, Math.min(20, Number.isFinite(nowHour) ? nowHour : 9));
   openSlotActionModal({
     dayName,
     hour,
@@ -14604,30 +14606,32 @@ function isMissedTutoringBlock(block) {
     && ['no_show','late_canceled','no_show_pending'].includes(block.appointmentStatus);
 }
 async function bookOutcomeMakeup(appointment) {
-  if (!canBookFromGrid.value || Number(appointment.id)!==outcomeDetailsId.value) return;
-  outcomeDetailsId.value=0;
+ if(!canBookFromGrid.value||Number(appointment.id)!==outcomeDetailsId.value)return;
+ outcomeDetailsId.value=0;
+ try{
   await openQuickBook({virtual:appointment.modality!=='IN_PERSON',makeup:appointment});
-  if (!showRequestModal.value || isAppointmentEditMode.value || isScheduleEventEditMode.value) return;
-  editorPracticeCategory.value='tutoring';
   await nextTick();
-  const sameScope=()=>showRequestModal.value && !isAppointmentEditMode.value && !isScheduleEventEditMode.value
-    && Number(editorAgencyId.value)===Number(appointment.agencyId)
-    && Number(bookingTargetUserId.value || props.userId)===Number(appointment.providerUserId);
-  if (!sameScope()) return;
+  if(!showRequestModal.value||isAppointmentEditMode.value||isScheduleEventEditMode.value)throw new Error('Open a new tutoring booking to schedule this makeup.');
+  editorPracticeCategory.value='tutoring';
+  if(Number(bookingTargetUserId.value||props.userId)!==Number(appointment.providerUserId)&&canSelectBookingProvider.value){
+   await loadBookingProviderDirectory();
+   if(bookingProvidersRaw.value.some(p=>Number(p.id)===Number(appointment.providerUserId)))bookingTargetUserId.value=Number(appointment.providerUserId);
+  }
+  await nextTick();
+  makeupAppointment.value=appointment;
   await loadVirtualSessionClients();
+  if(!showRequestModal.value)return;
   const students=(appointment.participants||[]).filter(p=>Number(p.clientId)>0);
-  if (!sameScope() || students.length!==1 || !virtualSessionClients.value.some(row=>Number(row.id)===Number(students[0].clientId))) return;
+  if(students.length!==1)throw new Error('This makeup requires exactly one original student. Ask Support to review the missed booking.');
   virtualSessionSelectedClientIds.value=[Number(students[0].clientId)];
   await nextTick();
   await loadEditorTenantServices();
-  if (!sameScope() || Number(virtualSessionSelectedClientIds.value[0])!==Number(students[0].clientId)) return;
-  const context=appointment.learningContext;
-  const selected=editorTutoringSubjects.value.find(s=>context?.serviceEnrollmentId
-    ? Number(s.serviceEnrollmentId)===Number(context.serviceEnrollmentId)
-    : context?.studentSubjectId && Number(s.studentSubjectId)===Number(context.studentSubjectId));
-  editorTutoringSubject.value=context?.generalSupport || !selected ? 'general' : selected.key;
-  makeupAppointment.value=appointment;
+  if(!showRequestModal.value)return;
+  const selection=tutoringMakeupSelection(appointment,{agencyId:editorAgencyId.value,providerId:bookingTargetUserId.value||props.userId,clientIds:virtualSessionClients.value.map(s=>s.id),subjects:editorTutoringSubjects.value});
+  editorTutoringSubject.value=selection.subjectKey;
+ }catch(e){modalError.value=e.response?.data?.error?.message||e.message||'The makeup could not be prepared. Reopen the missed appointment and retry.';}
 }
+
 const makeupAppointment=ref(null);
 watch(showRequestModal,()=>{makeupAppointment.value=null;});
 const editorStatus = ref('scheduled');
@@ -14883,7 +14887,7 @@ const editorDateYmd = computed(() => {
     return String(supvStartIsoLocal.value).slice(0, 10);
   }
   const selectedDate = String(modalContext.value?.dateYmd || '').slice(0, 10);
-  if (editorIsSupervision.value && selectedDate && dayNameForDateYmd(selectedDate) === modalDay.value) return selectedDate;
+  if ((editorIsSupervision.value||makeupAppointment.value) && selectedDate && dayNameForDateYmd(selectedDate) === modalDay.value) return selectedDate;
   try {
     return addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
   } catch {
@@ -15833,7 +15837,7 @@ function onEditorDateYmd(ymd) {
     supvEndIsoLocal.value = `${value}T${endT}`;
     return;
   }
-  if (editorIsSupervision.value) modalContext.value = { ...modalContext.value, dateYmd: value };
+  if (editorIsSupervision.value||makeupAppointment.value) modalContext.value = { ...modalContext.value, dateYmd: value };
   const weekAnchor = startOfWeekForPreference(value);
   if (weekAnchor && weekAnchor !== weekStart.value) {
     weekStart.value = weekAnchor;

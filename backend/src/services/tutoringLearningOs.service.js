@@ -1,3 +1,5 @@
+import Agency from '../models/Agency.model.js';
+import {tutoringSessionHubEnabled} from '../utils/tutoringSessionHubPolicy.js';
 import { lessonMeasures } from '../utils/tutoringBoardProgress.js';
 import {appointmentAttendanceView,appointmentServiceLabel} from '../utils/appointmentPresentation.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
@@ -495,7 +497,7 @@ export async function saveNoteAndUpdateProgress(notePayload, actorUserId, req = 
     evidenceRows.push(ev);
 
     // Write the observed rating immediately, then let deterministic mastery refine status
-    if (chip.planGoalId && chip.rating) {
+    if (chip.planGoalId && chip.rating && !tutoringSessionHubEnabled(await Agency.findById(note.agency_id))) {
       await StudentLearningPlan.updateGoal(chip.planGoalId, { status: chip.rating });
       try {
         const mastery = await applyMasteryToGoal(chip.planGoalId, { autoApply: true });
@@ -828,8 +830,12 @@ const MASTERY_MIN_PCT = 0.8;
  * Rule: ≥3 independent positive measures with ≥80% strong (secure+) → mastered;
  * regression signals → needs_review.
  */
-export async function evaluateGoalMastery(planGoalId) {
-  const evidence = await AcademicSkillEvidence.listByGoal(planGoalId, { limit: 30 });
+export async function evaluateGoalMastery(planGoalId,{reviewedOnly=false,grade=null}={}) {
+  const evidence = (await AcademicSkillEvidence.listByGoal(planGoalId,{limit:30})).filter(row=>!reviewedOnly||(
+    !!row.recorded_by_user_id && !!row.session_id &&
+    (row.metadata_json?.documentationMode==='learning_plan_checklist'||['teaching_board','session_hub_worksheet'].includes(row.metadata_json?.source)) &&
+    (!grade||!row.metadata_json?.grade||String(row.metadata_json.grade)===String(grade))
+  ));
   const checklistReview = checklistMasteryReview(planGoalId, evidence);
   if (checklistReview) return checklistReview;
   const chronological = lessonMeasures([...evidence].reverse());
@@ -881,7 +887,10 @@ export async function evaluateGoalMastery(planGoalId) {
 
 export async function applyMasteryToGoal(planGoalId, { autoApply = true } = {}) {
   const mastery = await evaluateGoalMastery(planGoalId);
-  if (autoApply && mastery.recommendedStatus) {
+  const goal=await StudentLearningPlan.findGoalById(planGoalId);
+  const plan=goal&&await StudentLearningPlan.findById(goal.learning_plan_id);
+  const reviewRequired=plan&&tutoringSessionHubEnabled(await Agency.findById(plan.agency_id));
+  if (autoApply && mastery.recommendedStatus && !reviewRequired) {
     await StudentLearningPlan.updateGoal(planGoalId, { status: mastery.recommendedStatus });
   }
   return mastery;
@@ -1698,7 +1707,7 @@ export async function getGuardianLearningSnapshot(clientId,{agencyId=null,provid
  */
 // null intentionally aggregates authorized agency work. Zero represents an
 // explicitly selected service awaiting assignment and must never become null.
-export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null,serviceId=null,portalContext=null}={}) {
+export async function getGuardianTutoringDashboard(clientId,{agencyId=null,providerId=null,serviceId=null,portalContext=null,recipientUserId=null}={}) {
   const feed = await getGuardianLearningSnapshot(clientId,{agencyId,providerId,serviceId});
   let upcomingSessions = [];
   let recentSessions = [];
@@ -1756,7 +1765,7 @@ export async function getGuardianTutoringDashboard(clientId,{agencyId=null,provi
   const now = Date.now();
   const canonical = await Promise.all(appointments.map(async ({external_meeting_url,video_room_mode,...a}) => {
     const state=appointmentAttendanceView({...a,startAt:a.starts_at,endAt:a.ends_at},{learningSession:{status:a.learningStatus,actual_started_at:a.learningStartedAt,actual_ended_at:a.learningEndedAt}});
-    return {...a,...state,source:'appointment',title:appointmentServiceLabel({...a,businessType:a.businessType||'tutoring'}),delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,learningContext:a.learningContext,businessType:a.businessType||'tutoring',videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:state.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning',permissions_json:portalContext?.permissions||{canViewAppointments:false},service:portalContext?.service,services:portalContext?.services},pool)};
+    return {...a,...state,source:'appointment',title:appointmentServiceLabel({...a,businessType:a.businessType||'tutoring'}),delivery_context:String(a.modality).toLowerCase(),joinUrl:await guardianAppointmentJoin({id:a.id,learningContext:a.learningContext,businessType:a.businessType||'tutoring',videoRoomMode:video_room_mode,externalMeetingUrl:external_meeting_url,modality:a.modality,status:state.status,providerUserId:a.provider_user_id,startAt:a.starts_at,endAt:a.ends_at},{client_id:clientId,agency_id:a.agency_id,client_type:'learning',permissions_json:portalContext?.permissions||{canViewAppointments:false},service:portalContext?.service,services:portalContext?.services},pool,{recipientUserId})};
   }));
   // A timestamp is never a record link. Canonical appointments replace only
   // their explicitly bridged learning room; unlinked room history stays distinct.

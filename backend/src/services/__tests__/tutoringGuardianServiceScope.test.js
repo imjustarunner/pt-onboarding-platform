@@ -31,6 +31,6 @@ it('projects an external tutoring destination through authorized join access wit
   return result;
  });
  const result=await getGuardianTutoringDashboard(2545,{agencyId:453,providerId:1496});
- expect(m.join).toHaveBeenCalledWith(expect.objectContaining({videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/session'}),expect.any(Object),expect.any(Object));
+ expect(m.join).toHaveBeenCalledWith(expect.objectContaining({videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/session'}),expect.any(Object),expect.any(Object),{recipientUserId:null});
  expect(result.nextSession.joinUrl).toBeNull();expect(result.nextSession).not.toHaveProperty('external_meeting_url');
 });

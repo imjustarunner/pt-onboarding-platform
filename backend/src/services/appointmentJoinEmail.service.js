@@ -19,13 +19,13 @@ export async function appointmentGoogleConference(appointment,{db=pool,conferenc
 // Message recipients are checked against the same current relationship and
 // service permissions as portal Join. Contacts and billing-only accounts never
 // receive a room link or its telephone credentials from this renderer.
-export async function appointmentJoinEmail({appointment,clientId,to,context},dependencies={}) {
+export async function appointmentJoinEmail({appointment,clientId,to,context,recipientUserId=null},dependencies={}) {
  if(!active(appointment)||appointment.videoRoomMode==='none')return null;
  const d={db:pool,authorize:authorizedAppointmentClient,join:guardianAppointmentJoin,conference:appointmentGoogleConference,...dependencies};
  try{
   const [[recipient]]=await d.db.execute(`SELECT u.id FROM users u JOIN client_guardians g ON g.guardian_user_id=u.id AND g.client_id=?
     JOIN appointment_participants p ON p.client_id=g.client_id AND p.appointment_id=?
-    WHERE LOWER(u.email)=LOWER(?) AND u.is_active=1 AND g.access_enabled=1 LIMIT 1`,[clientId,appointment.id,to]);
+    WHERE ${Number(recipientUserId)>0?'u.id=?':'LOWER(u.email)=LOWER(?)'} AND u.is_active=1 AND g.access_enabled=1 LIMIT 1`,[clientId,appointment.id,Number(recipientUserId)>0?Number(recipientUserId):to]);
   if(!recipient)return null;
   const client=await d.authorize(recipient.id,clientId,{agencyId:appointment.agencyId});
   let permissions=client.permissions_json||{};
@@ -38,7 +38,8 @@ export async function appointmentJoinEmail({appointment,clientId,to,context},dep
   if(!destination)return null;
   context ||= await (await import('./clientPortalEmail.service.js')).clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(appointment.businessType)?{learning:true}:{})});
   const bookedTutoring = destination.startsWith('/tutoring/appointment/') && Number(context.tenant?.id) === Number(appointment.agencyId);
-  const url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
+  let url = bookedTutoring ? buildPublicAppUrl(context.tenant,destination) : destination.startsWith('/') ? context.url(destination.slice(1)) : destination;
+  if(bookedTutoring){const guest=await (dependencies.guestLink|| (await import('./tutoringGuest.service.js')).issueTutoringGuestLink)(appointment,clientId,recipient.id,d.db);if(guest)url=guest;}
   const phone=appointment.includeGoogleDialIn===true?googleDialInContent(await d.conference(appointment)):null;
   const label=['learning','tutoring'].includes(appointment.businessType)?'Join tutoring session':'Join online appointment';
   return {url,text:`${label}:\n${url}${phone?`\n\n${phone.text}`:''}`,html:`<p><a href="${esc(url)}">${esc(label)}</a></p>${phone?.html||''}`};

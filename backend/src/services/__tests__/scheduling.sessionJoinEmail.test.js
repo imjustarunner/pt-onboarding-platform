@@ -5,7 +5,7 @@ import {guardianAppointmentJoin} from '../guardianVirtualJoin.js';
 const appointment={id:1,agencyId:6,providerUserId:20,status:'scheduled',modality:'TELEHEALTH',businessType:'tutoring',videoRoomMode:'external',externalMeetingUrl:'https://video.example.test/session'};
 const client={client_id:22,agency_id:6};
 const context={url:path=>'https://tenant.example/'+path};
-function fixture(){const db={execute:vi.fn(async()=>[[{id:9}]])},authorize=vi.fn(async()=>client),conference=vi.fn();return {db,authorize,conference};}
+function fixture(){const db={execute:vi.fn(async()=>[[{id:9}]])},authorize=vi.fn(async()=>client),conference=vi.fn();return {db,authorize,conference,guestLink:vi.fn(async()=>null)};}
 it('uses the same saved external destination in the reminder and the authorized portal join',async()=>{
  const d=fixture();const result=await appointmentJoinEmail({appointment,clientId:22,to:'guardian@example.test',context},d);
  expect(result.url).toBe(await guardianAppointmentJoin(appointment,client,d.db,{includeFutureDestination:true}));expect(result.text).toContain(appointment.externalMeetingUrl);expect(result.text).not.toContain('/tutoring-session/');expect(d.conference).not.toHaveBeenCalled();
@@ -48,4 +48,15 @@ it('keeps an NLU QA booked family join link on its agency path',async()=>{
  const tenantContext={...context,tenant:{id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}}};
  const result=await appointmentJoinEmail({appointment:qa,clientId:22,to:'guardian@example.test',context:tenantContext},d);
  expect(result.url).toBe('https://app.nextleveluplcc.com/nlu-qa-demo'+destination);
+});
+
+it('resolves a queued SMS recipient by the exact guardian identity rather than a shared delivery inbox',async()=>{
+ const d=fixture();d.join=vi.fn(async()=>'/tutoring/appointment/422?clientId=22');
+ d.guestLink=vi.fn(async()=> 'https://app.nextleveluplcc.com/nlu-qa-demo/tutoring/invite#synthetic');
+ const qa={...appointment,id:422,agencyId:453};
+ const result=await appointmentJoinEmail({appointment:qa,clientId:22,recipientUserId:1759,context:{...context,tenant:{id:453,slug:'nlu-qa-demo'}}},d);
+ expect(d.db.execute.mock.calls[0][0]).toContain('WHERE u.id=?');
+ expect(d.db.execute.mock.calls[0][1]).toEqual([22,422,1759]);
+ expect(d.guestLink).toHaveBeenCalledWith(qa,22,9,d.db);
+ expect(result.url).toContain('/tutoring/invite#');
 });

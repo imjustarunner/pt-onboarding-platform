@@ -219,3 +219,11 @@ describe('AuricWell billing discovery', () => {
     expect(searchQuickNav('submit claims', ctx).flat.some(entry => entry.path === '/admin/medical-billing')).toBe(false);
   });
 });
+
+it('exposes the tutoring library through normal search only in an enabled staff organization',()=>{
+ const user={id:1807,role:'admin'};
+ const enabled=buildQuickNavContext({user,agency:{feature_flags:{tutoringSessionHubV2:true}}});
+ expect(getAccessibleQuickNavEntries(enabled).some(e=>e.id==='tutoring-library')).toBe(true);
+ expect(getAccessibleQuickNavEntries(buildQuickNavContext({user,agency:{feature_flags:{}}})).some(e=>e.id==='tutoring-library')).toBe(false);
+ expect(getAccessibleQuickNavEntries(buildQuickNavContext({user:{id:1465,role:'school_staff'},agency:{feature_flags:{tutoringSessionHubV2:true}}})).some(e=>e.id==='tutoring-library')).toBe(false);
+});

@@ -78,3 +78,8 @@ it('does not erase credentials replaced by a login in another tab', async () => 
   expect(await pending).toBe('superseded');
   expect(localStorage.getItem('authToken')).toBe('other-tab-token');
 });
+
+it('does not bootstrap or replace a saved employee account when a meeting-only guest invitation opens',async()=>{
+ expect(await check({route:{meta:{tutoringGuest:true},query:{}}})).toBe('skipped');
+ expect(api.get).not.toHaveBeenCalled();expect(authStore.user.id).toBe(7);
+});

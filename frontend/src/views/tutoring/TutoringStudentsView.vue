@@ -10,12 +10,14 @@ const id=computed(()=>Number(props.agencyId||agency.currentAgency?.id)),client=c
 const students=ref([]),selected=ref(null),overview=ref(null),loading=ref(false),detailLoading=ref(false),error=ref('');let generation=0,detailGeneration=0;
 async function load(){const current=++generation;detailGeneration++;students.value=[];selected.value=null;overview.value=null;error.value='';if(!id.value)return;loading.value=true;try{const {data}=await client.value.get('/tutoring-workspace/students',{params:{agencyId:id.value}});if(current===generation){students.value=data.students||[];const requested=Number(route.params?.clientId||route.query?.clientId);if(requested){const student=students.value.find(s=>Number(s.id)===requested);if(student)await open(student);else error.value='This student is not assigned to you for tutoring in this organization.';}}}catch(e){if(current===generation)error.value=e.response?.data?.error?.message||'Students could not be loaded.';}finally{if(current===generation)loading.value=false;}}
 async function open(student){const current=++detailGeneration;selected.value=student;overview.value=null;error.value='';detailLoading.value=true;try{const {data}=await client.value.get(`/tutoring-learning-os/clients/${student.id}/overview`,{params:{agencyId:id.value}});if(current===detailGeneration)overview.value=data;}catch(e){if(current===detailGeneration)error.value=e.response?.data?.error?.message||'This learning record could not be opened.';}finally{if(current===detailGeneration)detailLoading.value=false;}}
+const hubEnabled=computed(()=>{let f=agency.currentAgency?.feature_flags||{};try{if(typeof f==='string')f=JSON.parse(f);}catch{return false;}return f.tutoringSessionHubV2===true;});
+const libraryPath=computed(()=>`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/tutoring-library`);
 const schedule=computed(()=>props.schedulePath||`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/my-schedule`);
 watch([id,()=>route.params?.clientId||route.query?.clientId],load,{immediate:true});
 </script>
 <template>
  <main class="tutor-students nlu-workspace">
-  <header class="nlu-page-header"><div><p class="nlu-eyebrow">Learning</p><h1>My students</h1><p>Your assigned students, subject tracks and learning plans.</p></div><RouterLink class="nlu-button nlu-button--secondary" :to="schedule">Open schedule</RouterLink></header>
+  <header class="nlu-page-header"><div><p class="nlu-eyebrow">Learning</p><h1>My students</h1><p>Your assigned students, subject tracks and learning plans.</p></div><RouterLink v-if="hubEnabled" class="nlu-button nlu-button--secondary" :to="libraryPath">Resource library</RouterLink><RouterLink class="nlu-button nlu-button--secondary" :to="schedule">Open schedule</RouterLink></header>
   <p v-if="loading" role="status">Loading students…</p>
   <p v-if="error" role="alert">{{error}} <button class="nlu-button nlu-button--secondary" @click="selected?open(selected):load()">Try again</button></p>
   <p v-if="!loading&&!error&&!students.length">No students are assigned to you for tutoring in this organization yet.</p>

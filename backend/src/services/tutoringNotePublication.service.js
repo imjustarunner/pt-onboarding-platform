@@ -26,7 +26,7 @@ export function tutoringSummaryInput(input={}) {
  return result;
 }
 const familyRatingLabels = new Map([
- ['needs_review','Needs more practice'], ['developing','Solved with support'], ['secure','Solved independently']
+ ['needs_review','Needs more practice'], ['emerging','Emerging'], ['developing','Solved with support'], ['nearly_secure','Nearly secure'], ['secure','Solved independently']
 ]);
 function familySkillObservations(items) {
  return items.filter(item => item.skill && familyRatingLabels.has(item.rating)).map(item => ({

@@ -39,7 +39,8 @@ beforeEach(()=>{ m.execute.mockReset(); });
 it('lists a school-assigned provider once even when the agency roster includes the same person',async()=>{
  const a={id:1,first_name:'Avery',last_name:'QA',role:'provider',status:'ACTIVE_EMPLOYEE',is_demo:0};
  const b={...a,id:2,first_name:'Alex'};
- m.execute.mockImplementation(async sql=>sql.includes('FROM provider_school_assignments')?[[a,b]]:sql.includes('FROM user_agencies')?[[a,b,{...a,id:3,first_name:'Cameron'}]]:[[]]);
+ m.execute.mockImplementation(async sql=>sql.includes('FROM provider_school_assignments')?[[{...a,school_organization_id:3},{...b,school_organization_id:3}]]:sql.includes('FROM user_agencies')?[[a,b,{...a,id:3,first_name:'Cameron'}]]:[[]]);
  const providers=await listDisclosureProviders({agencyId:2,schoolOrganizationId:3});
- expect(providers.map(p=>p.id)).toEqual([1,2,3]);expect(providers.filter(p=>p.schoolAssigned).map(p=>p.id)).toEqual([1,2]);
+ expect(providers.map(p=>p.id)).toEqual([1,2]);expect(providers.filter(p=>p.schoolAssigned).map(p=>p.id)).toEqual([1,2]);
+ expect((await listDisclosureProviders({agencyId:2})).map(p=>p.id)).toEqual([1,2,3]);
 });

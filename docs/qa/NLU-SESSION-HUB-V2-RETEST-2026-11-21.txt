@@ -1,0 +1,269 @@
+NLU SESSION HUB — COMPLETE UPGRADE RETEST / NOVEMBER 21, 2026
+SELF-CONTAINED BOT BRIEF — SYNTHETIC QA ONLY
+
+Upload this file to the bot. It contains the new cases, blank ledgers, prior Session Hub retest and original 47-case checklist. Do not ask for folders, source JSON or another plan. This brief and its tutor keys are never learner documents.
+
+ACTUAL SEPARATE APP-UPLOAD ATTACHMENTS
+- math-worksheet.pdf
+- reading-worksheet.pdf
+- math-worksheet-image.png (same synthetic problems rendered as an image for OCR/upload checks)
+Inventory only files actually received. Ask only for the exact missing attachment when its step is needed. Wait for START SESSION HUB before app writes if files are still arriving.
+
+SCOPE / CURRENT FIXTURES / PRESERVATION
+Agency453 / nlu-qa-demo and learning program454 only. Intended host: https://app.nextleveluplcc.com. Use app-generated organization, appointment and invitation links. Session Hub works for virtual AND in-person appointments. A permanent office is not a substitute for a scheduled tutoring visit.
+Retained automation-only QA personas: Finley1496 (tutor), Morgan1759 (parent), Rene1785 (independent guardian), Riley1807 (scoped QA admin); use their established vault entries and current memberships. Parker is client2545 / Math service1038. Confirm every ID in the app; never copy engineering-preview IDs into a live ledger.
+Do not create these identities again. Do not reset passwords, replace guardian links, grant clinical credentials, change signed agreements or erase history. Recount current retained QA records before any necessary new fixture; combined caps remain 30 clients / 10 provider-role identities, including Plotline applicants.
+Keep signed479, earlier unlinked makeup480, missed420 and appointment481 at their actual current states. The latest NR21 run left481 scheduled/open with no family attendance; inspect its current state before doing anything. Do not invent or backdate attendance to finish it. Do not relink480 by time/date.
+Use testing@itsco.health as the physical QA inbox only; retain each logical recipient separately. No production families, real cards, live charges, paid checks or payroll exports. No clock changes or fabricated elapsed-time results.
+
+ROLLOUT / ACCEPTANCE
+This release adds the tutoringSessionHubV2 flag to the two explicitly marked synthetic QA organizations only. Live NLU6 is not enabled by this migration. Confirm the visible behavior and deployed build; existence of a packet is not proof of deployment.
+A working QA appointment is the review gate. After the owner has reviewed that session, engineering can activate live NLU through a separately recorded scoped configuration change. Do not broaden services or roles to make a test pass.
+
+DIRECT JOIN / AUTHENTICATION
+New native tutoring invitations from email, permitted SMS and the authenticated portal are exact-appointment, exact-recipient capabilities. SMS transport and consent gates still apply; unavailable live SMS remains BLOCKED. They open a meeting-only guest session and never log the recipient into the whole parent portal. The secret is in the URL fragment and must stay in the vault, not screenshots/CSV/chat. After exchange, the browser uses an HttpOnly guest cookie. Normal authenticated portal links continue working.
+Guests cannot prepare materials, publish, admit, sign tutor notes, inspect private learning context or open another appointment. Ending/revoking an invitation, changed bookings, revoked permission and expiration must close access. Staff copying links must select the intended eligible family member.
+For an early arriving family, wait for the tutor to prepare the Hub; that wait must not masquerade as a tutor action or attended visit. Audio/video permissions remain the actual device user's choice. Record real media exchange on two physical devices; a bot without camera/microphone access reports BLOCKED.
+
+MATERIALS / LEARNING / NOTES
+Private tutor drafts are separate from approved shared versions. New versions retain their original source and attempts. Add and position fields manually or request an AI draft. Tutor reviews prompts, placement, answer key, grade, skill and approved goal before sharing. AI/OCR failures retain the source and have a manual path; never mark unavailable AI as a pass.
+Learners can type, choose answers and write with supported pointer/pen input. Save explicitly before navigation. Repeated submits are idempotent; submitted attempts and reviews are immutable. Tutor-assisted entry names the actual tutor as actor, never a fabricated learner.
+The rubric is Emerging / Developing / Nearly secure / Secure, plus Not observed. Independence is separate from objective correctness. Multiple attempts in a single session do not establish a longitudinal trend. Progress suggestions require an explicit tutor decision against current evidence; a recommendation does not change a goal by itself.
+General library sources stay private until authorized staff reviews and publishes them. Use Resource library from My students or the Hub materials panel. Staff-only publishing does not grant clinical access. Prepared session copies stay private until the tutor shares them.
+All performed activities, worksheet version/attempt references, responses, ink counts and reviews remain with the exact session record. Review each shared item, end the actual attended session and sign/share through the ordinary QA tutoring-summary action. Private answer keys and feedback stay out of external messages and family summaries.
+
+LATEST NR21 EVIDENCE — KEEP OPEN UNTIL FRESHLY VERIFIED
+The latest source report is build dc07c21a1677a3f03e09e39852fe643326b7ea6f, Nov21 07:39–about09:00 MST. It reported zero PASS, seven FAIL including extras, five BLOCKED and five NOT RUN. Failures include meeting links reaching login; makeup420 losing context; waiting-tutor idle/alone drops; booking mail missing RSVP; student overlaps; focus count confusion and stuck loaders. Earlier owner-attested media operation is not a fresh two-device pass.
+Read the embedded prior briefing as historical context. The current fixture facts and new behavior above take precedence over any older setup wording. No old result becomes PASS automatically.
+
+RUN ORDER
+1. Verify build/QA scope and retained fixtures. Open tutor and family in separate permitted sessions.
+2. Prepare a fresh appointment using the normal calendar. Test conflict/makeup paths without disturbing retained records.
+3. Open the actual received recipient invitation, admit deliberately, verify media, board permissions, worksheets and saved work.
+4. Rate the actual performed work, review progress, end, inspect the note and use normal signing/publication.
+5. Run library, revocation, access-denial, mobile and meaningful timing cases. Preserve blockers and retained records.
+
+FRESH CASES — ALL LIVE RESULTS START NOT RUN
+case_id,area,check,status,frontend_build,backend_build,actor_ids,agency_id,client_id,service_id,appointment_id,session_id,version_id,attempt_id,denver_timestamp,expected,actual,audit_event_ids,evidence
+HUB2-01,Rollout,"Record frontend/backend build; verify Session Hub V2 enabled only in QA453/454, and live NLU6 has not been activated by this release.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-02,Retention,"Recount and inspect retained Finley1496, Morgan1759, Rene1785, Riley1807, Parker2545/service1038; preserve signed479, unlinked480 and the actual current state of481.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-03,In person,Open a fresh correctly linked in-person Session Hub. Prepare board/materials before Start; preparation must not create attended time or a fee. Start and end explicitly.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-04,Virtual,Prepare the same board/materials before opening video; then open the exact booked virtual room without entering a permanent office.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-05,Direct invitation,"From one real new booking/change receipt open the exact recipient invitation while signed out. Reach the meeting-only Session Hub without an account login; no parent portal, account or other appointment access.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-06,Join window,"Use real time to check early/valid/closed windows. Early family entry can wait for tutor preparation; it must not invent a tutor action, attendance or video token.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-07,Revocation,Choose an authorized family recipient when copying an invitation. End selected invitation after valid checks; old link and active access must end. Copy again for a fresh invitation. Test cancellation/reschedule/expired link separately.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-08,Scope,"Check wrong appointment/student/service, unrelated family and revoked guardian permission. Keep guest audit actor distinct from the logical guardian account. No session invitation grants broader app access.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-09,Waiting tutor,Leave an opened tutor room waiting through the real normal inactivity period. No automatic alone-drop or idle logout while its valid waiting session is maintained. Normal security resumes after leaving/expiry.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-10,Real media,"On two physical devices admit the family, exchange real audio/video, background 90 seconds, rejoin and recover from a delayed microphone prompt. Record actual media evidence; a simulated device or preview is not a pass.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-11,Board ownership,"Student cannot clear a page, change locks or erase tutor ink. Verify the server denial, not only a hidden button. Tutor can erase any permitted stroke and clear after confirmation.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-12,Student ink,"Unlock student editing; student draws, erases and restores only own ink. Tutor ink survives; relock during a write and verify server authority and a visible retry/failure result.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-13,Board tools,"Test pen, highlighter, line/rectangle/ellipse, text/worked examples, page backgrounds, multiple pages, undo/redo and question cards. Drag and resize cards in both dimensions; keyboard arrows move/resize them.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-14,AI problem,"Choose current grade, skill, approved goal and parameters. Generate, inspect, edit or reject a private draft before sharing. Wrong output/unavailable AI must not alter goals, scores or the approved plan.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-15,Upload,Upload the supplied PDF and image to the exact session. Check failed/canceled/unsupported uploads and source retention. No extra student or enrollment is created.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-16,Worksheet AI,"Draft answer areas from a text PDF and the supplied image scan. Review actual recognized prompts, pages, answer keys and placement. OCR/model failure stays actionable with manual authoring available.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-17,Authoring,"Add/drag/resize typed, number, choice, handwriting and example areas. Select an approved learning goal where appropriate. Save a draft, reload, approve and share only that version.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-18,Private keys,A learner sees only approved shared fields; private keys and tutor feedback must be absent from learner responses and source links. Draft-only versions cannot be opened by another account.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-19,Learner work,"Use typed answers, choice selection and handwriting. Save and submit. Try correct/wrong/zero, fractions and mixed numbers where applicable. Objective correctness stays separate from tutor independence ratings.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-20,Recovery,"Refresh a saved answer draft, interrupt a save, then retry with the same identifier. Entered work remains visible after failure. Repeated submit creates one immutable attempt; stale concurrent draft edits do not silently overwrite newer work.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-21,Versions,Create a later worksheet version after a submitted attempt. Original answers/source/version remain readable. New assignments use the selected version. A file source change must not replace an earlier version.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-22,Unshare,Stop sharing a worksheet. Its future direct file/version/save requests are denied; the tutor can retain the private history. Check the learner current presentation clears or returns to the shared board.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-23,Rubric,"Tutor reviews every actual question using Emerging, Developing, Nearly secure, Secure or Not observed, plus independence and private notes. Repeat review is idempotent. Assisted answers stay attributed to the actual tutor.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-24,Evidence,Several attempts in one session count as one opportunity for that goal; different grades are not silently merged. Family observations and unreviewed AI output must not become tutor mastery evidence.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-25,Progress approval,"Refresh Activities & progress. Inspect the source evidence and proposed goal state. Keep current level once, approve a separate valid recommendation once, reload and verify history. Stale evidence/plan changes must require a fresh review.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-26,Library,Tutor creates a private general resource; another tutor cannot read it. Authorized QA staff reviews its PDF and publishes; tutor prepares a private session copy. Student-specific work cannot be published as general material. Cross-agency reads are denied.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-27,Notes,"After actual work, review each shared item, end, inspect activity/attempt/version/ink references and sign the normal tutoring summary as the authorized QA persona. Only selected reviewed observations go to the family; the signed record locks.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-28,Makeup,"From missed420 start a fresh makeup; original appointment, exact student and subject prefill with a future default. Verify reciprocal IDs and fee/hold/waiver outcome. Wrong service/client/agency linkage is denied. Do not relink old480 by date.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-29,Conflicts,"Attempt an overlapping student appointment, including a different provider; a clear conflict must prevent duplicate booking. Back-to-back times remain valid. Do not reserve a room or charge a package for a rejected booking.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-30,Email,"One real future booking/change supplies recipient-specific Join and Confirm/cancel/new-time choices. Open the delivered actions, inspect actual From/Reply-To and physical testing@ receipt, and ensure no duplicate send. Never resend an already received message merely for evidence.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-31,Layout,"At desktop, 820px and 390px check Session Hub, document answer areas, focus mode, controls, notes and keyboard focus. A real iPad/Pencil check remains BLOCKED until a physical device can perform it.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-32,Old findings,Retest NR21-03 focus position/count and View all work & radar; verify the selected unassigned service1042 exposes neither Finley nor appointment1038 data. Carry every earlier TU/WB/DF/NR21 failure until fresh evidence resolves it.,NOT RUN,,,,,,,,,,,,,,,
+HUB2-33,Own work,"Check the employee can return to their schedule and own pay, and childcare shift/attendance/punch evidence remains intact. No rates, agreements, role assignments or payroll approvals are changed by the Hub run.",NOT RUN,,,,,,,,,,,,,,,
+HUB2-34,Working review,"Run one complete QA appointment from family invitation through shared board, worksheet, rating and signed summary. Owner reviews this working QA experience before live NLU6 activation; screenshot polish alone is not acceptance.",NOT RUN,,,,,,,,,,,,,,,
+
+BLANK ACTION/AUDIT LEDGER
+case_id,actor_identity,logical_recipient_id,agency_id,client_id,appointment_id,session_id,version_id,attempt_id,action,denver_timestamp,expected_audit_event,actual_audit_event_id,evidence,finding
+
+BLANK EMAIL LEDGER
+case_id,trigger_id,logical_recipient,physical_inbox,actual_from,actual_reply_to,provider_message_id,inbox_message_id,due_at_denver,sent_at_denver,received_at_denver,action_link_result,status,evidence
+
+RESULT RULES
+For each live case use PASS / FAIL / BLOCKED / NOT RUN, exact observed frontend/backend build, actor, organization/client/service/appointment/session/object IDs, America/Denver local timestamp including UTC offset, expected/actual behavior and evidence. Never include passwords or raw capability links. Provider acceptance, queued or Sent is not inbox delivery proof. Keep engineering evidence separate from live QA. When a negative cannot be exercised through permitted ordinary app controls, mark it NOT RUN or BLOCKED and reference engineering checks separately; do not use DevTools, direct writes or role elevation. Capture access denials and missing audit events as findings. Keep all synthetic test records for inspection.
+
+EMBEDDED PRIOR SESSION HUB BRIEF — HISTORICAL CONTEXT / UNRESOLVED CASES
+NLU SESSION HUB RETEST — NOVEMBER 21, 2026
+SELF-CONTAINED BOT BRIEF
+
+Read this update first. The earlier Session Hub cases and blank ledgers are embedded below. Use the existing QA vault and physical testing@itsco.health inbox. Required app-upload material, only when its case needs it, is math-worksheet.pdf. Reading this brief does not prove an app upload.
+
+Scope and retained evidence
+Use NLU QA agency 453 / nlu-qa-demo and program 454. Finley 1496, Morgan 1759, Rene 1785, Riley 1807 and the earlier authorized QA fixtures retain their existing roles and service access. Parker is client 2545, Math service 1038. Recount before creating records. Use the original limits and ordinary app workflows.
+The November 21 report used frontend/backend 10bfc99f15ab5bf604186235a275501a4335d9fc and includes the previous Session Hub repair. Preserve its PDF, screenshots and ledgers.
+Appointment 479 was attended, ended and signed. Keep it as historical evidence. Appointment 480 was booked from missed 420 but predates persisted makeup links. Preserve its actual state. Create only the fresh appointments needed for the cases below.
+Use the app-generated NLU links. Both virtual and in-person appointments open Session Hub. Never use a permanent room as a substitute for a booked appointment.
+Keep passwords and bearer links in the QA vault. Personal devices must grant their own browser permissions.
+
+What the latest report established
+Student headers, Math default selection, NLU join links, AI practice, answer sync, reviewed family skill observations, visible missed 420, makeup entry buttons and tutor refresh passed. Physical two-way audio/video remains BLOCKED in the bot's camera-free environment. Continue recording fresh results instead of inheriting a PASS for a new build.
+This update addresses the remaining reported failures. Its live results all start NOT RUN.
+
+Fresh cases
+case_id,previous_case,required_check,status
+NR21-01,WB02/WB16-idle,"Book one fresh virtual visit; verify admission with Finley and the permitted family; allow real media permissions and verify two-way audio/video on two devices; background the family tab for 90 seconds and return; retry once if interrupted; confirm same visit, board and answers",NOT RUN
+NR21-02,WB16-idle,"Leave the browser microphone prompt unanswered; confirm a bounded wait and a visible microphone-off notice with Rejoin audio and video; the lesson remains available; grant permission and rejoin; check no duplicate visit or stale permission prompt",NOT RUN
+NR21-03,ITEM-1,"Check expanded and collapsed Today's Focus, Momentum focus and radar lists for retained tutoring-note tasks; verify readable tutoring wording",NOT RUN
+NR21-04,OR-03,"From a finalized missed session choose Reschedule / book a makeup; inspect the original appointment number in the booking; save through virtual and separately office booking; confirm reciprocal original/makeup references after reload; inspect the original fee, hold or signed-waiver state",NOT RUN
+NR21-05,OR-03,"Try another child's or agency's original appointment and a different service; the server must deny linkage; the missed outcome and package/billing history stay attributable to their original records",NOT RUN
+NR21-06,OR-17-panel,"Open a genuinely approved plan whose title once included AI draft; its display must agree with approval state; choose Record a session observation for a different skill, save and reload without rating the unrelated plan objective; verify the original plan progress and authored observation",NOT RUN
+NR21-07,WB12,"End a fresh attended visit before its scheduled start time; immediately refresh family appointments and attendance history; the ended visit appears with its actual outcome and the Join card disappears; compare tutor dashboard and calendar status and subject",NOT RUN
+NR21-08,WB12,"End an ordinary attended session; tutor end screen shows the saved attendance outcome; inspect billing-review information through the authorized office workflow",NOT RUN
+NR21-09,WB12/WB13,"In a fresh ended session, the authorized tutor reviews and signs their own summary; each eligible parent gets one generic secure-link email; record From, Reply-To, logical recipient, transport ID and actual testing@ receipt; open the correct NLU appointment; no summary body or private ratings in external email",NOT RUN
+NR21-10,WB12/WB13,"Retry the same sign request; confirm one notice per publication/recipient; queued, uncertain or previously received notices require delivery review before any resend; a parent lacking progress permission receives no summary notice",NOT RUN
+NR21-11,Student-name/status,"Check remote participant tiles and Session Hub header; a family tile identifies the student's family while the header names the student; compare completed, in-progress, awaiting-review and missed status across the tutor and family views",NOT RUN
+NR21-12,WB15,"At 390 px and desktop sizes check virtual and in-person Session Hub, keyboard controls, notes and makeup references; complete the physical iPad/Pencil and permanent-office cases only when their proper fixtures/devices are available",NOT RUN
+
+Makeup fee handling
+A makeup is a new appointment linked to its original missed tutoring service. The existing fee workflow supplies the fee decision. A recorded authorized waiver, a requested waiver and a pending correction window are distinct states. Booking a makeup does not itself certify a waiver. Use the authorized existing workflow for a fee decision, and inspect both records afterward.
+
+Email handling
+The summary notice is triggered after a new signed publication commits. Its tracked record is unique to publication and recipient. A queued or uncertain send needs review before resend. Existing signed 479 is retained evidence. This release does not create a new signature or resend old mail for it.
+Keep logical recipients distinct from the physical testing@ inbox. Sent, queued, provider acceptance and an app-rendered summary do not prove inbox receipt.
+
+Evidence
+For every result record PASS / FAIL / BLOCKED / NOT RUN, frontend/backend build, actor, agency, exact client/service/appointment/session IDs, actual America/Denver timestamp with UTC offset, expected/actual result, screenshot and audit reference.
+An absent camera or mic blocks proof of real media; it does not block checking the board and permission-recovery interface.
+Keep earlier failures open until their fresh case is verified. Record every unresolved item and the actual intermediate state. No real charges, payroll export, changed clocks, real-family contact or synthetic clinical credentials are authorized.
+
+Blank case ledger
+case_id,status,frontend_build,backend_build,actor_id,agency_id,client_id,service_id,original_appointment_id,makeup_appointment_id,session_id,denver_time,expected,actual,evidence,audit_id
+
+Blank email ledger
+case_id,publication_id,appointment_id,logical_recipient,physical_inbox,actual_from,reply_to,transport_id,communication_id,received_at_denver,action_link_result,status,evidence
+
+ORIGINAL SESSION HUB CASES AND EVIDENCE LEDGERS FOLLOW
+Preserve the historical states and original goals below. Apply the fresh cases above to the new build.
+
+# NLU Session Hub and shared whiteboard retest
+
+Use this brief as a single bot upload. It extends the November 19 tutoring and childcare retest. That run recorded 4 PASS, 12 FAIL and 28 NOT RUN on build `755272dc`. Keep its screenshots and findings open until the corresponding live case is repeated.
+
+## Starting conditions
+
+Engineering supplies the deployed frontend and backend build IDs and confirms database migration `1855_shared_teaching_board.sql`. If the deployed build or migration cannot be confirmed, record the dependent cases BLOCKED. The local engineering preview used synthetic media and AI responses. This run checks actual behavior in deployed browsers.
+
+Use ordinary assigned automation accounts from the vault for NLU QA agency 453 and learning program 454. Finley 1496 is the tutor and Morgan 1759 is the authorized family fixture. Use only the enrolled QA student and that student's exact service and booked visit. Recount before creating anything, reuse an eligible future appointment, and locate the appointment from the schedule and parent portal. Keep existing records, signatures and prior tests intact. Use two separate browser profiles or devices. Use an approved synthetic personal-office host and admitted guest for the permanent-office cases. Record a blocker if no such fixture is available. The sole physical email destination is testing@itsco.health.
+
+The only separate attachment for the upload case is **math-worksheet.pdf**, the synthetic Grade 5 learner worksheet. The rest can run from this brief alone. Credentials, invite tokens and raw session URLs belong in the approved vault. Keep screenshots and evidence in the controlled QA destination.
+
+## Test cases
+
+| Case | Steps and observable result | Live result |
+| --- | --- | --- |
+| WB01 | Open a newly issued booking email and Finley's Copy appointment link, once while Morgan is signed in and once from a signed-out browser. Both routes stay on the NLU host and lead through sign-in when needed to the same appointment, student, service and waiting room. Check an older authorized Hub link as well. | NOT RUN |
+| WB02 | Use the actual waiting room and admission controls. Check microphone and camera both ways; share a board with both participants present. Confirm that video remains visible, both views show the same lesson, and ending records the exact visit. Capture the media evidence independently. | NOT RUN |
+| WB03 | In the approved permanent office, have the host draw, invite the guest and open the board. While locked the guest sees the work. Check the guest's normal tool menu, unlock, draw, erase the guest's ink, undo and redo. Host ink survives each action. Only the host can clear or replace the board. Repeat in the booked Hub. | NOT RUN |
+| WB04 | While unlocked, both people draw overlapping strokes of different colors. Have the host erase a learner stroke, then have the learner try Undo/Redo. The host's decision persists. Lock while the learner is drawing; a late stroke is rejected. Reconnect from the same authorized profile and check the board and lock. | NOT RUN |
+| WB05 | Create two pages with different backgrounds. Add a worked example to A, then a multiple-choice question to B. Move and resize it by pointer and keyboard. Return to A, then back to B. Try Clear and cancel before confirming. Clearing B preserves A. Retain the original activity IDs in the record. | NOT RUN |
+| WB06 | Post a two- to six-option question. It stays private while drafting, is read-only when locked, and accepts one selected option when unlocked. Submit a typed explanation on a second card. The tutor sees both answers and can give feedback. Reconnect and check the saved answers. | NOT RUN |
+| WB07 | From Insert question, open a prepared worksheet or select the attached PDF. Choose a page, crop one problem, preview and share it. Put a typed or choice answer on the same card. Confirm the learner receives the selected excerpt and only explicitly shared material. Cancel a second crop and check that nothing appears. | NOT RUN |
+| WB08 | On an iPad with a finger and Apple Pencil, use Write on this question for a handwriting prompt. Repeat on desktop with a mouse. Change ink width, highlight, draw a shape, erase just your own strokes, and reload. Check placement on the same question at both sizes. Mark the physical Pencil check BLOCKED if unavailable. | NOT RUN |
+| WB09 | As the tutor choose a current approved goal, grade or level, response type and constraint such as “use equal-size wholes and denominators under 12.” Request an AI draft. Inspect its math and age fit, edit it, then share. Confirm drafts and the observation used to plan the next problem stay private. Exercise a legitimate unavailable-model condition if offered; manual authoring still works. | NOT RUN |
+| WB10 | Add a fraction strip and a number line to two different prompts. Check the part count and marked value, read the accessible label, move the card, and invite a learner to explain or write on it. The learner cannot alter the underlying problem. | NOT RUN |
+| WB11 | Open Session notes & activity → Session activity & skill ratings. Rate each shared item, including reviewed earlier pages. Use Not assessed for a demonstration. Confirm learner answers, ink and tutor observations are linked to the right exercise. A save retry must preserve a single observation. | NOT RUN |
+| WB12 | At session end use the normal review process. Any unrated activities must be identified before sharing. Have the authorized signer review the actual record and sign only through their own attestation. Verify the tutor's saved PDF includes the reviewed lesson and the family sees only the intended signed summary. | NOT RUN |
+| WB13 | Across real distinct checks of the same skill, grade and goal, record how independently the learner solved each problem. Compare repeated practice in one appointment against a later appointment. Repeated practice counts once per session. A demonstration earns no score. Check the tutor's plan review before progressing the skill. | NOT RUN |
+| WB14 | Repeat on a sibling and an unassigned service already in the QA plan. Use ordinary navigation and authorized test links. Verify that no other child's prompts, notes, worksheet, video or progress appear. A withdrawn guardian's link must respect the existing access decision. | NOT RUN |
+| WB15 | From the schedule, open a virtual and an in-person tutoring booking. Both show Session Hub, the correct student, lesson and modality. Virtual offers admission and media; in person opens its linked lesson and attendance without a video room. Check the standalone in-person link and the family’s authorized view. At 390 px and desktop width, check focus mode, board controls, worksheet selection, video, notes and keyboard focus. On the Childcare page confirm the compact rate disclosure shows all four approved rates and leaves the selected shift, actual attendance and clock-out action accessible. | NOT RUN |
+| WB16 | Switch tools, reload during a draft note and temporarily disconnect during an ink save. Retry the pending change once reconnected. Verify there is a single saved operation and the session note and original appointment stay intact. Report real elapsed time and duplicate IDs if observed. | NOT RUN |
+
+Use a worked example, invite the learner to solve a related problem independently, then have them explain their reasoning. Record how much support each attempt took. Alternating examples with independent problem solving and connecting visual representations with verbal explanations are supported instructional practices. The QA run verifies the software behavior and gathers evidence for the tutor's judgment. [IES practice guide on organizing instruction](https://ies.ed.gov/ncee/WWC/PracticeGuide/1) · [IES elementary mathematics practice guide](https://ies.ed.gov/ncee/wwc/PracticeGuide/26)
+
+## Blank evidence ledgers
+
+Use PASS, FAIL, BLOCKED or NOT RUN with a concrete finding. Record America/Denver time including the UTC offset. Preserve the previous retest and record the exact build observed for each new result. A local preview, transport receipt or simulated device is insufficient for an inbox, two-way video, physical Pencil or live AI pass.
+
+```csv
+case_id,status,frontend_build,backend_build,actor_ids,agency_id,student_id,service_enrollment_id,appointment_id,session_or_office_generation,board_page_id,activity_id,denver_time,expected,actual,evidence
+```
+
+```csv
+actor_id,action,appointment_id,session_id,activity_id,answer_or_stroke_id,rating_id,skill,grade,goal_id,note_id,expected_audit_event,observed_audit_id,denver_time,finding
+```
+
+```csv
+case_id,logical_recipient,physical_inbox,trigger_appointment_id,received_at_denver,actual_from,reply_to,message_id,observed_host,landed_appointment_id,status,evidence
+```
+
+## Follow-up to the November 20 final report
+
+The report for build `75c7ef228` recorded 20 PASS, 7 FAIL, 2 BLOCKED and 7 NOT RUN. Keep those results and record the new frontend and backend builds before testing. Use the existing evidence ledgers above. The following cases start NOT RUN on the replacement build.
+
+| Case | What to verify on the new build |
+| --- | --- |
+| WB02 / WB16-idle | Open the exact virtual appointment as Finley and the authorized family on separate devices. Check the student name, admission and real two-way audio/video. Interrupt the connection, wait longer than 60 seconds, then Retry. Refresh during an admitted session. Verify the same appointment, board, waiting-room visit and unsaved lesson inputs. Record any camera error and elapsed time. |
+| WB09 | Request a multiple-choice problem using a specific grade and skill. Inspect the actual generated choices, edit the draft, then share it. After a generation failure and a context refresh, verify the entered grade, skill and format remain. |
+| OR-03 / ITEM-1 | Find the original missed appointments from the calendar. Start a makeup booking for the same student and subject. Verify the new appointment ID and the original missed outcome, package balance and history. Check the saved subject, date and title on both calendar views. |
+| OR-08 | Open the family portal from a fresh sign-in, then explicitly switch to the unassigned service. Verify the default, any pending reschedules and recent appointments belong to the selected service, including after reload. |
+| OR-17-panel / #422 | Compare the draft or approved plan, goal, grade and subject across the Session Hub and appointment details. Rate an activity tied to the correct goal and save. Use a fresh authorized QA session for signing. Share selected skill observations, check the family's signed copy and keep tutor-only details private. Preserve the existing signed record. |
+| Follow-up | Check the tutor’s missed-session notice and family’s appointment link from actual inbox receipts. For childcare reminders, schedule a fresh shift and observe its real due time with the corresponding punch still outstanding. Record reminders for an already completed punch separately. |
+
+Use Session Hub for both virtual and in-person bookings. Run a separate in-person check through the calendar. Verify the learning tools and attendance for that appointment. Physical iPad input, two-device media, and actual inbox delivery each require their own evidence.
+
+ORIGINAL 47-CASE TUTORING CHECKLIST — CARRY FORWARD / NO IMPLIED PASSES
+case_id,area,action,status,actor,agency_id,client_ids,appointment_ids,session_ids,plan_ids,action_time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+TU00,Baseline,Recount and preserve clinical/Plotline fixtures,NOT RUN,,453,,,,,,,,,,,
+TU01,Setup,Confirm NLU QA453 and learning program454; no AuricWell route,NOT RUN,,453,,,,,,,,,,,
+TU02,Setup,Configure one nonclinical tutor through normal setup,NOT RUN,,453,,,,,,,,,,,
+TU03,Catalog,Verify copied tiers and two synthetic package prices,NOT RUN,,453,,,,,,,,,,,
+TU04,Intake,Inspect copied forms and required QA acknowledgments,NOT RUN,,453,,,,,,,,,,,
+TU05,Public,Find tutor by subject/grade/format; no counseling-only providers,NOT RUN,,453,,,,,,,,,,,
+TU06,Enrollment,Parent enrolls Parker through real public tutoring flow,NOT RUN,,453,,,,,,,,,,,
+TU07,Enrollment,"Save/resume, required fields, invalid email and unsupported upload",NOT RUN,,453,,,,,,,,,,,
+TU08,Enrollment,Add Quinn without duplicate parent or student,NOT RUN,,453,,,,,,,,,,,
+TU09,Enrollment,Co-guardian own access and selective sharing,NOT RUN,,453,,,,,,,,,,,
+TU10,Portal,"Password setup, recovery and NLU parent sign-in",NOT RUN,,453,,,,,,,,,,,
+TU11,Portal,"All NLU labels, help, menus and downloads; no clinical content",NOT RUN,,453,,,,,,,,,,,
+TU12,Scheduling,"Availability, duration, code, price and Denver timezone",NOT RUN,,453,,,,,,,,,,,
+TU13,Scheduling,Book virtual tutoring with exact appointment/session/student link,NOT RUN,,453,,,,,,,,,,,
+TU14,Scheduling,Book in-person tutoring through same normal calendar,NOT RUN,,453,,,,,,,,,,,
+TU15,Scheduling,"Reschedule, conflicts and duplicate-submit protection",NOT RUN,,453,,,,,,,,,,,
+TU16,Evaluation,"Perform baseline, retain actual responses and rubric",NOT RUN,,453,,,,,,,,,,,
+TU17,Plan,Create/review/approve a nonclinical learning plan,NOT RUN,,453,,,,,,,,,,,
+TU18,Plan,Each parent sees/signs their own current plan revision,NOT RUN,,453,,,,,,,,,,,
+TU19,Plan,Separate family ratings and tutor mastery,NOT RUN,,453,,,,,,,,,,,
+TU20,Materials,"Upload worksheet, order materials and save source plan",NOT RUN,,453,,,,,,,,,,,
+TU21,In-person,Open exact appointment and learning workspace,NOT RUN,,453,,,,,,,,,,,
+TU22,In-person,"Annotate, capture responses, save/reload and download",NOT RUN,,453,,,,,,,,,,,
+TU23,Virtual,Early/valid/closed 30-minute windows using real time,NOT RUN,,453,,,,,,,,,,,
+TU24,Virtual,Tutor opens; parent checks in; deliberate admission,NOT RUN,,453,,,,,,,,,,,
+TU25,Virtual,Two real browser sessions verify audio/video and reconnect,NOT RUN,,453,,,,,,,,,,,
+TU26,Virtual,"Whiteboard, documents, chat and learning binder are NLU",NOT RUN,,453,,,,,,,,,,,
+TU27,Virtual,Additional guardian admission vs unrelated next student,NOT RUN,,453,,,,,,,,,,,
+TU28,Completion,"End once; durable attendance, note, summary and payroll draft",NOT RUN,,453,,,,,,,,,,,
+TU29,Progress,Distinct session evidence and honest multi-point trends,NOT RUN,,453,,,,,,,,,,,
+TU30,Homework,"Review/publish assignment, learner completion and feedback",NOT RUN,,453,,,,,,,,,,,
+TU31,Reports,Publish a parent progress report with correct student/version,NOT RUN,,453,,,,,,,,,,,
+TU32,Privacy,"Private notes, raw transcript and unshared materials withheld",NOT RUN,,453,,,,,,,,,,,
+TU33,Billing,"Compare agreed quote, package and post-session charge",NOT RUN,,453,,,,,,,,,,,
+TU34,Billing,Token/package balance and retry idempotency,NOT RUN,,453,,,,,,,,,,,
+TU35,Billing,Sandbox payment success/decline/retry only if verified test merchant,NOT RUN,,453,,,,,,,,,,,
+TU36,Billing,"Canceled/no-show event, policy and duplicate fee prevention",NOT RUN,,453,,,,,,,,,,,
+TU37,Billing,Homework Help distinct from TUTORING and clinical H2014,NOT RUN,,453,,,,,,,,,,,
+TU38,Payroll,"Tutor compensation draft, no approved payroll export",NOT RUN,,453,,,,,,,,,,,
+TU39,Messaging,"Parent/tutor secure notice, reply routing and no AuricWell footer",NOT RUN,,453,,,,,,,,,,,
+TU40,Email,Actual enrollment/booking/reminder/change/cancel receipts,NOT RUN,,453,,,,,,,,,,,
+TU41,Audit,Action ledger reconciled with scoped audit search/export/links,NOT RUN,,453,,,,,,,,,,,
+TU42,Access,"Other family, tutor, agency and school staff denied",NOT RUN,,453,,,,,,,,,,,
+TU43,Retention,Complete final persona/ID table; retain pending evidence,NOT RUN,,453,,,,,,,,,,,
+TU44,Group,Optional learning-program group with exact roster/privacy,NOT RUN,,453,,,,,,,,,,,
+TU45,Handoff,Tutor transfer preserves learning history and permissions,NOT RUN,,453,,,,,,,,,,,
+TU46,Closeout,Program completion/reassessment and retained parent access,NOT RUN,,453,,,,,,,,,,,
+
+PRIVATE TUTOR KEY — NEVER UPLOAD AS A LEARNER DOCUMENT
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+INTERNAL TUTOR ONLY; do not upload as the learner worksheet.
+
+Math: 1/2 > 1/4 for equal wholes; 3/4; 1/2; 11/12; 7/8. Credit a correct model/explanation as described by the tutor. Record accuracy, attempted count and help separately.
+Reading: main idea concerns the class testing whether leaves help soil retain moisture. Details: covered soil stayed damp longer; students checked covered and uncovered spots. Comparing spots supports an inference but does not prove all trees or conditions behave identically. Score a pre-agreed five-item rubric consistently.
+These are original practice items, not a standardized or validated assessment. Do not label them CDE-approved or a READ Act screen.
+
+END OF COMPLETE SESSION HUB BOT BRIEF
