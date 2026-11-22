@@ -344,6 +344,7 @@
 
 /* ── Header / footer ── */
 .client-chart .modal-header.cdp-header {
+  flex-shrink:0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -427,8 +428,8 @@
 .client-chart.modal-content.large {
   background: var(--cc-card);
   border-radius: 18px;
-  width: min(1280px, 97vw);
-  max-width: min(1280px, 97vw);
+  width: min(1560px, 97vw);
+  max-width: min(1560px, 97vw);
   max-height: 94vh;
   display: flex;
   flex-direction: column;
@@ -445,7 +446,7 @@
   flex: 1 1 auto;
   min-height: 0;
   max-height: 100%;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .cdp-page-shell {
@@ -486,6 +487,7 @@
 }
 
 .cdp-page-body.client-chart .modal-header.cdp-header {
+  flex-shrink:0;
   border-radius: 0;
   border: none;
   border-bottom: 1px solid var(--cc-border);
@@ -524,4 +526,11 @@
     font-size: 13px;
     border-radius: 9px;
   }
+}
+
+/* On phones the whole chart surface scrolls, keeping records reachable beneath
+   the expanded identity header and navigation. */
+@media(max-width:640px){
+  .client-chart.modal-content.large .cc-surface {display:block;overflow-y:auto;}
+  .client-chart.modal-content.large .tab-content {overflow:visible;min-height:240px;}
 }

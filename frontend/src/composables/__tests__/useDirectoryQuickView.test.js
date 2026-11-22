@@ -55,3 +55,10 @@ it('does not replace the current user after a cancelled switch or unmount', () =
   vi.advanceTimersByTime(500);
   expect(preview.selectedUser.value).toBeNull();
 });
+
+it('accepts agency-qualified client identities and client-specific outside selectors',()=>{
+ wrapper.unmount();wrapper=mount({setup(){preview=useDirectoryQuickView({outsideSelector:'.client-quick-view,.pct-client-cell',key:c=>`${c.agency_id}:${c.id}`});return {};},template:'<div class="pct-client-cell" />'});
+ preview.scheduleOpen({id:12,agency_id:2});vi.advanceTimersByTime(450);
+ preview.scheduleOpen({id:12,agency_id:3});vi.advanceTimersByTime(450);expect(preview.selectedUser.value.agency_id).toBe(3);
+ wrapper.get('div').element.dispatchEvent(new Event('pointerdown',{bubbles:true}));expect(preview.selectedUser.value.id).toBe(12);
+});

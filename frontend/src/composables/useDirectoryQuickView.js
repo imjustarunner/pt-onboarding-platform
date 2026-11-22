@@ -1,6 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
-export function useDirectoryQuickView() {
+export function useDirectoryQuickView({ outsideSelector = '.directory-quick-view, .um-name-column', key = user => user.id } = {}) {
   const selectedUser = ref(null);
   let openTimer;
   let closeTimer;
@@ -21,11 +21,11 @@ export function useDirectoryQuickView() {
     clearTimeout(openTimer);
     keepOpen();
     if (!user || user.isOrphaned || user.isGuardian) return;
-    if (selectedUser.value?.id === user.id) return;
+    if (selectedUser.value && key(selectedUser.value) === key(user)) return;
     openTimer = setTimeout(() => { selectedUser.value = user; }, 450);
   };
   const dismissOutside = (event) => {
-    if (!event.target?.closest?.('.directory-quick-view, .um-name-column')) close();
+    if (!event.target?.closest?.(outsideSelector)) close();
   };
   const dismissEscape = (event) => {
     if (event.key === 'Escape') close();

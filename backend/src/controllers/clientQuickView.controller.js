@@ -1,7 +1,7 @@
 import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import {clientAgencyMembership} from '../services/clientServiceEnrollment.service.js';
 
-async function requireOverviewAccess(user, clientId, agencyId) {
+export async function requireOverviewAccess(user, clientId, agencyId) {
   if (!Number.isSafeInteger(clientId) || clientId<1 || !Number.isSafeInteger(agencyId) || agencyId<1) {
     throw Object.assign(new Error('Choose a client and agency.'),{status:400});
   }
@@ -15,6 +15,7 @@ async function requireOverviewAccess(user, clientId, agencyId) {
 }
 import {clientSessionSnapshots} from '../services/clientSessionSnapshot.service.js';
 import Task from '../models/Task.model.js';
+import {clientUnreadFamilyCounts,clientUnreadCorrespondenceCounts} from '../services/clientUnreadFamilyMessages.service.js';
 
 export async function caseloadSessionDates(req,res,next) {
   try {
@@ -29,8 +30,16 @@ export async function caseloadSessionDates(req,res,next) {
       try { await requireOverviewAccess(req.user,id,agencyId); allowed.push(id); }
       catch(error) { if (![403,404].includes(error.status)) throw error; }
     }
-    res.set('Cache-Control','private, no-store').json({items:await clientSessionSnapshots(agencyId,allowed,undefined,undefined,
-      ['provider','provider_plus','intern','intern_plus','clinical_practice_assistant'].includes(req.user.role)?Number(req.user.id):null)});
+    const items=await clientSessionSnapshots(agencyId,allowed,undefined,undefined,
+      ['provider','provider_plus','intern','intern_plus','clinical_practice_assistant'].includes(req.user.role)?Number(req.user.id):null);
+    for(const item of items)item.agencyId=agencyId;
+    try {const counts=await clientUnreadFamilyCounts({agencyId,clientIds:allowed,userId:req.user.id});
+      for(const item of items){item.unreadFamilyMessages=counts.get(item.clientId)||0;item.messagesUnavailable=false;}
+    } catch {for(const item of items){item.unreadFamilyMessages=null;item.messagesUnavailable=true;}}
+    try {const result=await clientUnreadCorrespondenceCounts({agencyId,clientIds:allowed,userId:req.user.id});
+      for(const item of items){item.unreadCorrespondence=result.counts.get(item.clientId)||0;item.correspondenceUnavailable=result.partial;}
+    } catch {for(const item of items){item.unreadCorrespondence=null;item.correspondenceUnavailable=true;}}
+    res.set('Cache-Control','private, no-store').json({items});
   } catch(error) { next(error); }
 }
 

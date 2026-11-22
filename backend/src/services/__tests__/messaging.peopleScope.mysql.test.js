@@ -73,6 +73,13 @@ describe.skipIf(!socketPath)('messaging access boundaries (isolated MySQL)',()=>
     for(const statement of migration.split(';').filter(x=>x.trim()))await state.db.query(statement);
   });
   afterAll(async()=>{if(state.db){await state.db.query(`DROP DATABASE IF EXISTS ${dbName}`);await state.db.end();}});
+  it('scopes a guardian lookup with mixed production role and status collations',async()=>{
+    await state.db.query('ALTER TABLE users MODIFY role VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci, MODIFY status VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
+    await state.db.query('ALTER TABLE user_agencies MODIFY agency_role VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    await state.db.query('ALTER TABLE user_agency_access_profiles MODIFY effective_role VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
+    const people=await scopeHubPeople([{personKey:'user:20@2',userId:20,agencyId:2,kinds:['guardian']}],4);
+    expect(people.map(p=>p.userId)).toContain(20);
+  });
   const accessible=async userId=>{const scope=hubClientScope(userId);const [rows]=await state.db.execute(`SELECT c.id FROM clients c WHERE ${scope.sql} ORDER BY c.id`,scope.params);return rows.map(r=>r.id);};
   it('limits a provider to assigned clients even with agency membership',async()=>{expect(await accessible(1)).toEqual([101]);});
   it('includes a supervisor’s current supervisees and secondary assignments, excluding other tenants and inactive assignments',async()=>{expect(await accessible(4)).toEqual([102,105]);});

@@ -104,6 +104,7 @@
                   {{ primaryInsuranceLabel }}
                 </span>
               </div>
+              <ClientHeaderSummary v-if="!headerCollapsed" :key="`${client.id}:${activeChartAgencyId}`" :client="{...client,agency_id:activeChartAgencyId}" :provided-snapshot="overviewSnapshot" />
               <details
                 v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)"
                 v-show="!headerCollapsed"
@@ -2983,8 +2984,10 @@ import { intakeContactIsSelf } from '../../utils/intakeContactRole.js';
 import { linkedGuardianSummary } from '../../utils/linkedGuardianSummary.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 import {guardianAccountPath} from '../../utils/guardianDirectory.js';
+import ClientHeaderSummary from '../dashboard/ClientHeaderSummary.vue';
 
 const props = defineProps({
+  overviewSnapshot: {type:Object,default:null},
   returnLabel: { type: String, default: '' },
   client: {
     type: Object,
@@ -7415,6 +7418,7 @@ watch(
 }
 
 .cdp-header-main {
+  align-self:flex-start;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -7457,6 +7461,7 @@ watch(
 }
 
 .cdp-title {
+  flex:1 1 100%;
   margin: 0;
   font-family: var(--font-display, var(--font-header));
   font-size: 17px;
@@ -9922,6 +9927,8 @@ watch(
   .cont-choice-row { grid-template-columns: 1fr; }
 }
 
+.cdp-header .cdp-header-row>.cdp-title {font-size:21px}
+.cdp-header .cdp-header-actions {align-self:flex-start}
 .cdp-header .cdp-identity-line>span {display:inline-flex;align-items:center;flex:0 0 auto}
 .cdp-header .cdp-header-row {align-items:center;gap:8px 12px}
 .cdp-header .cdp-tenant-line {display:flex;flex-wrap:wrap;gap:6px}

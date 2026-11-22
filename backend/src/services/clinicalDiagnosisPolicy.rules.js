@@ -37,6 +37,9 @@ export function diagnosisAlerts(diagnoses, { asOfDate = new Date().toISOString()
     const first = dateValue(diagnosis.created_at || diagnosis.createdAt);
     if ((isUnspecifiedDiagnosisCode(code, today) || /\bunspecified\b/i.test(diagnosis.description || '')) && first && (Date.parse(today)-Date.parse(first))/86400000 > 90) add('diagnosis_unspecified_90_days',`${code}: unspecified diagnosis has continued for more than 90 days. The provider and supervisor must review its supporting evidence and specificity.`);
     if (isAdjustmentDiagnosis(code)) {
+      if(first){const reviewDate=new Date(first+'T00:00:00Z');reviewDate.setUTCMonth(reviewDate.getUTCMonth()+6);
+        if(today>=reviewDate.toISOString().slice(0,10))add('adjustment_six_month_use_review',`${code}: this active diagnosis has been recorded for at least six months. Review continued appropriateness and document the clinical rationale.`);
+      }
       const month = String(evidence.stressor_event_month || evidence.stressorEventMonth || '').slice(0,7);
       if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)) add('adjustment_event_month_required',`${code}: record at least the month and year of the precipitating event.`,true);
       else { const end = new Date(`${month}-01T00:00:00Z`); end.setUTCMonth(end.getUTCMonth()+6); if (today >= end.toISOString().slice(0,10)) add('adjustment_six_month_review',`${code}: the recorded event is at least six months old. Review the diagnosis before further billing under the organization policy.`,true); }

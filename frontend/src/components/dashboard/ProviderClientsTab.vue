@@ -110,7 +110,7 @@
         <button
           class="pct-btn pct-btn--primary"
           type="button"
-          @click="refreshCurrentScope(); refreshFeedback()"
+          @click="refreshCurrentScope(); refreshFeedback(); refreshSessionSnapshots()"
           :disabled="loading || officeLoading"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
@@ -215,8 +215,8 @@
                 <th v-for="column in appointmentColumns" :key="column.key" :aria-sort="allAriaSortFor(column.key)">
                   <button type="button" class="pct-link-btn" @click="toggleAllColumnSort(column.key)">{{ column.label }} {{ allSortIndicatorFor(column.key) }}</button>
                 </th>
-                <th>Feedback</th><th>Chart</th>
-                <th v-if="canEhrPatientImport">Chart setup</th>
+                <th title="Unread secure messages and filed email / SMS conversations">Messages</th><th class="pct-feedback-cell">Feedback</th><th>Chart</th>
+                <th v-if="canEhrPatientImport && sortedCombinedClientsList.some(requiresClientRecordImport)">Chart setup</th>
               </tr>
             </thead>
             <tbody>
@@ -240,7 +240,7 @@
                     </div>
                     <div class="pct-client-charts">
                       <button type="button" class="pct-client-link" :title="officeHoverTitle(c)"
-                        @click="openQuickView(c, sortedCombinedClientsList)">
+                        @mouseenter="hoverQuickView(c,sortedCombinedClientsList)" @mouseleave="closeQuickViewLater" @focusin="hoverQuickView(c,sortedCombinedClientsList)" @focusout="closeQuickViewLater" @click="openClientProfile(scopedRosterClient(c),sortedCombinedClientsList)">
                         {{ formatOfficeClientLabel(c) }}
                       </button>
                     </div>
@@ -251,12 +251,12 @@
                 <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                 <td v-if="allColumnPrefs.insurance">{{ formatInsuranceTypeLabel(c) }}</td>
                 <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
-                <td v-if="allColumnPrefs.sessions">{{ officeSessionTotal(c) }}</td>
+                <td v-if="allColumnPrefs.sessions"><button type="button" class="pct-link-btn" @click="openQuickView(c,sortedCombinedClientsList)">{{ officeSessionTotal(c) }}</button></td>
                 <td v-if="allColumnPrefs.since">{{ formatSinceDate(c.submission_date) }}</td>
                 <td v-for="column in appointmentColumns" :key="column.key">{{ appointmentLabel(c,column.key) }}</td>
-                <td><ClientFeedbackSummary v-if="hasOfficeRosterContext(c)" :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
+                <td><button type="button" class="pct-link-btn" @click="openQuickView(c,sortedCombinedClientsList)">{{ unreadLabel(c) }}</button></td><td class="pct-feedback-cell"><ClientFeedbackSummary v-if="hasOfficeRosterContext(c)" :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
                 <td><button type="button" class="pct-link-btn" @click="openClientProfile(c, sortedCombinedClientsList)">Open chart</button></td>
-                <td v-if="canEhrPatientImport">
+                <td v-if="canEhrPatientImport && sortedCombinedClientsList.some(requiresClientRecordImport)">
                   <button
                     v-if="requiresClientRecordImport(c)"
                     type="button"
@@ -327,14 +327,14 @@
                     type="button"
                     class="pct-client-link"
                     :title="officeHoverTitle(c)"
-                    @click="openQuickView(c, schoolBillingTableClients)"
+                    @mouseenter="hoverQuickView(c,schoolBillingTableClients)" @mouseleave="closeQuickViewLater" @focusin="hoverQuickView(c,schoolBillingTableClients)" @focusout="closeQuickViewLater" @click="openClientProfile(scopedRosterClient(c),schoolBillingTableClients)"
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
                 </td>
                 <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
-                <td>{{ officeSessionTotal(c) }}</td>
+                <td><button type="button" class="pct-link-btn" @click="openQuickView(c,sortedCombinedClientsList)">{{ officeSessionTotal(c) }}</button></td>
                 <td>{{ formatSinceDate(c.submission_date) }}</td><td><button type="button" class="pct-link-btn" @click="openClientProfile(c,schoolBillingTableClients)">Open chart</button></td>
               </tr>
             </tbody>
@@ -376,7 +376,7 @@
                 <th>Status</th>
                 <th>Sessions (FY)</th>
                 <th v-for="column in appointmentColumns" :key="column.key"><button type="button" class="pct-link-btn" @click="toggleAllColumnSort(column.key)">{{ column.label }} {{ allSortIndicatorFor(column.key) }}</button></th>
-                <th>Since</th><th>Feedback</th><th>Chart</th>
+                <th>Since</th><th title="Unread secure messages and filed email / SMS conversations">Messages</th><th class="pct-feedback-cell">Feedback</th><th>Chart</th>
               </tr>
             </thead>
             <tbody>
@@ -386,7 +386,7 @@
                     type="button"
                     class="pct-client-link"
                     :title="officeHoverTitle(c)"
-                    @click="openQuickView(c,visibleOfficeClients)"
+                    @mouseenter="hoverQuickView(c,visibleOfficeClients)" @mouseleave="closeQuickViewLater" @focusin="hoverQuickView(c,visibleOfficeClients)" @focusout="closeQuickViewLater" @click="openClientProfile(scopedRosterClient(c),visibleOfficeClients)"
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
@@ -399,8 +399,8 @@
                 </td>
                 <td v-if="rosterAgencies.length>1">{{ rosterAgencyLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
-                <td>{{ officeSessionTotal(c) }}</td>
-                <td v-for="column in appointmentColumns" :key="column.key">{{ appointmentLabel(c,column.key) }}</td><td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td><td><button type="button" class="pct-link-btn" @click="openClientProfile(c,visibleOfficeClients)">Open chart</button></td>
+                <td><button type="button" class="pct-link-btn" @click="openQuickView(c,sortedCombinedClientsList)">{{ officeSessionTotal(c) }}</button></td>
+                <td v-for="column in appointmentColumns" :key="column.key">{{ appointmentLabel(c,column.key) }}</td><td>{{ formatSinceDate(c.submission_date) }}</td><td><button type="button" class="pct-link-btn" @click="openQuickView(c,visibleOfficeClients)">{{ unreadLabel(c) }}</button></td><td class="pct-feedback-cell"><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td><td><button type="button" class="pct-link-btn" @click="openClientProfile(c,visibleOfficeClients)">Open chart</button></td>
               </tr>
             </tbody>
           </table>
@@ -476,8 +476,8 @@
 
     <ClientQuickView v-if="quickClient" :key="`quick-${quickClient.agency_id}-${quickClient.id}`" :client="quickClient"
       :label="formatOfficeClientLabel(quickClient)" :status="officeStatusLabel(quickClient)" :school="isSchoolSettingClient(quickClient)"
-      :snapshot="sessionSnapshots[sessionSnapshotKey(quickClient)]" @close="quickClient=null"
-      @open-chart="openQuickChart" @school-workspace="openSchoolWorkspace" />
+      :snapshot="sessionSnapshots[sessionSnapshotKey(quickClient)]" @close="closeQuickView"
+      @fiscal-sessions="onFiscalSessions" @open-chart="openQuickChart" @school-workspace="openSchoolWorkspace" @keep-open="keepQuickView" @leave="closeQuickViewLater" />
     <Teleport to="body">
       <div v-if="profileLoading" class="pct-profile-loading-overlay" role="status" aria-live="polite">
         <div class="pct-profile-loading-card muted">Loading client…</div>
@@ -487,6 +487,7 @@
           :key="`pct-client-${profileClient.id}`"
           :client="profileClient"
           :initial-tab="profileInitialTab"
+          :overview-snapshot="sessionSnapshots[sessionSnapshotKey(profileClient)]"
           :school-organization-id="profileClient.organization_id"
           return-label="Back to My Clients"
           :current-client-index="profileClientIndex"
@@ -534,6 +535,7 @@ import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
 import { useClientFeedbackSummaries } from '../../composables/useClientFeedbackSummaries.js';
 import ClientQuickView from './ClientQuickView.vue';
+import {useDirectoryQuickView} from '../../composables/useDirectoryQuickView.js';
 import {useClientSessionSnapshots,sessionSnapshotKey,sessionDateLabel} from '../../composables/useClientSessionSnapshots.js';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
@@ -1009,11 +1011,7 @@ function allClientSortValue(c, field) {
   if (field === 'insurance') return formatInsuranceTypeLabel(c);
   if (field === 'status') return officeStatusLabel(c);
   if (field === 'sessions') {
-    const m = sessionTotalsByClientId.value;
-    if (!m || !c?.id) return -1;
-    const rec = m[String(c.id)] || m[Number(c.id)];
-    const t = Number(rec?.total);
-    return Number.isFinite(t) ? t : -1;
+    return fiscalSnapshots.value[sessionSnapshotKey(scopedRosterClient(c))]?.total ?? -1;
   }
   if (field === 'since') {
     const d = c?.submission_date ? new Date(c.submission_date).getTime() : 0;
@@ -1022,7 +1020,11 @@ function allClientSortValue(c, field) {
   return '';
 }
 
-const rosterAgencyId=ref('all'),quickClient=ref(null),profileInitialTab=ref(''),schoolGrid=ref(null);
+const fiscalSnapshots=ref({});
+function onFiscalSessions({clientId,agencyId,totals}){fiscalSnapshots.value={...fiscalSnapshots.value,[`${agencyId}:${clientId}`]:totals};}
+const rosterAgencyId=ref('all'),profileInitialTab=ref(''),schoolGrid=ref(null);
+const {selectedUser:quickClient,scheduleOpen:scheduleQuickView,keepOpen:keepQuickView,scheduleClose:closeQuickViewLater,close:closeQuickView}=useDirectoryQuickView({outsideSelector:'.client-quick-view,.pct-client-cell',key:c=>`${c.agency_id}:${c.id}`});
+function hoverQuickView(client,navList){if(Array.isArray(navList))profileNavClients.value=navList;scheduleQuickView(scopedRosterClient(client));}
 const rosterAgencies=computed(()=>{
   const agencies=new Map();
   for(const client of combinedClientsList.value.flatMap(c=>[c,...(c.linkedCaseloadCharts||[])])){
@@ -1035,7 +1037,8 @@ const scopedRosterClient=c=>rosterAgencyId.value==='all'?c:([c,...(c.linkedCasel
 const agencyMatches=c=>rosterAgencyId.value==='all' || [c,...(c.linkedCaseloadCharts||[])].some(row=>Number(row.agency_id)===Number(rosterAgencyId.value));
 const hasOfficeRosterContext=c=>officeChartRows.value.some(row=>Number(row.id)===Number(c.id) || (c.linkedCaseloadCharts||[]).some(chart=>Number(chart.id)===Number(row.id)));
 const feedbackClients=computed(()=>combinedClientsList.value.filter(hasOfficeRosterContext));
-const {snapshots:sessionSnapshots,error:sessionDatesError}=useClientSessionSnapshots(combinedClientsList);
+const {snapshots:sessionSnapshots,error:sessionDatesError,refresh:refreshSessionSnapshots}=useClientSessionSnapshots(combinedClientsList);
+const unreadLabel=c=>{const s=sessionSnapshots.value[sessionSnapshotKey(c)];return !s || s.messagesUnavailable ? 'Unavailable' : ((s.unreadFamilyMessages||0)+(s.unreadCorrespondence||0)) ? `${(s.unreadFamilyMessages||0)+(s.unreadCorrespondence||0)} unread${s.correspondenceUnavailable?' +':''}` : s.correspondenceUnavailable?'Not fully checked':'—';};
 const appointmentColumns=[{key:'nextAt',label:'Next appointment'},{key:'lastAt',label:'Last scheduled'},{key:'lastCompletedAt',label:'Last completed'}];
 const appointmentLabel=(client,key)=>{
   const value=sessionSnapshots.value[sessionSnapshotKey(client)];
@@ -1081,12 +1084,8 @@ const schoolClientsForGrid = computed(() => {
 const officeStatusLabel = (c) => rosterStatusLabel(c, { school: isSchoolSettingClient(c) });
 
 const officeSessionTotal = (c) => {
-  const m = sessionTotalsByClientId.value;
-  if (!m || !c?.id) return '—';
-  const rec = m[String(c.id)] || m[Number(c.id)];
-  if (!rec) return '—';
-  const t = Number(rec.total);
-  return Number.isFinite(t) ? t : '—';
+  const value=fiscalSnapshots.value[sessionSnapshotKey(scopedRosterClient(c))];
+  return value ? `${value.total}${value.unavailable || value.imported?'*':''}` : 'View count';
 };
 
 const pendingOfficeClients = computed(() =>
@@ -1273,7 +1272,7 @@ function onSchoolRosterEditClient(payload) {
 }
 
 async function openClientProfile(client, navList = null, initialTab='') {
-  quickClient.value=null;
+  closeQuickView();
   profileInitialTab.value=initialTab;
   const id = Number(client?.id || client?.client_id || 0);
   if (!id) return;
@@ -1872,6 +1871,7 @@ watch(skillBuildersOnlyFilter, async () => {
   line-height: 1.5;
 }
 
+.pct-toolbar > * {min-width:0;max-width:100%;box-sizing:border-box}
 .pct-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1898,6 +1898,8 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 
 .pct-control {
+  box-sizing:border-box;
+  max-width:100%;
   border: 1px solid var(--pct-border);
   border-radius: 8px;
   background: var(--bg-card, #fff);
@@ -2107,7 +2109,15 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 .error { color: #c33; }
 .muted { color: var(--text-secondary); }
-.office-clients-table-wrap { overflow-x: auto; }
+.office-clients-table-wrap { overflow-x: auto; max-width:100%; }
+.office-clients-table { min-width:1120px; table-layout:auto; }
+.office-clients-table th:first-child,.office-clients-table td:first-child { min-width:235px; width:235px; }
+.office-clients-table th,.office-clients-table td { overflow-wrap:normal; word-break:normal; }
+.office-clients-table .pct-feedback-cell { width:230px; max-width:260px; }
+.pct-feedback-cell :deep(.feedback-summary) { min-width:0; max-width:260px; }
+.office-clients-table td:last-child { width:95px; }
+.office-clients-table .pct-link-btn { white-space:normal; }
+.pct-client-cell { min-width:215px; }
 .office-clients-table tr.is-terminated td { color: #9a1f14; opacity: 0.9; }
 .pct-client-cell {
   display: grid;
@@ -2143,7 +2153,9 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 .pct-client-link {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
   appearance: none;
   background: none;
   border: none;
@@ -2200,7 +2212,8 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 
 @media (max-width: 640px) {
-  .pct-toolbar {
+  .pct-toolbar > * {min-width:0;max-width:100%;box-sizing:border-box}
+.pct-toolbar {
     flex-direction: column;
     align-items: stretch;
   }

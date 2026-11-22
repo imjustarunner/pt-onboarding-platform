@@ -5,6 +5,7 @@ import Panel from '../ClientQuickView.vue';
 const m=vi.hoisted(()=>({get:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:m}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:9,role:'provider'}})}));
+vi.mock('../ClientCareOverview.vue',()=>({default:{template:'<div />'}}));
 vi.mock('../../clients/ClientFollowUpTask.vue',()=>({default:{template:'<div />'}}));
 let w;
 afterEach(()=>{w?.unmount();document.body.innerHTML='';vi.clearAllMocks();});
@@ -12,6 +13,7 @@ async function render() {
   const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});
   await router.push('/dashboard');await router.isReady();
   m.get.mockImplementation(async url=>{
+    if(url.startsWith('/messages/hub/people/'))return {data:{person:{clientId:12,agencyId:2,clientMessaging:{guardians:[{userId:7,methods:[{id:'secure',available:true}]}]}}}};
     if(url.endsWith('/guardians'))return {data:[
       {guardian_user_id:7,first_name:'Current',email:'current@example.invalid',phone:'555-0123',access_enabled:1},
       {guardian_user_id:8,first_name:'Disconnected',email:'old@example.invalid',access_enabled:0}]};
@@ -35,4 +37,15 @@ it('clears contact information immediately when moving to a different client whi
   expect(w.text()).not.toContain('client@example.invalid');expect(w.text()).not.toContain('current@example.invalid');
   await w.get('aside').trigger('keydown',{key:'Escape'});
   expect(w.emitted('close')).toHaveLength(1);
+});
+
+it('keeps an unavailable guardian on the chart and explains the portal issue',async()=>{
+ const router=await render();m.get.mockResolvedValue({data:{person:{clientId:12,agencyId:2,clientMessaging:{guardians:[{userId:7,methods:[{id:'secure',available:false,reason:'Guardian portal is inactive.'}]}]}}}});
+ await w.findAll('button').find(b=>b.text()==='Message this guardian').trigger('click');await flushPromises();
+ expect(router.currentRoute.value.path).toBe('/dashboard');expect(w.text()).toContain('Guardian portal is inactive.');
+});
+it('uses a nonmodal hover preview without locking the roster or stealing focus',async()=>{
+ const button=document.createElement('button');document.body.append(button);button.focus();await render();
+ expect(document.activeElement).toBe(button);expect(document.body.style.overflow).toBe('');expect(w.get('aside').attributes('aria-modal')).toBeUndefined();
+ await w.get('aside').trigger('mouseenter');expect(w.emitted('keep-open')).toBeTruthy();
 });

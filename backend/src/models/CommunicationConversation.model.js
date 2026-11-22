@@ -157,6 +157,7 @@ class CommunicationConversation {
 
   static async list({
     agencyId,
+    linkedClientIds = null,
     inboxId = null,
     channel = null,
     status = null,
@@ -181,6 +182,11 @@ class CommunicationConversation {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     if (hideSupportReminderSms) where.push(`NOT ${supportReminderSmsConversationSql}`);
     const params = [];
+    if(Array.isArray(linkedClientIds)){
+      const ids=[...new Set(linkedClientIds.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0))];
+      if(!ids.length)where.push('FALSE');
+      else {where.push(`EXISTS (SELECT 1 FROM communication_links chart_link WHERE chart_link.conversation_id=c.id AND chart_link.entity_type='client' AND chart_link.entity_id IN (${ids.map(()=>'?').join(',')}))`);params.push(...ids);}
+    }
     const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds, userId });
     const policy = messageInboxPolicySql({ userId, schoolGroupInboxIds });
     if (userId) where.push(resolvedMailboxVisibilitySql(userId, 'i'));

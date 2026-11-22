@@ -3,6 +3,7 @@ const m=vi.hoisted(()=>({access:vi.fn(),sessions:vi.fn(),tasks:vi.fn()}));
 vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecordAccess:m.access}));
 vi.mock('../../services/clientServiceEnrollment.service.js',()=>({clientAgencyMembership:vi.fn(async(id,agencyId)=>agencyId===2)}));
 vi.mock('../../services/clientSessionSnapshot.service.js',()=>({clientSessionSnapshots:m.sessions}));
+vi.mock('../../services/clientUnreadFamilyMessages.service.js',()=>({clientUnreadFamilyCounts:vi.fn(async()=>new Map()),clientUnreadCorrespondenceCounts:vi.fn(async()=>({counts:new Map()}))}));
 vi.mock('../../models/Task.model.js',()=>({default:{findByUser:m.tasks}}));
 import {caseloadSessionDates,clientQuickViewTasks} from '../clientQuickView.controller.js';
 function response(){const res={set:vi.fn(),json:vi.fn(),status:vi.fn()};res.set.mockReturnValue(res);res.status.mockReturnValue(res);return res;}

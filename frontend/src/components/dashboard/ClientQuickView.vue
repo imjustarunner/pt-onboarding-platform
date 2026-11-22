@@ -1,12 +1,12 @@
 <template>
   <Teleport to="body">
-    <div class="cq-backdrop" @click.self="$emit('close')">
-      <aside ref="dialog" class="client-quick-view" role="dialog" aria-modal="true" aria-labelledby="client-quick-view-title" tabindex="-1" @keydown="onKeydown">
+      <aside ref="dialog" class="client-quick-view" role="region" aria-labelledby="client-quick-view-title" tabindex="-1" @keydown="onKeydown" @mouseenter="$emit('keep-open')" @mouseleave="leavePanel" @focusin="$emit('keep-open')" @focusout="leaveFocus">
         <header class="cq-header">
           <div class="cq-avatar" aria-hidden="true">{{ avatar }}</div>
           <div class="cq-heading"><h2 id="client-quick-view-title">{{ label }}</h2>
             <p>{{ client.agency_name || client.agencyName }}<span v-if="client.organization_name && client.organization_id!==client.agency_id"> · {{ client.organization_name }}</span></p>
             <span class="cq-status">{{ status }}</span>
+            <span v-if="lifecycle && lifecycle!==status" class="cq-status">Chart status: {{ lifecycle }}</span>
           </div>
           <button class="cq-close" type="button" aria-label="Close client quick view" @click="$emit('close')">×</button>
         </header>
@@ -24,10 +24,21 @@
             <p v-if="snapshot?.unavailable" role="status">Some appointment dates are unavailable.</p>
             <dl><div><dt>Next scheduled</dt><dd>{{ date(snapshot?.nextAt) }}</dd></div>
               <div><dt>Last scheduled</dt><dd>{{ date(snapshot?.lastAt) }}</dd></div>
-              <div><dt>Last completed</dt><dd>{{ date(snapshot?.lastCompletedAt) }}</dd></div></dl>
+              <div><dt>Last completed</dt><dd>{{ date(snapshot?.lastCompletedAt) }}</dd></div>
+              <div v-if="daysSinceVisit!==null"><dt>Since completed visit</dt><dd>{{ daysSinceVisit }} days</dd></div></dl>
+            <details class="cq-status-help"><summary>How status works</summary><p>Received is an intake / chart status. Staff can change it in the chart; completing record import marks the client Current. Active services reflects an active service assignment. Billing imports currently apply a 60-day rule based on billed encounters; this overview does not automatically discharge a client.</p></details>
             <button class="cq-link" type="button" @click="$emit('open-chart',record,'schedule')">View schedule</button>
           </section>
-          <section class="cq-card"><h3>To do</h3>
+          <section class="cq-card"><h3>Messages</h3>
+            <p v-if="snapshot?.messagesUnavailable || !snapshot">Unread secure messages could not be checked.</p>
+            <p v-else>{{ snapshot.unreadFamilyMessages || 0 }} unread client / guardian secure message{{ snapshot.unreadFamilyMessages===1?'':'s' }} in your inbox.</p>
+            <p v-if="snapshot?.correspondenceUnavailable">Email / SMS conversations could not be fully checked.</p><p v-else-if="snapshot">{{ snapshot.unreadCorrespondence || 0 }} unread email / SMS conversation{{ snapshot.unreadCorrespondence===1?'':'s' }} filed to this chart.</p>
+            <button class="cq-link" type="button" @click="openMessages">Open secure conversations</button>
+            <button class="cq-link" style="display:block;margin-top:8px" type="button" @click="$emit('open-chart',record,'communications')">View chart communications</button>
+          </section>
+          <section class="cq-card"><h3>To do and clinical reminders</h3>
+            <ClientCareOverview :key="`${agencyId}:${client.id}`" :client-id="client.id" :agency-id="agencyId" @open-chart="tab=>$emit('open-chart',record,tab)" @close="$emit('close')" @fiscal-sessions="$emit('fiscal-sessions',$event)" @keep-open="$emit('keep-open')" @leave="$emit('leave')" />
+            <h4>Your follow-up tasks</h4>
             <p v-if="tasksLoading" role="status">Loading your follow-ups…</p>
             <p v-if="tasksError" role="alert">{{ tasksError }}</p>
             <ul v-if="tasks.length" class="cq-task-list"><li v-for="task in tasks" :key="task.id">
@@ -45,6 +56,7 @@
             <button class="cq-link" type="button" @click="$emit('open-chart',record,'demographics')">Edit contact details</button>
           </section>
           <section v-if="canViewGuardians" class="cq-card"><h3>Guardians and authorized contacts</h3>
+            <p v-if="guardianActionError" role="alert">{{ guardianActionError }}</p>
             <p v-if="guardiansLoading" role="status">Loading linked contacts…</p>
             <p v-if="guardiansError" role="alert">{{ guardiansError }}</p>
             <p v-if="!guardiansLoading && !guardiansError && !activeGuardians.length">No active guardian account links.</p>
@@ -53,7 +65,7 @@
               <small>{{ guardian.relationship_title || guardian.relationship_type || 'Guardian' }}</small>
               <a v-if="guardian.phone" :href="'tel:'+guardian.phone">{{ guardian.phone }}</a>
               <span v-if="guardian.email">{{ guardian.email }}</span>
-              <button class="cq-link" type="button" @click="messageGuardian(guardian)">Message this guardian</button>
+              <button class="cq-link" type="button" :disabled="!!recipientBusy" @click="messageGuardian(guardian)">{{ recipientBusy===Number(guardian.guardian_user_id)?'Checking guardian…':'Message this guardian' }}</button>
             </article>
             <button class="cq-link" type="button" @click="$emit('open-chart',record,'guardians')">View relationships and access</button>
           </section>
@@ -66,22 +78,22 @@
           </section>
         </div>
       </aside>
-    </div>
   </Teleport>
   <ClientFollowUpTask ref="followUp" :agency-id="agencyId" @created="loadTasks" />
 </template>
 <script setup>
 import {portalCalendarDate} from '../../utils/portalDates';
-import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
+import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
 import ClientFollowUpTask from '../clients/ClientFollowUpTask.vue';
+import ClientCareOverview from './ClientCareOverview.vue';
 import {resolveClientEmail,composeClientEmail} from '../../utils/clientEmailComposer.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 import {sessionDateLabel as date} from '../../composables/useClientSessionSnapshots.js';
 const props=defineProps({client:{type:Object,required:true},label:String,status:String,snapshot:Object,school:Boolean});
-const emit=defineEmits(['close','open-chart','school-workspace']);
+const emit=defineEmits(['close','open-chart','school-workspace','keep-open','leave','fiscal-sessions']);
 const route=useRoute(),router=useRouter(),auth=useAuthStore();
 const prefix=computed(()=>route.params.organizationSlug?'/'+route.params.organizationSlug:'');
 const agencyId=computed(()=>Number(props.client.agency_id));
@@ -95,19 +107,15 @@ const activeGuardians=computed(()=>guardians.value.filter(g=>{
   if(typeof p==='string'){try{p=JSON.parse(p);}catch{return false;}}
   return Number(g.access_enabled)===1 && g.relationship_type!=='self' && !p?.revoked && !p?.relationshipRevoked;
 }));
+const guardianActionError=ref(''),recipientBusy=ref(0);let recipientRequest=0;onBeforeUnmount(()=>recipientRequest++);
 const dialog=ref(null),followUp=ref(null),emailBusy=ref(false),actionError=ref('');
 const avatar=computed(()=>String(props.label || props.client.initials || '?').split(/\s+/).map(word=>word[0]).slice(0,2).join(''));
-let previousFocus,previousOverflow;
-onMounted(async()=>{previousFocus=document.activeElement;previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';await nextTick();dialog.value?.focus();});
-onBeforeUnmount(()=>{document.body.style.overflow=previousOverflow;previousFocus?.focus?.();});
-function onKeydown(event) {
-  if(event.key==='Escape'){event.stopPropagation();emit('close');return;}
-  if(event.key!=='Tab')return;
-  const items=[...dialog.value.querySelectorAll('button:not(:disabled),a[href],input,select,textarea')];
-  const first=items[0],last=items.at(-1);
-  if(event.shiftKey && (document.activeElement===first || document.activeElement===dialog.value)){event.preventDefault();last?.focus();}
-  else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}
-}
+const lifecycle=computed(()=>record.value.client_status_label || record.value.status_label || '');
+const daysSinceVisit=computed(()=>{const value=props.snapshot?.lastCompletedAt;if(!value)return null;const days=Math.floor((Date.now()-new Date(value).getTime())/86400000);return Number.isFinite(days)?Math.max(0,days):null;});
+function leavePanel(){if(dialog.value?.contains(document.activeElement))emit('keep-open');else emit('leave');}
+function leaveFocus(event){if(!dialog.value?.contains(event.relatedTarget))emit('leave');}
+function onKeydown(event){if(event.key==='Escape'){event.stopPropagation();emit('close');}}
+function openMessages(){emit('close');router.push({path:prefix.value+'/messages',query:{view:'hub',secureClientId:String(props.client.id),agencyId:String(agencyId.value)}});}
 function loadTasks(){reload.value++;}
 watch(()=>[props.client.id,agencyId.value,reload.value],async([id,aid],_,onCleanup)=>{
   let active=true;onCleanup(()=>{active=false;});
@@ -118,14 +126,26 @@ watch(()=>[props.client.id,agencyId.value,reload.value],async([id,aid],_,onClean
   finally{if(active)tasksLoading.value=false;}
 },{immediate:true});
 watch(()=>[props.client.id,agencyId.value],async([id,aid],_,onCleanup)=>{
-  let active=true;onCleanup(()=>{active=false;});record.value={id:props.client.id,agency_id:aid};profileError.value='';actionError.value='';loading.value=true;
+  let active=true;recipientRequest++;recipientBusy.value=0;guardianActionError.value='';onCleanup(()=>{active=false;});record.value={id:props.client.id,agency_id:aid};profileError.value='';actionError.value='';loading.value=true;
   try{const {data}=await api.get(`/clients/${id}`,{headers:{'X-Agency-Id':String(aid)},skipGlobalLoading:true});
     if(active)record.value={...props.client,...data,agency_id:aid};
   }catch{if(active)profileError.value='Client contact details could not load. Reopen the quick view to retry.';}
   finally{if(active)loading.value=false;}
 },{immediate:true});
 function secureMessage(){emit('close');router.push({path:prefix.value+'/messages',query:{view:'hub',channel:'secure',secureRecipient:'client',secureClientId:String(props.client.id),agencyId:String(agencyId.value)}});}
-function messageGuardian(guardian){emit('close');router.push({path:prefix.value+'/messages',query:{view:'hub',channel:'secure',secureRecipient:'guardian',secureClientId:String(props.client.id),secureGuardianUserId:String(guardian.guardian_user_id),agencyId:String(agencyId.value)}});}
+async function messageGuardian(guardian){
+  const request=++recipientRequest,clientId=Number(props.client.id),aid=agencyId.value,uid=Number(guardian.guardian_user_id);
+  recipientBusy.value=uid;guardianActionError.value='';emit('keep-open');
+  try{
+    const {data}=await api.get(`/messages/hub/people/${encodeURIComponent(`client:${clientId}@${aid}`)}`,{params:{agencyId:aid},skipGlobalLoading:true});
+    if(request!==recipientRequest)return;
+    const person=data?.person,linked=person?.clientMessaging?.guardians?.find(g=>Number(g.userId)===uid&&!g.isSelf);
+    const method=linked?.methods?.find(m=>m.id==='secure');
+    if(Number(person?.clientId)!==clientId||Number(person?.agencyId)!==aid||!linked||linked.sharedSecureEligible===false||!method?.available)throw Error(method?.reason||'This guardian does not have an available secure messaging account. Review their portal access in the chart.');
+    emit('close');await router.push({path:prefix.value+'/messages',query:{view:'hub',channel:'secure',secureRecipient:'guardian',secureClientId:String(clientId),secureGuardianUserId:String(uid),agencyId:String(aid)}});
+  }catch(error){if(request===recipientRequest)guardianActionError.value=error.response ? 'Guardian messaging could not be checked. Try again or open relationships and access.' : error.message;}
+  finally{if(request===recipientRequest)recipientBusy.value=0;}
+}
 async function emailClient(){
   if(!record.value.email){emit('open-chart',record.value,'demographics');return;}
   emailBusy.value=true;actionError.value='';
@@ -135,12 +155,11 @@ async function emailClient(){
 }
 </script>
 <style scoped>
-.cq-backdrop{position:fixed;inset:0;background:#142e3540;z-index:21000;display:flex;justify-content:flex-end}
-.client-quick-view{font-family:var(--font-body,Arial,sans-serif);width:min(620px,100vw);height:100dvh;background:#f5f8f7;box-shadow:-12px 0 40px #142e3529;overflow:auto;color:var(--text-primary,#18372d);outline:none}
+.client-quick-view{position:fixed;top:0;right:0;z-index:21000;font-family:var(--font-body,Arial,sans-serif);width:min(620px,100vw);height:100dvh;background:#f5f8f7;box-shadow:-12px 0 40px #142e3529;overflow:auto;color:var(--text-primary,#18372d);outline:none}
 .cq-header{display:flex;align-items:center;gap:16px;padding:28px;background:linear-gradient(120deg,#eaf4ed,#fff)}
 .cq-avatar{width:58px;height:58px;border-radius:50%;background:#d6e8dc;color:#28513c;display:grid;place-items:center;font-size:22px;font-weight:700;flex-shrink:0}
-.cq-heading{flex:1;min-width:0}.cq-heading h2{font-size:24px;margin:0 0 8px;overflow-wrap:anywhere}.cq-heading p{margin:0 0 8px;color:#52665d}
-.cq-status{display:inline-block;border-radius:20px;padding:5px 10px;background:#e3eee7;font-size:13px}
+.cq-heading{flex:1;min-width:0}.cq-heading h2{font-size:24px;margin:0 0 8px;overflow-wrap:normal;word-break:normal}.cq-heading p{margin:0 0 8px;color:#52665d}
+.cq-status{display:inline-block;margin:2px 4px 2px 0;border-radius:20px;padding:5px 10px;background:#e3eee7;font-size:13px}
 .cq-close{align-self:flex-start;background:none;border:0;font-size:28px;color:#697c72;cursor:pointer}
 .cq-actions{display:flex;flex-wrap:wrap;gap:8px;padding:16px 28px;background:#fff;border-bottom:1px solid #dce6df}
 .cq-actions button{font:inherit;border:1px solid #cbdcd0;background:#fff;color:#315c42;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px}
