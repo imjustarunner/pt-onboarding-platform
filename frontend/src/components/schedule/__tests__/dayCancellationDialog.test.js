@@ -309,12 +309,14 @@ it('opens exactly one dialog from a day header without focusing the day or openi
   const dayButton = wrapper.findAll('.sched-day-cancel').find(b => b.attributes('aria-label')?.includes('Tuesday'));
   await dayButton.trigger('click'); await flushPromises();
   expect(wrapper.findAllComponents(Dialog)).toHaveLength(1);
-  expect(wrapper.findAll('dialog')).toHaveLength(1);
+  expect(wrapper.findAll('.cancel-day-dialog')).toHaveLength(1);
+  expect(wrapper.get('.borrowed-room-dialog').element.open).toBe(false);
   expect(state.focusedDays).toEqual(before);
   expect(state.showRequestModal).toBe(false);
   expect(m.post).not.toHaveBeenCalled();
   await wrapper.findComponent(Dialog).find('button[aria-label="Close"]').trigger('click'); await flushPromises();
-  expect(wrapper.findAll('dialog')).toHaveLength(0);
+  expect(wrapper.findAll('.cancel-day-dialog')).toHaveLength(0);
+  expect(wrapper.get('.borrowed-room-dialog').element.open).toBe(false);
 });
 
 
