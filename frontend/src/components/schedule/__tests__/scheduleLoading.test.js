@@ -413,11 +413,29 @@ it('preselects the next quarter hour in the agency timezone even before seven', 
   expect(state.showAllHours).toBe(true);
 });
 it('resolves a client-session deep link to the chooser when rollout is disabled', async () => {
+  const original = m.get.getMockImplementation();
+  m.get.mockImplementation((url, options) => url === '/appointments/booking-access'
+    ? Promise.resolve({ data: { enabled: false, availableBusinessTypes: [], reason: 'Clinical session booking is coming soon for this provider.' } })
+    : original(url, options));
   const state=await mount();await wrapper.setProps({agencyId:2});await flushPromises();
   await state.openSlotActionModal({dayName:'Tuesday',hour:10,dateYmd:'2026-10-13',initialRequestType:'individual_session',preserveSelectionRange:false});
   await flushPromises();expect(state.showRequestModal).toBe(true);expect(state.showActionChooser).toBe(true);expect(state.requestType).toBe('');
   state.requestType='individual_session';await state.submitRequest();
   expect(state.modalError).toContain('coming soon');expect(m.post.mock.calls.some(([url])=>url==='/appointments')).toBe(false);
+});
+
+it('shows an access-check error when rollout status could not be fetched', async () => {
+  const original = m.get.getMockImplementation();
+  m.get.mockImplementation((url, options) => url === '/appointments/booking-access'
+    ? Promise.reject({response: {status: 503}})
+    : original(url, options));
+  const state = await mount();
+  await wrapper.setProps({agencyId:2});
+  await flushPromises();
+  state.requestType = 'individual_session';
+  await state.submitRequest();
+  expect(state.modalError).toContain('Booking access could not be verified');
+  expect(m.post.mock.calls.some(([url])=>url==='/appointments')).toBe(false);
 });
 
 it('uses the chosen action agency and provider, and ignores an earlier provider’s delayed permission', async () => {
