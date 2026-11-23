@@ -381,12 +381,18 @@ export const getTreatmentPlanById = async (req, res, next) => {
     }
     if (plan.status==='draft') {
       const { clientAccess }=await import('../services/safetyPlans/access.js');
-      const client=await clientAccess(req.user,clientId);
-      if (Number(client.agency_id)!==agencyId) return res.sendStatus(403);
-      const { readChartRecord }=await import('../services/clientChartRecordRead.service.js');
-      const { getTreatmentPlanApproval }=await import('../services/treatmentPlanApproval.service.js');
-      plan.chartDraft=await readChartRecord({agencyId,clientId},`plan_edit_${planId}`,0);
-      plan.providerApproved=(await getTreatmentPlanApproval(plan)).providerApproved;
+      const editorClient=await clientAccess(req.user,clientId).catch(error=>{
+        if (error.status === 403 || error.status === 404) return null;
+        throw error;
+      });
+      // The encrypted working copy belongs to the chart's owning practice.
+      // Existing agency-level readers retain the plan snapshot they could read before.
+      if (Number(editorClient?.agency_id)===agencyId) {
+        const { readChartRecord }=await import('../services/clientChartRecordRead.service.js');
+        const { getTreatmentPlanApproval }=await import('../services/treatmentPlanApproval.service.js');
+        plan.providerApproved=(await getTreatmentPlanApproval(plan)).providerApproved;
+        plan.chartDraft=await readChartRecord({agencyId,clientId},`plan_edit_${planId}`,0);
+      }
     }
     await logNoteAidChartEvent(req, { clientId, agencyId, action: 'clinical_treatment_plan_viewed', metadata: { treatmentPlanId: plan.id } });
     return res.json({ plan });
